@@ -332,6 +332,12 @@ def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
     return importlib.import_module("ops_natural_writes").has_live(project, channel, sender)
 
 
+def event_list_picks(project: str, said: str, sender) -> bool:
+    """Whether this sender's live list of events would take the line as a pick by an ordinal word or by a value the list shows (LP-1, runtime/list_pick.py): the bridge asks it before it
+    takes a line that holds only a clock for a reminder. Read-only; not an operation of the table."""
+    return importlib.import_module("event_lookup").picks(core.context(project), said, sender, importlib.import_module("ops_natural")._clock())
+
+
 def natural_forget(project: str, sender, channel: str = "messaging") -> None:
     """Drop the sender's open question about a write (a line that answers nothing drops it). Not an operation of the table."""
     importlib.import_module("ops_natural_writes").forget(channel, sender)

@@ -422,7 +422,11 @@ def write_form(bridge, turn) -> bool:
 
 
 def reminder_form(bridge, turn) -> bool:
-    return turn.kind == "natural" and turn.intent.get("op") != "write" and bool(bridge.remind.natural(turn.project, turn.chat, turn.intent))
+    if turn.kind != "natural" or turn.intent.get("op") == "write":
+        return False
+    if turn.intent.get("op") == "remind" and turn.intent.get("how") == "bare" and bridge.list_picks(turn.project, turn.chat, turn.intent["text"]):
+        return False          # LP-1: "a das 15h" right after a list of events answers the list; it is no reminder with no words (the line goes on to `say`, where `event-list-number` takes it)
+    return bool(bridge.remind.natural(turn.project, turn.chat, turn.intent))
 
 
 def say_natural(bridge, turn) -> bool:

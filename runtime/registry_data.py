@@ -6,12 +6,15 @@
 """The data the registry owns before PLAN-BRAIN section 4 step 2 builds the registry (S41-9; contracts/runtime.md, limit L63; decisions OPEN-41-10 and OPEN-41-11).
 
 Two sets of words used to be read from the language tables of runtime/natural_lang_*.py, which S41-11 deletes. They are plain JSON files in the folder runtime/registry/ now,
-edited by hand under review like any other data, and this module is the one pure loader of them. Standard library only; it reads two files and keeps nothing else.
+edited by hand under review like any other data, and this module is the one pure loader of them; a third file (LP-1) was written as data from the start. Standard library only; it
+reads three files and keeps nothing else.
 
   private_words.json       the closed words that make a line private (a reminder asked in words, a write to the person's mail, calendar or files), per language, and the rule's
                            numbers: read by `turn_gate.private_line`, the gate's detector (limits L51, L61, L63). The file's own `rule` line states the rule.
   search_stop_words.json   the folded stop words of the search of an event by name (`stop_words`), the closed lead words and calendar words that introduce an account (`leads`,
                            `cal_words`), the plural words (`plural`), the brand words of each account (`brands`) and the calendar nouns (`nouns`): read by runtime/event_lookup.py.
+  list_pick_words.json     (LP-1) the folded words of a reply that names a row of a list by an ordinal word, the word for last, a clock, a day, a brand or sender words, per language:
+                           read by runtime/list_pick.py.
 
 Every file starts with the header {"v": 1, "made_from": "<commit>", "rule": "<one line>"}; `made_from` names the commit whose language tables the first version was written from by
 scripts/registry_build.py (a script that S41-11 deletes with the keys it reads). A word is folded: lower case, no accent, the characters a-z and 0-9 only; a list is sorted and has no
@@ -19,6 +22,8 @@ repeat (the brands, a list of phrases, keep their written order, and each is a l
 
   private_words()        the private words as written in the file (a dict, read once)
   search_stop_words()    the search words (a dict, read once): `brands` is {account: [tuple of folded words]}, the other lists are as written
+  list_pick_words()      the pick words of both languages together (a dict, read once): every list of phrases is a list of tuples of folded words, `ordinals` is {word: (position, the word
+                         shown for it)} and `weekday_ordinals` the set of ordinal words that are also a day of the week
   problems(name=None)    the list of sentences that say how a file (or both, with None) is not well formed; empty when all is well
   forget()               drop what was read (a test, and a process that wants to read an edited file)
 
@@ -33,7 +38,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FOLDER = os.path.join(HERE, "registry")
-FILES = {"private_words": "private_words.json", "search_stop_words": "search_stop_words.json"}
+FILES = {"private_words": "private_words.json", "search_stop_words": "search_stop_words.json", "list_pick_words": "list_pick_words.json"}
 VERSION = 1
 WORD = re.compile(r"[a-z0-9]+")
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
@@ -42,6 +47,8 @@ FAMILIES = ("calendar", "mail", "files")
 PRIVATE_LISTS = ("polite", "lead", "lead_write", "lead_with_time", "anywhere_with_time", "work_starters")
 SEARCH_LISTS = ("stop_words", "leads", "cal_words", "plural", "nouns")
 PRIVATE_NUMBERS = ("bare_words_max", "verb_noun_gap_max")
+PICK_PHRASES = ("after_ordinal", "articles", "clock_leads", "last", "polite", "value_leads")      # the sorted lists of phrases of one language of list_pick_words.json
+PICK_KEYS = (*PICK_PHRASES, "ordinals", "weekday_ordinals")
 NEED_KEYS = ("words", "digit", "colon", "address", "only", "tail_after", "tail_skip", "tail_max")
 
 _CACHE: dict = {}
@@ -72,6 +79,24 @@ def search_stop_words() -> dict:
         data["brands"] = {account: [tuple(words) for words in brands] for account, brands in data["brands"].items()}
         _CACHE["search_stop_words"] = data
     return _CACHE["search_stop_words"]
+
+
+def list_pick_words() -> dict:
+    """The pick words of runtime/registry/list_pick_words.json, both languages together (a line may be written in either): {"after_ordinal", "articles", "clock_leads", "last", "polite",
+    "value_leads": [tuple of folded words], "ordinals": {word: (position from 1, the word a sentence shows for it)}, "weekday_ordinals": {word}}."""
+    if "list_pick_words" not in _CACHE:
+        data = _read("list_pick_words")["languages"]
+        out = {key: [] for key in PICK_PHRASES}
+        out["ordinals"], out["weekday_ordinals"] = {}, set()
+        for tag in LANGUAGES:
+            for key in PICK_PHRASES:
+                out[key] += [tuple(phrase.split()) for phrase in data[tag][key] if tuple(phrase.split()) not in out[key]]
+            for position, forms in enumerate(data[tag]["ordinals"], 1):
+                for word in forms:
+                    out["ordinals"][word] = (position, forms[0])
+            out["weekday_ordinals"] |= set(data[tag]["weekday_ordinals"])
+        _CACHE["list_pick_words"] = out
+    return _CACHE["list_pick_words"]
 
 
 def _header(data, name: str) -> list:
@@ -184,9 +209,47 @@ def _search_problems(data) -> list:
     return out
 
 
+def _pick_problems(data) -> list:
+    name = "list_pick_words"
+    out = _header(data, name)
+    if out and not isinstance(data, dict):
+        return out
+    if set(data) != {"v", "made_from", "rule", "languages"}:
+        return out + [f"{name}: the keys are not v, made_from, rule and languages"]
+    languages = data["languages"]
+    if not isinstance(languages, dict) or set(languages) != set(LANGUAGES):
+        return out + [f"{name}: languages is not exactly {list(LANGUAGES)}"]
+    for tag in LANGUAGES:
+        body = languages[tag]
+        where = f"{name}.{tag}"
+        if not isinstance(body, dict) or set(body) != set(PICK_KEYS):
+            out.append(f"{where}: the keys are not {sorted(PICK_KEYS)}")
+            continue
+        for key in PICK_PHRASES:
+            out += _words(body[key], f"{where}.{key}", PHRASE)
+            if body[key] == []:
+                out.append(f"{where}.{key}: empty (a list that holds nothing can never read a reply)")
+        forms = body["ordinals"]
+        if not isinstance(forms, list) or not forms or not all(isinstance(f, list) and f and all(isinstance(w, str) and WORD.fullmatch(w) for w in f) for f in forms):
+            out.append(f"{where}.ordinals: not a list, in the order of the positions, of lists of folded words")
+            continue
+        words = [w for f in forms for w in f]
+        if len(set(words)) != len(words):
+            out.append(f"{where}.ordinals: a repeated word")
+        out += _words(body["weekday_ordinals"], f"{where}.weekday_ordinals")
+        if isinstance(body["weekday_ordinals"], list):
+            out += [f"{where}.weekday_ordinals: {w!r} is not an ordinal word" for w in body["weekday_ordinals"] if w not in words]
+        if isinstance(body["last"], list):
+            out += [f"{where}: {w!r} is both an ordinal and a word for last" for w in body["last"] if w in words]
+        for key in ("articles", "clock_leads", "value_leads"):
+            if isinstance(body[key], list):
+                out += [f"{where}.{key}: {w!r} is also an ordinal word" for w in body[key] if w in words]
+    return out
+
+
 def problems(name=None) -> list:
-    """The sentences that say how a registry file (`name`, or both with None) is not well formed: its header, its version, a list that is not folded, sorted and without repeat."""
-    checks = {"private_words": _private_problems, "search_stop_words": _search_problems}
+    """The sentences that say how a registry file (`name`, or all with None) is not well formed: its header, its version, a list that is not folded, sorted and without repeat."""
+    checks = {"private_words": _private_problems, "search_stop_words": _search_problems, "list_pick_words": _pick_problems}
     out = []
     for key in ([name] if name else list(checks)):
         try:

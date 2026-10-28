@@ -11,7 +11,8 @@ family path (`ops_natural_writes.open_line` with a seed of the source and the nu
 here but the operation and the two spans the check already verified against the line; the event is found from the PERSON'S OWN line.
 
   open_event(project, ctx, decision, said, sender, extras, writes, now)   the reply: a card notice, a numbered list of the events that fit, or one plain sentence
-  take(project, ctx, said, sender, extras, writes, now)   a number after a list (below): the reply, or None when the line is not one
+  take(project, ctx, said, sender, extras, writes, now)   a number after a list, or a row named by an ordinal word or a value the list shows (below): the reply, or None when the line is not one
+  picks(ctx, said, sender, now)   whether `take` would answer the line as a pick of the sender's live list (read-only; the bridge asks it before a clock-only line becomes a reminder)
   account_named(said, title, hint)   "google" | "microsoft" | None: the account a line names
   verb_op(said)   "event-cancel" | "event-change" | None: the operation a line's leading verb names (a model that asked only for "the event" gets it from here)
 
@@ -35,6 +36,15 @@ same family path and card, never approved here). `take` is called by the interpr
 channel, sender): the time, the operation the list asked about, the new time a change list was asked with, and (source, number, read_at) for each entry shown; no line, title or text. Before a
 number is carried out the newest snapshot of that source is read again and its `read_at` must be the recorded one: a refreshed snapshot, or a number that two sources listed, is asked again
 (EV_LIST_AGAIN) and never guessed; a number the list did not show is no form of this list and the line goes on as before; a sender with no live list is not touched.
+
+A row named without its number (LP-1, scenario 38; runtime/list_pick.py). The same replies may also name a row by an ordinal word or by a value the list shows: "a última", "o primeiro", "a das 15h",
+"a do dia 23", "the last one". When the line is no number form, `list_pick.read` turns the WHOLE line into one closed form (or None: a clock with no lead such as "15h", a title word, a plural and
+a longer request are no pick and go on as before) and `list_pick.choose` decides which row it names, against the rows exactly as the list printed them: the record keeps, for each row, the values
+the list printed (its day, its start, the account of its calendar and its position: clocks, days, accounts and positions only, never a title or a line) and whether the list held more rows than it
+printed. One row: it goes on exactly as that row's number does (`_fresh`, the events the platform created, the start a change list recorded, the card path, the origin `listed`). Several rows, none,
+or a reading that is not safe (a number the list printed that is also the position, a last of a list that held more, a pt-BR weekday that is also an ordinal): the sentence `LP_*` and the list is kept,
+as `EV_LIST_WHAT` keeps it, so the next reply may name the number. `picks` answers the bridge, read-only and before the line is stored, whether this line will be taken so (a short line that holds a
+clock is otherwise a reminder with no words, runtime/messaging_turn.py `reminder_form`).
 
 The account a line names (slice S11). "no outlook", "na agenda do outlook", "on google calendar", "in my gmail": a closed list of brand words (the language tables' `brands_google` and `brands_microsoft`) that counts as an account word only
 beside a word that introduces it or a calendar word (LEADS, CAL_WORDS), outside the title the model read, so "lunch with Google" names none; the model's own `service` word counts only
@@ -64,6 +74,7 @@ import threading
 import event_created
 import item_refs
 import line_stage
+import list_pick
 import natural
 import natural_time as nt
 import natural_writes as nw
@@ -242,7 +253,7 @@ def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict)
 
 # --- a number after a list ----------------------------------------------------------------------------------------------------------------------
 
-_LISTS = {}          # (project key, channel, sender) -> {"at", "op", "start", "items": [(source, n, read_at)]}: in memory only, no line and no title
+_LISTS = {}          # (project key, channel, sender) -> {"at", "op", "start", "items": [(source, n, read_at)], "shown": [{"day", "start", "account", "position"}], "more"}: in memory only, no line and no title
 _lock = threading.Lock()
 
 
@@ -268,13 +279,17 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, op, start, items: list) -> None:
+def _remember(ctx: dict, channel, sender, op, start, items: list, shown=None, more: bool = False) -> None:
+    """Keep what the sender may point to next. `shown` (LP-1) is, for each item in the same order, the values the list printed for it ({"day": ISO date | None, "start": "HH:MM" | None,
+    "account": "google" | "microsoft" | None, "position": 1.. | None}): clocks, days, accounts and positions only, never a title, a line or a word of the person's; `more` says the list printed
+    fewer rows than it holds."""
     now = _natural()._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
         if items:
-            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "start_source": None, "items": list(items), "seen": 0, "pending": _last_pending(ctx)}
+            _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "start_source": None, "items": list(items), "shown": list(shown or []), "more": bool(more), "seen": 0,
+                                                   "pending": _last_pending(ctx)}
         else:
             _LISTS.pop(_slot(ctx, channel, sender), None)
 
@@ -285,10 +300,27 @@ def _start_on(start: str, day) -> str:
     return f"{day.isoformat()}T{start[1:]}" if start.startswith("@") else start
 
 
-def remember_list(ctx: dict, sender, op: str, found: list, start) -> None:
+def _start_shown(when) -> object:
+    """The start a list printed for an event ("13:00-14:00", "13:00"), as "HH:MM"; None for "all day" and anything else."""
+    found = re.match(r"([0-2][0-9]:[0-5][0-9])(?:-[0-2][0-9]:[0-5][0-9])?$", when) if isinstance(when, str) else None
+    return found.group(1) if found else None
+
+
+def _shown_values(day, when, account, position) -> dict:
+    """The values one printed row holds for a pick (LP-1): its day (ISO), its start, the account of its calendar and its place in the list. Nothing of the row's text."""
+    return {"day": day.isoformat() if isinstance(day, datetime.date) else day if isinstance(day, str) else None, "start": _start_shown(when), "account": account, "position": position}
+
+
+def remember_list(ctx: dict, sender, op: str, found: list, start, more: bool = False) -> None:
     """The list of events `_list` shows: what the sender may now point to by number (`start` is the new time a change was asked with, "@HH:MM" when it is a clock with no day,
-    or None)."""
-    _remember(ctx, CHANNEL, sender, op, start, [(r["source"], r["n"], r["read_at"]) for r in found[:LIST_MAX]])
+    or None) and, for a pick by an ordinal or by a value (runtime/list_pick.py), the values each printed row holds. `more`: the list also said how many more events fit."""
+    try:
+        accounts = {s["id"]: s.get("account") for s in importlib.import_module("ops_natural_calendar").calendar_sources(ctx)}
+    except Exception:      # noqa: BLE001 - the account of a row is only for a pick by brand; a list that was made is never lost for it
+        accounts = {}
+    shown = found[:LIST_MAX]
+    _remember(ctx, CHANNEL, sender, op, start, [(r["source"], r["n"], r["read_at"]) for r in shown],
+              [_shown_values(r["day"], r["time"], r.get("account") or accounts.get(r["source"]), place) for place, r in enumerate(shown, 1)], more or len(found) > LIST_MAX)
 
 
 def note_start_source(ctx: dict, sender, source) -> None:
@@ -309,7 +341,11 @@ def remember_items(ctx: dict, channel, sender, out: dict) -> None:
     if channel != CHANNEL:
         return
     shown = [(e["source"], i["n"], e["read_at"]) for e in out.get("sources") or [] if e.get("type") == "calendar" for i in e["items"][:ITEMS_SHOWN]]
-    _remember(ctx, channel, sender, None, None, shown)
+    listing = [e for e in out.get("sources") or [] if e.get("items")]
+    one = len(listing) == 1 and listing[0].get("type") == "calendar"          # a position means something only when the list is one run of numbered rows: one section, no mail beside it
+    values = [_shown_values(i.get("day"), str(i.get("line") or "").split(" · ")[0], e.get("account"), place if one else None)
+              for e in out.get("sources") or [] if e.get("type") == "calendar" for place, i in enumerate(e["items"][:ITEMS_SHOWN], 1)]
+    _remember(ctx, channel, sender, None, None, shown, values, any(len(e["items"]) > ITEMS_SHOWN for e in listing))
 
 
 def begin_turn(ctx: dict, channel, sender) -> None:
@@ -378,7 +414,7 @@ def take(project: str, ctx: dict, said: str, sender, extras: dict, writes, now):
     record = _live(ctx, sender, now)
     if record is None:
         return None
-    reply, keep = _taken(project, ctx, said, sender, extras, writes, record)
+    reply, keep = _taken(project, ctx, said, sender, extras, writes, record, now)
     if keep:          # a question about the list's entry (what to do with it): the list is still the last thing said
         with _lock:
             record["seen"], record["at"] = 0, now
@@ -387,14 +423,106 @@ def take(project: str, ctx: dict, said: str, sender, extras: dict, writes, now):
     return reply
 
 
-def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, record: dict) -> tuple:
-    """(reply or None, keep the list): the list is kept only by a reply that asks what to do with an entry."""
-    form = _number_form(said)
-    if form is None or not item_refs.may_read(ctx, CHANNEL, sender):
+def _numbers_text(ctx: dict, numbers: list) -> str:
+    """The numbers a list printed, as a sentence says them: "2", "2 e 4", "1, 2 e 4"."""
+    shown = [str(n) for n in numbers]
+    return shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " " + _text(ctx, "LP_AND") + " " + shown[-1]
+
+
+def _value_text(ctx: dict, value) -> str:
+    """What a pick named, in the words code renders it with (a clock, a day, a weekday, an account, a position); never a title, never an address."""
+    kind, what = value
+    if kind == "clock":
+        return _text(ctx, "LP_VALUE_CLOCK", time=what)
+    if kind == "day":
+        return _text(ctx, "LP_VALUE_DAY", weekday=_text(ctx, phrases.WEEKDAY_KEYS[what.weekday()]), date=what.strftime("%d/%m"))
+    if kind == "weekday":
+        return _text(ctx, "LP_VALUE_WEEKDAY", weekday=_text(ctx, phrases.WEEKDAY_KEYS[what]))
+    if kind == "account":
+        return _text(ctx, "LP_VALUE_ACCOUNT", service=SERVICE_NAME[what])
+    return _text(ctx, "LP_VALUE_ORDINAL", p=what)
+
+
+def _pick_day(text: str, now):
+    """`_day_named` for the words of a pick, with one change: a weekday written alone ("sexta", "friday") is ("weekday", 0-6), not the date of its next occurrence, because a list names any row
+    of that weekday. A date word the engine doubts or cannot read is ("unread", None); no exception leaves (a day the engine cannot read is no day: the pick is not made)."""
+    try:
+        kind, value = _day_named(text, now)
+        if kind == "day":
+            named = [h for h in nt.find(text)["hits"] if h["kind"] in DAY_HITS]
+            spec = named[0].get("spec") if len(named) == 1 and named[0]["kind"] == "date" else None
+            index = spec.get("i") if isinstance(spec, dict) and spec.get("k") == "wd" else None
+            if isinstance(index, int) and not isinstance(index, bool) and 0 <= index <= 6:
+                return "weekday", index
+        return kind, value
+    except Exception:      # noqa: BLE001
+        return "unread", None
+
+
+def _pick(ctx: dict, record: dict, form: dict, now) -> tuple:
+    """The verdict of `list_pick.choose` for a reply that names a row of the live list without its number: the rows are the ones the list printed (`shown`), in the order printed."""
+    shown = record.get("shown") or []
+    if len(shown) != len(record["items"]):
+        return list_pick.SKIP
+    rows = [dict(values, n=item[1]) for item, values in zip(record["items"], shown)]
+    when = now or _natural()._clock()
+    return list_pick.choose(form, rows, lambda text: _pick_day(text, when), bool(record.get("more")))
+
+
+def _pick_reply(ctx: dict, record: dict, verdict: tuple) -> str:
+    """The sentence of a verdict that opens nothing (the list is kept): several rows fit, none does, or the reading is not safe."""
+    kind, payload, detail = verdict
+    numbers = [item[1] for item in record["items"]]
+    if kind == "several":
+        return _text(ctx, "LP_SEVERAL", value=_value_text(ctx, detail), rows=_numbers_text(ctx, [numbers[i] for i in payload]))
+    if kind == "none":
+        return _text(ctx, "LP_NONE", value=_value_text(ctx, detail))
+    if payload == "ordinal-clash":
+        return _text(ctx, "LP_ORDINAL_CLASH", n=detail["n"], position=_value_text(ctx, ("ordinal", detail["position"])), m=detail["m"])
+    if payload == "day-or-position":
+        return _text(ctx, "LP_DAY_OR_POSITION", a=_numbers_text(ctx, detail["a"]), position=_value_text(ctx, ("ordinal", detail["position"])), b=_numbers_text(ctx, detail["b"]))
+    return _text(ctx, "LP_LAST_NOT_SHOWN")
+
+
+def picks(ctx: dict, said: str, sender, now) -> bool:
+    """Whether `take` would answer `said` as a pick of the sender's live list (LP-1), asked BEFORE the line is stored or read: read-only, it drops nothing and counts nothing. The messaging
+    bridge asks it before it takes a short line that holds a clock ("a das 15h") for a reminder that has no words, because the list was the last thing said and the line answers it. The list
+    must be live as `_live` reads it for the line about to arrive (no line has reached `say` since; `begin_turn` has not yet counted this one), the line must be a closed pick and no number
+    form, the sender must be allowed to read a snapshot, and the verdict must not be "skip"."""
+    with _lock:
+        record = _LISTS.get(_slot(ctx, CHANNEL, sender))
+    if record is None or (now - record["at"]).total_seconds() > LIST_WINDOW_S or record["seen"] > 0 or _last_pending(ctx) > record["pending"]:
+        return False
+    if _number_form(said) is not None:
+        return False
+    form = list_pick.read(said)
+    return form is not None and item_refs.may_read(ctx, CHANNEL, sender) and _pick(ctx, record, form, now)[0] != "skip"
+
+
+def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, record: dict, now=None) -> tuple:
+    """(reply or None, keep the list): the list is kept only by a reply that asks what to do with an entry, or that asks for the number (a pick that names none, several or an unsafe reading).
+    A line that is no number form may be a pick (runtime/list_pick.py): the row it names is one of the rows the list printed, and from there it goes exactly as that row's number goes."""
+    form, pick = _number_form(said), None
+    if form is None:
+        pick = list_pick.read(said)
+        if pick is None:
+            return None, False
+    if not item_refs.may_read(ctx, CHANNEL, sender):
         return None, False
-    matches = [(source, read_at) for source, n, read_at in record["items"] if n == form["n"]]
-    if not matches:
-        return None, False
+    if pick is not None:
+        verdict = _pick(ctx, record, pick, now)
+        if verdict[0] == "skip":
+            return None, False
+        extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
+        if verdict[0] != "one":
+            return _pick_reply(ctx, record, verdict), True
+        source, n, read_at = record["items"][verdict[1]]
+        form = {"n": n, "verb": pick["verb"], "canonical": f"{pick['head']} {n}" if pick["verb"] else None}
+        matches = [(source, read_at)]
+    else:
+        matches = [(source, read_at) for source, n, read_at in record["items"] if n == form["n"]]
+        if not matches:
+            return None, False
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
     if len(matches) > 1:
         return _text(ctx, "EV_LIST_AGAIN"), False

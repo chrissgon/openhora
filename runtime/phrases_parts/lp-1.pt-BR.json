@@ -1,0 +1,17 @@
+{
+  "package": "lp-1",
+  "table": {
+    "LP_AND": "e",
+    "LP_DAY_OR_POSITION": "Isso pode ser o dia ({a}) ou {position} da lista ({b}). Diga o número.",
+    "LP_LAST_NOT_SHOWN": "A lista tem mais itens do que mostrei; diga o número.",
+    "LP_NONE": "Nenhum da lista é {value}. Diga o número.",
+    "LP_ORDINAL_CLASH": "Você quer o evento {n} ou {position} da lista (evento {m})? Diga o número.",
+    "LP_SEVERAL": "Mais de um da lista é {value}: {rows}. Diga o número.",
+    "LP_VALUE_ACCOUNT": "do {service}",
+    "LP_VALUE_CLOCK": "às {time}",
+    "LP_VALUE_DAY": "na {weekday} {date}",
+    "LP_VALUE_ORDINAL": "o da posição {p}",
+    "LP_VALUE_WEEKDAY": "na {weekday}"
+  },
+  "same_as_english": []
+}
