@@ -188,5 +188,33 @@ def test_vacuity_a_lenient_check_that_compares_byte_for_byte_would_fail_a_packag
     assert snap.problems("lenient", tmp_path, planted) != []
 
 
-def test_the_real_table_is_lenient_clean_and_strict_clean_on_this_tree():
-    assert snap.problems("lenient") == [] and snap.problems("strict") == []
+def test_the_real_table_is_clean_in_the_mode_of_the_run():
+    """The real table against the real files, in the mode of WB_GENERATED_BLOCKS: strict only on a batch, a pull request into main, a push and the nightly run; lenient
+    otherwise, so a package that adds or rewords a key leaves the snapshot to the batch (the lenient check is clean on any table whose keys are all renderable)."""
+    mode = os.environ.get("WB_GENERATED_BLOCKS", "lenient")
+    assert snap.problems(mode) == [], mode
+
+
+def test_the_strict_comparison_is_clean_on_a_fresh_planted_tree_and_names_a_stale_one(tmp_path):
+    snap.write(tmp_path, SMALL)
+    assert snap.problems("strict", tmp_path, SMALL) == [] and snap.problems("lenient", tmp_path, SMALL) == []
+    stale = copy.deepcopy(SMALL)
+    stale["pt-BR"]["BYE"] = "Ate logo."
+    stale["en"]["NEW"] = "New."
+    stale["pt-BR"]["NEW"] = "Novo."
+    found = "\n".join(snap.problems("strict", tmp_path, stale))
+    assert "+BYE: Ate logo." in found and "-BYE: Tchau." in found and "+NEW: New." in found
+    assert snap.problems("lenient", tmp_path, stale) == []
+
+
+def test_vacuity_a_strict_check_that_does_not_compare_would_pass_the_stale_planted_tree(tmp_path, monkeypatch):
+    snap.write(tmp_path, SMALL)
+    stale = copy.deepcopy(SMALL)
+    stale["en"]["BYE"] = "See you."
+    assert snap.problems("strict", tmp_path, stale) != []
+    monkeypatch.setattr(snap, "differences", lambda *args, **kwargs: [])
+    assert snap.problems("strict", tmp_path, stale) == []
+
+
+def test_the_real_table_is_lenient_clean_whatever_the_snapshot_says_about_wording():
+    assert snap.problems("lenient") == []
