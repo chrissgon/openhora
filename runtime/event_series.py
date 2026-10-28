@@ -74,6 +74,19 @@ def specific_day(said: str) -> bool:
     return False
 
 
+def bare_weekday(text):
+    """The weekday number (0 = Monday) of a text that names a weekday and no date, and does not say "next" ("segunda", "de segunda", "dessa segunda", "this Monday"), else None. A bare weekday is
+    the first such day from TODAY on: today when today is that day (the one occurrence of today may not have started yet)."""
+    hits = [h for h in nt.find(text)["hits"] if h["kind"] in ("date", "slash")]
+    if _lookup().SLASH.search(text) or len(hits) != 1 or hits[0]["kind"] != "date":
+        return None
+    spec = hits[0].get("spec") if isinstance(hits[0].get("spec"), dict) else {}
+    index = spec.get("i")
+    if spec.get("k") != "wd" or spec.get("next") or not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 6:
+        return None
+    return index
+
+
 def _day_text(day: datetime.date) -> str:
     return f"{WEEKDAY_WORDS[day.weekday()]} {day.strftime('%d/%m')}"
 
@@ -128,13 +141,19 @@ def _instances(reader, account: str, calendar_id: str, series: str, days: list) 
     return sorted(out, key=lambda i: (i["day"], i["start"]))
 
 
-def _days_asked(said: str, spans: dict, kind: str, value, now) -> list:
-    """The local days the person's words name for ONE occurrence, as the time engine reads them (never the model's time): "this week" is a range of seven days from today; a date is that
-    day; a weekday with "next" or "this" is the first such day after today; the span the model named for the day is read first, then what the lookup already read, then the whole line. []
-    when no day can be read (a question, never a guess)."""
+def _days_asked(said: str, spans: dict, kind: str, value, now) -> tuple:
+    """(the local days the person's words name for ONE occurrence, whether they are a bare weekday that is today). The days are read as the time engine reads them (never the model's time):
+    "this week" is a range of seven days from today; a bare weekday ("segunda", "dessa segunda") is that day counting from today, today included; a date is that day; a weekday with "next"
+    is the first such day after today; the span the model named for the day is read first, then what the lookup already read, then the whole line. ([], False) when no day can be read (a
+    question, never a guess). `said` is the line without the event's name."""
     today = now.date()
     if recurrence.week_range(said):
-        return [today + datetime.timedelta(days=i) for i in range(WEEK_DAYS)]
+        return [today + datetime.timedelta(days=i) for i in range(WEEK_DAYS)], False
+    for text in (spans.get("day"), said):
+        index = bare_weekday(text) if isinstance(text, str) and text else None
+        if index is not None:
+            ahead = (index - today.weekday()) % 7
+            return [today + datetime.timedelta(days=ahead)], ahead == 0
     lookup = _lookup()
     readings = []
     if spans.get("day"):
@@ -142,12 +161,12 @@ def _days_asked(said: str, spans: dict, kind: str, value, now) -> list:
     readings += [(kind, value), lookup._day_named(said, now)]
     for found, got in readings:
         if found == "day":
-            return [got]
+            return [got], False
         if found == "weekday":
-            return [today + datetime.timedelta(days=(got - today.weekday()) % 7 or 7)]
+            return [today + datetime.timedelta(days=(got - today.weekday()) % 7 or 7)], False
         if found == "unread":
-            return []
-    return []
+            return [], False
+    return [], False
 
 
 def _open(project: str, ctx: dict, said: str, sender, extras: dict, writes, row: dict, account, extra: dict, lead_key, lead_fields) -> str:
@@ -186,12 +205,13 @@ def reply(project: str, ctx: dict, op: str, found: list, kind: str, value, spans
         return _text(ctx, "RECUR_CANCEL_NOT_SIMPLE")
     title, clock = first_row["title"], str(first_row["time"])[:5]
     shown = _day_text(first_row["day"])
-    choice = recurrence.which(said, specific_day(said))
+    rest = recurrence.without(said, spans.get("target"), title)      # the event's own name is not the person's words for the series or the occurrence ("cancela a daily")
+    choice = recurrence.which(rest, specific_day(rest))
     if choice == "ask":
         return _text(ctx, "RECUR_WHICH", title=title, rule=_rule_text(ctx, rule, clock), example=shown)
     if choice == "series":
         return _open(project, ctx, said, sender, extras, writes, first_row, account, {"series": True}, "RECUR_FOUND_SERIES", {"title": title, "rule": _rule_text(ctx, rule, clock)})
-    days = _days_asked(said, spans, kind, value, now)
+    days, bare_today = _days_asked(rest, spans, kind, value, now)
     if not days:
         return _text(ctx, "RECUR_ASK_DATE", title=title, example=shown)
     today = now.date()
@@ -206,6 +226,8 @@ def reply(project: str, ctx: dict, op: str, found: list, kind: str, value, spans
     if not listed:
         return _text(ctx, "RECUR_NO_OCCURRENCE", title=title, day=span)
     later = [i for i in listed if _document().parse_instant(i["start"]) > now.astimezone()]      # an instance that has started is no choice: it is not cancelled
+    if not later and bare_today:
+        return _text(ctx, "RECUR_ASK_DATE", title=title, example=shown)      # "segunda" on a Monday whose instance has started: today's is past and next Monday is not what was said
     if not later:
         return _text(ctx, "RECUR_OCCURRENCE_PAST", title=title)
     if len(later) > 1:

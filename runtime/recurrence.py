@@ -42,6 +42,12 @@ import registry_data  # noqa: E402
 WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")      # datetime.weekday() order, Monday first
 NOT_FOLDED = re.compile(r"[^a-z0-9]+")
 WORD = re.compile(r"\w+")
+END_DATE_WORDS = ("ate", "until", "through")      # these end a repetition only when a date follows: "until 8am" is the end of the event, not of the series
+FILLER = ("a", "as", "ao", "at", "o", "the", "to")      # words that stand between "ate" and what it names ("ate as 8h")
+CLOCK = re.compile(r"\d{1,2}(?:h|hs|hr|hrs|am|pm|h\d{2})")
+CLOCK_WORDS = ("h", "hs", "hr", "hrs", "hora", "horas", "hour", "hours", "am", "pm")
+PER = ("por", "a", "per")
+PER_UNITS = ("semana", "mes", "dia", "week", "month", "day")
 NUMBER_LEAD = ("every", "each", "cada")      # "every 2 days", "cada 2 semanas": a lead followed by a digit is a repetition that is not daily or weekly
 _CACHE: dict = {}
 
@@ -103,11 +109,37 @@ def _digit_after_lead(tokens: list) -> bool:
     return any(i + 1 < len(tokens) and tokens[i] in NUMBER_LEAD and tokens[i + 1].isdigit() for i in range(len(tokens)))
 
 
+def _times_per(tokens: list) -> bool:
+    """"3x por semana", "3 x por semana", "2 vezes por semana", "twice a week" as a count: a number of times a week, a month or a day."""
+    for i, token in enumerate(tokens):
+        if re.fullmatch(r"\d+x", token) or (token.isdigit() and i + 1 < len(tokens) and tokens[i + 1] in ("x", "vezes", "vez", "times", "time")):
+            rest = tokens[i + 1:]
+            rest = rest[1:] if rest and rest[0] in ("x", "vezes", "vez", "times", "time") else rest
+            if len(rest) >= 2 and rest[0] in PER and rest[1] in PER_UNITS:
+                return True
+    return False
+
+
+def _ends(tokens: list) -> bool:
+    """Whether the words say the repetition ends ("ate dezembro", "until June", "3 vezes"). "ate" and "until" end it only before a date, never before a clock: "toda segunda das 7h ate as 8h"
+    is a series whose event ends at 8."""
+    data = _data()
+    for start, end in _found(tokens, data["end"]):
+        word = tokens[start]
+        if word not in END_DATE_WORDS:
+            return True
+        rest = [t for t in tokens[end:end + 4] if t not in FILLER]
+        if rest and (CLOCK.fullmatch(rest[0]) or (rest[0].isdigit() and len(rest) > 1 and rest[1] in CLOCK_WORDS)):
+            continue
+        return True
+    return False
+
+
 def mentions(text) -> bool:
     """Whether the line holds any repetition phrase (see the module's text), or the time engine says it repeats."""
     tokens = _tokens(text)
     data = _data()
-    if any(_found(tokens, data[key]) for key in ("daily", "weekly_plain", "unsupported")) or _digit_after_lead(tokens):
+    if any(_found(tokens, data[key]) for key in ("daily", "weekly_plain", "unsupported")) or _digit_after_lead(tokens) or _times_per(tokens):
         return True
     for begin, _end, _code, plural in _weekdays(tokens):
         if plural or _led(tokens, begin, data["weekly_lead"]):
@@ -124,7 +156,7 @@ def read(text, start_weekday):
     data = _data()
     if not tokens or not isinstance(start_weekday, int) or isinstance(start_weekday, bool) or not 0 <= start_weekday <= 6:
         return None
-    if _found(tokens, data["unsupported"]) or _found(tokens, data["end"]) or _digit_after_lead(tokens) or _by_count(tokens):
+    if _found(tokens, data["unsupported"]) or _ends(tokens) or _digit_after_lead(tokens) or _by_count(tokens) or _times_per(tokens):
         return None
     days = _weekdays(tokens)
     daily = _found(tokens, data["daily"])
@@ -155,6 +187,15 @@ def words(text) -> dict:
     tokens = _tokens(text)
     data = _data()
     return {"series": bool(_found(tokens, data["series"])) or mentions(text), "occurrence": bool(_found(tokens, data["occurrence"]))}
+
+
+def without(text, *pieces) -> str:
+    """The text with every word that stands in one of `pieces` (the event's name as the line wrote it, its title) taken out, so that a series called "Daily" or "Curso todos os santos" is
+    not read as the person's words for the whole series. The other words stay as written, single-spaced."""
+    if not isinstance(text, str):
+        return ""
+    gone = {word for piece in pieces if isinstance(piece, str) for word in _tokens(piece)}
+    return " ".join(text[s:e] for word, s, e in _spans(text) if word not in gone)
 
 
 def which(text, specific_day) -> str:

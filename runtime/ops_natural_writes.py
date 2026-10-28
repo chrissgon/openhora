@@ -52,6 +52,7 @@ import ops_natural
 import phone_refusal
 import phrases
 import project_config
+import recurrence
 import source_names
 import turn_gate
 
@@ -204,7 +205,7 @@ def new_state(ctx: dict, reading: dict, said_line: str) -> dict:
             "origins": dict(reading.get("origins") or {}),
             "need": None, "slot": None, "options": [], "multi": False, "said": [said_line], "retries": 0, "doubt": bool(reading.get("doubt")),
             "end_clock": reading.get("end_clock"), "all_day": bool(reading.get("all_day")), "end_ok": reading.get("end_ok", True),
-            "recurring": bool(reading.get("recurring"))}
+            "recurring": bool(reading.get("recurring")), "seeded": bool(reading.get("seeded"))}
 
 
 def _now():
@@ -310,6 +311,10 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         drafts.drop(*slot)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return _t(ctx, "NW_RECURRING_EVENT")
+    if state["op"] == "event-create" and not state.get("seeded") and any(recurrence.mentions(line) for line in state["said"]):      # CB-7: the closed forms read "marca academia semanal amanha as 7h" as one event; a repetition phrase that no seed carried (the interpreter's `_repeat` seeds the only one code reads) opens no event card
+        drafts.drop(*slot)
+        extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+        return _t(ctx, "RECUR_NOT_READ")
     if not state.get("end_ok", True) and "end" not in state["slots"]:
         spec = ask_spec("end", "NW_ASK_END")
         return _ask(ctx, state, spec, channel, sender, extras)
@@ -425,7 +430,7 @@ def _read(ctx: dict, said: str, seed, hint):
                 slots["account"] = seed["account"]
             if seed.get("repeat"):          # CB-7: the repetition code read from the closed words of the line (runtime/recurrence.py); declared with its origin like the other parts
                 slots["repeat"] = seed["repeat"]
-            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": _origins_of(seed, slots)}
+            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": _origins_of(seed, slots), "seeded": True}
         if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") in ("target", "numbers"):          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`) or by the numbers the model gave (`mail_number_seed`, BL7-5): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms

@@ -253,15 +253,24 @@ def _read_event(reader, account: str, calendar_id: str, event_id: str) -> dict:
     return raw
 
 
+def _starts_on(start, day) -> bool:
+    """Whether the instant `start` (as the writer printed it) falls on the local day `day`; False for anything that is not an instant."""
+    try:
+        return calendar_document.parse_instant(start).astimezone().date() == day
+    except Exception:      # noqa: BLE001 - an EffectError of the document: not an instant, not that day
+        return False
+
+
 def _occurrence(ctx: steps.Context, reader, account: str, calendar_id: str, master_id: str, day: str) -> dict:
     """The one instance of the series that is on the local day `day` (YYYY-MM-DD, read by code from the person's words), from the provider's own list of the series' instances: none, more
     than one and one that has started are each a refusal. The day is the only thing that came from a line; the instance, its id and its start come from the provider."""
-    first, last = calendar_document.day_window(calendar_document.parse_when(day, "the day of the occurrence")[0])
+    asked = calendar_document.parse_when(day, "the day of the occurrence")[0]
+    first, last = calendar_document.day_window(asked)
     found = _asked(reader.event_instances, account, calendar_id, master_id, first, last, field="occurrence")
     listed = found.get("instances") if isinstance(found, dict) else None
     if not isinstance(listed, list):
         raise steps.StepFailure("provider_failed", "occurrence", "writer", "the calendar's answer about the series is not one this code understands")
-    live = [i for i in listed if isinstance(i, dict) and i.get("status") != "cancelled"]
+    live = [i for i in listed if isinstance(i, dict) and i.get("status") != "cancelled" and _starts_on(i.get("start"), asked)]      # a window holds what overlaps it (Google's timeMin filters on the END): the day an instance STARTS on is the day asked
     if not live:
         raise steps.StepFailure("no_occurrence", "occurrence", "", "the series has no occurrence on that day")
     if len(live) > 1:

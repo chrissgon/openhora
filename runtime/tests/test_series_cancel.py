@@ -72,25 +72,27 @@ def configure(world, language="pt-BR"):
     ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])
 
 
-def clock_and_snapshots(world, monkeypatch):
-    clock = Clock(monkeypatch, wall="2026-11-03 10:00")
+def clock_and_snapshots(world, monkeypatch, wall="2026-11-03 10:00"):
+    """The clock of the world, by default Tuesday 2026-11-03 10:00 at -03:00; `wall` moves it (the snapshots and the step's preparation read the same moment)."""
+    clock = Clock(monkeypatch, wall=wall)
     snaps = Snapshots(world, monkeypatch)
-    snaps.now = datetime.datetime(2026, 11, 3, 13, 0, tzinfo=UTC)
+    moment = datetime.datetime.strptime(wall, "%Y-%m-%d %H:%M").replace(tzinfo=UTC) + datetime.timedelta(hours=3)
+    snaps.now = moment
     monkeypatch.setattr(ops_items, "SNAPSHOT_CLOCK", lambda: snaps.now)
     monkeypatch.setattr(ops_interpret, "_zone", lambda now: ZONE)
-    monkeypatch.setattr(ops_steps, "_now", lambda: "2026-11-03T13:00:00+00:00")      # the clock of a step's preparation (it reads an instance's start against it): the same moment
+    monkeypatch.setattr(ops_steps, "_now", lambda: moment.isoformat())      # the clock of a step's preparation (it reads an instance's start against it): the same moment
     world["clock"], world["snaps"] = clock, snaps
     return snaps
 
 
-def google_series(world, monkeypatch, rule=WEEKLY_MONDAY, days=4, first=FIRST, last=LAST, **more):
+def google_series(world, monkeypatch, rule=WEEKLY_MONDAY, days=4, first=FIRST, last=LAST, wall="2026-11-03 10:00", title=TITLE, **more):
     """A Google series in the stand-in provider (master `gymmaster`, instances `gymmaster_0`..), a calendar source `agenda` listing the instances from today on (a snapshot is a window
     that starts today; the instances it lists are `recurring`), and the clock. Returns (master, [instances])."""
     configure(world)
-    snaps = clock_and_snapshots(world, monkeypatch)
-    master, instances = world["google"].add_series(MASTER, TITLE, first, last, rule=rule, days=days, **more)
-    listed = [i for i in instances if i["start"]["dateTime"][:10] >= "2026-11-03"]
-    snaps.calendar("agenda", "google", fgw.CALENDAR, [tsm.event(n + 1, i["start"]["dateTime"], i["end"]["dateTime"], TITLE, id=i["id"], recurring=True) for n, i in enumerate(listed)])
+    snaps = clock_and_snapshots(world, monkeypatch, wall)
+    master, instances = world["google"].add_series(MASTER, title, first, last, rule=rule, days=days, **more)
+    listed = [i for i in instances if i["start"]["dateTime"][:10] >= wall[:10]]
+    snaps.calendar("agenda", "google", fgw.CALENDAR, [tsm.event(n + 1, i["start"]["dateTime"], i["end"]["dateTime"], title, id=i["id"], recurring=True) for n, i in enumerate(listed)])
     return master, instances
 
 
@@ -329,3 +331,55 @@ def test_a_series_the_platform_created_is_found_by_its_name_and_cancelled_whole(
     assert [m for m, _, _, _ in google_writes(world)] == ["POST", "DELETE"] and world["google"].events == {}, "the series the platform made is the series the platform removed"
     again, _ = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
     assert again != text_of("ACCT_CARD_SENT", pending=3), "a removed series is no longer an event of the platform's ledger"
+
+
+# --- the event's own name is not the person's words (review of #626) ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("title,line,target", [("Daily", "cancela a daily", "daily"), ("Weekly review", "cancela a weekly review", "weekly review"),
+                                               ("Curso todos os santos", "cancela o curso todos os santos", "curso todos os santos")])      # validate: allow english-only -- the Portuguese lines under test
+def test_a_series_whose_name_holds_a_series_word_is_asked_about_and_never_cancelled_whole_by_its_name(world, monkeypatch, title, line, target):
+    google_series(world, monkeypatch, title=title)
+    reply, extras = cancel(world, line, target=target)
+    assert reply == text_of("RECUR_WHICH", title=title, rule=text_of("RECUR_RULE_WEEKLY_MO", time="07:00"), example="Mon 09/11"), reply
+    assert nothing_started(world) and "resend" not in extras
+
+
+def test_a_series_whose_name_holds_a_series_word_can_still_be_cancelled_by_one_occurrence_by_words(world, monkeypatch):
+    google_series(world, monkeypatch, title="Daily")
+    reply, extras = cancel(world, "cancela só a daily de 16/11", target="daily", day="16/11")      # validate: allow english-only -- the Portuguese line under test
+    assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
+    assert body_lines(world, extras)[0].startswith("Code cancels only this one occurrence"), "the name 'daily' does not make this the whole series"
+    assert "Event: gymmaster_2" in body_lines(world, extras)
+
+
+def test_a_series_whose_name_holds_a_series_word_is_cancelled_whole_when_the_person_says_so_beside_the_name(world, monkeypatch):
+    google_series(world, monkeypatch, title="Daily")
+    reply, extras = cancel(world, "cancela a série daily", target="daily")      # validate: allow english-only -- the Portuguese line under test
+    assert reply == text_of("ACCT_CARD_SENT", pending=1) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+
+
+def test_vacuity_with_the_name_left_in_the_line_a_series_called_daily_is_cancelled_whole_by_its_name(world, monkeypatch):
+    google_series(world, monkeypatch, title="Daily")
+    monkeypatch.setattr(recurrence, "without", lambda text, *pieces: text)      # the name not taken out, in a copy: the oracles above must fail on it
+    reply, extras = cancel(world, "cancela a daily", target="daily")      # validate: allow english-only -- the Portuguese line under test
+    assert reply == text_of("ACCT_CARD_SENT", pending=1) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+
+
+def test_the_master_that_has_a_guest_is_refused_on_the_typed_path_though_its_instances_show_none(world, monkeypatch):
+    google_series(world, monkeypatch)
+    world["google"].events[MASTER]["attendees"] = [{"email": "sam@example.com"}]      # a cancel of the series would tell Sam: only the master has the guest
+    with pytest.raises(ops.OpsError) as refused:
+        ops.event_cancel(world["path"], "google", "agenda#1", series=True)
+    assert "other attendees" in str(refused.value) and no_card(world) and google_writes(world) == []
+    with pytest.raises(ops.OpsError) as refused:
+        ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-16")
+    assert "other attendees" in str(refused.value) and no_card(world) and google_writes(world) == []
+
+
+def test_a_series_rule_that_is_not_plain_is_refused_on_the_typed_path(world, monkeypatch):
+    google_series(world, monkeypatch, rule="RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO")
+    for call in (lambda: ops.event_cancel(world["path"], "google", "agenda#1", series=True), lambda: ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-16")):
+        with pytest.raises(ops.OpsError) as refused:
+            call()
+        assert "plain daily or weekly" in str(refused.value) and no_card(world) and google_writes(world) == []

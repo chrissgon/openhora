@@ -12,14 +12,16 @@ from __future__ import annotations
 
 import datetime
 import json
+from pathlib import Path
 
 import pytest
 
 import standin_tree as st
-from test_series_cancel import (EVENTS, GRAPH_DAILY, GRAPH_MASTER, MASTER, TITLE, approve, body_lines, cancel, carry, event_series, google_series, google_writes, graph_series,  # noqa: F401
+from test_series_cancel import (WEEKLY_MONDAY, EVENTS, GRAPH_DAILY, GRAPH_MASTER, MASTER, TITLE, approve, body_lines, cancel, carry, event_series, google_series, google_writes, graph_series,  # noqa: F401
                                 graph_writes, nothing_started, no_card, op_text, ops, text_of, world)
 
 effect_calendar = st.load("effect_calendar")
+ops_core = st.load("ops_core")
 ops_step_seams = st.load("ops_step_seams")
 
 DAILY = "RRULE:FREQ=DAILY"
@@ -135,7 +137,7 @@ def test_a_time_the_model_wrote_for_another_day_changes_nothing_the_date_is_the_
 
 def test_vacuity_with_the_day_taken_from_a_model_made_date_the_instance_is_missed(world, monkeypatch):
     weekly(world, monkeypatch)
-    monkeypatch.setattr(event_series, "_days_asked", lambda said, spans, kind, value, now: [datetime.date(2026, 11, 17)])      # a model-made date, in a copy: the oracles above must fail on it
+    monkeypatch.setattr(event_series, "_days_asked", lambda said, spans, kind, value, now: ([datetime.date(2026, 11, 17)], False))      # a model-made date, in a copy: the oracles above must fail on it
     reply, _ = cancel(world, "cancela só a academia teste de 16/11", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("RECUR_NO_OCCURRENCE", title=TITLE, day="Tue 17/11"), "the instance of 16/11 is missed"
 
@@ -249,3 +251,105 @@ def test_the_seam_starts_only_the_two_reads_with_the_token_and_a_write_verb_only
         assert not confirmed, "no card is approved: nothing is confirmed"
         assert (verb in ("event-get", "event-instances") and secrets == ("GOOGLE_ACCOUNT_TOKEN",)) or (dry and secrets == ()), (verb, secrets, dry)
     assert google_writes(world) == []
+
+
+# --- today's weekday, a window that overlaps, and the checks right before the write (review of #626) -------------------------------------------------
+
+
+MONDAY_6AM, MONDAY_8AM = "2026-11-09 06:00", "2026-11-09 08:00"      # the Monday of the series' 09/11 instance (07:00), before and after it starts
+
+
+@pytest.mark.parametrize("line,slots", [("cancela a academia teste dessa segunda", {"target": "academia teste", "day": "dessa segunda"}),      # validate: allow english-only -- the Portuguese lines under test
+                                         ("cancela só a academia teste de segunda", {"target": "academia teste", "day": "de segunda"})])      # validate: allow english-only -- the Portuguese lines under test
+def test_a_bare_weekday_that_is_today_is_today_when_that_instance_has_not_started(world, monkeypatch, line, slots):
+    google_series(world, monkeypatch, wall=MONDAY_6AM)
+    reply, extras = cancel(world, line, **slots)
+    assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
+    assert_card(world, extras, "gymmaster_1", "Mon 09/11/2026")
+
+
+def test_next_monday_on_a_monday_is_still_the_monday_after_today(world, monkeypatch):
+    google_series(world, monkeypatch, wall=MONDAY_6AM)
+    _, extras = cancel(world, "cancela só a academia teste da próxima segunda", target="academia teste", day="da próxima segunda")      # validate: allow english-only -- the Portuguese line under test
+    assert_card(world, extras, "gymmaster_2", "Mon 16/11/2026")
+
+
+@pytest.mark.parametrize("line,slots", [("cancela só a academia teste de segunda", {"target": "academia teste", "day": "de segunda"}),      # validate: allow english-only -- the Portuguese lines under test
+                                         ("cancela a academia teste dessa segunda", {"target": "academia teste", "day": "dessa segunda"})])      # validate: allow english-only -- the Portuguese lines under test
+def test_a_bare_weekday_that_is_today_and_whose_instance_has_started_asks_the_day_and_never_picks_next_monday(world, monkeypatch, line, slots):
+    google_series(world, monkeypatch, wall=MONDAY_8AM)
+    reply, _ = cancel(world, line, **slots)
+    assert reply == text_of("RECUR_ASK_DATE", title=TITLE, example="Mon 09/11") and nothing_started(world), reply
+
+
+DAILY_LATE = ("2026-11-03T23:30:00-03:00", "2026-11-04T00:30:00-03:00")      # a daily series that starts at 23:30 and ends after midnight: Google's window holds the one of the day before
+
+
+def test_an_instance_that_only_overlaps_the_day_is_not_the_instance_of_that_day(world, monkeypatch):
+    daily_late = google_series(world, monkeypatch, rule=DAILY, days=4, first=DAILY_LATE[0], last=DAILY_LATE[1])
+    gone = world["google"].events.pop("gymmaster_2")      # the instance that starts on 05/11 at 23:30 is gone; the one of 04/11 23:30 ends at 00:30 on 05/11
+    assert gone["start"]["dateTime"].startswith("2026-11-05T23:30") and daily_late
+    with pytest.raises(ops.OpsError) as refused:
+        ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-05")
+    assert "no occurrence on that day" in str(refused.value) and no_card(world) and google_writes(world) == [], "the typed path does not take the instance of the day before"
+    started = ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-04")
+    assert "Event: gymmaster_1" in ops.pending(world["path"], started["pending"])["body"].splitlines(), "and the one of 04/11 is its own day's"
+
+
+def test_the_preparation_takes_the_instance_by_its_start_day_whatever_the_provider_lists(world, monkeypatch):
+    weekly(world, monkeypatch)
+    seams = ops_step_seams.CalendarReader
+    monkeypatch.setattr(seams, "event_instances", lambda self, account, calendar_id, series, first, last: {"instances": [
+        {"id": "gymmaster_1", "etag": '"x"', "start": "2026-11-09T07:00:00-03:00", "end": "2026-11-09T08:00:00-03:00", "status": "confirmed", "original_start": None}]})
+    with pytest.raises(ops.OpsError) as refused:
+        ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-16")      # the provider answered with the 09/11 instance for 16/11: not that day's
+    assert "no occurrence on that day" in str(refused.value) and google_writes(world) == []
+
+
+def test_an_occurrence_the_provider_lists_that_belongs_to_another_series_is_refused(world, monkeypatch):
+    weekly(world, monkeypatch)
+    world["google"].add_series("othermaster", "Yoga", "2026-11-02T07:00:00-03:00", "2026-11-02T08:00:00-03:00", rule=WEEKLY_MONDAY, days=3)
+    monkeypatch.setattr(ops_step_seams.CalendarReader, "event_instances", lambda self, account, calendar_id, series, first, last: {"instances": [
+        {"id": "othermaster_2", "etag": '"x"', "start": "2026-11-16T07:00:00-03:00", "end": "2026-11-16T08:00:00-03:00", "status": "confirmed", "original_start": None}]})
+    with pytest.raises(ops.OpsError) as refused:
+        ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-16")
+    assert "not one of this series" in str(refused.value) and no_card(world) and google_writes(world) == []
+
+
+def stale_check(document, event):
+    """What `effect_calendar._unchanged` says (an exception class name, or None) for an event the writer reads again with the version the document holds."""
+    try:
+        effect_calendar._unchanged(document, {"found": True, "event": dict(event, etag=document["base_etag"])})
+    except effect_calendar.StaleError:
+        return "stale"
+    return None
+
+
+def test_the_execution_reads_the_instance_again_and_refuses_a_moved_start_another_series_another_id_or_a_cancelled_one_with_the_version_unchanged(world, monkeypatch):
+    """The checks of `effect_calendar._unchanged` themselves, with the version equal to the card's (the writer's own checks are not the runtime's: each is held here)."""
+    weekly(world, monkeypatch)
+    _, extras = cancel(world, "cancela só a academia teste de 16/11", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
+    item = ops.pending(world["path"], extras["resend"])
+    doc = json.loads((Path(st.load("ops_step_effects").effect_dir(ops_core.context(world["path"])["cfg"], item["task_id"], 0)) / "effect.json").read_text(encoding="ascii"))
+    good = {"id": "gymmaster_2", "series_id": MASTER, "status": "confirmed", "start": doc["series"]["start"]}
+    assert doc["operation"] == "cancel-occurrence" and stale_check(doc, good) is None
+    assert stale_check(doc, dict(good, start="2026-11-16T09:00:00-03:00")) == "stale", "moved, version unchanged"
+    assert stale_check(doc, dict(good, series_id="othermaster")) == "stale", "an instance of another series"
+    assert stale_check(doc, dict(good, id="gymmaster_3")) == "stale", "another event"
+    assert stale_check(doc, dict(good, status="cancelled")) == "stale"
+    assert stale_check(doc, dict(good, start="2026-11-16T10:00:00Z")) is None, "the same instant written in another offset is the same start"
+
+
+def test_vacuity_with_the_start_day_not_checked_the_instance_of_the_day_before_is_taken(world, monkeypatch):
+    google_series(world, monkeypatch, rule=DAILY, days=4, first=DAILY_LATE[0], last=DAILY_LATE[1])
+    world["google"].events.pop("gymmaster_2")
+    monkeypatch.setattr(st.load("step_calendar_event"), "_starts_on", lambda start, day: True)      # the filter removed in a copy: the oracle above must fail on it
+    started = ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-05")
+    assert "Event: gymmaster_1" in ops.pending(world["path"], started["pending"])["body"].splitlines(), "the card of the 04/11 instance for the day 05/11"
+
+
+def test_vacuity_with_the_bare_weekday_read_as_the_next_one_a_monday_morning_gets_next_monday(world, monkeypatch):
+    google_series(world, monkeypatch, wall=MONDAY_6AM)
+    monkeypatch.setattr(event_series, "bare_weekday", lambda text: None)      # in a copy: the oracles above must fail on it
+    _, extras = cancel(world, "cancela só a academia teste de segunda", target="academia teste", day="de segunda")      # validate: allow english-only -- the Portuguese line under test
+    assert "Event: gymmaster_2" in body_lines(world, extras), "the card of next Monday (16/11), which the person did not say"

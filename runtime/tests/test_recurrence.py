@@ -37,6 +37,7 @@ registry_data = st.load("registry_data")
 calendar_document = st.load("calendar_document")
 step_calendar_event = st.load("step_calendar_event")
 turn_gate = st.load("turn_gate")
+phrases = st.load("phrases")
 effects = st.load("effects")
 ops_event_revise = st.load("ops_event_revise")
 
@@ -81,6 +82,19 @@ READ = [
     ("toda segunda por 3 semanas", MON, None),
     ("every Monday for 4 weeks", MON, None),
     ("todo dia 3 vezes", MON, None),
+    ("toda segunda das 7h até as 8h", MON, {"freq": "weekly", "byday": "MO"}),      # validate: allow english-only -- the Portuguese lines under test; "ate" before a clock ends the event, not the series
+    ("toda segunda das 7h ate 8h30", MON, {"freq": "weekly", "byday": "MO"}),
+    ("every Monday from 7am until 8am", MON, {"freq": "weekly", "byday": "MO"}),
+    ("every day from 7 until 8 pm", MON, {"freq": "daily"}),
+    ("toda segunda até 30/12", MON, None),      # validate: allow english-only -- the Portuguese lines under test; before a date it ends the series
+    ("every Monday until 30 December", MON, None),
+    ("academia diária", MON, {"freq": "daily"}),      # validate: allow english-only -- the Portuguese line under test
+    ("3x por semana", MON, None),
+    ("2 vezes por semana", MON, None),
+    ("3 times a week", MON, None),
+    ("semana sim semana não", MON, None),      # validate: allow english-only -- the Portuguese line under test
+    ("every second Monday", MON, None),
+    ("every third Monday", MON, None),
     ("segunda às 7h", MON, None),      # a bare weekday is no repetition
     ("at 7am", MON, None),
     ("", MON, None),
@@ -100,7 +114,9 @@ def test_read_refuses_a_start_that_is_not_a_weekday_number():
 MENTIONS = [
     ("marca academia teste toda segunda às 7h", True), ("todo dia às 7h", True), ("todos os dias", True), ("every Monday at 7am", True), ("weekly", True), ("as segundas", True),      # validate: allow english-only -- the Portuguese lines under test
     ("todo mês", True), ("a cada 2 dias", True), ("dias úteis", True), ("every other day", True), ("every 2 weeks", True), ("monthly", True), ("mondays", True), ("todo dia 16", True),      # validate: allow english-only -- the Portuguese lines under test
-    ("marca dentista segunda às 10h", False), ("marca reunião quinta que vem", False), ("remind me tomorrow at 9am", False), ("academia", False), ("", False),      # validate: allow english-only -- the Portuguese lines under test
+    ("academia diária", True), ("academia diário", True), ("marca academia 3x por semana", True), ("2 vezes por semana", True), ("3 times a week", True), ("semana sim, semana não", True),      # validate: allow english-only -- the Portuguese lines under test
+    ("every second Monday", True), ("marca academia quinzenal", True),      # validate: allow english-only -- the Portuguese lines under test
+    ("marca dentista segunda às 10h", False), ("marca reunião quinta que vem", False), ("marca academia das 7h até as 8h", False), ("remind me tomorrow at 9am", False), ("academia", False), ("", False),      # validate: allow english-only -- the Portuguese lines under test
 ]
 
 
@@ -453,3 +469,54 @@ def test_a_waiting_card_of_a_series_that_is_revised_stays_a_series():
     assert name == "event_create" and args["repeat"] == "weekly"
     name, args = ops_event_revise._arguments(document(), None, "2026-11-16T07:00", "2026-11-16T08:00", None)
     assert args["repeat"] is None, "a plain card is revised as it always was"
+
+
+def test_without_takes_the_events_name_out_of_the_line_and_the_series_words_beside_it_stay():
+    assert recurrence.without("cancela a daily", "daily", None) == "cancela a"
+    assert recurrence.without("cancela o curso todos os santos", "curso todos os santos") == "cancela o"      # validate: allow english-only -- the Portuguese line under test
+    assert recurrence.without("cancela a série daily", "daily") == "cancela a série"      # validate: allow english-only -- the Portuguese line under test
+    assert recurrence.which(recurrence.without("cancela a daily", "daily"), False) == "ask" and recurrence.which(recurrence.without("cancela a série daily", "daily"), False) == "series"      # validate: allow english-only -- the Portuguese lines under test
+    assert recurrence.without("cancela todos os santos", None) == "cancela todos os santos" and recurrence.without(None, "x") == ""
+
+
+# --- the closed forms: a repetition no seed carried opens no single event ---------------------------------------------------------------------
+
+
+CLOSED = ["marca academia semanal amanhã às 7h no google", "marca academia quinzenal amanhã às 7h no google", "marca academia mensal amanhã às 7h no google",      # validate: allow english-only -- the Portuguese lines under test
+          "marca academia dias úteis amanhã às 7h no google",      # validate: allow english-only -- the Portuguese line under test
+          "marca academia 3x por semana amanhã às 7h no google", "marca academia toda segunda às 7h no google"]      # validate: allow english-only -- the Portuguese lines under test
+
+
+@pytest.mark.parametrize("line", CLOSED)
+def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line):
+    configure(world)
+    clock_and_snapshots(world, monkeypatch)
+    got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
+    expected = text_of("NW_RECURRING_EVENT") if "toda segunda" in line else text_of("RECUR_NOT_READ")      # validate: allow english-only -- the Portuguese words under test
+    assert got["reply"] in (text_of("RECUR_NOT_READ"), text_of("NW_RECURRING_EVENT")), (line, got["reply"])
+    assert nothing_started(world) and "resend" not in got, line
+    assert expected  # the tier-1 reading of "toda segunda" has its own sentence, older than this package: either is an honest one
+
+
+def test_vacuity_with_the_guard_out_of_the_closed_path_a_weekly_line_opens_one_event(world, monkeypatch):
+    configure(world)
+    clock_and_snapshots(world, monkeypatch)
+    monkeypatch.setattr(st.load("ops_natural_writes").recurrence, "mentions", lambda text: False)      # the check removed in a copy: the oracle above must fail on it
+    got = ops.natural_write(world["path"], "marca academia semanal amanhã às 7h no google", channel="messaging", sender=OWNER)      # validate: allow english-only -- the Portuguese line under test
+    assert got.get("resend") and not nothing_started(world), got
+
+
+def test_a_plain_event_on_the_closed_path_is_untouched(world, monkeypatch):
+    configure(world)
+    clock_and_snapshots(world, monkeypatch)
+    got = ops.natural_write(world["path"], "marca dentista amanhã às 10h no google", channel="messaging", sender=OWNER)      # validate: allow english-only -- the Portuguese line under test
+    assert got.get("resend"), got
+
+
+@pytest.mark.parametrize("line", ["add to my calendar gym every other day tomorrow at 7am on google", "add to my calendar gym weekly tomorrow at 7am on google", "add to my calendar gym biweekly tomorrow at 7am on google"])
+def test_an_english_project_gets_the_sentence_too(world, monkeypatch, line):
+    configure(world, language="en")
+    clock_and_snapshots(world, monkeypatch)
+    got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
+    assert got["reply"] in (phrases.en("RECUR_NOT_READ"), phrases.en("NW_RECURRING_EVENT")), (line, got)
+    assert nothing_started(world) and "resend" not in got
