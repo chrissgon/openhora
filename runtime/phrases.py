@@ -1445,9 +1445,11 @@ CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT"
 CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
 # W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
 # mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
-CARD_PRIVATE += ("CARD_TODO_NOW_TITLE",)      # CB-5: the title of a task as the service holds it now (a completion's card); the title of a task the person is adding is their own words and is not private
+CARD_PRIVATE += ("CARD_TODO_NOW_TITLE",)      # CB-5: the title of a task as the service holds it now (a completion's card), shown by the group `tasks-read` (CARD_PRIVATE_GROUP_OF); the title of a task the person is adding is their own words and is not private
 CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
 CARD_PRIVATE_GROUP = "ask-mail"
+CARD_PRIVATE_GROUP_OF = {"CARD_TODO_NOW_TITLE": "tasks-read"}      # CB-5: a private key that names its own group; every other private key is gated by CARD_PRIVATE_GROUP
+PRIVATE_GROUPS = (CARD_PRIVATE_GROUP,) + tuple(g for g in dict.fromkeys(CARD_PRIVATE_GROUP_OF.values()) if g != CARD_PRIVATE_GROUP)      # the groups that show some private line
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
 
@@ -1494,9 +1496,20 @@ def hidden_note_key(card, kept) -> str:
     return "CARD_HIDDEN_NOTE_MAIL" if left_out and all(key.startswith(("CARD_MAIL_", "CARD_BOX_")) for key in left_out) else "CARD_HIDDEN_NOTE"
 
 
-def card_without_private(card, owner: bool = False) -> list:
-    """The lines of a valid card that are not in CARD_PRIVATE and, unless `owner` (the reader sent the held file the card saves), not in CARD_PRIVATE_OWNER."""
-    hidden = set(CARD_PRIVATE) | (set() if owner else set(CARD_PRIVATE_OWNER))
+def private_group(key: str) -> str:
+    """The group that shows the private line `key`: its own (CARD_PRIVATE_GROUP_OF) or CARD_PRIVATE_GROUP."""
+    return CARD_PRIVATE_GROUP_OF.get(key, CARD_PRIVATE_GROUP)
+
+
+def private_hidden(groups=()) -> set:
+    """The private keys a reader who holds `groups` is not shown: every key of CARD_PRIVATE whose group is not among them."""
+    return {key for key in CARD_PRIVATE if private_group(key) not in groups}
+
+
+def card_without_private(card, owner: bool = False, groups=()) -> list:
+    """The lines of a valid card a reader who holds `groups` (none by default) is shown: not the lines of CARD_PRIVATE whose group is not among them and, unless `owner` (the
+    reader sent the held file the card saves) or the reader holds CARD_PRIVATE_GROUP, not the lines of CARD_PRIVATE_OWNER."""
+    hidden = private_hidden(groups) | (set() if owner or CARD_PRIVATE_GROUP in groups else set(CARD_PRIVATE_OWNER))
     return [line for line in card if line[0] not in hidden]
 
 

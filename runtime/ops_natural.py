@@ -229,7 +229,7 @@ PRIVATE_READS = ("pending", "task")      # the reads that draw a decision's card
 def keeps_private(ctx: dict, name, channel, sender) -> bool:
     """Whether the reply of this read, drawn for THIS sender, may hold lines that only a holder of `ask-mail` reads (the recipient, the subject, the text of a mail or
     an event): such a reply goes to the chat that asked and the conversation, which the MCP mode reads, keeps a neutral word (limit L51), typed command or words."""
-    return channel == "messaging" and name in PRIVATE_READS and bool(sender) and importlib.import_module("item_refs").may_read(ctx, "messaging", sender)
+    return channel == "messaging" and name in PRIVATE_READS and bool(sender) and bool(importlib.import_module("item_refs").private_groups(ctx, "messaging", sender))
 
 
 def private_ids(rows: list) -> set:

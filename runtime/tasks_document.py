@@ -12,7 +12,7 @@ runtime/effect_tasks.py, reached from the operation `approve` only. The step kin
 The document. `effect` ("tasks"), `task` (the step task that prepared it), `account` (`google` or `microsoft`), `implementation` (the tasks writer of that account, a provider of
 providers/writer/: `google-tasks` or `microsoft-todo`), `address` (the account's address as the project's `accounts` lists it), `list` (the name the project's `accounts` gives the list,
 `accounts.<a>.task_lists`) and `list_id` (the id the writer is handed: the service's own id, or `default` for Google's default list; Microsoft's default list is resolved to its id before
-the document is made), `operation` (`add` or `complete`), `task_id` and `base_etag` (the task a completion is about and the version of it the preparation read; both null for an add),
+the document is made; `default_list` says it was, and the effect resolves it again before it writes), `operation` (`add` or `complete`), `task_id` and `base_etag` (the task a completion is about and the version of it the preparation read; both null for an add),
 `read_at` (when the preparation read it, null for an add), `title` (for an add, the person's words; for a completion, the title the preparation read, which another person may have
 written: one line, hidden characters removed, possibly empty), `asker` (who asked), `idempotency_key` (derived from everything above: one request is done once) and `dry_run_sha256` (the
 hash of what the writer's dry run printed: the exact request it would send).
@@ -46,7 +46,7 @@ SECRET = {"google": "GOOGLE_ACCOUNT_TOKEN", "microsoft": "MICROSOFT_ACCOUNT_TOKE
 SERVICE = {"google": "Google Tasks", "microsoft": "Microsoft To Do"}      # the products' names: a card says them in every language
 VERBS = {"add": "task-insert", "complete": "task-complete"}      # the verb of each operation in both writers (providers/writer/README.md)
 TITLE_KEY = {"add": "TITLE_TODO_ADD", "complete": "TITLE_TODO_DONE"}
-KEYS = ("effect", "task", "account", "implementation", "address", "list", "list_id", "operation", "task_id", "base_etag", "read_at", "title", "asker", "idempotency_key",
+KEYS = ("effect", "task", "account", "implementation", "address", "list", "list_id", "default_list", "operation", "task_id", "base_etag", "read_at", "title", "asker", "idempotency_key",
         "dry_run_sha256")
 ASKER = re.compile(r"(?:terminal|page|[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_.@+=-]{1,128})")      # who asked: a channel of the person's own, or a messaging sender (<platform>:<id>)
 TITLE_MAX = 200
@@ -114,11 +114,11 @@ def key_of(doc: dict) -> str:
 
 
 def document(*, task_id: int, account: str, address: str, list_name: str, list_id: str, operation: str, title: str, remote_id=None, base_etag=None, read_at=None,
-             asker: str = "terminal", dry_run_sha256: str) -> dict:
+             asker: str = "terminal", dry_run_sha256: str, default_list: bool = False) -> dict:
     """The effect document, checked. `task_id` is the step task that prepared it, `remote_id` the task of the service a completion is about. EffectError usage when a piece is not in its
     form, a limit is passed, or the words hold what looks like a credential."""
     doc = {"effect": WORD, "task": task_id, "account": account, "implementation": IMPLEMENTATION.get(account, ""), "address": address, "list": list_name, "list_id": list_id,
-           "operation": operation, "task_id": remote_id, "base_etag": base_etag, "read_at": read_at, "title": title, "asker": asker, "idempotency_key": "",
+           "default_list": default_list, "operation": operation, "task_id": remote_id, "base_etag": base_etag, "read_at": read_at, "title": title, "asker": asker, "idempotency_key": "",
            "dry_run_sha256": dry_run_sha256}
     doc["idempotency_key"] = key_of(doc)
     check(doc)
@@ -141,6 +141,8 @@ def check(doc) -> dict:
         raise _usage("the list is a name and an id the project lists")
     if doc["account"] == "microsoft" and doc["list_id"] == "default":
         raise _usage("Microsoft's default list is named by its id: `default` is not one")
+    if not isinstance(doc["default_list"], bool) or (doc["default_list"] and doc["account"] != "microsoft"):
+        raise _usage("default_list is true only when Microsoft's default list was resolved to the id the document holds, and false otherwise")
     if not isinstance(doc["asker"], str) or not ASKER.fullmatch(doc["asker"]):
         raise _usage("asker is terminal, page or the messaging sender who asked")
     if doc["operation"] == "add":
@@ -190,7 +192,7 @@ def facts(doc: dict, kind: str, got: dict) -> dict:
 
 def card_lines(doc: dict, digest: str) -> list:
     """The card, line by line: [[key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py card_valid). The account and the list first, then the task. The title of a
-    task the service holds now is under a key of phrases.CARD_PRIVATE (a messaging app draws it only for a sender who may read the person's own items). No id and no version is on
+    task the service holds now is under a key of phrases.CARD_PRIVATE (a messaging app draws it only for a sender who holds the group `tasks-read`: phrases.CARD_PRIVATE_GROUP_OF). No id and no version is on
     the card: the hash covers them, and a phone is shown no id (limit L62)."""
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_TODO_LIST", {"list": doc["list"], "service": SERVICE[doc["account"]]}]]
     if doc["operation"] == "add":

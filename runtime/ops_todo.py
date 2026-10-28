@@ -53,6 +53,7 @@ SERVICES = ("google", "microsoft")
 LIST_WINDOW_S = 600      # seconds a list answers a number: the lifetime of the other lists a sender may point to (ops_file_read.LIST_WINDOW_S)
 MATCH_MAX = 5      # tasks listed to choose from when the words fit several
 SHOWN_MAX = 100      # tasks shown of one list
+NUMBER_MAX = 9999
 ITEM = re.compile(r"todo:([1-9][0-9]{0,3})")
 # What a line may say for the service: the service word slot is one whole word of the line, so only these closed words are read, folded; any other word asks again.
 SERVICE_WORDS = {"google": "google", "microsoft": "microsoft", "todo": "microsoft"}
@@ -229,6 +230,8 @@ def _find(ctx: dict, channel, sender, account: str, item: str, only=None) -> dic
     open tasks of the lists read now (origin `grounded`). A list that was not read to the end (a service that did not answer) is never taken for a complete one: an `unavailable`
     is said when no list could be read."""
     found = ITEM.fullmatch(item) if isinstance(item, str) else None
+    if isinstance(item, str) and item.startswith("todo:") and not found:
+        return {"status": "none"}      # a number outside 1 to 9999 names nothing; it is never read as words
     if found:
         record = _live(ctx, channel, sender)
         rows = (record or {}).get("items", {}).get(account)
@@ -334,9 +337,9 @@ def reply_list(project: str, ctx: dict, args: dict, channel, sender, extras: dic
     return _render_list(cfg, got)
 
 
-def _pick_account(ctx: dict, wanted, pool: list):
+def _pick_account(ctx: dict, wanted, pool: list, use_default: bool = True):
     """("ok", account, origin) or ("say", the sentence, None): the account the line names (origin `line-span`), else the one account of `pool`, else `accounts.default` when two qualify (origin
-    `config`), else the question. An account the line names that is not in `pool` is the sentence that no list is set up."""
+    `config`; never for a number, which counts per service: `use_default` False), else the question. An account the line names that is not in `pool` is the sentence that no list is set up."""
     cfg = ctx["cfg"]
     if wanted:
         return ("ok", wanted, "line-span") if wanted in pool else ("say", phrases.text("TODO_NO_LISTS", cfg), None)
@@ -345,7 +348,7 @@ def _pick_account(ctx: dict, wanted, pool: list):
     if len(pool) == 1:
         return "ok", pool[0], "config"
     default = project_config.account_default(cfg)
-    if default in pool:
+    if use_default and default in pool:
         return "ok", default, "config"
     return "say", phrases.text("TODO_ASK_ACCOUNT", cfg), None
 
@@ -409,6 +412,8 @@ def _reply_done(project: str, ctx: dict, args: dict, wanted, channel, sender, ex
         _may_read(ctx, channel, sender)
     except core.OpsError as e:
         return _natural()._error(cfg, e, channel)
+    if number is not None and not (isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= NUMBER_MAX):
+        return t("TODO_NONE")      # a number outside 1 to 9999 names no task: answered before anything is looked at
     if number is not None:
         pool = list((_live(ctx, channel, sender) or {}).get("items", {}))
         if not pool:
@@ -416,7 +421,7 @@ def _reply_done(project: str, ctx: dict, args: dict, wanted, channel, sender, ex
         item = f"todo:{int(number)}"
     else:
         pool, item = _accounts_with_lists(cfg), words.strip()
-    state, account, origin = _pick_account(ctx, wanted, pool)
+    state, account, origin = _pick_account(ctx, wanted, pool, use_default=number is None)      # a number counts per service: with two services shown and none named, ask
     if state == "say":
         return account
     got = _find(ctx, channel, sender, account, item)

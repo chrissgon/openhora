@@ -143,7 +143,8 @@ def _same(doc: dict, would: dict) -> bool:
         return False
     if doc["operation"] == "add":
         return body == {"title": doc["title"]} and would.get("requires") is None and path.endswith("/tasks")
-    return body == {"status": "completed"} and would.get("requires") == {"etag": doc["base_etag"]} and "/tasks/" in path
+    parts = path.split("/")      # a completion is aimed at one task: .../tasks/<id>, never at the list's tasks
+    return body == {"status": "completed"} and would.get("requires") == {"etag": doc["base_etag"]} and len(parts) >= 2 and parts[-2] == "tasks" and bool(parts[-1])
 
 
 def _prepare(ctx: steps.Context, state: dict) -> dict:
@@ -158,7 +159,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
         raise steps.StepFailure("target_refused", "list", "", why[:200])
     address = reader.address(account)
     resolved = _asked(reader.resolve_list, account, list_id)
-    pieces = dict(task_id=ctx.task_id, account=account, address=address, list_name=name, list_id=resolved, operation=operation)
+    pieces = dict(task_id=ctx.task_id, account=account, address=address, list_name=name, list_id=resolved, operation=operation, default_list=(list_id == "default" and resolved != "default"))      # the flag: the id was resolved from `default` (Microsoft), and the effect resolves it again
     try:
         if operation == "add":
             pieces.update(title=args["title"])

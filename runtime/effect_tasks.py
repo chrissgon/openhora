@@ -51,6 +51,7 @@ import effects  # noqa: E402
 import phrases  # noqa: E402
 import project_config  # noqa: E402
 import tasks_document  # noqa: E402
+import tasks_reader  # noqa: E402
 from tasks_document import WORD, document, check, title, describe, summary, body, sha  # noqa: E402,F401  (the pure half, re-exported)
 
 PROVIDER_CLASS = "writer:tasks"
@@ -130,7 +131,16 @@ def preflight(cfg: dict, doc: dict, root: str):
     found, why = project_config.account_target(cfg, doc["account"], "task_lists", doc.get("list"))
     if why:
         return 1, f"nothing was written: {why}"
-    if found != doc.get("list_id") and not (found == "default" and doc["account"] == "microsoft"):      # Microsoft's `default` was resolved to an id when the change was prepared
+    if doc.get("default_list") is True:      # Microsoft's `default` was resolved to an id when the change was prepared: it is resolved again, and a list that is no longer the default one is refused
+        if found != "default":
+            return 1, "nothing was written: the list the change was prepared for is not the account's default list any more"
+        try:
+            now = tasks_reader.default_list(root, doc["account"])
+        except tasks_reader.ReaderError as e:
+            return (3 if e.code == "not_configured" else 1), "nothing was written: the default list could not be read to check it"
+        if now != doc.get("list_id"):
+            return 1, "nothing was written: changed: the default list is not the one the change was prepared for"
+    elif found != doc.get("list_id"):
         return 1, "nothing was written: the id of the list is not the one the change was prepared for"
     why = serves(root, doc["implementation"])
     if why:

@@ -34,7 +34,7 @@ plan_confirm = st.load("plan_confirm")
 turn_gate = st.load("turn_gate")
 
 ZONE = "America/Sao_Paulo"
-READER, WRITER, PLAIN, TASKER = "telegram:888", "telegram:999", "telegram:777", "telegram:555"
+READER, WRITER, PLAIN, TASKER, MAILER = "telegram:888", "telegram:999", "telegram:777", "telegram:555", "telegram:556"
 PT = {"cfg": {"language": "pt-BR"}}
 
 
@@ -65,13 +65,15 @@ def desk(world, monkeypatch):  # noqa: F811
 
 def profiles(world):
     """Every profile of test_tasks_ops gets `interpret` (the group that lets a plain line reach the model service), the owner also `ask-mail` (a completion's card shows the title of a task
-    the service holds, which a messaging app draws only for a sender who may read the person's own items), and `tasker` is the owner without it; the file is accepted."""
+    the service holds, which a messaging app draws only for a sender who may read the person's own items), `tasker` reads and writes the lists and holds no `ask-mail` (a task title is
+    gated by `tasks-read`: its card key names its own group), and `mailer` holds `ask-mail` and `tasks-write` and not `tasks-read`; the file is accepted."""
     from test_ask import accept
     from test_tasks_ops import PROFILES, SENDERS
     groups = {name: list(g) + ["interpret"] for name, g in PROFILES.items()}
     groups["owner"] += ["ask", "ask-mail"]
     groups["tasker"] = ["read", "talk", "interpret", "tasks-read", "tasks-write", "approve-effect-tasks"]
-    senders = {"telegram": SENDERS["telegram"] + [{"id": "555", "policy": "tasker"}]}
+    groups["mailer"] = ["read", "talk", "interpret", "ask-mail", "tasks-write", "approve-effect-tasks"]
+    senders = {"telegram": SENDERS["telegram"] + [{"id": "555", "policy": "tasker"}, {"id": "556", "policy": "mailer"}]}
     accept(world["path"], accounts={"google": GOOGLE, "microsoft": MICROSOFT, "default": "google"}, policies=groups, messaging={"senders": senders}, language="pt-BR")
 
 
@@ -207,6 +209,73 @@ def test_the_list_asks_first_and_then_numbers_the_tasks_and_a_number_completes_t
     assert [(m, p, b) for m, p, _q, b in writes(google)] == [("PATCH", "/tasks/v1/lists/@default/tasks/t2", {"status": "completed"})]
 
 
+def shown_list(ready):
+    answer_op(ready, "todo-list")
+    asked = say(ready, "o que tem na minha lista de tarefas?")
+    return say(ready, "sim", plan_ok=asked["plan_confirm"])
+
+
+def test_a_number_shown_in_two_services_asks_which_and_never_takes_the_default_account(ready):
+    """The list shows a number 1 under Google Tasks and another under Microsoft To Do, and `accounts.default` is google: a number with no service word does not take the default (a number
+    belongs to the list it was shown in), it asks."""
+    shown_list(ready)
+    answer_op(ready, "todo-done", item="1")
+    asked = say(ready, "marca o 1 como feita")
+    assert asked.get("resend") is None and phrases.text("TODO_ASK_ACCOUNT", PT["cfg"]) in asked["reply"] and open_decisions(ready) == []
+    assert writes(ready["google"]) == [] and writes(ready["microsoft"]) == []
+    shown_list(ready)      # vacuity: with the service word the same number opens its card
+    answer_op(ready, "todo-done", item="1", service="microsoft")
+    chosen = say(ready, "marca o 1 do microsoft como feita")
+    assert chosen.get("resend") is not None
+    assert effect_doc(ready, {"pending": chosen["resend"], "task": item_of(ready, {"pending": chosen["resend"]})["task_id"]})["account"] == "microsoft"
+
+
+def test_a_number_shown_in_one_service_only_goes_to_that_service_without_a_word(ready):
+    """Vacuity of the test above: when the remembered list holds one account only, that account is the answer whatever `accounts.default` says."""
+    from test_ask import accept
+    from test_tasks_ops import PROFILES, SENDERS
+    accept(ready["path"], accounts={"google": GOOGLE, "microsoft": MICROSOFT, "default": "microsoft"}, policies={k: v + ["interpret"] for k, v in PROFILES.items()}, messaging={"senders": SENDERS}, language="pt-BR")
+    answer_op(ready, "todo-list", service="google")
+    asked = say(ready, "o que tem na minha lista de tarefas do google?")
+    say(ready, "sim", plan_ok=asked["plan_confirm"])
+    answer_op(ready, "todo-done", item="2")
+    said = say(ready, "marca o 2 como feita")
+    assert said.get("resend") is not None
+    assert effect_doc(ready, {"pending": said["resend"], "task": item_of(ready, {"pending": said["resend"]})["task_id"]})["account"] == "google"
+
+
+@pytest.mark.parametrize("number", ("0", "10000", "99999"))
+def test_a_number_outside_one_to_9999_answers_none_before_the_list_is_looked_at(ready, monkeypatch, number):
+    """A number outside 1 to 9999 names no task: the answer is TODO_NONE, given before `_find` is asked, and no card is opened."""
+    shown_list(ready)
+    monkeypatch.setattr(ops_todo, "_find", lambda *a, **k: (_ for _ in ()).throw(AssertionError("_find is never asked about a number out of range")))
+    answer_op(ready, "todo-done", item=number, service="google")
+    said = say(ready, "marca o " + number + " do google como feita")
+    assert said.get("resend") is None and phrases.text("TODO_NONE", PT["cfg"]) in said["reply"] and open_decisions(ready) == [] and writes(ready["google"]) == []
+
+
+def test_vacuity_the_last_number_in_range_is_asked_about_and_the_find_is_called(ready, monkeypatch):
+    shown_list(ready)
+    asked = []
+    real = ops_todo._find
+    monkeypatch.setattr(ops_todo, "_find", lambda *a, **k: asked.append(a[4]) or real(*a, **k))
+    answer_op(ready, "todo-done", item="9999", service="google")
+    said = say(ready, "marca o 9999 do google como feita")
+    assert asked == ["todo:9999"] and phrases.text("TODO_NONE", PT["cfg"]) in said["reply"], "in range, so looked at: and the list has no 9999th task"
+    shown_list(ready)
+    answer_op(ready, "todo-done", item="2", service="google")
+    assert say(ready, "marca o 2 do google como feita").get("resend") is not None and asked[-1] == "todo:2"
+
+
+def test_a_typed_number_out_of_range_names_nothing_and_is_never_read_as_words(ready, monkeypatch):
+    """`_find` on its own: `todo:0` and `todo:10000` are `none` with no list read (they are not searched as the words `todo` and the number)."""
+    ctx = ops_core.context(ready["path"])
+    monkeypatch.setattr(ops_todo, "_read_account", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no list is read for a number")))
+    for item in ("todo:0", "todo:10000", "todo:00", "todo:-1", "todo:"):
+        assert ops_todo._find(ctx, "messaging", SENDER, "google", item) == {"status": "none"}, item
+    assert ops_todo._find(ctx, "messaging", SENDER, "google", "todo:1") == {"status": "no-list"}, "vacuity: a number in range with no list shown is no-list"
+
+
 def test_a_number_said_two_lines_after_the_list_answers_nothing(ready):
     answer_op(ready, "todo-list")
     asked = say(ready, "o que tem na minha lista de tarefas?")
@@ -250,20 +319,52 @@ def test_the_conversation_keeps_a_neutral_word_for_every_reply_that_holds_a_titl
     assert phrases.text("NW_PRIVATE_REPLY", PT["cfg"]) in stored
 
 
-def test_a_completion_cannot_be_approved_from_a_phone_that_may_not_read_the_title_but_an_add_can(ready):
+def test_a_completion_is_approved_from_a_phone_by_a_sender_who_may_read_the_lists_without_reading_mail(ready):
+    """A card key names its own group: the title of a task is shown to a holder of `tasks-read`, who needs no `ask-mail`."""
     added = ops.todo_add(ready["path"], "google", "comprar leite", channel="messaging", sender=TASKER)
-    assert approve(ready, added, channel="messaging", sender=TASKER)["result"]["done"] is True      # the title of a task being added is the person's own words
+    assert approve(ready, added, channel="messaging", sender=TASKER)["result"]["done"] is True
     done = ops.todo_done(ready["path"], "google", "dentista", channel="messaging", sender=TASKER)
-    with pytest.raises(ops.OpsError) as refused:
-        approve(ready, done, channel="messaging", sender=TASKER)      # the title now held by the service is a line only a holder of ask-mail is shown
-    assert "ask-mail" in str(refused.value) and [m for m, _p, _q, _b in writes(ready["google"])] == ["POST"]
     ctx = ops_core.context(ready["path"])
     cards = st.load("messaging_cards")
     item = item_of(ready, done)
-    shown = cards.effect_card_text(item, ctx["cfg"], False, False, False)
-    assert "ligar para o dentista" not in shown and phrases.text("CARD_HIDDEN_NOTE_TODO", ctx["cfg"]) in shown and "Lista: tarefas (Google Tasks)" in shown
-    assert "ligar para o dentista" in cards.effect_card_text(item, ctx["cfg"], True, False, False), "a holder of ask-mail is shown it"
+    assert "ligar para o dentista" in cards.effect_card_text(item, ctx["cfg"], {"tasks-read"}, False, False), "the card shown to a holder of tasks-read holds the title"
+    assert approve(ready, done, channel="messaging", sender=TASKER)["result"]["done"] is True
+    assert [m for m, _p, _q, _b in writes(ready["google"])] == ["POST", "PATCH"]
+
+
+def test_a_sender_without_tasks_read_is_never_shown_a_title_and_cannot_approve_a_completion_but_an_add_can(ready):
+    added = ops.todo_add(ready["path"], "google", "comprar leite", channel="messaging", sender=TASKER)
+    assert approve(ready, added, channel="messaging", sender=MAILER)["result"]["done"] is True      # the title of a task being added is the person's own words
+    done = ops.todo_done(ready["path"], "google", "dentista", channel="messaging", sender=TASKER)
+    with pytest.raises(ops.OpsError) as refused:
+        approve(ready, done, channel="messaging", sender=MAILER)      # holding ask-mail does not show the title of a task: the group is tasks-read
+    assert "tasks-read" in str(refused.value) and [m for m, _p, _q, _b in writes(ready["google"])] == ["POST"]
+    ctx = ops_core.context(ready["path"])
+    cards = st.load("messaging_cards")
+    item = item_of(ready, done)
+    for held in (False, set(), {"ask-mail"}):
+        shown = cards.effect_card_text(item, ctx["cfg"], held, False, False)
+        assert "ligar para o dentista" not in shown and phrases.text("CARD_HIDDEN_NOTE_TODO", ctx["cfg"]) in shown and "Lista: tarefas (Google Tasks)" in shown, held
     assert approve(ready, done)["result"]["done"] is True      # the terminal shows the whole card
+
+
+def test_vacuity_with_every_private_key_in_ask_mail_the_two_senders_swap(ready, monkeypatch):
+    """The two tests above hold only because `CARD_PRIVATE_GROUP_OF` names `tasks-read` for the title: with the map empty a title is an ask-mail line again, and the sender who holds
+    tasks-read and not ask-mail is the one refused."""
+    monkeypatch.setattr(phrases, "CARD_PRIVATE_GROUP_OF", {})
+    done = ops.todo_done(ready["path"], "google", "dentista", channel="messaging", sender=TASKER)
+    with pytest.raises(ops.OpsError):
+        approve(ready, done, channel="messaging", sender=TASKER)
+    assert approve(ready, done, channel="messaging", sender=MAILER)["result"]["done"] is True
+    assert [m for m, _p, _q, _b in writes(ready["google"])] == ["PATCH"]
+
+
+def test_the_groups_a_private_line_may_name_are_the_groups_the_senders_are_asked_for():
+    item_refs = st.load("item_refs")
+    assert set(item_refs.PRIVATE_GROUPS) == set(phrases.PRIVATE_GROUPS) == {"ask-mail", "tasks-read"}
+    assert phrases.private_group("CARD_TODO_NOW_TITLE") == "tasks-read"
+    assert {phrases.private_group(k) for k in phrases.CARD_PRIVATE} <= set(phrases.PRIVATE_GROUPS)
+    assert all(phrases.private_group(k) == "ask-mail" for k in phrases.CARD_PRIVATE if k != "CARD_TODO_NOW_TITLE")
 
 
 # --- what a line reaches --------------------------------------------------------------------------------------------------------------

@@ -233,3 +233,24 @@ def test_a_completion_card_the_phone_may_not_read_is_cut_and_says_so_while_an_ad
         assert (doc["title"] in shown) is whole
         assert (phrases.text("CARD_HIDDEN_NOTE_TODO", PT) in shown) is (not whole)
         assert doc["title"] in messaging_cards.effect_card_text(item, PT, True, False, False), "a reader of the person's own items sees it"
+
+
+def test_the_flag_that_the_id_was_resolved_from_the_default_list_is_content_and_only_microsoft_has_it():
+    plain, flagged = done_doc(), done_doc(default_list=True)
+    assert plain["default_list"] is False and flagged["default_list"] is True and tasks_document.check(flagged)
+    assert plain["idempotency_key"] != flagged["idempotency_key"], "a change prepared for the default list is another request than one prepared for that id by name"
+    for bad in ("yes", 1, None, 0):
+        assert refused(mutated(plain, default_list=bad)), bad
+    assert refused(mutated(add_doc(), default_list=True)), "Google takes the word default as it is: nothing is resolved, so the flag is never true"
+    assert tasks_document.check(add_doc()) and add_doc()["default_list"] is False
+    without = {k: v for k, v in plain.items() if k != "default_list"}
+    assert refused(without), "a document with no flag is not a document"
+
+
+def test_a_card_key_names_its_own_group_and_the_cut_follows_the_groups_held():
+    done = tasks_document.card_lines(done_doc(), SHA)
+    assert phrases.private_group("CARD_TODO_NOW_TITLE") == "tasks-read"
+    assert phrases.card_without_private(done, False, {"tasks-read"}) == done, "tasks-read shows the title"
+    assert phrases.card_without_private(done, False, {"ask-mail"}) != done, "ask-mail does not"
+    assert phrases.card_without_private(done) != done and phrases.card_without_private(done, False, set()) != done
+    assert phrases.card_without_private(done, False, {"ask-mail", "tasks-read"}) == done
