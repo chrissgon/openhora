@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_files_write import (approve, ctx_of, effect_doc, fdw, fod, item_of, world, reads, sha)  # noqa: F401  (the fixture and its helpers)
@@ -44,8 +45,8 @@ ACCOUNTS = {"google": {"address": "pat@example.com", "folders": {"default": fdw.
             "microsoft": {"address": "casey.rivera@mail.example", "folders": {"default": "/Documents/openhora"}}}
 PNG = b"\x89PNG\r\n\x1a\n the fictional mark"
 SUB, OUTSIDE, OUTSIDE_FILE = "Sub_ID_0001", "Out_ID_0001", "Out_File_0001"
-NO_DELETE = "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive."  # validate: allow english-only -- the Portuguese sentence under test
-SENT = "O card #{n} espera a sua aprovação."  # validate: allow english-only -- the Portuguese sentence under test
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
 ZONE = "America/Sao_Paulo"
 
 
@@ -127,15 +128,21 @@ def started_of(world, said):
     return {"pending": item_["id"], "task": item_["task_id"]}
 
 
-GOOGLE_CARD = [
-    "O código move este arquivo para a lixeira depois da sua aprovação, só se ele ainda for o arquivo como foi lido em {read_at}, e nada mais.",  # validate: allow english-only -- the Portuguese sentence under test
-    "Conta: google (pat@example.com)",
-    "Arquivo: openhora-mark.png (Google Drive)",
-    "Pasta: Arquivos › openhora",  # validate: allow english-only -- the Portuguese sentence under test
-    "Tamanho: {size}",  # validate: allow english-only -- the Portuguese sentence under test
-    "Última alteração: 2026-10-10T09:00:00.000Z",  # validate: allow english-only -- the Portuguese sentence under test
-    "Vai para a lixeira do Google Drive (recuperável por cerca de 30 dias)",  # validate: allow english-only -- the Portuguese sentence under test
-]
+def card_sent(reply, number, cfg=PT):
+    """`reply` is exactly the one sentence that says card `number` waits for the approval (one line, nothing else is said)."""
+    assert "\n" not in reply, reply
+    pk.assert_said(reply, "ACCT_CARD_SENT", cfg, pending=number)
+
+
+def no_delete(reply):
+    return "\n" not in reply and pk.said(reply, "PHONE_NO_FILE_DELETE", PT)
+
+
+def assert_card(lines, cfg, *expected):
+    """The card lines are exactly the sentences of these (key, fields), in this order."""
+    assert len(lines) == len(expected), lines
+    for line, (key, fields) in zip(lines, expected):
+        pk.assert_said(line, key, cfg, **fields)
 
 
 def card_lines(world, started, language="pt-BR") -> list:
@@ -148,12 +155,15 @@ def card_lines(world, started, language="pt-BR") -> list:
 @pytest.mark.parametrize("line", ["Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-mark.png do drive em /openhora"])
 def test_the_live_lines_open_the_card_of_the_file_in_the_google_subfolder_and_nothing_is_trashed_before_the_approval(desk, line):
     out = say(desk, line)
-    assert out["reply"] == SENT.format(n=out["resend"]) and out["ran"] is False
+    card_sent(out["reply"], out["resend"])
+    assert out["ran"] is False
     started = started_of(desk, out)
     lines = card_lines(desk, started)
-    assert lines[0] != "Encontrei: openhora-mark.png em Arquivos › openhora. É este?", "the name given is the file's whole name: the card does not ask"  # validate: allow english-only -- the Portuguese sentence under test
-    assert lines[:7] == [GOOGLE_CARD[0].format(read_at=effect_doc(desk, started)["read_at"].replace("T", " ").replace("Z", " UTC")), *GOOGLE_CARD[1:4],
-                         f"Tamanho: {len(PNG)} B", *GOOGLE_CARD[5:]]
+    assert not pk.said(lines[0], "CARD_FILE_FOUND", PT), "the name given is the file's whole name: the card does not ask"
+    assert_card(lines[:7], PT, ("CARD_FILE_CODE_TRASH", {"read_at": effect_doc(desk, started)["read_at"].replace("T", " ").replace("Z", " UTC")}),
+                ("CARD_ACCOUNT", {"account": "google", "address": "pat@example.com"}), ("CARD_FILE_NAME", {"name": "openhora-mark.png", "service": "Google Drive"}),
+                ("CARD_FILE_FOLDER", {"folder": "Arquivos › openhora"}), ("CARD_FILE_TRASH_SIZE", {"size": f"{len(PNG)} B"}),
+                ("CARD_FILE_TRASH_MODIFIED", {"modified": "2026-10-10T09:00:00.000Z"}), ("CARD_FILE_TRASH_DRIVE", {}))
     doc = effect_doc(desk, started)
     assert doc["operation"] == "trash" and doc["content"] is None and doc["target"] == {"kind": "file", "label": "default", "id": fdw.FILE_ID}
     assert doc["base"]["root"] == fdw.FOLDER_ID and doc["base"]["parent"] == SUB and doc["base"]["path"] == "Arquivos › openhora" and doc["base"]["exact"] is True
@@ -178,8 +188,8 @@ def test_after_the_approval_exactly_one_trash_request_is_made_with_the_right_id_
 def test_a_name_that_is_only_part_of_the_files_name_asks_is_this_the_one_on_the_first_line_of_the_card(desk):
     out = say(desk, "Remova o arquivo openhora-ma do drive")
     lines = card_lines(desk, started_of(desk, out))
-    assert lines[0] == "Encontrei: openhora-mark.png em Arquivos › openhora. É este?"  # validate: allow english-only -- the Portuguese sentence under test
-    assert lines[1].startswith("O código move este arquivo para a lixeira")  # validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(lines[0], "CARD_FILE_FOUND", PT, name="openhora-mark.png", folder="Arquivos › openhora")
+    assert pk.said(lines[1], "CARD_FILE_CODE_TRASH", PT)
     assert patches(desk["gd"]) == []
 
 
@@ -188,8 +198,10 @@ def test_the_card_in_english_says_only_what_the_docs_support(desk):
     out = say(desk, "Remove the file openhora-mark.png from my drive")
     started = started_of(desk, out)
     lines = card_lines(desk, started, "en")
-    assert out["reply"] == f"Card #{out['resend']} waits for your approval."
-    assert "Goes to the Google Drive trash (recoverable for about 30 days)" in lines and "Folder: Arquivos › openhora" in lines and "File: openhora-mark.png (Google Drive)" in lines
+    card_sent(out["reply"], out["resend"], EN)
+    card = "\n".join(lines)
+    assert pk.said(card, "CARD_FILE_TRASH_DRIVE", EN) and pk.said(card, "CARD_FILE_FOLDER", EN, folder="Arquivos › openhora")
+    assert pk.said(card, "CARD_FILE_NAME", EN, name="openhora-mark.png", service="Google Drive")
     assert not any("delete" in line.lower() for line in lines), "the card never says the file is deleted"
 
 
@@ -276,7 +288,7 @@ def test_a_folder_name_that_now_points_to_another_folder_trashes_nothing(desk):
 def test_a_sender_without_the_group_gets_the_plain_sentence_no_card_and_no_provider_call(desk):
     for line in ("Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-ma do drive em /openhora"):
         out = say(desk, line, PLAIN_KEY)
-        assert out["reply"] == NO_DELETE and out["ran"] is False and out["pending_id"] is None and "resend" not in out
+        assert no_delete(out["reply"]) and out["ran"] is False and out["pending_id"] is None and "resend" not in out
     assert desk["search"].calls == [] and desk["gd"].requests == [] and open_cards(desk) == []
     with pytest.raises(ops.OpsError) as typed:
         ops.file_trash(desk["path"], "openhora-mark.png", channel="messaging", sender=PLAIN_KEY)
@@ -284,7 +296,7 @@ def test_a_sender_without_the_group_gets_the_plain_sentence_no_card_and_no_provi
 
 
 def test_vacuity_a_sender_who_holds_the_group_does_not_get_the_sentence(desk):
-    assert say(desk, "Remova o arquivo openhora-mark.png do drive")["reply"] != NO_DELETE
+    assert not pk.said(say(desk, "Remova o arquivo openhora-mark.png do drive")["reply"], "PHONE_NO_FILE_DELETE", PT)
 
 
 # --- lists ------------------------------------------------------------------------------------------------------------------------------------
@@ -295,18 +307,24 @@ def two_matches(desk):
     ops_file_read.forget_lists()
 
 
-LIST_PT = ('Encontrei 2 arquivos que combinam. Qual deles vai para a lixeira? Diga o número, por exemplo "o 2".'  # validate: allow english-only -- the Portuguese sentence under test
-           "\n1. openhora-mark.png - pasta openhora, OneDrive\n2. openhora-mark.png - pasta Arquivos › openhora, Google Drive")  # validate: allow english-only -- the Portuguese sentence under test
+def assert_list(reply):
+    """The reply is the numbered list of the two files that fit: the question, then one line for each."""
+    pick, first, second = reply.split("\n")
+    pk.assert_said(pick, "FT_SEVERAL_PICK", PT, count=2)
+    pk.assert_said(first, "FR_ITEM", PT, n=1, name="openhora-mark.png", folder="openhora", account="OneDrive")
+    pk.assert_said(second, "FR_ITEM", PT, n=2, name="openhora-mark.png", folder="Arquivos › openhora", account="Google Drive")
 
 
 def test_two_matches_give_a_numbered_list_and_o_2_opens_the_card_of_that_file(desk):
     two_matches(desk)
     out = say(desk, "Remova o arquivo openhora-mark.png")
-    assert out["reply"] == LIST_PT and "resend" not in out and open_cards(desk) == []
+    assert_list(out["reply"])
+    assert "resend" not in out and open_cards(desk) == []
     picked = say(desk, "o 2")
     started = started_of(desk, picked)
-    assert picked["reply"] == SENT.format(n=picked["resend"]) and effect_doc(desk, started)["target"]["id"] == fdw.FILE_ID and effect_doc(desk, started)["account"] == "google"
-    assert card_lines(desk, started)[0].startswith("O código move este arquivo"), "a file chosen by its number is the person's choice: the card does not ask"  # validate: allow english-only -- the Portuguese sentence under test
+    card_sent(picked["reply"], picked["resend"])
+    assert effect_doc(desk, started)["target"]["id"] == fdw.FILE_ID and effect_doc(desk, started)["account"] == "google"
+    assert pk.said(card_lines(desk, started)[0], "CARD_FILE_CODE_TRASH", PT), "a file chosen by its number is the person's choice: the card does not ask"
     assert patches(desk["gd"]) == [] and patches(desk["ms"]) == []
 
 
@@ -317,7 +335,7 @@ def test_o_1_opens_the_card_of_the_other_file_and_the_list_lasts_one_line(desk):
     assert effect_doc(desk, started_of(desk, first))["target"]["id"] == f"{fod.DRIVE}/{fod.FILE_ID}"
     say(desk, "Remova o arquivo openhora-mark.png")
     say(desk, "bom dia")
-    assert say(desk, "o 2")["reply"] != SENT.format(n=0) and len(open_cards(desk)) == 1, "a pick after another line opens nothing"
+    assert not pk.said(say(desk, "o 2")["reply"], "ACCT_CARD_SENT", PT, pending=0) and len(open_cards(desk)) == 1, "a pick after another line opens nothing"
 
 
 def test_a_pick_asks_the_right_and_the_grant_again(desk):
@@ -340,7 +358,8 @@ def test_the_same_flow_on_onedrive_opens_the_card_and_after_the_approval_one_del
     lines = card_lines(desk, started)
     assert doc["account"] == "microsoft" and doc["target"] == {"kind": "file", "label": "default", "id": f"{fod.DRIVE}/{fod.FILE_ID}"} and doc["base"]["parent"] == fod.FOLDER_ID
     assert doc["base"]["root"] == "/Documents/openhora" and doc["base"]["path"] == "openhora" and doc["base"]["etag"] == desk["ms"].etag(item_)
-    assert "Arquivo: relatorio.pdf (OneDrive)" in lines and "Pasta: openhora" in lines and "Vai para a lixeira do OneDrive (recuperável enquanto estiver na lixeira)" in lines  # validate: allow english-only -- the Portuguese sentence under test
+    card = "\n".join(lines)
+    assert pk.said(card, "CARD_FILE_NAME", PT, name="relatorio.pdf", service="OneDrive") and pk.said(card, "CARD_FILE_FOLDER", PT, folder="openhora") and pk.said(card, "CARD_FILE_TRASH_ONEDRIVE", PT)
     assert patches(desk["ms"]) == [] and fod.FILE_ID in desk["ms"].items
     done = approve(desk, started, "messaging", OWNER_KEY)
     assert done["result"]["written"] is True and done["result"]["moved_to_trash"] is True and done["result"]["id"] == f"{fod.DRIVE}/{fod.FILE_ID}"
@@ -364,7 +383,7 @@ def test_a_onedrive_file_that_changed_since_the_card_is_stale_and_nothing_is_del
 def test_a_line_the_code_does_not_read_goes_to_the_interpreter_which_chooses_the_operation_and_the_code_finds_the_file(desk):
     desk["answer"]["text"] = json.dumps({"v": 1, "kind": "op", "op": "file-trash", "slots": {"file": "openhora-mark.png", "service": "google drive"}})
     out = say(desk, "Mande para a lixeira o openhora-mark.png do google drive")
-    assert out["reply"] == SENT.format(n=out["resend"])
+    card_sent(out["reply"], out["resend"])
     assert effect_doc(desk, started_of(desk, out))["target"]["id"] == fdw.FILE_ID and patches(desk["gd"]) == []
     assert {s for s, _, _ in desk["search"].calls} == {"google"}, "the account words narrow the search"
 
@@ -439,18 +458,18 @@ def test_the_reviewers_probe_gives_the_plain_sentence_and_lists_no_name_to_a_sen
     desk["gd"].add_file("Probe_ID_0001", "exame-medico.pdf", b"x", mime="application/pdf", parents=(SUB,))
     desk["gd"].add_file("Probe_ID_0002", "senhas.txt", b"x", mime="text/plain", parents=(SUB,))
     out = say(desk, PROBE, WRITER_KEY)
-    assert out["reply"] == NO_DELETE and "resend" not in out and out["pending_id"] is None
+    assert no_delete(out["reply"]) and "resend" not in out and out["pending_id"] is None
     assert "exame" not in out["reply"] and "senhas" not in out["reply"] and "openhora-mark" not in out["reply"]
     assert desk["search"].calls == [] and desk["gd"].requests == [] and open_cards(desk) == []
     for line in ("Remova o arquivo openhora-mark.png do drive", "apague o arquivo senhas"):
-        assert say(desk, line, WRITER_KEY)["reply"] == NO_DELETE
+        assert no_delete(say(desk, line, WRITER_KEY)["reply"])
     assert desk["search"].calls == []
 
 
 def test_vacuity_a_sender_who_holds_files_trash_and_read_files_is_listed_the_names_the_probe_fits(desk):
     desk["gd"].add_file("Probe_ID_0001", "exame-medico.pdf", b"x", mime="application/pdf", parents=(SUB,))
     out = say(desk, PROBE, OWNER_KEY)
-    assert out["reply"] != NO_DELETE and "exame-medico.pdf" in out["reply"], "the oracle can fail: the same probe, for the sender who may see names, lists them"
+    assert not pk.said(out["reply"], "PHONE_NO_FILE_DELETE", PT) and "exame-medico.pdf" in out["reply"], "the oracle can fail: the same probe, for the sender who may see names, lists them"
 
 
 def test_the_typed_operation_and_the_interpreter_also_refuse_a_sender_with_files_write_alone(desk):
@@ -503,7 +522,7 @@ def test_a_project_that_accepted_files_write_sees_files_trash_as_a_widening_with
     with pytest.raises(ops.OpsError):
         ops.accept_config(path, after["sha256"])      # without the hash of the list it is not accepted
     ops.accept_config(path, after["sha256"], widen=after["widening_sha256"])
-    assert say(desk, "Remova o arquivo openhora-mark.png do drive", WRITER_KEY)["reply"] != NO_DELETE
+    assert not pk.said(say(desk, "Remova o arquivo openhora-mark.png do drive", WRITER_KEY)["reply"], "PHONE_NO_FILE_DELETE", PT)
 
 
 def test_files_trash_without_read_files_is_refused_when_the_file_is_accepted_and_with_it_is_accepted(desk):

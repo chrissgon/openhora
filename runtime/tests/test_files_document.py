@@ -17,6 +17,7 @@ import sys
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 fd = st.load("files_document")
@@ -466,8 +467,8 @@ def test_the_card_of_a_trash_asks_is_this_the_one_only_when_the_name_was_not_the
     assert fd.card_lines(inexact, digest)[0][1] == {"name": "openhora-mark.png", "folder": "openhora"}
     assert "CARD_FILE_TRASH_SIZE" not in [key for key, _ in fd.card_lines(make("trash", base=trash_base(size=None)), digest)]
     text = phrases.card_text(fd.card_lines(exact, digest))
-    assert "Goes to the Google Drive trash (recoverable for about 30 days)" in text and "delet" not in text.lower()
-    assert fd.title(exact) == "Files: move a file to the trash"
+    assert pk.said(text, "CARD_FILE_TRASH_DRIVE") and "delet" not in text.lower()
+    assert pk.said(fd.title(exact), "TITLE_FILE_TRASH")
 
 
 def test_the_arguments_of_a_trash_are_closed_and_the_id_is_the_services():
