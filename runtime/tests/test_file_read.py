@@ -59,6 +59,7 @@ ACTIVITIES = f"Atividades da semana\n\nSegunda: ensaio do coral.\nQuarta: visita
 LINE_1 = f"Me traga o conteudo do arquivo {WANTED}"
 LINE_2 = f'Leia o arquivo do meu onedrive com o nome "{WANTED}"'
 PT = {"language": "pt-BR"}
+HEAD = f"{WANTED} (OneDrive, pasta Documentos):\n\n"      # literal: kept only because test_file_send.py imports it (its asserts are T8-5's); this file asserts FR_HEAD through `shown`
 NONE_FOLDERS = "Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive)"      # the names the configuration gives its folders, as the sentence lists them
 REFUSAL = "error: /file-read is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
 
