@@ -62,7 +62,7 @@ SENTENCES = {      # the phrase key of each operation's sentence; the ones that 
     "status": "UNDERSTOOD_STATUS", "progress": "UNDERSTOOD_PROGRESS", "pending": "UNDERSTOOD_PENDING", "task": "UNDERSTOOD_TASK", "agents": "UNDERSTOOD_AGENTS",
     "skills": "UNDERSTOOD_SKILLS", "costs": "UNDERSTOOD_COSTS", "artifacts": "UNDERSTOOD_ARTIFACTS", "artifact": "UNDERSTOOD_ARTIFACT", "instructions": "UNDERSTOOD_INSTRUCTIONS",
     "routines": "UNDERSTOOD_ROUTINES", "sources": "UNDERSTOOD_SOURCES", "attachments": "UNDERSTOOD_ATTACHMENTS", "reminders": "UNDERSTOOD_REMINDERS", "flows": "UNDERSTOOD_FLOWS",
-    "flow-check": "UNDERSTOOD_FLOW_CHECK", "connections": "UNDERSTOOD_CONNECTIONS", "items": "UNDERSTOOD_ITEMS", "file-read": "UNDERSTOOD_FILE_READ", "research": "UNDERSTOOD_RESEARCH",
+    "flow-check": "UNDERSTOOD_FLOW_CHECK", "connections": "UNDERSTOOD_CONNECTIONS", "items": "UNDERSTOOD_ITEMS", "file-read": "UNDERSTOOD_FILE_READ", "file-ask": "UNDERSTOOD_FILE_ASK", "research": "UNDERSTOOD_RESEARCH",
     "mail-read": "UNDERSTOOD_MAIL_READ_N", "todo-list": "UNDERSTOOD_TODO_LIST", "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
     "attachment-add": "UNDERSTOOD_ATTACHMENT_ADD", "attachment-discard": "UNDERSTOOD_ATTACHMENT_DISCARD", "reject": "UNDERSTOOD_REJECT", "release": "UNDERSTOOD_RELEASE"}
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the English abbreviation the operations layer writes (phrases.localize_dates turns it into the language's)
@@ -96,6 +96,8 @@ def incomplete(name: str, args: dict) -> bool:
         return args.get(NUMBER.get(name, "task_id")) is None
     if name == "mail-read":      # CB-3: no number, no words and no day: the reply asks which message (a sentence of its own), not "Shall I go ahead?"
         return not (args.get("number") is not None or any(isinstance(args.get(key), str) and args[key].strip() for key in ("match", "day")))
+    if name == "file-ask":      # FA-1: no name of a file: the line is asked again, not "Shall I go ahead?" about nothing
+        return not (isinstance(args.get("file"), str) and args["file"].strip())
     return name == "research" and not (isinstance(args.get("question"), str) and args["question"].strip())
 
 
@@ -150,6 +152,9 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
         return t(key, flow=_clip(args.get("flow") or "")) if args.get("flow") else t("UNDERSTOOD_FLOWS")
     if name == "file-read":
         return t(key, file=_clip(args.get("file") or ""))
+    if name == "file-ask":      # FA-1: the name of the file (a span of the person's line) and the cap of the run, as for a research
+        cap = ((ctx.get("cfg") or {}).get("file_ask") or {}).get("max_cost_usd")
+        return t(key, file=_clip(args.get("file") or ""), cap=phrases.decimal(f"{float(cap):.2f}", cfg) if isinstance(cap, (int, float)) else "?")
     if name == "mail-read":      # CB-3: the number, or the words and the day of the person's own line (a span `natural` checked), never a word of the message
         words, day = _clip(args.get("match") or ""), _clip(args.get("day") or "")
         if args.get("number") is not None:

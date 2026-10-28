@@ -1,0 +1,20 @@
+{
+ "package": "fa-1",
+ "table": {
+  "UNDERSTOOD_FILE_ASK": "answer about the file “{file}” in your Drive or OneDrive (a model reads the file in an isolated run, up to US$ {cap})",
+  "FA_NOT_BUILT": "I cannot answer questions about files yet: the reader is not installed.",
+  "FA_TOO_LARGE": "I found {name} ({account}), but its text is too large to hand to the reader here.",
+  "FA_DAY_LIMIT": "I already answered {count} questions about files today, which is the limit for a day.",
+  "FA_DAY_LIMIT_ONE": "I already answered 1 question about a file today, which is the limit for a day.",
+  "FA_BUSY": "I am already answering another question; try again in a moment.",
+  "FA_STORED": "(answered about a file)",
+  "FA_REQUEST_TEXT": "question about a file",
+  "FA_READ": "Read: {name} ({account}, folder {folder}).",
+  "FA_READ_ACCOUNT": "Read: {name} ({account}).",
+  "FA_CUT": "… (answer cut)",
+  "FA_FAILED": "I could not answer about the file right now. Try again in a few minutes.",
+  "FA_TIMEOUT": "The question about the file took too long and was stopped.",
+  "FA_CAP": "The question about the file reached its cost limit and was stopped.",
+  "FA_NOT_FOUND": "The file does not hold the answer."
+ }
+}

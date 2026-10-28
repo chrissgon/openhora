@@ -1,0 +1,21 @@
+{
+ "package": "fa-1",
+ "table": {
+  "UNDERSTOOD_FILE_ASK": "responder sobre o arquivo “{file}” do seu Drive ou OneDrive (um modelo lê o arquivo numa execução isolada, até US$ {cap})",
+  "FA_NOT_BUILT": "Ainda não consigo responder perguntas sobre arquivos: o leitor não está instalado.",
+  "FA_TOO_LARGE": "Encontrei {name} ({account}), mas o texto dele é grande demais para eu entregar ao leitor aqui.",
+  "FA_DAY_LIMIT": "Já respondi {count} perguntas sobre arquivos hoje, que é o limite do dia.",
+  "FA_DAY_LIMIT_ONE": "Já respondi 1 pergunta sobre um arquivo hoje, que é o limite do dia.",
+  "FA_BUSY": "Já estou respondendo outra pergunta; tente de novo em instantes.",
+  "FA_STORED": "(respondido sobre um arquivo)",
+  "FA_REQUEST_TEXT": "pergunta sobre um arquivo",
+  "FA_READ": "Lido: {name} ({account}, pasta {folder}).",
+  "FA_READ_ACCOUNT": "Lido: {name} ({account}).",
+  "FA_CUT": "… (resposta cortada)",
+  "FA_FAILED": "Não consegui responder sobre o arquivo agora. Tente de novo em alguns minutos.",
+  "FA_TIMEOUT": "A pergunta sobre o arquivo demorou demais e foi interrompida.",
+  "FA_CAP": "A pergunta sobre o arquivo chegou ao limite de custo e foi interrompida.",
+  "FA_NOT_FOUND": "O arquivo não traz a resposta."
+ },
+ "same_as_english": []
+}

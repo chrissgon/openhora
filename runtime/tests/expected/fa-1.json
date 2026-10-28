@@ -1,0 +1,36 @@
+{
+ "package": "fa-1",
+ "add": {
+  "natural_table.R": [
+   "file-ask"
+  ],
+  "registry_rows.MODEL_ROWS": [
+   "file-ask"
+  ],
+  "registry_rows.OFF_HOST": [
+   "file-ask"
+  ],
+  "registry_rows.SEPARATES": {
+   "file-ask": "project's sources"
+  },
+  "messaging_policy.ON_MESSAGING": [
+   "file-ask"
+  ],
+  "messaging_policy.NOT_PERMITTED_BY_DEFAULT": [
+   "file-ask"
+  ],
+  "mcp.CHANNEL_ARG": [
+   "file-ask"
+  ],
+  "operations_table.PUBLIC_MODULES": [
+   "ops_file_ask"
+  ],
+  "interpreter_coverage.NOT_SERVED": [
+   "file-ask"
+  ],
+  "operations_table.NOT_OPERATIONS": [
+   "purge",
+   "read_whole"
+  ]
+ }
+}

@@ -86,7 +86,7 @@ def test_the_served_catalog_is_unchanged_and_a_line_reaches_none_of_them_at_vers
     by = {r["op"]: r for r in two["ops"]}
     assert by["todo-list"]["class"] == "R" and by["todo-add"]["class"] == "E" and by["todo-done"]["class"] == "E"
     assert by["todo-done"]["what"] == row("todo-done")["natural"]["about"] and "to-do list" in by["todo-add"]["what"], "version 2 serves the text written for the model"
-    assert registry.rows(2)[-3:] and [r["op"] for r in registry.rows(2)][-3:] == list(NEW)
+    assert [r["op"] for r in registry.rows(2) if r["op"] in NEW] == list(NEW), "the three rows are served in their orders (110 to 112; a later package's rows, such as FA-1's 150, come after them)"
 
 
 def test_the_text_that_separates_the_confusables_names_what_each_row_is_not():

@@ -296,6 +296,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return done
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "file-ask":      # FA-1: a question about one file of the person's Drive or OneDrive; the file's text goes only to the quarantined reader (one contained run of the answer skill), code checks its quotes and writes the reply, and the conversation keeps a neutral word (runtime/ops_file_ask.py)
+        return importlib.import_module("ops_file_ask").reply(project, ctx, args, said, channel, sender, extras)
     if name == "mail-read":      # CB-3: the text of one message of the mail snapshots; code writes the reply, no model reads it, and the conversation keeps a neutral word (runtime/ops_mail_read.py)
         return importlib.import_module("ops_mail_read").reply(project, ctx, args, said, channel, sender, extras)
     if name == "todo-list":      # CB-5: the open tasks of the person's own to-do list, read live; code writes the reply and the conversation keeps a neutral word (runtime/ops_todo.py)
