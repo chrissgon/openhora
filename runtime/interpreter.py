@@ -26,8 +26,7 @@ code acts on. Nothing the model writes is ever shown to a person, and nothing it
 The decision, always {"kind", "error"} plus, by kind:
   op        op, args {parameter: value}, spans {slot: span}, time {local "YYYY-MM-DDTHH:MM", source "code"|"model"} | None, inherited [slots], time_disagree; and `target_ground` (a mail target widened
             with the line's subject, or a target of more than six content words that holds its own subject after the sender (BL7-5): the person and the subject without the marker
-            word, the text a message is found by), `target_sender` (for the second kind: the person's part of the target, a piece of the line, which a later rule may require to be in the
-            From), `corrects` (the plan item a correction answers)
+            word, the text a message is found by), `target_sender` (for both kinds: the person's part of the target, a piece of the line, whose words a message's From must hold: GROUNDING-FROM), `corrects` (the plan item a correction answers)
   answer    item (the id), need, and what the item's need asks: slot / span / args, confirm, option, time, time_disagree
   clarify   slot | ops (code writes the question), why: model | time-ask | time-past | time-far | time-gap | time-fold | weekday | private-route | invalid | long-line
   route     none
@@ -910,16 +909,16 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         return _invalid(error)
     if name in EVENT_OPS and "day" in slots and not {"target", "event"} & (set(slots) | set(inherit)):
         return _clarify("no-target", slot="target", op=name)          # a day and no event named: the runtime asks again (`natural`'s IX_ASK_AGAIN), and so does the measure
-    ground = None
+    ground, sender = None, None
     if name in MAIL_TARGET_OPS and "target" in plain:          # BL7-1 (gap 1): the subject the line gives right after the person stays in the target; the wider span passed `_check_slots` again
         wider = _target_with_subject(plain["target"], line, {slot: value for slot, value in plain.items() if slot != "target"}, name)
         if wider != plain["target"]:
             ground = _subject_ground(plain["target"], wider)          # the words grounding reads: the person and the subject, never the marker word ("a respeito de")
+            sender = plain["target"]          # GROUNDING-FROM: the person's part is the model's own target, kept before the widening replaces it
             plain = dict(plain, target=wider)
             args, error = _check_slots(name, plain, line)          # whatever the helper returned is checked as any span of the line, here too: a value that is not in the line is E_SPAN
             if error:
                 return _invalid(error)
-    sender = None
     if ground is None and name in MAIL_TARGET_OPS and "target" in plain:          # BL7-5 (G3): a target of more than six content words that holds its own subject after the sender is grounded the same way
         own = _own_subject_split(plain["target"])
         if own is not None:
@@ -955,7 +954,7 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     if ground:
         decision["target_ground"] = ground          # only for a widened target or a target that holds its own subject: `ops_natural_mail.mail_target_seed` finds the message by the words of this text (the line's own words, no marker word)
         if sender:
-            decision["target_sender"] = sender          # BL7-5: the person's part of such a target (a piece of the line); nothing reads it yet
+            decision["target_sender"] = sender          # BL7-5, GROUNDING-FROM: the person's part of such a target (a piece of the line): `ops_natural_mail.mail_target_seed` requires its words in the From
     return decision
 
 

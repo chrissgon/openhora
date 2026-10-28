@@ -1,0 +1,6 @@
+{
+  "package": "grounding-from",
+  "table": {
+    "NW_MAIL_ASK_SENDER": "No e-mail from that sender holds all of those words. These hold them in the sender or the subject. Answer with the number of the one you mean."
+  }
+}
