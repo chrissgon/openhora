@@ -65,6 +65,8 @@ FREE = (
     ("trash email 2 and the room 4", (), [2]),
     ("trash emails 2, the 5 or 7", (), [2, 5, 7]),          # chained by a comma, an article and "or"
     ("trash email 2 , 4", (), [2, 4]),
+    ("joga no lixo os emails 2 4 e 7", (), [2, 4, 7]),          # a number written right after a counted one is still anchored to the mail noun
+    ("trash email 3 about room 4 5", (), [3]),          # ... but not one after a number that does not count ("room 4")
     ("reply to #7 ok", (), [7]),
     ("trash email 4 of 25 euros", (), [4]),
     ("trash email 6 and 6 again", (), [6]),
@@ -318,6 +320,16 @@ def test_vacuity_a_chain_rule_that_always_chains_counts_the_room_and_a_range_rul
     with monkeypatch.context() as patch:
         patch.setattr(nwm, "_NUMBER_RANGE", nwm.re.compile(r"(?!x)x"))
         assert nwm.free_numbers("trash email 5 and emails 1-3", ()) == [5]
+
+
+def test_vacuity_an_adjacent_rule_that_ignores_whether_the_earlier_number_counted_counts_the_room_number(monkeypatch):
+    assert nwm.free_numbers("trash email 3 about room 4 5", ()) == [3]
+    real = nwm._chained
+
+    def loose(toks, folded, at, counted, articles, joiners):
+        return (at > 0 and toks[at - 1][2].isdigit()) or real(toks, folded, at, counted, articles, joiners)
+    monkeypatch.setattr(nwm, "_chained", loose)
+    assert nwm.free_numbers("trash email 3 about room 4 5", ()) == [3, 5]
 
 
 def test_vacuity_without_the_branch_of_carry_out_the_card_rows_fail(world, clock, monkeypatch):

@@ -35,7 +35,7 @@ reply to several messages is not taken either.
   ground_words(span, tables)                     `target_words` with the cap GROUND_WORDS_MAX (BL7-5): the words of a sender and a subject the interpreter grounded (`target_ground`);
                                                  every one of them is still required by `match_words`, so a longer set only reaches fewer messages, never more
   free_numbers(line, spans=(), tables=None)      the numbers a line writes as MESSAGE numbers, in order, none twice (BL7-5): `#7`, a number right after a mail noun ("email 4", "mensagem 3"),
-                                                 or one chained to such a number by a joiner and an optional article ("emails 2, 4 and the 7"); never a number inside one of `spans`
+                                                 or one chained to such a number (written right after it, or after a joiner and an optional article: "emails 2 4 and the 7"); never a number inside one of `spans`
                                                  (texts of the line), inside a time phrase of `natural_time.find`, followed by a unit, a currency mark or "o'clock", or preceded by a
                                                  currency, and [] in a line with a range ("1-3", "1 a 3", "do 1 ao 3", "between 1 and 3") or when a time hit cannot be mapped to the line.
                                                  It is what a message number the model gave must equal (`ops_natural_mail.mail_number_seed`)
@@ -830,8 +830,8 @@ _WORD_EDGE = ".,;:!?()[]\"'"
 
 def free_numbers(line, spans=(), tables=None) -> list:
     """BL7-5. The whole numbers `line` writes as message numbers, in order, none twice. A word of digits (`#7`, `4,`), as `natural.decision_numbers` reads a number per word, counts only
-    when ALL hold: it is written `#n`, or the word before it is a mail noun of the tables (`email 4`, `e-mails 2`, `mensagem 3`), or it is chained to such a number by a joiner
-    (`and`, `e`, `or`, `ou`, a comma), with an optional article between (`emails 2, 4 e o 7`); it does not overlap an occurrence in the line of one of the texts of `spans` (a body, a
+    when ALL hold: it is written `#n`, or the word before it is a mail noun of the tables (`email 4`, `e-mails 2`, `mensagem 3`), or it is chained to such a number: written right after it (`emails 2 4 e 7`), or after a joiner
+    (`and`, `e`, `or`, `ou`, a comma) with an optional article between (`emails 2, 4 e o 7`); it does not overlap an occurrence in the line of one of the texts of `spans` (a body, a
     folder, a state) nor a time phrase of `natural_time.find` (a clock, a date, a relative time); it is not followed by a unit (`natural.MEASURES`), by `o'clock` or by a currency mark and
     not preceded by a currency. So a count noun ("the 2 budgets"), a year, a room ("room 4", "sala 4") and a phone number are no message number, by construction (principle 13: the stricter
     rule stays). A line with a range between numbers (`1-3`, `1 a 3`, `1 to 3`, `do 1 ao 3`, `between 1 and 3`) gives [], and so does a time phrase that cannot be mapped to the line: it
@@ -889,9 +889,11 @@ def free_numbers(line, spans=(), tables=None) -> list:
 
 
 def _chained(toks, folded, at, counted, articles, joiners) -> bool:
-    """Whether the number word at `at` is chained to a number already counted: an optional article, then a joiner word (or a comma stuck to the earlier number, or a comma word), then that
-    number."""
+    """Whether the number word at `at` is chained to a number already counted: written right after it ("emails 2 4 e 7": still anchored to the mail noun), or after an optional article, then
+    a joiner word (or a comma stuck to the earlier number, or a comma word), then that number."""
     j = at - 1
+    if j in counted:
+        return True
     if j >= 0 and len(folded[j]) == 1 and folded[j][0] in articles:
         j -= 1
     if j < 0:
