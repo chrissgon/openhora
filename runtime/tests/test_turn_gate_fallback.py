@@ -961,7 +961,8 @@ def test_the_pure_functions(tmp_path):
 def test_the_fallback_rows_carry_a_pin_reply_in_their_hash_and_the_daily_route_is_unchanged():
     for route_id in (FIRST, SECOND):
         row = interpreter_route.find(route_id)
-        assert row["pin_reply"] == row["pin"], "written out: the name to compare the reply's provider with (the probe shows the one the router gives)"
+        # written out: the name to compare the reply's provider with, the one the router gives (the probe of the Gemini row showed `google` for its Vertex pin)
+        assert row["pin_reply"] == {FIRST: "google", SECOND: "azure"}[route_id]
         shown = interpreter_route.stdin_route(row)
         assert shown["pin_reply"] == row["pin_reply"]
         assert interpreter_route.route_sha256(dict(row, pin_reply="Another Name")) != interpreter_route.route_sha256(row), "pin_reply is hashed: the entry pins it"
