@@ -439,3 +439,35 @@ def test_the_data_and_fixtures_of_scripts_tests_are_not_read_as_scripts_by_the_e
     _, active, _ = scanner.scan(str(tmp_path))
     assert sorted((f["rule"], f["path"]) for f in active) == [
         ("undeclared-side-effect", "skills/ops-quiet/scripts/data.json"), ("undeclared-side-effect", "skills/ops-quiet/scripts/tests/test_ship.sh")]
+
+
+# ---- the allow file is sorted (HOT-1; SPEC-HOTSPOTS 4.5) ----------------------------------------------------------------------------------------------
+
+def allow_entry_problems(text: str) -> list[str]:
+    """What is wrong with the entry lines of an allow file (the lines that are not blank and not a `#` comment): an entry twice, or entries not in byte order. A new entry then lands at
+    its own sorted place, so two packages conflict only when their paths are neighbours."""
+    entries = [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
+    found = []
+    if len(set(entries)) != len(entries):
+        found.append("an entry is listed twice")
+    if entries != sorted(entries, key=lambda line: line.encode("utf-8")):
+        found.append("the entries are not sorted in byte order")
+    return found
+
+
+def test_the_entries_of_the_allow_file_of_this_repository_are_sorted_and_unique_and_the_scanner_reads_them_as_before():
+    text = (Path(__file__).resolve().parents[2] / ".security-scan-allow").read_text(encoding="utf-8")
+    assert allow_entry_problems(text) == []
+    assert text.splitlines()[:4] == [line for line in text.splitlines()[:4] if line.startswith("#")], "the four header lines stay first"
+    entries, errors = scanner.load_allow_file(str(Path(__file__).resolve().parents[2]))
+    assert errors == [] and len(entries) == len([line for line in text.splitlines() if line.strip() and not line.startswith("#")])
+
+
+def test_vacuity_an_unsorted_or_repeated_allow_file_is_caught(tmp_path):
+    sorted_text = "# header\nfixtures/a.py secret-assignment -- one\nfixtures/b.py secret-assignment -- two\n"
+    assert allow_entry_problems(sorted_text) == []
+    assert allow_entry_problems("# header\nfixtures/b.py secret-assignment -- two\nfixtures/a.py secret-assignment -- one\n") == ["the entries are not sorted in byte order"]
+    assert allow_entry_problems(sorted_text + "fixtures/b.py secret-assignment -- two\n") == ["an entry is listed twice"]
+    write(tmp_path, ".security-scan-allow", "# header\nfixtures/b.py secret-assignment -- two\nfixtures/a.py secret-assignment -- one\n")
+    entries, _ = scanner.load_allow_file(str(tmp_path))
+    assert sorted(path for path, *_ in entries) == ["fixtures/a.py", "fixtures/b.py"], "the order carries no meaning to the scanner"

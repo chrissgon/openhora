@@ -11,7 +11,7 @@ the interpreter's (runtime/ops_interpret.py). `/project [name]` has none: it is 
                           ("muda de projeto"), {"name": <the words after the lead phrase>, "weak": False | True} for a line that changes it ("muda para o projeto northwind"; `weak`: the lead
                           may begin a request about something else, so the bridge takes the line only when the name is a project of the sender), else None
   resolve(name, projects) the exact name of the listed project whose name or id is `name` once both are folded (case, accents, punctuation), else None
-  stop_form(line)         whether the whole line is a stop word of the closed lists `STOP_WORDS` (six languages), which stops the sender's own running research (BL2b; the bridge's `research_stop_line`)
+  stop_form(line)         whether the whole line is a stop word of the closed lists `STOP_WORDS` (six languages), which stops the sender's own running research (BL2b; the kind `research-run` of runtime/messaging_turn.py)
 
 The lists are closed phrases in the six languages the interpreter reads (pt-BR, en, es, fr, de, it), folded the way tier 1 folds a line (`natural.ascii_normal`). A line is a form
 only when it is, whole, polite words, one lead phrase and then at most `NAME_WORDS` words of a name; a longer tail is a request ("usa o projeto como base para planejar a feira") and

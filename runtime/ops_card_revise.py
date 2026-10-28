@@ -7,7 +7,7 @@
 
 The maintainer's rule (2026-10-22): "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" and "Deveria sempre poder editar alguma informacao de algum card".
 A plain line sent right after a card (or as a reply to it) that changes a word of what the card shows replaces the card with a new one; the old card is ended and can never be
-approved. The bridge decides which card a line may be about (runtime/messaging_bridge.py `revise_line`); this file decides what the line is for that card.
+approved. The bridge decides which card a line may be about (runtime/messaging_bridge.py `revise_waiting`, called by the kind `decision-card-revise` of runtime/messaging_turn.py); this file decides what the line is for that card.
 
   card_revise_check(project, pending_id, sha256, text, channel, sender)   None (the line is not about this card: it goes on as it always did), "mail" (a new e-mail card the model
                                                                           rewrites), "event" (an event card changed by the interpreter's verified decision) or "sentence" (a card

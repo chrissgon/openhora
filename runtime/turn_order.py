@@ -9,8 +9,9 @@ spread over three modules, it is decided by the position of a row in this tuple.
 stops at the first one that says it took the line (runtime/messaging_turn.py for the messaging bridge, runtime/ops_turn.py for the operations layer). This file holds no code
 of any claimer and imports nothing: it can be read, checked and diffed by itself, which is the point (a claimer that moves or goes away changes a line here, and a test reads the line).
 
-THE STAGES. `bridge` is the messaging bridge's handling of one update (`Bridge._handle`): the envelope (an update that is dropped, ignored or refused before anything reads its words), the frame
-rows (a line that answers a question that is open, a word that decides a card, a plan or a search), and one row for each kind of line the parse returns. `bridge-say` is the start of
+THE STAGES. `bridge` is the messaging bridge's handling of one update (`Bridge._handle`): the envelope (an update that is dropped, ignored or refused before anything reads its words), the one row
+`frame` (a line that answers something that is open: a question, a word that decides a card, a plan or a search; the pending kinds it dispatches over are `FRAME_KINDS`, S41-8), and one row for each
+kind of line the parse returns. `bridge-say` is the start of
 `Bridge.say`: the two claims made before a free line is queued, and the queueing itself (the last row of every stage always takes the line). `ops` is the operations layer's turn
 (`ops_say.say` and the queue's drain, through `ops_turn.dispatch`): the OK of a plan, a typed command, the lines code answers (a greeting, a request to delete a file, a question about the state, the
 answer to a draft, a number after a list, a write form, a tier-1 form), the router's open question, the interpreter and the planning agent. A row of this stage names, in `channels`, the shells whose
@@ -21,7 +22,8 @@ THE LIMITS. The order is where limits L63(3), L64 and L65 live (code claimers be
 it is checked: the list of the contract's L63 row is read against this table by `runtime/tests/test_ops_turn.py` (the names, in order, and every retired name with its replacement), and
 `runtime/tests/test_turn_order.py` and `test_ops_turn.py` replay the entry corpus with each row disabled and with neighbouring rows swapped. A row is removed only in a change that names, in `RETIRED`, what replaces it and when (L63(3): a claimer is never dropped silently).
 
-`names(stage)` is the one reading of the order, `channels(name)` the shells a row applies to. The names equal `CLAIMER_NAMES` of runtime/tests/entry_kit.py.
+`names(stage)` is the one reading of the order, `kinds()` the order of the pending kinds of the row `frame`, `channels(name)` the shells a row applies to. The names of the rows, with `frame` read as its
+kinds (`FRAME_KIT_NAMES` of runtime/tests/entry_kit.py), equal `CLAIMER_NAMES` of that kit.
 
 Standard library only. Runs on Python 3.9. `python3 runtime/turn_order.py --help` says what it is; `python3 runtime/turn_order.py` lists the rows.
 """
@@ -49,14 +51,8 @@ ORDER = _rows("bridge", (
     ("ignore", "An update with no text, no action and no attachment is ignored."),
     ("forwarded-refusal", "A forwarded message is never a request: one sentence, and nothing of it is read by a draft, a reminder, a write or a card (FWD)."),
     ("reply-to-card", "A natural line that is a reply to a card (not a reminder) becomes the kind reply: it answers that card (NR-1). It takes no line; the rows after it see the rewrite."),
-    # the frame: a line that answers what is open, before any line is read as a new request
-    ("reminder-draft-answer", "The next line of a chat with a question open about a reminder answers it, or drops it and goes on as a new line (NR-1)."),
-    ("reminder-expired-yes", "A yes to a reminder question that expired is told so (NR-1)."),
-    ("write-draft-answer", "A line that answers an open question about a write to the person's accounts (NR-5); any other line drops that question and goes on."),
-    ("plan-confirm-word", "The OK or the refusal of a plan the operations layer asked (the question \"Posso?\"), or a correction: before the card words (D5, limits L64 and L65)."),
-    ("card-word", "An approve or reject word decides the one decision card it can, or lists the cards to choose from (S2, limit L64)."),
-    ("research-stop", "A stop word of the sender's own running research: after the card words, so that a \"no\" with a card as the last message still rejects the card (BL2b, limit L64)."),
-    ("card-revise", "A change of the card that waits, said in words (S13, limit L64)."),
+    # the frame: a line that answers what is open, before any line is read as a new request: ONE row, the dispatcher over the pending kinds (FRAME_KINDS below)
+    ("frame", "A line that answers something that is open (a question about a reminder or a write, the OK of a plan, a word on a decision card, the stop of a search, a change of the card that waits) is taken by the first of the pending kinds, in the order of FRAME_KINDS, that reads it (S41-8; PLAN-BRAIN section 3)."),
     ("project-switch", "\"Change to the project X\", the typed /project said in words (S20)."),
     ("help-in-words", "\"help\" in words is the typed /help (the fixed list), unless the line is a greeting the sender may talk to (S5)."),
     ("attachment-line", "A line about the file just sent: discard it, add it to the project (ATT-3)."),
@@ -104,10 +100,31 @@ ORDER = _rows("bridge", (
     ("planning-agent", "Every other line goes to the planning agent, or is the answer to its open question. This row always takes the line.", EVERY_SHELL),
 ))
 
+# The pending kinds the row `frame` dispatches over, in today's precedence (S41-8; PLAN-BRAIN section 3, "one dispatcher decides a sim or a correction across all pending kinds"). A kind is code in
+# runtime/messaging_turn.py (`KINDS`): `applies` reads the line and the turn, and `take` does the call. The first kind whose `applies` is true and whose `take` took the line ends the frame; a
+# `take` that returns False after its side effect (the write question dropped by any other line) lets the next kind read the line.
+FRAME_KINDS = (
+    {"name": "reminder-draft", "what": "The next line of a chat with a question open about a reminder answers it, or drops it and goes on as a new line (NR-1)."},
+    {"name": "reminder-expired", "what": "A yes to a reminder question that expired is told so (NR-1)."},
+    {"name": "write-draft", "what": "A line that answers an open question about a write to the person's accounts (NR-5); any other line drops that question and goes on."},
+    {"name": "plan-confirm", "what": "The OK or the refusal of a plan the operations layer asked (the question \"Posso?\"), or a correction: before the card words (D5, limits L64 and L65)."},
+    {"name": "decision-card-word", "what": "An approve or reject word decides the one decision card it can, or lists the cards to choose from; the two-open guard PLAN_TWO_OPEN is a rule of this kind (S2, limit L64)."},
+    {"name": "research-run", "what": "A stop word of the sender's own running research: after the card words, so that a \"no\" with a card as the last message still rejects the card (BL2b, limit L64)."},
+    {"name": "decision-card-revise", "what": "A change of the card that waits, said in words (S13, limit L64)."},
+)
+
 # A row that left the table: {"name", "replaced_by", "date"} (filled by S41-8 and S41-11; L63(3) names the replacement in its row, in the sentence "Replaced so far", and a test reads it there).
 # `s20-verb-lists` is a claimer that left before the table existed: the closed verb lists of slice S20, replaced by the plan-confirm OK of L65 (2026-10-24).
+FRAME_REPLACEMENT = "frame (runtime/turn_order.py FRAME_KINDS, the one dispatcher of PLAN-BRAIN §3)"
 RETIRED: tuple = (
     {"name": "s20-verb-lists", "replaced_by": "the plan-confirm OK of L65", "date": "2026-10-24"},
+    {"name": "reminder-draft-answer", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "reminder-expired-yes", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "write-draft-answer", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "plan-confirm-word", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "card-word", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "research-stop", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "card-revise", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
 )
 
 
@@ -116,6 +133,11 @@ def names(stage: str) -> tuple:
     if stage not in STAGES:
         raise ValueError(f"no stage {stage!r}: {', '.join(STAGES)}")
     return tuple(row["name"] for row in ORDER if row["stage"] == stage)
+
+
+def kinds() -> tuple:
+    """The names of the pending kinds of the row `frame`, in the order they read a line (read at each call, as `names` is)."""
+    return tuple(kind["name"] for kind in FRAME_KINDS)
 
 
 def channels(name: str) -> tuple:

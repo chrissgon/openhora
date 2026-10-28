@@ -7,10 +7,13 @@ Run: uv run --with pytest pytest scripts/tests/test_architecture_tables.py
 """
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "architecture_tables.py"
@@ -62,10 +65,15 @@ RUNTIME_CONTRACT = """# Runtime
 
 ## The limits
 
-| # | Limit | Built by | Test |
-|---|---|---|---|
-| L1 | A copy is new | stage 2 | anything |
-| L2 | A record \\| only grows | stage 4 | anything |
+One paragraph each. A paragraph that is not an entry is prose.
+
+**L1.** A copy is new
+Built by: stage 2. Test: anything.
+
+**L2.** A record | only grows
+Built by: stage 4. Test: anything.
+
+**Drafted, not in force.** Not an entry: a paragraph of prose.
 """
 
 LIMIT_TESTS = """def test_limit_01_a_copy_is_new():
@@ -275,12 +283,42 @@ def run(*args):
     return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, timeout=60)
 
 
+DIFFERS = "differs from its source"
+
+
+def blocks_failing(stale, mode):
+    """The problems of `stale_blocks` that fail a run in `mode` (WB_GENERATED_BLOCKS). `strict` (a batch, main, a push, the nightly run) is every one. Anything else, the default `lenient` (a pull
+    request into the integration branch: a package never regenerates a block, the batch does), leaves out a block that only differs from its source: an unknown table or an unreadable source
+    still fails, so a broken generator or a renamed source is caught on every pull request (HOT-1; SPEC-HOTSPOTS 4.4)."""
+    return list(stale) if mode == "strict" else [item for item in stale if item[2] != DIFFERS]
+
+
 def test_the_blocks_of_this_repository_are_current():
-    assert tables.stale_blocks(str(REPO)) == []
+    assert blocks_failing(tables.stale_blocks(str(REPO)), os.environ.get("WB_GENERATED_BLOCKS", "lenient")) == []
     named = set()
     for page in tables.pages(str(REPO)):
         named |= {m.group(2) for m in tables.BLOCK_RE.finditer((REPO / page).read_text(encoding="utf-8"))}
     assert named == set(tables.TABLES), "every table is used by a page, and a page names only known tables"
+
+
+def test_a_block_that_only_differs_from_its_source_fails_in_strict_mode_and_not_in_lenient_mode_and_nothing_else_is_left_out(tmp_path):
+    root = fixture(tmp_path)
+    page = root / "docs/architecture/platform/page.md"
+    assert tables.write(str(root)) == []
+    assert blocks_failing(tables.stale_blocks(str(root)), "strict") == [] == blocks_failing(tables.stale_blocks(str(root)), "lenient")
+    first = tables.BLOCK_RE.search(page.read_text(encoding="utf-8"))
+    page.write_text(page.read_text(encoding="utf-8").replace(first.group(3), "stale\n", 1), encoding="utf-8")      # one block behind its source
+    stale = tables.stale_blocks(str(root))
+    assert [item[2] for item in stale] == [DIFFERS]
+    assert blocks_failing(stale, "strict") == stale, "strict fails a block behind its source"
+    assert blocks_failing(stale, "lenient") == [] and blocks_failing(stale, "") == [] and blocks_failing(stale, "anything else") == [], "lenient, and every unknown value, does not"
+    # vacuity: the two problems that must still fail in lenient mode
+    page.write_text(page.read_text(encoding="utf-8") + "\n<!-- generated: no-such-table -->\nx\n<!-- /generated -->\n", encoding="utf-8")
+    unknown = [item for item in tables.stale_blocks(str(root)) if item[1] == "no-such-table"]
+    assert [item[2] for item in unknown] == ["unknown table"] and blocks_failing(unknown, "lenient") == unknown
+    (root / "runtime/operations.py").write_text("OPERATIONS = compute()\n", encoding="utf-8")      # a source that cannot be read as a literal
+    unreadable = [item for item in tables.stale_blocks(str(root)) if item[2].startswith("source not readable")]
+    assert unreadable and blocks_failing(unreadable, "lenient") == unreadable and blocks_failing(unreadable, "strict") == unreadable
 
 
 def test_check_names_each_stale_block_and_write_makes_them_current(tmp_path):
@@ -365,6 +403,24 @@ def test_an_unknown_table_or_a_missing_source_is_named_and_the_block_kept(tmp_pa
     assert "no-such-table: unknown table" in written.stderr and "dispatcher-jobs: source not readable" in written.stderr
     assert "kept" in page.read_text(encoding="utf-8") and block(root, "dispatcher-jobs") == "stale\n"
     assert block(root, "limits") != "stale\n"
+
+
+def test_the_limits_are_read_from_their_paragraphs_and_a_malformed_entry_is_refused_not_dropped(tmp_path):
+    """Vacuity of the reader: a planted entry that is not in the form stops it, naming the entry, where a reader that skipped it would leave a limit unlisted."""
+    root = fixture(tmp_path)
+    assert tables._limit_entries((root / "contracts/runtime.md").read_text(encoding="utf-8")) == [
+        ["L1", "A copy is new", "stage 2", "anything"], ["L2", "A record | only grows", "stage 4", "anything"]]
+    contract = root / "contracts/runtime.md"
+    for broken in ("**L3.** No second line\n\n", "**L3.** One\nBuilt by: stage 2\n\n", "**L3.** One\nBuilt by: stage 2. Test: anything\n\n"):
+        contract.write_text(RUNTIME_CONTRACT.replace("**Drafted", broken + "**Drafted"), encoding="utf-8")
+        with pytest.raises(tables.SourceError, match="not '"):
+            tables.limits(str(root))
+    contract.write_text(RUNTIME_CONTRACT.replace("## The limits", "## Something else"), encoding="utf-8")
+    with pytest.raises(tables.SourceError, match="no heading"):
+        tables.limits(str(root))
+    contract.write_text(RUNTIME_CONTRACT.split("**L1.**")[0], encoding="utf-8")
+    with pytest.raises(tables.SourceError, match="no limit entry"):
+        tables.limits(str(root))
 
 
 def test_usage_errors_exit_2_on_stderr(tmp_path):

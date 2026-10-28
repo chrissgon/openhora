@@ -22,6 +22,7 @@ import time
 import pytest
 
 import standin_tree as st
+from expected_kit import extend
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
 from test_service import Standin, WAIT
 
@@ -30,6 +31,11 @@ ops = st.load("ops")
 operations = st.load("operations")
 plans = st.load("plan")
 service = st.load("service")
+
+# The operations that take the channel as an argument (the shell gives it, the client cannot), in the order of the table; a package adds its own through expected/ (HOT-1).
+CHANNEL_ARG_BASE = ["route", "task", "pending", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "instructions-set",
+    "instructions-add", "routine-create", "routine-change", "routine-pause", "event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"]
+CHANNEL_ARG = extend("mcp.CHANNEL_ARG", CHANNEL_ARG_BASE)
 
 STANDARD_LIBRARY = {"__future__", "datetime", "hashlib", "io", "json", "os", "signal", "sys", "threading", "time", "traceback"}
 SENTENCE = "an effect is approved in the terminal, with its hash"
@@ -327,8 +333,8 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "task", "pending", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "instructions-set",
-                                                                                         "instructions-add", "routine-create", "routine-change", "routine-pause", "event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"]
+    found = [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")]
+    assert [n for n in found if n in CHANNEL_ARG_BASE] == CHANNEL_ARG_BASE and set(found) == set(CHANNEL_ARG)
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
     assert "mcp" not in operations.by_name("set-mode")["channels"] and "chat" not in operations.by_name("set-mode")["channels"]

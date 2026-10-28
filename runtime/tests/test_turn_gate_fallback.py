@@ -523,6 +523,7 @@ def test_record_attempts_with_a_plain_result_is_the_old_record(monkeypatch):
 
 
 def test_the_fallback_gets_the_primarys_text_byte_for_byte_with_the_same_settings_and_nothing_is_logged(tmp_path, monkeypatch, capsys, caplog):
+    Frozen(monkeypatch)      # the fallback's deadline is what is left of the line's: with the real clock, a 0.5 ms read gap made it 5999 and the assertion below flaky
     model = Model(monkeypatch, {PRIMARY: "E_TIMEOUT"})
     with caplog.at_level(0):
         line(tmp_path)

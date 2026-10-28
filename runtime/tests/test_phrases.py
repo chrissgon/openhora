@@ -8,6 +8,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_phrases.py
 from __future__ import annotations
 
 import ast
+import json
 import re
 import string
 
@@ -28,6 +29,10 @@ ops_ask = st.load("ops_ask")
 
 EN, PT = phrases.TABLE["en"], phrases.TABLE["pt-BR"]
 PT_CFG = {"language": "pt-BR"}
+SAME_CORE = {"HEADER", "ATT_SUBTYPE_PDF", "OUT_ACCT_GOOGLE", "OUT_ACCT_MICROSOFT",
+             "FAIL_SERVICE_FILES_GOOGLE", "FAIL_SERVICE_FILES_MICROSOFT", "FAIL_SERVICE_MAIL_GOOGLE", "FAIL_SERVICE_MAIL_MICROSOFT",
+             "FR_GOOGLE", "FR_MICROSOFT", "FR_FOLDER",
+             "SRC_TWIN", "NW_ITEMS_UNREAD_MARK"}      # the sentences of the core that are the same in both languages; a part declares its own (`same_as_english`)
 TOKENS = re.compile(r"(?<![\w/])/[a-z][\w-]*|@[\w<>]+")
 
 
@@ -51,15 +56,90 @@ def literal(path, name):
 
 
 def test_each_column_is_a_pure_literal_with_no_key_twice_and_the_portuguese_one_has_a_module_of_its_own():
-    english = literal("phrases.py", "TABLE").values[0]            # the "en" column; the "pt-BR" one is the data module's
+    english = literal("phrases.py", "_CORE_EN")                  # the English core; the Portuguese core is the data module's, and the parts add to both
     portuguese = literal("phrases_pt_br.py", "TABLE")
-    assert ast.literal_eval(english) == phrases.TABLE["en"] and ast.literal_eval(portuguese) == phrases.TABLE["pt-BR"], "a table that holds code is not a table a reviewer reads"
+    assert {**ast.literal_eval(english), **phrases._PART_EN} == phrases.TABLE["en"] and {**ast.literal_eval(portuguese), **phrases._PART_PT} == phrases.TABLE["pt-BR"], (
+        "a table that holds code is not a table a reviewer reads")
     for column in (english, portuguese, literal("phrases.py", "STATUS").values[0], literal("phrases_pt_br.py", "STATUS")):
         keys = [k.value for k in column.keys]
         assert len(keys) == len(set(keys)), sorted(k for k in keys if keys.count(k) > 1)
     module = ast.parse((st.RUNTIME / "phrases_pt_br.py").read_text(encoding="utf-8"))
     assert [type(n).__name__ for n in module.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))] == ["ImportFrom", "Assign", "Assign"], "data only"
     assert not re.search("[" + "".join(chr(code) for code in (0xE3, 0xF5, 0xE7)) + "]", (st.RUNTIME / "phrases.py").read_text(encoding="utf-8")), "phrases.py stays English: the exemption is the data module's alone"
+
+
+# --- the part files (SPEC-HOTSPOTS): the keys a package adds -------------------------------------------------------------------------------------------
+
+
+def write_part(folder, package, en=None, pt=None, same=None, stem=None):
+    """A pair of part files under `folder`, as a package writes them (a fictional key and sentence); `en` or `pt` None leaves that file out."""
+    stem = stem or package
+    if en is not None:
+        (folder / f"{stem}.en.json").write_text(json.dumps({"package": package, "table": en}), encoding="utf-8")
+    if pt is not None:
+        (folder / f"{stem}.pt-BR.json").write_text(json.dumps({"package": package, "table": pt, "same_as_english": same or []}), encoding="utf-8")
+
+
+def test_the_part_files_of_the_real_folder_load_and_are_merged_after_the_core():
+    en, pt, same = phrases.load_parts(phrases.PARTS_DIR)
+    assert (en, pt) == (phrases._PART_EN, phrases._PART_PT) and frozenset(same) == phrases.SAME_AS_ENGLISH and set(same) <= set(en)
+    assert phrases.PARTS_DIR == str(st.RUNTIME / "phrases_parts") and (st.RUNTIME / "phrases_parts").is_dir()
+    core_en, core_pt = ast.literal_eval(literal("phrases.py", "_CORE_EN")), ast.literal_eval(literal("phrases_pt_br.py", "TABLE"))
+    assert not set(en) & set(core_en) and not set(pt) & set(core_pt), "a part never repeats a core key"
+    assert list(phrases.TABLE["en"]) == list(core_en) + list(en) and list(phrases.TABLE["pt-BR"]) == list(core_pt) + list(pt), "the core first, then the parts in file order"
+
+
+def test_a_part_adds_keys_in_both_languages_and_a_folder_with_no_part_adds_none(tmp_path):
+    assert phrases.load_parts(str(tmp_path)) == ({}, {}, []) and phrases.load_parts(str(tmp_path / "missing")) == ({}, {}, [])
+    write_part(tmp_path, "zz-9", {"ZZ_ONE": "One {n}.", "ZZ_BRAND": "Acme"}, {"ZZ_ONE": "Um {n}.", "ZZ_BRAND": "Acme"}, same=["ZZ_BRAND"])
+    write_part(tmp_path, "aa-1", {"AA_ONE": "First."}, {"AA_ONE": "Primeiro."})
+    en, pt, same = phrases.load_parts(str(tmp_path), core=EN)
+    assert list(en) == ["AA_ONE", "ZZ_ONE", "ZZ_BRAND"], "the packages in sorted order"
+    assert pt == {"AA_ONE": "Primeiro.", "ZZ_ONE": "Um {n}.", "ZZ_BRAND": "Acme"} and same == ["ZZ_BRAND"]
+
+
+def test_a_part_is_refused_when_it_would_override_or_is_not_a_pair(tmp_path):
+    """The planted wrong inputs: each fails, naming the files; the right one beside them loads."""
+    write_part(tmp_path, "ok-1", {"OK_ONE": "One."}, {"OK_ONE": "Um."})
+    assert phrases.load_parts(str(tmp_path), core=EN)[0] == {"OK_ONE": "One."}
+    write_part(tmp_path, "dup-1", {"OK_ONE": "Again."}, {"OK_ONE": "De novo."})
+    with pytest.raises(ValueError, match=r"dup-1\.en\.json and ok-1\.en\.json|ok-1\.en\.json and dup-1\.en\.json"):
+        phrases.load_parts(str(tmp_path), core=EN)           # the same key in two parts
+    (tmp_path / "dup-1.en.json").unlink(), (tmp_path / "dup-1.pt-BR.json").unlink()
+    write_part(tmp_path, "core-1", {"STALE": "Mine."}, {"STALE": "Meu."})
+    with pytest.raises(ValueError, match=r"core-1\.en\.json: key STALE is already in the core"):
+        phrases.load_parts(str(tmp_path))                    # a key of the core, under the default core
+    (tmp_path / "core-1.en.json").unlink(), (tmp_path / "core-1.pt-BR.json").unlink()
+    write_part(tmp_path, "solo-1", {"SOLO_ONE": "Alone."}, None)
+    with pytest.raises(ValueError, match=r"solo-1\.en\.json: no pair"):
+        phrases.load_parts(str(tmp_path), core=EN)           # an English file with no Portuguese file
+    (tmp_path / "solo-1.en.json").unlink()
+    write_part(tmp_path, "odd-1", {"ODD_A": "A."}, {"ODD_B": "B."})
+    with pytest.raises(ValueError, match=r"odd-1\.en\.json and odd-1\.pt-BR\.json: the two files have different keys"):
+        phrases.load_parts(str(tmp_path), core=EN)
+    (tmp_path / "odd-1.en.json").unlink(), (tmp_path / "odd-1.pt-BR.json").unlink()
+    write_part(tmp_path, "other-1", {"OTHER_ONE": "O."}, {"OTHER_ONE": "O."}, stem="named-1")
+    with pytest.raises(ValueError, match=r"named-1\.en\.json: package 'other-1' is not the file's stem"):
+        phrases.load_parts(str(tmp_path), core=EN)
+    (tmp_path / "named-1.en.json").unlink(), (tmp_path / "named-1.pt-BR.json").unlink()
+    write_part(tmp_path, "same-1", {"SAME_ONE": "S."}, {"SAME_ONE": "S."}, same=["SAME_MISSING"])
+    with pytest.raises(ValueError, match=r"same-1\.pt-BR\.json: same_as_english"):
+        phrases.load_parts(str(tmp_path), core=EN)
+    (tmp_path / "same-1.en.json").unlink(), (tmp_path / "same-1.pt-BR.json").unlink()
+    (tmp_path / "bad_name.en.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="bad_name.en.json: a part file is named"):
+        phrases.load_parts(str(tmp_path), core=EN)
+    (tmp_path / "bad_name.en.json").unlink()
+    (tmp_path / "bad-1.en.json").write_text("{", encoding="utf-8")
+    (tmp_path / "bad-1.pt-BR.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"bad-1\.en\.json: not valid JSON"):
+        phrases.load_parts(str(tmp_path), core=EN)
+
+
+def undeclared_same(en, pt, declared):
+    """The keys whose two sentences are equal and that nobody declared, and the declared keys that are not equal: both must be empty."""
+    equal = {key for key in en if en[key] == pt.get(key)}
+    return sorted(equal ^ set(declared))
 
 
 def test_every_key_is_in_every_language_with_the_same_fields():
@@ -82,14 +162,18 @@ def test_the_angle_bracket_arguments_of_a_command_are_not_translated():
 
 
 def test_the_portuguese_column_is_translated_and_says_plataforma_never_bancada():
-    same = {key for key in EN if EN[key] == PT[key]}
-    assert same == {"HEADER", "ATT_SUBTYPE_PDF", "OUT_ACCT_GOOGLE", "OUT_ACCT_MICROSOFT",
-                    "FAIL_SERVICE_FILES_GOOGLE", "FAIL_SERVICE_FILES_MICROSOFT", "FAIL_SERVICE_MAIL_GOOGLE", "FAIL_SERVICE_MAIL_MICROSOFT",
-                    "FR_GOOGLE", "FR_MICROSOFT", "FR_FOLDER",
-                    "SRC_TWIN"}, "only a sentence that is the same in both languages is the same"
+    assert undeclared_same(EN, PT, SAME_CORE | phrases.SAME_AS_ENGLISH) == [], "only a sentence that is the same in both languages is the same"
     assert not any("bancada" in text.lower() for text in PT.values())
     left = {key: re.findall(r"\b(?:the|and|you|your|with|from|this|that|was|were)\b", text) for key, text in PT.items() if key != "HELP"}
     assert {key: words for key, words in left.items() if words} == {}, "no English word left in a sentence"
+
+
+def test_a_sentence_equal_in_both_languages_must_be_declared_and_a_declared_one_must_be_equal():
+    """Vacuity of the `same` check above, on planted tables: it fails on a wrong result in either direction."""
+    en, pt = {"A": "Acme", "B": "Hello"}, {"A": "Acme", "B": "Ola"}
+    assert undeclared_same(en, pt, {"A"}) == []
+    assert undeclared_same(en, pt, set()) == ["A"], "equal and not declared"
+    assert undeclared_same(en, pt, {"A", "B"}) == ["B"], "declared and not equal"
 
 
 def test_the_spaces_at_the_ends_of_a_sentence_are_the_same_in_both_languages_and_no_sentence_carries_markup():

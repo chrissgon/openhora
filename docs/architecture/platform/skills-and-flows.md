@@ -365,6 +365,8 @@ Each invariant with its guard. A rule of `scripts/validate.py` is named in brack
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the artifacts and their owners, added).
 - 2026-10-09: the page is brought to the code of the central branch: the flow files and the roles the runtime is wired to are generated blocks (WP-D.1), and counts that a folder or a block states left the prose; the manifests are described by kind (whole and partial), the design pack and flow, the social agent's skills run as contained runs and the agent file is read by the first runtime only; the isolated runner's reach and the social handlers' plain subprocesses until WP-7.6 are stated with their tests; the layer map guards a skill script's reach; the flow-file and architecture-tables rules of the validator, `--spec` and the checks of the flow files, manifests and roles file are in the rules and the entry points; the rows closed by merged changes (bands, agents' version, the packs README, N2 and N6, the warning count) are deleted, and the open limits (finding 9 and finding 17) have rows.

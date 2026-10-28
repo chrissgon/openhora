@@ -220,6 +220,8 @@ Each invariant with its guard. A rule of `scripts/validate.py` is named in brack
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-09: brought to the contracts as they are. The runtime contract's cell now names what it gained since 2026-10-06, by topic: the table of operations and the commands the runtime names, the configuration's acceptance and the narrowing code may accept, the contained run, the local service, the MCP mode, the shell kit, the dispatch by default, the held reasons and the spend split. Also: the state file's sections in the contract's order, the key proxy paragraph of the secrets contract, the vote data's other readers, the agent skeleton's placeholders, the doctor's two flags, and `integration:documents` (in the verbs table, in neither list of classes). Four known-limit rows closed by merged contract edits were deleted, and so was the row on the contract's two lagging lines (the packs with a whole manifest and the handlers row), once the contract carried the five packs and the four handler files.
 - 2026-10-09: the secret store's service is `openhora`, with the old service read as a fallback for one stage (removed with T23); the sentence of the secrets contract is the source.

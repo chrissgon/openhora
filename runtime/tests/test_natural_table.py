@@ -12,20 +12,21 @@ import re
 import pytest
 
 import standin_tree as st
+from expected_kit import extend
 
 natural = st.load("natural")
 operations = st.load("operations")
 phrases = st.load("phrases")
 nt = st.load("natural_time")
 
-R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
-N = {"remind", "reminder-forget", "reminder-restore"}
-W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
+R = extend("natural_table.R", {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"})      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
+N = extend("natural_table.N", {"remind", "reminder-forget", "reminder-restore"})
+W = extend("natural_table.W", {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"})
 D = {"approve", "reject", "release", "answer", "go-ahead"}
-E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-     "file-create", "file-replace", "file-save", "file-trash"}
-WORK = {"say", "request", "route", "ask"}
+E = extend("natural_table.E", {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
+     "file-create", "file-replace", "file-save", "file-trash"})
+WORK = extend("natural_table.WORK", {"say", "request", "route", "ask"})
 GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
@@ -52,7 +53,8 @@ def test_every_operation_of_the_table_has_a_row_and_one_class_so_that_nothing_is
     assert not missing, f"operations with no class in runtime/natural.py CLASSES: {missing}"
     assert not sorted(OPS - set(natural.NATURAL)), "operations with no row in NATURAL"
     assert set(natural.CLASSES) == OPS, sorted(set(natural.CLASSES) ^ OPS)      # a class for something that is not an operation: nothing is planned any more
-    assert set(natural.NATURAL) == set(natural.CLASSES)
+    served = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] <= operations.LINE_CATALOG}      # CB-0: what a line may reach; a row of a later catalog version has a class and no line row
+    assert set(natural.NATURAL) == served and served <= set(natural.CLASSES)
     assert set(natural.CLASSES.values()) <= CLASS_SET
 
 

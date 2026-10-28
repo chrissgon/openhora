@@ -25,10 +25,15 @@ The golden, `entry_golden.jsonl`, is the outcome of every scenario on the tree a
 
 A later package never records it again: a difference is the finding. A change of the golden is a reviewed decision (runtime/README.md, "The entry replay").
 
+THE BASE IS CLOSED (HOT-1; SPEC-HOTSPOTS 4.1). `entry_corpus.jsonl`, `entry_golden.jsonl` (its header included) and the tables of this script take no new scenario. A package that adds scenarios writes
+`runtime/tests/entry_ext/<id>.scenarios.jsonl` (the corpus keys in the corpus order, every id starting with `<id>.`, an optional `model_text` for the stand-in model's answer to the scenario's
+text) and records `entry_ext/<id>.golden.jsonl` with `--record-package <id>`; the replay reads the base and every package. Two packages conflict only on a row they both edit.
+
   python3 runtime/tests/entry_corpus_build.py            writes entry_corpus.jsonl
   python3 runtime/tests/entry_corpus_build.py --stats    the number of scenarios by channel, claimer and source
-  uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-added    adds the rows of the scenarios the golden does not hold (the rows it holds stay as they are)
-  uv run --with pytest==9.1.1 python3 runtime/tests/entry_corpus_build.py --check    fails when the committed corpus is not what this script writes or a scenario is not well formed
+  uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-package <id>    records entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl
+  python3 runtime/tests/entry_corpus_build.py --record-added    refuses: the base golden is closed (use --record-package)
+  uv run --with pytest==9.1.1 python3 runtime/tests/entry_corpus_build.py --check    fails when the committed corpus is not what this script writes, a scenario is not well formed, or a file of entry_ext/ has a problem
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record    records the golden
 
 Writing the corpus needs only the standard library; `--check` imports the kit (the vocabulary of a scenario) and `--record` starts pytest, which the runtime's test fixtures need. Every name, address and sender is invented; the lines of the sampled corpora are the fictional ones the repository holds.
@@ -338,18 +343,6 @@ OPS_GROUPS = {
 }
 
 
-# BL7-4: the lines of the second blind set that code refused or drew wrong, as scenarios (appended with `--record-added`; the rows before them are the golden's). A deadline date inside a reminder
-# (the row `reminder-form` claims the line before the interpreter: one confirmed reading, a reminder draft, no model call); a plain no on a live plan answered by the model as `confirm: no`, and (a
-# different line, since a stand-in answer is keyed by its line) as `none`; and a draft of a note that the model named as a mail draft, which goes to the planning agent. The model's texts are
-# `entry_kit.OVERRIDES`.
-BL74 = {
-    "deadline": [S("Remind me tomorrow at 9am to renew the parking permit before it expires on the 15th.")],
-    "plan_no": [S("N\u00e3o, deixa pra l\u00e1, depois eu vejo isso com calma.", "plan_last")],
-    "plan_none": [S("N\u00e3o, deixa pra l\u00e1, eu vejo isso depois com calma.", "plan_last")],
-    "draft_route": [S("draft a nice note to the neighbours about our party on saturday")],
-}
-
-
 # --- generation ---------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -418,9 +411,6 @@ def generate(full: bool = False) -> tuple:
     for name, rows in OPS_GROUPS.items():
         for n, scenario in enumerate(rows, 1):
             add(f"opscomp.{name}.{n:02d}", scenario)
-    for name, rows in BL74.items():
-        for n, scenario in enumerate(rows, 1):
-            add(f"bl74.{name}.{n:02d}", scenario)
     return scenarios, expectations
 
 
@@ -502,61 +492,59 @@ def record(workers: int) -> int:
     return 0
 
 
-def answers_problem(header: dict, added: list):
-    """BL7-4: a sentence when the table of recorded answers the stand-in reads, taken WITHOUT the model texts keyed by the lines of the scenarios being added, is not the table the golden's header
-    hashes (`answers_sha256`): an existing recorded answer or override changed, and a recorded row may then be stale. None when the only change is the added scenarios' own texts."""
-    sys.path.insert(0, str(HERE))
-    import entry_kit  # noqa: E402  (heavy: only the recording imports it)
-    if entry_kit.answers_sha256_without([s.get("text") for s in added]) != header.get("answers_sha256"):
-        return "the table of recorded answers, without the added scenarios' own texts, is not the one the golden was recorded with: an existing answer or override changed, so a recorded row may be stale; stop and review"
-    return None
-
-
 def record_added(workers: int, commit: str) -> int:
-    """Extend the golden with the scenarios of the corpus that it does not hold (S41-1b): only those are run, the rows that exist stay as they are, byte for byte; the header gets the new
-    corpus hash and count (and the hash of the table of answers, which a scenario's own model text moves), and one entry in `extensions` naming the commit the new rows were recorded at."""
+    """The base golden is closed (SPEC-HOTSPOTS, HOT-1): the old extension of it is replaced by one file of rows per package, `--record-package`."""
+    print("the base golden is closed (SPEC-HOTSPOTS): write runtime/tests/entry_ext/<id>.scenarios.jsonl and run --record-package <id>", file=sys.stderr)
+    return 2
+
+
+def ext_problems() -> list:
+    """The problems of the files of entry_ext/ (the kit reads them; heavy, so imported here)."""
+    sys.path.insert(0, str(HERE))
+    import entry_kit  # noqa: E402
+    return entry_kit.ext_problems()
+
+
+def record_package(package: str, workers: int) -> int:
+    """Record the golden of one package: only `entry_ext/<package>.scenarios.jsonl` is run, through the replay in record mode with `WB_ENTRY_RECORD_SET=<package>`; the header holds the commit this tree
+    is at, the hash of the scenarios file, the hash of the package's model texts and the count. Refuses when a file of entry_ext/ has a problem, and when the golden of the package exists (it is
+    recorded once; a later change is a reviewed decision)."""
     import tempfile
-    held = read_rows(GOLDEN_FILE)
-    header, rows = held[0], held[1:]
-    known = {row["id"] for row in rows}
-    scenarios = read_rows(CORPUS_FILE)
-    if [row["id"] for row in rows] != [s["id"] for s in scenarios][:len(rows)]:
-        print("the golden's rows are not the first rows of the corpus, in its order", file=sys.stderr)
-        return 1
-    added = [s["id"] for s in scenarios if s["id"] not in known]
-    if not added:
-        print("nothing to add", file=sys.stderr)
-        return 0
-    problem = answers_problem(header, [s for s in scenarios if s["id"] in set(added)])
-    if problem:
-        print(problem, file=sys.stderr)
-        return 1
-    folder = tempfile.mkdtemp(prefix="entry-golden-added-")
-    only = "^(" + "|".join(__import__("re").escape(i) for i in added) + ")$"
-    env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_ONLY=only)
+    sys.path.insert(0, str(HERE))
+    import entry_kit  # noqa: E402
+    if not entry_kit.EXT_ID.match(package) or package not in entry_kit.ext_packages():
+        print(f"{package}: no file entry_ext/{package}.scenarios.jsonl (the id is lower case words joined by hyphens)", file=sys.stderr)
+        return 2
+    problems = entry_kit.ext_problems()
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 2
+    golden = entry_kit.EXT_DIR / f"{package}.golden.jsonl"
+    if golden.exists() and os.environ.get("WB_ENTRY_RECORD_AGAIN") != "yes, a reviewed decision":
+        print(f"{golden.name} exists: it is recorded once, and changed only as a reviewed decision (runtime/README.md, 'The entry replay')", file=sys.stderr)
+        return 2
+    folder = tempfile.mkdtemp(prefix="entry-golden-package-")
+    env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_RECORD_SET=package)
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(HERE / "test_entry_replay.py"), "-k", "record_the_golden"]
     if workers > 1:
         command += ["-n", str(workers)]
     code = subprocess.call(command, env=env, cwd=str(REPO))
     if code != 0:
         return code
-    new = {}
+    rows = {}
     for shard in sorted(Path(folder).glob("shard-*.jsonl")):
         for row in read_rows(shard):
-            new[row["id"]] = row
-    missing = [i for i in added if i not in new]
+            rows[row["id"]] = row
+    scenarios = entry_kit.ext_scenarios(package)
+    missing = [s["id"] for s in scenarios if s["id"] not in rows]
     if missing:
         print(f"{len(missing)} scenarios were not recorded, the first is {missing[0]}", file=sys.stderr)
         return 1
-    lines = GOLDEN_FILE.read_text(encoding="utf-8").splitlines()[1:]
-    answers = {json.loads(path.read_text())["answers_sha256"] for path in Path(folder).glob("meta-*.json")}
-    if len(answers) != 1:
-        print("the shards read different tables of recorded answers", file=sys.stderr)
-        return 1
-    header = dict(header, corpus_sha256=sha256_of(CORPUS_FILE), count=len(scenarios), answers_sha256=answers.pop())      # BL7-4: a new scenario may bring hand-written model texts (`entry_kit.OVERRIDES`, keyed by its own line), so the table's hash moves; no recorded row reads them
-    header["extensions"] = list(header.get("extensions", [])) + [{"commit": commit, "added": len(added), "note": "rows recorded later, on the tree at this commit; the rows before them are untouched"}]
-    GOLDEN_FILE.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "\n".join(lines) + "\n" + "".join(json.dumps(new[i], ensure_ascii=False) + "\n" for i in added), encoding="utf-8")
-    print(f"{len(added)} rows added to the golden, recorded at {commit[:9]}", file=sys.stderr)
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip()
+    header = {"header": True, "package": package, "commit": commit, "scenarios_sha256": sha256_of(entry_kit.EXT_DIR / f"{package}.scenarios.jsonl"),
+              "overrides_sha256": entry_kit.overrides_sha256(package), "count": len(scenarios)}
+    golden.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "".join(json.dumps(rows[s["id"]], ensure_ascii=False) + "\n" for s in scenarios), encoding="utf-8")
+    print(f"golden of {len(scenarios)} scenarios of {package} recorded at {commit[:9]}", file=sys.stderr)
     return 0
 
 
@@ -564,7 +552,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Write the corpus of the entry replay, check it, or record the golden of the tree it runs on.")
     parser.add_argument("--check", action="store_true", help="fail when the committed corpus is not what this script writes")
     parser.add_argument("--record", action="store_true", help="record entry_golden.jsonl on the tree as it is now (once; never to change a golden)")
-    parser.add_argument("--record-added", action="store_true", help="add to the golden the rows of the scenarios it does not hold (S41-1b); the rows it holds are not run or changed")
+    parser.add_argument("--record-added", action="store_true", help="refused: the base golden is closed; use --record-package")
+    parser.add_argument("--record-package", metavar="ID", help="record entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl (HOT-1)")
     parser.add_argument("--stats", action="store_true", help="print the number of scenarios by channel, source and claimer")
     parser.add_argument("--full", action="store_true", help="take every line of the sampled corpora (the same as WB_FULL_FUZZ=1); written to entry_corpus_full.jsonl, never committed")
     parser.add_argument("--workers", type=int, default=4, help="pytest-xdist workers of --record (default 4)")
@@ -574,12 +563,14 @@ def main(argv=None) -> int:
         print(stats())
         return 0
     if args.check:
-        problems = check_corpus()
+        problems = check_corpus() + ext_problems()
         for problem in problems:
             print(problem, file=sys.stderr)
         return 1 if problems else 0
     if args.record:
         return record(args.workers)
+    if args.record_package:
+        return record_package(args.record_package, args.workers)
     if args.record_added:
         return record_added(args.workers, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip())
     count = write_corpus(full, HERE / ("entry_corpus_full.jsonl" if full else "entry_corpus.jsonl"))

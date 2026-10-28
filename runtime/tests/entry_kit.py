@@ -14,7 +14,7 @@ read and write the same files as the process would; `FastMessenger` is what save
 
 THE CLAIMER TRACE (test-side only, nothing in runtime/ changes). `trace_claimers` wraps the methods and functions that claim a line today and records the first one that took it, per
 layer; a claimer that is a branch of its dispatcher (a kind of intent, an inline test) is named from the facts the wrappers saw. `CLAIMER_NAMES` are exactly the row names that S41-2 and
-S41-3 give `turn_order.ORDER`, so that their tables can assert equality.
+S41-3 gave `turn_order.ORDER`, so that their tables can assert equality (S41-8: the frame's seven are its kinds, `FRAME_KIT_NAMES`).
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_entry_replay.py
 """
@@ -79,6 +79,7 @@ drafts = st.load("drafts")
 lab = st.load("lab")
 bridge = st.load("messaging_bridge")
 inbound = st.load("messaging_inbound")
+messaging_turn = st.load("messaging_turn")
 ack = st.load("messaging_ack")
 providers = st.load("messaging_provider")
 sources_module = st.load("sources")
@@ -110,6 +111,10 @@ BRIDGE_SAY_NAMES = ("delete-refusal-before-queue", "closed-form-without-slot", "
 OPS_NAMES = ("confirmed-plan", "command", "greeting", "plan-bare-word", "delete-file", "router-question", "state-question", "draft-answer", "event-list-number", "file-list-number",
              "write-form-ops", "tier-1-form", "talk-refusal", "interpreter", "planning-agent")
 CLAIMER_NAMES = BRIDGE_NAMES + BRIDGE_SAY_NAMES + OPS_NAMES
+# S41-8: the seven claimers that answered what is open are the pending kinds of the one row `frame` of `turn_order.ORDER`. The golden names them as it was recorded, by the claimer, so the kit's
+# trace keeps those names (a kind's `take` is wrapped, below) and this table is the one place that says which kind of `turn_order.FRAME_KINDS` each name is.
+FRAME_KIT_NAMES = {"reminder-draft": "reminder-draft-answer", "reminder-expired": "reminder-expired-yes", "write-draft": "write-draft-answer", "plan-confirm": "plan-confirm-word",
+                   "decision-card-word": "card-word", "research-run": "research-stop", "decision-card-revise": "card-revise"}
 
 # What is hidden when two outcomes are compared: every run of digits (an id, a position, a day, an hour, a count) and every word made only of hexadecimal characters that is six or more
 # long (a hash, the random identifier of a plan or of a folder, a project's key). A different WORD is never hidden: a phrase key that changes shows as a different text. One regex,
@@ -140,6 +145,7 @@ PLAN_LINE = "mostra minha agenda"      # validate: allow english-only -- the Por
 EVENT_LIST_LINE = "Cancela o corte de cabelo"      # two events of the calendar of `snapshots` carry the title: the list "Which one?" and its numbers
 LATER_MESSAGE = "A reminder: water the plants."
 SETTLE_SECONDS = 20.0
+HELD_SECONDS = 120.0      # how long a search that the pre-state holds waits to be released (a bound against a hung test, not a timing of the scenario: the line releases it)
 QUIET_SECONDS = 0.35
 
 BLOCKED_STARTS = ("providers/model/", "providers/writer/")      # no provider process is started: the writer the runtime asks for a dry run and an event is the stand-in below
@@ -212,13 +218,6 @@ def answers_sha256() -> str:
     return hashlib.sha256(json.dumps(sorted(table.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def answers_sha256_without(lines) -> str:
-    """`answers_sha256` of the table without the keys of `lines` (the model texts that belong to the scenarios a package adds, keyed by their own line): what the table was before them."""
-    drop = {collapse(line) for line in lines if line}
-    table = {key: value for key, value in {**answers(), **OVERRIDES}.items() if key not in drop}
-    return hashlib.sha256(json.dumps(sorted(table.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
-
-
 class StandInModel:
     """The one function every model call of the runtime reaches, `interpreter_route.complete`, answered from a table keyed by the collapsed line (the recorded DeepSeek text where an
     answers file holds the line, else `{"kind": "route"}`), counting its calls."""
@@ -232,6 +231,7 @@ class StandInModel:
         line = user.rsplit("\nline: ", 1)[-1] if "\nline: " in user else ""
         self.lines.append(line)
         text = OVERRIDES.get(collapse(line)) if line else None
+        text = EXT_OVERRIDES.get(collapse(line)) if line and text is None else text      # HOT-1: the model texts of the packages' scenarios, after the base ones
         text = answers().get(collapse(line)) if line and text is None else text
         return {"ok": True, "text": text if text is not None else json.dumps({"v": 1, "kind": "route"}), "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"}
 
@@ -279,14 +279,6 @@ ROUTER_ANSWERS = ("um evento", "an event, 13:00, the Linden clinic", "sim, um ev
 OVERRIDES.update({collapse(line): json.dumps({"v": 1, "kind": "answer", "answers_item": "i1"}) for line in ROUTER_ANSWERS})
 OVERRIDES.update({collapse(RESEARCH_LINE): op_text("research", {"question": RESEARCH_LINE}), collapse(FILE_LIST_LINE): op_text("file-read", {"file": WANTED}),
                   collapse(EVENT_LIST_LINE): op_text("event-cancel")})
-BL74_DEADLINE_LINE = "Remind me tomorrow at 9am to renew the parking permit before it expires on the 15th."
-BL74_PLAN_NO_LINE = "N\u00e3o, deixa pra l\u00e1, depois eu vejo isso com calma."      # validate: allow english-only -- the Portuguese line under test
-BL74_PLAN_NONE_LINE = "N\u00e3o, deixa pra l\u00e1, eu vejo isso depois com calma."      # validate: allow english-only -- the Portuguese line under test
-BL74_DRAFT_LINE = "draft a nice note to the neighbours about our party on saturday"
-OVERRIDES.update({collapse(BL74_DEADLINE_LINE): op_text("remind", {"text": "renew the parking permit before it expires on the 15th", "when": "tomorrow at 9am"}, time_iso="2026-10-20T09:00", weekday="tue"),
-                  collapse(BL74_PLAN_NO_LINE): json.dumps({"v": 1, "kind": "answer", "answers_item": "i1", "confirm": "no"}),
-                  collapse(BL74_PLAN_NONE_LINE): json.dumps({"v": 1, "kind": "none"}),
-                  collapse(BL74_DRAFT_LINE): op_text("mail-draft", {"body": "a nice note to the neighbours about our party on saturday"})})
 
 
 # --- the stand-in messenger, in this process ----------------------------------------------------------------------------------------------------------
@@ -458,10 +450,8 @@ def trace_claimers(monkeypatch):
     wrap(monkeypatch, bridge.remind.Reminders, "answer", bridge_event(0), "truthy", "reminder-draft-answer")
     wrap(monkeypatch, bridge.remind.Reminders, "late", bridge_event(0), "truthy", "reminder-expired-yes")
     wrap(monkeypatch, bridge.Bridge, "write_answers", bridge_event(0), "truthy", "write-draft-answer")
-    wrap(monkeypatch, bridge.Bridge, "plan_line", bridge_event(0), "truthy", "plan-confirm-word")
-    wrap(monkeypatch, bridge.Bridge, "word_line", bridge_event(0), "truthy", "card-word")
-    wrap(monkeypatch, bridge.Bridge, "research_stop_line", bridge_event(0), "truthy", "research-stop")
-    wrap(monkeypatch, bridge.Bridge, "revise_line", bridge_event(0), "truthy", "card-revise")
+    for kind in ("plan-confirm", "decision-card-word", "research-run", "decision-card-revise"):      # S41-8: the call of the kind, what `plan_line`, `word_line`, `research_stop_line` and `revise_line` were
+        wrap(monkeypatch, messaging_turn.KINDS[kind], "take", bridge_event(0), "truthy", FRAME_KIT_NAMES[kind])
     wrap(monkeypatch, bridge.Bridge, "project_line", bridge_event(0), "truthy", "project-switch")
     wrap(monkeypatch, bridge.Bridge, "greets", ("fact", "greets_false"), "false")      # "help" in words is the fixed help only when the line is no greeting
     wrap(monkeypatch, bridge.attach.Attachments, "line", bridge_event(0), "truthy", "attachment-line")
@@ -846,24 +836,28 @@ def prestate_plan_not_last(w):
 
 
 def prestate_research_running(w):
+    """A search of the owner's runs and is held. Nothing in it depends on a timer being faster than the machine: the line that asks the question gets no acknowledgement (a timer of 0.2 s fired on a loaded
+    machine, its send began, and it reached the chat AFTER the question, which was then not the last message: the owner's yes was refused and no search began), the owner's yes is the line whose
+    acknowledgement is waited for, and the held search is released by the line, not by a 10 s bound (the bound was reached on a loaded machine and the search answered before the line)."""
     release, started = threading.Event(), threading.Event()
     w.release = release
-    w.monkeypatch.setattr(ack, "ACK_DELAY", 0.2)      # the search tells the person the word that stops it, after this long: the pre-state waits for that message, as the guard tests of the brake do
+    w.monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the line that asks the question is answered by the question, and never acknowledged
 
     class Held(FakeRun):
         def __call__(self, *args, **kwargs):
             started.set()
-            release.wait(WAIT)
+            release.wait(HELD_SECONDS)
             return super().__call__(*args, **kwargs)
     w.research_run = Held()
     w.monkeypatch.setattr(lab, "stop_runs", lambda *a, **k: release.set())
     w.b.ask(RESEARCH_LINE)
+    asked = len(w.b.texts(OWNER))
+    w.monkeypatch.setattr(ack, "ACK_DELAY", 0.2)      # the search tells the person the word that stops it, after this long: the owner's yes is the line it is for
     say_yes(w)
     w.refs["plan"] = None
-    wait_for(started.is_set, SETTLE_SECONDS)
+    assert wait_for(started.is_set, SETTLE_SECONDS), f"the pre-state research_running: the search began after the owner's yes (the chat: {[t[:40] for t in w.b.texts(OWNER)]}, the plan still waits: {ops.plan_live(w.path, OWNER_KEY) is not None})"      # never go on with a state that was not reached
     wait_for(lambda: bool(w.b.bridge.exclusive), SETTLE_SECONDS)
-    told = phrases.text("ACK_RESEARCH", ops_core.context(w.path)["cfg"])
-    wait_for(lambda: told in w.b.texts(OWNER), SETTLE_SECONDS)      # the acknowledgement is the last message now, and the question is not
+    assert wait_for(lambda: len(w.b.texts(OWNER)) > asked and w.b.bridge.last_sent.get(OWNER) is not None, SETTLE_SECONDS), "the pre-state research_running: the search's acknowledgement is the last message"      # the acknowledgement is the last message now, and the question is not
     w.monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)
     w.held = [t for t in list(w.b.bridge.threads) if t.is_alive()]
 
@@ -1257,4 +1251,165 @@ def check_scenario(scenario):
         problems.append("a tap names its button")
     if scenario.get("kind") != "attachment" and scenario.get("action") == "invalid":
         problems.append("invalid attachments need kind attachment")
+    return problems
+
+
+# --- the scenarios of the packages (HOT-1; SPEC-HOTSPOTS 4.1) -----------------------------------------------------------------------------------------
+# The base corpus and the base golden are closed. A package writes `entry_ext/<id>.scenarios.jsonl` and records `entry_ext/<id>.golden.jsonl` with `entry_corpus_build.py --record-package <id>`.
+# Every function takes the folder, so that a test can plant a fictional one; the module constants are read when the function runs.
+
+EXT_DIR = HERE / "entry_ext"
+EXT_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+EXT_KEYS = SCENARIO_KEYS + ("model_text",)      # the corpus keys in the corpus order, then the stand-in model's answer for the scenario's text (optional)
+EXT_GOLDEN_KEYS = ("header", "package", "commit", "scenarios_sha256", "overrides_sha256", "count")
+
+
+def ext_packages(folder=None) -> list:
+    """The ids of the packages that have a scenarios file, sorted."""
+    folder = Path(folder or EXT_DIR)
+    return sorted(path.name[: -len(".scenarios.jsonl")] for path in folder.glob("*.scenarios.jsonl")) if folder.is_dir() else []
+
+
+def ext_rows(package, folder=None) -> list:
+    """The rows of a package's scenarios file as written (with `model_text` where there is one)."""
+    return read_jsonl(Path(folder or EXT_DIR) / f"{package}.scenarios.jsonl")
+
+
+def ext_scenarios(package, folder=None) -> list:
+    """The scenarios of a package, as the replay takes them: the corpus keys only."""
+    return [{key: row[key] for key in row if key != "model_text"} for row in ext_rows(package, folder)]
+
+
+def ext_overrides(package, folder=None) -> dict:
+    """{collapse(text): model_text} of the rows of a package that carry a `model_text` (what an `OVERRIDES` entry is in the base)."""
+    table = {}
+    for row in ext_rows(package, folder):
+        if row.get("model_text") is not None and row.get("text"):
+            table.setdefault(collapse(row["text"]), row["model_text"])
+    return table
+
+
+def all_scenarios(folder=None) -> list:
+    """The base corpus, then each package's scenarios in the order of the sorted package ids."""
+    rows = read_jsonl(CORPUS_FILE)
+    for package in ext_packages(folder):
+        rows += ext_scenarios(package, folder)
+    return rows
+
+
+def ext_overrides_union(folder=None) -> dict:
+    table = {}
+    for package in ext_packages(folder):
+        table.update(ext_overrides(package, folder))
+    return table
+
+
+EXT_OVERRIDES = ext_overrides_union()      # built once; the stand-in model reads it after OVERRIDES
+
+
+def override_problems(folder=None) -> list:
+    """The problems of the packages' model texts: a key that is already an answer of the base (a recorded answer or an `OVERRIDES` entry), a key of two packages, or the key of a scenario
+    that is not the package's own. With none of them, a package's texts can change no other scenario's answer."""
+    folder = Path(folder or EXT_DIR)
+    problems = []
+    base = set(answers()) | set(OVERRIDES)
+    packages = ext_packages(folder)
+    keys = {package: ext_overrides(package, folder) for package in packages}
+    for package in packages:
+        outside = {collapse(s["text"]) for s in read_jsonl(CORPUS_FILE) if s.get("text")}
+        for other in packages:
+            if other != package:
+                outside |= {collapse(s["text"]) for s in ext_scenarios(other, folder) if s.get("text")}
+        for key in keys[package]:
+            if key in base:
+                problems.append(f"{package}: the model text for {key!r} would replace an answer of the base (answers() or OVERRIDES)")
+            for other in packages:
+                if other != package and key in keys[other]:
+                    problems.append(f"{package}: the model text for {key!r} is also a key of {other}")
+            if key in outside:
+                problems.append(f"{package}: the model text for {key!r} would change the answer of a scenario that is not its own")
+    return problems
+
+
+def ext_render(rows) -> str:
+    return "".join(json.dumps(row, ensure_ascii=False, sort_keys=False) + "\n" for row in rows)
+
+
+def ext_problems(folder=None) -> list:
+    """The problems of the files of `entry_ext/`: the file names, the id prefix, the ids (unique across the base and every package), the shape of each scenario, the canonical form of the
+    file, `model_text` consistent per text, and `override_problems()`."""
+    folder = Path(folder or EXT_DIR)
+    problems = []
+    seen = {row["id"] for row in read_jsonl(CORPUS_FILE)}
+    if folder.is_dir():
+        for path in sorted(folder.iterdir()):
+            if path.name.endswith((".scenarios.jsonl", ".golden.jsonl")):
+                if not EXT_ID.match(path.name.split(".", 1)[0]):
+                    problems.append(f"{path.name}: the package id is lower case words joined by hyphens")
+            elif path.name != "README.md":
+                problems.append(f"{path.name}: not a file of the packages' scenarios")
+        for path in sorted(folder.glob("*.golden.jsonl")):
+            if not (folder / path.name.replace(".golden.jsonl", ".scenarios.jsonl")).is_file():
+                problems.append(f"{path.name}: a golden without its scenarios file")
+    for package in ext_packages(folder):
+        rows = ext_rows(package, folder)
+        text = (folder / f"{package}.scenarios.jsonl").read_text(encoding="utf-8")
+        model = {}
+        for row in rows:
+            name = str(row.get("id"))
+            if not name.startswith(f"{package}."):
+                problems.append(f"{package}: the id {name} does not start with {package}.")
+            if name in seen:
+                problems.append(f"{package}: the id {name} is not unique")
+            seen.add(name)
+            keys = [key for key in row]
+            if keys not in (list(SCENARIO_KEYS), list(EXT_KEYS)):
+                problems.append(f"{name}: keys {keys}, the corpus keys in the corpus order, then an optional model_text")
+            for problem in check_scenario({key: row[key] for key in row if key != "model_text"}):
+                problems.append(f"{name}: {problem}")
+            if "model_text" in row:
+                if not isinstance(row["model_text"], str) or not row["model_text"]:
+                    problems.append(f"{name}: model_text is a non-empty string")
+                elif row.get("text") and model.setdefault(collapse(row["text"]), row["model_text"]) != row["model_text"]:
+                    problems.append(f"{name}: two rows with the same text carry different model texts")
+        if text != ext_render(rows):
+            problems.append(f"{package}.scenarios.jsonl is not in canonical form (one compact JSON object per line, keys in order, a newline after each)")
+    return problems + override_problems(folder)
+
+
+def overrides_sha256(package, folder=None) -> str:
+    return hashlib.sha256(json.dumps(sorted(ext_overrides(package, folder).items()), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def ext_golden(package, folder=None) -> tuple:
+    """(header, [rows]) of a package's golden file."""
+    rows = read_jsonl(Path(folder or EXT_DIR) / f"{package}.golden.jsonl")
+    return rows[0], rows[1:]
+
+
+def package_golden_problems(package, folder=None) -> list:
+    """What differs between a package's golden file and its scenarios file: the ids and their order, the hash of the scenarios, the hash of the model texts, the count, the commit."""
+    folder = Path(folder or EXT_DIR)
+    path = folder / f"{package}.golden.jsonl"
+    if not path.is_file():
+        return [f"{package}: no golden file (run entry_corpus_build.py --record-package {package})"]
+    header, rows = ext_golden(package, folder)
+    scenarios = ext_scenarios(package, folder)
+    problems = []
+    if list(header) != list(EXT_GOLDEN_KEYS) or header.get("header") is not True:
+        problems.append(f"{package}: the header keys are {list(header)}")
+    if header.get("package") != package:
+        problems.append(f"{package}: the header names the package {header.get('package')!r}")
+    if [row.get("id") for row in rows] != [s["id"] for s in scenarios]:
+        problems.append(f"{package}: the golden holds other ids than the scenarios file, or in another order")
+    if any(set(row) != {"id", "outcome"} for row in rows):
+        problems.append(f"{package}: a golden row is not {{id, outcome}}")
+    if header.get("scenarios_sha256") != corpus_sha256(folder / f"{package}.scenarios.jsonl"):
+        problems.append(f"{package}: the scenarios are not the ones the golden was recorded from")
+    if header.get("overrides_sha256") != overrides_sha256(package, folder):
+        problems.append(f"{package}: the model texts are not the ones the golden was recorded with")
+    if header.get("count") != len(scenarios):
+        problems.append(f"{package}: the count is {header.get('count')}, the scenarios are {len(scenarios)}")
+    if not (isinstance(header.get("commit"), str) and len(header["commit"]) >= 7):
+        problems.append(f"{package}: the commit is missing")
     return problems

@@ -1,4 +1,7 @@
 """The entry replay (package S41-1; PLAN-BRAIN section 4 step 1): the outcome of every scenario of `entry_corpus.jsonl` must be the outcome recorded in `entry_golden.jsonl`, field by field.
+Since HOT-1 the set is the base (closed) and the scenarios of every package, each package in two files of `entry_ext/` (`<id>.scenarios.jsonl`, `<id>.golden.jsonl`): `corpus()` and `golden()`
+return the whole set, so every test below covers the package rows too; `test_the_golden_matches_the_corpus` keeps its assertions on the base files, and
+`test_every_package_golden_matches_its_scenarios` holds each package's.
 
 WHAT THIS HOLDS. The golden was recorded ONCE, on the tree as it was before any package of step 1 moved the order of the claimers (the commit is in its header). Every later package that
 changes who takes a line first (S41-2 and S41-3: one table of order, S41-8: one frame dispatcher) runs this file and must leave every outcome as it is: the claimer trace, the operations
@@ -43,7 +46,10 @@ import test_service  # noqa: F401
 import test_sources_mail  # noqa: F401
 
 bridge = st.load("messaging_bridge")
+messaging_turn = st.load("messaging_turn")
 ops_turn = st.load("ops_turn")
+turn_order = st.load("turn_order")
+KINDS = messaging_turn.KINDS      # S41-8: the claimers that answered what is open are the kinds of the row `frame`; a hook disables one by its `applies`
 
 SHARDS = 4
 RECORDING = os.environ.get("WB_ENTRY_RECORD") == "1"
@@ -52,13 +58,33 @@ MAX_SHOWN = 12
 
 
 def corpus() -> list:
+    """The base corpus, then the scenarios of every package (entry_ext/), in the order of their sorted ids."""
+    return ek.all_scenarios()
+
+
+def base_corpus() -> list:
     return ek.read_jsonl(ek.CORPUS_FILE)
 
 
 def golden() -> tuple:
-    """(header, {id: outcome}) of the committed golden."""
+    """(the base header, {id: outcome}) of the committed golden of the base and of every package."""
+    rows = ek.read_jsonl(ek.GOLDEN_FILE)
+    outcomes = {row["id"]: row["outcome"] for row in rows[1:]}
+    for package in ek.ext_packages():
+        outcomes.update({row["id"]: row["outcome"] for row in ek.ext_golden(package)[1]})
+    return rows[0], outcomes
+
+
+def base_golden() -> tuple:
+    """(header, {id: outcome}) of the base golden file alone."""
     rows = ek.read_jsonl(ek.GOLDEN_FILE)
     return rows[0], {row["id"]: row["outcome"] for row in rows[1:]}
+
+
+def record_corpus() -> list:
+    """The scenarios a recording run takes: the base (the default) or the one package named by WB_ENTRY_RECORD_SET."""
+    chosen = os.environ.get("WB_ENTRY_RECORD_SET", "base")
+    return base_corpus() if chosen == "base" else ek.ext_scenarios(chosen)
 
 
 def shard_of(scenarios: list, shard: int) -> list:
@@ -98,7 +124,7 @@ def test_record_the_golden(shard, tmp_path):
     out = Path(os.environ["WB_ENTRY_RECORD_DIR"]) / f"shard-{shard}.jsonl"
     rows, times = [], []
     only = os.environ.get("WB_ENTRY_ONLY")      # a regular expression on the ids: an exploratory record of part of the corpus (the builder's --record never sets it)
-    for scenario in shard_of(corpus(), shard):
+    for scenario in shard_of(record_corpus(), shard):
         if only is None or re.search(only, scenario["id"]):
             started = time.monotonic()
             rows.append({"id": scenario["id"], "outcome": replay(scenario, tmp_path)})
@@ -144,13 +170,59 @@ def test_no_model_and_no_provider_call_was_made(tmp_path):
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_the_golden_matches_the_corpus():
-    header, recorded = golden()
-    scenarios = corpus()
+    header, recorded = base_golden()
+    scenarios = base_corpus()
     assert [s["id"] for s in scenarios] == list(recorded), "the golden holds the scenarios of the corpus, in its order"
     assert header["corpus_sha256"] == ek.corpus_sha256(), "the corpus is the one the golden was recorded from"
     assert header["answers_sha256"] == ek.answers_sha256(), "the recorded answers the stand-in model reads (entry_kit.ANSWER_FILES and OVERRIDES) are the ones the golden was recorded with"
     assert header["count"] == len(scenarios) and header["commit"] and len(header["commit"]) >= 7
     assert [s["id"] for s in scenarios] == [s["id"] for s in build.generate(False)[0]], "the corpus is what entry_corpus_build.py writes"
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_package_golden_matches_its_scenarios():
+    """HOT-1: for each package of entry_ext/, its golden holds its scenarios' ids in order, the hash of its scenarios file and of its model texts, the count and a commit; the files of entry_ext/
+    have no problem (names, ids, shapes, canonical form, model texts that change no other scenario's answer)."""
+    assert ek.ext_problems() == []
+    for package in ek.ext_packages():
+        assert ek.package_golden_problems(package) == [], package
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_vacuity_a_package_golden_is_replayed_and_checked_and_a_wrong_row_or_hash_is_seen(tmp_path, monkeypatch):
+    """A fictional package folder with two scenarios copied from the base under new ids, recorded by the replay's own `replay`: its golden has no problem and every row replays to its outcome; a
+    planted wrong outcome is a difference, a planted wrong hash, id or count is a problem, and a model text keyed on a base scenario's text is a problem of `override_problems`."""
+    folder = tmp_path / "entry_ext"
+    folder.mkdir()
+    monkeypatch.setattr(ek, "EXT_DIR", folder)
+    base = base_corpus()
+    rows = [dict(dict(item, id=f"zz-plant.copy.0{n}")) for n, item in enumerate((base[0], base[40]), 1)]
+    (folder / "zz-plant.scenarios.jsonl").write_text(ek.ext_render(rows), encoding="utf-8")
+    assert ek.ext_problems(folder) == []
+    scenarios = ek.ext_scenarios("zz-plant", folder)
+    assert [s["id"] for s in ek.all_scenarios(folder)][-2:] == ["zz-plant.copy.01", "zz-plant.copy.02"]
+    outcomes = [{"id": s["id"], "outcome": replay(s, tmp_path)} for s in scenarios]
+    header = {"header": True, "package": "zz-plant", "commit": "0123456789", "scenarios_sha256": ek.corpus_sha256(folder / "zz-plant.scenarios.jsonl"),
+              "overrides_sha256": ek.overrides_sha256("zz-plant", folder), "count": 2}
+    golden_file = folder / "zz-plant.golden.jsonl"
+    golden_file.write_text(ek.ext_render([header] + outcomes), encoding="utf-8")
+    assert ek.package_golden_problems("zz-plant", folder) == []
+    assert golden()[1]["zz-plant.copy.01"] == outcomes[0]["outcome"], "golden() holds the package rows"
+    for scenario, row in zip(scenarios, outcomes):
+        assert differences(row["outcome"], replay(scenario, tmp_path)) == []
+    wrong = json.loads(json.dumps(outcomes[0]["outcome"]))
+    wrong["sent"] = wrong["sent"] + [{"to": "nobody", "text": "a planted message", "flags": {}}]
+    assert differences(wrong, outcomes[0]["outcome"]), "a planted wrong outcome is seen by the comparator"
+    for field, value in (("scenarios_sha256", "0" * 64), ("overrides_sha256", "0" * 64), ("count", 3), ("package", "zz-other"), ("commit", "abc")):
+        golden_file.write_text(ek.ext_render([dict(header, **{field: value})] + outcomes), encoding="utf-8")
+        assert ek.package_golden_problems("zz-plant", folder), field
+    golden_file.write_text(ek.ext_render([header] + outcomes[::-1]), encoding="utf-8")
+    assert ek.package_golden_problems("zz-plant", folder), "ids in another order"
+    golden_file.unlink()
+    assert ek.package_golden_problems("zz-plant", folder), "a package without a golden"
+    own = dict(rows[0], model_text="{}")
+    (folder / "zz-plant.scenarios.jsonl").write_text(ek.ext_render([own, rows[1]]), encoding="utf-8")
+    assert ek.override_problems(folder), "a model text keyed on a text that a base scenario also has would change that scenario's answer"
 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
@@ -261,7 +333,7 @@ def test_the_corpus_and_the_golden_hold_no_machine_path_no_real_address_and_no_t
     """Fictional data only (the review of the package checks it by hand too): no path of a machine, every address on an invented domain (`.example`, `example.com`, or a bot suffix of a
     command), no string the scan reads as a credential."""
     import re
-    for path in (ek.CORPUS_FILE, ek.GOLDEN_FILE):
+    for path in (ek.CORPUS_FILE, ek.GOLDEN_FILE, *sorted(ek.EXT_DIR.glob("*.jsonl"))):
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"/Users/|/private/|/var/folders|/tmp/|/home/", text), f"{path.name} names a path of a machine"
         for address in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", text):
@@ -333,16 +405,16 @@ def changed_by(hook, scenarios: list, tmp_path) -> list:
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_vacuity_a_changed_claim_order_is_seen(tmp_path):
-    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
-    for claimer, hook in (("plan-confirm-word", never(bridge.Bridge, "plan_line", False)), ("card-word", never(bridge.Bridge, "word_line", False)),
+    """The three the spec names: with the kinds `plan-confirm` and `decision-card-word` of the row `frame` (S41-8: what `Bridge.plan_line` and `Bridge.word_line` were) made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
+    for claimer, hook in (("plan-confirm-word", never(KINDS["plan-confirm"], "applies", None)), ("card-word", never(KINDS["decision-card-word"], "applies", None)),
                           ("tier-1-form", row_never("tier-1-form"))):
         lines = scenarios_of(claimer)
         assert lines, f"the corpus holds lines {claimer} takes"
         assert changed_by(hook, lines, tmp_path), f"disabling {claimer} changes at least one scenario, or the comparator is blind"
 
 
-DISABLED = [("plan-confirm-word", bridge.Bridge, "plan_line", False), ("card-word", bridge.Bridge, "word_line", False), ("research-stop", bridge.Bridge, "research_stop_line", False),
-            ("card-revise", bridge.Bridge, "revise_line", False), ("project-switch", bridge.Bridge, "project_line", False),
+DISABLED = [("plan-confirm-word", KINDS["plan-confirm"], "applies", None), ("card-word", KINDS["decision-card-word"], "applies", None), ("research-stop", KINDS["research-run"], "applies", None),
+            ("card-revise", KINDS["decision-card-revise"], "applies", None), ("project-switch", bridge.Bridge, "project_line", False),
             ("reminder-draft-answer", bridge.remind.Reminders, "answer", False), ("reminder-expired-yes", bridge.remind.Reminders, "late", False),
             ("write-draft-answer", bridge.Bridge, "write_answers", False), ("attachment-line", bridge.attach.Attachments, "line", False),
             ("reminder-form", bridge.remind.Reminders, "natural", False)]
@@ -358,13 +430,13 @@ def test_sensitivity_disabling_a_claimer_changes_at_least_one_scenario(claimer, 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_sensitivity_two_claimers_that_swap_places_change_a_scenario(tmp_path):
-    """`research_stop_line` stands after `word_line` so that a "não" with a card as the last message rejects the card and leaves the search alone (L64, BL2b). Swapped, the same line stops the
-    search and leaves the card open: the scenario where a search runs and a card is last (`research_and_card`) must see it."""
+    """The kind `research-run` stands after `decision-card-word` so that a "não" with a card as the last message rejects the card and leaves the search alone (L64, BL2b). Swapped (the order of
+    `turn_order.kinds()`), the same line stops the search and leaves the card open: the scenario where a search runs and a card is last (`research_and_card`) must see it."""
     def swapped(mp):
-        original_stop, original_word = bridge.Bridge.research_stop_line, bridge.Bridge.word_line
-        mp.setattr(bridge.Bridge, "word_line", lambda self, update, intent, project, listed, sender, chat: False)
-        mp.setattr(bridge.Bridge, "research_stop_line", lambda self, update, intent, kind, project, listed, chat: original_stop(self, update, intent, kind, project, listed, chat) or
-                   original_word(self, update, intent, project, listed, str(update.get("sender")), chat))
+        order = list(turn_order.kinds())
+        a, b = order.index("decision-card-word"), order.index("research-run")
+        order[a], order[b] = order[b], order[a]
+        mp.setattr(turn_order, "kinds", lambda order=tuple(order): order)
     lines = [s for s in corpus() if s["prestate"] == "research_and_card" and s["text"] in ("não", "no", "sim", "pare")]
     assert lines, "the corpus holds a search that runs with a card last"
     assert changed_by(swapped, lines, tmp_path), "the order of the card words and the research brake is seen by the corpus"
@@ -385,50 +457,3 @@ def test_full_fuzz_every_line_makes_a_trace_and_no_call(shard, tmp_path):
         if found["provider_calls"] or not found["trace"] or found["model_calls"] > 1:
             bad.append(f"{scenario['id']}: trace {found['trace']}, provider {found['provider_calls']}, model {found['model_calls']}")
     assert not bad, "\n".join(bad[:MAX_SHOWN])
-
-
-# --- the guard of `--record-added` (BL7-4) ----------------------------------------------------------------------------------------------------------------------
-# A scenario may bring a model text of its own into `entry_kit.OVERRIDES`, keyed by its own line, and then the hash of the table of answers in the golden's header moves; but the table taken
-# WITHOUT the added scenarios' own keys must still hash to the header's old `answers_sha256`. A change to an existing recorded answer or override is refused: a recorded row may then be stale,
-# and the golden is never re-recorded by a package. The oracle is this file's own literals (a planted override, a planted answer); the added scenarios are the four BL7-4 rows of the corpus.
-
-
-def added() -> list:
-    return [row for row in build.read_rows(build.CORPUS_FILE) if row["id"].startswith("bl74.")]
-
-
-def header_before_the_additions() -> dict:
-    return {"answers_sha256": ek.answers_sha256_without([row["text"] for row in added()])}
-
-
-def test_the_four_added_scenarios_are_found_and_their_texts_are_overrides():
-    assert [row["id"] for row in added()] == ["bl74.deadline.01", "bl74.plan_no.01", "bl74.plan_none.01", "bl74.draft_route.01"]
-    assert all(ek.collapse(row["text"]) in ek.OVERRIDES for row in added())
-
-
-def test_the_table_without_the_added_texts_is_the_table_the_header_hashes():
-    assert build.answers_problem(header_before_the_additions(), added()) is None
-    assert ek.answers_sha256_without([row["text"] for row in added()]) != ek.answers_sha256()          # the added texts do move the hash of the whole table
-
-
-def test_a_changed_existing_override_is_refused(monkeypatch):
-    header = header_before_the_additions()
-    key = ek.collapse(ek.RESEARCH_LINE)
-    assert key in ek.OVERRIDES
-    monkeypatch.setitem(ek.OVERRIDES, key, json.dumps({"v": 1, "kind": "none"}))          # the planted change to a recorded override
-    assert "stop and review" in build.answers_problem(header, added())
-
-
-def test_a_changed_recorded_answer_is_refused(monkeypatch):
-    header = header_before_the_additions()
-    table = dict(ek.answers())
-    key = next(iter(table))
-    table[key] = table[key] + " "
-    monkeypatch.setattr(ek, "answers", lambda: table)
-    assert "stop and review" in build.answers_problem(header, added())
-
-
-def test_vacuity_a_change_to_an_added_scenarios_own_text_is_not_a_refusal(monkeypatch):
-    header = header_before_the_additions()
-    monkeypatch.setitem(ek.OVERRIDES, ek.collapse(added()[0]["text"]), json.dumps({"v": 1, "kind": "route"}))
-    assert build.answers_problem(header, added()) is None          # the guard looks only at what is not new

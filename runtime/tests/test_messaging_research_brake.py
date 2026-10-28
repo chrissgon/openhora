@@ -1,8 +1,8 @@
-"""A running search is stopped by its asker's stop word on the messaging bridge, and the research acknowledgement names that word (package BL2b, limits L41, L64 and L65; runtime/messaging_bridge.py
-`research_stop_line`, runtime/phrases.py `ACK_RESEARCH`).
+"""A running search is stopped by its asker's stop word on the messaging bridge, and the research acknowledgement names that word (package BL2b, limits L41, L64 and L65; runtime/messaging_turn.py
+the kind `research-run` of the frame, runtime/phrases.py `ACK_RESEARCH`).
 
 The real bridge over the real operations layer, a stand-in messenger, a stand-in model, a stand-in clock, and a stand-in search that blocks until it is stopped (test_research.py's `FakeRun`); the search
-is asked in words, answered "sim" to the question "Shall I go ahead?" (a search always asks), and stopped with "pare". The stop word is read AFTER the card words (`word_line`) and BEFORE the change of a
+is asked in words, answered "sim" to the question "Shall I go ahead?" (a search always asks), and stopped with "pare". The stop word is read AFTER the card words (the kind `decision-card-word`) and BEFORE the change of a
 card, so "nao" with a decision card as the last message still rejects the card (L64), and only the asker's own run is touched (the operations layer checks the key). Every count is the test's own
 literal; wording is by phrase key. The vacuity cases plant the brake before the card words and a stop that ignores whose run it is. Offline; invented names.
 
@@ -24,6 +24,7 @@ from test_messaging_card_words import GRANTED, decided, plan
 
 ack = st.load("messaging_ack")
 bridge = st.load("messaging_bridge")
+turn_order = st.load("turn_order")
 natural = st.load("natural")
 phrases = st.load("phrases")
 plan_confirm = st.load("plan_confirm")
@@ -99,6 +100,41 @@ def stand_in_calls(b, monkeypatch):
         return real(project, text, **kwargs)
     monkeypatch.setattr(ops, "say", spy)
     return seen
+
+
+# --- the kit: a yes after the question is answered only once the job that sent the question has ended ---------------------------------------------------
+
+
+def slow_to_end(monkeypatch, seconds=0.5):
+    """The job that sends a question ends `seconds` after the question is bound: a loaded machine, made deterministic."""
+    import time
+    real = bridge.Bridge.ask_plan
+
+    def slow(self, *args, **kwargs):
+        result = real(self, *args, **kwargs)
+        time.sleep(seconds)
+        return result
+    monkeypatch.setattr(bridge.Bridge, "ask_plan", slow)
+
+
+def test_a_yes_that_follows_the_kit_ask_starts_the_search_even_when_the_job_that_sent_the_question_is_slow_to_end(brig, monkeypatch):
+    slow_to_end(monkeypatch)
+    brig.search.arm()
+    brig.ask(LINE_1, sender=ASKER)
+    brig.say("sim", sender=ASKER)
+    assert brig.search.started.wait(WAIT), "the search began after the OK"
+    assert t("STILL_WORKING") not in brig.texts(ASKER)
+
+
+def test_vacuity_a_yes_sent_the_moment_the_question_is_bound_is_refused_as_still_working_and_no_search_begins(brig, monkeypatch):
+    """The sensitivity of the test above: the same slow job, and the yes sent as soon as the ledger holds the question (what `ask` did before it waited)."""
+    slow_to_end(monkeypatch)
+    brig.search.arm()
+    brig.say(LINE_1, sender=ASKER)
+    assert wait_for(lambda: brig.question_id(ASKER) is not None), "the question was bound"
+    brig.say("sim", sender=ASKER)
+    assert wait_for(lambda: t("STILL_WORKING") in brig.texts(ASKER)), "the yes met the job that had not ended"
+    assert not brig.search.started.wait(1)
 
 
 # --- the stop word -------------------------------------------------------------------------------------------------------------------------------
@@ -193,13 +229,10 @@ def test_the_brake_is_never_asked_for_a_slash_line_a_forwarded_line_or_a_line_th
 
 
 def test_vacuity_the_brake_placed_before_the_card_words_stops_the_search_and_leaves_the_card_open(stand, monkeypatch):
-    real = bridge.Bridge.word_line
-
-    def planted(self, update, intent, project, listed, sender, chat):
-        if self.research_stop_line(update, intent, "text", project, listed, chat):
-            return True
-        return real(self, update, intent, project, listed, sender, chat)
-    monkeypatch.setattr(bridge.Bridge, "word_line", planted)
+    order = list(turn_order.kinds())
+    a, b = order.index("decision-card-word"), order.index("research-run")
+    order[a], order[b] = order[b], order[a]
+    monkeypatch.setattr(turn_order, "kinds", lambda: tuple(order))      # the brake placed before the card words
     stand.say("n\u00e3o")
     assert stand.stops == [SENDER_KEY] and decided(stand) == ([], []), "the same counters see the wrong order: the card stays open"
 

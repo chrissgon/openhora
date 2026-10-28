@@ -1005,7 +1005,7 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
 # --- the index of a snapshot (package SNAP-IDX) ---------------------------------------------------------------------------------------------
 
 
-MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received"]
+MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received", "unread"]
 EVENT_KEYS = ["n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring"]
 
 

@@ -5,9 +5,12 @@
 # ///
 """The phrase table (package LR-1): the sentences the runtime says to a person in the project's language, and the one function that picks them.
 
-One table, `TABLE = {"en": {key: text}, "pt-BR": {key: text}}`. The English column is a pure literal here, and the Portuguese column is the pure literal
+One table, `TABLE = {"en": {key: text}, "pt-BR": {key: text}}`. The English core is a pure literal here (`_CORE_EN`), and the Portuguese core is the pure literal
 of its own data module, runtime/phrases_pt_br.py (the one file written in Portuguese on purpose, so that the check that every other file is English stays on
-this one), so that a reviewer reads the two columns side by side. English is the source: each key is the name of the constant it replaced (`STALE`, `QUEUED`,
+this one), so that a reviewer reads the two columns side by side. The keys a package adds are not written in either: a package adds them in its own pair of part
+files, `runtime/phrases_parts/<id>.en.json` and `<id>.pt-BR.json` (SPEC-HOTSPOTS: two packages that add keys at the same time edit different files), which
+`load_parts` reads once at import and merges after the core; a key twice, in the core and a part or in two parts, is refused at import, so no part overrides a
+sentence silently. A package may still change the text of an existing key in place, in the file that holds it. English is the source: each key is the name of the constant it replaced (`STALE`, `QUEUED`,
 `ASK_HINT`...), and the module that had the constant keeps it as the English text (`phrases.en(key)`), so that a project with no `language`
 key, and every test written before the table, sees the sentences byte for byte as they were. A key that two modules had as a name of its own
 carries the area as a prefix (`ATT_` for a file a sender sent, `RM_` for a reminder, `NW_` for a write asked in words, `ASK_` where the answer from sources shares a name with
@@ -50,6 +53,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import string
@@ -60,8 +64,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import language  # noqa: E402  (the same folder: the order that decides the tag)
 import phrases_pt_br  # noqa: E402  (the same folder: the Portuguese column, data only)
 
-TABLE = {
-    "en": {
+_CORE_EN = (
+    {
         # --- the messaging bridge (messaging_bridge.py) ---
         "STALE": "This button is no longer valid. Send /pending.",
         "NO_CARD": "Act on the card sent to you (send /pending).",
@@ -812,6 +816,7 @@ TABLE = {
         "NW_ITEMS_TODAY": "today",
         "NW_ITEMS_YESTERDAY": "yesterday",
         "NW_ITEMS_PREVIEW": "Start of the text: {text}",
+        "NW_ITEMS_UNREAD_MARK": "\u2022",
         "NW_ITEMS_STATE_CHECKED": "checked {when}",
         "NW_ITEMS_STATE_READ": "read {when}",
         "NW_ITEMS_NAMEIN_MAIL": "{service} inbox",
@@ -978,9 +983,80 @@ TABLE = {
         "UNDERSTOOD_REJECT": "reject decision #{id}",
         "UNDERSTOOD_RELEASE": "release delivery #{id}",
         "RS_CANCELLED": "I stopped the search, as you asked. Nothing was answered.",
-    },
-    "pt-BR": phrases_pt_br.TABLE,
+    }
+)
+
+# The keys a package adds live in its own pair of part files in runtime/phrases_parts/ (SPEC-HOTSPOTS), so that two packages that add keys at the same time
+# edit different files: `<id>.en.json` is {"package": "<id>", "table": {KEY: sentence}} and `<id>.pt-BR.json` is {"package": "<id>", "table": {KEY: frase},
+# "same_as_english": [KEY, ...]}, the keys whose Portuguese is the English sentence on purpose. They are data, read with `json.load` and never imported. A key
+# is in one place only: the core (this file and phrases_pt_br.py) or one part; `load_parts` refuses a key twice, so a part can never override another silently.
+PARTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "phrases_parts")
+_PART_FILE = re.compile(r"^(?P<id>[a-z0-9]+(?:-[a-z0-9]+)*)\.(?P<tag>en|pt-BR)\.json$")
+
+
+def _read_part(path: str, name: str, tag: str) -> dict:
+    with open(path, encoding="utf-8") as handle:
+        try:
+            data = json.load(handle)
+        except ValueError as error:
+            raise ValueError(f"{name}: not valid JSON ({error})") from None
+    allowed = {"package", "table"} | ({"same_as_english"} if tag == "pt-BR" else set())
+    if not isinstance(data, dict) or not {"package", "table"} <= set(data) or set(data) - allowed:
+        raise ValueError(f"{name}: the keys must be {sorted(allowed)}")
+    stem = name[: -len("." + tag + ".json")]
+    if data["package"] != stem:
+        raise ValueError(f"{name}: package {data['package']!r} is not the file's stem {stem!r}")
+    table = data["table"]
+    if not isinstance(table, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in table.items()):
+        raise ValueError(f"{name}: table must map a key to a sentence")
+    same = data.get("same_as_english", [])
+    if not isinstance(same, list) or not all(isinstance(k, str) and k in table for k in same) or len(set(same)) != len(same):
+        raise ValueError(f"{name}: same_as_english must list keys of this file's table, once each")
+    return {"table": table, "same": same}
+
+
+def load_parts(folder: str, core=None) -> tuple:
+    """The keys the part files of `folder` add: `(en, pt, same)`, two dicts and a list of keys. `core` is the set of keys of the core table (default: the core's).
+
+    Raises ValueError, naming the files, for a key that is in the core or in two parts, a pair whose two files have different keys, a file without its pair, a
+    `package` that is not the file's stem, and a file of a shape that is not the one above. A folder that does not exist holds no part."""
+    core = set(_CORE_EN) | set(phrases_pt_br.TABLE) if core is None else set(core)
+    found = {}
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if name.endswith(".json"):
+            match = _PART_FILE.match(name)
+            if not match:
+                raise ValueError(f"{name}: a part file is named <id>.en.json or <id>.pt-BR.json")
+            found.setdefault(match.group("id"), {})[match.group("tag")] = name
+    en, pt, same, owner = {}, {}, [], {}
+    for package in sorted(found):
+        pair = found[package]
+        for tag in ("en", "pt-BR"):
+            if tag not in pair:
+                other = next(iter(pair.values()))
+                raise ValueError(f"{other}: no pair, {package}.{tag}.json is missing")
+        read = {tag: _read_part(os.path.join(folder, pair[tag]), pair[tag], tag) for tag in pair}
+        if set(read["en"]["table"]) != set(read["pt-BR"]["table"]):
+            raise ValueError(f"{pair['en']} and {pair['pt-BR']}: the two files have different keys: {sorted(set(read['en']['table']) ^ set(read['pt-BR']['table']))}")
+        for tag in ("en", "pt-BR"):
+            for key in read[tag]["table"]:
+                if key in core:
+                    raise ValueError(f"{pair[tag]}: key {key} is already in the core table (runtime/phrases.py, runtime/phrases_pt_br.py)")
+                if (key, tag) in owner:
+                    raise ValueError(f"{owner[(key, tag)]} and {pair[tag]}: key {key} is in both")
+                owner[(key, tag)] = pair[tag]
+        en.update(read["en"]["table"])
+        pt.update(read["pt-BR"]["table"])
+        same.extend(read["pt-BR"]["same"])
+    return en, pt, same
+
+
+_PART_EN, _PART_PT, _PART_SAME = load_parts(PARTS_DIR)
+TABLE = {
+    "en": {**_CORE_EN, **_PART_EN},
+    "pt-BR": {**phrases_pt_br.TABLE, **_PART_PT},
 }
+SAME_AS_ENGLISH = frozenset(_PART_SAME)      # the keys of the parts whose Portuguese is the English sentence on purpose (the test of the table reads them)
 
 # The store's own status words (providers/store/sqlite.py: the CHECK lists of the tables and the state lists of its state machines), said to a person. They stay
 # English in the store, the operations layer, the logs, the terminal, the MCP mode and the API; only a sentence rendered for a person in a project whose language

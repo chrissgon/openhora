@@ -69,3 +69,43 @@ def test_every_test_that_really_imports_a_changed_file_within_three_steps_is_sel
         covered = lambda t: t in got or any(t.startswith(g + "/") for g in got)
         missed = sorted(t for t in real_import_oracle(REPO, changed, 3) if not covered(t))
         assert missed == [], (changed, missed[:5])
+
+
+# The entry replay (runtime/tests/test_entry_replay.py) is the end-to-end proof of the messaging entry path. It is reached today through the
+# test-module imports of that file, not through a rule, so a refactor of the kits could lose it with no other test noticing (the
+# 2026-10-27 hygiene entry of docs/decisions.md). These are the modules of the entry path, written out here on purpose.
+ENTRY_PATH_MODULES = ("messaging_bridge", "messaging_turn", "turn_order", "ops_turn", "ops_interpret", "ops_say", "ops_natural",
+                      "ops_natural_writes", "ops_natural_mail", "ops_items", "plan_confirm", "card_words", "turn_gate", "interpreter",
+                      "natural", "natural_writes", "event_lookup")
+ENTRY_REPLAY = "runtime/tests/test_entry_replay.py"
+
+
+def without_the_replay(repo, files):
+    """Modules whose selection does not include the entry replay: the replay itself, or a folder that holds it, in the result."""
+    return [f for f in files if not covers_replay(sel.select(repo, [f]).result())]
+
+
+def covers_replay(result):
+    return ENTRY_REPLAY in result or any(ENTRY_REPLAY.startswith(t + "/") for t in result)
+
+
+def test_a_change_to_any_module_of_the_messaging_entry_path_selects_the_entry_replay(real):
+    files = ["runtime/%s.py" % name for name in ENTRY_PATH_MODULES]
+    assert [f for f in files if not (REPO / f).is_file()] == []  # a renamed module is a failure here, never a silent drop
+    assert without_the_replay(real, files) == []
+
+
+def test_vacuity_a_selection_that_drops_the_entry_replay_is_caught_and_names_the_module(real, monkeypatch):
+    """The oracle's own sensitivity: with the replay removed from every selection, every module of the list is named."""
+    real_select = sel.select
+
+    def selects_no_replay(repo, files, copies=None):
+        selection = real_select(repo, files, copies)
+        for target in list(selection.targets):
+            if target == ENTRY_REPLAY:
+                del selection.targets[target]
+        return selection
+
+    monkeypatch.setattr(sel, "select", selects_no_replay)
+    files = ["runtime/%s.py" % name for name in ENTRY_PATH_MODULES]
+    assert without_the_replay(real, files) == files

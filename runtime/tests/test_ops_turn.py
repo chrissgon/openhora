@@ -289,7 +289,8 @@ REPLACED = "Replaced so far:"
 
 
 def l63_row(path: Path) -> str:
-    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("| L63 |")]
+    """The line of L63: a table row in the generated mirror, `**L63.** <limit>` in the contract (an entry of "The limits": a paragraph each)."""
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith(("| L63 |", "**L63.** "))]
     assert len(rows) == 1, f"{path.name} holds one L63 row"
     return rows[0]
 
@@ -323,7 +324,7 @@ def missing_retired(row: str, retired) -> list:
 def test_l63_lists_the_order_of_the_table(path):
     """L63(3) says the order of the claimers; this is the test that reads it against the table. Every stage, in the order of `ORDER`."""
     assert listed_names(l63_row(path)) == order_names()
-    assert len(order_names()) == 31 + 3 + 15
+    assert len(order_names()) == 25 + 3 + 15, "S41-8: the stage `bridge` is 25 rows, the seven claimers of the frame being the one row `frame`"
 
 
 @pytest.mark.parametrize("path", [CONTRACT, MIRROR], ids=["contract", "mirror"])
@@ -346,10 +347,10 @@ def test_the_l63_checks_fail_when_the_table_or_the_text_changes():
     swapped_order[3], swapped_order[40] = swapped_order[40], swapped_order[3]
     assert listed_names(row) != order_names(swapped_order), "and two rows that changed places"
     assert listed_names(row) != order_names(full + [{"name": "a-new-claimer"}]), "and a row added"
-    for name in ("tier-1-form", "interpreter", "plan-confirm-word"):
+    for name in ("tier-1-form", "interpreter", "frame"):
         edited = row.replace(f"`{name}`, ", "", 1)
         assert edited != row and listed_names(edited) != order_names(), f"the text with `{name}` left out"
-    edited = row.replace("`card-word`, `research-stop`", "`research-stop`, `card-word`")
+    edited = row.replace("`project-switch`, `help-in-words`", "`help-in-words`, `project-switch`")
     assert edited != row and listed_names(edited) != order_names(), "the text with two names swapped"
     assert missing_retired(row, turn_order.RETIRED + ({"name": "x-unnamed", "replaced_by": "nothing", "date": "2026-10-26"},)) == ["x-unnamed"]
     assert missing_retired(row.replace("by the plan-confirm OK of L65", "by something else"), turn_order.RETIRED) == [turn_order.RETIRED[0]["name"]], "the replacement is part of what is read"
@@ -485,7 +486,7 @@ def test_the_interpreter_row_stays_out_of_reach_of_a_page_line_even_when_enabled
 # --- the table's trace is the kit's trace --------------------------------------------------------------------------------------------------------------
 
 
-# The two rows that the bridge's own rows reach without a dispatch of the turn: `write-draft-answer` and `write-form` call `ops.natural_write`, whose family functions `ops_natural_writes.answer` and
+# The two rows that the bridge's own rows reach without a dispatch of the turn: the kind `write-draft` of the row `frame` and the row `write-form` call `ops.natural_write`, whose family functions `ops_natural_writes.answer` and
 # `open_line` are what the kit's wrappers name `draft-answer` and `write-form-ops`. The table's trace is empty for those lines (no turn was dispatched) and the kit's names one of the two.
 FAMILY_CALLS = {"draft-answer", "write-form-ops"}
 
