@@ -1,0 +1,331 @@
+{
+ "added": {
+  "by_lang": {
+   "en": 84,
+   "mixed": 4,
+   "pt-BR": 111
+  },
+  "by_op": {
+   "agents": 3,
+   "artifacts": 2,
+   "attachment-add": 2,
+   "attachment-discard": 3,
+   "attachments": 2,
+   "cancel": 6,
+   "commands": 7,
+   "connections": 2,
+   "costs": 4,
+   "dispatch": 3,
+   "event-cancel": 3,
+   "event-change": 5,
+   "event-create": 8,
+   "file-create": 2,
+   "file-save": 2,
+   "flow-save": 2,
+   "flows": 3,
+   "instructions": 2,
+   "instructions-add": 2,
+   "instructions-set": 2,
+   "items": 9,
+   "mail-archive": 2,
+   "mail-draft": 3,
+   "mail-mark": 3,
+   "mail-move": 1,
+   "mail-reply": 3,
+   "mail-send": 2,
+   "mail-trash": 2,
+   "pending": 6,
+   "proof": 2,
+   "remind": 45,
+   "reminder-forget": 3,
+   "reminders": 2,
+   "retry": 4,
+   "routine-cancel": 4,
+   "routine-change": 2,
+   "routine-create": 2,
+   "routine-pause": 4,
+   "routine-resume": 2,
+   "routines": 2,
+   "run-next": 2,
+   "skills": 3,
+   "source-describe": 2,
+   "source-refresh": 2,
+   "sources": 8,
+   "stop-task": 4,
+   "sync": 3,
+   "task": 5,
+   "verdict": 2
+  },
+  "by_row": {
+   "closed-form-without-slot": 31,
+   "help-in-words": 7,
+   "reminder-form": 53,
+   "tier-1-form": 91,
+   "write-form": 17
+  },
+  "by_scope": {
+   "full": 36,
+   "op": 163
+  },
+  "items": 199
+ },
+ "catalog": {
+  "ops": 70,
+  "refused": 21,
+  "sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
+  "v": 2
+ },
+ "gaps": {
+  "by_kind": {
+   "refused": 58
+  },
+  "by_op": {
+   "accept-config": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "approve": {
+    "by_lang": {
+     "en": 9,
+     "pt-BR": 8
+    },
+    "class": "D",
+    "kind": "refused",
+    "lines": 17,
+    "rows": {
+     "closed-form-without-slot": 17
+    }
+   },
+   "config": {
+    "by_lang": {
+     "en": 2,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 3,
+    "rows": {
+     "tier-1-form": 3
+    }
+   },
+   "deps": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "give-consent": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 2
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 3,
+    "rows": {
+     "tier-1-form": 3
+    }
+   },
+   "go-ahead": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "D",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "closed-form-without-slot": 2
+    }
+   },
+   "reject": {
+    "by_lang": {
+     "en": 6,
+     "pt-BR": 7
+    },
+    "class": "D",
+    "kind": "refused",
+    "lines": 13,
+    "rows": {
+     "closed-form-without-slot": 13
+    }
+   },
+   "release": {
+    "by_lang": {
+     "en": 3,
+     "pt-BR": 3
+    },
+    "class": "D",
+    "kind": "refused",
+    "lines": 6,
+    "rows": {
+     "closed-form-without-slot": 6
+    }
+   },
+   "routine-approve": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "set-mode": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "set-model": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "source-add": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   },
+   "source-import": {
+    "by_lang": {
+     "en": 1,
+     "pt-BR": 1
+    },
+    "class": "G",
+    "kind": "refused",
+    "lines": 2,
+    "rows": {
+     "tier-1-form": 2
+    }
+   }
+  },
+  "decision": "each gap is a request that works today and would stop working: the maintainer accepts it or the catalog gains the operation (a dated entry and its own measurement); it blocks the deletion until then",
+  "lines": 58,
+  "ops": 13
+ },
+ "private": {
+  "by_set": {
+   "dev-relabelled.jsonl": {
+    "by_lang": {
+     "en": 482,
+     "es": 4,
+     "fr": 4,
+     "mixed": 1,
+     "pt-BR": 551
+    },
+    "items": 1344,
+    "private": 1042
+   },
+   "tier1-cover-v1.jsonl": {
+    "by_lang": {
+     "en": 21,
+     "mixed": 4,
+     "pt-BR": 45
+    },
+    "items": 199,
+    "private": 70
+   }
+  },
+  "note": "an item whose line the claimers take as write-form or reminder-form: what OPEN-41-7 lets reach the daily route (M41-5 reports the share)"
+ },
+ "rule": "scripts/interpreter_corpus_tier1.py, the text of its module and evals/interpreter/README.md, section The tier-1 cover set",
+ "universe": {
+  "sources": {
+   "corpus:mail": {
+    "added": 0,
+    "covered": 337,
+    "gap": 0,
+    "lines": 355,
+    "private": 337,
+    "taken": 337
+   },
+   "corpus:natural": {
+    "added": 28,
+    "covered": 324,
+    "gap": 0,
+    "lines": 562,
+    "private": 352,
+    "taken": 352
+   },
+   "corpus:writes": {
+    "added": 0,
+    "covered": 340,
+    "gap": 0,
+    "lines": 414,
+    "private": 340,
+    "taken": 340
+   },
+   "entry": {
+    "added": 57,
+    "covered": 0,
+    "gap": 5,
+    "lines": 66,
+    "private": 38,
+    "taken": 62
+   },
+   "form:commands_in_words": {
+    "added": 10,
+    "covered": 0,
+    "gap": 20,
+    "lines": 34,
+    "private": 0,
+    "taken": 30
+   },
+   "form:natural_table": {
+    "added": 104,
+    "covered": 0,
+    "gap": 33,
+    "lines": 137,
+    "private": 4,
+    "taken": 137
+   }
+  },
+  "total": {
+   "added": 199,
+   "covered": 1001,
+   "gap": 58,
+   "lines": 1568,
+   "private": 1071,
+   "taken": 1258
+  }
+ },
+ "v": 1
+}
