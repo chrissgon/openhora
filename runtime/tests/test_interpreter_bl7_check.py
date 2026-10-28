@@ -422,11 +422,13 @@ def test_a_corrected_read_asks_a_new_plan_and_nothing_runs(typed):
     assert done["reply"] == "READ-REPLY" and [r["args"]["kind"] for r in reads] == ["mail"] and typed.said_commands == []
 
 
-def test_the_blind_line_that_also_names_the_calendar_is_read_as_the_calendar_and_the_plan_is_dropped_nothing_runs(typed):
-    """Found while building BL7-1 (guard 10 of the spec, run end to end): `natural_writes.items_noun` reads a line that names both nouns as "calendar" ("not the calendar" included), so for the
-    two blind lines of gap 4 the corrected read equals the plan and `ops_interpret._unchanged` drops it. Safe (nothing runs, no card of another act), and not the NEW question the spec expected."""
+def test_the_blind_line_that_also_negates_the_calendar_asks_a_new_plan_for_the_mail_and_nothing_runs(typed):
+    """Found while building BL7-1 (guard 10 of the spec, run end to end): `natural_writes.items_noun` read a line that names both nouns as "calendar" ("not the calendar" included), so for the two blind
+    lines of gap 4 the corrected read equalled the plan and `ops_interpret._unchanged` dropped it. ITEMS-NEGATION: a noun a negator reaches is the one the person does not want, so the line names the
+    e-mails and the correction is the NEW question the spec expected."""
     old, out, reads = corrected_read(typed, "não, eu quis dizer os e-mails de hoje, não a agenda", model_op("mail-mark", {"day": "de hoje"}))      # validate: allow english-only -- the Portuguese line under test
-    assert out["reply"] == phrases.text("PLAN_DROPPED", typed.cfg) and "plan_confirm" not in out and ops.plan_live(typed.world["path"], OWNER) is None
+    what = phrases.text("UNDERSTOOD_ITEMS_MAIL", typed.cfg) + phrases.localize_dates(phrases.text("UNDERSTOOD_ON_DAY", typed.cfg, day="Sun 25/10/2026"), typed.cfg)
+    assert out["reply"] == phrases.text("PLAN_HEAD", typed.cfg, what=what) + " " + phrases.text("PLAN_ASK", typed.cfg) and out["plan_confirm"]["item"] != old["plan_confirm"]["item"]
     assert reads == [] and typed.said_commands == []
 
 

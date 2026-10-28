@@ -269,6 +269,8 @@ TABLE = {
             "polite": ["please", "pls", "can you", "could you", "would you", "hey", "hi"],
             "articles": ["a", "an", "the", "my", "our", "your", "new"],
             "joiners": ["and"],
+            # the words that turn the noun after them into the one the person does not want ("the e-mails, not the calendar"): never "no" (the lists merge across tables and the pt-BR "no" is "in the")
+            "negators": ["not", "never", "without", "except", "instead of", "rather than"],
             "range": ["to", "through", "thru"],
             "service_in": ["on", "in", "to", "via", "using", "from", "on my", "in my", "to my", "from my"],
             # the words that may surround the kind in the answer to the reminder-or-event question (an article, a possessive, a place word, a polite word): a closed list

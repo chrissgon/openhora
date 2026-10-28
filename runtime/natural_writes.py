@@ -82,7 +82,7 @@ LIST_MAX = 20                 # numbers in one list ("os e-mails 2, 4 e 7"): the
 MENTION = re.compile(r"(?:^|\s)@\S")      # an `@id` mention of a source; an address has its @ inside a word
 
 # The keys of `requests.writes`, by section. A value of a key is a list of PHRASES; `services` and `kinds` map a name to such a list. NR-5b fills the lists of `mail`.
-TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in", "kind_fillers")
+TOP_KEYS = ("polite", "articles", "joiners", "range", "service_in", "kind_fillers", "negators")
 SECTIONS = {
     "services": ("google", "microsoft"),
     "calendar": ("in_calendar", "calendar_after", "range_from", "range_to", "all_day", "change_verbs", "cancel_verbs", "nouns", "nouns_plural", "to_time", "rename", "rename_to",
@@ -285,22 +285,71 @@ def service(line: Line, tables: list, start: int = 0, end=None):
     return account, found[account][0], found[account][1]
 
 
+def _negated_before(norm: str, at: int, negators: list, articles: list) -> bool:
+    """Whether the folded text right before `at` is a negator phrase, then only single spaces and article phrases, with no punctuation in between ("not the " and "nao a " are; "nao, a " and
+    "no " are not: a comma or any other mark breaks the reach of the negator)."""
+    prefix = norm[:at]
+    by_length = lambda phrases: sorted(set(phrases), key=lambda p: (-len(p), p))      # noqa: E731  (the longest phrase first)
+
+    def ends_with(text: str, phrases: list):
+        for phrase in by_length(phrases):
+            if text.endswith(phrase) and (len(text) == len(phrase) or not text[-len(phrase) - 1].isalnum()):
+                return phrase
+        return None
+    while prefix.endswith(" ") and not prefix.endswith("  "):
+        prefix = prefix[:-1]
+        if ends_with(prefix, negators):
+            return True
+        article = ends_with(prefix, articles)
+        if not article:
+            return False
+        prefix = prefix[:-len(article)]
+    return False
+
+
+def _named(shaped: "Line", phrases: list, tables: list) -> tuple:
+    """(plain, negated): the places, in the folded line, where a phrase of `phrases` stands as whole words, split by whether a negator (`requests.writes.negators`: "not", "nao", "sem", "em vez de") reaches
+    it. A hit is negated when the text right before it is a negator phrase followed only by single spaces and articles ("not the calendar", "nao a agenda"); a mark in between ("nao, a agenda") or a
+    word that is no article leaves it plain. Both lists are in line order."""
+    negators, articles = listed(tables, None, "negators"), listed(tables, None, "articles")
+    plain, negated = [], []
+    for hit in shaped.find_all(phrases):
+        (negated if _negated_before(shaped.norm, hit[0], negators, articles) else plain).append(hit)
+    return plain, negated
+
+
+def _items_nouns(shaped: "Line", tables: list) -> tuple:
+    """((calendar plain, calendar negated), (mail plain, mail negated)): the hits of the calendar nouns (singular and plural) and of the mail nouns in one line."""
+    calendar = _named(shaped, listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural"), tables)
+    return calendar, _named(shaped, listed(tables, "mail", "nouns"), tables)
+
+
 def items_kind(line, languages=None) -> str:
-    """"calendar" when the line that asks for the numbered items names events (`requests.writes.calendar` nouns, singular or plural), else "mail"."""
+    """"calendar" when the line that asks for the numbered items names events (`requests.writes.calendar` nouns, singular or plural) that no negator reaches, or when the only messages it names are
+    negated ("not the e-mails") and it names no event; else "mail". A line that names both and negates neither is "calendar"; "list my e-mails, not the calendar" is "mail"."""
     tables = _tables(languages)
-    shaped = Line(line if isinstance(line, str) else "")
-    names = listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural")
-    return "calendar" if shaped.find(names) else "mail"
+    (cal_plain, cal_negated), (mail_plain, mail_negated) = _items_nouns(Line(line if isinstance(line, str) else ""), tables)
+    if cal_plain:
+        return "calendar"
+    return "calendar" if mail_negated and not mail_plain and not cal_negated else "mail"
 
 
 def items_noun(line, languages=None):
     """"calendar" when the line names events (`requests.writes.calendar` nouns, singular or plural), "mail" when it names messages (`requests.writes.mail` nouns), else None: a line that
-    names neither ("no, the one for tomorrow") leaves the kind of a list to the plan it corrects. A line that names both is "calendar", as `items_kind` reads it."""
+    names neither ("no, the one for tomorrow") leaves the kind of a list to the plan it corrects. A noun that a negator reaches ("not the calendar", "nao a agenda") is the one the person does not
+    want: a line that names only the e-mails plainly is "mail" whatever else it negates, and a line that only negates one kind ("not the calendar") is the other kind. A line that names both
+    plainly is "calendar", as `items_kind` reads it; one that negates both is None."""
     tables = _tables(languages)
-    shaped = Line(line if isinstance(line, str) else "")
-    if shaped.find(listed(tables, "calendar", "nouns") + listed(tables, "calendar", "nouns_plural")):
+    (cal_plain, cal_negated), (mail_plain, mail_negated) = _items_nouns(Line(line if isinstance(line, str) else ""), tables)
+    if cal_plain:
         return "calendar"
-    return "mail" if shaped.find(listed(tables, "mail", "nouns")) else None
+    if mail_plain:
+        return "mail"
+    if cal_negated and not mail_negated:
+        return "mail"
+    if mail_negated and not cal_negated:
+        return "calendar"
+    return None
 
 
 def reminder_outside(line: Line, tables: list, ranges: dict) -> bool:
