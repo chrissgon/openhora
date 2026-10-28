@@ -54,6 +54,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import natural  # noqa: E402  (the same folder: the operations, their slots and `check_operation`, which this module calls unchanged)
 import natural_time as nt  # noqa: E402  (the same folder: the time reader whose reading wins over the model's)
+import recurrence  # noqa: E402  (the same folder: the closed words of a repetition; CB-7)
 import turn_gate  # noqa: E402  (the same folder: the private line, the gate's check; the gate imports no interpreter)
 
 PROMPT_FILE = os.path.join(HERE, "interpreter_prompt.txt")
@@ -947,6 +948,10 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         if name == "event-change" and _deadline_set_apart(line):          # BL7-4: in a change the date before a deadline word may be the event's old day and the one after it the new day: asked, as before the deadline rule
             return _clarify("time-ask", slot=time_slots[0], op=name)
         time, disagree, problem = _time(span, _without_old_day(name, slots, span, line), obj["time_iso"], obj["weekday"], now_local, zone)
+        if problem and problem[0] == "time-ask" and name == "event-create" and recurrence.mentions(line):          # CB-7: the words that only say the event repeats ("todo dia", the "toda" of "toda segunda") are no doubt about the time: the engine reads the first occurrence of what is left
+            again = _time(recurrence.strip(span), recurrence.strip(line), obj["time_iso"], obj["weekday"], now_local, zone)
+            if again[2] is None:
+                time, disagree, problem = again
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
         spans[time_slots[0]] = span

@@ -67,7 +67,8 @@ def _arguments(doc: dict, title, start, end, account):
         same = account in (None, doc["account"])
         return "event_create", {"account": doc["account"] if same else account, "title": title or event["title"], "start": start, "end": end,
                                 "calendar": doc.get("calendar") if same else None, "location": event.get("location") or None,
-                                "reminder_minutes": event.get("reminder_minutes"), "notes": event.get("notes") or None}
+                                "reminder_minutes": event.get("reminder_minutes"), "notes": event.get("notes") or None,
+                                "repeat": (doc.get("recurrence") or {}).get("freq")}      # CB-7: a series stays a series when its waiting card is revised (weekly follows the new start's weekday); the card says it
     reference, changed = doc["reference"], doc.get("changed") or []
     args = {"account": doc["account"], "event": f"{reference['source']}#{reference['n']}", "calendar": doc.get("calendar")}
     if title or "title" in changed:

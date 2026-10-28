@@ -32,9 +32,9 @@ module builds those services, once, for the process that runs the task (runtime/
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
   calendar_read    CalendarReader (package W1): the project's `accounts` (`enabled`, `address`, `target`, `calendar_name`, `calendar_label`), the reference of an event
-                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` (the calendar writer's one
-                   read, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
-                   way to write: the only verbs it starts are `event-get` and a write verb with `--dry-run`
+                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` and `event_instances` (the calendar
+                   writer's two reads, with the account's token, no other secret: one event, and the instances of one series in a window of two days at most) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
+                   way to write: the only verbs it starts are `event-get`, `event-instances` and a write verb with `--dry-run`
   tasks_read       TasksReader (package CB-5): the project's `accounts` (`enabled`, `address`, `list_name`, `target`), the id the writer is handed for a list (`resolve_list`: Microsoft's
                    default list is resolved by a read of the lists), `task_get` (the tasks writer's one read, with the account's token, no other secret) and `dry_run` (the writer's
                    dry run of a document: no credential, no connection). It has no way to write: the only verbs it starts are `task-get`, `lists` of the reader and a write verb with `--dry-run`
@@ -95,7 +95,7 @@ PUBLISHER_TIMEOUT = 120
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 CALENDAR_TIMEOUT = 120
-CALENDAR_READ_VERBS = ("event-get",)      # the only verb of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
+CALENDAR_READ_VERBS = ("event-get", "event-instances")      # the only verbs of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none); `event-instances` (CB-7, limit L58) lists the instances of a series in a window of at most two days: id, version, times and status, no title and no attendee
 IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
 SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
 MAILBOX_TIMEOUT = 300
@@ -362,6 +362,18 @@ class CalendarReader:
         implementation = calendar_document.IMPLEMENTATION[account]
         try:
             return effect_calendar.provider_call(self._root, implementation, verb, calendar_document.event_get_args({"calendar_id": calendar_id, "event_id": event_id}),
+                                                 (calendar_document.SECRET[account],), CALENDAR_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+
+    def event_instances(self, account: str, calendar_id: str, series_id: str, first: str, last: str) -> dict:
+        """The writer's `event-instances` for one series of a calendar between two instants (each with its offset, at most two days apart): {"instances": [{id, etag, start, end, status,
+        original_start}]}. A read with the account's token and no other secret, as `event_get` is (CB-7): the one place the runtime asks a provider which instances a series has."""
+        verb = "event-instances"
+        assert verb in CALENDAR_READ_VERBS
+        implementation = calendar_document.IMPLEMENTATION[account]
+        try:
+            return effect_calendar.provider_call(self._root, implementation, verb, calendar_document.instances_args(calendar_id, series_id, first, last),
                                                  (calendar_document.SECRET[account],), CALENDAR_TIMEOUT)
         except effects.EffectError as e:
             self._fail(e)

@@ -88,6 +88,9 @@ def _create(ctx: dict, slots: dict):
     if calendar:
         args["calendar"] = calendar
         origins["calendar"] = turn_gate.origin_of(slots, "calendar", "line-span")
+    if slots.get("repeat"):          # CB-7: "daily" or "weekly", read by code from the closed words of the line (runtime/recurrence.py): the card says it, the writer expands it in the start's zone
+        args["repeat"] = slots["repeat"]
+        origins["repeat"] = turn_gate.origin_of(slots, "repeat", "time-engine")
     return {"args": args, "origins": origins}
 
 
@@ -102,6 +105,10 @@ def _change(ctx: dict, op: str, slots: dict, channel, sender):
         return account
     args = {"account": account, "event": ref}
     origins = {"account": turn_gate.account_origin(slots, slots.get("account")), "event": ref_origin}
+    for key in (("series", "occurrence") if op == "event-cancel" else ()):          # CB-7: the whole series, or the local day of one occurrence, chosen by code (runtime/event_series.py)
+        if slots.get(key):
+            args[key] = slots[key]
+            origins[key] = turn_gate.origin_of(slots, key, "time-engine")
     if op == "event-change":
         pending = w.engine_spec(ctx, slots)
         if pending:

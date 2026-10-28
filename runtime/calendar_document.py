@@ -11,12 +11,16 @@ kind has no function in reach that could write (limit L30; limit L55).
 
 The document. `effect` ("calendar"), `task` (the step task that prepared it), `account` (`google` or `microsoft`), `implementation` (the calendar writer
 of that account, a provider of providers/writer/: `google-calendar` or `outlook-calendar`), `address` (the account's address as the project's `accounts` lists it), `calendar` (the
-name the project's `accounts` gives the calendar) and `calendar_id` (its id there), `operation` (`create`, `change` or `cancel`), `event_id` and `base_etag` (the
-event a change or a cancel is about and the version of it the task read: Google's etag, Graph's changeKey; both null for a create), `read_at` (when the task read
-it, null for a create), `zone` (the host's zone, the one every wall time of the document is written in), `send_updates` (always `none`: nobody is told),
+name the project's `accounts` gives the calendar) and `calendar_id` (its id there), `operation` (`create`, `change`, `cancel`, `cancel-series` or `cancel-occurrence`), `event_id` and `base_etag` (the
+event a change or a cancel is about and the version of it the task read: Google's etag, Graph's changeKey; both null for a create; for a series cancel the series
+master's, for an occurrence cancel the instance's), `read_at` (when the task read it, null for a create), `zone` (the host's zone, the one every wall time of the document is written in), `send_updates` (always `none`: nobody is told),
 `event` (the event as it will be, null for a cancel), `before` (the event as it was read, null for a create), `changed` (the fields a change touches, from
 CHANGEABLE), `idempotency_key` (derived from everything above: one request is done once) and `dry_run_sha256` (the hash of what the writer's dry run printed: the
 exact request it would send).
+
+Two keys are present only when they apply, so that no other document changes by a byte (CB-7): `recurrence` of a create ({"freq": "daily"} or {"freq": "weekly", "byday": "MO".."SU"}, the
+weekday of the start in `zone`; a timed event only, and `zone` is an IANA name), and `series` of `cancel-series` and `cancel-occurrence` ({"id": the series master's id, "rule": `daily` or
+`weekly:MO`.., "start": null for the whole series, for one occurrence the instant it starts at as it was read}). They are part of the hash the person approves, and of the key.
 
 An event is {title, all_day, start, end, start_at, end_at, location, reminder_minutes, notes}: `start` and `end` are wall times in `zone` (`YYYY-MM-DDTHH:MM`, or a
 day `YYYY-MM-DD` for an all-day event, whose `end` is the last day it covers); `start_at` and `end_at` are what the request carries (an instant with its offset,
@@ -41,18 +45,25 @@ import phrases  # noqa: E402
 import workcopy  # noqa: E402  (the credential formats, loaded from this checkout)
 
 WORD = "calendar"
-OPERATIONS = ("create", "change", "cancel")
+OPERATIONS = ("create", "change", "cancel", "cancel-series", "cancel-occurrence")
+CANCELS = ("cancel", "cancel-series", "cancel-occurrence")      # the operations that remove or cancel and carry no new event
+SERIES_CANCELS = ("cancel-series", "cancel-occurrence")      # the two that name a series (CB-7): the whole of it, or one occurrence
 ACCOUNTS = ("google", "microsoft")
 IMPLEMENTATION = {"google": "google-calendar", "microsoft": "outlook-calendar"}      # the writer of each account (providers/writer/)
 SECRET = {"google": "GOOGLE_ACCOUNT_TOKEN", "microsoft": "MICROSOFT_ACCOUNT_TOKEN"}   # the one secret a writer of that account is started with
 # The verb of each operation in each writer (providers/writer/README.md).
-VERBS = {"google": {"create": "event-insert", "change": "event-patch", "cancel": "event-delete"},
-         "microsoft": {"create": "event-create", "change": "event-patch", "cancel": "event-delete"}}
-TITLE_KEY = {"create": "TITLE_CAL_CREATE", "change": "TITLE_CAL_CHANGE", "cancel": "TITLE_CAL_CANCEL"}
+VERBS = {"google": {"create": "event-insert", "change": "event-patch", "cancel": "event-delete", "cancel-series": "event-delete", "cancel-occurrence": "event-cancel-occurrence"},
+         "microsoft": {"create": "event-create", "change": "event-patch", "cancel": "event-delete", "cancel-series": "event-cancel-series", "cancel-occurrence": "event-cancel-occurrence"}}
+TITLE_KEY = {"create": "TITLE_CAL_CREATE", "change": "TITLE_CAL_CHANGE", "cancel": "TITLE_CAL_CANCEL", "cancel-series": "TITLE_CAL_CANCEL_SERIES",
+             "cancel-occurrence": "TITLE_CAL_CANCEL_OCCURRENCE"}
 CHANGEABLE = ("title", "when", "location", "reminder_minutes", "notes")      # the parts of an event a change can touch (`when` is start, end and all_day together)
 EVENT_KEYS = ("title", "all_day", "start", "end", "start_at", "end_at", "location", "reminder_minutes", "notes")
 KEYS = ("effect", "task", "account", "implementation", "address", "calendar", "calendar_id", "operation", "event_id", "base_etag", "read_at", "zone", "send_updates",
         "event", "before", "changed", "reference", "asker", "idempotency_key", "dry_run_sha256")
+OPTIONAL_KEYS = ("recurrence", "series")      # present only for a series (CB-7); a document without them is what it always was, key and hash included
+SERIES_KEYS = ("id", "rule", "start")
+RULE_WORD = re.compile(r"daily|weekly:(?:MO|TU|WE|TH|FR|SA|SU)")
+BYDAY = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")      # datetime.weekday() order
 ASKER = re.compile(r"(?:terminal|page|[a-z][a-z0-9-]{0,31}:[A-Za-z0-9_.@+=-]{1,128})")      # who asked: a channel of the person's own, or a messaging sender (<platform>:<id>)
 REFERENCE = {"source": re.compile(r"[a-z0-9][a-z0-9-]{0,39}"), "read_at": re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})")}
 TITLE_MAX = 200
@@ -300,16 +311,20 @@ def changed_fields(before: dict, after: dict) -> list:
 
 def key_of(doc: dict) -> str:
     """`cal-` and 32 hex digits: the key of one request, from everything the person approves of it (the key and the dry-run hash are not content)."""
-    said = {k: doc[k] for k in KEYS if k not in ("idempotency_key", "dry_run_sha256")}
+    said = {k: doc[k] for k in KEYS + OPTIONAL_KEYS if k in doc and k not in ("idempotency_key", "dry_run_sha256")}
     return "cal-" + sha(json.dumps(said, sort_keys=True, ensure_ascii=True, separators=(",", ":")))[:32]
 
 
 def document(*, task_id: int, account: str, address: str, calendar: str, calendar_id: str, operation: str, event_id=None, base_etag=None, read_at=None,
-             zone: str, event=None, before=None, changed=None, reference=None, asker: str = "terminal", dry_run_sha256: str) -> dict:
+             zone: str, event=None, before=None, changed=None, reference=None, asker: str = "terminal", dry_run_sha256: str, recurrence=None, series=None) -> dict:
     """The effect document, checked. EffectError usage when a piece is not in its form, a limit is passed, or the words hold what looks like a credential."""
     doc = {"effect": WORD, "task": task_id, "account": account, "implementation": IMPLEMENTATION.get(account, ""), "address": address, "calendar": calendar,
            "calendar_id": calendar_id, "operation": operation, "event_id": event_id, "base_etag": base_etag, "read_at": read_at, "zone": zone,
            "send_updates": "none", "event": event, "before": before, "changed": list(changed or []), "reference": reference, "asker": asker, "idempotency_key": "", "dry_run_sha256": dry_run_sha256}
+    if recurrence is not None:
+        doc["recurrence"] = recurrence
+    if series is not None:
+        doc["series"] = series
     doc["idempotency_key"] = key_of(doc)
     check(doc)
     return doc
@@ -342,7 +357,7 @@ def _check_event(event, what: str, operation: str, changed=()) -> None:
 
 def check(doc) -> dict:
     """The document is in its form, or EffectError usage. Run when it is made and again just before the write."""
-    if not isinstance(doc, dict) or set(doc) != set(KEYS) or doc["effect"] != WORD:
+    if not isinstance(doc, dict) or not set(KEYS) <= set(doc) <= set(KEYS) | set(OPTIONAL_KEYS) or doc["effect"] != WORD:
         raise _usage("the effect document of a calendar change has exactly its keys")
     if not isinstance(doc["task"], int) or isinstance(doc["task"], bool) or doc["task"] < 1:
         raise _usage("task is a task id")
@@ -359,7 +374,7 @@ def check(doc) -> dict:
         raise _usage("nobody is told of a change: send_updates is none")
     if not isinstance(doc["zone"], str) or not ZONE.fullmatch(doc["zone"]):
         raise _usage("zone is the name of the machine's zone")
-    create, cancel = doc["operation"] == "create", doc["operation"] == "cancel"
+    create, cancel = doc["operation"] == "create", doc["operation"] in CANCELS
     if create:
         if doc["event_id"] is not None or doc["base_etag"] is not None or doc["read_at"] is not None or doc["before"] is not None or doc["changed"]:
             raise _usage("a new event has no earlier event, version, reading or changes")
@@ -380,6 +395,7 @@ def check(doc) -> dict:
             raise _usage("a removal has no new event and no changes")
     else:
         _check_event(doc["event"], "event", doc["operation"], doc["changed"] if isinstance(doc["changed"], list) else ())
+    _check_series(doc)
     if doc["operation"] == "change":
         if not doc["changed"] or doc["changed"] != changed_fields(doc["before"], doc["event"]):
             raise _usage("the changes listed are the differences between the event as read and the event as it will be")
@@ -394,6 +410,31 @@ def check(doc) -> dict:
         if why:
             raise _usage(f"the title, the location or the notes {why}: it is not written anywhere")
     return doc
+
+
+def _check_series(doc: dict) -> None:
+    """The two optional keys (CB-7): `recurrence` only on a create of a timed event written in a named zone, daily or weekly on the weekday the start has; `series` only on a series
+    cancel, naming the master (the whole series) or another event, the instance, that starts at the instant the document's `before` has (one occurrence)."""
+    operation = doc["operation"]
+    if "recurrence" in doc:
+        rec, event = doc["recurrence"], doc["event"]
+        if operation != "create" or not isinstance(rec, dict) or event is None or event["all_day"] is not False or not OUTLOOK_ZONE.fullmatch(doc["zone"]):
+            raise _usage("a repetition belongs to a new timed event written in a named zone (an IANA name)")
+        if rec != {"freq": "daily"} and not (set(rec) == {"freq", "byday"} and rec["freq"] == "weekly" and rec["byday"] in BYDAY):
+            raise _usage("a repetition is daily, or weekly on one weekday, and nothing else")
+        if rec["freq"] == "weekly" and rec["byday"] != BYDAY[parse_when(event["start"], "the start")[0].weekday()]:
+            raise _usage("a weekly repetition is on the weekday the event starts on")
+    if "series" in doc and operation not in SERIES_CANCELS:
+        raise _usage("only the cancel of a series or of one of its occurrences names a series")
+    if operation in SERIES_CANCELS:
+        series = doc.get("series")
+        if not isinstance(series, dict) or set(series) != set(SERIES_KEYS) or not isinstance(series["id"], str) or not EVENT_ID.fullmatch(series["id"]) \
+                or not isinstance(series["rule"], str) or not RULE_WORD.fullmatch(series["rule"]) or doc["before"]["all_day"] is not False:
+            raise _usage("the cancel of a series names the series: its id, its rule (daily or weekly on a weekday) and a timed event")
+        if operation == "cancel-series" and (series["id"] != doc["event_id"] or series["start"] is not None):
+            raise _usage("the cancel of a whole series is made on the series' own id and names no start")
+        if operation == "cancel-occurrence" and (series["id"] == doc["event_id"] or series["start"] != doc["before"]["start_at"]):
+            raise _usage("the cancel of one occurrence is made on the occurrence's id and names the instant it starts at, as it was read")
 
 
 # --- what the person reads -------------------------------------------------------------------------------------------------------------------------
@@ -424,7 +465,8 @@ def title(doc: dict) -> str:
 
 def describe(doc: dict) -> str:
     """What is approved, in one line. It holds none of the person's words: the state file is versioned."""
-    verb = {"create": "create an event in", "change": "change an event in", "cancel": "remove an event from"}[doc["operation"]]
+    verb = {"create": "create an event in", "change": "change an event in", "cancel": "remove an event from", "cancel-series": "cancel a whole series of events in",
+            "cancel-occurrence": "cancel one occurrence of a series in"}[doc["operation"]]
     return f"{verb} the calendar '{doc['calendar']}' of the {doc['account']} account {doc['address']}"
 
 
@@ -470,16 +512,27 @@ def card_lines(doc: dict, digest: str) -> list:
     zone, operation = doc["zone"], doc["operation"]
     head = [["CARD_ACCOUNT", {"account": doc["account"], "address": doc["address"]}], ["CARD_CAL_CALENDAR", {"calendar": doc["calendar"]}]]
     if operation == "create":
-        return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + [["CARD_CAL_NOBODY", {}]]
+        again = [[repeat_key(rule_of(doc["recurrence"])), {}], ["CARD_CAL_REPEAT_NOTE", {}]] if "recurrence" in doc else []      # the series in words, and where to change or cancel it
+        return [["CARD_CAL_CREATE", {}]] + head + _event_lines(doc["event"], zone) + again + [["CARD_CAL_NOBODY", {}]]
     # The event as the calendar holds it NOW (read in the preparation): its id and its time are always on the card, so that whoever approves in the terminal or on the page sees which event
     # it is and a renumbered snapshot cannot make them approve another one. A phone is not shown the id, the snapshot or the version (runtime/messaging_cards.py PHONE_DROPPED; the hash still
     # covers them): it is shown the account, the calendar, the title and the time as read now, which name the event. Title, place and notes are under the keys of phrases.CARD_PRIVATE.
     head.append(["CARD_CAL_EVENT", {"event_id": doc["event_id"]}])
-    head.append(["CARD_CAL_NOW_WHEN", {"when": when_text(doc["before"], zone)}])
+    if operation != "cancel-series":      # a whole series has no "time now": it says when it began, below
+        head.append(["CARD_CAL_NOW_WHEN", {"when": when_text(doc["before"], zone)}])
     head.append(["CARD_CAL_NOW_TITLE", {"title": doc["before"]["title"] or "-"}])
     if doc["reference"]:
         head.append(["CARD_CAL_SNAPSHOT", {"reference": f"{doc['reference']['source']}#{doc['reference']['n']}", "read_at": doc["reference"]["read_at"]}])
     base = [["CARD_CAL_BASE", {"etag_short": etag_short(doc["base_etag"])}]]
+    if operation in SERIES_CANCELS:
+        # CB-7: the card says in words which it is (the whole series, or only this time with the series staying) and what the series is; the series' own id and the instance's are the event line
+        # a phone does not show. Where a cancelled event goes is the account's own: Google is expected to keep a trash, Outlook moves it to Deleted Items (CB-6: not verified live).
+        outlook = doc["account"] != "google"
+        rule = [[repeat_key(doc["series"]["rule"]), {}]]
+        kept = [line for line in _event_lines(doc["before"], zone, current=True) if line[0] in ("CARD_CAL_DROP_WHERE", "CARD_CAL_DROP_NOTES")]
+        if operation == "cancel-series":
+            return [["CARD_CAL_SERIES_CANCEL_OUTLOOK" if outlook else "CARD_CAL_SERIES_CANCEL", {}]] + head + rule + [["CARD_CAL_SERIES_SINCE", {"when": when_text(doc["before"], zone)}]] + kept + base
+        return [["CARD_CAL_OCCURRENCE_CANCEL_OUTLOOK" if outlook else "CARD_CAL_OCCURRENCE_CANCEL", {}]] + head + rule + [["CARD_CAL_OCCURRENCE_STAYS", {}]] + kept + base
     if operation == "cancel":
         # the line about where a removed event goes is the account's own: Google is expected to keep it in a trash, Outlook may keep no copy (not verified)
         return [["CARD_CAL_CANCEL" if doc["account"] == "google" else "CARD_CAL_CANCEL_OUTLOOK", {}]] + head + _event_lines(doc["before"], zone, current=True) + base
@@ -501,11 +554,14 @@ def body(doc: dict, digest: str) -> str:
 
 def spec_of(doc: dict) -> dict:
     """What the writer is handed as a file: the whole event for a create, the changed parts for a change, nothing for a removal."""
-    if doc["operation"] == "cancel":
+    if doc["operation"] in CANCELS:
         return {}
     event = doc["event"]
     if doc["operation"] == "create":
-        return {k: event[k] for k in ("title", "all_day", "start_at", "end_at", "location", "reminder_minutes", "notes")}
+        out = {k: event[k] for k in ("title", "all_day", "start_at", "end_at", "location", "reminder_minutes", "notes")}
+        if "recurrence" in doc:      # a series is written in the zone it is expanded in (CB-6): the document's own, the host's
+            out.update(recurrence=doc["recurrence"], time_zone=doc["zone"])
+        return out
     out = {}
     for name in doc["changed"]:
         if name == "when":
@@ -527,19 +583,58 @@ def provider_args(doc: dict, spec_file) -> list:
     if spec_file:
         args += ["--spec-file", spec_file]
     args += ["--idempotency-key", doc["idempotency_key"]]
+    args += series_args(doc)
     return args + outlook_zone_args(doc)
+
+
+def series_args(doc: dict) -> list:
+    """The flags that name the series (CB-7), the same on the dry run and on the confirmed run because both are built from the approved document: for one occurrence `--series <the
+    master's id> --expect-start <the instant it starts at, as it was read>`; for the whole series on Google the switch `--series` of `event-delete` (Outlook's own verb needs none);
+    nothing for any other operation. The ids and the instant are read by code from the provider, never from a line."""
+    flags = []
+    if doc["operation"] == "cancel-occurrence":
+        flags += ["--series", doc["series"]["id"], "--expect-start", doc["series"]["start"]]
+    elif doc["operation"] == "cancel-series" and doc["account"] == "google":
+        flags.append("--series")
+    return flags
 
 
 def outlook_zone_args(doc: dict) -> list:
     """`--time-zone <name>` for an Outlook timed create, or a change that carries times, when the document's zone is an IANA name (it has a `/` and is of the writer's
     own form); else nothing (UTC, as before). The name is only ever `doc["zone"]`, the host's zone: never the person's line or a model's. It is part of the dry run, so
     the hash the person approves covers it. Google, a removal, an all-day event and an offset zone (`UTC-03:00`) get none."""
-    if doc["account"] != "microsoft" or doc["operation"] == "cancel" or doc["event"]["all_day"]:
+    if doc["account"] != "microsoft" or doc["operation"] in CANCELS or doc["event"]["all_day"]:
         return []
     if doc["operation"] == "change" and "when" not in doc["changed"]:
         return []
     named = OUTLOOK_ZONE.fullmatch(doc["zone"])
     return list(("--time-zone", doc["zone"])) if named else []
+
+
+def instances_args(calendar_id: str, series_id: str, first: str, last: str) -> list:
+    """The flags of the writer's `event-instances` read: the instances of the series `series_id` between two instants (an instant with its offset each; at most two days wide)."""
+    args = ["--calendar", calendar_id, "--series", series_id, "--from", first, "--to", last]
+    return args
+
+
+def day_window(day: datetime.date, days: int = 1) -> tuple:
+    """(the first instant, the last instant) as `YYYY-MM-DDTHH:MM:SS+HH:MM` of the `days` local days from the start of `day`, in the machine's zone (the zone every wall time of a
+    document is written in). A window of at most two days is what the writer reads."""
+    first = datetime.datetime.combine(day, datetime.time.min).astimezone()
+    last = datetime.datetime.combine(day + datetime.timedelta(days=days), datetime.time.min).astimezone()
+    return first.isoformat(timespec="seconds"), last.isoformat(timespec="seconds")
+
+
+def rule_of(recurrence) -> str:
+    """The closed word of a repetition: `daily` or `weekly:MO`.."""
+    if recurrence == {"freq": "daily"}:
+        return "daily"
+    return f"weekly:{recurrence['byday']}"
+
+
+def repeat_key(rule: str) -> str:
+    """The key of the card line that says a repetition in words (the phrase table's CARD_CAL_REPEAT_ family)."""
+    return "CARD_CAL_REPEAT_DAILY" if rule == "daily" else f"CARD_CAL_REPEAT_WEEKLY_{rule[-2:]}"
 
 
 def event_get_args(doc: dict) -> list:

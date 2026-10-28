@@ -13,7 +13,8 @@ the document itself (runtime/effect_calendar.py) holds the event as it was appro
   created(ctx)                  [row] for each event an approved create made, newest state: a later approved change of that event replaces its times and title, a later approved removal
                                 takes it out. A row is {"source": "created", "pending": the card that created it, "account", "calendar", "calendar_id", "event_id", "title", "start",
                                 "end" (wall times of THIS machine's zone, `YYYY-MM-DDTHH:MM`, or days), "start_at" and "end_at" (the instants as approved), "day": the date, "time": "13:00-14:00" or "all day",
-                                "all_day"}. The wall times and the day are computed from the instants in the machine's zone now, so a zone that changed since the card was approved moves
+                                "all_day", "recurring": whether the card made a series (CB-7: the row is the series' master at its first occurrence; the cancel of the whole series takes it out, the cancel of
+                                one occurrence leaves it)}. The wall times and the day are computed from the instants in the machine's zone now, so a zone that changed since the card was approved moves
                                 neither the day the event is searched on nor the comparison with the provider. Rows are in the order of their start.
   by_pending(ctx, pending, rows=None)   the row of one create card, or None (removed since, or no such card); `rows` is a `created` the caller has already read
   signature(row)                a short hash of the title and the instants of a row: what a list of events records to know, later, that an entry is still the one it showed
@@ -64,7 +65,8 @@ def _row(pending: int, doc: dict) -> dict:
     else:
         shown = f"{first[11:16]}-{last[11:16]} ({last[:10]})"
     return {"source": SOURCE, "pending": pending, "account": doc["account"], "calendar": doc["calendar"], "calendar_id": doc["calendar_id"], "event_id": doc["event_id"],
-            "title": event["title"], "start": first, "end": last, "start_at": event["start_at"], "end_at": event["end_at"], "day": day, "time": shown, "all_day": event["all_day"]}
+            "title": event["title"], "start": first, "end": last, "start_at": event["start_at"], "end_at": event["end_at"], "day": day, "time": shown, "all_day": event["all_day"],
+            "recurring": "recurrence" in doc}
 
 
 def _effects(ctx: dict) -> list:
@@ -79,7 +81,7 @@ def _effects(ctx: dict) -> list:
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
         step, result = payload.get("step") or {}, payload.get("result")
         if item.get("kind") == "effect" and item.get("resolution") == "approved" and step.get("kind") == "calendar-event" and isinstance(result, dict) \
-                and isinstance(result.get("event_id"), str) and result.get("operation") in ("create", "change", "cancel") and isinstance(item.get("payload_sha256"), str):
+                and isinstance(result.get("event_id"), str) and result.get("operation") in ("create", "change", "cancel", "cancel-series", "cancel-occurrence") and isinstance(item.get("payload_sha256"), str):
             out.append(item)
     return out
 
@@ -91,8 +93,10 @@ def created(ctx: dict) -> list:
         result = item["payload"]["result"]
         key = (result.get("account"), result["event_id"])
         operation = result["operation"]
-        if operation == "cancel":
+        if operation in ("cancel", "cancel-series"):      # the whole series goes with its master (CB-7)
             kept.pop(key, None)
+            continue
+        if operation == "cancel-occurrence":      # one occurrence cancelled: the series is as it was
             continue
         if operation == "change" and key not in kept:
             continue          # an event the platform did not create: its change is no record of one
