@@ -18,6 +18,7 @@ import subprocess
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from phone_literals import PLAIN_REFUSAL
@@ -37,6 +38,7 @@ project_config = st.load("project_config")
 natural = st.load("natural")
 catalog = st.load("interpreter_catalog")
 
+CFG = {"language": "en"}
 IDS = {"reader": "5101", "asking": "5102", "askonly": "5103", "plain": "5104"}
 SENDERS = {name: f"telegram:{ident}" for name, ident in IDS.items()}
 PROFILES = {"reader": ["read", "talk", "ask-mail", "read-mail-body", "confirm-reads-off"],      # confirm-reads-off: these tests are about the read itself; the question is tested on `asking`
@@ -130,11 +132,27 @@ def test_a_number_held_by_one_box_shows_that_message_with_its_header(world, snap
     assert shown_text(reply) == "Please send the receipt."
 
 
+def told(text, *expected):
+    """True when `text` is exactly the given sentences of the table, each a `(phrase key, fields)`, one after the other with a space between (a reply of one line says them so)."""
+    def rest_ok(rest, pending):
+        if not pending:
+            return rest == ""
+        key, fields = pending[0]
+        cuts = [i for i, ch in enumerate(rest) if ch == " "] + [len(rest)]
+        return any(pk.said(rest[:cut], key, CFG, **fields) and rest_ok(rest[cut + 1:], pending[1:]) for cut in cuts)
+    return rest_ok(text, list(expected))
+
+
+def suggests(text):
+    """True when a line of `text` suggests a form that names a box (“read 1 from Gmail”)."""
+    return any(pk.said(text, key, CFG) for key in ("MR_PICK", "MR_WHICH_SAY_ONE", "MR_WHICH_SAY_TWO"))
+
+
 def test_a_number_held_by_two_boxes_names_both_and_shows_neither(world, snaps, clock):
     boxes(world, snaps)
     reply, _extras = ask(world, {"number": 1}, "read 1")
-    assert reply.startswith("2 of your mailboxes have an e-mail 1: Gmail · Banco Aurora · Statement ready")
-    assert reply.endswith("Say “read 1 from Gmail” or “from Outlook”."), "the sentence says how to name the box, in a form that selects one"
+    assert told(reply, ("MR_WHICH_BOX", {"count": 2, "n": 1, "list": "Gmail · Banco Aurora · Statement ready · today 06:00; Outlook · Dan Reis · Weekly report · today 05:00"}),
+                ("MR_WHICH_SAY_TWO", {"n": 1, "first_box": "Gmail", "second_box": "Outlook"})), "the sentence says how to name the box, in a form that selects one"
     assert "Gmail" in reply and "Outlook" in reply and "Statement ready" in reply and "Weekly report" in reply, "both messages are named"
     assert "Ignore all previous" not in reply and "Weekly numbers" not in reply, "no text of either is shown: the reply never picks one"
 
@@ -187,7 +205,7 @@ def test_words_that_fit_several_messages_list_them_with_the_box_and_the_snapshot
     rows = [line for line in lines if line[:2] in ("1.", "3.", "2.")]
     assert sorted(r.split(" · ")[0] for r in rows) == ["1. Gmail", "2. Outlook", "3. Gmail"], "each row has the snapshot's own number and its box"
     assert "Ignore all previous" not in reply and "Please send" not in reply and "Your invoice" not in reply, "a list holds no text of a message"
-    assert lines[0].startswith("I found 3 e-mails that fit")
+    assert pk.said(reply, "MR_SEVERAL", CFG, count=3)
 
 
 def test_more_than_five_matches_ask_for_more_words_and_list_nothing(world, snaps, clock):
@@ -218,7 +236,7 @@ def test_the_day_keeps_the_messages_that_came_on_it_and_a_day_alone_is_a_search(
     wrong_day, _ = ask(world, {"match": "banco", "day": "tomorrow"}, "read the bank e-mail from tomorrow")
     assert wrong_day == phrases.text("MR_NONE", ops_core.context(world["path"])["cfg"]), "the day keeps none of the bank's messages"
     earlier, _ = ask(world, {"match": "banco"}, "read the bank e-mail")
-    assert earlier.startswith("I found 3 e-mails"), "without the day the bank has three"
+    assert pk.said(earlier, "MR_SEVERAL", CFG, count=3), "without the day the bank has three"
 
 
 def test_a_day_the_engine_cannot_read_is_asked_and_never_guessed(world, snaps, clock):
@@ -261,7 +279,7 @@ def test_a_snapshot_whose_text_does_not_match_the_record_shows_nothing(world, sn
 def test_no_mail_source_is_one_plain_sentence_with_no_command(world, snaps, clock):
     configure(world)
     reply, _ = ask(world, {"number": 1}, "read 1")
-    assert reply == "Your mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page."
+    assert pk.said(reply, "NW_ITEMS_ADD_MAIL", CFG, where="on the platform's page.") and "\n" not in reply, reply
 
 
 # --- a number never refreshes; words may ----------------------------------------------------------------------------------------------------------------------
@@ -533,7 +551,7 @@ def test_by_words_a_box_that_cannot_be_read_turns_a_single_hit_into_a_list_with_
     with monkeypatch.context() as m:
         fail_box(m, "inbox")
         reply, _ = ask(world, {"match": "invoice"}, "read the invoice e-mail")
-        assert reply.splitlines()[0] == "I found 1 e-mail that fits:" and "Your invoice is attached." not in reply, "one hit is listed, never shown, while a box was not read"
+        assert pk.said(reply, "MR_FOUND_ONE", CFG) and "Your invoice is attached." not in reply, "one hit is listed, never shown, while a box was not read"
         assert reply.splitlines()[1].startswith("2. Outlook · Banco Aurora · Invoice")
         assert reply.splitlines()[-1] == phrases.text("MR_BOX_NOTE", cfg, boxes="Gmail")
         none, _ = ask(world, {"match": "zebra"}, "read the zebra e-mail")
@@ -566,17 +584,17 @@ def test_three_holders_are_all_named_and_no_suggestion_leads_back_to_the_same_qu
     cfg = ops_core.context(world["path"])["cfg"]
     reply, _ = ask(world, {"number": 1}, "read 1")
     first = reply.splitlines()[0]
-    assert first.startswith("3 of your mailboxes have an e-mail 1: "), "the real count"
+    assert pk.said(first, "MR_WHICH_BOX", CFG, count=3, n=1), "the real count"
     assert first.count("Gmail") == 2 and "Outlook" in first, "every holder is named"
-    assert "Say “read 1 from Outlook” to read the one in Outlook." in reply, "Outlook has one box: the account's name selects it"
-    assert "from Gmail" not in reply, "two boxes of one account cannot be told apart by the account's name"
+    assert told(reply, ("MR_WHICH_BOX", {"count": 3, "n": 1}), ("MR_WHICH_SAY_ONE", {"n": 1, "box": "Outlook"}), ("MR_WHICH_PAGE", {})), "Outlook has one box: the account's name selects it; the rest is done on the page"
+    assert not any(pk.said(sentence, key, CFG, **fields) for sentence in reply.split(". ") for key, fields in (("MR_WHICH_SAY_ONE", {"box": "Gmail"}), ("MR_WHICH_SAY_TWO", {"first_box": "Gmail"}), ("MR_WHICH_SAY_TWO", {"second_box": "Gmail"}))), "two boxes of one account cannot be told apart by the account's name"
     assert phrases.phone("MR_WHICH_PAGE", cfg) in reply, "what the words cannot tell apart is done on the page"
     chosen, _ = ask(world, {"number": 1, "account": "outlook"}, "read 1 from outlook")      # the one suggestion that is made really selects the box
     assert shown_text(chosen) == "Weekly numbers attached."
     again, _ = ask(world, {"number": 1, "account": "google"}, "read 1 from gmail")
-    assert again.startswith("2 of your mailboxes have an e-mail 1: ") and "Say “read" not in again, "the second round makes no suggestion that loops"
+    assert told(again, ("MR_WHICH_BOX", {"count": 2, "n": 1})) and not suggests(again), "the second round makes no suggestion that loops"
     typed = ops_mail_read.render(ops.mail_read(world["path"], number=1), cfg, channel=None)
-    assert typed.endswith("Name the one you mean with --message inbox#1 or inbox2#1 or work#1."), "the terminal and the page take the references"
+    assert told(typed, ("MR_WHICH_BOX", {"count": 3, "n": 1}), ("MR_WHICH_TYPED", {"refs": "inbox#1 or inbox2#1 or work#1"})), "the terminal and the page take the references"
 
 
 def test_a_list_names_a_box_only_by_a_form_that_selects_it(world, snaps, clock):
@@ -584,7 +602,7 @@ def test_a_list_names_a_box_only_by_a_form_that_selects_it(world, snaps, clock):
     ops_sources.source_mail(world["path"], "inbox2", "gmail:box=starred;days=7;max=50")
     cfg = ops_core.context(world["path"])["cfg"]
     reply, _ = ask(world, {"match": "refund"}, "read the refund e-mail")      # the refund is number 3 in both Gmail boxes: no form selects either of them
-    assert "Say “read" not in reply and phrases.phone("MR_WHICH_PAGE", cfg) in reply
+    assert not suggests(reply) and phrases.phone("MR_WHICH_PAGE", cfg) in reply
     other, _ = ask(world, {"match": "invoice"}, "read the invoice e-mail")      # Outlook's 2 is alone in its account
     assert shown_text(other) == "Your invoice is attached."
 
