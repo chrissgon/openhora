@@ -3,12 +3,12 @@
 WHAT IS CHECKED. (1) The stage is well formed: each row of the stage has code in `ops_turn.ROWS` and each code a row, the names are the entry kit's `OPS_NAMES` in order, the last row always takes
 the line, the module is called at call time by `ops_say` and imports no module that closes a cycle (AST). `_turn` and `ops_natural.take` are gone. (2) The dispatcher walks the table: the first row that
 takes a line ends the dispatch, a row whose `channels` excludes the shell is skipped (every row of the real table, on every shell), an exception of a row propagates, a stage whose last row takes nothing
-is an error. (3) `code_claims`, the queue decision `handled` of `say`, equals the expression `say` had (a frozen copy, below) on every scenario of the entry corpus. (4) Limit L63(3) is the table: the
+is an error. (3) `code_claims`, the queue decision `handled` of `say`, equals the expression `say` had (a frozen copy, below) on every scenario of the entry corpus (`claims_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`). (4) Limit L63(3) is the table: the
 contract's L63 row lists the names of `turn_order.ORDER` in order and names every retired claimer with its replacement; the check is shown to fail when a name is left out, swapped or added, and when the
 row is edited (the mirror of the row in docs/architecture/platform/runtime.md is read the same way). (5) Every row is load-bearing (with its code replaced by "takes nothing" at least one scenario no longer
 has the golden's outcome) and the order matters (four swaps change a scenario of the corpus). (6) Page, terminal, chat and mcp lines pass through the same order and never reach the interpreter: the trace holds no `interpreter`
 and the stand-in model is never asked, with `ops_interpret.enabled` left as it is, and the row stays out of their reach when `enabled` is wrongly true (the table and `enabled` are two layers of L63(1)).
-(7) The trace the table gives (`ops_turn.TRACE`) is the trace the kit records by wrapping the methods, on every scenario of the corpus.
+(7) The trace the table gives (`ops_turn.TRACE`) is the trace the kit records by wrapping the methods, on every scenario of the corpus (`ops_trace_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`).
 
 NO CALLS. The scenarios are replayed by test_entry_replay.py's own functions, with the stand-ins of entry_kit.py: no model, no provider process. The golden is never recorded here.
 
@@ -241,10 +241,11 @@ def old_handled(ctx, said, channel, sender, plan_before):
 
 
 def recording_claims(pairs, lock):
-    """A hook that replaces `ops_turn.code_claims` by a function that answers what it answers and records, beside it, what the frozen expression says for the same arguments."""
-    real = ops_turn.code_claims
-
+    """A hook that replaces `ops_turn.code_claims` by a function that answers what it answers and records, beside it, what the frozen expression says for the same arguments. The function it
+    wraps is the one in force when the hook runs (so a hook installed before it, in the test that plants a defect, is what it observes)."""
     def hook(mp):
+        real = ops_turn.code_claims
+
         def claims(ctx, said, channel, sender, plan_before):
             old = bool(old_handled(ctx, said, channel, sender, plan_before))
             new = real(ctx, said, channel, sender, plan_before)
@@ -255,18 +256,18 @@ def recording_claims(pairs, lock):
     return hook
 
 
-@pytest.mark.parametrize("shard", range(SHARDS))
-def test_code_claims_equals_the_old_expression(shard, tmp_path):
-    """On every scenario of the entry corpus (every pre-state, composite ones included, page and terminal lines too) `code_claims` and the frozen expression give the same boolean for each call `say`
-    makes."""
-    pairs, lock, wrong, scenarios = [], threading.Lock(), [], rp.shard_of(rp.corpus(), shard)
-    for scenario in scenarios:
-        before = len(pairs)
-        rp.replay(scenario, tmp_path, recording_claims(pairs, lock))
-        wrong += [f"{scenario['id']}: {row}" for row in pairs[before:] if row[3] != row[4]]
-    assert pairs, "the corpus makes `say` ask the queue decision"
-    assert not wrong, f"{len(wrong)} calls differ:\n" + "\n".join(wrong[:12])
-    assert any(row[3] for row in pairs) and any(not row[3] for row in pairs) and {row[1] for row in pairs} >= {"messaging", "page"}, "both answers, and more than one shell, were seen"
+def claims_problems(results) -> list:
+    """Item (3), run once per scenario with the other observers by `test_entry_observed.py`: `results` is `[(scenario id, [(said, channel, plan_before, old, new), ...])]`, what `recording_claims` saw;
+    it returns one text for each problem.
+    On every scenario of the entry corpus (every pre-state, composite ones included, page and terminal lines too) `code_claims` and the frozen expression give the same boolean for each call `say`
+    makes; and the rows seen hold both answers and more than one shell (so the check is not vacuous)."""
+    rows = [row for _, pairs in results for row in pairs]
+    found = [f"{sid}: the frozen expression says {row[3]}, `code_claims` says {row[4]}: {row}" for sid, pairs in results for row in pairs if row[3] != row[4]]
+    if not rows:
+        found.append("the corpus makes `say` ask the queue decision")
+    elif not (any(row[3] for row in rows) and any(not row[3] for row in rows) and {row[1] for row in rows} >= {"messaging", "page"}):
+        found.append("both answers, and more than one shell, were seen")
+    return found
 
 
 def test_a_claim_goes_with_its_rows(monkeypatch):
@@ -491,31 +492,32 @@ def test_the_interpreter_row_stays_out_of_reach_of_a_page_line_even_when_enabled
 FAMILY_CALLS = {"draft-answer", "write-form-ops"}
 
 
-@pytest.mark.parametrize("shard", range(SHARDS))
-def test_the_table_trace_equals_the_wrapped_trace(shard, tmp_path):
-    """On every scenario of the corpus, page and terminal lines included, the row that took the line is the claimer the kit's wrappers recorded in the golden for the operations layer. The dispatch of
-    a bridge line runs on the bridge's job thread, and only counts when it began while the line was being delivered (a job the pre-state started may still be running when the line comes: the kit's `live` rule); the first row that
+def ops_trace_hook(got, lock):
+    """A hook that records, in `got`, the names of the rows of the stage `ops` that took the line, through `ops_turn.TRACE`: the dispatch of a bridge line runs on the bridge's job thread, and only
+    counts when it began while the line was being delivered (a job the pre-state started may still be running when the line comes: the kit's `live` rule)."""
+    def hook(mp):
+        real_walk = ops_turn._walk
+
+        def walk(order, state):
+            state.live_at_entry = ek.rec().live      # a job the pre-state started may still be running when the line comes, and end after: the kit records at entry too
+            return real_walk(order, state)
+
+        def trace(name, state):
+            if getattr(state, "live_at_entry", False):
+                with lock:
+                    got.append(name)
+        mp.setattr(ops_turn, "_walk", walk)
+        mp.setattr(ops_turn, "TRACE", trace)
+    return hook
+
+
+def ops_trace_problems(results, recorded) -> list:
+    """Item (7), run once per scenario with the other observers by `test_entry_observed.py`: `results` is `[(scenario, the rows of the stage ops that took the line, in time)]`; `recorded` is the golden.
+    On every scenario of the corpus, page and terminal lines included, the row that took the line is the claimer the kit's wrappers recorded in the golden for the operations layer. The first row that
     took a line, in time, is the one compared (the kit's first-event rule). A line the bridge's own write rows took has no dispatch of the turn: the kit names the family function they called."""
-    _, recorded = rp.golden()
     names = set(OPS)
-    wrong, count, direct, dispatched, lock = [], 0, 0, 0, threading.Lock()
-    for scenario in rp.shard_of(rp.corpus(), shard):
-        got = []
-
-        def hook(mp, got=got):
-            real_walk = ops_turn._walk
-
-            def walk(order, state):
-                state.live_at_entry = ek.rec().live      # a job the pre-state started may still be running when the line comes, and end after: the kit records at entry too
-                return real_walk(order, state)
-
-            def trace(name, state):
-                if getattr(state, "live_at_entry", False):
-                    with lock:
-                        got.append(name)
-            mp.setattr(ops_turn, "_walk", walk)
-            mp.setattr(ops_turn, "TRACE", trace)
-        rp.replay(scenario, tmp_path, hook)
+    wrong, count, direct, dispatched = [], 0, 0, 0
+    for scenario, got in results:
         count += 1
         kit = [n for n in recorded[scenario["id"]]["trace"] if n in names]
         if not got and kit and set(kit) <= FAMILY_CALLS and scenario["channel"] == "messaging":
@@ -524,4 +526,7 @@ def test_the_table_trace_equals_the_wrapped_trace(shard, tmp_path):
         dispatched += bool(got)
         if got[:1] != kit:
             wrong.append(f"{scenario['id']}: table {got[:1]}, wrapped {kit}")
-    assert count and dispatched > direct and not wrong, f"{len(wrong)} of {count} scenarios of shard {shard} have another trace:\n" + "\n".join(wrong[:12])
+    found = list(wrong)
+    if not (count and dispatched > direct):
+        found.append(f"{dispatched} of {count} scenarios were dispatched by the table, {direct} went straight to a family function: the dispatch is not seen")
+    return found

@@ -9,7 +9,7 @@ hold a budget of its own; `turn_gate.turn` is the one budget and `turn_gate.may_
   * one mail lookup read per line: two stale mail sources looked up in one turn make one read, the next line another;
   * the entry points open the turn (`ops_say.say`, `ops_natural_writes.natural_write`, `ops_card_revise.card_revise_check` and `card_revise`, `ops_items.items`, `ops_natural_mail.resolve`), by
     behaviour on the real operations layer and by the source of each;
-  * over the whole corpus of the entry replay, with a counting stand-in over `ops_sources.source_refresh`: no source is read twice in a line, no mail lookup twice, and no read is made outside a
+  * over the whole corpus of the entry replay (`reads_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`), with a counting stand-in over `ops_sources.source_refresh`: no source is read twice in a line, no mail lookup twice, and no read is made outside a
     turn. The corpus holds no stale source today, so it proves that nothing in it breaks the limit; the positive reads are the scripted tests above and the guard tests of the three paths;
   * the gate is load-bearing both ways (vacuity): `may_refresh` that always says yes reads twice and the oracle fails; one that always says no leaves a stale list unread and a scripted
     stale list fails;
@@ -18,7 +18,7 @@ hold a budget of its own; `turn_gate.turn` is the one budget and `turn_gate.may_
 
 Offline: the provider is a stand-in that counts its calls (or the real stand-in providers of the existing worlds), no model, no secret; every name is invented.
 
-Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_turn_gate_refresh.py   (the corpus test in SHARDS tests that may run in parallel: -n 4 with pytest-xdist)
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_turn_gate_refresh.py
 """
 from __future__ import annotations
 
@@ -28,9 +28,7 @@ from pathlib import Path
 
 import pytest
 
-import entry_kit as ek
 import standin_tree as st
-import test_entry_replay as rp
 from test_items_fresh import NEW, add_message, ask, clock, mail_reads, project, snaps, with_inbox, world  # noqa: F401  (the calendar world, its snapshots and the stale phone list)
 from test_ops_natural import world as line_world  # noqa: F401  (the real-operations world of the interpreter)
 from test_ops_natural_writes import READER
@@ -52,7 +50,6 @@ sources = st.load("sources")
 
 RUNTIME = Path(__file__).resolve().parents[1]
 CTX = {"cfg": {"project": "demo"}}
-SHARDS = rp.SHARDS
 
 
 class Reads:
@@ -357,21 +354,15 @@ def test_the_turn_is_opened_by_the_entries_and_by_no_helper_that_a_line_does_not
 # --- the corpus -------------------------------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("shard", range(SHARDS))
-def test_the_corpus_reads_each_source_at_most_once_per_line(shard, tmp_path):
-    """Every scenario of the entry replay, through the whole entry (the real bridge, the operations layer and the stand-ins), with a counting stand-in over the one provider read: no source is read
-    twice in a line, no line makes two mail lookups, and no read is made with no turn open. (The outcome itself is the replay's; this is the budget's.)"""
+def reads_problems(results) -> list:
+    """Run once per scenario with the other observers by `test_entry_observed.py`: `results` is `[(scenario, the `Reads` a hook built with `Reads(mp, through=True)` saw)]`. Every scenario of the entry
+    replay, through the whole entry (the real bridge, the operations layer and the stand-ins), with a counting stand-in over the one provider read: no source is read twice in a line, no line makes two
+    mail lookups, and no read is made with no turn open. (The outcome itself is the replay's; this is the budget's.)"""
     bad = []
-    for scenario in rp.shard_of(rp.corpus(), shard):
-        seen = []
-
-        def hook(mp, seen=seen):
-            seen.append(Reads(mp, through=True))
-        rp.replay(scenario, tmp_path, hooks=hook)
-        reads = seen[0]
+    for scenario, reads in results:
         if reads.twice() or reads.mail_grants > 1 or reads.outside:
             bad.append(f"{scenario['id']}: reads {reads.sources}, mail lookups {reads.mail_grants}, outside a turn {reads.outside}")
-    assert not bad, f"{len(bad)} scenarios of shard {shard}:\n" + "\n".join(bad[:12])
+    return bad
 
 
 def test_the_counting_stand_in_sees_a_read_and_a_read_outside_a_turn(monkeypatch):
