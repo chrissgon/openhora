@@ -106,3 +106,22 @@ def test_phrase_part_exemption_is_narrow(tmp_path):
     found = errors(tmp_path)
     assert len(found) == 5
     assert not any(f.startswith("runtime/phrases_parts/demo-1.pt-BR.json:") for f in found)
+
+
+def test_entry_ext_files_pass_without_an_allow_line(tmp_path):
+    line = '{"id": "demo-1.a", "text": "Voc\u00ea ' + NAO + ' tem a\u00e7\u00e3o"}\n'
+    write(tmp_path, "runtime/tests/entry_ext/demo-1.scenarios.jsonl", line)
+    write(tmp_path, "runtime/tests/entry_ext/demo-1.golden.jsonl", line)
+    assert errors(tmp_path) == []
+
+
+def test_entry_ext_exemption_is_narrow(tmp_path):
+    # Vacuity: the base corpus, a nested folder, another suffix and another folder still fail.
+    line = '{"id": "demo-1.a", "text": "' + NAO + '"}\n'
+    write(tmp_path, "runtime/tests/entry_corpus.jsonl", line)
+    write(tmp_path, "runtime/tests/entry_golden.jsonl", line)
+    write(tmp_path, "runtime/tests/entry_ext/sub/demo-1.golden.jsonl", line)
+    write(tmp_path, "runtime/tests/entry_ext/demo-1.golden.json", line)
+    write(tmp_path, "runtime/tests/other/demo-1.golden.jsonl", line)
+    found = errors(tmp_path)
+    assert len(found) == 5

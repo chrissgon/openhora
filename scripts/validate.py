@@ -39,7 +39,8 @@ Checks every skill under skills/ and every agent under agents/:
   - english-only: no tracked text file contains Portuguese-specific diacritics or words, except
     on a line carrying `validate: allow english-only -- <reason>`, a path listed in
     .security-scan-allow with the rule english-only, or a file matching
-    runtime/phrases_parts/*.pt-BR.json (the Portuguese half of a phrase part, by rule)
+    runtime/phrases_parts/*.pt-BR.json (the Portuguese half of a phrase part) or runtime/tests/entry_ext/*.jsonl
+    (a package's entry-replay scenarios and golden), both by rule
   - private-term: when a local, git-ignored terms file exists (.private-terms at the repository root, or
     the path in WORKBENCH_PRIVATE_TERMS), no tracked text file contains any of its terms, except on a line
     carrying `validate: allow private-term -- <reason>` or in a path the file excludes. The file lists one
@@ -330,7 +331,9 @@ PORTUGUESE_RE = re.compile(
 # so the check reports a missing reason instead of plain Portuguese text.
 # A Portuguese phrase part is Portuguese by design (runtime/phrases_parts/README.md), so the check exempts it by rule
 # and a package adds no allow line; phrases.load_parts still refuses a file there that is not a valid part pair.
-ENGLISH_EXEMPT_RE = re.compile(r"^runtime/phrases_parts/[^/]+\.pt-BR\.json$")
+# The same holds for the scenarios and the recorded outcomes a package adds to the entry replay (runtime/tests/entry_ext/*.jsonl);
+# the base entry_corpus.jsonl and entry_golden.jsonl keep their own allow lines.
+ENGLISH_EXEMPT_RE = re.compile(r"^(?:runtime/phrases_parts/[^/]+\.pt-BR\.json|runtime/tests/entry_ext/[^/]+\.jsonl)$")
 ENGLISH_ALLOW_RE = re.compile(
     r"validate:\s*allow\s+english-only"
     r"(?:\s+--\s+(?!(?:-->|\*/)\s*$)(\S.*?)|\s*--.*?)?\s*(?:-->|\*/)?\s*$")
@@ -1506,7 +1509,7 @@ def check_english(report, root=ROOT):
 
     A line is exempt when it carries `validate: allow english-only -- <reason>`; a whole file
     when .security-scan-allow has `<path glob> english-only -- <reason>`, or when it is the
-    Portuguese half of a phrase part (ENGLISH_EXEMPT_RE).
+    Portuguese half of a phrase part or a package's entry-replay file (ENGLISH_EXEMPT_RE).
     """
     scanner = load_scanner()
     entries, _ = scanner.load_allow_file(root)
