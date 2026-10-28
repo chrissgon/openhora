@@ -223,7 +223,9 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     try:
         result = ops_contained.execute(ctx, SKILL, meta, keys, routing, prompt, timeout=limits["timeout_seconds"], dest=dest, prepared_dir=prepared_dir,
                                        max_cost=limits["max_cost_usd"], around=ops_cancel.watch(ctx, request_id), open_web=True)
-    except core.OpsError:
+    except core.OpsError as e:
+        if getattr(e, "lab_kind", None) == "docker":      # Docker is not running (or not installed): say so, never "try again in a few minutes"
+            return fail("internal", "the research environment is off", "RS_NO_ENV")      # `internal`, attempts 0: the store's closed list has no other kind that fits, and it is the one that says no model was reached (autonomy.never_reached_the_model)
         return fail("internal", "the run could not be made", "RS_FAILED")
     except Exception as e:      # the run row never stays `running`; the error is recorded by its type only, never its text (it can hold the question)
         print(f"research: internal error {type(e).__name__}", file=sys.stderr)

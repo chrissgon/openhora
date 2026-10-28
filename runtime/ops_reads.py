@@ -633,7 +633,7 @@ def service_check(project: str, dispatch_every=None) -> dict:
     and `agents` while the process lives: {"secret_store", "credential", "docker", "image", "dispatch", "problems",
     "start", "at"}. Each verdict is "ok" or one sentence saying what is missing. secret_store and credential are the
     scheduler entry's check (dispatcher.inspect: can this interpreter read the secret store, is the default model's
-    credential set or in it), docker whether it is on PATH, image whether the eval image is on this machine,
+    credential set or in it), docker whether it is on PATH and its daemon is running (the daemon is read from the image lookup, no second docker call), image whether the eval image is on this machine,
     dispatch "every <n> s" or "off" (dispatch_every in seconds; 0 is off; None says the process is no service), problems
     the modules or the lab that did not load, start the command that starts the service with the secret store's
     library (uv run --with keyring==..., operations.service_line). It starts nothing and makes no network call."""
@@ -649,11 +649,17 @@ def service_check(project: str, dispatch_every=None) -> dict:
     else:
         image = "ok"
     bounded = lambda text: core.CONTROL.sub(" ", str(text))[:SERVICE_TEXT]  # noqa: E731  (an exception's text, bounded)
+    if not found["tools"].get("docker"):
+        docker = "docker is not on the PATH of this process"
+    elif seen.get("setup") == lab.DAEMON_DOWN:      # the image lookup above already asked the daemon: no new docker call
+        docker = "docker is on the PATH but its daemon is not running: web research and contained runs cannot start until Docker is started"
+    else:
+        docker = "ok"
     problems = [bounded(f"{name}: {why}") for name, why in sorted(found["modules"].items()) if why != "ok"]
     if found["lab"] != "ok":
         problems.append(bounded(f"lab: {found['lab']}"))
     report = {"secret_store": bounded(found["secret_store"]), "credential": bounded(found["credential"]),
-              "docker": "ok" if found["tools"].get("docker") else "docker is not on the PATH of this process",
+              "docker": docker,
               "image": image,
               "dispatch": ("not a service" if dispatch_every is None else
                            f"every {dispatch_every:g} s" if dispatch_every else "off"),
