@@ -46,8 +46,8 @@ ID_RE = re.compile(r"^(dev|test)-(pt-br|en|es|fr|de|it|ja|mx)-([0-9]{5})$")
 OPAQUE_RE = re.compile(r"^w-[0-9a-f]{8}$")
 ISO_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$")
 RULE_RE = re.compile(r"^L(?:10|[1-9])$")
-RELABEL_BASE = {"natural": 10000, "writes": 20000, "mail": 30000}
-RELABEL_RANGE = (10000, 39999)
+RELABEL_BASE = {"natural": 10000, "writes": 20000, "mail": 30000, "tier1": 40000}
+RELABEL_RANGE = (10000, 49999)
 RELABEL_CLOCK = "2026-10-22T14:00"
 RELABEL_ZONE = "America/Sao_Paulo"
 RELABEL_AGE_S = 60
@@ -527,7 +527,7 @@ def item_problems(item, cat, lines_only=False) -> list:
         number = int(match.group(3))
         in_range = RELABEL_RANGE[0] <= number <= RELABEL_RANGE[1]
         if (item["author"] == "relabel") != in_range:
-            out.append("id: 10000-39999 is the relabelled items' range, and only theirs")
+            out.append("id: 10000-49999 is the relabelled items' range, and only theirs")
     tags = item["tags"]
     if not isinstance(tags, list) or len(set(map(str, tags))) != len(tags) or not all(t in TAGS for t in tags):
         out.append("tags: distinct words of the closed list")

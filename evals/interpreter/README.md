@@ -14,6 +14,8 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | `taxonomy.json` | what the pipeline did (`observed`), the error categories worst first, the rules that map one to the other, the metrics, and at least 30 worked `examples` | C0 (rules), IX-1 (examples) | frozen with the corpus; its hash is in the decisions |
 | `thresholds.json` | the gate: per-category bounds overall and per language | C0 | frozen when IX-1's data merges; its hash is in the decisions |
 | `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
+| `tier1-cover-v1.jsonl` | 199 items of the lines today's code claimers take that no corpus holds (the form lines of `test_natural_table.py` and `test_commands_in_words.py`, the entry corpus scenarios whose trace holds a row S41-11 retires): author `relabel`, tag `relabel-op`, ids `dev-<lang>-4NNNN`, no frame, the relabelling's clock and zone; the gold is the operation the claimer named (scope `op`, or the integer slot when it is the operation's whole slot set); with `dev-relabelled.jsonl` it is the corpus M41-5 measures | S41-11 PR 1 (`python3 scripts/interpreter_corpus.py tier1-cover`) | never by hand: `runtime/tests/test_tier1_cover.py` rebuilds it and compares byte for byte, until PR 2a deletes the builder with the claimers it runs; frozen data after that |
+| `tier1-cover-gaps.json` | the accounting of the universe the builder read (lines, taken, covered, added, gap, per source), the gap list (a request code takes today that the served catalog refuses or lacks: 13 operations, 58 lines), and the share of private lines per set | S41-11 PR 1 | with `tier1-cover-v1.jsonl`; a gap is the maintainer's decision, see "The tier-1 cover set" below |
 | `dev.jsonl` | the new dev items (generated, written by an author session, adversarial), labelled blind and resolved | IX-1 data | frozen (`freeze --split dev`) |
 | `dev-long-v1.jsonl` | the long, information-rich dev lines of B-double-prime-lite (46 fictional lines: day words, articles, "da agenda", polite words, titles of several words; the new `target` and `day` slots and the `plan-confirm` frame); authored by the specification, not labelled blind: dev evidence, never the gate's held-out split | package BL3 | new file, never `dev.jsonl` (frozen; the replay gate draws its samples from it); `runtime/tests/test_interpreter_dev_long.py` holds its form |
 | `dev-long-v2.jsonl` | the 46 items of `dev-long-v1.jsonl` byte for byte except `gold`: every span slot's accepted values widened by rule W1 of 2026-10-25 (the value with or without its article, its preposition, the family noun and a body's lead-in, each piece a piece of the line; no content word removed; no time, int or op touched), written by `python3 scripts/interpreter_corpus.py widen-golds --in evals/interpreter/dev-long-v1.jsonl`; dev evidence, written after the v1 answers were seen, so a re-score under it is labelled not blind | package BL5A | `v1` stays frozen (the published result was scored on it); `runtime/tests/test_interpreter_blite_replay.py` rebuilds v2 from v1 and compares byte for byte |
@@ -47,7 +49,7 @@ lines sorted by `id`, a newline after each. The full format is section 1.7 of th
 
 | Key | Value |
 |---|---|
-| `id` | `<split>-<lang part>-<5 digits>`; the language part is the tag in lower case, `mx` for `mixed`. Relabelled items use 10000-19999 (`natural_corpus`), 20000-29999 (`natural_writes`), 30000-39999 (`natural_writes_mail`), and only they use that range |
+| `id` | `<split>-<lang part>-<5 digits>`; the language part is the tag in lower case, `mx` for `mixed`. Relabelled items use 10000-19999 (`natural_corpus`), 20000-29999 (`natural_writes`), 30000-39999 (`natural_writes_mail`), 40000-49999 (the tier-1 cover set), and only they use that range |
 | `split`, `lang`, `author` | `dev`/`test`; `pt-BR`, `en`, `es`, `fr`, `de`, `it`, `ja`, `mixed`; `gen`, `opus`, `adv`, `relabel` |
 | `tags`, `hard` | words of the closed list; `hard` is true when a tag is one of tempt-d, tempt-g, multi-intent, injection, forward, dst, past, far-future, weekday-mismatch, code-switch, inherit (code sets it) |
 | `clock`, `zone`, `channel`, `forwarded` | the moment the line is read (`YYYY-MM-DDTHH:MM`, local), an IANA zone, `messaging`/`page`/`terminal`/`chat`, whether the messenger flagged the line as forwarded |
@@ -336,3 +338,54 @@ with the description as the body, not `route` (rule 10, and rule 8 now says "wri
 `interpreter_prompt_1423` keeps the hash that the recorded answers of BL5F and BL7-0 name, so their replay tests are unchanged. The newest entry of `runtime/interpreter_enable.json` (2026-10-26) names it, so on the head of this pull request
 the interpreter is on with the new prompt (limit L63, part 2). It was measured on this pull request's head on blind set 2 (`blite-blind-2-v2-split.json`) and served by the maintainer's decision of 2026-10-26, below the gate on the pt-BR wrong-card rate (OPEN-BL7-C, recommendation (a); the figures are in `docs/decisions.md`).
 The recorded answers cannot measure this prompt: a replay says what the code does with answers given to the old prompt, never what the new prompt makes a model say.
+
+## The tier-1 cover set (S41-11, PR 1, 2026-10-28)
+
+S41-11 deletes the code claimers that take a line before any model (the closed forms of `natural.match`, the write families' `natural_writes.candidate`, the reminders' `natural.claim`). A line they take
+today works with no model call; after the deletion it reaches the interpreter. This set says which lines those are, so that M41-5 can measure the interpreter on them first. It is built by code, never by hand:
+`python3 scripts/interpreter_corpus.py tier1-cover` (`--check` compares the committed files and writes nothing). The builder is `scripts/interpreter_corpus_tier1.py`; it is one-time and PR 2a of S41-11 deletes
+it with the claimers it runs, after which the two files are frozen data like `dev-relabelled.jsonl`.
+
+**The rule** (the text of the builder's module says the same):
+
+1. *Universe.* The distinct lines of the three corpora of `runtime/tests`; of every scenario of the entry corpus (base and `entry_ext/`) whose recorded trace holds `write-form`, `reminder-form`, `help-in-words`,
+   `tier-1-form`, `write-form-ops` or `closed-form-without-slot`; and the form lines held as literals by `test_natural_table.py` (`SAMPLES`, `ARE_FORMS`) and `test_commands_in_words.py` (the english and portuguese
+   columns of its parametrized tests, `{id}` filled with 3), read from their source, never by running them. A line that is empty or starts with `/` is a typed command and is never read.
+2. *Taken.* The first claimer that takes the line, in the turn's order: `help-in-words` (`natural.match` says `commands`), `write-form` (`natural_writes.candidate`), `reminder-form` (`natural.claim`), `tier-1-form`
+   (`natural.match`; `closed-form-without-slot` for a D or W operation). They run with no scope open, so the interpreter is off for the sender: a repeating line is claimed by the closed form, as before catalog 2.
+3. *Gap or item.* The operation is the one the claimer named (the calendar event is `event-create`). An operation the served catalog (`runtime/interpreter_catalog.json`) lists in `ops` gives an item; one it lists
+   in `refused` or lacks gives no item: it goes to the gap list, kind `refused` or `absent`.
+4. *The gold.* Outcome `op` with that operation. Only a tier-1 form gives a slot: the integer written in the line, a gold span only when it is a substring of the line (`{id}`-style: digits). The gold is full (names
+   the slot) only when the claimer's slots are the whole slot set of the operation's served row; otherwise it has scope `op`, as the writes and mail items of `dev-relabelled.jsonl` do, so a model that also reads an
+   optional slot ("how much did we spend this week": `since`) is not scored wrong for it. A write or a reminder is always scope `op`: no span is invented.
+5. *The item.* Author `relabel`, tag `relabel-op`, no frame, the relabelling's clock, zone and channel, id `dev-<lang>-4NNNN` by the place of the line in the sorted list of added lines. The language is the one table
+   whose own claim equals the whole claim; when no table or both give it, `mixed` (4 lines, all "remind me at ...").
+6. *Covered.* A line `dev-relabelled.jsonl` already holds with no frame and a gold of the same operation (a reminder line: a scope-time item) adds no item. A corpus line the relabelling holds only as an answer to
+   an open question (a frame) is not covered: code also takes it with no frame, and that reading is new.
+7. *Accounting.* Every line of the universe that is taken is exactly one of: a gap, covered, or an added item; `tier1-cover-gaps.json` counts each per source.
+
+**Today's numbers** (head of the PR; the builder recomputes them): 1,568 distinct lines, 1,258 taken (a gap 58, covered 1,001, added 199). Of the 199 added items 163 are scope `op` and 36 name the integer slot;
+84 are English, 111 pt-BR, 4 `mixed`. The gap list is 13 operations, 58 lines (29 English, 29 pt-BR): the D operations `approve` (17), `reject` (13), `release` (6) and `go-ahead` (2), and the widening G operations
+`give-consent`, `config`, `accept-config`, `deps`, `routine-approve`, `set-mode`, `set-model`, `source-add` and `source-import` (20 together); every one is in the served `refused` list, none is absent. A gap is a
+request that works today and would stop working: the maintainer accepts it, or the catalog gains the operation (a dated entry and its own measurement); PR 2 of S41-11 waits for that answer.
+
+**The pipeline decides 133 of the 199 added items before the model.** `interpreter_pipeline` stage 3 (`tier1`) calls `natural.match` as the product does today, so a tier-1 form never reaches a model in the
+measurement; none of the 1,344 relabelled items is decided there. M41-5 asks what the model does with those lines, so it runs with stage 3 off. The harness has no option for it and PR 2a deletes the stage; until then
+the maintainer's script switches it off in the process, with no edit of a repository file: it sets `pipeline._tier1 = lambda line: None` before `interpreter_measure.main([...])` is called in the same
+process, once per route and corpus:
+
+```
+python3 - <<'PY'
+import sys
+sys.path.insert(0, "runtime")
+import interpreter_pipeline as pipeline
+pipeline._tier1 = lambda line: None          # stage 3 off: a tier-1 form reaches the model
+import interpreter_measure
+sys.exit(interpreter_measure.main(["--corpus", "evals/interpreter/dev-relabelled.jsonl", "--route", "or-deepseek-v4.1-flash", "--runs", "2", "--record", "<answers folder>"]))
+PY
+```
+
+The same with `--corpus evals/interpreter/tier1-cover-v1.jsonl`, and each on the second route (`acct-claude-sonnet-5.5` on the maintainer's account). M41-5 is therefore two events per route and two runs of each,
+(1,344 + 199) items x 2 runs = 3,086 calls a route. The events' summaries show `stages` with no `tier1`. `runtime/tests/test_tier1_cover.py` holds, at 0 calls, that with the stage off every item of both files
+reaches the model and that with it on 133 do not. The share of private lines (a reminder or a write, what OPEN-41-7 widens) is in `tier1-cover-gaps.json`, `private.by_set`; the latency added per line is the p95 of
+the events' `latency_ms`, against today's 0 ms for a line code takes. Scope-time items (the reminders of `dev-relabelled.jsonl`) judge the reading of the time, not the choice of the `remind` operation.
