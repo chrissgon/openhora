@@ -2690,6 +2690,7 @@ DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
 from ops_say import (  # noqa: E402,F401
     chat_memory,
+    event_list_picks,
     natural_draft,
     natural_file_accounts,
     natural_forget,
@@ -2800,8 +2801,16 @@ from ops_reads import (  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401
 from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
 # --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---
+from ops_file_ask import (  # noqa: E402,F401
+    file_ask,
+)
 from ops_mail_read import (  # noqa: E402,F401
     mail_read,
+)
+from ops_todo import (  # noqa: E402,F401
+    todo_add,
+    todo_done,
+    todo_list,
 )
 
 

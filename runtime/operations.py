@@ -770,6 +770,18 @@ OPERATIONS = (
                  "about": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
                  "slots": {"message": {"kind": "int", "param": "number", "since": 2}, "target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day", "since": 2},
                            "service": {"kind": "word", "param": "account", "since": 2}}}},
+    # FA-1: a question about what ONE file of the person's own Drive or OneDrive says, answered by the quarantined reader (runtime/ops_file_ask.py): the file is found by the search of `file-read`,
+    # its converted text goes only to one contained run of the answer skill (container, web off, nothing brought back) and the answer comes back to the chat that asked with the passages code
+    # checked. The text goes to a model, so the group `ask-files` is a group of its own, in no default policy, widened only with `accept-config --widen`, never on the MCP mode (this row does not list it).
+    {"name": "file-ask", "call": "file_ask",
+     "args": ({"name": "file", "kind": "str", "required": True}, {"name": "question", "kind": "str", "required": True},
+              {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
+     "channels": ("terminal", "page", "messaging"), "model": True, "job": True, "channel_arg": True,
+     "help": "answer a question about what ONE file of your Google Drive (account google) or OneDrive (account microsoft) says, found by its name by the search of file-read (the folders the project lists under accounts.<account>.folders and the folders inside them; several matches are listed to choose from on a messaging app, and the full name is asked elsewhere): the converted text of that file, read now, goes to one run of the answer skill in an isolated container with no web that can act on nothing, within the project's file_ask bounds (max_cost_usd, timeout_seconds, max_per_day); the answer comes back only to the shell or chat that asked, with the passages code checked in the file; nothing of the file is registered or kept. A messaging sender needs the groups ask-files and read-files",
+     "natural": {"class": "R", "since": 2, "order": 150, "privacy": "off-host", "cost": "model",
+                 "what": "answer a question about what ONE file of the person's own Drive or OneDrive says (the name is the file span; the service word only when the line says Google Drive or OneDrive; the question is the person's whole line)",
+                 "about": "Choose this to answer a question about what ONE file of the person's own Drive or OneDrive says (a total, a date, a clause); file is its name as the line writes it. Not to show the file (file-read), not the project's sources (ask), not the web (research).",
+                 "slots": {"file": {"kind": "span", "param": "file", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
     # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
     # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
     {"name": "research", "call": "research",
@@ -868,13 +880,15 @@ OPERATIONS = (
               {"name": "start", "kind": "str", "required": True, "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
               {"name": "end", "kind": "str", "label": "YYYY-MM-DDTHH:MM | YYYY-MM-DD"},
               {"name": "calendar", "kind": "str"}, {"name": "location", "kind": "str"},
-              {"name": "reminder_minutes", "kind": "int", "flag": "reminder-minutes"}, {"name": "notes", "kind": "str"}),
+              {"name": "reminder_minutes", "kind": "int", "flag": "reminder-minutes"}, {"name": "notes", "kind": "str"},
+              {"name": "repeat", "kind": "choice", "choices": ("daily", "weekly")}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "prepare a new event on a calendar of your own Google or Microsoft account and stop at a card that asks you to approve it (nothing is written until you do, with its hash): --start and --end are YYYY-MM-DDTHH:MM in this machine's zone or YYYY-MM-DD for an all-day event (the end defaults to an hour after the start, or the same day); --calendar is a name of the account's calendars in runtime.json (the first when absent); nobody is invited and no e-mail is sent; no recurrence",
+     "help": "prepare a new event on a calendar of your own Google or Microsoft account and stop at a card that asks you to approve it (nothing is written until you do, with its hash): --start and --end are YYYY-MM-DDTHH:MM in this machine's zone or YYYY-MM-DD for an all-day event (the end defaults to an hour after the start, or the same day); --calendar is a name of the account's calendars in runtime.json (the first when absent); nobody is invited and no e-mail is sent; --repeat daily or weekly makes a series with no end (weekly is on the weekday of --start; a timed event, written in this machine's named time zone), said on the card",
      "natural": {"class": "E", "since": 1, "order": 39, "privacy": "account", "cost": "provider",
                  "what": "a card that creates an event on the person's own calendar",
-                 "about": "Choose this to open a card that creates an event on the person's own calendar; title, time (the start), calendar and service are the line's own words. Not a reminder and not a to-do item.",
-                 "slots": {"title": {"kind": "span", "param": "title", "since": 1}, "time": {"kind": "span", "param": "start", "since": 1}, "calendar": {"kind": "word", "param": "calendar", "since": 1}, "service": {"kind": "word", "param": "account", "since": 1}}}},
+                 "about": "Choose this to open a card that creates an event on the person's own calendar; title, time (the whole start, weekday included), calendar and service are the line's own words; repeat holds the words that say it repeats (every day, every Monday). Not a reminder, not a to-do item.",
+                 "slots": {"title": {"kind": "span", "param": "title", "since": 1}, "time": {"kind": "span", "param": "start", "since": 1}, "calendar": {"kind": "word", "param": "calendar", "since": 1}, "service": {"kind": "word", "param": "account", "since": 1},
+                           "repeat": {"kind": "span", "param": "repeat", "since": 2}}}},
     {"name": "event-change", "call": "event_change",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
               {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"},
@@ -889,13 +903,45 @@ OPERATIONS = (
                  "slots": {"event": {"kind": "int", "param": "event", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "time": {"kind": "span", "param": "start", "since": 1}, "title": {"kind": "span", "param": "title", "since": 1}}}},
     {"name": "event-cancel", "call": "event_cancel",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
-              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"}),
+              {"name": "event", "kind": "str", "required": True, "label": "<source>#<n> | created:<decision>"}, {"name": "calendar", "kind": "str"},
+              {"name": "series", "kind": "flag"}, {"name": "occurrence", "kind": "str", "label": "YYYY-MM-DD"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
-     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee and no recurrence; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook the removed event may not be recoverable (not verified); nobody is told",
+     "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee; for an event of a daily or weekly series give --series (the whole series) or --occurrence YYYY-MM-DD (only that day's occurrence: the series stays), and a series is never changed; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook the removed event may not be recoverable (not verified); nobody is told",
      "natural": {"class": "E", "since": 1, "order": 41, "privacy": "account", "cost": "provider",
                  "what": "a card that removes an event of the person's own calendar (the event is named by its words in target, with the day the line gives in day; event only when the line writes the event's number)",
                  "about": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
                  "slots": {"event": {"kind": "int", "param": "event", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
+    # CB-5: the person's own to-do list (SPEC-CATALOG-BATCH 6.5): Google Tasks and Microsoft To Do, only the lists the project names under `accounts.<a>.task_lists`. The names are `todo-*`, not `task-*`: the
+    # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words only after the flip (LINE_CATALOG).
+    # `todo-list` is a read; `todo-add` and `todo-done` only PREPARE a card (the effect word `tasks`): the write is the approval of the card's hash. In no default policy; never on the MCP mode.
+    {"name": "todo-list", "call": "todo_list",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft")},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "list the open tasks of the task lists the project names under accounts.<account>.task_lists in runtime.json (without --account, of every account that names some), numbered per service in the order the service gives them; it reads the lists live and writes nothing. From a messaging app the sender needs the group tasks-read",
+     "natural": {"class": "R", "since": 2, "order": 110, "privacy": "account", "cost": "provider",
+                 "what": "list the open tasks of the person's own to-do list (the service word only when the line says Google Tasks or Microsoft To Do)",
+                 "about": "Choose this to list the open tasks of the person's own to-do list; service only when the line says Google Tasks or Microsoft To Do. Not the platform's own work (task, status, pending) and not calendar events.",
+                 "slots": {"service": {"kind": "word", "param": "account", "since": 2}}}},
+    {"name": "todo-add", "call": "todo_add",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "title", "kind": "str", "required": True},
+              {"name": "list", "kind": "str", "label": "<name of accounts.<account>.task_lists>"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare a new task on a list of your own Google Tasks or Microsoft To Do account and stop at a card that asks you to approve it (nothing is written until you do, with its hash): --title is the task, one line of at most 200 characters; --list is a name of the account's task_lists in runtime.json (the first when absent); a task is a title only: no due date and no note in this version",
+     "natural": {"class": "E", "since": 2, "order": 111, "privacy": "account", "cost": "provider",
+                 "what": "a card that adds a task to the person's own to-do list (the task is the title span; the service word only when the line says Google Tasks or Microsoft To Do)",
+                 "about": "Choose this to open a card that adds a task to the person's own to-do list; title is the task as the line writes it, service only when the line names Google Tasks or Microsoft To Do. Not a reminder and not a calendar event.",
+                 "slots": {"title": {"kind": "span", "param": "title", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
+    {"name": "todo-done", "call": "todo_done",
+     "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
+              {"name": "item", "kind": "str", "required": True, "flag": "todo-item", "label": "<words of the task> | todo:<n>"},
+              {"name": "list", "kind": "str", "label": "<name of accounts.<account>.task_lists>"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "prepare marking an open task of your own to-do list as completed and stop at a card that asks you to approve it (nothing is written until you do, with its hash, and only if the task is still as it was read): --item is todo:<n>, the n-th task of the list todo-list showed to you last, or the words of the task's title, found among the open tasks of the list (--list names it, the first when absent); several matches are listed to choose from; a task is only completed, never removed or opened again",
+     "natural": {"class": "E", "since": 2, "order": 112, "privacy": "account", "cost": "provider",
+                 "what": "a card that marks a task of the person's own to-do list as completed (the task is named by its words in target, or by its number in item when the line writes the number shown in the list)",
+                 "about": "Choose this to open a card that marks a task of the person's own to-do list as completed: target holds the task's words, item only the number the line writes from the list shown; service only when the line names the service.",
+                 "slots": {"item": {"kind": "int", "param": "item", "since": 2}, "target": {"kind": "span", "param": "target", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
     # W2: an e-mail from the person's own account (SPEC-SECRETARY-WRITES 3.2). Each one PREPARES a card and sends nothing: the e-mail is sent when its card is approved with its
     # hash (limits L55 and L42). Off for a messaging app until a profile lists the group mail-send; never on the MCP mode.
     {"name": "mail-send", "call": "mail_send",
@@ -1048,6 +1094,13 @@ GROUPS = {
     # never on the MCP mode. It prepares a card and writes nothing: the write is the approval of the card's hash (`approve-effect-mailbox` on a messaging app).
     "mail-organize": {"operations": ("mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"), "kind": None},
     "approve-effect-mailbox": {"operations": ("approve",), "kind": "effect:mailbox"},      # a change to the person's own mailbox (effect_mailbox.py APPROVAL_GROUP)
+    # CB-5: the person's own to-do list (Google Tasks, Microsoft To Do; only the lists `accounts.<a>.task_lists` names). In no default policy and never on the MCP mode (no row lists it): a messaging
+    # sender gets each group only from a profile or channel entry accepted with --widen. `tasks-read` lists the open tasks (their titles are shown); `tasks-write` prepares a card to add a task or
+    # to complete one, which writes nothing: the write is the approval of the card's hash (`approve-effect-tasks` on a messaging app). Completing a task by its words reads titles, so a sender
+    # needs `tasks-read` beside `tasks-write` for that (asked again in code, ops_todo.py).
+    "tasks-read": {"operations": ("todo-list",), "kind": None},
+    "tasks-write": {"operations": ("todo-add", "todo-done"), "kind": None},
+    "approve-effect-tasks": {"operations": ("approve",), "kind": "effect:tasks"},      # a change to the person's own task list (effect_tasks.py APPROVAL_GROUP)
     # S1: the plain lines no list takes go to the interpreter's model service (runtime/ops_interpret.py). A capability added to `say` that never grants it (KIND_ONLY): a profile lists
     # `talk` too. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen (which prints the route's retention beside it).
     "interpret": {"operations": ("say",), "kind": "interpret"},
@@ -1067,6 +1120,11 @@ GROUPS = {
     # re-worded and grants nothing of it. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with `accept-config --widen`, and project_config refuses a messaging
     # policy that lists it without `ask-mail` beside it (the reader of the person's own mailbox). Never on the MCP mode (the row does not list it). Valid on the page and the terminal inside their ceiling.
     "read-mail-body": {"operations": ("mail-read",), "kind": None},
+    # FA-1: a question about what ONE file of the person's Drive or OneDrive says, answered by a model that reads the file in an isolated run (runtime/ops_file_ask.py). The file's text goes to a
+    # model, which `read-files` promises never to happen, so this is a group of its own (the maintainer's decision of 2026-10-26, "Sim, pelo leitor isolado"): in no default policy, widened only with
+    # `accept-config --widen`, never on the MCP mode (the row does not list it), valid on the page and the terminal inside their ceiling. A policy that lists it, for any channel, needs `read-files` beside it
+    # (project_config: the search lists names), and the operation asks for both again. `read-files` is neither widened nor re-worded.
+    "ask-files": {"operations": ("file-ask",), "kind": None},
     # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the page or the MCP mode (the row does not list them). It reads and answers; it writes nothing, opens no card and sends nothing but the question, to a search service and a model.
     "research": {"operations": ("research",), "kind": None},
@@ -1089,7 +1147,7 @@ KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off", "interp
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
@@ -1111,11 +1169,11 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # Profiles (POL-2). A policy is a named set of groups, a profile (runtime.json `policies`); a channel's entry may name one, and on a messaging
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
-ACCOUNT_APPROVAL_WORDS = ("calendar", "mailbox", "files", "send-own")   # the approval words of a write to the person's own accounts: a card of one that cannot be read as a card is not shown to a reader of no mail
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+ACCOUNT_APPROVAL_WORDS = ("calendar", "mailbox", "files", "tasks", "send-own")   # the approval words of a write to the person's own accounts: a card of one that cannot be read as a card is not shown to a reader of no mail
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox", "tasks")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox"),
+                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -1127,6 +1185,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-calendar": "a messaging app may approve an event on your own calendars (create, change or remove), from a card that carries the whole event, with its hash",
     "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
     "messaging:approve-effect-mailbox": "a messaging app may approve a change to your own mailbox (a draft, archive, a move to a folder, read state, the trash), from a card that lists every message or shows the draft whole, with its hash; the card shows the subjects, senders, addresses and text only to a sender who may read your mail (ask-mail), so for any other sender it approves nothing",
+    "messaging:approve-effect-tasks": "a messaging app may approve a task added to, or completed in, your own task list (Google Tasks or Microsoft To Do), from a card that carries the whole task, with its hash; the card of a completion shows the task's title only to a sender who holds `tasks-read`",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -1152,6 +1211,7 @@ GROUP_TEXT = {
     "approve-effect-calendar": "approves an event on the person's own calendars (create, change or remove), with its hash",
     "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
     "approve-effect-mailbox": "approves a change to the person's own mailbox (a draft, archive, a move to a folder, read state, the trash), with its hash",
+    "approve-effect-tasks": "approves a task added to, or completed in, the person's own task list, with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "ask-mail": "asks about the mail and calendar sources from a messaging app and has them read for questions that name no source: their text goes to a model and the answer passes the platform (adds to `ask`, never grants it)",
@@ -1177,12 +1237,15 @@ GROUP_TEXT = {
     "reminders": "makes, lists and forgets reminders: one-shot lines of the sender's own words that the bridge sends back to their own chat at the time they chose",
     "files-write": "prepares new files and new revisions in your own Drive and OneDrive, and the saving of a file you sent; each one waits for approval of its card",
     "files-trash": "moves a file you name to the trash of your Google Drive or OneDrive, after you approve its card; recoverable while it is in the trash (adds to read-files)",
+    "tasks-read": "lists the open tasks of your own to-do lists (Google Tasks, Microsoft To Do) in the chat, found in the lists the project names; a messaging app's servers see the titles as they see any message, and no model reads them",
+    "tasks-write": "prepares adding a task to your own to-do list and marking one as completed; each one waits for approval of its card, and nothing is removed",
     "mail-organize": "prepares changes to your mailbox (a draft, archive, a move to a folder, read state, the trash); each one waits for approval of its card, and nothing is sent or deleted for good",
     "interpret": "sends the plain lines no list takes to the interpreter's model service, which reads them in any language; retention: the route's terms (adds to talk, never grants it)",
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
     "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
     "read-mail-body": "shows in the chat the text of a message of your mail snapshots that you ask for (the sender's own words, up to 1,500 characters): the messaging app's servers see it; no model reads it (adds to ask-mail)",
+    "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
 }

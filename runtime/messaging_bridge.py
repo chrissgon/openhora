@@ -1578,6 +1578,16 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             return False
 
+    def list_picks(self, project: dict, chat: str, text: str) -> bool:
+        """Whether the chat's live list of events would take a plain line as a pick by an ordinal word or by a value the list shows (LP-1: "a última", "a das 15h"); the operations layer decides."""
+        found = getattr(self.ops, "event_list_picks", None)          # an operations object without it (a test's) has no list
+        if found is None:
+            return False
+        try:
+            return bool(found(project["path"], text, self.key(chat)))
+        except self.ops.OpsError:
+            return False
+
     def write_forget(self, project: dict, chat: str) -> None:
         found = getattr(self.ops, "natural_forget", None)
         if found is not None:

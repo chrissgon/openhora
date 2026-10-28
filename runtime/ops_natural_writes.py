@@ -24,7 +24,8 @@ The order of `open_line` (SPEC-NATURAL-WRITES 5.1):
   5. the reply: the doubt or rolled line when there is one, then `ACCT_CARD_SENT`; `extras["resend"]` carries the decision so that the messaging bridge sends the card to the
      asking chat; on the terminal the reply also carries the card's lines and the approve command (the exact hash).
 
-The answers to a question: the number of an option or its word; for a time, a reading or a weekday the time engine (`natural.complete`); for a title, a subject, a body, a
+The answers to a question: the number of an option or its word, or (LP-1, runtime/list_pick.py) an ordinal word, the word for last, the sender of a message question by the words of
+its address or a brand for an account question (a single choice only; a multiple choice is answered by numbers alone); for a time, a reading or a weekday the time engine (`natural.complete`); for a title, a subject, a body, a
 content or a file name the line itself, verbatim; a number for an event; "no" or "cancel" drops the draft. A short reply that fits nothing is asked once more; any other line
 drops the draft and is handled as new, as is a line that starts a request of its own.
 
@@ -41,6 +42,7 @@ import sys
 
 import drafts
 import line_stage
+import list_pick
 import natural
 import natural_writes as nw
 import operations
@@ -50,6 +52,7 @@ import ops_natural
 import phone_refusal
 import phrases
 import project_config
+import recurrence
 import source_names
 import turn_gate
 
@@ -202,7 +205,7 @@ def new_state(ctx: dict, reading: dict, said_line: str) -> dict:
             "origins": dict(reading.get("origins") or {}),
             "need": None, "slot": None, "options": [], "multi": False, "said": [said_line], "retries": 0, "doubt": bool(reading.get("doubt")),
             "end_clock": reading.get("end_clock"), "all_day": bool(reading.get("all_day")), "end_ok": reading.get("end_ok", True),
-            "recurring": bool(reading.get("recurring"))}
+            "recurring": bool(reading.get("recurring")), "seeded": bool(reading.get("seeded"))}
 
 
 def _now():
@@ -308,6 +311,10 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
         drafts.drop(*slot)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
         return _t(ctx, "NW_RECURRING_EVENT")
+    if state["op"] == "event-create" and not state.get("seeded") and any(recurrence.mentions(line) for line in state["said"]):      # CB-7: the closed forms read "marca academia semanal amanha as 7h" as one event; a repetition phrase that no seed carried (the interpreter's `_repeat` seeds the only one code reads) opens no event card
+        drafts.drop(*slot)
+        extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
+        return _t(ctx, "RECUR_NOT_READ")
     if not state.get("end_ok", True) and "end" not in state["slots"]:
         spec = ask_spec("end", "NW_ASK_END")
         return _ask(ctx, state, spec, channel, sender, extras)
@@ -421,8 +428,10 @@ def _read(ctx: dict, said: str, seed, hint):
                 slots["title"] = seed["text"]
             if seed.get("account"):          # the account the line names (runtime/event_lookup.py `seed_service`): the family does not ask which
                 slots["account"] = seed["account"]
-            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": _origins_of(seed, slots)}
-        if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") == "target":          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`): its slots, never the closed forms
+            if seed.get("repeat"):          # CB-7: the repetition code read from the closed words of the line (runtime/recurrence.py); declared with its origin like the other parts
+                slots["repeat"] = seed["repeat"]
+            return {"op": op, "family": "calendar", "slots": slots, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "reading": reading, "origins": _origins_of(seed, slots), "seeded": True}
+        if op in ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark") and seed.get("slots") is not None and seed.get("by") in ("target", "numbers"):          # a message named by its words (runtime/ops_natural_mail.py `mail_target_seed`) or by the numbers the model gave (`mail_number_seed`, BL7-5): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
@@ -573,6 +582,37 @@ def _retry(state: dict, said: str, tables: list):
     return {"kind": "retry"} if state.get("retries", 0) < ANSWER_RETRIES else {"kind": "giveup"}
 
 
+def _keys(option: dict) -> set:
+    """The folded words and phrases that name one option as a whole line: its value, its label, the label without a parenthesis, the service words of an account option and the words of a
+    source option shown by its plain name."""
+    keys = {_folded(str(option["value"])), _folded(option["label"]), _folded(option["label"].split("(")[0])}
+    keys |= {_folded(p) for p in nw.listed(natural._tables(None), "services", str(option["value"]))}          # an account option is also named by its service words, language data
+    keys |= {_folded(w) for w in option.get("words") or []}          # BL5D: a source option shown by its plain name is also named by the service words of its account
+    return keys
+
+
+def _option_pick(state: dict, said: str):
+    """LP-1: the option a reply names without its number, or None (runtime/list_pick.py reads it; the options are numbered 1..k, so a position is the place in the question the person read):
+    an ordinal word or the word for last ("a última", "o segundo"), the sender of a message question by the words of its address ("o do banco", "o da ana": exactly one option's address
+    holds every word), a brand for an account or a mailbox question ("o do outlook": the same keys a whole-line answer is matched with). Never with a verb, never inside a longer line."""
+    form = list_pick.read(said)
+    options = state["options"]
+    if form is None or form["verb"] is not None or not options:
+        return None
+    if form["kind"] == "last":
+        return options[-1]["value"]
+    if form["kind"] == "ordinal":
+        return options[form["position"] - 1]["value"] if form["position"] <= len(options) else None
+    if state.get("need") == "message" and form["kind"] in ("words", "account"):
+        hits = [o for o in options if set(form["words"]) <= list_pick.address_words(o["label"])]
+    elif state.get("need") in ("account", "source") and form["kind"] == "account":
+        wanted = " ".join(form["words"])
+        hits = [o for o in options if wanted in _keys(o)]
+    else:
+        return None
+    return hits[0]["value"] if len(hits) == 1 else None
+
+
 def _option(state: dict, said: str):
     """The value of the option(s) the line names by number or word, or None."""
     options = state["options"]
@@ -585,14 +625,10 @@ def _option(state: dict, said: str):
     digits = _folded(said)
     if digits.isdigit() and 1 <= int(digits) <= len(options):
         return options[int(digits) - 1]["value"]
-    matches = []
-    for option in options:
-        keys = {_folded(str(option["value"])), _folded(option["label"]), _folded(option["label"].split("(")[0])}
-        keys |= {_folded(p) for p in nw.listed(natural._tables(None), "services", str(option["value"]))}          # an account option is also named by its service words, language data
-        keys |= {_folded(w) for w in option.get("words") or []}          # BL5D: a source option shown by its plain name is also named by the service words of its account
-        if digits in keys:
-            matches.append(option["value"])
-    return matches[0] if len(matches) == 1 else None
+    matches = [option["value"] for option in options if digits in _keys(option)]
+    if matches:
+        return matches[0] if len(matches) == 1 else None
+    return _option_pick(state, said)          # LP-1: an ordinal, the word for last, or a value the question shows
 
 
 def answers(ctx: dict, state: dict, said: str) -> bool:

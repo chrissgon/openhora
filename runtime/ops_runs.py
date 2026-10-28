@@ -191,6 +191,7 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
         found = {"tasks": [], "runs": []} if not tasks and not runs else core._stored(ctx, store.task_fail_orphans, tasks, runs, ORPHAN_NOTE)
         # the questions an ask left when its process died (a request code titled "Question <n>", with no task, no run of the router's skill and no run running)
         core._stored(ctx, store.answers_abandoned_cancel, importlib.import_module("router").ROUTER_SKILL)
+        importlib.import_module("ops_file_ask").sweep(ctx)      # FA-1: the run folders of a question about a file that a crash left, and a stale prepared folder (the text of a file); it never raises
         return ops_waits.settled(ctx, found)
     finally:
         for fd in held:

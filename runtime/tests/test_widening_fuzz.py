@@ -94,8 +94,10 @@ def random_groups(channel, rng):
         out.append("approve-plans")
     if "read" in out and "read-limited" in out:
         out.remove("read-limited")
-    if "files-trash" in out and "read-files" not in out:
-        out.append("read-files")      # the configuration refuses the trash without the right to see names (R2-A), as it refuses send-files without read-files
+    if ("files-trash" in out or "send-files" in out) and "read-files" not in out:
+        out.append("read-files")      # the configuration refuses the trash (R2-A) and `send-files` without the right to see names
+    if "ask-files" in out and "read-files" not in out:
+        out.append("read-files")      # FA-1: the configuration refuses a question about a file without the right to see names beside it, as it refuses the trash without it
     if channel == "messaging" and "read-mail-body" in out and "ask-mail" not in out:
         out.append("ask-mail")      # CB-3: the configuration refuses the text of a message without the right to read the snapshots beside it
     return out

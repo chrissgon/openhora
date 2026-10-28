@@ -346,6 +346,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `file-trash` | `--file` `[--account]` `[--folder]` | `file_trash` |
 | `file-read` | `--file` `[--account]` | `file_read` |
 | `mail-read` | `[--message]` `[--number]` `[--match]` `[--day]` `[--account]` | `mail_read` |
+| `file-ask` | `--file` `--question` `[--account]` | `file_ask` |
 | `research` | `--question` | `research` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
@@ -357,9 +358,12 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `routine-pause` | `--id` | `routine_pause` |
 | `routine-resume` | `--id` | `routine_resume` |
 | `routine-cancel` | `--id` | `routine_cancel` |
-| `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_create` |
+| `event-create` | `--account` `--title` `--start` `[--end]` `[--calendar]` `[--location]` `[--reminder-minutes]` `[--notes]` `[--repeat]` | `event_create` |
 | `event-change` | `--account` `--event` `[--calendar]` `[--title]` `[--start]` `[--end]` `[--location]` `[--reminder-minutes]` `[--notes]` | `event_change` |
-| `event-cancel` | `--account` `--event` `[--calendar]` | `event_cancel` |
+| `event-cancel` | `--account` `--event` `[--calendar]` `[--series]` `[--occurrence]` | `event_cancel` |
+| `todo-list` | `[--account]` | `todo_list` |
+| `todo-add` | `--account` `--title` `[--list]` | `todo_add` |
+| `todo-done` | `--account` `--todo-item` `[--list]` | `todo_done` |
 | `mail-send` | `--account` `--to` `[--cc]` `[--bcc]` `--subject` `--text \| --text-file` `[--attach]` | `mail_send` |
 | `mail-reply` | `--account` `--message` `--text \| --text-file` | `mail_reply` |
 | `mail-draft` | `--account` `[--to]` `[--cc]` `[--bcc]` `[--subject]` `--body` `[--message]` | `mail_draft` |
@@ -495,7 +499,11 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/files/replace` | `file-replace` | - | `account`, `file`, `content`, `from_path` | - | - |
 | POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
 | POST | `/projects/{p}/files/trash` | `file-trash` | - | `file`, `account`, `folder` | - | - |
+| POST | `/projects/{p}/tasks/list` | `todo-list` | - | `account` | - | - |
+| POST | `/projects/{p}/tasks` | `todo-add` | - | `account`, `title`, `list` | - | - |
+| POST | `/projects/{p}/tasks/done` | `todo-done` | - | `account`, `item`, `list` | - | - |
 | POST | `/projects/{p}/files/read` | `file-read` | - | `file`, `account` | - | - |
+| POST | `/projects/{p}/files/ask` | `file-ask` | - | `file`, `question`, `account` | - | - |
 | POST | `/projects/{p}/mail/read` | `mail-read` | - | `message`, `number`, `match`, `day`, `account` | - | - |
 | POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |

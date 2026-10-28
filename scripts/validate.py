@@ -237,8 +237,8 @@ LAYOUT = "contracts/project-layout.md"
 SLOTS_HEADING = "Slots no built skill writes"
 PLACEHOLDER_RE = re.compile(r"<[^<>]*>")
 PATH_OK_RE = re.compile(r"^[A-Za-z0-9._/<>-]+$")  # no *, {}, # (a section of a file) or space
-SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss", "write", "calendar", "mailbox", "files")  # contracts/environment.md
-RUNTIME_ONLY_EFFECTS = ("write", "calendar", "mailbox", "files")      # arrived with the runtime's own effect kinds, not with a skill: no skill declares them
+SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss", "write", "calendar", "mailbox", "files", "tasks")  # contracts/environment.md
+RUNTIME_ONLY_EFFECTS = ("write", "calendar", "mailbox", "files", "tasks")      # arrived with the runtime's own effect kinds, not with a skill: no skill declares them
 SKILL_EFFECTS = tuple(w for w in SIDE_EFFECTS if w not in RUNTIME_ONLY_EFFECTS)      # the words a skill's metadata.side_effects may hold
 # The four classes that were bare names (decision 14a). providers/resolve.py still reads the old names; a
 # skill's requires does not use them.

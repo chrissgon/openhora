@@ -9,6 +9,7 @@
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `file-read`)
   take(project, ctx, said, channel, sender, extras)        the reply to a bare number said right after a list of files ("o 2"), or None (the row `file-list-number` of runtime/ops_turn.py)
   begin_turn(ctx, channel, sender)                         called at the start of every line (runtime/ops_say.py): a list is valid for the line right after it
+  read_whole(cfg, match)                                   (FA-1) the converted text of the one file chosen, WHOLE, with the count of images taken out of a Google Doc and the provider's version: the reader of `file-ask`
 
 What it searches, and nothing else (S8, widened by S17): the folders under `accounts.<google|microsoft>.folders` of the project's configuration (project_config `account_target`
 is the rule of every write; this is the rule of this read) AND THEIR SUBFOLDERS, walked breadth first through the providers' `children` (one folder's direct contents; the
@@ -36,7 +37,7 @@ What is kept (limits L50, L61 and L63): the conversation stores a neutral word f
 the file's text, its name and the folder's name are in the reply to the chat that asked and nowhere else; nothing here logs, prints or stores a name, a folder or a text, and a
 provider's failure is a fixed sentence (its text is another service's). The one thing held is the list a pick answers: the ids, names and folder paths of the files a list showed,
 in the process's memory for the sender's next line (LIST_WINDOW_S at most), dropped by that line whatever it is; nothing of it is written, logged or sent. No model ever reads the file: the interpreter decides the operation and the name from the person's
-line alone. A question about the file is NOT answered from it: the answer from sources (`ask`) reads registered sources only, and this slice registers none, so the text is shown.
+line alone. A question about the file is NOT answered from it by this read: the answer from sources (`ask`) reads registered sources only, and this slice registers none, so the text is shown (FA-1's `file-ask`, runtime/ops_file_ask.py, answers such a question through the quarantined reader, with a group of its own, and uses `read_whole` and the list of this module).
 
 The file itself (S18): when the sender holds the group `send-files` (beside `read-files`) and the bridge says the messaging app can carry a file (`extras["can_send"]`, the messenger's
 capabilities: the most it takes, the most it takes as a photo, the image types it shows as a photo, the types it takes), the reply of a found file carries the file as
@@ -486,9 +487,10 @@ def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
                 return {"text": None, "data": data, "type": found, "markdown": False}      # nothing to scan: an image is sent as it is
             elif found is None or found[1] not in send["types"]:
                 raise Unreadable("kind")
+        stripped = 0
         if info.get("content") == "markdown":
             try:
-                text = sources.strip_embedded_images(data.decode("utf-8"))[0]
+                text, stripped = sources.strip_embedded_images(data.decode("utf-8"))      # FA-1: the count of the images taken out of a Doc is kept for `read_whole` (it was discarded)
             except UnicodeDecodeError:
                 raise Unreadable("kind") from None
             converted = text.encode("utf-8")
@@ -501,7 +503,8 @@ def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
             raise Unreadable("secret")
         if send is not None and send_scan.check(data, found[1], sources._workcopy().scan, markdown=info.get("content") == "markdown"):      # what is SENT is what is scanned: the bytes, not only the converter's text
             raise Unreadable("secret")
-        return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown"}
+        return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown",
+                "images_stripped": stripped, "version": info.get("version") if isinstance(info.get("version"), str) else None}
     finally:
         shutil.rmtree(stage, ignore_errors=True)
 
@@ -538,6 +541,16 @@ def _cut(text: str) -> tuple:
         head = head[:space]
     head = head.rstrip()
     return head, len(whole) - len(head)
+
+
+def read_whole(cfg: dict, match: dict) -> dict:
+    """{"text", "images_stripped", "version", "name", "folder", "account"} of the one file the search found, for the reader of `file-ask` (FA-1): the converted text WHOLE (not cut at TEXT_MAX), the
+    number of embedded images taken out of a Google Doc exported as Markdown (0 for any other file), and the version the provider read. The same intake, converter and credential scan as every
+    read (limit L14); nothing is registered and the staging folder is removed. Unreadable (code) as `_read` raises it: "kind" (also a file the search marked unsupported), "size", "secret", "empty", "service"."""
+    if not match["supported"]:
+        raise Unreadable("kind")
+    got = _read(cfg, match["service"], match["id"])
+    return {"text": got["text"], "images_stripped": got["images_stripped"], "version": got["version"], "name": match["name"], "folder": match["folder"], "account": match["service"]}
 
 
 # --- the operation -----------------------------------------------------------------------------------------------------------------------------
@@ -635,12 +648,14 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read") -> None:
+def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read", extra=None) -> None:
+    """Keep the list a pick answers, in process memory. `extra` (FA-1) is a small dict held beside the list for the pick that follows (for "ask": the person's question); it is never written, logged or sent, and it is dropped with the list."""
     now = _natural()._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
-        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
+        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "extra": dict(extra) if isinstance(extra, dict) else None, "seen": 0,
+                                               "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
 
 
 def _drop(ctx: dict, channel, sender) -> None:
@@ -715,6 +730,8 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     cfg = ctx["cfg"]
     if record.get("purpose") == "trash":      # R2-A: the list was of files to move to the trash: the number opens that file's card (runtime/ops_file_trash.py)
         return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][form["n"] - 1], channel, sender, extras)
+    if record.get("purpose") == "ask":      # FA-1: the list was of files to answer a question about: the number runs the question the list held (runtime/ops_file_ask.py)
+        return importlib.import_module("ops_file_ask").pick(project, ctx, record["items"][form["n"] - 1], record.get("extra"), channel, sender, extras)
     refused = operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)

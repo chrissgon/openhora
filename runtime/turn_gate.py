@@ -536,9 +536,11 @@ ALLOWED = {
     "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
     "subject": _WORDED, "body": _WORDED, "text": _WORDED,
     "title": _TEXTS, "content": _TEXTS, "name": _TEXTS, "file_name": _TEXTS,
-    "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS,
-    "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES,
+    "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS, "item": _ITEMS,      # `item`: a task of the list the sender was shown, or found by the words of the line (CB-5)
+    "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES, "list": _NAMES,      # `list`: a name of the accepted `task_lists` (CB-5)
     "start": _TIMES, "end": _TIMES,
+    "repeat": ("time-engine", "card-copy"),      # CB-7: a repetition read by code's closed tables on the person's words (`time-engine`, read as "a time or a repetition"), or carried from the card a revision replaces; never `time-model`, never a model's word
+    "series": ("time-engine",), "occurrence": ("time-engine",),      # CB-7: which of the whole series and one occurrence a cancel is, and the local day of the occurrence: chosen by code from closed words (runtime/recurrence.py) and the person's date read by the time engine; the series' and the instance's ids are read from the provider and are no argument
     "attachment": ("held",),
     "state": ("line-span", "picked"),
     "location": ("card-copy",), "notes": ("card-copy",), "reminder_minutes": ("card-copy",),      # carried over from the card an event's revision replaces
@@ -546,13 +548,15 @@ ALLOWED = {
 # The arguments each operation of a card opened from a line takes (the keys of the operation's own function, as the resolvers of the families return them). Any other key is refused, so a
 # reply or a reply draft has no `to`: its recipient is the index's From, chosen by the effect (L60).
 OPS = {
-    "event-create": ("account", "title", "start", "end", "calendar", "location", "reminder_minutes", "notes"),
+    "event-create": ("account", "title", "start", "end", "calendar", "location", "reminder_minutes", "notes", "repeat"),
     "event-change": ("account", "event", "calendar", "title", "start", "end", "location", "reminder_minutes", "notes"),
-    "event-cancel": ("account", "event"),
+    "event-cancel": ("account", "event", "series", "occurrence"),
     "file-create": ("account", "file_name", "content", "folder"),
     "file-replace": ("account", "file", "content"),
     "file-save": ("account", "attachment", "folder"),
     "file-trash": ("account", "file", "folder"),
+    "todo-add": ("account", "title", "list"),      # CB-5: a task is a title and the list the project names (no due date, no note)
+    "todo-done": ("account", "item", "list"),
     "mail-send": ("account", "to", "subject", "text"),
     "mail-reply": ("account", "message", "text"),
     "mail-draft": ("account", "to", "subject", "body", "message"),

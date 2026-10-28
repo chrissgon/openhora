@@ -56,8 +56,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `exporter:document` | `exporter/` | `container.py` | `--check`, `build`, `render` |
 | `script:project` | `script/` | `container.py` | `--check`, `build`, `run`, `deps`, `reap` |
 | `model:text` | `model/` | `chat-http.py` | `--check`, `complete` |
-| `writer:calendar` | `writer/` | `google-calendar.py` | `--check`, `event-get`, `event-insert`, `event-patch`, `event-delete` |
-| `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete` |
+| `writer:calendar` | `writer/` | `google-calendar.py` | `--check`, `event-get`, `event-insert`, `event-patch`, `event-delete`, `event-instances`, `event-cancel-occurrence` |
+| `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete`, `event-instances`, `event-cancel-series`, `event-cancel-occurrence` |
 | `writer:mailbox` | `writer/` | `gmail.py` | `--check`, `message-meta`, `modify`, `trash`, `draft-create` |
 | `writer:mailbox` | `writer/` | `outlook-mail.py` | `--check`, `message-meta`, `folder-get`, `move`, `mark`, `draft-create`, `draft-reply` |
 | `writer:tasks` | `writer/` | `google-tasks.py` | `--check`, `task-get`, `task-insert`, `task-complete` |

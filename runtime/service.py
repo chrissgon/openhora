@@ -361,7 +361,11 @@ ROUTES = (
     _route("POST", "/projects/{p}/files/replace", "file-replace", take=("account", "file", "content", "from_path")),
     _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
     _route("POST", "/projects/{p}/files/trash", "file-trash", take=("file", "account", "folder")),      # R2-A: prepares the card of a file found by its name; a POST so that a name is never in a URL
+    _route("POST", "/projects/{p}/tasks/list", "todo-list", take=("account",)),      # CB-5: the open tasks of the person's own lists, read live (a POST, like file-read: a read of the person's own data is no URL); the two writes below only prepare a card
+    _route("POST", "/projects/{p}/tasks", "todo-add", take=("account", "title", "list")),
+    _route("POST", "/projects/{p}/tasks/done", "todo-done", take=("account", "item", "list")),
     _route("POST", "/projects/{p}/files/read", "file-read", take=("file", "account")),      # S8: the text of a file found by its name in the configured folders; a POST so that a name is never in a URL
+    _route("POST", "/projects/{p}/files/ask", "file-ask", take=("file", "question", "account")),      # FA-1: a question about one file found by its name; a POST so that a name or a question is never in a URL
     _route("POST", "/projects/{p}/mail/read", "mail-read", take=("message", "number", "match", "day", "account")),      # CB-3: the text of one message of the mail snapshots, behind the group read-mail-body; a POST so that a word of a sender or a subject is never in a URL
     _route("POST", "/projects/{p}/mail/send", "mail-send"),
     _route("POST", "/projects/{p}/mail/reply", "mail-reply"),

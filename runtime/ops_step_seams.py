@@ -32,9 +32,12 @@ module builds those services, once, for the process that runs the task (runtime/
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
   calendar_read    CalendarReader (package W1): the project's `accounts` (`enabled`, `address`, `target`, `calendar_name`, `calendar_label`), the reference of an event
-                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` (the calendar writer's one
-                   read, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
-                   way to write: the only verbs it starts are `event-get` and a write verb with `--dry-run`
+                   (`event_ref`: `created:<decision>` or `<source>#<n>`, through runtime/item_refs.py with the caller's channel and sender), `event_get` and `event_instances` (the calendar
+                   writer's two reads, with the account's token, no other secret: one event, and the instances of one series in a window of two days at most) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has no
+                   way to write: the only verbs it starts are `event-get`, `event-instances` and a write verb with `--dry-run`
+  tasks_read       TasksReader (package CB-5): the project's `accounts` (`enabled`, `address`, `list_name`, `target`), the id the writer is handed for a list (`resolve_list`: Microsoft's
+                   default list is resolved by a read of the lists), `task_get` (the tasks writer's one read, with the account's token, no other secret) and `dry_run` (the writer's
+                   dry run of a document: no credential, no connection). It has no way to write: the only verbs it starts are `task-get`, `lists` of the reader and a write verb with `--dry-run`
   files_read       FilesReader (package W4a): `meta(account, args)`, the ONE verb of the writers of files a step kind reaches, `file-meta`, a read of one
                    file or of a name in a folder of the person's own Drive or OneDrive (limit L58: the seam exposes only this; the write verbs are
                    runtime/effect_files.py's alone)
@@ -68,6 +71,7 @@ import calendar_document  # noqa: E402
 import documents  # noqa: E402
 import effect_calendar  # noqa: E402
 import effect_mailbox  # noqa: E402
+import effect_tasks  # noqa: E402
 import effects  # noqa: E402
 import item_refs  # noqa: E402
 import files_document  # noqa: E402
@@ -81,6 +85,8 @@ import publish_document  # noqa: E402
 import publish_payload  # noqa: E402
 import send_document  # noqa: E402
 import sources  # noqa: E402
+import tasks_document  # noqa: E402
+import tasks_reader  # noqa: E402
 
 READ_VERBS = ("read", "stat", "table-read", "rows-state")      # the only verbs of the documents provider a step kind can reach
 OUTBOX_CLASS = "sender:email"
@@ -89,10 +95,12 @@ PUBLISHER_TIMEOUT = 120
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 CALENDAR_TIMEOUT = 120
-CALENDAR_READ_VERBS = ("event-get",)      # the only verb of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
+CALENDAR_READ_VERBS = ("event-get", "event-instances")      # the only verbs of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none); `event-instances` (CB-7, limit L58) lists the instances of a series in a window of at most two days: id, version, times and status, no title and no attendee
 IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
 SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
 MAILBOX_TIMEOUT = 300
+TASKS_TIMEOUT = 120
+TASKS_READ_VERBS = ("task-get",)      # the only verb of a tasks writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
 MAILBOX_READ_VERBS = ("message-meta", "folder-get")      # the only verbs of a mailbox writer a step kind can reach with a credential (a write verb is reached with --dry-run and none)
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
 
@@ -358,6 +366,18 @@ class CalendarReader:
         except effects.EffectError as e:
             self._fail(e)
 
+    def event_instances(self, account: str, calendar_id: str, series_id: str, first: str, last: str) -> dict:
+        """The writer's `event-instances` for one series of a calendar between two instants (each with its offset, at most two days apart): {"instances": [{id, etag, start, end, status,
+        original_start}]}. A read with the account's token and no other secret, as `event_get` is (CB-7): the one place the runtime asks a provider which instances a series has."""
+        verb = "event-instances"
+        assert verb in CALENDAR_READ_VERBS
+        implementation = calendar_document.IMPLEMENTATION[account]
+        try:
+            return effect_calendar.provider_call(self._root, implementation, verb, calendar_document.instances_args(calendar_id, series_id, first, last),
+                                                 (calendar_document.SECRET[account],), CALENDAR_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+
     def dry_run(self, doc: dict) -> dict:
         """The writer's dry run of `doc` (runtime/calendar_document.py): the request it would send and its hash. The words of the person are handed over as a
         private file that is removed at once, and the writer starts with the minimum environment, with no secret in it and with no connection to open."""
@@ -481,6 +501,70 @@ class MailboxReader:
         try:
             args = mailbox_document.provider_args(doc, effect_mailbox.spec_file(folder, doc)) + ["--dry-run"]
             return effect_mailbox.provider_call(self._root, doc["implementation"], mailbox_document.verb_of(doc), args, (), MAILBOX_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+class TasksReader:
+    """The project's tasks writers and reader, for reading only (package CB-5): where the platform may write (the project's `accounts`), the id of a list, the one task a completion is
+    about, and the dry run of a request. It starts no verb that writes: `task_get` is the writer's read, `resolve_list` is the reader's read of the lists, and `dry_run` hands a write verb
+    `--dry-run` and no credential. A failure is a StepServiceError whose code is a closed word."""
+
+    def __init__(self, ctx: dict):
+        self._ctx, self._cfg, self._root = ctx, ctx["cfg"], os.path.dirname(HERE)
+
+    def enabled(self, account) -> bool:
+        return project_config.account_entry(self._cfg, account) is not None
+
+    def address(self, account) -> str:
+        return project_config.account_entry(self._cfg, account)["address"]
+
+    def list_name(self, account, name):
+        """The name the list goes by: `name`, else the first one listed; None when the account lists none."""
+        listed = (project_config.account_entry(self._cfg, account) or {}).get("task_lists") or {}
+        return name if name is not None else next(iter(listed), None)
+
+    def target(self, account, name):
+        """(the id of the list, None) the project lists under `name`, or (None, the sentence that refuses it): limit L55."""
+        return project_config.account_target(self._cfg, account, "task_lists", name)
+
+    def _fail(self, e):
+        """A reader's error (a closed `code`) or a writer's (an effect error with a `kind`) as a StepServiceError."""
+        if isinstance(e, tasks_reader.ReaderError):
+            code = e.code if e.code in ("not_configured", "refused") else "provider_failed"
+        else:
+            code = {"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed")
+        raise StepServiceError(code, str(e.reason)) from None
+
+    def resolve_list(self, account: str, list_id: str) -> str:
+        """The id the writer is handed for a list the project lists: `default` is Google's own word and, for Microsoft, the id of the list the service marks as its default one."""
+        if list_id != "default":
+            return list_id
+        try:
+            return tasks_reader.default_list(self._root, account)
+        except tasks_reader.ReaderError as e:
+            self._fail(e)
+
+    def task_get(self, account: str, address: str, list_id: str, task_id: str) -> dict:
+        """The writer's `task-get` for one task of a list: {"found": bool, "task": {...}}. The one verb that carries the account's token."""
+        verb = "task-get"
+        assert verb in TASKS_READ_VERBS
+        implementation = tasks_document.IMPLEMENTATION[account]
+        try:
+            return effect_tasks.provider_call(self._root, implementation, verb, tasks_document.get_args({"address": address, "list_id": list_id, "task_id": task_id}),
+                                              (tasks_document.SECRET[account],), TASKS_TIMEOUT)
+        except effects.EffectError as e:
+            self._fail(e)
+
+    def dry_run(self, doc: dict) -> dict:
+        """The writer's dry run of `doc` (runtime/tasks_document.py): the request it would send and its hash. The words of the person are handed over as a private file that is
+        removed at once, and the writer starts with the minimum environment, with no secret in it and with no connection to open."""
+        folder = tempfile.mkdtemp(prefix="openhora-tasks-dry-run-")
+        try:
+            args = tasks_document.provider_args(doc, effect_tasks.spec_file(folder, doc)) + ["--dry-run"]
+            return effect_tasks.provider_call(self._root, doc["implementation"], tasks_document.verb_of(doc), args, (), TASKS_TIMEOUT)
         except effects.EffectError as e:
             self._fail(e)
         finally:
@@ -668,7 +752,7 @@ def services(ctx: dict) -> dict:
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
-            "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx)}
+            "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx), "tasks_read": TasksReader(ctx)}
 
 
 if __name__ == "__main__":

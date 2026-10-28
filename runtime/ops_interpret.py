@@ -37,6 +37,11 @@ A decision the model names (slice S20). The catalog lists `approve`, `reject`, `
 from the line (`turn_gate.the_number`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
+A message number the model gave (BL7-5, gap G1; limits L54 and L61). When the closed forms read nothing in the line of a mail operation that names messages (`MAIL_TARGET_OPS`) and the model
+gave `message` or `messages`, `ops_natural_mail.mail_number_seed` opens the family with the numbers, only when they are exactly the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range)
+(`natural_writes_mail.free_numbers`) and the decision holds no `target`, `day`, `to` or `subject`: the numbers name `<source>#<n>` of the newest snapshot, never a refresh, origin
+`line-number`. A line the closed forms read opens the card it opened before; a project language other than pt-BR and en is still `IX_WRITE_LANGUAGE`.
+
 The call. It is the gate's (`turn_gate.call`, runtime/turn_gate.py): the route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again
 there, so a route of any other kind cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
 
@@ -51,6 +56,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/ops_interpret.py --he
 """
 from __future__ import annotations
 
+import datetime
 import importlib
 import os
 import re
@@ -69,6 +75,7 @@ import ops_natural
 import phone_refusal
 import phrases
 import plan_confirm
+import recurrence
 import turn_gate
 
 CHANNEL = "messaging"
@@ -323,16 +330,44 @@ def _day_read(span: str, now) -> dict:
     return {"kind": kind, "value": value.isoformat() if kind == "day" else value, "today": now.date().isoformat(), "zone": zone}
 
 
+def _repeat(decision: dict, said: str, time_):
+    """("daily" | "weekly" | None, whether the line is understood) for a new event (CB-7, limits L54 and L61). A line that holds a repetition phrase of the closed lists (or that the time engine
+    says repeats) and has none read by code opens NO card: never one event with "toda segunda" in its title. A repetition is read when ALL hold: the model named the span of the line that
+    holds it (the slot `repeat`, from catalog version 2), the time is one the time engine read, `recurrence.read` reads that span AND the whole line as the same daily or weekly
+    repetition (a weekly one on the weekday of the start; no end, no interval, no second weekday), and the title span holds no repetition phrase. The weekday of the start is the engine's."""
+    spans = decision.get("spans") or {}
+    span = spans.get("repeat")
+    mentioned = recurrence.mentions(said)
+    if not span and not mentioned:
+        return None, True
+    start = None
+    if isinstance(time_, dict) and time_.get("source") == "code" and isinstance(time_.get("local"), str):
+        try:
+            start = datetime.date.fromisoformat(time_["local"][:10]).weekday()
+        except ValueError:
+            start = None
+    read = recurrence.read(span, start) if span and start is not None else None
+    if read is None or recurrence.read(said, start) != read or recurrence.mentions(spans.get("title") or ""):
+        return None, False
+    return read["freq"], True
+
+
 def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> tuple:
     """An operation the check believed: a write opens its card through its family (a seed of the time when the model gave one; an event to change or cancel found by the
     words of the line, runtime/event_lookup.py), every other class goes through the dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
     op, time_ = decision["op"], decision.get("time")
     if natural.class_of(op) == "E":
         writes = importlib.import_module("ops_natural_writes")
+        repeat = None
+        if op == "event-create":
+            repeat, understood = _repeat(decision, said, time_)
+            if not understood:      # a repetition the line says and code cannot read opens no event, one or many (scenario 20)
+                extras["stored"] = phrases.text("NW_PRIVATE_REPLY", ctx["cfg"])
+                return _said(phrases.text("RECUR_NOT_READ", ctx["cfg"]), extras)
         if op == "event-create" and time_:
             local = time_["local"]
-            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""},
-                                  {"start": turn_gate.time_origin(time_), "title": "line-span"})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds
+            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or "", **({"repeat": repeat} if repeat else {})},
+                                  {"start": turn_gate.time_origin(time_), "title": "line-span", **({"repeat": "time-engine"} if repeat else {})})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds; a repetition is the code's (CB-7)
             sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
             if sentence:
                 return _said(sentence, extras)
@@ -341,6 +376,8 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+        elif op in ("todo-add", "todo-done"):          # CB-5: the person's own to-do list: the task is a span of the line, or a number of the list shown, or found by its words (runtime/ops_todo.py)
+            opened = importlib.import_module("ops_todo").reply(project, ctx, op, decision["args"], said, CHANNEL, sender, extras)
         elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
             opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
         elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
@@ -350,6 +387,9 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
+            if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
+                    and (numbers := importlib.import_module("ops_natural_mail").mail_number_seed(op, decision, said)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)

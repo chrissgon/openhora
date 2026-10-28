@@ -71,9 +71,13 @@ Usage:
   python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
   python3 runtime/cli.py file-read --project <dir> --file <name> [--account google|microsoft]
+  python3 runtime/cli.py file-ask --project <dir> --file <name> --question <text> [--account google|microsoft]
   python3 runtime/cli.py mail-read --project <dir> (--message <source>#<n> | --number <n> | --match <words> [--day <day>]) [--account google|microsoft]
   python3 runtime/cli.py research --project <dir> --question <words>
   python3 runtime/cli.py file-trash --project <dir> --file <name> [--account google|microsoft] [--folder <name or path>]
+  python3 runtime/cli.py todo-list --project <dir> [--account google|microsoft]
+  python3 runtime/cli.py todo-add --project <dir> --account google|microsoft --title <one line> [--list <name of accounts.<a>.task_lists>]
+  python3 runtime/cli.py todo-done --project <dir> --account google|microsoft --todo-item (todo:<n> | <words of the task>) [--list <name of accounts.<a>.task_lists>]
   python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
   python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py mail-draft --project <dir> --account google|microsoft (--to <addresses> --subject <text> [--cc <addresses>] [--bcc <addresses>] | --message <source>#<n>) --body <text>
@@ -367,6 +371,12 @@ file-read  shows the text of a file of your Google Drive or OneDrive, found by i
           accounts.<account>.folders in runtime.json, and in no other folder (case, accents and the extension do not matter; --account narrows the search to one
           account). One match is read and its text printed (at most 3,500 characters, then how many remain); several are listed; none says which folders were
           searched. Nothing is written, registered or sent to a model. From a messaging app the sender needs the group read-files.
+file-ask  answers a question about what ONE file of your Google Drive or OneDrive says, found by its --file name by the search of file-read (the folders the project lists under
+          accounts.<account>.folders in runtime.json and the folders inside them; --account narrows the search; several matches are listed and none is picked for you). The converted text of
+          that file, read now, goes to ONE run of the answer skill in an isolated container with no web that can act on nothing, bounded by the project's runtime.json key `file_ask`
+          (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.25, 180 and 20), and the answer comes back here with the passages code
+          checked in the file; nothing of the file is registered, and the run folder keeps only the reply and the counts. From a messaging app the sender needs the groups ask-files and
+          read-files (ask-files is in no default policy; accept-config --widen turns it on).
 mail-read  shows the text of ONE message of the newest snapshot of a mail source, as its sender wrote it (cleaned, links replaced, at most 4,000 characters): --message <source>#<n> or
           --number <n> names it by its number (two boxes with that number are listed and nothing is chosen for you), --match <words> by words of its sender or subject (--day narrows
           it to the day it came; one match is shown, up to five are listed, more ask for more words), --account narrows the boxes. The words are another person's and are shown as
@@ -376,6 +386,15 @@ research  answers a question of general information (the weather, a price or quo
           code, bounded by the project's runtime.json key `research` (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.60, 300
           and 10). The question is sent to a web search service and to the model that runs the research; no file of the project and none of your standing instructions are. A question that holds "my calendar", "my e-mails", "my files" or the like does not run. The reply is the answer in plain words
           with its sources as links, and is not stored (the conversation holds a neutral word); the run folder keeps the prompt, which holds the question, and the brief for run_retention_days, outside git. From a messaging app the sender needs the group research.
+todo-list  lists the open tasks of the task lists the project names under accounts.<account>.task_lists in runtime.json (Google Tasks, Microsoft To Do; --account narrows it), numbered per
+          service in the order the service gives them. It reads the lists live and writes nothing; the list is remembered for you, so that todo:<n> of todo-done answers it. From a
+          messaging app the sender needs the group tasks-read. No model.
+todo-add  prepares a new task on a list the project names (--list; the first when absent) and stops at its card: the account, the list and the exact title (one line, at most 200 characters).
+          A task is a title only: no due date and no note in this version. Nothing is written until you approve the card's hash. From a messaging app the sender needs the group tasks-write
+          and approves with approve-effect-tasks. No model.
+todo-done  prepares marking an open task as completed and stops at its card: --todo-item is todo:<n> (the n-th task of the list todo-list showed you last, for the account) or the words of the
+          task's title, found among the open tasks of the account's lists (several matches are listed, none says so). Nothing is written until you approve the card's hash, and nothing is
+          if the task changed since the card; a task is only completed, never removed or opened again. No model.
 file-trash  prepares the move of a file of your Google Drive or OneDrive to the service's trash, found by its --file name by the search of file-read (the folders the project lists
           under accounts.<account>.folders and the folders inside them; --account and --folder narrow it), and stops at its card, which shows the file, its folder by the real names, the
           account, its size and last change, and where it goes. Several matches are listed; none says which folders were searched. The file goes to the TRASH of the service, where you
