@@ -24,6 +24,6 @@ One pattern per line. `#` starts a comment.
 - `!asst-*` — exclusion, applied after inclusions
 - `biz-business-model` — an exact skill name
 
-Resolve a pack with `python3 scripts/select_skills.py --pack <name>`; adapters accept `--pack <name>`. One pack is installed at a time: installing another pack removes what the earlier one installed and the new one does not select. A pack that selects no skill (today `assistant`: the area has no skill yet) is reported and installs nothing.
+Resolve a pack with `python3 scripts/select_skills.py --pack <name>`; adapters accept `--pack <name>`. One pack is installed at a time: installing another pack removes what the earlier one installed and the new one does not select. A pack that selects no skill is reported and installs nothing (`assistant` selects `asst-answer`, the skill the runtime's `ask` runs; it is the only skill of that area today).
 
 Add a pack when a real installation needs a different subset (a project that only does engineering, a marketing team). Do not add packs speculatively.

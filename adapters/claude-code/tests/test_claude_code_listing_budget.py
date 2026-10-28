@@ -57,8 +57,10 @@ def test_the_budget_of_a_real_pack_is_its_listing_plus_a_bounded_margin(pack):
     assert out["budget"] < 100000
 
 
-def test_a_pack_that_selects_nothing_needs_no_budget():
-    assert compute("assistant") == {"pack": "assistant", "skills": 0, "characters": 0, "margin": 0, "budget": 0}
+def test_a_pack_that_selects_nothing_needs_no_budget(wb):
+    # a pack whose pattern matches no skill of the small copy (the real `assistant` pack selects asst-answer since FA-0)
+    (wb / "packs" / "assistant.txt").write_text("asst-*\n", encoding="utf-8")
+    assert compute("assistant", wb) == {"pack": "assistant", "skills": 0, "characters": 0, "margin": 0, "budget": 0}
 
 
 # --- the installer, in a small copy of the workbench --------------------------------------------------
