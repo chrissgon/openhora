@@ -139,9 +139,13 @@ def test_the_terminal_shell_imports_only_the_operations_layer():
 
 
 def test_every_module_of_the_runtime_is_on_the_list_the_python_39_job_checks():
-    listed = (REPO / "scripts" / "tests" / "test_runtime_python39.py").read_text(encoding="utf-8")
-    missing = [p.relative_to(REPO).as_posix() for p in runtime_modules()
-               if f'"{p.relative_to(REPO).as_posix()}"' not in listed]
+    """Since HOT-1 the list is derived from the two folders of runtime modules (scripts/tests/test_runtime_python39.py: RUNTIME_FILES, minus EXCLUDED, which names a module with a reason), so a module is
+    on it unless it is excluded; the list is read from that file, not copied here."""
+    spec = importlib.util.spec_from_file_location("python39_list_under_test", REPO / "scripts" / "tests" / "test_runtime_python39.py")
+    listed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(listed)
+    missing = [p.relative_to(REPO).as_posix() for p in runtime_modules() if p.relative_to(REPO).as_posix() not in listed.ON_SYSTEM_PYTHON
+               and p.relative_to(REPO).as_posix() not in listed.EXCLUDED]
     assert missing == []
 
 
