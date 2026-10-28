@@ -1,0 +1,5 @@
+## 2026-10-28: the fourth batch regenerates the platform blocks (BATCH-KEEPER regen 4; no model call, no lab run, fingerprint unchanged)
+
+After the merges since regen 3 (L64H, the BL7-4 restore, #593, the T8 kit, ITEMS-NEGATION, LP-1 and CB-5), seven generated blocks of `docs/architecture/platform/` differed from their sources: `channel-groups` (`messaging.md`), `runtime-modules`, `limits`, `cli-verbs` and `operations` (`runtime.md`), and `cli-verbs` and `service-routes` (`shells.md`). `python3 scripts/architecture_tables.py --write` rewrote them, and `--check` is clean afterwards. `python3 scripts/owner_table.py --check` found the table of owning skills current, so it was not rewritten. The commit holds only the regenerated output and this entry.
+
+Principle 13: as for the earlier batches, one regeneration per group of merges lets a package's own pull request leave the blocks alone; the loss is a block that can be stale on the integration branch between batches, which the strict mode on a batch closes.
