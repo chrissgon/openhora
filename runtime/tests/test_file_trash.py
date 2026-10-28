@@ -354,7 +354,7 @@ def test_a_ultima_of_a_trash_list_that_printed_fewer_files_than_fit_opens_no_car
     say(desk, "Remova o arquivo openhora-mark.png")
     (record,) = ops_file_read._LISTS.values()
     assert record["whole"] is False
-    assert say(desk, "a última")["reply"] != SENT.format(n=0) and open_cards(desk) == []   # validate: allow english-only -- the Portuguese line under test
+    assert not pk.said(say(desk, "a última")["reply"], "ACCT_CARD_SENT", PT, pending=0) and open_cards(desk) == []   # validate: allow english-only -- the Portuguese line under test
     say(desk, "Remova o arquivo openhora-mark.png")
     assert effect_doc(desk, started_of(desk, say(desk, "o primeiro")))["target"]["id"] == f"{fod.DRIVE}/{fod.FILE_ID}"
 
