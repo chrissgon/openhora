@@ -24,7 +24,8 @@ for it. This module checks the file, builds what the provider `model:text` (prov
                                           never the daily route (the go reads this list, never `load`)
     stdin_route(route)                    what the provider is shown of an `http` route: id, base_url, model (the upstream id), pin,
                                           allow_fallbacks, data_collection, zdr, cache_breakpoint and, for a row that has it, pin_reply (the exact name the
-                                          router gives the pinned provider in its reply, compared without case; default the pin; S41-10)
+                                          router gives the pinned provider in its reply, compared without case; default the pin; S41-10) and, for a row that has it,
+                                          reasoning_off ("disable" the default, or "minimal": how a call with params.reasoning off tells the endpoint; ROUTE-REASONING)
     route_sha256(route)                   the sha256 of the canonical JSON of stdin_route(route) for an `http` row; for an `account` row, of every key
                                           of the row but `retention` and `reference` (evals/interpreter_status.py computes it the same way): the value
                                           a caller puts in `accepted`
@@ -64,7 +65,8 @@ ID = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
 CODE = re.compile(r"chat-http: (E_[A-Z_]+)")
 ROUTE_KEYS = ("id", "kind", "model", "upstream_model", "base_url", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint",
               "key", "key_prefix", "reference", "retention")
-OPTIONAL_ROUTE_KEYS = ("pin_reply",)      # S41-10: the exact name of the provider the router puts in its reply for the pinned one (default: the pin); part of the hash when present
+OPTIONAL_ROUTE_KEYS = ("pin_reply", "reasoning_off")      # S41-10: the exact name of the provider the router puts in its reply for the pinned one (default: the pin); part of the hash when present
+REASONING_OFF = ("disable", "minimal")      # ROUTE-REASONING: how a route is told "no reasoning" (params.reasoning off): `disable` (the default, a row without the key) or `minimal` for an endpoint that refuses a disabled reasoning; part of the hash when present
 UPSTREAM_SHAPE = re.compile(r"[a-z0-9-]+/[a-z0-9.-]+")      # vendor/model and nothing else: no `:variant` suffix (online, free, nitro), no `@preset`, no `~alias`
 # The keys of an `account` row: closed, and none of them is a secret (the token is the lab's, found by its own lookup).
 ACCOUNT_KEYS = ("id", "kind", "model", "upstream_model", "lab_model", "pin", "params", "deadline_ms", "runner_version", "runner_sha256",
@@ -135,6 +137,8 @@ def _check_route(route, names: dict, seen: set) -> None:
         raise RouteError(f"route {route['id']}: pin is the name of the provider that serves it (every route is pinned)")
     if "pin_reply" in route and (not isinstance(route["pin_reply"], str) or not route["pin_reply"].strip() or len(route["pin_reply"]) > 64 or not route["pin_reply"].isprintable()):
         raise RouteError(f"route {route['id']}: pin_reply is the printable name, at most 64 characters, the router gives the pinned provider in its reply")
+    if "reasoning_off" in route and route["reasoning_off"] not in REASONING_OFF:
+        raise RouteError(f"route {route['id']}: reasoning_off is one of {list(REASONING_OFF)} (a row without it is `disable`)")
     if not UPSTREAM_SHAPE.fullmatch(route["upstream_model"]) or "latest" in route["upstream_model"].lower():
         raise RouteError(f"route {route['id']}: upstream_model is vendor/model with no variant suffix, preset, alias or `latest`")
     for key in ("allow_fallbacks", "zdr", "cache_breakpoint", "reference"):
@@ -233,6 +237,8 @@ def stdin_route(route: dict) -> dict:
              "cache_breakpoint": route["cache_breakpoint"]}
     if route.get("pin_reply") is not None:      # a row without it is shown as before (its hash is the one an enabling entry holds)
         shown["pin_reply"] = route["pin_reply"]
+    if route.get("reasoning_off") is not None:      # the same rule: a row without it is shown and hashed as before
+        shown["reasoning_off"] = route["reasoning_off"]
     return shown
 
 

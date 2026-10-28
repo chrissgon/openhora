@@ -18,11 +18,15 @@ Usage:
 The request (version 1), one JSON object:
   {"v": 1,
    "route": {"id", "base_url", "model", "pin": str|null, "allow_fallbacks": false, "data_collection": "deny",
-             "zdr": bool, "cache_breakpoint": bool, "pin_reply": str (optional)},
+             "zdr": bool, "cache_breakpoint": bool, "pin_reply": str (optional),
+             "reasoning_off": "disable"|"minimal" (optional)},
    "accepted": [sha256 of a route, ...],
    "key_prefix": str,
    "params": {"temperature": number, "max_tokens": int, "reasoning": "off"|"on"},
    "system": str, "user": str, "deadline_ms": int}
+`params.reasoning` "off" sends `reasoning: {"enabled": false}` for `reasoning_off` "disable" or no key, and `reasoning: {"effort": "minimal"}` for
+"minimal" (an endpoint that answers 400 "Reasoning is mandatory" to a disabled reasoning); "on" sends no reasoning field. The source of the two forms is
+cited in contracts/runtime.md (L63), since a vendor is named in runtime/ and contracts/, never in providers/.
 The sha256 is over json.dumps(route, ensure_ascii=False, sort_keys=True, separators=(",", ":")) in UTF-8.
 `key_prefix` (4 to 32 printable characters) is the start every key of this service has: the caller sends it, this provider names
 no vendor. A MODEL_TEXT_KEY that does not start with it is refused before any connection (E_KEY, exit 3), so a credential of
@@ -69,7 +73,8 @@ MAX_RESPONSE_BYTES = 65536
 MAX_DEADLINE_MS = 600000
 MAX_TOKENS_LIMIT = 32768
 ROUTE_KEYS = ("id", "base_url", "model", "pin", "allow_fallbacks", "data_collection", "zdr", "cache_breakpoint")
-OPTIONAL_ROUTE_KEYS = ("pin_reply",)
+OPTIONAL_ROUTE_KEYS = ("pin_reply", "reasoning_off")
+REASONING_OFF = ("disable", "minimal")
 NAME_KEEP = "abcdefghijklmnopqrstuvwxyz0123456789 ._/-"      # the characters of a provider name that are printed as they are; any other is a question mark
 REQUEST_KEYS = ("v", "route", "accepted", "key_prefix", "params", "system", "user", "deadline_ms")
 KEY_PREFIX_LENGTH = (4, 32)
@@ -117,7 +122,8 @@ def read_request() -> dict:
     ok = (all(isinstance(route[k], str) and route[k] for k in ("id", "base_url", "model", "data_collection"))
           and (route["pin"] is None or (isinstance(route["pin"], str) and route["pin"]))
           and all(isinstance(route[k], bool) for k in ("allow_fallbacks", "zdr", "cache_breakpoint"))
-          and ("pin_reply" not in route or (isinstance(route["pin_reply"], str) and route["pin_reply"])))
+          and ("pin_reply" not in route or (isinstance(route["pin_reply"], str) and route["pin_reply"]))
+          and ("reasoning_off" not in route or route["reasoning_off"] in REASONING_OFF))
     ok = ok and isinstance(req["accepted"], list) and all(isinstance(x, str) for x in req["accepted"])
     prefix = req["key_prefix"]
     ok = ok and isinstance(prefix, str) and KEY_PREFIX_LENGTH[0] <= len(prefix) <= KEY_PREFIX_LENGTH[1] and prefix.isprintable()
@@ -168,7 +174,8 @@ def build_body(req: dict) -> dict:
             "temperature": params["temperature"], "max_tokens": params["max_tokens"], "stream": False,
             "provider": provider, "usage": {"include": True}}
     if params["reasoning"] == "off":
-        body["reasoning"] = {"enabled": False}
+        # `disable` (the default) asks for no reasoning; `minimal` is for an endpoint that answers 400 to a disabled reasoning and accepts the lowest effort.
+        body["reasoning"] = {"effort": "minimal"} if route.get("reasoning_off") == "minimal" else {"enabled": False}
     return body
 
 

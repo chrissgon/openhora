@@ -11,6 +11,7 @@ Run: uv run --with pytest==9.1.1 pytest scripts/tests/test_select_tests_oracle.p
 from __future__ import annotations
 
 import ast
+import functools
 import importlib.util
 import os
 from pathlib import Path
@@ -28,10 +29,9 @@ def real():
     return sel.Repo(str(REPO))
 
 
-def real_import_oracle(root, start, depth):
-    """The tests that really `import` the file, or a module that imports it, up to `depth` steps: only the `import` statements of the
-    Python files, read here with the test's own parser (never the selector's graph), a name resolved by stem within the importer's area first."""
-    files = [str(p.relative_to(root)).replace(os.sep, "/") for p in Path(root).rglob("*.py")
+@functools.lru_cache(maxsize=None)
+def _importers_of(root_text):
+    files = [str(p.relative_to(root_text)).replace(os.sep, "/") for p in Path(root_text).rglob("*.py")
              if not any(part in (".git", "node_modules", "__pycache__") for part in p.parts)]
     files = [f for f in files if not f.startswith("skills/") or "/scripts/" in f]
     by_stem = {}
@@ -40,7 +40,7 @@ def real_import_oracle(root, start, depth):
     importers = {}
     for f in files:
         try:
-            tree = ast.parse((Path(root) / f).read_text(encoding="utf-8"))
+            tree = ast.parse((Path(root_text) / f).read_text(encoding="utf-8"))
         except (SyntaxError, UnicodeDecodeError):
             continue
         names = set()
@@ -56,10 +56,73 @@ def real_import_oracle(root, start, depth):
             for target in [c for c in candidates if c.split("/")[0] == area] or candidates:
                 if target != f:
                     importers.setdefault(target, set()).add(f)
+    return {target: frozenset(who) for target, who in importers.items()}
+
+
+def importers_of(root):
+    """{file: the files that import it}: only the `import` statements of the Python files, read here with the test's own parser (never
+    the selector's graph), a name resolved by stem within the importer's area first. The parse of a tree runs once per process (the cache is
+    keyed by the root as text), so the five changed files of the test below share one reading of the real tree, and a fictional tree has its own."""
+    return _importers_of(str(root))
+
+
+def real_import_oracle(root, start, depth):
+    """The tests that really `import` the file, or a module that imports it, up to `depth` steps."""
+    importers = importers_of(root)
     seen, frontier = {start}, [start]
     for _ in range(depth):
         frontier = [i for x in frontier for i in importers.get(x, ()) if i not in seen and not seen.add(i)]
     return {f for f in seen if os.path.basename(f).startswith("test_") and "/tests/" in f}
+
+
+def write_tree(root, files):
+    for rel, text in files.items():
+        path = Path(root) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return root
+
+
+CHAIN = {  # a <- b <- c, and c <- test_c (3 steps from a); c <- d <- test_far (4 steps from a)
+    "pkg/a.py": "", "pkg/b.py": "import a\n", "pkg/c.py": "import b\n", "pkg/d.py": "from c import x\n",
+    "pkg/tests/test_c.py": "import c\n", "pkg/tests/test_far.py": "import d\n",
+}
+
+
+def test_the_walk_stops_at_the_depth_on_a_fictional_tree(tmp_path):
+    root = write_tree(tmp_path, CHAIN)
+    near = real_import_oracle(root, "pkg/a.py", 3)
+    assert near == {"pkg/tests/test_c.py"}
+    assert real_import_oracle(root, "pkg/a.py", 4) == {"pkg/tests/test_c.py", "pkg/tests/test_far.py"}
+    assert real_import_oracle(root, "pkg/a.py", 2) == set()
+
+
+def test_the_parse_of_a_root_runs_once_and_each_root_has_its_own_graph(tmp_path, monkeypatch):
+    first = write_tree(tmp_path / "one", CHAIN)
+    second = write_tree(tmp_path / "two", {"pkg/a.py": "", "pkg/tests/test_a.py": "import a\n"})
+    graph = importers_of(first)
+    assert importers_of(second) is not graph and importers_of(second) != graph
+    assert "pkg/tests/test_c.py" in graph["pkg/c.py"] and "pkg/tests/test_c.py" not in importers_of(second).get("pkg/c.py", ())
+    assert importers_of(REPO) is not graph and "runtime/ops.py" in importers_of(REPO)  # the real tree never shares an entry
+    # a second call, and a walk of another depth or start, read nothing again: with the parser made to raise they still answer
+    def no_parse(*args, **kwargs):
+        raise AssertionError("the tree was parsed again")
+
+    monkeypatch.setattr(ast, "parse", no_parse)
+    assert importers_of(first) is graph
+    assert real_import_oracle(first, "pkg/a.py", 3) == {"pkg/tests/test_c.py"}
+    assert real_import_oracle(first, "pkg/b.py", 4) == {"pkg/tests/test_c.py", "pkg/tests/test_far.py"}
+
+
+def test_vacuity_a_parse_that_is_not_cached_is_caught(tmp_path, monkeypatch):
+    """The same patched parser, on a root that is not in the cache (it was cleared), makes the call fail: the previous test's claim is
+    only worth something because the parser does run when the cache has no answer."""
+    root = write_tree(tmp_path, CHAIN)
+    importers_of(root)
+    _importers_of.cache_clear()
+    monkeypatch.setattr(ast, "parse", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("the tree was parsed again")))
+    with pytest.raises(AssertionError, match="parsed again"):
+        importers_of(root)
 
 
 def test_every_test_that_really_imports_a_changed_file_within_three_steps_is_selected(real):

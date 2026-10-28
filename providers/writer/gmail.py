@@ -466,7 +466,7 @@ def cmd_check(args) -> int:
     if status != 200:
         raise failure(status, body, retry, "GET profile")
     record = loaded.record
-    return emit({"ok": True, "scope": sorted(_google.PLATFORM_SCOPES), "account": record.get("account"), "obtained_at": record.get("obtained_at")})
+    return emit({"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES), "account": record.get("account"), "obtained_at": record.get("obtained_at")})
 
 
 def cmd_message_meta(args) -> int:

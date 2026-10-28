@@ -193,6 +193,9 @@ class Double:
     def project_of(self, sender, listed):
         return listed[0]
 
+    def sentences_for(self, chat, project=None):      # TT-2: the scope of the sender's sentence language; none is read here
+        return contextlib.nullcontext()
+
     def write_open(self, project, chat):
         return False
 

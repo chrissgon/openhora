@@ -132,6 +132,36 @@ SENDER_ID = {"owner": OWNER, "reader": READER, "asker": ASKER, "unlisted": UNLIS
 GROUP_CHAT = "-1001234"
 NAME_OF = {SENDER_ID[name]: name for name in ("owner", "reader", "asker", "unlisted", "reader_interpret")}      # the name of a chat (a private chat is its sender's id) in an outcome; the group chat is its own
 NAME_OF[GROUP_CHAT] = "group-chat"
+
+# --- TT-2 (SENTENCE-LANGUAGE): the vocabulary of the pre-state `two_languages`, in this one block (the base corpus and golden use none of it) -------------------------------------------------
+# The world of that pre-state is a pt-BR project in which a second listed sender, `asker_en`, has a profile whose `sentence_language` is `en`; no state is built. open_world calls `world_for`
+# and check_scenario calls `vocabulary_problems`; a later package that adds vocabulary adds its own block after this one.
+ASKER_EN = "55119000000042"
+SENDERS = (*SENDERS, "asker_en")
+PRESTATES = (*PRESTATES, "two_languages")
+SENDER_ID["asker_en"] = ASKER_EN
+NAME_OF[ASKER_EN] = "asker_en"
+
+
+def prestate_two_languages(w):
+    """No state is built: the world is the pre-state (`world_for`)."""
+
+
+def world_for(scenario, table, policies):
+    """(the senders' table, the profiles, the extra keys of the configuration) of the world of `scenario`: the ones given, except in the pre-state `two_languages`."""
+    if scenario["prestate"] != "two_languages":
+        return table, policies, {}
+    return ({"telegram": [*SENDER_TABLE["telegram"], {"id": ASKER_EN, "policy": "asker-en"}]},
+            {**policies, "asker-en": {"groups": policies["asker"], "sentence_language": "en"}}, {"language": "pt-BR"})
+
+
+def vocabulary_problems(scenario):
+    """The problems of a scenario's use of the TT-2 vocabulary: `asker_en` only in `two_languages`, and that pre-state only as a messaging line of the owner or `asker_en` on buttons."""
+    if (scenario.get("sender") == "asker_en" and scenario.get("prestate") != "two_languages") or (scenario.get("prestate") == "two_languages" and (
+            scenario.get("channel") != "messaging" or scenario.get("sender") not in ("owner", "asker_en") or scenario.get("platform") != "buttons")):
+        return ["the pre-state two_languages is a messaging line of the owner or of `asker_en` on buttons, and `asker_en` has no other pre-state"]
+    return []
+# --- end of the TT-2 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 
 REMINDER_LINE = "me lembra de ligar para o dentista"      # validate: allow english-only -- the Portuguese line under test
@@ -711,7 +741,8 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     monkeypatch.setattr(pending_items, "clock", lambda: now[0])
     monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the acknowledgement of a slow line is a clock's: the replay never waits for it
     table = SENDER_TABLE if scenario["sender"] != "reader_interpret" else {"telegram": [*SENDER_TABLE["telegram"], {"id": VIEWER, "policy": "viewer"}]}      # the other worlds are as they were
-    accept(w.path, policies=PROFILES, messaging={"senders": table}, accounts=ACCOUNTS)
+    table, policies, more = world_for(scenario, table, PROFILES)      # TT-2: the pre-state `two_languages`; every other world is as it was
+    accept(w.path, policies=policies, messaging={"senders": table}, accounts=ACCOUNTS, **more)
     monkeypatch.setattr(ops_interpret, "_zone", lambda now_: ZONE)
     w.model = StandInModel()
     monkeypatch.setattr(interpreter_route, "complete", w.model.complete)
@@ -1240,6 +1271,7 @@ def check_scenario(scenario):
         problems.append("kind")
     if scenario.get("action") not in ACTIONS:
         problems.append("action")
+    problems += vocabulary_problems(scenario)
     if scenario.get("channel") in OPS_CHANNELS and (scenario.get("prestate") not in OPS_PRESTATES or scenario.get("platform") != "buttons" or scenario.get("sender") != "owner"):
         problems.append("a page, terminal, mcp or chat line is the owner's, on no platform, in a pre-state of OPS_PRESTATES")
     if scenario.get("channel") == "ops" and (scenario.get("prestate") != "none" or scenario.get("platform") != "buttons" or scenario.get("sender") not in ("owner", "reader", "asker", "reader_interpret")

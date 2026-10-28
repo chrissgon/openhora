@@ -632,13 +632,13 @@ OPERATIONS = (
     # NR-5 (Q6): the numbered items of the mail and calendar snapshots, so that "the e-mail 3" has something to point to on a phone. Private: the terminal and the page, and a
     # messaging sender only with the group ask-mail (the operation asks item_refs.may_read); never on the MCP mode.
     {"name": "items", "call": "items",
-     "args": ({"name": "kind", "kind": "choice", "choices": ("mail", "calendar")}, {"name": "source", "kind": "str"}),
+     "args": ({"name": "kind", "kind": "choice", "choices": ("mail", "calendar")}, {"name": "source", "kind": "str"}, {"name": "match", "kind": "str"}, {"name": "unread", "kind": "flag"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "the numbered items of the newest snapshot of each mail or calendar source (--kind mail|calendar and --source <id> narrow it): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is called and nothing is written",
+     "help": "the numbered items of the newest snapshot of each mail or calendar source (--kind mail|calendar and --source <id> narrow it; --match <words> keeps the messages whose sender or subject hold every word, and the events whose title holds them; --unread keeps the messages the provider says are not read): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is written",
      "natural": {"class": "R", "since": 1, "order": 19, "privacy": "account", "cost": "provider",
                  "what": "the numbered messages and events of the mail and calendar snapshots",
-                 "about": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. Not a web search.",
-                 "slots": {}}},
+                 "about": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. To narrow it: the sender or subject words in target, the day or week in day, the words for unread in state. Not a web search.",
+                 "slots": {"target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day_span", "since": 2}, "state": {"kind": "span", "param": "state_span", "since": 2}}}},
     {"name": "attachment-hold", "call": "attachment_hold",
      "args": ({"name": "incoming", "kind": "str", "required": True},
               {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"},

@@ -128,6 +128,8 @@ def route_sha256(route):
     sent["model"] = sent.pop("upstream_model")
     if route.get("pin_reply") is not None:      # S41-10: an optional key of a row, part of what the provider is shown
         sent["pin_reply"] = route["pin_reply"]
+    if route.get("reasoning_off") is not None:      # ROUTE-REASONING: the same rule
+        sent["reasoning_off"] = route["reasoning_off"]
     return sha_obj(sent)
 
 

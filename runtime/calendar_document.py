@@ -69,6 +69,7 @@ CALENDAR_ID = re.compile(r"(?!\.{1,2}$)(?!-)[A-Za-z0-9._@+=-]{1,300}")
 EVENT_ID = re.compile(r"(?!-)[A-Za-z0-9=_+-]{1,600}")
 ETAG = re.compile(r"(?!-)[A-Za-z0-9_=+/.\"-]{1,200}")
 ZONE = re.compile(r"[A-Za-z0-9_+/:-]{1,64}")
+OUTLOOK_ZONE = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2}")      # the form the Outlook writer accepts for --time-zone (its ZONE_NAME_RE): an IANA name, never an offset
 WALL = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})")
@@ -525,7 +526,20 @@ def provider_args(doc: dict, spec_file) -> list:
         args += ["--event", doc["event_id"], "--base-etag", doc["base_etag"]]
     if spec_file:
         args += ["--spec-file", spec_file]
-    return args + ["--idempotency-key", doc["idempotency_key"]]
+    args += ["--idempotency-key", doc["idempotency_key"]]
+    return args + outlook_zone_args(doc)
+
+
+def outlook_zone_args(doc: dict) -> list:
+    """`--time-zone <name>` for an Outlook timed create, or a change that carries times, when the document's zone is an IANA name (it has a `/` and is of the writer's
+    own form); else nothing (UTC, as before). The name is only ever `doc["zone"]`, the host's zone: never the person's line or a model's. It is part of the dry run, so
+    the hash the person approves covers it. Google, a removal, an all-day event and an offset zone (`UTC-03:00`) get none."""
+    if doc["account"] != "microsoft" or doc["operation"] == "cancel" or doc["event"]["all_day"]:
+        return []
+    if doc["operation"] == "change" and "when" not in doc["changed"]:
+        return []
+    named = OUTLOOK_ZONE.fullmatch(doc["zone"])
+    return list(("--time-zone", doc["zone"])) if named else []
 
 
 def event_get_args(doc: dict) -> list:

@@ -63,6 +63,7 @@
    "base_url": "https://openrouter.ai/api/v1",
    "pin": "google-vertex",
    "pin_reply": "google-vertex",
+   "reasoning_off": "minimal",
    "allow_fallbacks": false,
    "data_collection": "deny",
    "zdr": true,

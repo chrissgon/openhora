@@ -96,6 +96,63 @@ def test_the_jobs_that_run_pytest_do_it_in_parallel_with_a_time_limit_and_the_ag
     assert "pytest" not in aggregator and re.search(r"^    timeout-minutes: 5\s*$", aggregator, re.M)
 
 
+def steps_of(text):
+    """The steps of one workflow text (a job block, comments left out), each as its own text, from its `- name:` line to the next."""
+    return ["      - name:" + chunk for chunk in re.split(r"^      - name:", text, flags=re.M)[1:]]
+
+
+def flag_problems(text):
+    """What is wrong with the pytest flags of the steps of a workflow text. A step that starts pytest through the launcher (the shards), or
+    runs `pytest -q -n auto` (the nightly's Python 3.9 job), keeps `--assert=plain` (collecting without assertion rewriting is most of the
+    collection time) and `--dist worksteal`; a step that runs the failures again (`--lf`) keeps neither and rewrites, since its point is the
+    detail; the hook never has either."""
+    found = []
+    for step in steps_of(text):
+        name = step.splitlines()[0].strip()
+        if "--lf" in step:
+            found += [name + ": the re-run has " + flag for flag in ("--assert=plain", "--dist worksteal", "-n auto") if flag in step]
+        elif "shard_tests.py" in step or re.search(r"\bpytest -q -n auto\b", step):
+            found += [name + ": no " + flag for flag in ("--assert=plain", "--dist worksteal") if flag not in step]
+    return found
+
+
+def test_the_ci_runs_collect_without_assertion_rewriting_and_steal_work_and_the_failure_reruns_keep_the_detail():
+    # the three run steps of checks.yml (two in tests-shard, one in python39) and the two of the nightly: the flag sits right after `-n auto`
+    checks = [job_block("tests-shard"), job_block("python39")]
+    for block in checks:
+        assert flag_problems(block) == []
+    runs = [step for block in checks for step in steps_of(block) if "shard_tests.py" in step]
+    assert len(runs) == 3 and all("-q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120" in step for step in runs)
+    nightly = (REPO / ".github" / "workflows" / "nightly.yml").read_text()
+    nightly = "\n".join(line for line in nightly.splitlines() if not line.lstrip().startswith("#"))
+    assert flag_problems(nightly) == []
+    assert len([step for step in steps_of(nightly) if "-q -n auto --assert=plain --dist worksteal" in step]) == 2
+    assert "--reruns 3" in nightly and "-rfER" in nightly  # the nightly's own reruns and failure report stay
+    # the failures again: two steps in the shards, one in python39, none of them with the flags
+    assert len([step for block in checks for step in steps_of(block) if "--lf --lfnf=none" in step]) == 3
+
+
+def test_the_hook_and_the_by_hand_command_keep_assertion_rewriting_and_the_default_schedule():
+    hook = (REPO / ".githooks" / "pre-commit").read_text()
+    assert "--assert=plain" not in hook and "worksteal" not in hook
+    agents = (REPO / "AGENTS.md").read_text()
+    assert "--assert=plain" in agents and "--dist worksteal" in agents  # the text that says where they apply
+
+
+def test_vacuity_a_run_step_without_the_flags_or_a_rerun_with_them_is_caught():
+    block = job_block("tests-shard")
+    assert flag_problems(block) == []
+    plants = {
+        "no plain": block.replace("--assert=plain ", "", 1),
+        "no worksteal": block.replace("--dist worksteal ", "", 1),
+        "the re-run is plain": block.replace("pytest -q --lf --lfnf=none", "pytest -q --assert=plain --lf --lfnf=none", 1),
+        "the re-run is parallel": block.replace("pytest -q --lf --lfnf=none", "pytest -q -n auto --lf --lfnf=none", 1),
+    }
+    for name, planted in plants.items():
+        assert planted != block, name
+        assert len(flag_problems(planted)) == 1, name
+
+
 def test_the_tests_shards_have_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
     block = job_block("tests-shard")
     assert re.search(r"^    timeout-minutes: 30\s*$", block, re.M)

@@ -33,7 +33,9 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
 
   text(key, cfg, **fields)    the sentence in the project's language, its `{fields}` filled in
   en(key)                     the English sentence, unfilled (what a module keeps as its constant)
-  tag(cfg)                    the tag text() uses: the project's, else `en`
+  tag(cfg)                    the tag text() uses: the scope's (below), else the project's, else `en`
+  sentence_tag(cfg, channel, sender)   the tag the fixed sentences for one person use: the sender's profile `sentence_language`, else the channel's profile, else the project's
+  scope(name)                 a `with` block (thread-local) inside which tag(cfg) is `name` when the table has it: opened where a line or a notice is handled for one person
   kind_word(kind, cfg)        a decision's kind (`plan`, `effect`...) as a word of the language; the kind itself when the table has none
   heads(key)                  the part of a sentence before its first `[` in every language of the table, for the check of an imitated quote
   every(key)                  the sentence of a key in every language of the table (the forms a model must not write, the headings a model's line may imitate)
@@ -53,11 +55,13 @@ Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import string
 import sys
+import threading
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1120,9 +1124,64 @@ DECIMAL = {"pt-BR": ","}                                # the decimal mark of a 
 _patterns = {}
 
 
-def tag(cfg=None) -> str:
-    """The tag of the table `text` reads: the project's `language` (language.effective), else `en`."""
+_SCOPE = threading.local()      # the tag of the person a line or a notice is being handled for on this thread (`scope`); None outside one
+SENTENCE_CHANNELS = ("page", "mcp", "messaging")      # the channels a profile narrows: the terminal and the conversation's own shell keep the project's language
+
+
+def _project_tag(cfg=None) -> str:
     return language.effective(None, cfg.get("language") if cfg else None)[0]
+
+
+def tag(cfg=None) -> str:
+    """The tag of the table `text` reads: inside a `scope` whose tag the table has, that tag (the language of the fixed sentences for one person); else the project's
+    `language` (language.effective), else `en`. Only the fixed sentences read it: the language of an artifact is `language.effective` and never sees a scope."""
+    inside = getattr(_SCOPE, "tag", None)
+    return inside if inside in TABLE else _project_tag(cfg)
+
+
+def current_scope() -> str | None:
+    """The tag of the scope this thread is inside, or None (for a job that takes the scope of the thread that creates it)."""
+    return getattr(_SCOPE, "tag", None)
+
+
+@contextlib.contextmanager
+def scope(name):
+    """While the block lasts, `tag(cfg)` is `name` when the table has a column of that name; a `name` that is None, or has no column, makes the project's language
+    the answer again (it does not keep an outer scope). The tag before the block is restored when it ends, whatever the end, so that it never reaches the next line
+    handled on the same thread. Open it with `with`, never set it."""
+    before = getattr(_SCOPE, "tag", None)
+    _SCOPE.tag = name if isinstance(name, str) and name in TABLE else None
+    try:
+        yield
+    finally:
+        _SCOPE.tag = before
+
+
+def _profile_key(cfg, name):
+    """The `sentence_language` of the profile `name` in `cfg["policies"]`, when it is a tag of the table; else None."""
+    record = ((cfg or {}).get("policies") or {}).get(name) if isinstance(name, str) else None
+    found = record.get("sentence_language") if isinstance(record, dict) else None
+    return found if isinstance(found, str) and found in TABLE else None
+
+
+def sentence_override(cfg, channel=None, sender=None):
+    """The tag a profile sets for the fixed sentences said to one person, or None when no profile sets one: for `messaging`, the profile of the sender (`sender` is
+    `<platform>:<sender id>`, `messaging.sender_profiles` of `cfg`), else the profile of the channel (`channel_profiles`); for `page` and `mcp`, the channel's; for any other channel
+    (the terminal, the conversation's own shell) None. `cfg` is the configuration as project_config.load gives it (or what `ops.config` returns of it)."""
+    if channel not in SENTENCE_CHANNELS:
+        return None
+    if channel == "messaging" and isinstance(sender, str):
+        platform, _, ident = sender.partition(":")
+        named = (((cfg or {}).get("messaging") or {}).get("sender_profiles") or {}).get(platform) or {}
+        found = _profile_key(cfg, named.get(ident))
+        if found:
+            return found
+    return _profile_key(cfg, ((cfg or {}).get("channel_profiles") or {}).get(channel))
+
+
+def sentence_tag(cfg, channel=None, sender=None) -> str:
+    """The tag of the fixed sentences for one person: the sender's profile `sentence_language`, else the channel's profile, else the project's `language` rule (`tag` outside a scope)."""
+    return sentence_override(cfg, channel, sender) or _project_tag(cfg)
 
 
 def en(key: str) -> str:
