@@ -141,7 +141,7 @@ def test_the_new_slots_of_the_catalog_are_what_the_file_measures():
     assert used["repeat"] == 12 and used["target"] >= 20 and used["day"] >= 12 and used["state"] == 3 and used["message"] == 4 and used["item"] == 2 and used["service"] == 6
     repeats = [item for item in ITEMS if "repeat" in item["gold"]["slots"]]
     assert {item["gold"]["op"] for item in repeats} == {"event-create"} and len(repeats) == 12
-    assert [item["id"] for item in ITEMS if item["also"]] == ["dev-pt-br-60022", "dev-pt-br-60023"], "the two unsupported recurrences of a pt-BR project also accept the honest question code asks"
+    assert [item["id"] for item in ITEMS if item["also"]] == ["dev-en-60013", "dev-pt-br-60022", "dev-pt-br-60023"], "the three unsupported recurrences (pt-BR twice, en once) also accept the honest sentence code answers"
     for item in ITEMS:
         for alt in item["also"]:
             assert alt == {"outcome": "clarify"}, item["id"]

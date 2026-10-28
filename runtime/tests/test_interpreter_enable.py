@@ -116,7 +116,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
     assert {key for key in entry if entry[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the newest entry (CB-9) changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-2] == bl73 and "CB-9" in entry["status_line"] and "CB-9" in entry["reason"] and "version 2" in entry["reason"] and len(entry["reason"]) <= 700
+    assert doc["entries"][-2] == bl73 and "CB-9" in entry["status_line"] and "CB-9" in entry["reason"] and "version 2" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
 
 

@@ -297,11 +297,35 @@ def test_at_catalog_version_1_the_read_is_a_list_with_no_slot_so_the_corrected_r
     assert got["kind"] == "op" and got["op"] == "items" and got["args"] == {} and got["spans"] == {} and got["corrects"] == "i1", got
 
 
-def test_a_card_with_a_slot_the_list_lacks_is_the_models_card_at_version_2(monkeypatch):
-    got = run(op("mail-mark", {"state": "unread", "place": "inbox"}), "nope, I meant my unread emails, not the calendar", READ_FRAME)
-    assert got["kind"] == "clarify", "a slot that no operation of the catalog has is refused, never carried into the read"
-    got = run(op("mail-mark", {"messages": "2"}), "nope, I meant my unread emails 2, not the calendar", READ_FRAME)
-    assert got["kind"] == "op" and got["op"] == "mail-mark" and "corrects" not in got, "a slot of the card that `items` lacks: the model meant another act, today's path stands"
+def test_a_card_with_a_slot_the_list_lacks_is_the_read_plan_at_both_versions(monkeypatch):
+    line = "nope, I meant my unread emails 2, not the calendar"
+    card = op("mail-mark", {"messages": "2"})
+    got = run(card, line, READ_FRAME)
+    assert got["kind"] == "op" and got["op"] == "items" and got["args"] == {} and got["spans"] == {} and got["corrects"] == "i1", "version 2: the slot `messages` that `items` lacks is dropped, never a mark card nobody asked for"
+    mixed = run(op("mail-mark", {"state": "unread", "messages": "2"}), line, READ_FRAME)
+    assert mixed["op"] == "items" and mixed["args"] == {"state_span": "unread"} and mixed["corrects"] == "i1", "the slots the list has are kept, the others dropped"
+    old = run_at_version_1(monkeypatch, card, line, READ_FRAME)
+    assert old["kind"] == "op" and old["op"] == "items" and old["args"] == {} and old["corrects"] == "i1", "version 1: a list had no slot and kept none; the same read plan"
+    assert run(op("mail-mark", {"state": "unread", "place": "inbox"}), line, READ_FRAME)["kind"] == "clarify", "a slot that no operation of the catalog has is refused, never carried into the read"
+
+
+def test_a_read_that_is_not_a_list_gives_today_s_path_for_a_card_with_a_slot_it_lacks(monkeypatch):
+    monkeypatch.setattr(interp, "READ_LOOKALIKE_CARDS", ("mail-mark", "file-trash"))
+    frame = plan_frame("file-read", {"file": "Contrato da Chácara Pinheiro"})      # validate: allow english-only -- the Portuguese words under test
+    got = run(op("file-trash", {"file": "Gastos de Novembro", "folder": "Antigos"}), "não, é a planilha Gastos de Novembro na pasta Antigos", frame)      # validate: allow english-only -- the Portuguese line under test
+    assert got["op"] == "file-trash" and "corrects" not in got, "file-read has slots and is no list: the card has `folder`, which the read lacks: it meant another act"
+
+
+def test_the_list_fallback_of_a_plan_correction_is_the_same_at_version_1_and_2(monkeypatch):
+    """A model's `answer` with a slot and a span that is not in the line, for a list: the day is read by code (shape b), at version 2 by the fallback, at version 1 because the list had no slot."""
+    answer = {"v": 1, "kind": "answer", "answers_item": "i1", "confirm": "no", "slot": "day", "span": "amanha"}
+    line = "não, a de amanhã"      # validate: allow english-only -- the Portuguese line under test
+    two = run(answer, line, READ_FRAME)
+    assert two["kind"] == "op" and two["op"] == "items" and two["args"] == {} and two["corrects"] == "i1", two
+    one = run_at_version_1(monkeypatch, answer, line, READ_FRAME)
+    assert one["kind"] == "op" and one["op"] == "items" and one["args"] == {} and one["corrects"] == "i1", one
+    monkeypatch.setattr(interp, "LIST_READS", ())      # vacuity: without the list rule the span that is not in the line is asked again at version 2
+    assert run(answer, line, READ_FRAME)["kind"] == "clarify"
 
 
 def test_a_correction_that_names_a_slot_of_the_read_keeps_it(monkeypatch):
@@ -558,7 +582,7 @@ def test_a_card_that_carries_the_content_of_a_new_act_is_never_a_read_even_when_
     got = run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)
     assert got["kind"] == "op" and got["op"] == "mail-draft" and "corrects" not in got, got
     monkeypatch.setattr(interp, "ACT_CONTENT_SLOTS", frozenset())          # vacuity: without the content-slot guard the draft would have become the read
-    assert run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "mail-draft", "at version 2 `items` has slots that the draft lacks: the slot guard of the read holds it too"
+    assert run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "items", "at version 2 a list drops the slots it lacks: only the content-slot guard held the draft"
     assert run_at_version_1(monkeypatch, op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "items", "at version 1 the list had no slot: only the content-slot guard held the draft"
 
 

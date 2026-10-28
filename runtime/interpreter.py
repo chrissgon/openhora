@@ -1103,7 +1103,7 @@ def _asks_an_act(line):
 def _read_plan_kept(obj, line, frame, ops):
     """BL7-1 (gap 4): (the revised op object, the plan item's id) when a line that opens with a no corrects a live plan of a READ (class R) and the model named a card (class E) of another
     operation that the read's words can be mistaken for (READ_LOOKALIKE_CARDS), with no slot that holds the content of a new act (ACT_CONTENT_SLOTS), for a line that holds no head of an
-    act; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when the read has them all (at catalog version 1 a list had none, so it kept none; at version 2 `items` has `target`, `day` and `state`, and a slot it lacks gives today's path). It
+    act; else None (today's path). The revised object is the plan's own read with the slots the model gave, kept only when the read has them all (at catalog version 1 a list had none, so it kept none; at version 2 `items` has `target`, `day` and `state`, a list drops the slots it lacks and keeps the read plan, and any other read with slots gives today's path when the card has a slot it lacks). It
     only ever turns a card into the read the person already had a plan for: never into an act (L65)."""
     last = (frame or {}).get("last")
     item = next((i for i in (frame or {}).get("items") or [] if i.get("kind") == "plan-confirm"), None)
@@ -1116,8 +1116,10 @@ def _read_plan_kept(obj, line, frame, ops):
         return None          # a card of an act the person may have asked for, or one that carries a new act's content: today's path stands
     row = ops[last["op"]]["slots"]
     slots = {slot: value for slot, value in obj["slots"].items() if slot in row}
-    if row and set(slots) != set(obj["slots"]):
-        return None          # the read has slots and the model gave one it lacks: it meant another act, today's path stands (at catalog version 1 a list had none and the day was read from the line by code; at version 2 `items` has `target`, `day` and `state`, each a span code checked)
+    if row and set(slots) != set(obj["slots"]) and last["op"] not in LIST_READS:
+        return None          # the read has slots and the model gave one it lacks: it meant another act, today's path stands
+    # a list (LIST_READS): at catalog version 1 it had no slot and kept none; at version 2 `items` has `target`, `day` and `state`, and the slots of the card that it lacks (`messages`) are dropped, the read plan stays:
+    # a card that the read's words can be mistaken for is never kept as a card the person did not ask for (BL7-1 gap 4)
     return {"v": 1, "kind": "op", "op": last["op"], "slots": slots}, item["id"]
 
 
