@@ -1,0 +1,20 @@
+{
+  "package": "cb-1",
+  "table": {
+    "NW_ITEMS_MATCH_WORDS": "com “{words}”",
+    "NW_ITEMS_MATCH_UNREAD": "(só os não lidos)",
+    "NW_ITEMS_MATCH_HEAD": "Seus e-mails{filter}:",
+    "NW_ITEMS_MATCH_HEAD_CAL": "Eventos{filter}:",
+    "NW_ITEMS_EMPTY_MAIL_MATCH": "Nenhum e-mail{filter} na {name} ({state}).",
+    "NW_ITEMS_EMPTY_CAL_MATCH": "Nenhum evento{filter} na {name} ({state}).",
+    "NW_ITEMS_UNREAD_UNKNOWN": "Não consigo saber quais e-mails da {name} não foram lidos: o provedor não informou quais foram lidos.",
+    "NW_ITEMS_MATCH_EMPTY": "Não achei nenhuma palavra para procurar nisso, então esta é a lista inteira.",
+    "NW_ITEMS_MATCH_NODATE": "Ficaram de fora do filtro de dia: {n} sem data.",
+    "NW_ITEMS_MATCH_DAY": "Não entendi qual dia ou semana você quer. Diga, por exemplo, hoje, amanhã, sexta ou esta semana.",
+    "NW_ITEMS_MATCH_STATE": "Só sei filtrar os e-mails não lidos. Peça os não lidos, ou a lista inteira.",
+    "UNDERSTOOD_ITEMS_MAIL_MATCH": "listar seus e-mails com “{words}”",
+    "UNDERSTOOD_ITEMS_CALENDAR_MATCH": "mostrar os eventos da sua agenda com “{words}”",
+    "UNDERSTOOD_ITEMS_UNREAD": "(só os não lidos)"
+  },
+  "same_as_english": []
+}

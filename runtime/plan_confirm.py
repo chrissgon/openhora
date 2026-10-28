@@ -160,9 +160,11 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
         return t(key, question=_clip(args.get("question") or ""), cap=phrases.decimal(f"{float(cap):.2f}", cfg) if isinstance(cap, (int, float)) else "?")
     if name == "items":
         kind = args.get("kind") or importlib.import_module("natural_writes").items_kind(said)      # BL5B: the call's own kind (a corrected list keeps the old plan's), else the line's
-        sentence = t({"mail": "UNDERSTOOD_ITEMS_MAIL", "calendar": "UNDERSTOOD_ITEMS_CALENDAR"}.get(kind, "UNDERSTOOD_ITEMS"))
+        words = " ".join(w for w in (args.get("match") or []) if isinstance(w, str))      # CB-1: the words code read from the person's target (a list of none says nothing: the reply says so)
+        key = {"mail": "UNDERSTOOD_ITEMS_MAIL_MATCH" if words else "UNDERSTOOD_ITEMS_MAIL", "calendar": "UNDERSTOOD_ITEMS_CALENDAR_MATCH" if words else "UNDERSTOOD_ITEMS_CALENDAR"}.get(kind, "UNDERSTOOD_ITEMS")
+        sentence = t(key, words=_clip(words))
         day = _day(ctx, said, args)
-        return sentence + (phrases.localize_dates(t("UNDERSTOOD_ON_DAY", day=day), cfg) if day else "")
+        return sentence + (" " + t("UNDERSTOOD_ITEMS_UNREAD") if args.get("unread") is True and kind == "mail" else "") + (phrases.localize_dates(t("UNDERSTOOD_ON_DAY", day=day), cfg) if day else "")
     return t(key)
 
 

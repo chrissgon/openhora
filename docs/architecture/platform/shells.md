@@ -333,7 +333,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
-| `items` | `[--kind]` `[--source]` | `items` |
+| `items` | `[--kind]` `[--source]` `[--match]` `[--unread]` | `items` |
 | `attachment-add` | `--id` | `attachment_add` |
 | `attachment-discard` | `--id` | `attachment_discard` |
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |

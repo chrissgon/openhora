@@ -407,8 +407,9 @@ class Reminders:
                 bridge.log(f"reminders not sent: {due['missed']} missed, {due['dropped']} dropped")
             for item in due["send"]:
                 try:
-                    line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"], bridge.cfg(project))
-                    sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
+                    with bridge.sentences_for(item["chat"], project):      # TT-2: the reminder is said in the language of the sender it is for
+                        line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"], bridge.cfg(project))
+                        sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
                 except Exception as e:
                     bridge.log(f"a reminder could not be sent ({e.__class__.__name__})")      # it stays claimed and is open again when the claim goes stale
                     continue

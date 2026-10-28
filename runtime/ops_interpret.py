@@ -377,7 +377,8 @@ def _unchanged(decision: dict, state: dict, said: str) -> bool:
     """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
     from the line with the old plan's), every other call by its arguments."""
     if decision["op"] == "items":
-        return importlib.import_module("ops_items").items_args(said, ops_natural._clock(), state["args"]) == dict(state["args"])
+        ops_items = importlib.import_module("ops_items")
+        return ops_items.items_args(said, ops_natural._clock(), state["args"], ops_items.span_args_of(decision.get("args"))) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
     return dict(decision.get("args") or {}) == dict(state["args"])
 
 

@@ -127,8 +127,8 @@ def test_the_consent_url_asks_for_the_platform_set_and_offline_access_alone_with
     parsed = urllib.parse.urlparse(url)
     query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-    assert query["scope"] == [SET_URL], "the five permissions of the platform and the refresh token, nothing else"
-    assert query["scope"][0].split() == [PREFIX + n for n in ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")] + ["offline_access"]
+    assert query["scope"] == [SET_URL], "the six permissions of the platform and the refresh token, nothing else"
+    assert query["scope"][0].split() == [PREFIX + n for n in ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read", "Tasks.ReadWrite")] + ["offline_access"]
     assert query["code_challenge_method"] == ["S256"] and query["code_challenge"] == [challenge] and query["state"] == ["the-state"]
     assert query["response_type"] == ["code"] and query["response_mode"] == ["query"] and query["redirect_uri"] == ["http://localhost:5555"]
     assert query["prompt"] == ["select_account"] and query["client_id"] == [fake_ms_account.CLIENT_ID]
@@ -143,7 +143,8 @@ def test_an_offices_own_tenant_is_the_authority_of_the_url():
 
 
 def test_the_platform_set_is_the_one_in_the_code_the_record_and_the_secret_contract():
-    assert auth.PLATFORM_SCOPES == fake_ms_account.PLATFORM == ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
+    assert auth.PLATFORM_SCOPES == fake_ms_account.PLATFORM == ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read", "Tasks.ReadWrite")
+    assert auth.msgraph.PREVIOUS_SCOPES == fake_ms_account.PREVIOUS == auth.PLATFORM_SCOPES[:5]
     assert auth.PROFILE.refresh_scope == SET_URL and auth.PROFILE.account is True and auth.PROFILE.scope is None
     assert (auth.SECRET, auth.KEYRING_USERNAME) == ("MICROSOFT_ACCOUNT_TOKEN", "microsoft-account")
     assert (auth.PROFILE.client_id_var, auth.PROFILE.tenant_var) == ("MICROSOFT_CLIENT_ID", "MICROSOFT_TENANT")
@@ -216,7 +217,7 @@ def test_authorize_stores_one_record_of_its_own_reads_the_address_once_and_print
     assert set(record) == {"slot", "refresh_token", "client_id", "tenant", "scope", "account_kind", "account", "obtained_at"}
     assert record["slot"] == "main" and record["refresh_token"] == fake_ms_account.REFRESH_TOKEN
     assert record["client_id"] == fake_ms_account.CLIENT_ID and record["tenant"] == "common"
-    assert record["scope"] == "Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite User.Read"
+    assert record["scope"] == "Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite User.Read Tasks.ReadWrite"
     assert record["account"] == fake_ms_account.ADDRESS and record["account_kind"] == "personal"
     form = [f for f in fake.token_forms if f.get("grant_type") == "authorization_code"][0]
     challenge = base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"].encode()).digest()).rstrip(b"=").decode()
@@ -307,10 +308,10 @@ def test_a_response_with_no_scope_at_all_cannot_be_shown_to_be_the_set_and_store
 
 
 def test_the_case_of_a_permission_name_does_not_matter_and_the_words_that_grant_nothing_are_ignored(fake, env, monkeypatch):
-    fake.scope_granted = "mail.readwrite MAIL.SEND Calendars.ReadWrite https://graph.microsoft.com/FILES.READWRITE USER.READ openid profile email offline_access"
+    fake.scope_granted = "mail.readwrite MAIL.SEND Calendars.ReadWrite https://graph.microsoft.com/FILES.READWRITE USER.READ tasks.readwrite openid profile email offline_access"
     browser(monkeypatch, returns_with_the_code)
     assert auth.main(["authorize"]) == 0
-    assert json.loads(env.values[KEY])["scope"] == "Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite User.Read", "stored as the code spells the set"
+    assert json.loads(env.values[KEY])["scope"] == "Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite User.Read Tasks.ReadWrite", "stored as the code spells the set"
 
 
 def test_no_refresh_token_stores_nothing(fake, env, monkeypatch, capsys):
@@ -383,7 +384,7 @@ def test_check_reads_the_record_back_without_a_network_call_and_prints_no_token(
     assert auth.main(["check"]) == 0
     out, err = capsys.readouterr()
     assert json.loads(out) == {"found": True, "source": "environment (MICROSOFT_ACCOUNT_TOKEN)", "slot": "main", "account": fake_ms_account.ADDRESS,
-                               "account_kind": "personal", "tenant": "common", "scopes": list(fake_ms_account.PLATFORM), "has_refresh_token": True,
+                               "account_kind": "personal", "tenant": "common", "scopes": list(fake_ms_account.PLATFORM), "tasks": True, "has_refresh_token": True,
                                "obtained_at": "2026-10-18T08:00:00Z"}
     assert fake.token_forms == [] and fake.requests == [], "no network"
     assert not any(s in out + err for s in SECRETS)

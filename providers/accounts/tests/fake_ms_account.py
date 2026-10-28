@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mailbox" / "tests"
 import fake_microsoft  # noqa: E402
 from fake_microsoft import ACCESS_TOKEN, CODE, REFRESH_TOKEN, SCOPE_URL_PREFIX, TENANT  # noqa: E402,F401  (re-exported for the tests)
 
-PLATFORM = ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
+PREVIOUS = ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")      # a token made before To Do tasks was added
+PLATFORM = PREVIOUS + ("Tasks.ReadWrite",)      # CB-4: the set the authorization asks
 CLIENT_ID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
 ADDRESS = "casey.rivera@mail.example"
 GRANTED = " ".join(SCOPE_URL_PREFIX + name for name in PLATFORM) + " offline_access openid profile"   # Microsoft adds the three words that grant nothing

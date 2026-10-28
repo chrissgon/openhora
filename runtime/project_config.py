@@ -95,7 +95,8 @@ it is ignored. The one price table is runtime/prices.json (runtime/prices.py), r
 ranking and the proof page; `price_warnings()` says so, and the doctor of a project (the connections read) shows it.
 
 It also reads "policies" (package POL-2; absent means none), "channels" and "messaging" together, as the channel policy: "policies" maps a profile
-name (lowercase words joined by hyphens, at most 32 characters) to a list of groups, or to {"groups": [...], "notices": "all" | "actionable"};
+name (lowercase words joined by hyphens, at most 32 characters) to a list of groups, or to {"groups": [...], "notices": "all" | "actionable", "sentence_language": "<a tag
+of the phrase table>"} (TT-2: the language of the fixed sentences said to that sender or on that channel, never of an artifact, and never a group);
 "channels.<channel>" is a list of groups or the name of a profile, the channel's default; "messaging.senders.<platform>" lists plain sender ids
 and entries {"id": "<sender id>", "policy": "<profile>"}, and a sender's profile replaces the channel's groups for that sender. Every place a profile
 is assigned checks it against the channel (project_config._check_assigned; the refusal names the profile and the channel), and `load` returns the
@@ -312,7 +313,7 @@ def _refused_group(channel: str, group: str, groups: list) -> str | None:
 
 
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")   # a profile's name: lowercase words joined by hyphens, at most 32 characters
-PROFILE_KEYS = ("groups", "notices")
+PROFILE_KEYS = ("groups", "notices", "sentence_language")
 PROFILE_NOTICES = ("all", "actionable")
 DEFAULT_PROFILE = "default"                            # the label of a sender who has no profile (the channel's own groups); not a name a project may use
 SENDER_ID_MAX = 254                                    # an e-mail address fits (the longest a mailbox name and a domain make)
@@ -336,7 +337,10 @@ def _policies(value) -> dict:
     (`channels.<channel>` names it as the channel's default, a sender's entry in `messaging.senders` names it for that sender). A name is lowercase words
     joined by hyphens, at most 32 characters, and not `default`. A profile that lists unknown groups, or both `read` and `read-limited`, is refused.
     Returns {"<profile>": {"groups": [...], "notices": "all" | "actionable"}}; `notices` (default all) says whether a sender gets a card for every
-    decision (all) or only for one their profile can act on or answer (actionable)."""
+    decision (all) or only for one their profile can act on or answer (actionable). An object profile may also carry `sentence_language` (TT-2), one of the tags
+    of the phrase table (phrases.TABLE: `en`, `pt-BR`): the language of the fixed sentences (cards, confirmations, refusals, reminders) said to a sender with
+    that profile, or on a channel assigned it (phrases.sentence_tag). It is not a group and grants nothing, and no artifact reads it (language.effective never
+    does). The record holds it only when the profile sets it, so that a file without it loads as it always did."""
     if value is None:
         return {}
     if not isinstance(value, dict):
@@ -347,7 +351,7 @@ def _policies(value) -> dict:
             raise ConfigError(f"runtime.json policies: {name!r} is not a profile name (lowercase words joined by hyphens, at most 32 characters)")
         if name == DEFAULT_PROFILE:
             raise ConfigError(f"runtime.json policies: {DEFAULT_PROFILE!r} is the label of a sender with no profile; choose another name")
-        notices = "all"
+        notices, sentence = "all", None
         if isinstance(body, dict):
             unknown = sorted(set(body) - set(PROFILE_KEYS))
             if unknown or "groups" not in body:
@@ -357,11 +361,16 @@ def _policies(value) -> dict:
             if notices not in PROFILE_NOTICES:
                 raise ConfigError(f"runtime.json policies.{name}.notices must be one of {', '.join(PROFILE_NOTICES)}")
             groups = _groups_of(f"policies.{name}.groups", body["groups"])
+            if "sentence_language" in body:
+                given = body["sentence_language"]
+                if not isinstance(given, str) or given not in phrases.TABLE:
+                    raise ConfigError(f"runtime.json policies.{name}.sentence_language must be one of {', '.join(phrases.TABLE)}")
+                sentence = given
         else:
             groups = _groups_of(f"policies.{name}", body)
         if "read" in groups and "read-limited" in groups:
             raise ConfigError(f"runtime.json policies.{name}: lists both 'read' and 'read-limited'; choose one (read-limited is read without the spend)")
-        out[name] = {"groups": groups, "notices": notices}
+        out[name] = {"groups": groups, "notices": notices, **({"sentence_language": sentence} if sentence else {})}
     return out
 
 
