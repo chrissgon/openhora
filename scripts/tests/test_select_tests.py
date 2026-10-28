@@ -994,3 +994,41 @@ def test_vacuity_without_the_skip_a_stem_in_a_package_golden_selects_the_whole_t
     assert sel.Repo(str(root)).data_files_naming("zz_mod") == ["runtime/tests/entry_ext/zz-pack.golden.jsonl", "runtime/tests/expected/zz-pack.json"]
     assert in_process(root, "runtime/zz_mod.py") == expect("runtime/tests")
     assert in_process(root, "runtime/zz_mod.py") != GOLDEN_NAMING_WANTED
+
+
+# ---- rule 7 and rule 9: a committed evidence file --------------------------------------------------------------------------------------------
+
+EVIDENCE_WRITTEN_OUT = [   # written out a second time on purpose: dropping one from the selector's table fails a test
+    "evals/tests/test_bands.py", "evals/tests/test_community_evidence.py", "evals/tests/test_eval_status.py", "evals/tests/test_evidence_lines.py",
+    "evals/tests/test_local_model_event.py", "evals/tests/test_quick_pool.py", "scripts/tests/test_verify_community.py",
+]
+EVIDENCE_FIXTURE = {t: "import os\n" for t in EVIDENCE_WRITTEN_OUT}
+PLANTED_EVIDENCE = "skills/demo/evals/evidence/lab-20300101T000000Z-aaaaaaaa.jsonl"
+
+
+def test_a_committed_evidence_file_selects_the_tests_that_read_the_committed_evidence_in_the_full_selection_and_the_fast_set(tmp_path):
+    root = build(tmp_path, EVIDENCE_FIXTURE)
+    for changed in (PLANTED_EVIDENCE, "skills/other/evals/evidence/field-0123456789ab.jsonl"):
+        assert in_process(root, changed) == expect(*EVIDENCE_WRITTEN_OUT), changed
+        assert direct_in_process(root, changed) == expect(*EVIDENCE_WRITTEN_OUT), changed
+    assert pick(root, PLANTED_EVIDENCE)[0] == expect(*EVIDENCE_WRITTEN_OUT)  # through the command line too
+    for neighbour in ("skills/demo/evals/evals.json", "skills/demo/evals/evidence/notes.txt", "skills/demo/evals/evidence/sub/lab-1.jsonl", "skills/demo/SKILL.md"):
+        assert in_process(root, neighbour) == expect() and direct_in_process(root, neighbour) == expect(), neighbour  # only the file shape of evidence selects them
+
+
+def test_vacuity_without_the_evidence_table_a_committed_evidence_file_selects_only_the_guards(tmp_path, monkeypatch):
+    root = build(tmp_path, EVIDENCE_FIXTURE)
+    assert in_process(root, PLANTED_EVIDENCE) == expect(*EVIDENCE_WRITTEN_OUT)
+    monkeypatch.setattr(sel, "EVIDENCE_TESTS", ())
+    assert in_process(root, PLANTED_EVIDENCE) == expect() != expect(*EVIDENCE_WRITTEN_OUT)
+    assert direct_in_process(root, PLANTED_EVIDENCE) == expect()
+
+
+def test_every_test_of_the_evidence_table_exists_and_reads_the_repositorys_own_evidence(real):
+    assert sorted(sel.EVIDENCE_TESTS) == EVIDENCE_WRITTEN_OUT
+    for test in sel.EVIDENCE_TESTS:
+        assert test in real.tests, test
+        text = (REPO / test).read_text(encoding="utf-8")
+        assert "evidence" in text or "all_status" in text or "load_status" in text, test
+    got = sel.select(real, ["skills/asst-answer/evals/evidence/lab-20261028T183803Z-32dcecb9.jsonl"]).result()
+    assert set(EVIDENCE_WRITTEN_OUT) <= set(got) and "evals/tests" not in got
