@@ -118,6 +118,7 @@ FIXTURE = {
     "interface/index.html": "<html></html>\n",
     "interface/js/x.js": "x\n",
     "docs/decisions.md": "d\n",
+    "docs/decisions/2030-01-01-pkg-a-rule.md": "## 2030-01-01: A rule\n",
     "docs/architecture/plan.md": "p\n",
 }
 for guard in GUARDS:
@@ -274,6 +275,16 @@ def test_a_folder_that_tests_name_selects_them_when_a_file_in_it_changes(tree):
 def test_a_data_file_nothing_names_selects_the_whole_test_folder_and_a_document_nothing_names_selects_nothing(tree):
     assert pick(tree, "runtime/orphan.json")[0] == expect("runtime/tests")
     assert pick(tree, "docs/architecture/plan.md")[0] == expect()
+    assert pick(tree, "docs/decisions.md")[0] == expect()
+    assert pick(tree, "docs/decisions/2030-01-01-pkg-a-rule.md")[0] == expect()  # one file per entry: the same as the closed log
+
+
+def test_vacuity_a_decision_file_selects_nothing_because_it_is_a_document_not_because_the_selector_never_looks_at_documents(tmp_path):
+    """A test that names a document of a named area is selected for it; the same test naming a decision file is not (docs/decisions/ is read
+    by the validator's decision-files check and by the guards, as docs/decisions.md was)."""
+    tree = build(tmp_path, {"runtime/tests/test_names_docs.py": "A = 'docs/architecture/plan.md'\nB = 'docs/decisions/2030-01-01-pkg-a-rule.md'\nC = 'docs/decisions.md'\n"})
+    assert pick(tree, "docs/architecture/plan.md")[0] == expect("runtime/tests/test_names_docs.py")
+    assert pick(tree, "docs/decisions/2030-01-01-pkg-a-rule.md")[0] == expect()
     assert pick(tree, "docs/decisions.md")[0] == expect()
 
 
@@ -549,6 +560,7 @@ def test_a_change_to_the_interpreter_catalog_selects_its_interface_test(real):
 
 def test_documents_and_skill_text_select_only_the_guards(real):
     assert real_pick(real, "docs/decisions.md", "docs/backlog.md", "AGENTS.md", "skills/mkt-publish/SKILL.md") == expect()
+    assert real_pick(real, "docs/decisions/README.md", "docs/decisions/2026-10-27-decisions-files-one-file-per-entry.md") == expect()
 
 
 def test_the_wiring_and_the_test_configuration_of_this_repository_select_folders(real):
@@ -579,7 +591,164 @@ def test_vacuity_a_change_of_a_document_or_of_runtime_code_does_not_run_the_slow
     and the scan test through the references the selector follows (the oracle names runtime/natural_time.py in a string), which is the
     selector working: it is never the whole folder scripts/tests."""
     assert not set(SLOW_META) & set(real_pick(real, "docs/decisions.md", "AGENTS.md", "skills/mkt-publish/SKILL.md"))
+    assert not set(SLOW_META) & set(real_pick(real, "docs/decisions/2026-10-27-decisions-files-one-file-per-entry.md"))
     assert "scripts/tests" not in real_pick(real, "runtime/natural_time.py")
+
+
+# ---- rule 1, second part: the importers of a SELECTED test (TEST-SPEED, part D(a)) ---------------------------------------------------------
+
+IMPORTER_FIXTURE = {
+    "runtime/m.py": "def m():\n    return 1\n",
+    "runtime/tests/test_m.py": "import m\n\n\ndef helper():\n    return m.m()\n",
+    "runtime/tests/test_user.py": "from test_m import helper\n",  # names nothing of `m`: it only uses the helper of the test that does
+    "runtime/tests/test_user_of_user.py": "import test_user\n",
+    "runtime/tests/test_imports_guard.py": "import test_validate_rules\n",  # imports a guard, which only rule 6 selects for most changes
+}
+
+
+def test_a_test_selected_by_a_module_change_selects_the_tests_that_import_it_and_theirs(tmp_path):
+    root = build(tmp_path, IMPORTER_FIXTURE)
+    wanted = expect("runtime/tests/test_m.py", "runtime/tests/test_user.py", "runtime/tests/test_user_of_user.py")
+    assert pick(root, "runtime/m.py")[0] == wanted
+    assert in_process(root, "runtime/m.py") == wanted
+    assert "rule 1: imports the selected test test_m" in pick(root, "runtime/m.py", explain=True)[1]
+
+
+def test_a_guard_that_only_rule_6_adds_is_never_followed_but_a_selected_one_is(tmp_path):
+    root = build(tmp_path, IMPORTER_FIXTURE)
+    assert in_process(root, "runtime/alpha.py") == expect("runtime/tests/test_alpha.py")  # test_imports_guard imports a guard; the guard is no seed
+    assert pick(root, "docs/decisions.md")[0] == expect()
+    # the same guard file, changed: rule 1 selects it, and then its importer follows
+    assert in_process(root, "scripts/tests/test_validate_rules.py") == expect("runtime/tests/test_imports_guard.py")
+
+
+def test_planted_selector_without_the_importer_step_is_caught_by_the_oracle(tmp_path, monkeypatch):
+    root = build(tmp_path, IMPORTER_FIXTURE)
+    wanted = expect("runtime/tests/test_m.py", "runtime/tests/test_user.py", "runtime/tests/test_user_of_user.py")
+    assert in_process(root, "runtime/m.py") == wanted
+    monkeypatch.setattr(sel, "follow_test_importers", lambda repo, selection, seeds, reason: [])
+    planted = in_process(root, "runtime/m.py")
+    assert planted == expect("runtime/tests/test_m.py") and planted != wanted  # test_user.py is lost: the miss this step closes
+    # and a changed test still selects its own importers through rule 1 only if the helper is the one that does it: with it gone, they are lost too
+    assert in_process(root, "runtime/tests/test_m.py") == expect("runtime/tests/test_m.py")
+
+
+def test_on_this_repository_the_natural_reply_test_follows_a_change_to_the_natural_module(real):
+    assert "runtime/tests/test_messaging_natural_reply.py" in real_pick(real, "runtime/natural.py")
+    assert "runtime/tests/test_messaging_natural_reply.py" in real_pick(real, "runtime/ops.py")
+    # a guard that only rule 6 adds is no seed: a small leaf stays small
+    assert len(real_pick(real, "providers/scheduler/launchd.py")) < 60
+
+
+# ---- --direct, the fast set of the hook (rule 9) ---------------------------------------------------------------------------------------------
+
+DIRECT_FIXTURE = {
+    "skills/demo/scripts/some-tool.py": "def f():\n    return 1\n",
+    "skills/demo/scripts/tests/test_some_tool.py": "import os\n",
+    "runtime/tests/test_alpha_extra.py": "import os\n",
+}
+
+
+def pick_direct(root, *files, explain=False):
+    cmd = [sys.executable, str(REPO / "scripts" / "select_tests.py"), "--root", str(root), "--direct", "--files", *files]
+    if explain:
+        cmd.append("--explain")
+    done = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.splitlines(), done.stderr
+
+
+def direct_in_process(root, *files):
+    return sel.select_direct(sel.Repo(str(root)), list(files)).result()
+
+
+def test_direct_selects_the_guards_the_changed_test_and_the_tests_named_for_a_changed_module_and_nothing_followed(tmp_path):
+    root = build(tmp_path, {**IMPORTER_FIXTURE, **DIRECT_FIXTURE})
+    # alpha: test_alpha and test_alpha_extra are named for it; beta, which alpha imports, and every importer of alpha are not followed
+    assert pick_direct(root, "runtime/alpha.py")[0] == expect("runtime/tests/test_alpha.py", "runtime/tests/test_alpha_extra.py")
+    # gamma: only test_gamma_core is named for it (beta, alpha, hub and test_names reach it through imports, which the fast set does not follow)
+    assert pick_direct(root, "runtime/gamma.py")[0] == expect("runtime/tests/test_gamma_core.py")
+    # a changed test: itself, with no importers (test_user and test_user_of_user import test_m)
+    assert pick_direct(root, "runtime/tests/test_m.py")[0] == expect("runtime/tests/test_m.py")
+    # a hyphen in a script's name is an underscore in its test's
+    assert pick_direct(root, "skills/demo/scripts/some-tool.py")[0] == expect("skills/demo/scripts/tests/test_some_tool.py")
+    assert direct_in_process(root, "runtime/gamma.py", "runtime/alpha.py") == expect("runtime/tests/test_alpha.py", "runtime/tests/test_alpha_extra.py",
+                                                                                     "runtime/tests/test_gamma_core.py")
+
+
+def test_direct_adds_nothing_for_data_documents_test_kits_conftest_files_the_wiring_and_skills_and_never_prints_a_folder(tmp_path):
+    root = build(tmp_path, {**IMPORTER_FIXTURE, **DIRECT_FIXTURE})
+    for changed in ("runtime/data.json", "runtime/notes.json", "docs/decisions.md", "docs/decisions/2030-01-01-pkg-a-rule.md", "docs/architecture/plan.md", "runtime/tests/kit.py",
+                    "runtime/tests/conftest.py", "conftest.py", "pytest.ini", ".githooks/pre-commit", ".github/workflows/checks.yml",
+                    "skills/demo/SKILL.md", "skills/demo/evals/evals.json", "interface/index.html", "runtime/__init__.py"):
+        got = pick_direct(root, changed)[0]
+        assert got == expect(), (changed, got)
+        assert not [t for t in got if not t.endswith(".py")], changed  # never a folder
+    # the same files in the full selection do select folders or more: the fast set is the narrower one
+    assert in_process(root, "conftest.py") != expect()
+
+
+def test_direct_reads_a_deleted_module_by_its_name_and_a_deleted_test_selects_nothing(tmp_path):
+    root = build(tmp_path, {**IMPORTER_FIXTURE, **DIRECT_FIXTURE})
+    (root / "runtime/alpha.py").unlink()
+    assert pick_direct(root, "runtime/alpha.py")[0] == expect("runtime/tests/test_alpha.py", "runtime/tests/test_alpha_extra.py")
+    assert pick_direct(root, "runtime/tests/test_removed.py")[0] == expect()
+
+
+def test_direct_adds_the_copy_identity_tests_for_a_shared_script_a_generated_copy_and_the_manifest(tmp_path):
+    root = build(tmp_path, DIRECT_FIXTURE)
+    identity = ("scripts/tests/test_script_copies.py", "scripts/tests/test_sync_copies.py")
+    for changed in ("shared/scripts/rank.py", "skills/demo/scripts/rank.py", "shared/scripts/copies.json"):
+        assert pick_direct(root, changed)[0] == expect(*identity), changed
+    assert pick_direct(root, "shared/scripts/tests/test_shared_rank.py")[0] == expect("shared/scripts/tests/test_shared_rank.py")
+
+
+def test_direct_cannot_be_combined_with_within_and_explains_its_choices(tmp_path):
+    root = build(tmp_path)
+    (root / "listed.txt").write_text("runtime/tests\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, str(REPO / "scripts" / "select_tests.py"), "--root", str(root), "--direct", "--within", "listed.txt",
+                           "--files", "runtime/alpha.py"], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 2 and "--direct" in done.stderr and done.stdout == ""
+    out, err = pick_direct(root, "runtime/alpha.py", explain=True)
+    assert "runtime/tests/test_alpha.py <- rule 9: named for test_alpha" in err and "rule 6: always-run guard" in err
+    assert out == expect("runtime/tests/test_alpha.py")
+
+
+def test_direct_without_a_diff_prints_the_guards_and_no_folder(tmp_path):
+    root = build(tmp_path)
+    git(root, "init", "-q", "-b", "main")
+    done = subprocess.run([sys.executable, str(REPO / "scripts/select_tests.py"), "--root", str(root), "--direct", "--base", "no-such-ref"],
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0 and "cannot compute the changed files" in done.stderr
+    assert done.stdout.splitlines() == expect()
+
+
+def test_planted_direct_that_follows_importers_or_drops_the_named_tests_is_caught_by_the_oracle(tmp_path, monkeypatch):
+    root = build(tmp_path, {**IMPORTER_FIXTURE, **DIRECT_FIXTURE})
+    wanted = expect("runtime/tests/test_alpha.py", "runtime/tests/test_alpha_extra.py")
+    assert direct_in_process(root, "runtime/alpha.py") == wanted
+    monkeypatch.setattr(sel.Repo, "tests_named_for", lambda self, stem: [])
+    assert direct_in_process(root, "runtime/alpha.py") != wanted
+    monkeypatch.undo()
+    original = sel.select_direct
+
+    def follows(repo, files, copies=None):  # a fast set that also followed the importers: the same change then selects more
+        chosen = original(repo, files, copies)
+        sel.follow_test_importers(repo, chosen, sorted(t for t in chosen.targets if t not in repo.test_folders), "x {stem}")
+        return chosen
+
+    assert direct_in_process(root, "runtime/m.py") == expect("runtime/tests/test_m.py")
+    monkeypatch.setattr(sel, "select_direct", follows)
+    assert direct_in_process(root, "runtime/m.py") != expect("runtime/tests/test_m.py")
+
+
+def test_on_this_repository_direct_gives_the_named_tests_of_a_module_and_only_the_guards_for_one_without(real):
+    got = sel.select_direct(real, ["runtime/turn_gate.py"]).result()
+    assert "runtime/tests/test_turn_gate_fallback.py" in got and "runtime/tests/test_turn_gate_refresh.py" in got
+    assert not [t for t in got if not t.endswith(".py")]
+    extra = [t for t in sel.select_direct(real, ["runtime/messaging_bridge.py", "runtime/messaging_turn.py"]).result() if t not in GUARDS]
+    assert extra == []  # no test is named for either of them: the guards alone
+    assert sorted(sel.select_direct(real, ["docs/backlog.md"]).result()) == sorted(GUARDS)
 
 
 # ---- the slot helper (scripts/test_slots.py) ---------------------------------------------------------------------------------------------
@@ -694,3 +863,41 @@ def test_the_environment_sets_the_defaults(tmp_path):
         assert done.returncode == 75 and "1 slots" in done.stderr
     finally:
         stop(first)
+
+
+# ---- the workers of one run (scripts/test_slots.py --workers) ----------------------------------------------------------------------------
+
+def workers_run(*args, **env):
+    clean = {k: v for k, v in os.environ.items() if k not in ("WB_TEST_WORKERS", "WB_TEST_SLOTS")}
+    return subprocess.run([sys.executable, str(REPO / "scripts/test_slots.py"), *args], env={**clean, **env}, capture_output=True, text=True, timeout=60)
+
+
+def test_the_workers_of_a_run_are_the_cores_divided_by_the_slots_and_never_fewer_than_two():
+    assert slots.workers(3, cpu=14, env={}) == 4  # 3 runs of 4 workers use 12 of the 14 cores
+    assert slots.workers(3, cpu=4, env={}) == 2
+    assert slots.workers(3, cpu=1, env={}) == 2
+    assert slots.workers(1, cpu=14, env={}) == 14
+    assert slots.workers(3, cpu=None, env={}) == max(2, (os.cpu_count() or 2) // 3)
+
+
+def test_the_environment_sets_the_workers_by_hand_and_a_bad_value_is_refused():
+    assert slots.workers(3, cpu=14, env={"WB_TEST_WORKERS": "7"}) == 7
+    for bad in ("0", "x", "-3", "2.5", ""):
+        with pytest.raises(Exception, match="WB_TEST_WORKERS"):
+            slots.workers(3, cpu=14, env={"WB_TEST_WORKERS": bad})
+
+
+def test_workers_prints_one_integer_with_no_command_and_a_bad_value_exits_2():
+    done = workers_run("--slots", "3", "--workers")
+    assert done.returncode == 0 and done.stdout == "%d\n" % max(2, (os.cpu_count() or 2) // 3) and done.stderr == ""
+    assert workers_run("--workers", WB_TEST_WORKERS="7").stdout == "7\n"
+    assert workers_run("--workers", WB_TEST_SLOTS="1").stdout == "%d\n" % max(2, os.cpu_count() or 2)  # the slots are read as the run reads them
+    for bad in ("0", "x"):
+        refused = workers_run("--workers", WB_TEST_WORKERS=bad)
+        assert refused.returncode == 2 and "WB_TEST_WORKERS" in refused.stderr and refused.stdout == ""
+
+
+def test_vacuity_without_workers_no_command_still_fails():
+    done = workers_run()
+    assert done.returncode == 2 and "no command" in done.stderr and done.stdout == ""
+    assert workers_run("--slots", "3").returncode == 2

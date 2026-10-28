@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Print the tests that a change can reach, one pytest target per line (a test file, or a whole test folder).
 
-The repository standard (docs/decisions.md, 2026-10-20): during development only the SELECTED tests run (every commit, every
-pull request into an integration branch); the whole suite runs at the end of a large delivery (a pull request into main, a push to
-main, a manual run, a pull request labelled `full-suite`). The pre-commit hook and the `tests` job of .github/workflows/checks.yml
-call this script (on the four events above the whole list runs instead, in three shards that the job `tests` gates).
+The repository standard (docs/decisions.md, 2026-10-20, and the entry of TEST-SPEED, 2026-10-27): CI runs the SELECTED tests of every
+pull request into an integration branch (the `tests-shard` jobs of .github/workflows/checks.yml run this script's selection in three
+shards) and the whole suite at the end of a large delivery (a pull request into main, a push to main, a manual run, a pull request
+labelled `full-suite`); the pre-commit hook runs only the `--direct` fast set below (rule 9) unless WB_HOOK_FULL=1 brings back the
+selection.
 
 Usage:
   python3 scripts/select_tests.py --files <path>...          # exactly these changed files (paths from the repository root)
   git diff --cached --name-only -z | python3 scripts/select_tests.py --files-from -     # NUL-separated names, from a file or stdin
   python3 scripts/select_tests.py --base origin/main         # git diff --name-only <merge-base of the ref and HEAD>, plus the working tree
   python3 scripts/select_tests.py                            # the working tree against HEAD
+  add --direct for the hook's fast set (rule 9): the guards, the changed tests and the tests named for each changed module, nothing followed
   add --explain to print, on stderr, why each target was chosen; --root <dir> reads another tree (the tests of this script use it)
   add --within FILE to keep only the targets inside the targets listed in FILE (one target per line, whole-line `#` comments and blank
   lines allowed; a relative FILE is read from --root): a selected file or folder under a listed target stays, a selected folder that
@@ -21,8 +23,11 @@ Data goes to stdout (one target per line, sorted, repository-relative); diagnost
 prints the fixed guards (rule 6), so the output is never empty.
 
 THE RULES (conservative: when the selector is unsure it selects more)
- 1. A changed test file (test_*.py) selects itself (when it still exists) and every test that imports it, and theirs: a test file that
-    other tests import (a helper, a fixture builder) changes what they run.
+ 1. A changed or selected test file (test_*.py) selects every test that imports it, and theirs: a test file that other tests import
+    (a helper, a fixture builder) changes what they run. A changed test file also selects itself (when it still exists). The importers of
+    a test selected by rule 2, 3, 4 or 5 are followed too, once, after every rule has run (follow_test_importers): `test_messaging_natural_reply.py`
+    names nothing of `natural.py` and only imports the helpers of `test_messaging.py`, which rule 2 selects. A guard that only rule 6 adds is
+    never followed, and neither is a whole folder.
  2. A changed Python module selects every test file that references it: an `import x`, a `from x import y`, or a string that
     names it in a call that loads a module (`importlib.import_module("x")`, `st.load("x")`, `_load("x")`, `sys.modules["x"]`),
     or a string that names its file (`"x.py"`); and every test file named `test_<module stem>.py` or starting with `test_<module stem>_`. The reach follows
@@ -52,6 +57,12 @@ THE RULES (conservative: when the selector is unsure it selects more)
  7. A change inside skills/<name>/ other than scripts/ selects nothing beyond the guards (the lab measures skills, the validator
     checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4.
  8. Fuzz files run in their default sampled mode; only the whole-suite shards and the nightly run set WB_FULL_FUZZ=1.
+ 9. `--direct`: the hook's fast set; CI's selection, not this, is the gate. It prints, sorted and without duplicates, exactly: every
+    guard (rule 6); every changed test file that still exists, with no importers; for each changed .py file that is not inside a
+    test folder and is not a conftest.py or an __init__.py (a deleted file included), the tests named test_<stem>.py or
+    test_<stem>_*.py (`-` in the stem read as `_` too); and the identity tests of the copies when a shared script, one of its
+    generated copies or shared/scripts/copies.json changed. Nothing for any other file (data, documents, test kits, conftest files,
+    the wiring, skills), and never a folder. It cannot be combined with --within.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 
@@ -486,6 +497,23 @@ def select_module(repo, sel, changed, label, stems=()):
     return chosen
 
 
+def follow_test_importers(repo, sel, seeds, reason):
+    """Rule 1: every test that imports a seed test, and theirs (a test file that other tests import, a helper or a fixture builder, changes
+    what they run). `reason` may hold `{stem}`, the module name the importer names. Returns the tests added."""
+    chosen, frontier = set(seeds), list(seeds)
+    added = []
+    while frontier:
+        stems = {os.path.basename(t)[:-3] for t in frontier}
+        frontier = []
+        for other, hit in sorted(repo.tests_referencing(stems).items()):
+            if other not in chosen:
+                chosen.add(other)
+                frontier.append(other)
+                sel.add(other, reason.format(stem=hit))
+                added.append(other)
+    return added
+
+
 def handle_file(repo, sel, rel):
     """The rules for one changed file (see the module text)."""
     base = os.path.basename(rel)
@@ -497,15 +525,7 @@ def handle_file(repo, sel, rel):
         if os.path.isfile(full):
             sel.add(rel, "rule 1: a changed test")
             # a test file that other tests import (a helper, a fixture builder) changes what they run: they follow, and theirs
-            chosen, frontier = {rel}, [rel]
-            while frontier:
-                stems = {os.path.basename(t)[:-3] for t in frontier}
-                frontier = []
-                for other in repo.tests_referencing(stems):
-                    if other not in chosen:
-                        chosen.add(other)
-                        frontier.append(other)
-                        sel.add(other, "rule 1: imports a changed test")
+            follow_test_importers(repo, sel, [rel], "rule 1: imports a changed test")
         return
 
     # Rule 5: configuration of the test run.
@@ -631,11 +651,43 @@ def select(repo, files, copies=None):
             handle_file(repo, sel, rel)
         if rel == "shared/scripts/copies.json":
             sel.add_folder("shared/scripts/tests", "copies: manifest of generated copies")
+    # Rule 1, second part: a test that rule 2, 3, 4 or 5 selected is a seed too (test_messaging_natural_reply.py only imports the helpers of
+    # test_messaging.py). The guards of rule 6 are added after this step, so a guard that only rule 6 adds is never a seed, and a whole
+    # folder is never one.
+    seeds = sorted(t for t in sel.targets if t not in repo.test_folders)
+    follow_test_importers(repo, sel, seeds, "rule 1: imports the selected test {stem}")
     for guard in GUARDS:
         sel.add(guard, "rule 6: always-run guard")
     for rel in files:
         if rel in ("AGENTS.md",) or rel.startswith(("contracts/", "docs/architecture/")):
             sel.notes.append("%s: the documentation guards run (rule 6)" % rel)
+    return sel
+
+
+def select_direct(repo, files, copies=None):
+    """Rule 9, the hook's fast set (CI's selection, not this, is the gate): the guards; each changed test that still exists, with no
+    importers; for each changed .py file outside the test folders (not a conftest.py or an __init__.py; a deleted file counts) the tests
+    named for its stem; the identity tests of the copies when a shared script, a generated copy or their manifest changed. Never a folder."""
+    sel = Selection(repo)
+    copies = copies if copies is not None else copies_map(repo.root)
+    destination_of = {dest: src for src, dests in copies.items() for dest in dests}
+    for rel in files:
+        base = os.path.basename(rel)
+        if rel in copies or rel in destination_of or rel == "shared/scripts/copies.json":
+            for test in COPY_IDENTITY_TESTS:
+                sel.add(test, "copies: %s is a shared script, a generated copy or their manifest" % rel)
+        if repo.is_test_file(rel):
+            if os.path.isfile(os.path.join(repo.root, rel)):
+                sel.add(rel, "rule 9: a changed test")
+            continue
+        if not base.endswith(".py") or base in ("conftest.py", "__init__.py") or repo.test_folder_of(rel) is not None:
+            continue
+        stem = base[:-3]
+        for name in sorted({stem, stem.replace("-", "_")}):
+            for test in repo.tests_named_for(name):
+                sel.add(test, "rule 9: named for test_%s" % name)
+    for guard in GUARDS:
+        sel.add(guard, "rule 6: always-run guard")
     return sel
 
 
@@ -710,6 +762,8 @@ def build_parser():
     parser.add_argument("--base", help="a git ref: the changed files are those since its merge base with HEAD, plus the working tree")
     parser.add_argument("--files", nargs="+", metavar="PATH", help="exactly these changed files (repository-relative or absolute)")
     parser.add_argument("--files-from", metavar="FILE", help="NUL-separated changed files read from FILE, or from stdin with -")
+    parser.add_argument("--direct", action="store_true",
+                        help="the hook's fast set (rule 9): the guards, the changed tests and the tests named for each changed module; CI's selection is the gate")
     parser.add_argument("--explain", action="store_true", help="print on stderr why each target was chosen")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="the tree to read (default: this repository)")
     parser.add_argument("--within", metavar="FILE",
@@ -721,6 +775,8 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     root = os.path.abspath(args.root)
+    if args.direct and args.within is not None:
+        parser.error("--direct and --within cannot be combined: the fast set is not restricted to a list")
     listed = None
     if args.within is not None:
         path = args.within if os.path.isabs(args.within) else os.path.join(root, args.within)
@@ -742,11 +798,17 @@ def main(argv=None):
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
             files, fell_back = [], str(error)
     repo = Repo(root)
-    if fell_back is not None:
+    if fell_back is not None and args.direct:
+        # The fast set never prints a folder: with no diff it is the guards, and CI's selection is the gate.
+        sys.stderr.write("select_tests: cannot compute the changed files (%s); the fast set is the guards only\n" % fell_back)
+        sel = select_direct(repo, [])
+    elif fell_back is not None:
         # The diff cannot be computed (an unknown ref, a shallow clone): never guess "nothing changed".
         sys.stderr.write("select_tests: cannot compute the changed files (%s); selecting every test folder\n" % fell_back)
         sel = Selection(repo)
         sel.add_all_folders("the diff could not be computed")
+    elif args.direct:
+        sel = select_direct(repo, files)
     else:
         sel = select(repo, files)
     result = sel.result()

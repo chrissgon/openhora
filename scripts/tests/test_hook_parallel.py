@@ -1,4 +1,5 @@
-"""The hook and the two test jobs of the workflow run pytest in parallel (pytest-xdist, `-n auto`).
+"""The hook runs the fast set with sized xdist workers (`-n "$workers"`); the test jobs of the workflow run pytest in parallel in shards
+(pytest-xdist, `-n auto`), and the one required job `tests` runs none.
 
 Offline. Reads the text of `.githooks/pre-commit` and `.github/workflows/checks.yml`.
 
@@ -24,17 +25,56 @@ def job_block(name):
     return "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#"))
 
 
-def test_the_hook_runs_pytest_with_xdist_under_the_clean_git_environment():
-    lines = (REPO / ".githooks" / "pre-commit").read_text().splitlines()
+def test_the_hook_runs_pytest_with_sized_xdist_workers_under_the_clean_git_environment():
+    hook = (REPO / ".githooks" / "pre-commit").read_text()
+    lines = hook.splitlines()
     index = [i for i, line in enumerate(lines) if "pytest -q" in line and "uv run" in line]
     assert len(index) == 1
     line = lines[index[0]]
-    assert "-n auto" in line and "--with pytest-xdist==3.8.0" in line
+    assert '-n "$workers"' in line and "-n auto" not in line and "--with pytest-xdist==3.8.0" in line
     assert "--with pytest==9.1.1" in line
+    # the workers come from the slot helper, set before the run, and a bad value stops the hook with a message
+    sizing = [l for l in lines if l.strip().startswith('workers="$(python3 scripts/test_slots.py --workers)"')]
+    assert len(sizing) == 1 and "|| fail" in sizing[0] and lines.index(sizing[0]) < index[0]
     # The prefix that clears git's variables sits on the line before and continues onto the pytest line.
     previous = lines[index[0] - 1]
     assert previous.strip().startswith(ENV_PREFIX) and previous.endswith(" \\")  # no space after the backslash
     assert "python3 scripts/test_slots.py -- uv run" in line  # the run takes one of the machine's test slots first
+
+
+def hook_problems(hook):
+    """What is wrong with a text of the hook: the selection by default, the fast set missing, the workers not sized, a phase not timed."""
+    code = [line for line in hook.splitlines() if not line.lstrip().startswith("#")]
+    text = "\n".join(code)
+    found = []
+    fast = [l for l in code if "select_tests.py --files-from - --direct" in l]
+    full = [l for l in code if "select_tests.py --files-from -)" in l]
+    if len(fast) != 1 or len(full) != 1 or "--direct" in full[0]:
+        found.append("the fast set and the full selection are not one line each")
+    elif not ('"${WB_HOOK_FULL:-}" == "1"' in text and text.index("WB_HOOK_FULL") < text.index("--direct")):
+        found.append("the selection is not behind WB_HOOK_FULL=1")
+    if '-n "$workers"' not in text or "-n auto" in text or 'workers="$(python3 scripts/test_slots.py --workers)"' not in text:
+        found.append("the workers are not sized by the slot helper")
+    found += ["phase not timed: " + phase for phase in ("validate", "security scan", "tests") if 'phase_done "%s"' % phase not in text]
+    return found
+
+
+def test_the_hook_runs_the_fast_set_by_default_and_the_selection_only_when_asked():
+    assert hook_problems((REPO / ".githooks" / "pre-commit").read_text()) == []
+
+
+def test_vacuity_a_hook_that_runs_the_selection_by_default_or_does_not_size_the_workers_or_hides_a_phase_is_caught():
+    hook = (REPO / ".githooks" / "pre-commit").read_text()
+    assert hook_problems(hook) == []
+    plants = {
+        "the fast set is always the selection": hook.replace(" --files-from - --direct", " --files-from -"),
+        "the selection is not behind the variable": hook.replace('"${WB_HOOK_FULL:-}" == "1"', '"${OTHER:-}" == "1"'),
+        "the workers are auto": hook.replace('-n "$workers"', "-n auto"),
+        "a phase is not timed": hook.replace('phase_done "security scan"', "true"),
+    }
+    for name, planted in plants.items():
+        assert planted != hook, name
+        assert hook_problems(planted), name
 
 
 def test_the_hook_tells_a_missing_slot_from_pytests_own_exit_codes_and_reads_type_changes():
@@ -43,31 +83,35 @@ def test_the_hook_tells_a_missing_slot_from_pytests_own_exit_codes_and_reads_typ
     assert "--diff-filter=ACMRDT" in hook
 
 
-def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_time_limit():
-    # the shard runs pytest through the launcher, so its command reads `shard_tests.py ... -- -q -n auto`
-    for name, limit, command in (("tests", 45, r"pytest -q -n auto\b"), ("python39", 40, r"pytest -q -n auto\b"),
-                                 ("tests-shard", 30, r"-q -n auto\b")):
+def test_the_jobs_that_run_pytest_do_it_in_parallel_with_a_time_limit_and_the_aggregator_runs_none():
+    # the shards run pytest through the launcher, so the command reads `shard_tests.py ... -- -q -n auto`
+    for name, limit in (("python39", 40), ("tests-shard", 30)):
         block = job_block(name)
         assert re.search(r"^    timeout-minutes: %d\s*$" % limit, block, re.M), name
         assert "--with pytest-xdist==3.8.0" in block, name
-        assert re.search(command, block), name
-        assert "--durations=20" in block, name
+        assert re.search(r"-q -n auto\b", block), name
+        assert "--durations=40" in block, name
+        assert "scripts/shard_tests.py" in block, name
+    aggregator = job_block("tests")
+    assert "pytest" not in aggregator and re.search(r"^    timeout-minutes: 5\s*$", aggregator, re.M)
 
 
-def test_the_tests_job_has_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
-    assert re.search(r"^    timeout-minutes: 45\s*$", job_block("tests"), re.M)
+def test_the_tests_shards_have_the_whole_suite_mode_with_the_full_fuzz_and_a_longer_limit():
     block = job_block("tests-shard")
-    whole = block[block.index("- name: Scanner and provider tests, the whole suite"):]
+    assert re.search(r"^    timeout-minutes: 30\s*$", block, re.M)
+    whole = block[block.index("- name: Scanner and provider tests, the whole suite"):block.index("- name: Selected scanner")]
     assert 'WB_FULL_FUZZ: "1"' in whole and "$(python3 scripts/test_dirs.py)" in whole
     assert "select_tests" not in whole  # the whole suite is not a selection
-    assert "pytest-xdist==3.8.0" in whole and "-n auto" in whole and "--durations=20" in whole and "scripts/shard_tests.py" in whole
+    assert "pytest-xdist==3.8.0" in whole and "-n auto" in whole and "--durations=40" in whole and "scripts/shard_tests.py" in whole
 
 
 def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz():
-    block = job_block("tests")
-    selected = block[block.index("- name: Choose the tests"):block.index("- name: The whole suite, every shard passed")]
+    block = job_block("tests-shard")
+    selected = block[block.index("- name: Choose the tests"):block.index("- name: Scanner and provider tests")]
+    run = block[block.index("- name: Selected scanner"):]
     assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in selected and "fetch-depth: 0" in block
-    assert "test_dirs.py" not in selected and "WB_FULL_FUZZ" not in selected
+    assert "test_dirs.py" not in selected and "WB_FULL_FUZZ" not in selected and "WB_FULL_FUZZ" not in run
+    assert 'python scripts/shard_tests.py --shard "$SHARD/3"' in run and '$(cat "$RUNNER_TEMP/selected-tests.txt")' in run
 
 
 def test_only_the_python39_job_leaves_out_the_javascript_only_interface_tests():

@@ -11,15 +11,21 @@
 #    origin/<integration branch> (never without --worktree: the clone-wide config is shared by every worktree).
 # 2. scripts/security_scan.py --strict: a security warning (hidden text, a shell run on a built string,
 #    an unguarded recursive delete, an unpinned dependency...) blocks the commit like an error does.
-# 3. The SELECTED tests, not whole folders (docs/decisions.md, 2026-10-20): scripts/select_tests.py maps the staged files to the
-#    test files they can reach (a changed test; the tests that import or name a changed module, and those of the modules that
-#    re-export it; the tests that name a changed data file; the whole test folder of a conftest, a test kit or a file nothing
-#    references), plus a fixed set of fast guards that always run. Rules and their limits: the text at the top of that script.
-#    The whole suite does not run here: it runs at the end of a large delivery (a pull request into main, a push to main, a manual
-#    run, a pull request labelled full-suite: .github/workflows/checks.yml: three shard jobs, gated by the one required job `tests`), and every night (.github/workflows/nightly.yml), where it catches what the selection
-#    cannot see (a dynamic import, a long call chain without an import edge). At most WB_TEST_SLOTS (default 3) test runs share a
+# 3. The FAST SET of tests, not the selection (docs/decisions.md, 2026-10-27, TEST-SPEED): scripts/select_tests.py --direct prints the
+#    fixed guards that always run, every staged test file, and the tests named for each staged module (test_<module>.py, test_<module>_*.py);
+#    it follows no import. That takes minutes. The SELECTION (the tests that import or name a changed module, those of the modules that
+#    re-export it, the tests that name a changed data file, the whole test folder of a conftest or a test kit: the text at the top of that
+#    script) runs in CI, in the three `tests-shard` jobs of .github/workflows/checks.yml on every pull request into a branch other than
+#    main, and the whole suite runs there in the same jobs at the end of a large delivery (a pull request into main, a push to main, a
+#    manual run, a pull request labelled full-suite) and every night (.github/workflows/nightly.yml). CI is the gate: `main` and the
+#    integration branch both require the checks `validate` and `tests` (branch protection set by the supervisor on 2026-10-27 with the
+#    maintainer's ok), so a red commit can sit on a package branch and cannot be merged into either (a draft runs no test, and its
+#    `tests` is red on purpose). A
+#    failure that only the selection would catch is found after the push, not before the commit. WB_HOOK_FULL=1 brings back the full
+#    selection here (use it before pushing a risky change). The pytest run takes the xdist workers that scripts/test_slots.py --workers
+#    gives (the machine's cores divided by the slots; WB_TEST_WORKERS sets it by hand). At most WB_TEST_SLOTS (default 3) test runs share a
 #    machine: scripts/test_slots.py makes the hook wait for a slot, at most WB_TEST_SLOT_WAIT seconds (default 3600), and fails with
-#    the message if none frees. A provider class left without tests is refused.
+#    the message if none frees. A provider class left without tests is refused. Each phase prints the seconds it took.
 #
 # Skipping the hook (git commit --no-verify) is the user's decision, never a skill's.
 set -euo pipefail
@@ -28,16 +34,22 @@ cd "$ROOT"
 
 fail() { echo "pre-commit: $1" >&2; exit 1; }
 
+# Seconds of each phase, printed so that a slow hook says where the time went.
+phase_started=$SECONDS
+phase_done() { echo "pre-commit: $1 $((SECONDS - phase_started)) s" >&2; phase_started=$SECONDS; }
+
 if ! out="$(python3 scripts/validate.py 2>&1 >/dev/null)"; then
   echo "$out" >&2
   fail "scripts/validate.py found errors (listed above). Fix them; an intended security finding is silenced on its line with 'security-scan: allow <rule> -- <reason>'."
 fi
+phase_done "validate"
 # The standing convention warnings of the validator are not shown. Security warnings fail the commit:
 # same step as the validate job of .github/workflows/checks.yml.
 if ! out="$(python3 scripts/security_scan.py --strict 2>&1 >/dev/null)"; then
   echo "$out" >&2
   fail "scripts/security_scan.py --strict found warnings (listed above). Fix them; an intended one is silenced on its line with 'security-scan: allow <rule> -- <reason>'."
 fi
+phase_done "security scan"
 
 # NUL-separated so names with spaces or non-ASCII characters are not quoted; no rename detection, so a file moved out of a folder
 # still counts for the folder it left; deleted files are included (a removed module breaks the tests that name it).
@@ -56,8 +68,15 @@ done < <(staged)
 
 targets=()
 if [[ -n "$(staged | tr -d '\0')" ]]; then
-  selected="$(staged | python3 scripts/select_tests.py --files-from -)" \
-    || fail "scripts/select_tests.py could not choose the tests (message above)."
+  if [[ "${WB_HOOK_FULL:-}" == "1" ]]; then
+    mode="selected"
+    selected="$(staged | python3 scripts/select_tests.py --files-from -)" \
+      || fail "scripts/select_tests.py could not choose the tests (message above)."
+  else
+    mode="fast-set"
+    selected="$(staged | python3 scripts/select_tests.py --files-from - --direct)" \
+      || fail "scripts/select_tests.py could not choose the tests (message above)."
+  fi
   while IFS= read -r t; do
     [[ -n "$t" ]] && targets+=("$t")
   done <<<"$selected"
@@ -65,17 +84,22 @@ fi
 
 if [[ ${#targets[@]} -gt 0 ]]; then
   command -v uv >/dev/null || fail "uv is needed to run the tests: https://docs.astral.sh/uv/"
-  echo "pre-commit: running ${#targets[@]} selected test target(s); the whole suite runs at the end of a delivery (scripts/select_tests.py --explain tells why each was chosen)" >&2
-  started=$SECONDS
+  workers="$(python3 scripts/test_slots.py --workers)" || fail "scripts/test_slots.py could not size the workers (message above; WB_TEST_WORKERS must be a whole number of at least 1)."
+  if [[ "$mode" == "fast-set" ]]; then
+    echo "pre-commit: running the fast set, ${#targets[@]} test target(s), $workers worker(s); CI runs the selection (WB_HOOK_FULL=1 runs it here: scripts/select_tests.py --explain tells why each target is chosen)" >&2
+  else
+    echo "pre-commit: running ${#targets[@]} selected test target(s), $workers worker(s) (WB_HOOK_FULL=1); the whole suite runs at the end of a delivery" >&2
+  fi
+  phase_started=$SECONDS
   # Same pin as .github/workflows/checks.yml. Git exports GIT_DIR and GIT_INDEX_FILE to hooks; tests that
   # create their own repositories would otherwise read this one. scripts/test_slots.py waits for one of the machine's test slots.
   status=0
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX \
-    python3 scripts/test_slots.py -- uv run --quiet --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto "${targets[@]}" || status=$?
+    python3 scripts/test_slots.py -- uv run --quiet --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n "$workers" "${targets[@]}" || status=$?
   if [[ $status -eq 75 ]]; then
     fail "no test slot became free (scripts/test_slots.py, message above); the tests have not run. Wait for the other runs and commit again."
   elif [[ $status -ne 0 ]]; then
-    fail "the selected tests failed (${#targets[@]} target(s), $((SECONDS - started)) s)."
+    fail "the tests failed (${#targets[@]} target(s), $((SECONDS - phase_started)) s)."
   fi
-  echo "pre-commit: the selected tests passed in $((SECONDS - started)) s" >&2
+  phase_done "tests"
 fi

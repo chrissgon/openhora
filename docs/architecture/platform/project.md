@@ -247,6 +247,8 @@ The handler that carries the first runtime's steps, `runtime/handlers/social.py`
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-09: brought to the code of the central branch after the seven generated blocks (the block of the configuration's closed keys now stands under the configuration row, and the typed key list left): what `model_prices`, `max_cost_usd_per_run` and `path` are; who writes the configuration (the person, and `set-mode` for a narrowing that code accepts under `config.lock`); the data folder's `config.lock`, `contained-runs/`, `prepared/contained-<n>/` and `vote/`; the token's default place; a policy file as any regular file under `docs/` with an expiry of at most 365 days; the rules of the caps and the clean-tree rule written once with their tests; the drop's refusals; the evidence export and import; the operations that touch a project added to the entry points; three known-limit rows closed by merged changes deleted, one open one added.
 - 2026-10-14: the messaging bridge's two keys have their own artifact row, a paragraph and a rule (MSG-14): `messaging` (senders, notices, page URL) and `channels` (the policy groups), both optional, checked at load and in effect only after `accept-config`; the bridge's own state stays outside the project.

@@ -2,7 +2,7 @@
 
 A living map of the whole repository: what each layer is, what it owns, what it may read, and where the rules that bind it are kept. It is written for three readers: the maintainer following the system's growth and looking for what to improve, a newcomer learning the platform, and a reviewer checking a change against the rules. It points to the contracts, the READMEs and the findings instead of repeating them; when a page and the file it points to disagree, the file wins and the page is corrected.
 
-This folder is undated on purpose. Each page ends with its own "Changes" section.
+This folder is undated on purpose. Each page ends with its own "Changes" section. Those sections are closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry, so that two packages never edit the same end of a page.
 
 ## What the system is
 
@@ -341,6 +341,8 @@ The names fixed for this work. Use each exactly.
 | A local service started without dispatching makes its own `status` hold every ready task as `dispatch off`, though the scheduler's jobs may be dispatching: the service does not know of them | `runtime/service.py`, the docstring of `--no-dispatch`; [shells.md](shells.md) |
 
 ## Changes
+
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
 
 - 2026-10-06: first version, with the runtime's page; the pages of the other seven layers follow.
 - 2026-10-06: the layer list links the page of every layer; the shells' and the target project's pages added.

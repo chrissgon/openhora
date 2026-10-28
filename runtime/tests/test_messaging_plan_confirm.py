@@ -1,4 +1,4 @@
-"""The OK of a plan on the messaging bridge (package BL2b, limits L64 and L65; runtime/messaging_bridge.py `ask_plan`, `plan_line`, `plan_decide`, `plan_tapped`).
+"""The OK of a plan on the messaging bridge (package BL2b, limits L64 and L65; runtime/messaging_bridge.py `ask_plan`, `plan_decide`, `plan_tapped` and the kind `plan-confirm` of runtime/messaging_turn.py).
 
 A read or an act asked in words is answered by the operations layer with the question "I understood: ... Shall I go ahead?" (BL2a). The bridge sends it with a Yes and a No button (a line on
 e-mail), binds it in the ledger as a record of kind `plan-confirm`, and takes the person's OK under the conditions of L64: a private line of a listed sender, not forwarded, a yes or no word code
@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 
 import standin_tree as st
+from frame_kit import claims
 from plan_bridge_kit import ASKER_ID, OWNER_ID, OWNER_KEY, brig, bridge, ops, phrases, question_text, rig, wait_for, world  # noqa: F401
 from plan_confirm_kit import PROF, SENDER_LIST, accept, op, ops_say
 from test_service import WAIT
@@ -58,8 +59,8 @@ def test_a_forwarded_sim_does_not_confirm(brig):
     plan = live(brig)
     brig.say("sim", forwarded=True)
     assert wait_for(lambda: last_text(brig) == t(brig, "FWD_NOT_A_REQUEST")) and reads(brig) == [] and live(brig) == plan
-    update = {"sender": OWNER_ID, "chat": OWNER_ID, "private": True, "text": "sim", "forwarded": True}      # the check is made again where the OK is read (as `word_line` does)
-    assert brig.bridge.plan_line(update, {"kind": "text", "text": "sim"}, "text", brig.project, [brig.project], OWNER_ID, OWNER_ID) is False
+    update = {"sender": OWNER_ID, "chat": OWNER_ID, "private": True, "text": "sim", "forwarded": True}      # the check is made again where the OK is read (the kind `plan-confirm` of the frame, as the card words' kind does)
+    assert claims(brig.bridge, "plan-confirm", update, {"kind": "text", "text": "sim"}, "text", brig.project, [brig.project], OWNER_ID) is False
     assert reads(brig) == [] and live(brig) == plan
 
 
@@ -76,7 +77,7 @@ def test_vacuity_a_bridge_that_does_not_check_the_last_message_confirms_the_same
     question = brig.question_id()
     brig.bridge.reply(OWNER_ID, "A reminder: water the plants.")
 
-    class Always(dict):      # the one fact `plan_line` reads, planted: the question is the last message
+    class Always(dict):      # the one fact the kind `plan-confirm` reads, planted: the question is the last message
         def get(self, chat, default=None):
             return question
     brig.bridge.last_sent = Always()

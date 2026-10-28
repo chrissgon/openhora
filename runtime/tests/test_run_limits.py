@@ -495,14 +495,22 @@ def test_the_two_lines_are_put_back_where_they_were():
     assert workcopy.agents_md_restored(run_text, removed) == text
 
 
+LIMIT_ENTRY = re.compile(r"\*\*L(\d+)\.\*\* [^\n]+\nBuilt by: (.+)\. Test: (.+)\.")
+
+
 def limits_table() -> dict:
-    """{number: (built by, test cell)} of the table of contracts/runtime.md, "The limits"."""
-    section = CONTRACT.read_text(encoding="utf-8").split("## The limits", 1)[1].split("\n## ", 1)[0]
-    rows = {}
-    for line in section.splitlines():
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 4 and re.fullmatch(r"L\d+", cells[0]):
-            rows[int(cells[0][1:])] = (cells[2], cells[3])
+    """{number: (built by, test cell)} of the entries of contracts/runtime.md, "The limits": `**L<n>.** <limit>`, then `Built by: <cell>. Test: <cell>.`,
+    a blank line between entries. This reader is the test's own, apart from the one of scripts/architecture_tables.py."""
+    section = CONTRACT.read_text(encoding="utf-8").split("\n## The limits\n", 1)[1].split("\n## ", 1)[0]
+    rows, starts = {}, 0
+    for block in section.split("\n\n"):
+        block = block.strip("\n")
+        if re.match(r"\*\*L\d+\.\*\*", block):
+            starts += 1
+            found = LIMIT_ENTRY.fullmatch(block)
+            if found:
+                rows[int(found.group(1))] = (found.group(2), found.group(3))
+    assert len(rows) == starts, "an entry of the limits is not in the form `**L<n>.** <limit>` then `Built by: <cell>. Test: <cell>.`"
     return rows
 
 

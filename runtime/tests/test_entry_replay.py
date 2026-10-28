@@ -43,7 +43,10 @@ import test_service  # noqa: F401
 import test_sources_mail  # noqa: F401
 
 bridge = st.load("messaging_bridge")
+messaging_turn = st.load("messaging_turn")
 ops_turn = st.load("ops_turn")
+turn_order = st.load("turn_order")
+KINDS = messaging_turn.KINDS      # S41-8: the claimers that answered what is open are the kinds of the row `frame`; a hook disables one by its `applies`
 
 SHARDS = 4
 RECORDING = os.environ.get("WB_ENTRY_RECORD") == "1"
@@ -333,16 +336,16 @@ def changed_by(hook, scenarios: list, tmp_path) -> list:
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_vacuity_a_changed_claim_order_is_seen(tmp_path):
-    """The three the spec names: with `Bridge.plan_line` and `Bridge.word_line` made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
-    for claimer, hook in (("plan-confirm-word", never(bridge.Bridge, "plan_line", False)), ("card-word", never(bridge.Bridge, "word_line", False)),
+    """The three the spec names: with the kinds `plan-confirm` and `decision-card-word` of the row `frame` (S41-8: what `Bridge.plan_line` and `Bridge.word_line` were) made to take nothing, and the row `tier-1-form` of `ops_turn` (S41-3: what `ops_natural.take` ended with) made to take nothing, at least one scenario differs from the golden."""
+    for claimer, hook in (("plan-confirm-word", never(KINDS["plan-confirm"], "applies", None)), ("card-word", never(KINDS["decision-card-word"], "applies", None)),
                           ("tier-1-form", row_never("tier-1-form"))):
         lines = scenarios_of(claimer)
         assert lines, f"the corpus holds lines {claimer} takes"
         assert changed_by(hook, lines, tmp_path), f"disabling {claimer} changes at least one scenario, or the comparator is blind"
 
 
-DISABLED = [("plan-confirm-word", bridge.Bridge, "plan_line", False), ("card-word", bridge.Bridge, "word_line", False), ("research-stop", bridge.Bridge, "research_stop_line", False),
-            ("card-revise", bridge.Bridge, "revise_line", False), ("project-switch", bridge.Bridge, "project_line", False),
+DISABLED = [("plan-confirm-word", KINDS["plan-confirm"], "applies", None), ("card-word", KINDS["decision-card-word"], "applies", None), ("research-stop", KINDS["research-run"], "applies", None),
+            ("card-revise", KINDS["decision-card-revise"], "applies", None), ("project-switch", bridge.Bridge, "project_line", False),
             ("reminder-draft-answer", bridge.remind.Reminders, "answer", False), ("reminder-expired-yes", bridge.remind.Reminders, "late", False),
             ("write-draft-answer", bridge.Bridge, "write_answers", False), ("attachment-line", bridge.attach.Attachments, "line", False),
             ("reminder-form", bridge.remind.Reminders, "natural", False)]
@@ -358,13 +361,13 @@ def test_sensitivity_disabling_a_claimer_changes_at_least_one_scenario(claimer, 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_sensitivity_two_claimers_that_swap_places_change_a_scenario(tmp_path):
-    """`research_stop_line` stands after `word_line` so that a "não" with a card as the last message rejects the card and leaves the search alone (L64, BL2b). Swapped, the same line stops the
-    search and leaves the card open: the scenario where a search runs and a card is last (`research_and_card`) must see it."""
+    """The kind `research-run` stands after `decision-card-word` so that a "não" with a card as the last message rejects the card and leaves the search alone (L64, BL2b). Swapped (the order of
+    `turn_order.kinds()`), the same line stops the search and leaves the card open: the scenario where a search runs and a card is last (`research_and_card`) must see it."""
     def swapped(mp):
-        original_stop, original_word = bridge.Bridge.research_stop_line, bridge.Bridge.word_line
-        mp.setattr(bridge.Bridge, "word_line", lambda self, update, intent, project, listed, sender, chat: False)
-        mp.setattr(bridge.Bridge, "research_stop_line", lambda self, update, intent, kind, project, listed, chat: original_stop(self, update, intent, kind, project, listed, chat) or
-                   original_word(self, update, intent, project, listed, str(update.get("sender")), chat))
+        order = list(turn_order.kinds())
+        a, b = order.index("decision-card-word"), order.index("research-run")
+        order[a], order[b] = order[b], order[a]
+        mp.setattr(turn_order, "kinds", lambda order=tuple(order): order)
     lines = [s for s in corpus() if s["prestate"] == "research_and_card" and s["text"] in ("não", "no", "sim", "pare")]
     assert lines, "the corpus holds a search that runs with a card last"
     assert changed_by(swapped, lines, tmp_path), "the order of the card words and the research brake is seen by the corpus"

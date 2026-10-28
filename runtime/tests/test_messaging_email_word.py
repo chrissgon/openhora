@@ -1,4 +1,4 @@
-"""A card word in an e-mail reply is read from its first line (slice S10, limit L64; runtime/card_words.py `reply_line`, `Bridge.word_line`), over the stand-in world of
+"""A card word in an e-mail reply is read from its first line (slice S10, limit L64; runtime/card_words.py `reply_line`, the kind `decision-card-word`), over the stand-in world of
 test_messaging_card_words.py with a platform whose acts are replies (`actions_need_reply`).
 
 A reply to a card carries a phone's signature or the quoted card under the person's words ("sim", a blank line, "Enviado do meu iPhone"), which made it more than one phrase
