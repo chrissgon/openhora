@@ -1,6 +1,7 @@
 """A stand-in for Microsoft on 127.0.0.1, for the tests of the Outlook calendar writer (package W1): the Microsoft identity token endpoint (a public client, a new
 refresh token on every refresh, the old one left valid) and the events of the default calendar and of one named calendar through Graph (get, list with a filter on
-the private property, create, patch, and the removal of one event: a 204, the event moved to `removed`; like Graph it takes no If-Match). It keeps its events in
+the private property, create, patch, and the removal of one event: a 204, the event moved to `removed`; like Graph it takes no If-Match; and, for a series (CB-6), the instances of a master in a window and the
+`cancel` action: a 202 that moves the event, or the master and every occurrence, to `removed`, a 400 for an event the person does not organise). It keeps its events in
 memory, gives each a changeKey that moves with every change, and RECORDS every request (method, path, query, headers that matter, body) so that a test can assert the
 exact list. `unexpected()` lists any request the writer should never send.
 
@@ -24,7 +25,7 @@ import json
 import re
 import threading
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
@@ -58,6 +59,7 @@ class FakeGraphCalendar:
         self.token_forms: list = []
         self.events: dict = {}
         self.removed: dict = {}      # the events a removal took out of the calendar, by id
+        self.cancelled: list = []    # the ids a `cancel` action was answered for, in order
         self.home: dict = {}         # the calendar each event lives in, by id ("default" or a calendar id)
         self.version = 0
         self.counter = 0
@@ -149,6 +151,19 @@ class FakeGraphCalendar:
         self.version += 1
         return f"CQAAABYAAAB{self.version:08d}"
 
+    def add_series(self, master_id, subject, first, last, pattern=None, days=3, step=1, **more):
+        """A series that is already there: its master (`type` seriesMaster, with a `recurrence`) and `days` occurrences `step` days apart from the first (first and last: UTC
+        times as Graph prints them); returns (master, [occurrences])."""
+        pattern = pattern or {"type": "daily", "interval": 1}
+        master = self.add_event(master_id, subject, first, last, type="seriesMaster", recurrence={"pattern": pattern, "range": {"type": "noEnd", "startDate": first[:10]}}, **more)
+        occurrences = []
+        for n in range(days):
+            def shift(text):
+                return (datetime.fromisoformat(text) + timedelta(days=step * n)).strftime("%Y-%m-%dT%H:%M:%S")
+            occurrences.append(self.add_event(f"{master_id[:-1]}Occ{n}=", subject, shift(first), shift(last), type="occurrence", seriesMasterId=master_id,
+                                              originalStart=shift(first) + "Z", **{k: v for k, v in more.items() if k != "recurrence"}))
+        return master, occurrences
+
     def add_event(self, event_id, subject, first, last, **more):
         item = {"id": event_id, "changeKey": self.next_key(), "subject": subject, "start": {"dateTime": first + ".0000000", "timeZone": "UTC"},
                 "end": {"dateTime": last + ".0000000", "timeZone": "UTC"}, "isAllDay": False, "location": {"displayName": ""},
@@ -167,7 +182,9 @@ class FakeGraphCalendar:
             rest = path[len(GRAPH):] if path.startswith(GRAPH + "/") else path
             ok = (rest == "/me/calendars" and method == "GET"
                   or re.fullmatch(r"/me/calendars?(/[^/]+)?/events", rest) is not None and method in ("GET", "POST") and not rest.startswith("/me/calendars/events")
-                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+", rest) is not None and method in ("GET", "PATCH", "DELETE"))
+                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+", rest) is not None and method in ("GET", "PATCH", "DELETE")
+                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+/instances", rest) is not None and method == "GET"
+                  or re.fullmatch(r"/me/calendars?(/[^/]+)?/events/[^/]+/cancel", rest) is not None and method == "POST")
             if not ok:
                 found.append((method, path))
         return found
@@ -182,6 +199,9 @@ class FakeGraphCalendar:
         method, rest = entry["method"], entry["path"][len(GRAPH):]
         if rest == "/me/calendars" and method == "GET":
             return 200, {"value": [{"id": NAMED}]}, {}, None
+        action = re.fullmatch(r"/me/calendar(?:s/([^/]+))?/events/([^/]+)/(cancel|instances)", rest)
+        if action:
+            return self.series_api(entry, method, action.group(1) or "default", urllib.parse.unquote(action.group(2)), action.group(3))
         where = self.scope_of(rest)
         if where is None:
             return 405, {"error": {"code": "methodNotAllowed", "message": "this stand-in serves only the writer's requests"}}, {}, None
@@ -234,7 +254,44 @@ class FakeGraphCalendar:
             return 204, None, {}, apply
         return 405, {"error": {"code": "methodNotAllowed", "message": "not served"}}, {}, None
 
+    def series_api(self, entry, method, calendar, event_id, action):
+        """`GET .../events/{master}/instances` (the occurrences and exceptions that meet the window; none cancelled) and `POST .../events/{id}/cancel` (202; the event, and a
+        master's occurrences, move to `removed`; 400 for an event the person does not organise, as Graph answers an attendee)."""
+        if method == "POST" and self.refuse_next:
+            status, code = self.refuse_next
+            self.refuse_next = None
+            return status, {"error": {"code": code, "message": f"stand-in refusal {code}"}}, ({"Retry-After": "30"} if status in (429, 503) else {}), None
+        item = self.events.get(event_id)
+        if item is None or self.home.get(event_id, "default") != calendar:
+            return 404, {"error": {"code": "ErrorItemNotFound", "message": "The specified object was not found in the store."}}, {}, None
+        if action == "instances" and method == "GET":
+            low, high = entry["query"].get("startDateTime"), entry["query"].get("endDateTime")
+            if not low or not high or item.get("type") != "seriesMaster":
+                return 400, {"error": {"code": "ErrorInvalidRequest", "message": "stand-in: a window and a series master are required"}}, {}, None
+            def at(text):
+                return datetime.fromisoformat(text.replace("Z", "+00:00")[:19] + "+00:00")
+            found = [e for e in self.events.values() if e.get("seriesMasterId") == event_id and e.get("isCancelled") is not True
+                     and at(e["start"]["dateTime"]) < at(high) and at(e["end"]["dateTime"]) > at(low)]
+            found.sort(key=lambda e: e["start"]["dateTime"])
+            top = int(entry["query"].get("$top") or 250)
+            return 200, {"value": [dict(e, **{"@odata.etag": f'W/"{e["changeKey"]}"'}) for e in found[:top]]}, {}, None
+        if action == "cancel" and method == "POST":
+            if item.get("isOrganizer") is not True:
+                return 400, {"error": {"code": "ErrorInvalidRequest", "message": "Your request can't be completed. You need to be an organizer to cancel a meeting."}}, {}, None
+
+            def apply():
+                self.removed[event_id] = self.events.pop(event_id)
+                self.cancelled.append(event_id)
+                if item.get("type") == "seriesMaster":      # the series goes with its master: every occurrence and exception
+                    for other in [i for i, e in self.events.items() if e.get("seriesMasterId") == event_id]:
+                        self.removed[other] = self.events.pop(other)
+                return None
+            return 202, None, {}, apply
+        return 405, {"error": {"code": "methodNotAllowed", "message": "not served"}}, {}, None
+
     def merge(self, item, body):
+        if "recurrence" in body:      # an event created with a recurrence is a series master
+            item["type"] = "seriesMaster"
         for key, value in body.items():
             if key in ("start", "end"):
                 item[key] = {"dateTime": value["dateTime"] + ".0000000", "timeZone": value["timeZone"]}
