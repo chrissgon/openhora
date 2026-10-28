@@ -1,24 +1,30 @@
 # The same checks as .githooks/pre-commit, for every push to main and every pull request.
 # Actions are pinned to a commit (tags can move); Dependabot proposes updates.
 #
-# Which tests run (docs/decisions.md, 2026-10-20 and the entry of T3): ONE required job, `tests`, which is a required check of the main
-# ruleset, and so is never skipped (nor is `validate`, the other one): any label reruns both. DURING DEVELOPMENT, on a pull request
-# into a branch other than main, `tests` runs only the SELECTED tests (scripts/select_tests.py: the tests of what the pull request
-# changed, plus a fixed set of guards). At the end of a large delivery the WHOLE SUITE (with the full fuzz) runs instead: on a push
-# to main, on a pull request into main, on a manual run (workflow_dispatch, on any branch: the supervisor runs it on the integration
-# branch at the end of a phase), and on a pull request that carries the label `full-suite` (adding the label starts the jobs, which
-# is why `labeled` is a trigger). The whole suite runs in three shard jobs (`tests-shard`, check runs `tests shard <k> of 3`, by
-# scripts/shard_tests.py: round-robin by item, no stored durations), and the one required check `tests` is their aggregator
-# (`if: always()`, `needs: tests-shard`): it fails unless every shard succeeded. The steps carry the condition, never `tests` itself:
-# `always()` is the condition that never skips. The jobs that need docker or Go run when the paths they depend on changed, and
-# always in those four cases.
+# Which tests run (docs/decisions.md, 2026-10-20, the entry of T3 and the entry of TEST-SPEED, 2026-10-27): ALL of them run in THREE shard jobs
+# (`tests-shard`, check runs `tests shard <k> of 3`, by scripts/shard_tests.py: round-robin by item, no stored durations), in one of two
+# modes that the `if:` of their steps choose. DURING DEVELOPMENT, on a pull request into a branch other than main, the shards run the
+# SELECTED tests (scripts/select_tests.py: the tests of what the pull request changed, plus a fixed set of guards; each shard computes the
+# same list from the same commit and base, about 15 seconds, so there is no artifact and no extra job). At the end of a large delivery the
+# WHOLE SUITE (with the full fuzz) runs instead: on a push to main, on a pull request into main, on a manual run (workflow_dispatch, on any
+# branch: the supervisor runs it on the integration branch at the end of a phase), and on a pull request that carries the label
+# `full-suite` (adding the label starts the jobs, which is why `labeled` is a trigger). The pre-commit hook runs only a fast set (the guards
+# and the tests named for each changed file): this selection, in CI, is the gate before a merge. ONE job, `tests`, is the required check of
+# the main ruleset, and so is never skipped (nor is `validate`, the other one): any label reruns both. It is the aggregator of the shards
+# (`if: always()`, `needs: tests-shard`) and fails unless every shard succeeded. `always()` is the condition that never skips. The jobs
+# that need docker or Go run when the paths they depend on changed, and always in the four cases of the whole suite.
+# A DRAFT pull request runs only `validate` and `changes` (which then says nothing changed: `container`, `converter` and `go` skip), and
+# its `tests` FAILS on purpose with "a draft pull request runs no tests; mark it ready for review to run them" (approved by the maintainer
+# on 2026-10-27): a job skipped by its condition counts as passing, so `tests` is never skipped and is red, never a false
+# green. Marking the pull request ready (`ready_for_review`) runs everything once. GitHub refuses to merge a draft at all. A red `tests` on
+# a draft means "not run", and is never read as a failure of the code.
 name: checks
 
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -58,15 +64,20 @@ jobs:
       - name: Secrets in history
         run: python3 scripts/security_scan.py --history
 
-  # The whole suite in three shards (docs/decisions.md, the entry of T3): each job runs the same list with WB_FULL_FUZZ=1 and keeps the
-  # K-th of 3 items of the collection (scripts/shard_tests.py, scripts/pytest_plugins/wb_shard.py). Every collected item is in exactly
-  # one shard; the job `tests` below is the one required check and fails unless every shard succeeded. The condition is the whole-suite
-  # condition of `tests`, word for word (scripts/tests/test_checks_wiring.py holds them equal).
+  # The tests in three shards (docs/decisions.md, the entry of T3 and the entry of TEST-SPEED): each job keeps the K-th of 3 items of the
+  # collection (scripts/shard_tests.py, scripts/pytest_plugins/wb_shard.py) of the list of its mode. Every collected item is in exactly one
+  # shard; the job `tests` below is the one required check and fails unless every shard succeeded. The shards run on every event but a draft
+  # pull request (whose `tests` fails by its own step), because the gate needs them in both modes (scripts/tests/test_checks_wiring.py holds that). WHOLE (a push to main, a pull request into main, a
+  # manual run, a pull request labelled full-suite): every test folder with WB_FULL_FUZZ=1 (the fuzz of the natural writes walked line by
+  # line, about eight minutes of one process, runtime/README.md, "The natural-writes fuzz"). SELECTED (a pull request into a branch other
+  # than main): the list that scripts/select_tests.py prints for the files the pull request changed since its merge base with the base,
+  # plus the fixed guards (when it cannot compute the diff it selects every test folder), without the full fuzz. Selected, a shard took
+  # about 10 to 12 minutes where the one job took about 30. The tests of a shard are split across the runner's processes (pytest-xdist,
+  # `-n auto`: one worker per vCPU, four on a public repository's runner). --durations lists the slowest tests. The limit leaves
+  # headroom for a slow runner or a worker that waits on a timeout.
   tests-shard:
     name: tests shard ${{ matrix.shard }} of 3
-    if: >-
-      github.event_name != 'pull_request' || github.base_ref == 'main'
-      || contains(github.event.pull_request.labels.*.name, 'full-suite')
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -76,45 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # as the whole suite has always run: tests may read the history
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: "0.12.19"
-          python-version: "3.11"
-      - name: Scanner and provider tests, the whole suite
-        env:
-          WB_FULL_FUZZ: "1"
-          SHARD: ${{ matrix.shard }}
-        run: >-
-          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
-          -q -n auto -o faulthandler_timeout=120 --durations=20 $(python3 scripts/test_dirs.py)
-
-  # The one required check, the aggregator of the shards. Two modes, chosen by the `if:` of its steps (never of the job, which is never
-  # skipped, on any event, so that the check exists and means something on every run; a label added to a pull request reruns it in
-  # the mode its base asks for): the SELECTED tests of a pull request into a branch other than main (scripts/select_tests.py, rules at
-  # the top of the file: it reads the files the pull request changed since its merge base with the base and prints the test files
-  # that can reach them, plus the fixed guards; when it cannot compute the diff it selects every test folder), and the WHOLE SUITE
-  # (every test folder, and the fuzz of the natural writes walked line by line: WB_FULL_FUZZ=1, about eight minutes of one process,
-  # runtime/README.md, "The natural-writes fuzz") on a push to main, a pull request into main, a manual run and a pull request
-  # labelled full-suite. In the whole mode the tests run in the jobs `tests-shard` above, and the step "The whole suite, every shard
-  # passed" fails unless `needs.tests-shard.result` is `success` (a matrix is `success` only when every leg is: a failed, cancelled,
-  # timed-out or skipped shard fails the check). `if: always()` is required: without it a failed shard makes GitHub skip this job,
-  # and a skipped required check counts as passing. The whole suite is the end of a large delivery: it catches what the selected tests
-  # cannot see (a dynamic import, a long call chain without an import edge). The tests are split across the runner's processes
-  # (pytest-xdist, `-n auto`: one worker per vCPU, four on a public repository's runner; the whole suite in one process took 18 to
-  # 19 minutes). --durations lists the slowest tests. The limit leaves headroom for a slow runner or a worker that waits on a
-  # timeout; the selected run is far shorter.
-  tests:
-    name: tests
-    needs: tests-shard
-    if: always()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # the selector reads the merge base with the pull request's base
+          fetch-depth: 0 # the selector reads the merge base with the pull request's base, and tests may read the history
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -128,23 +101,55 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
         run: python3 scripts/select_tests.py --base "$BASE_SHA" --explain | tee "$RUNNER_TEMP/selected-tests.txt"
-      - name: Selected scanner, provider, runtime and script tests
-        if: >-
-          github.event_name == 'pull_request' && github.base_ref != 'main'
-          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
-        run: uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20 $(cat "$RUNNER_TEMP/selected-tests.txt")
-      - name: The whole suite, every shard passed
+      - name: Scanner and provider tests, the whole suite
         if: >-
           github.event_name != 'pull_request' || github.base_ref == 'main'
           || contains(github.event.pull_request.labels.*.name, 'full-suite')
         env:
+          WB_FULL_FUZZ: "1"
+          SHARD: ${{ matrix.shard }}
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto -o faulthandler_timeout=120 --durations=40 $(python3 scripts/test_dirs.py)
+      - name: Selected scanner, provider, runtime and script tests
+        if: >-
+          github.event_name == 'pull_request' && github.base_ref != 'main'
+          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/selected-tests.txt")
+
+  # The one required check, the aggregator of the shards. It runs no test, so it needs no checkout and no uv. It is never skipped, on any
+  # event, so that the check exists and means something on every run (a label added to a pull request reruns it): `if: always()` is
+  # required, because without it a failed shard makes GitHub skip this job, and a skipped required check counts as passing. Its step fails
+  # unless `needs.tests-shard.result` is `success` (a matrix is `success` only when every leg is: a failed, cancelled, timed-out or skipped
+  # shard fails the check). Exactly one of its two steps runs on every event, chosen by the draft flag: on a draft pull request the shards do not run
+  # and the step "Draft: no test has run" fails; the condition of "Every shard passed" is the job condition of `tests-shard`, word for word. Which tests the shards ran, the selection or the whole suite, is chosen by the steps of `tests-shard`; the whole
+  # suite catches what the selection cannot see (a dynamic import, a long call chain without an import edge).
+  tests:
+    name: tests
+    needs: tests-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "Draft: no test has run"
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft
+        run: |
+          echo "a draft pull request runs no tests; mark it ready for review to run them"
+          exit 1
+      - name: Every shard passed
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        env:
           SHARDS: ${{ needs.tests-shard.result }}
         run: |
-          echo "the shards of the whole suite: $SHARDS"
+          echo "the shards: $SHARDS"
           test "$SHARDS" = "success"
 
   # Which of the docker and Go jobs have anything to check: on a pull request into a branch other than main, those whose paths changed;
-  # in the four cases of the whole suite, all of them. The paths are what each job's tests read: the eval container and its adapters,
+  # in the four cases of the whole suite, all of them; on a draft pull request, none. The paths are what each job's tests read: the eval container and its adapters,
   # the converter and exporter images and the workcopy scan, the WhatsApp program. This file counts for all three.
   changes:
     name: changes
@@ -167,8 +172,15 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-suite') }}
+          DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -eu
+          if [ "$DRAFT" = "true" ]; then # a draft runs no docker or Go job: no diff is read
+            echo "container=false" >> "$GITHUB_OUTPUT"
+            echo "converter=false" >> "$GITHUB_OUTPUT"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           everything=false
           if [ "$EVENT" != "pull_request" ] || [ "$ACTION" = "labeled" ] || [ "$BASE_REF" = "main" ] || [ "$FULL_LABEL" = "true" ]; then
             everything=true
@@ -204,12 +216,20 @@ jobs:
   # (about 985 end-to-end scenarios) then took the job to 17 to 23 minutes and a 25-minute limit cancelled it; the limit is
   # 40 minutes (docs/decisions.md, CI39). WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
   # over JavaScript and CSS (runtime/tests/conftest.py says which): Python's version changes nothing for them, and the
-  # tests job runs them. Every test of a Python module stays here.
+  # tests job runs them. Every test of a Python module stays here. THREE SHARDS (docs/decisions.md, the entry of TEST-SPEED): the job was 20 to 34
+  # minutes, the longest of a pull request; each leg keeps the K-th of 3 items of the list (scripts/shard_tests.py), as `tests-shard` does.
+  # Each leg chooses the list the same way, from the same commit and base. `python39` is not a required check, so its name may be a shard's.
   python39:
-    name: python39
-    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
+    name: python39 shard ${{ matrix.shard }} of 3
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-suite')
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -245,9 +265,10 @@ jobs:
       - name: The scripts the scheduler starts, on Python 3.9
         env:
           WB_SKIP_JS_ONLY_TESTS: "1"
+          SHARD: ${{ matrix.shard }}
         run: >-
-          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20
-          $(cat "$RUNNER_TEMP/py39.txt")
+          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/py39.txt")
 
   container:
     name: container

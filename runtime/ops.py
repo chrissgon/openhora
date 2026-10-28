@@ -2688,17 +2688,55 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, natural_draft, natural_file_accounts, natural_forget, natural_needs, natural_reply, natural_write, plan_drop, plan_live, route_queued, say  # noqa: E402,F401
-from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
+from ops_say import (  # noqa: E402,F401
+    chat_memory,
+    natural_draft,
+    natural_file_accounts,
+    natural_forget,
+    natural_needs,
+    natural_reply,
+    natural_write,
+    plan_drop,
+    plan_live,
+    route_queued,
+    say,
+)
+from ops_say import (  # noqa: E402,F401
+    ASK_NEXT,
+    CONVERSATION,
+    MEMORY_CHARS,
+    MEMORY_CUT,
+    MEMORY_HEAD,
+    MEMORY_TAIL,
+    MEMORY_TURNS,
+    PLAN_NEXT,
+)
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
-from ops_sources import (source_add, source_calendar, source_describe, source_drive, source_import, source_mail, source_onedrive,  # noqa: E402,F401
-                         source_refresh, sources_catalog)
+from ops_sources import (  # noqa: E402,F401
+    source_add,
+    source_calendar,
+    source_describe,
+    source_drive,
+    source_import,
+    source_mail,
+    source_onedrive,
+    source_refresh,
+    sources_catalog,
+)
 # The files sent through a messaging app (runtime/ops_attachments.py): the held list, the hold, the add and the discard.
 from ops_attachments import attachment_add, attachment_discard, attachment_hold, attachments  # noqa: E402,F401
 # Reminders (runtime/ops_reminders.py): the three operations, and what the messaging bridge asks of the store to send them.
-from ops_reminders import remind, reminder_forget, reminder_restore, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
+from ops_reminders import (  # noqa: E402,F401
+    remind,
+    reminder_forget,
+    reminder_restore,
+    reminders_due,
+    reminders_read,
+    reminders_retry,
+    reminders_sent,
+)
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
 # The numbered items of the mail and calendar snapshots (runtime/ops_items.py, package NR-5a).
@@ -2708,8 +2746,13 @@ from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
 from ops_file_read import file_read  # noqa: E402,F401
 # A question of general information answered by a web search, one run of the research skill with web access (runtime/ops_research.py, slice R2-F1).
-from ops_research import research, stop as research_stop  # noqa: E402,F401      # BL2a: `research_stop` ends the sender's own search by their stop word (not an operation of the table)
-from source_names import for_project as source_names  # noqa: E402,F401      # BL5D: the plain names a phone shows for the sources; not an operation of the table
+from ops_research import (  # noqa: E402,F401      # BL2a: `research_stop` ends the sender's own search by their stop word (not an operation of the table)
+    research,
+    stop as research_stop,
+)
+from source_names import (  # noqa: E402,F401      # BL5D: the plain names a phone shows for the sources; not an operation of the table
+    for_project as source_names,
+)
 # Move a file found by its name to the service's trash, behind a card (runtime/ops_file_trash.py, slice R2-A).
 from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
@@ -2728,15 +2771,35 @@ import ops_instructions  # noqa: E402  (the standing instructions: three operati
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
 import ops_ask  # noqa: E402  (the answer from sources: `ask`, and the owners of the runs of a request)
 from ops_ask import ask  # noqa: E402,F401
-from ops_contained import contained_run  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
+from ops_contained import (  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
+    contained_run,
+)
 # The routines (runtime/ops_routines.py): the schedule's flows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
-from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401
-                          routines_read)
+from ops_routines import (  # noqa: E402,F401
+    routine_approve,
+    routine_cancel,
+    routine_change,
+    routine_create,
+    routine_pause,
+    routine_resume,
+    routines_read,
+)
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
-from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
+from ops_reads import (  # noqa: E402,F401
+    agents,
+    artifact,
+    artifact_raw,
+    artifacts,
+    connections,
+    conversation,
+    costs,
+    service_check,
+    skills,
+)
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401
 from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
+# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 Usage:
   python3 scripts/test_slots.py [--slots N] [--wait SECONDS] [--dir DIR] -- COMMAND [ARG...]
+  python3 scripts/test_slots.py [--slots N] --workers
 
 The pre-commit hook starts pytest through this script (docs/decisions.md, 2026-10-20: at most 3 heavy test runs at once). It
 takes the lock of a free slot, waits for one when all are held, and then replaces itself with COMMAND (exec), which inherits the
@@ -15,6 +16,12 @@ lock file to clean up and no stale slot.
   --dir DIR     the folder of the lock files (default: WB_TEST_SLOT_DIR, else ${TMPDIR:-/tmp}/openhora-test-slots). The limit is
                 machine-wide only for processes that share this folder: set WB_TEST_SLOT_DIR to one path when the agents of a
                 machine run with different TMPDIR values.
+
+  --workers     print how many pytest-xdist workers ONE run should use, and exit 0 (it needs no command): the machine's cores divided by the
+                slots, at least 2, so that N runs that each take a slot together use about as many workers as the machine has cores (3 slots on
+                14 cores: 4 workers each, 12 in all; on 4 cores: 2 each). WB_TEST_WORKERS (a whole number of at least 1) sets it by hand; a bad
+                value exits 2. The hook and the by-hand command of AGENTS.md ("Which tests run, and when") pass it as `-n "$(... --workers)"`;
+                CI keeps `-n auto`, because a CI job is the only run on its runner.
 
 Exit codes: COMMAND's own; 2 for a bad option; 75 when no slot became free within the wait (nothing was run, and the message says
 so: the tests are not skipped, they have not run); 127 when COMMAND cannot be started.
@@ -81,12 +88,28 @@ def positive_int(text, name):
     return value
 
 
+def workers(slots, cpu=None, env=os.environ):
+    """The xdist workers of one run: WB_TEST_WORKERS when it is set (a whole number of at least 1, else ArgumentTypeError), else the cores
+    divided by the slots, at least 2."""
+    raw = env.get("WB_TEST_WORKERS")
+    if raw is not None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 0
+        if value < 1:
+            raise argparse.ArgumentTypeError("WB_TEST_WORKERS must be a whole number of at least 1, got %r" % raw)
+        return value
+    return max(2, (cpu or os.cpu_count() or 2) // slots)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     epilog="Run `python3 scripts/test_slots.py -h` for the whole text.", usage="%(prog)s [options] -- COMMAND [ARG...]")
+                                     epilog="Run `python3 scripts/test_slots.py -h` for the whole text.", usage="%(prog)s [options] -- COMMAND [ARG...]  |  %(prog)s [--slots N] --workers")
     parser.add_argument("--slots", type=lambda t: positive_int(t, "slots"), help="number of slots (default WB_TEST_SLOTS, else 3)")
     parser.add_argument("--wait", type=lambda t: positive_int(t, "wait"), help="seconds to wait (default WB_TEST_SLOT_WAIT, else 3600)")
     parser.add_argument("--dir", help="folder of the lock files")
+    parser.add_argument("--workers", action="store_true", help="print the pytest-xdist workers of one run (WB_TEST_WORKERS, else the cores divided by the slots, at least 2) and exit")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="after --: the command to run while the slot is held")
     return parser
 
@@ -97,10 +120,13 @@ def main(argv=None):
     command = list(args.command)
     if command and command[0] == "--":
         command = command[1:]
-    if not command:
+    if not command and not args.workers:
         parser.error("no command: put it after --")
     try:
         slots = args.slots if args.slots is not None else positive_int(os.environ.get("WB_TEST_SLOTS", DEFAULT_SLOTS), "slots")
+        if args.workers:
+            sys.stdout.write("%d\n" % workers(slots))
+            return 0
         wait = args.wait if args.wait is not None else positive_int(os.environ.get("WB_TEST_SLOT_WAIT", DEFAULT_WAIT), "wait")
     except argparse.ArgumentTypeError as error:
         parser.error(str(error))

@@ -231,7 +231,8 @@ Commands:
              the fingerprint this checkout computes. No kind multiplies old evidence by a factor. --close writes the
              fingerprint of a measurement version that is still open, which closes it; a --kind change needs a
              closed version. Prints {"kind", "measurement_version", "measurement_floor", "measurement_sha256",
-             "epoch", "decisions_entry"}: the entry is added to docs/decisions.md in the same commit.
+             "epoch", "decisions_entry"}: the entry is added in the same commit as a new file in docs/decisions/
+             (never to docs/decisions.md, which is closed); stderr suggests its file name.
 
   bump       raises a skill's metadata.version by one step of the class of its change (the reliability model's
              section 3): x, y or z raises that part of the version of the pull request's base (resolve_base:
@@ -954,6 +955,14 @@ def measurement_change(root, kind=None, cause=None, skills="all", models="all", 
            "measurement_floor": new["measurement_floor"], "measurement_sha256": current, "epoch": epoch,
            "decisions_entry": entry}
     return new, out
+
+
+def decisions_file_name(out):
+    """The file name that stderr suggests for the entry of a measurement change: the date of the entry, then
+    `measurement-<kind>` (`measurement-close` for a close), in lower case with hyphens, as docs/decisions/README.md
+    asks. `out` is what measurement_change returned."""
+    date = out["decisions_entry"].split(":", 1)[0].replace("## ", "").strip()
+    return f"{date}-measurement-{out['kind']}.md"
 
 
 def new_test_id(now=None):
@@ -3444,7 +3453,9 @@ def main(argv, root=None):
             die(str(e), 1)
         with open(os.path.join(root, GATE_REL), "w", encoding="utf-8") as f:
             f.write(format_gate(new))
-        print(f"{GATE_REL} written. Add the entry below to docs/decisions.md, in the same commit as the change.", file=sys.stderr)
+        print(f"{GATE_REL} written. Add the entry below as a new file, docs/decisions/{decisions_file_name(out)}, in the same "
+              "commit as the change (docs/decisions.md is closed; put the package id after the date if the change belongs to "
+              "one, and see docs/decisions/README.md).", file=sys.stderr)
         print(json.dumps(out, indent=2))
         return 0
     if flags & {"--json", "--go"} and cmd != "interpreter":
