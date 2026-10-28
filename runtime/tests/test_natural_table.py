@@ -12,20 +12,21 @@ import re
 import pytest
 
 import standin_tree as st
+from expected_kit import extend
 
 natural = st.load("natural")
 operations = st.load("operations")
 phrases = st.load("phrases")
 nt = st.load("natural_time")
 
-R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
-N = {"remind", "reminder-forget", "reminder-restore"}
-W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
+R = extend("natural_table.R", {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"})      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
+N = extend("natural_table.N", {"remind", "reminder-forget", "reminder-restore"})
+W = extend("natural_table.W", {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"})
 D = {"approve", "reject", "release", "answer", "go-ahead"}
-E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-     "file-create", "file-replace", "file-save", "file-trash"}
-WORK = {"say", "request", "route", "ask"}
+E = extend("natural_table.E", {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
+     "file-create", "file-replace", "file-save", "file-trash"})
+WORK = extend("natural_table.WORK", {"say", "request", "route", "ask"})
 GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}

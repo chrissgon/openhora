@@ -45,6 +45,9 @@ THE RULES (conservative: when the selector is unsure it selects more)
     file name or its path in a string) and every test of a module that names it (the module that reads it); under interface/ and flows/
     also the tests that name that folder. contracts/*.md, docs/architecture/** and AGENTS.md also run the documentation guards, which
     are always run (rule 6).
+    A data file under a folder of DATA_FOLDERS (the scenarios and goldens of runtime/tests/entry_ext/, the ledger runtime/tests/expected/, the phrase parts
+    runtime/phrases_parts/) is read by a test that reads the whole folder, so no test names it: it selects the tests the table lists for that folder, never the whole test folder
+    (a README.md there is a document, which selects nothing).
  5. Whole-folder fallbacks: a conftest.py, pytest.ini, pyproject.toml, a test kit (a module that is not a test inside a tests/ folder),
     a module or data file that nothing references (the graph cannot resolve it) and a file that does not parse select the whole test
     folder that owns it; a change to this script, to scripts/test_slots.py, scripts/test_dirs.py, scripts/shard_tests.py,
@@ -62,7 +65,7 @@ THE RULES (conservative: when the selector is unsure it selects more)
     test folder and is not a conftest.py or an __init__.py (a deleted file included), the tests named test_<stem>.py or
     test_<stem>_*.py (`-` in the stem read as `_` too); and the identity tests of the copies when a shared script, one of its
     generated copies or shared/scripts/copies.json changed. Nothing for any other file (data, documents, test kits, conftest files,
-    the wiring, skills), and never a folder. It cannot be combined with --within.
+    the wiring, skills), and never a folder. A file of a DATA_FOLDERS folder is data: the hook does not run its tests; CI's selection does. It cannot be combined with --within.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 
@@ -109,6 +112,18 @@ UNLINKED_MODULES = (
     # the layer map (scripts/tests/test_layer_map.py) does not read a path of the runtime in this script.
     ("runtime", "phrases_*", ("test_phrases*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
     ("runtime", "natural_lang_*", ("test_natural_*", "test_messaging_natural*")),
+)
+
+# Rule 4's table of data folders: a file of the folder is read by a test that reads the whole folder, so nothing names the file and the fallback would run the whole test folder. Each row is
+# (folder, test globs): a changed file under the folder selects the tests that match a glob (a glob over repository-relative test paths). A test (scripts/tests/test_select_tests.py) fails when a folder
+# or a glob matches nothing. Written in pieces for the layer map, as UNLINKED_MODULES is. The tests of the phrase parts are the tests of the `phrases_*` row of UNLINKED_MODULES.
+_RUNTIME = "runtime"
+_PHRASE_TESTS = tuple(_RUNTIME + "/tests/" + g + ".py" for folder, module_glob, globs in UNLINKED_MODULES if module_glob == "phrases_*" for g in globs)
+DATA_FOLDERS = (
+    (_RUNTIME + "/tests/entry_ext/", (_RUNTIME + "/tests/test_entry_replay.py",)),      # HOT-1: the scenarios and the golden of each package, read by the entry replay
+    (_RUNTIME + "/tests/expected/", tuple(_RUNTIME + "/tests/test_" + name + ".py" for name in (
+        "expected_kit", "natural_table", "registry_rows", "messaging_policy", "mcp", "operations_table", "interpreter_coverage", "phone_plain_words", "run_limits"))),      # HOT-1: the ledger
+    (_RUNTIME + "/phrases_parts/", _PHRASE_TESTS),      # HOT-2: the phrase parts, read by runtime/phrases.py through a folder
 )
 
 # The two tests that read the manifest of generated copies (shared/scripts/copies.json).
@@ -527,6 +542,14 @@ def handle_file(repo, sel, rel):
             # a test file that other tests import (a helper, a fixture builder) changes what they run: they follow, and theirs
             follow_test_importers(repo, sel, [rel], "rule 1: imports a changed test")
         return
+
+    # Rule 4, data folders: a file under a folder of DATA_FOLDERS selects the tests that read the folder.
+    for folder, test_globs in DATA_FOLDERS:
+        if rel.startswith(folder) and not base.endswith((".py", ".md")):
+            for test in repo.tests:
+                if any(fnmatch.fnmatchcase(test, g) for g in test_globs):
+                    sel.add(test, "rule 4: %s is in a data folder of %s" % (rel, test))
+            return
 
     # Rule 5: configuration of the test run.
     if base in ("pytest.ini", "pyproject.toml") or (base == "conftest.py" and len(parts) == 1):

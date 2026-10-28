@@ -33,7 +33,7 @@ REPO = st.REPO
 
 # L57 -- the files the scan reads (writers, the mailers of the person's own account, the shared helpers, the authorize scripts and the readers, which send GET only)
 SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/mailer/outlook.py", "providers/_*.py", "providers/accounts/**/*.py",
-           "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py"]
+           "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py", "providers/tasks/*.py"]
 # (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google is expected to send to the
 # calendar's trash for 30 days (the person restores it there); S21: the Outlook calendar writer's two removals of one event, which may be unrecoverable (not
 # verified); each pair is honoured only in that file's own constant ALLOWED.
@@ -333,3 +333,25 @@ def test_limit_57_measure_the_outlook_writers_two_event_pairs_are_honoured_in_it
     assert any("HTTP DELETE" in f[2] for f in delete_findings(decoy, OUTLOOK_FILE))
     assert any("name for deleting" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nrequests.delete(url)\n", OUTLOOK_FILE))
     assert any("permanent-delete" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nverb = 'permanentDelete'\n", OUTLOOK_FILE))
+
+
+# --- CB-4: the tasks readers and writers (Google Tasks, Microsoft To Do) -----------------------------------------------------------------------------
+
+TASKS_FILES = ("providers/tasks/google.py", "providers/tasks/microsoft.py", "providers/writer/google-tasks.py", "providers/writer/microsoft-todo.py", "providers/_writer_tasks.py")
+
+
+def test_limit_57_cb4_the_tasks_providers_are_scanned_and_hold_no_delete_no_move_and_no_clear_in_any_spelling():
+    scanned = [str(p.relative_to(REPO)) for p in scanned_files()]
+    for name in TASKS_FILES:
+        assert name in scanned, name
+        source = (REPO / name).read_text(encoding="utf-8")
+        assert delete_findings(source, name) == [], name
+        code = re.sub(r'"""[\s\S]*?"""', "", source)
+        assert not re.search(r"""["'](?:DELETE|PUT)["']|/clear|/move|\.clear\(""", code), name
+
+
+def test_limit_57_cb4_the_scan_would_find_a_delete_pair_planted_in_a_tasks_writer():
+    planted = (REPO / "providers/writer/google-tasks.py").read_text(encoding="utf-8").replace(
+        '("PATCH", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"))', '("PATCH", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"), ("DELETE", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"))')
+    assert planted != (REPO / "providers/writer/google-tasks.py").read_text(encoding="utf-8")
+    assert any("HTTP DELETE" in f[2] for f in delete_findings(planted, "providers/writer/google-tasks.py"))

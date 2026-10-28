@@ -288,6 +288,69 @@ def test_vacuity_a_decision_file_selects_nothing_because_it_is_a_document_not_be
     assert pick(tree, "docs/decisions.md")[0] == expect()
 
 
+DATA_FOLDER_FIXTURE = {
+    "runtime/tests/entry_ext/zz-pack.scenarios.jsonl": "{}\n",
+    "runtime/tests/entry_ext/README.md": "readme\n",
+    "runtime/tests/test_entry_replay.py": "import os\n",
+    "runtime/tests/expected/zz-pack.json": "{}\n",
+    "runtime/tests/test_expected_kit.py": "import os\n",
+    "runtime/tests/test_natural_table.py": "import os\n",
+    "runtime/phrases_parts/zz-pack.en.json": "{}\n",
+    "runtime/phrases_parts/README.md": "readme\n",
+    "runtime/phrases_en.py": "TABLE = {}\n",
+    "runtime/tests/test_phrases.py": "import os\n",
+    "runtime/tests/test_runtime_language_x.py": "import os\n",
+    "runtime/tests/test_phone_x.py": "import os\n",
+}
+
+
+def test_a_file_of_a_data_folder_selects_the_tests_that_read_the_folder_and_never_the_whole_test_folder(tmp_path):
+    """HOT-1: the scenarios and goldens of the packages select the entry replay, the ledger the tests that read it, the phrase parts the tests of the `phrases_*` row of UNLINKED_MODULES."""
+    root = build(tmp_path, DATA_FOLDER_FIXTURE)
+    for changed in ("runtime/tests/entry_ext/zz-pack.scenarios.jsonl", "runtime/tests/entry_ext/zz-pack.golden.jsonl"):
+        assert in_process(root, changed) == expect("runtime/tests/test_entry_replay.py"), changed
+    got = in_process(root, "runtime/tests/expected/zz-pack.json")
+    assert set(got) - set(GUARDS) == {"runtime/tests/test_expected_kit.py", "runtime/tests/test_natural_table.py"} and "runtime/tests" not in got
+    got = in_process(root, "runtime/phrases_parts/zz-pack.en.json")
+    assert set(got) - set(GUARDS) == {"runtime/tests/test_phrases.py", "runtime/tests/test_runtime_language_x.py", "runtime/tests/test_phone_x.py",
+                                                  "runtime/tests/test_interface_page.py"} and "runtime/tests" not in got
+    assert in_process(root, "runtime/tests/entry_ext/README.md") == expect() and in_process(root, "runtime/phrases_parts/README.md") == expect(), "a document of the folder selects only the guards"
+    assert "rule 4" in "\n".join(sel.select(sel.Repo(str(root)), ["runtime/tests/entry_ext/zz-pack.scenarios.jsonl"]).targets["runtime/tests/test_entry_replay.py"])
+
+
+def test_vacuity_a_selector_without_the_table_of_data_folders_falls_back_to_the_whole_test_folder(tmp_path, monkeypatch):
+    root = build(tmp_path, DATA_FOLDER_FIXTURE)
+    monkeypatch.setattr(sel, "DATA_FOLDERS", ())
+    assert in_process(root, "runtime/tests/entry_ext/zz-pack.scenarios.jsonl") == expect("runtime/tests"), "the fallback the table avoids"
+    assert in_process(root, "runtime/tests/entry_ext/zz-pack.scenarios.jsonl") != expect("runtime/tests/test_entry_replay.py")
+
+
+def test_the_hook_s_fast_set_adds_nothing_for_a_file_of_a_data_folder(tmp_path):
+    root = build(tmp_path, DATA_FOLDER_FIXTURE)
+    for changed in ("runtime/tests/entry_ext/zz-pack.scenarios.jsonl", "runtime/tests/expected/zz-pack.json", "runtime/phrases_parts/zz-pack.en.json"):
+        assert direct_in_process(root, changed) == expect(), changed
+
+
+def test_every_data_folder_of_the_table_and_every_test_it_lists_exists_in_this_repository(real):
+    import fnmatch
+    assert [folder for folder, _ in sel.DATA_FOLDERS] == ["runtime/tests/entry_ext/", "runtime/tests/expected/", "runtime/phrases_parts/"]
+    for folder, test_globs in sel.DATA_FOLDERS:
+        assert (REPO / folder).is_dir(), folder
+        for glob in test_globs:
+            assert [t for t in real.tests if fnmatch.fnmatchcase(t, glob)], glob
+    phrases = [g for folder, g in sel.DATA_FOLDERS if folder == "runtime/phrases_parts/"][0]
+    row = [globs for folder, module_glob, globs in sel.UNLINKED_MODULES if module_glob == "phrases_*"][0]
+    assert sorted(phrases) == sorted("runtime/tests/" + g + ".py" for g in row), "the phrase parts select the tests of the phrases row of UNLINKED_MODULES"
+
+
+def test_a_change_under_each_data_folder_of_this_repository_selects_the_tests_that_read_it_and_no_folder(real):
+    assert "runtime/tests/test_entry_replay.py" in real_pick(real, "runtime/tests/entry_ext/zz-pack.scenarios.jsonl")
+    got = real_pick(real, "runtime/tests/expected/zz-pack.json")
+    assert {"runtime/tests/test_expected_kit.py", "runtime/tests/test_run_limits.py", "runtime/tests/test_natural_table.py"} <= set(got) and "runtime/tests" not in got
+    got = real_pick(real, "runtime/phrases_parts/zz-pack.en.json")
+    assert "runtime/tests/test_phrases.py" in got and "runtime/tests/test_runtime_language.py" in got and "runtime/tests" not in got
+
+
 # ---- rule 5: the whole-folder fallbacks --------------------------------------------------------------------------------------------------
 
 def test_a_conftest_or_a_test_kit_selects_its_whole_folder(tree):

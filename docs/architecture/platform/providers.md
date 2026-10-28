@@ -60,6 +60,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete` |
 | `writer:mailbox` | `writer/` | `gmail.py` | `--check`, `message-meta`, `modify`, `trash`, `draft-create` |
 | `writer:mailbox` | `writer/` | `outlook-mail.py` | `--check`, `message-meta`, `folder-get`, `move`, `mark`, `draft-create`, `draft-reply` |
+| `writer:tasks` | `writer/` | `google-tasks.py` | `--check`, `task-get`, `task-insert`, `task-complete` |
+| `writer:tasks` | `writer/` | `microsoft-todo.py` | `--check`, `task-get`, `task-insert`, `task-complete` |
 | `writer:files` | `writer/` | `gdrive.py` | `--check`, `file-meta`, `create`, `update`, `trash` |
 | `writer:files` | `writer/` | `onedrive.py` | `--check`, `file-meta`, `create`, `replace`, `trash` |
 | `generator:image` | `generator/` | none ships | - |
@@ -74,6 +76,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `integration:documents` | `documents/` | `onedrive.py` | `--check`, `stat`, `read`, `search`, `children`, `comments`, `write`, `notice`, `resolve` |
 | `integration:calendar` | `calendar/` | `google.py` | `--check`, `calendars`, `events` |
 | `integration:calendar` | `calendar/` | `outlook.py` | `--check`, `calendars`, `events` |
+| `integration:tasks` | `tasks/` | `google.py` | `--check`, `lists`, `open` |
+| `integration:tasks` | `tasks/` | `microsoft.py` | `--check`, `lists`, `open` |
 | `scheduler:job` | `scheduler/` | `launchd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `scheduler:job` | `scheduler/` | `systemd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `store:runtime` | `store/` | `sqlite.py` | `--check`, `init`, `cursor-get`, `cursor-set`, `cursor-clear`, `event-add`, `event-next`, `event-done`, `run-start`, `run-end`, `runs`, `inbox-add`, `inbox-list`, `inbox-resolve`, `action-add`, `actions`, `action-count`, `export` |

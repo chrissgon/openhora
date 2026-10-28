@@ -1,4 +1,7 @@
 """The entry replay (package S41-1; PLAN-BRAIN section 4 step 1): the outcome of every scenario of `entry_corpus.jsonl` must be the outcome recorded in `entry_golden.jsonl`, field by field.
+Since HOT-1 the set is the base (closed) and the scenarios of every package, each package in two files of `entry_ext/` (`<id>.scenarios.jsonl`, `<id>.golden.jsonl`): `corpus()` and `golden()`
+return the whole set, so every test below covers the package rows too; `test_the_golden_matches_the_corpus` keeps its assertions on the base files, and
+`test_every_package_golden_matches_its_scenarios` holds each package's.
 
 WHAT THIS HOLDS. The golden was recorded ONCE, on the tree as it was before any package of step 1 moved the order of the claimers (the commit is in its header). Every later package that
 changes who takes a line first (S41-2 and S41-3: one table of order, S41-8: one frame dispatcher) runs this file and must leave every outcome as it is: the claimer trace, the operations
@@ -55,13 +58,33 @@ MAX_SHOWN = 12
 
 
 def corpus() -> list:
+    """The base corpus, then the scenarios of every package (entry_ext/), in the order of their sorted ids."""
+    return ek.all_scenarios()
+
+
+def base_corpus() -> list:
     return ek.read_jsonl(ek.CORPUS_FILE)
 
 
 def golden() -> tuple:
-    """(header, {id: outcome}) of the committed golden."""
+    """(the base header, {id: outcome}) of the committed golden of the base and of every package."""
+    rows = ek.read_jsonl(ek.GOLDEN_FILE)
+    outcomes = {row["id"]: row["outcome"] for row in rows[1:]}
+    for package in ek.ext_packages():
+        outcomes.update({row["id"]: row["outcome"] for row in ek.ext_golden(package)[1]})
+    return rows[0], outcomes
+
+
+def base_golden() -> tuple:
+    """(header, {id: outcome}) of the base golden file alone."""
     rows = ek.read_jsonl(ek.GOLDEN_FILE)
     return rows[0], {row["id"]: row["outcome"] for row in rows[1:]}
+
+
+def record_corpus() -> list:
+    """The scenarios a recording run takes: the base (the default) or the one package named by WB_ENTRY_RECORD_SET."""
+    chosen = os.environ.get("WB_ENTRY_RECORD_SET", "base")
+    return base_corpus() if chosen == "base" else ek.ext_scenarios(chosen)
 
 
 def shard_of(scenarios: list, shard: int) -> list:
@@ -101,7 +124,7 @@ def test_record_the_golden(shard, tmp_path):
     out = Path(os.environ["WB_ENTRY_RECORD_DIR"]) / f"shard-{shard}.jsonl"
     rows, times = [], []
     only = os.environ.get("WB_ENTRY_ONLY")      # a regular expression on the ids: an exploratory record of part of the corpus (the builder's --record never sets it)
-    for scenario in shard_of(corpus(), shard):
+    for scenario in shard_of(record_corpus(), shard):
         if only is None or re.search(only, scenario["id"]):
             started = time.monotonic()
             rows.append({"id": scenario["id"], "outcome": replay(scenario, tmp_path)})
@@ -147,13 +170,59 @@ def test_no_model_and_no_provider_call_was_made(tmp_path):
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_the_golden_matches_the_corpus():
-    header, recorded = golden()
-    scenarios = corpus()
+    header, recorded = base_golden()
+    scenarios = base_corpus()
     assert [s["id"] for s in scenarios] == list(recorded), "the golden holds the scenarios of the corpus, in its order"
     assert header["corpus_sha256"] == ek.corpus_sha256(), "the corpus is the one the golden was recorded from"
     assert header["answers_sha256"] == ek.answers_sha256(), "the recorded answers the stand-in model reads (entry_kit.ANSWER_FILES and OVERRIDES) are the ones the golden was recorded with"
     assert header["count"] == len(scenarios) and header["commit"] and len(header["commit"]) >= 7
     assert [s["id"] for s in scenarios] == [s["id"] for s in build.generate(False)[0]], "the corpus is what entry_corpus_build.py writes"
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_package_golden_matches_its_scenarios():
+    """HOT-1: for each package of entry_ext/, its golden holds its scenarios' ids in order, the hash of its scenarios file and of its model texts, the count and a commit; the files of entry_ext/
+    have no problem (names, ids, shapes, canonical form, model texts that change no other scenario's answer)."""
+    assert ek.ext_problems() == []
+    for package in ek.ext_packages():
+        assert ek.package_golden_problems(package) == [], package
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_vacuity_a_package_golden_is_replayed_and_checked_and_a_wrong_row_or_hash_is_seen(tmp_path, monkeypatch):
+    """A fictional package folder with two scenarios copied from the base under new ids, recorded by the replay's own `replay`: its golden has no problem and every row replays to its outcome; a
+    planted wrong outcome is a difference, a planted wrong hash, id or count is a problem, and a model text keyed on a base scenario's text is a problem of `override_problems`."""
+    folder = tmp_path / "entry_ext"
+    folder.mkdir()
+    monkeypatch.setattr(ek, "EXT_DIR", folder)
+    base = base_corpus()
+    rows = [dict(dict(item, id=f"zz-plant.copy.0{n}")) for n, item in enumerate((base[0], base[40]), 1)]
+    (folder / "zz-plant.scenarios.jsonl").write_text(ek.ext_render(rows), encoding="utf-8")
+    assert ek.ext_problems(folder) == []
+    scenarios = ek.ext_scenarios("zz-plant", folder)
+    assert [s["id"] for s in ek.all_scenarios(folder)][-2:] == ["zz-plant.copy.01", "zz-plant.copy.02"]
+    outcomes = [{"id": s["id"], "outcome": replay(s, tmp_path)} for s in scenarios]
+    header = {"header": True, "package": "zz-plant", "commit": "0123456789", "scenarios_sha256": ek.corpus_sha256(folder / "zz-plant.scenarios.jsonl"),
+              "overrides_sha256": ek.overrides_sha256("zz-plant", folder), "count": 2}
+    golden_file = folder / "zz-plant.golden.jsonl"
+    golden_file.write_text(ek.ext_render([header] + outcomes), encoding="utf-8")
+    assert ek.package_golden_problems("zz-plant", folder) == []
+    assert golden()[1]["zz-plant.copy.01"] == outcomes[0]["outcome"], "golden() holds the package rows"
+    for scenario, row in zip(scenarios, outcomes):
+        assert differences(row["outcome"], replay(scenario, tmp_path)) == []
+    wrong = json.loads(json.dumps(outcomes[0]["outcome"]))
+    wrong["sent"] = wrong["sent"] + [{"to": "nobody", "text": "a planted message", "flags": {}}]
+    assert differences(wrong, outcomes[0]["outcome"]), "a planted wrong outcome is seen by the comparator"
+    for field, value in (("scenarios_sha256", "0" * 64), ("overrides_sha256", "0" * 64), ("count", 3), ("package", "zz-other"), ("commit", "abc")):
+        golden_file.write_text(ek.ext_render([dict(header, **{field: value})] + outcomes), encoding="utf-8")
+        assert ek.package_golden_problems("zz-plant", folder), field
+    golden_file.write_text(ek.ext_render([header] + outcomes[::-1]), encoding="utf-8")
+    assert ek.package_golden_problems("zz-plant", folder), "ids in another order"
+    golden_file.unlink()
+    assert ek.package_golden_problems("zz-plant", folder), "a package without a golden"
+    own = dict(rows[0], model_text="{}")
+    (folder / "zz-plant.scenarios.jsonl").write_text(ek.ext_render([own, rows[1]]), encoding="utf-8")
+    assert ek.override_problems(folder), "a model text keyed on a text that a base scenario also has would change that scenario's answer"
 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
@@ -264,7 +333,7 @@ def test_the_corpus_and_the_golden_hold_no_machine_path_no_real_address_and_no_t
     """Fictional data only (the review of the package checks it by hand too): no path of a machine, every address on an invented domain (`.example`, `example.com`, or a bot suffix of a
     command), no string the scan reads as a credential."""
     import re
-    for path in (ek.CORPUS_FILE, ek.GOLDEN_FILE):
+    for path in (ek.CORPUS_FILE, ek.GOLDEN_FILE, *sorted(ek.EXT_DIR.glob("*.jsonl"))):
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"/Users/|/private/|/var/folders|/tmp/|/home/", text), f"{path.name} names a path of a machine"
         for address in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", text):

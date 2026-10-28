@@ -9,20 +9,22 @@ uses (decision of 2026-10-18; package ACCT-M).
 Commands:
   authorize   the authorization code flow with PKCE (S256) and a state, as a public client (no client secret), in the system browser, with a
               loopback redirect. It asks for the platform's whole set of delegated Microsoft Graph permissions in one consent:
-              Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite and User.Read, and offline_access (the refresh token). It
-              checks that the token carries exactly that set (a missing or an extra permission stops it, exit 3, and nothing is stored),
+              Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite, User.Read and Tasks.ReadWrite (Microsoft To Do; added by CB-4),
+              and offline_access (the refresh token). It checks that the token carries exactly that set (a missing or an extra permission stops it, exit 3, and nothing is stored),
               reads the account's address once (GET /me, with User.Read) and the account's kind, and stores the authorization as one record
               in the OS secret store. Run it once per account.
   check       whether an authorization is found, through the secret resolver (the environment, the credentials directory, then the OS
-              secret store), and that it was made for the platform's set; no network, no token printed: only the facts below.
+              secret store), and that it was made for the platform's set; no network, no token printed: only the facts below. A record
+              made before To Do tasks were added holds the five permissions of PREVIOUS_SCOPES: mail, calendar and files keep working
+              with it, `check` prints "tasks": false and exits 3, and the To Do providers say "authorize again" (run `authorize` once).
   forget      deletes that record from the OS secret store (our own local record; it revokes nothing at Microsoft: do that in your Microsoft
               account, "Apps and services", or for a work account in My Apps).
   --account <slot>  the record's slot (default main). Version 1 has the slot main only; another word is refused (exit 2). The record carries
               its slot so that a second account can be added later without moving this one.
   --no-browser      with authorize: print the consent URL and open nothing.
 authorize prints one JSON object on stdout: {"authorized": true, "secret_store": {"service", "username"}, "slot", "account", "account_kind",
-"scopes", "tenant", "obtained_at"}; check prints {"found", "source", "slot", "account", "account_kind", "tenant", "scopes", "has_refresh_token",
-"obtained_at"}. Neither prints a token.
+"scopes", "tenant", "obtained_at"}; check prints {"found", "source", "slot", "account", "account_kind", "tenant", "scopes" (the permissions the
+record holds), "tasks" (whether it holds Tasks.ReadWrite), "has_refresh_token", "obtained_at"}. Neither prints a token.
 
 What the token can do. It is not narrow: with the whole set it reads, changes, sends and moves to the trash everything the account holds in
 Outlook mail, Outlook calendar and OneDrive (Microsoft lists the permanentDelete actions of a message, an event and a drive item with these
@@ -45,7 +47,9 @@ not each person):
   3. Authentication, Add a platform, "Mobile and desktop applications", custom redirect URI http://localhost  (the port is ignored for
      localhost, so the random port this script listens on matches). No client secret, no certificate.
   4. API permissions, Add a permission, Microsoft Graph, Delegated permissions: Mail.ReadWrite, Mail.Send, Calendars.ReadWrite,
-     Files.ReadWrite, User.Read and offline_access, and nothing else. None needs an admin's consent on a personal account (the permissions
+     Files.ReadWrite, User.Read, Tasks.ReadWrite and offline_access, and nothing else (Tasks.ReadWrite is the one To Do permission
+     that can create and complete a task; it needs no admin consent on a personal account: the To Do pages list it for a work or
+     school and for a personal account alike, https://learn.microsoft.com/en-us/graph/api/todotask-update, accessed 2026-10-27). None needs an admin's consent on a personal account (the permissions
      reference: https://learn.microsoft.com/en-us/graph/permissions-reference, accessed 2026-10-18); do not grant admin consent for a
      personal test. Any other permission left on the registration is refused by the check.
   5. Copy the Application (client) ID. Run: MICROSOFT_CLIENT_ID=<the id> uv run <workbench>/providers/accounts/microsoft_auth.py authorize
@@ -105,7 +109,7 @@ SECRET, KEYRING_USERNAME = msgraph.ACCOUNT_SECRET, msgraph.ACCOUNT_KEYRING_USERN
 ENV_PREFIX = "ACCOUNT_MICROSOFT"
 PROFILE = msgraph.account_profile(
     run_hint="uv run <workbench>/providers/accounts/microsoft_auth.py", env_prefix=ENV_PREFIX, user_agent="openhora-accounts-microsoft",
-    not_found="Microsoft does not know the item", forbidden_hint="check that the account token carries the platform's whole set")
+    not_found="Microsoft does not know the item", forbidden_hint="check that the account token carries the platform's whole set", tasks=True)
 ENV_BASE, ENV_TOKEN_URL = PROFILE.env_base, PROFILE.env_token_url
 TOKEN_URL_TEMPLATE = msgraph.TOKEN_URL_TEMPLATE
 pkce_pair, state_matches, now_iso = msgraph.pkce_pair, msgraph.state_matches, msgraph.now_iso

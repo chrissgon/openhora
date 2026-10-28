@@ -206,16 +206,18 @@ def step_condition(job, step_name, text=None):
     return " ".join(parts) if found else None
 
 
-def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None, draft=None):
+def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None, draft=None, head_ref=""):
     if expression is None:
         return True  # a job without a condition runs
     expression = expression.replace("always()", "True")  # the condition of the aggregator: it runs, whatever its needs ended in
     py = re.sub(r"contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'([^']+)'\)", lambda m: "(%r in labels)" % m.group(1), expression)
+    py = re.sub(r"startsWith\(github\.head_ref,\s*'([^']+)'\)", lambda m: "(%r in prefixes)" % m.group(1), py)      # HOT-1: the prefixes of the head branch's name, so that `in` does the test
     py = py.replace("github.event_name", "event_name").replace("github.event.action", "action").replace("github.base_ref", "base_ref")
     py = py.replace("github.event.label.name", "label").replace("github.event.pull_request.draft", "draft")
     py = py.replace("&&", " and ").replace("||", " or ")
     py = re.sub(r"!(?!=)", " not ", py)
-    names = {"event_name": event_name, "action": action, "base_ref": base_ref, "labels": list(labels), "label": label, "draft": draft}
+    names = {"event_name": event_name, "action": action, "base_ref": base_ref, "labels": list(labels), "label": label, "draft": draft,
+             "prefixes": [head_ref[:n] for n in range(len(head_ref) + 1)]}
     return bool(walk(ast.parse(py.strip(), mode="eval").body, names))
 
 
@@ -849,3 +851,91 @@ def test_vacuity_a_nightly_with_a_write_permission_or_an_expression_in_a_run_lin
         planted = text.replace(old, new, 1)
         assert planted != text, old
         assert nightly_problems(planted), old
+
+
+# ---- the generated blocks: strict on a batch, on main, on a push and in the nightly run (HOT-1; SPEC-HOTSPOTS 4.4) --------------------------------------------
+
+BLOCKS_ENV = "WB_GENERATED_BLOCKS"
+BLOCKS_EXPRESSION = "${{ (github.event_name != 'pull_request' || github.base_ref == 'main' || startsWith(github.head_ref, 'batch/')) && 'strict' || 'lenient' }}"
+BLOCKS_JOBS = ("tests-shard", "python39")
+BLOCKS_STRICT = {
+    "a push to main": dict(event_name="push"),
+    "a pull request into main": dict(event_name="pull_request", action="synchronize", base_ref="main", head_ref="feature/delegation-platform"),
+    "a pull request whose head is a batch": dict(event_name="pull_request", action="synchronize", base_ref="feature/delegation-platform", head_ref="batch/2026-10-28-1"),
+    "a manual run": dict(event_name="workflow_dispatch"),
+}
+BLOCKS_LENIENT = {
+    "a package's pull request into the integration branch": dict(event_name="pull_request", action="synchronize", base_ref="feature/delegation-platform", head_ref="cb-9/x"),
+    "a draft package pull request": dict(event_name="pull_request", action="synchronize", base_ref="feature/delegation-platform", head_ref="hot-1/ledgers", draft=True),
+    "a head that only contains batch/": dict(event_name="pull_request", action="synchronize", base_ref="feature/delegation-platform", head_ref="cb-9/batch/x"),
+}
+
+
+def blocks_mode(text, job, **event):
+    """What WB_GENERATED_BLOCKS is for `event` in the job-level `env:` of that job: "strict", "lenient", or None when the job sets no such variable. The expression read is
+    `${{ (<condition>) && '<a>' || '<b>' }}`, evaluated by the reader above for the condition; any other form is an error."""
+    found = re.findall(r"^      %s: (.*?)\s*$" % BLOCKS_ENV, job_block(text, job).split("    steps:")[0], re.M)      # the job's own env, above its steps (a step's env is indented more)
+    if not found:
+        return None
+    assert len(found) == 1, job
+    match = re.fullmatch(r"\$\{\{ \((.*)\) && '(\w+)' \|\| '(\w+)' \}\}", found[0])
+    if not match:
+        return found[0]      # a literal (`strict`) or a form this reader does not know: the caller compares it
+    return match.group(2) if evaluate(match.group(1), **event) else match.group(3)
+
+
+def blocks_problems(text):
+    """What is wrong with the strictness of the generated blocks in a text of checks.yml: a job without the variable, the expression not word for word, a mode that is not the wanted one
+    for an event."""
+    found = []
+    for job in BLOCKS_JOBS:
+        block = job_block(text, job).split("    steps:")[0]
+        if BLOCKS_ENV + ": " + BLOCKS_EXPRESSION not in block:
+            found.append(f"{job}: the expression is not the one of the spec, word for word")
+        for name, event in BLOCKS_STRICT.items():
+            if blocks_mode(text, job, **event) != "strict":
+                found.append(f"{job}: {name} is not strict")
+        for name, event in BLOCKS_LENIENT.items():
+            if blocks_mode(text, job, **event) != "lenient":
+                found.append(f"{job}: {name} is not lenient")
+    return found
+
+
+def test_the_generated_blocks_are_strict_on_a_batch_on_main_on_a_push_and_a_manual_run_and_lenient_on_a_package_pull_request():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    assert blocks_problems(text) == []
+    for job in BLOCKS_JOBS:
+        assert job_block(text, job).count(BLOCKS_EXPRESSION) == 1, job
+
+
+def test_only_the_two_jobs_that_run_tests_on_a_runner_with_the_runtime_set_the_variable():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    jobs = re.findall(r"^  ([\w-]+):\s*$", text[re.search(r"^jobs:\s*$", text, re.M).end():], re.M)
+    setting = [name for name in jobs if re.search(r"^      %s: " % BLOCKS_ENV, job_block(text, name), re.M)]
+    assert sorted(setting) == sorted(BLOCKS_JOBS), setting
+
+
+def test_vacuity_a_workflow_with_the_variable_removed_or_strict_and_lenient_swapped_or_a_wrong_condition_is_caught():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    assert blocks_problems(text) == []
+    removed = re.sub(r"^      %s: .*\n" % BLOCKS_ENV, "", text, count=1, flags=re.M)
+    assert removed != text and any("is not strict" in p or "word for word" in p for p in blocks_problems(removed))
+    swapped = text.replace("&& 'strict' || 'lenient'", "&& 'lenient' || 'strict'")
+    assert swapped != text and any("is not strict" in p for p in blocks_problems(swapped)) and any("is not lenient" in p for p in blocks_problems(swapped))
+    for old, new in (("github.event_name != 'pull_request' || ", ""), (" || github.base_ref == 'main'", ""), (" || startsWith(github.head_ref, 'batch/')", ""),
+                     ("startsWith(github.head_ref, 'batch/')", "startsWith(github.head_ref, 'cb-')")):
+        planted = text.replace(old, new)
+        assert planted != text, old
+        assert blocks_problems(planted), old
+    only_one_job = text.replace("      " + BLOCKS_ENV + ": " + BLOCKS_EXPRESSION + "\n", "", 1)
+    assert any(p.startswith("tests-shard") for p in blocks_problems(only_one_job))
+
+
+def test_the_nightly_run_is_strict_about_the_generated_blocks_in_both_its_jobs():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    for job in ("nightly-shard", "nightly-python39"):
+        block = job_block(text, job).split("    steps:")[0]
+        assert re.search(r"^    env:\n      %s: strict\n" % BLOCKS_ENV, block, re.M), job
+    assert nightly_problems(text) == []
+    planted = text.replace("WB_GENERATED_BLOCKS: strict", "WB_GENERATED_BLOCKS: lenient", 1)
+    assert planted != text and not re.search(r"^    env:\n      %s: strict\n" % BLOCKS_ENV, job_block(planted, "nightly-shard").split("    steps:")[0], re.M)

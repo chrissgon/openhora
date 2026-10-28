@@ -72,7 +72,7 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
 ## Keeping the pages current
 
-A table that changes with the code is generated, never edited by hand: it sits between `<!-- generated: <table> -->` and `<!-- /generated -->`, and `python3 scripts/architecture_tables.py --help` names each table and its one source. After a change to one of those sources, run `python3 scripts/architecture_tables.py --write`; `--check` names the stale blocks, and `scripts/validate.py` reports each one as a warning (`[architecture-tables]`). The prose around a block stays hand-written.
+A table that changes with the code is generated, never edited by hand: it sits between `<!-- generated: <table> -->` and `<!-- /generated -->`, and `python3 scripts/architecture_tables.py --help` names each table and its one source. After a change to one of those sources, run `python3 scripts/architecture_tables.py --write`; `--check` names the stale blocks, and `scripts/validate.py` reports each one as a warning (`[architecture-tables]`). The prose around a block stays hand-written. A package never runs `--write` and never edits a block: the blocks are regenerated once per batch of merges, in one commit, so that packages built at the same time do not conflict on them. The test that compares the blocks with their sources is strict on a batch (a branch named `batch/...`), on a pull request into `main`, on a push to `main`, on a manual run and in the nightly run, and lenient on a package's pull request into the integration branch, where a block that only differs from its source is not a failure (an unknown table or an unreadable source still is); `WB_GENERATED_BLOCKS` in `.github/workflows/checks.yml` chooses.
 
 ## The pages
 
