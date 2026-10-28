@@ -7,7 +7,7 @@
 
   file_read(project, file, [account], [channel, sender])   the operation (the typed command, the page, a messaging app): {"status", ...}, below
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `file-read`)
-  take(project, ctx, said, channel, sender, extras)        the reply to a bare number said right after a list of files ("o 2"), or None (the row `file-list-number` of runtime/ops_turn.py)
+  take(project, ctx, said, channel, sender, extras)        the reply to a bare number ("o 2") or an ordinal word ("o primeiro", "a última") said right after a list of files, or None (the row `file-list-number` of runtime/ops_turn.py)
   begin_turn(ctx, channel, sender)                         called at the start of every line (runtime/ops_say.py): a list is valid for the line right after it
   read_whole(cfg, match)                                   (FA-1) the converted text of the one file chosen, WHOLE, with the count of images taken out of a Google Doc and the provider's version: the reader of `file-ask`
 
@@ -27,6 +27,14 @@ The match (S17): the name span is cut into the words code folds as every name of
 occurs in its name (the extension optional; a typed extension must be the file's when the file has one). A file whose whole name is the span (S8's rule) wins over files that only
 contain its words. One match is read; several are listed (a number, name, folder path, account) and the sender's next line "o 2" picks one (`take`, below); none gets one sentence
 naming the configured folders searched, by the names the configuration gives them (never an id or a path), and that their subfolders were included.
+
+An ordinal word picks too (LP-2, the maintainer's ok of 2026-10-28; runtime/list_pick.py): after a list, "o primeiro", "o segundo" and "a última" (or "the first one", "the last") are the file in that
+place of the list as it was printed (the files are numbered 1..k, so a position is the number the person read). The line is read whole by `list_pick.read` and decided by `list_pick.choose`
+against the printed places, in `_place`, so a pick is always one of the files the list showed this sender, in the list that is the last thing said, and from there it goes exactly as its number goes
+(the same checks of the right to read, of the grant and of the group `send-files`; a list for the trash or for a question opens that card or runs that question). What is NOT a pick of a file: a
+verb with it ("lê o primeiro"), a value the list shows (a clock, a day, an account, a sender: the list shows names and folders, OPEN-LP-7), a place beyond the list, a longer request, and "a última"
+when the list printed fewer files than fit (the sentence said "N arquivos" and showed 8: the last file of the list is not the last row printed, so the line goes on as before). Only the
+list of `file-read` says it printed every file (`whole`); the lists for the trash and for a question do not say so yet, so "a última" is not taken there. No interpreter slot, plan item or card word ever receives a number that the line did not write.
 
 The read goes through the providers of `integration:documents` that already read the files of a source (`sources.drive_call`, `sources_onedrive.onedrive_call`: `read`,
 with `children` for the listing), the same intake, the same converter and the same credential scan (limit L14) as a source, and registers nothing: no source, no version,
@@ -648,13 +656,14 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read", extra=None) -> None:
-    """Keep the list a pick answers, in process memory. `extra` (FA-1) is a small dict held beside the list for the pick that follows (for "ask": the person's question); it is never written, logged or sent, and it is dropped with the list."""
+def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read", extra=None, whole: bool = False) -> None:
+    """Keep the list a pick answers, in process memory. `extra` (FA-1) is a small dict held beside the list for the pick that follows (for "ask": the person's question); it is never written, logged or sent, and it is dropped with the list.
+    `whole` (LP-2): the list printed every file that fit; only then does "o último" mean the last row printed (a caller that does not say so is read as "not whole")."""
     now = _natural()._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
-        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "extra": dict(extra) if isinstance(extra, dict) else None, "seen": 0,
+        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "extra": dict(extra) if isinstance(extra, dict) else None, "whole": whole is True, "seen": 0,
                                                "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
 
 
@@ -714,6 +723,21 @@ def _finish(cfg: dict, got: dict, extras: dict, pick: bool = True) -> str:
     return text
 
 
+def _place(said: str, record: dict):
+    """The place (1..k) in the list of the file the line names, or None. A number form (S11) names a place only without a verb; a line that is no number form may name a row by an
+    ordinal word or by the word for last (LP-2, runtime/list_pick.py: "o primeiro", "a última"), read against the rows as printed (1..k, so a position is the number printed). A value
+    the list shows (a clock, a day, an account, a sender) is no pick of a file (OPEN-LP-7), a verb with a pick is none, and "a última" of a list that printed fewer files than fit is none."""
+    count = len(record["items"])
+    form = importlib.import_module("event_lookup")._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
+    if form is not None:
+        return form["n"] if form["verb"] is None and 1 <= form["n"] <= count else None
+    pick = importlib.import_module("list_pick").read(said)
+    if pick is None or pick["verb"] is not None or pick["kind"] not in ("ordinal", "last"):
+        return None
+    verdict = importlib.import_module("list_pick").choose(pick, [{"n": i, "position": i} for i in range(1, count + 1)], None, not record.get("whole"))
+    return verdict[1] + 1 if verdict[0] == "one" else None
+
+
 def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     """The reply to a number said right after a list of files ("o 2", "2", "the 2nd"), or None when the line is not one (no live list for this sender, a line that is no bare
     number, a number the list did not show). Any line ends the list, so a pick is used once. The sender's right to read files is asked again, and so is the grant: the configured
@@ -724,18 +748,18 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     if record is None:
         return None
     _drop(ctx, channel, sender)
-    form = importlib.import_module("event_lookup")._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
-    if form is None or form["verb"] is not None or not 1 <= form["n"] <= len(record["items"]):
+    place = _place(said, record)
+    if place is None:
         return None
     cfg = ctx["cfg"]
     if record.get("purpose") == "trash":      # R2-A: the list was of files to move to the trash: the number opens that file's card (runtime/ops_file_trash.py)
-        return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][form["n"] - 1], channel, sender, extras)
+        return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][place - 1], channel, sender, extras)
     if record.get("purpose") == "ask":      # FA-1: the list was of files to answer a question about: the number runs the question the list held (runtime/ops_file_ask.py)
-        return importlib.import_module("ops_file_ask").pick(project, ctx, record["items"][form["n"] - 1], record.get("extra"), channel, sender, extras)
+        return importlib.import_module("ops_file_ask").pick(project, ctx, record["items"][place - 1], record.get("extra"), channel, sender, extras)
     refused = operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)
-    match = record["items"][form["n"] - 1]
+    match = record["items"][place - 1]
     folders = [(service, None) for service in SERVICES if (project_config.account_entry(cfg, service) or {}).get("folders")]          # the real names are not read again for a refusal
     granted = {(service, ident) for service in SERVICES for ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).values()}
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
@@ -824,7 +848,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     line_stage.publish("file")      # S19: the name is checked, the folders are searched
     got = _find_and_read(cfg, wanted, account, said, _sending(ctx, channel, sender, extras))
     if got["status"] == "several" and channel == "messaging":
-        _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")))
+        _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), whole=got["count"] <= len(got["refs"]))
     return _finish(cfg, got, extras, channel == "messaging")
 
 
