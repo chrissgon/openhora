@@ -1,0 +1,33 @@
+{
+ "package": "cb-3",
+ "table": {
+  "MR_HEAD": "{box} · {line}",
+  "MR_BODY_CUT": "… (texto cortado)",
+  "MR_NO_TEXT": "(sem texto)",
+  "MR_ROW": "{n}. {box} · {line}",
+  "MR_WHICH_BOX": "{count} das suas caixas têm um e-mail {n}: {list}.",
+  "MR_SEVERAL": "Achei {count} e-mails que combinam:\n{rows}",
+  "MR_TOO_MANY": "Achei {count} e-mails que combinam; diga mais palavras do remetente ou do assunto.",
+  "MR_NONE": "Não achei nenhum e-mail com essas palavras no snapshot mais novo das suas caixas.",
+  "MR_ASK": "Qual e-mail? Diga o número dele, ou algumas palavras do remetente ou do assunto.",
+  "MR_PAST_END": "O {box} tem {count} e-mails no snapshot mais novo, então não existe o e-mail {n} ali.",
+  "MR_UNAVAILABLE": "Não consegui ler esse e-mail agora. Peça a lista dos seus e-mails de novo e depois o número dele.",
+  "MR_FOUND_ONE": "Achei 1 e-mail que combina:\n{rows}",
+  "MR_PICK": "Diga “lê o {n} do {box}”, com o número e a caixa do que você quer.",
+  "MR_WHICH_SAY_TWO": "Diga “lê o {n} do {first_box}” ou “do {second_box}”.",
+  "MR_WHICH_SAY_ONE": "Diga “lê o {n} do {box}” para ler o que está no {box}.",
+  "MR_WHICH_PAGE": "Algumas dessas caixas são da mesma conta, então não consigo distingui-las só pelas palavras: escolha {where}",
+  "MR_WHICH_TYPED": "Indique qual com --message {refs}.",
+  "MR_BOX_NOTE": "Não consegui ler {boxes} agora, então pode haver mais.",
+  "MR_BOX_FAILED": "Não consegui ler {boxes} agora, então não vou adivinhar qual é o e-mail {n}. Tente de novo em alguns minutos.",
+  "MR_DAY_UNREAD": "Não consegui entender qual dia você quer, ou um e-mail está sem horário registrado, então não escolhi por data. Diga o número dele ou algumas palavras do remetente ou do assunto.",
+  "UNDERSTOOD_MAIL_READ_N": "mostrar o texto do e-mail {n}",
+  "UNDERSTOOD_MAIL_READ_WORDS": "mostrar o texto do e-mail com “{words}”",
+  "UNDERSTOOD_MAIL_READ_DAY": "mostrar o texto do e-mail de “{day}”",
+  "UNDERSTOOD_MAIL_READ_WORDS_DAY": "mostrar o texto do e-mail com “{words}” de “{day}”"
+ },
+ "same_as_english": [
+  "MR_HEAD",
+  "MR_ROW"
+ ]
+}

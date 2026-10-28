@@ -1,0 +1,23 @@
+{
+ "package": "cb-3",
+ "add": {
+  "natural_table.R": [
+   "mail-read"
+  ],
+  "messaging_policy.ON_MESSAGING": [
+   "mail-read"
+  ],
+  "messaging_policy.NOT_PERMITTED_BY_DEFAULT": [
+   "mail-read"
+  ],
+  "mcp.CHANNEL_ARG": [
+   "mail-read"
+  ],
+  "operations_table.PUBLIC_MODULES": [
+   "ops_mail_read"
+  ],
+  "interpreter_coverage.NOT_SERVED": [
+   "mail-read"
+  ]
+ }
+}

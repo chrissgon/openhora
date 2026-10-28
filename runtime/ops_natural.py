@@ -296,6 +296,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return done
     if name == "file-read":      # S8: the text of a file found by its name; code writes the reply and the conversation keeps a neutral word (runtime/ops_file_read.py)
         return importlib.import_module("ops_file_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "mail-read":      # CB-3: the text of one message of the mail snapshots; code writes the reply, no model reads it, and the conversation keeps a neutral word (runtime/ops_mail_read.py)
+        return importlib.import_module("ops_mail_read").reply(project, ctx, args, said, channel, sender, extras)
     if name == "research":      # R2-F1: a question of general information answered by a web search; code runs the research skill, writes the reply and the conversation keeps a neutral word (runtime/ops_research.py)
         return importlib.import_module("ops_research").reply(project, ctx, args, said, channel, sender, extras)
     if cls == "R":

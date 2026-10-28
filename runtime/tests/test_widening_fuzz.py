@@ -96,6 +96,8 @@ def random_groups(channel, rng):
         out.remove("read-limited")
     if "files-trash" in out and "read-files" not in out:
         out.append("read-files")      # the configuration refuses the trash without the right to see names (R2-A), as it refuses send-files without read-files
+    if channel == "messaging" and "read-mail-body" in out and "ask-mail" not in out:
+        out.append("ask-mail")      # CB-3: the configuration refuses the text of a message without the right to read the snapshots beside it
     return out
 
 
