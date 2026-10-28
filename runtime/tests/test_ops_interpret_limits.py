@@ -240,7 +240,7 @@ def test_ten_calls_per_sender_per_minute_and_the_eleventh_is_routed(world, monke
 
 
 def test_vacuity_with_the_rate_check_off_the_eleventh_call_goes_through_and_the_scenario_fails(world, monkeypatch):
-    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender: turn_gate.Admission(turn_gate._MINT))
+    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender, fallback=None: turn_gate.Admission(turn_gate._MINT))      # LUNA-ENABLE: the committed entry names a fallback, so the caller passes `fallback=`
     assert rate_scenario(world, monkeypatch) != []
 
 

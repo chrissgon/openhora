@@ -88,7 +88,7 @@
    "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
    "key_prefix": "sk-or-v1-",
    "reference": false,
-   "retention": "Sent to Microsoft Azure, not to the model maker's own endpoint, through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Azure among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its OpenAI toggle removes the first-party OpenAI endpoints while Azure remains. Azure's own written terms for this use are not confirmed here: nothing is sent to this route before the maintainer accepts that evidence."
+   "retention": "Sent to Microsoft Azure, not to the model maker's own endpoint, through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Azure among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its OpenAI toggle removes the first-party OpenAI endpoints while Azure remains. Azure's own written terms for this use were not checked: on 2026-10-28 the maintainer accepted OpenRouter's ZDR page as the written evidence."
   }
  ]
 }

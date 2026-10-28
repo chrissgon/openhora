@@ -428,7 +428,7 @@ def test_the_eleventh_call_of_a_sender_within_a_minute_is_not_made_and_the_calle
 @pytest.mark.parametrize("kind", CALLERS)
 def test_vacuity_with_the_admission_always_given_the_eleventh_call_is_made_and_the_scenario_fails(request, monkeypatch, kind):
     env = Env(kind, request, monkeypatch)
-    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender: admission())
+    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender, fallback=None: admission())
     assert rate_wrong(env, Frozen(monkeypatch)) != []
 
 

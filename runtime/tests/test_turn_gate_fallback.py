@@ -579,7 +579,11 @@ def newest_with(tmp_path, **fallback):
     doc = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))
     last = dict(doc["entries"][-1])
     if fallback:
-        last["fallback"] = fallback["value"]
+        if fallback["value"] is None:      # LUNA-ENABLE: the committed newest entry names a fallback now; None gives the same entry without one
+            last.pop("fallback", None)
+        else:
+            last["fallback"] = fallback["value"]
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "enable.json"
     path.write_text(json.dumps({"v": 1, "entries": [last]}), encoding="utf-8")
     return str(path), last
@@ -590,9 +594,10 @@ def good_item(route=FIRST, **over):
     return dict({"route": route, "route_sha256": hash_of(route) if known else "0" * 64, "measured": "2026-10-30 RESULT-X"}, **over)
 
 
-def test_a_valid_fallback_in_the_newest_entry_is_in_force_and_the_committed_entry_has_none(tmp_path):
-    assert interpreter_enable.active("en")["fallback"] == [], "this PR enables nothing: the committed entry names no fallback"
-    assert "fallback" not in json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"][-1]
+def test_a_valid_fallback_in_the_newest_entry_is_in_force_and_the_committed_entry_names_only_luna(tmp_path):
+    committed = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]      # LUNA-ENABLE (2026-10-28): the maintainer's dated entry names the outage route
+    assert [item["route"] for item in committed[-1]["fallback"]] == [SECOND] and interpreter_enable.active("en")["fallback"] == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}]
+    assert interpreter_enable.fallbacks(committed[-1]) == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}] and all("fallback" not in earlier for earlier in committed[:-1])
     for value in (good_item(), [good_item()], [good_item(), good_item(SECOND)]):
         path, entry_ = newest_with(tmp_path, value=value)
         found = interpreter_enable.active("en", path=path)
@@ -676,7 +681,9 @@ def test_the_status_script_reads_an_entry_with_a_fallback_as_in_force(tmp_path):
 
 
 def test_the_retention_of_the_fallback_routes_in_force(tmp_path):
-    assert interpreter_enable.fallback_retention() is None, "nothing is enabled in this PR"
+    assert interpreter_enable.fallback_retention() == [interpreter_route.find(SECOND)["retention"]], "the committed newest entry names the second route only (LUNA-ENABLE, 2026-10-28)"
+    path, _ = newest_with(tmp_path / "none", value=None)
+    assert interpreter_enable.fallback_retention(path) is None and interpreter_enable.active("en", path=path)["fallback"] == [], "the same entry without the field: the interpreter on, no fallback"
     path, _ = newest_with(tmp_path, value=[good_item(), good_item(SECOND)])
     kept = interpreter_enable.fallback_retention(path)
     assert kept == [interpreter_route.find(FIRST)["retention"], interpreter_route.find(SECOND)["retention"]]
@@ -698,7 +705,8 @@ def test_routes_file_daily_rows_are_pinned_and_deny_collection():
     for fallback_id, pin, upstream in ((FIRST, "google-vertex", "google/gemini-3.5-flash-lite"), (SECOND, "azure", "openai/gpt-6-luna")):
         row = by_id[fallback_id]
         assert row["zdr"] is True and row["pin"] == pin and row["upstream_model"] == upstream and row["model"] == "openrouter/" + upstream, fallback_id
-        assert "not confirmed" in row["retention"] and "zero data retention" in row["retention"].lower()
+        assert ("not confirmed" if fallback_id == FIRST else "were not checked") in row["retention"] and "zero data retention" in row["retention"].lower()      # Luna: the maintainer accepted the router's ZDR page on 2026-10-28, Azure's own terms not checked
+    assert "the maintainer accepted OpenRouter's ZDR page as the written evidence" in by_id[SECOND]["retention"] and "before the maintainer accepts" not in by_id[SECOND]["retention"]
 
 
 def test_the_fallback_rows_have_the_pinned_hashes_and_the_primary_is_unchanged():
@@ -759,7 +767,8 @@ def test_a_policy_that_lists_the_fallback_without_interpret_is_refused_and_one_w
         project_config._check_assigned("channels.page", "page", ["read", "interpret", "interpret-fallback"], None)      # a group of a messaging app on the page: refused as `interpret` is
 
 
-def test_widening_the_group_says_that_no_fallback_is_enabled_in_this_checkout(world):
+def test_widening_the_group_says_that_no_fallback_is_enabled_when_the_newest_entry_names_none(world, monkeypatch, tmp_path):
+    monkeypatch.setattr(interpreter_enable, "ENABLE_FILE", newest_with(tmp_path / "none", value=None)[0])
     accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS})
     write_config(world["path"], policies=dict(PROFILES, owner=PROFILES["owner"] + ["interpret", "interpret-fallback"]))
     shown = ops.config(world["path"])
@@ -768,6 +777,16 @@ def test_widening_the_group_says_that_no_fallback_is_enabled_in_this_checkout(wo
     assert "No fallback route is in force in this checkout" in mine[0]["means"] and "second model service of another company" in mine[0]["means"]
     assert "cannot be accepted until the maintainer's dated entry names one" in mine[0]["means"]
     assert policy_widening.widening_sha256([{"place": KEY["owner"], "group": "interpret-fallback"}]) is not None
+
+
+def test_widening_the_group_names_luna_and_its_retention_on_the_committed_entry(world):
+    accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS})
+    write_config(world["path"], policies=dict(PROFILES, owner=PROFILES["owner"] + ["interpret", "interpret-fallback"]))
+    mine = [item for item in ops.config(world["path"])["widening"] if item["group"] == "interpret-fallback"]
+    luna = interpreter_route.find(SECOND)
+    assert len(mine) == 1 and "No fallback route is in force" not in mine[0]["means"]
+    assert luna["retention"] in mine[0]["means"] and luna["upstream_model"] in mine[0]["means"] and luna["pin"] in mine[0]["means"], "the person is shown the company, the model, the provider and the retention text"
+    assert "the maintainer accepted OpenRouter's ZDR page as the written evidence" in mine[0]["means"] and "Azure's own written terms for this use were not checked" in mine[0]["means"]
 
 
 def test_widening_the_group_prints_the_retention_of_each_fallback_route_the_newest_entry_names(monkeypatch, tmp_path):
@@ -816,7 +835,7 @@ def test_the_interpreters_ask_goes_to_the_fallback_through_the_gate_and_records_
 def with_entry(monkeypatch, tmp_path, *routes, name="enable.json"):
     """The enabling file whose newest entry names these fallback routes (none: no `fallback` key), made the file of the module."""
     (tmp_path / name.replace(".json", "")).mkdir(exist_ok=True)
-    path, _ = newest_with(tmp_path / name.replace(".json", ""), value=[good_item(r) for r in routes]) if routes else newest_with(tmp_path / name.replace(".json", ""))
+    path, _ = newest_with(tmp_path / name.replace(".json", ""), value=[good_item(r) for r in routes]) if routes else newest_with(tmp_path / name.replace(".json", ""), value=None)
     monkeypatch.setattr(interpreter_enable, "ENABLE_FILE", path)
 
 
