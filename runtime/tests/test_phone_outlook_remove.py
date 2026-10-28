@@ -6,7 +6,7 @@ removing an Outlook event was off (decision Q12 of SPEC-SECRETARY-WRITES). S14b 
 live line on an Outlook event opens a card in the language of the project (never raw English), the typed path opens the same card, the Google event of the same line still opens its
 card, and the file lines keep their sentence.
 
-THE ORACLE is this file's own literals. It never calls the code under test to decide what is right. The vacuity cases plant a raw English sentence and show the oracle flags it. Over the
+THE ORACLE is phrase keys and their fields (runtime/tests/phrase_kit.py), whose wording the phrase snapshot pins. It never calls the code under test to decide what is right. The vacuity cases plant a raw English sentence and show the oracle flags it. Over the
 real calendar world of test_calendar_write.py; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_phone_outlook_remove.py
@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import Snapshots, fgc, fgw, rows, world  # noqa: F401  (the calendar world and its real snapshots)
 from test_event_lookup import CANCEL, OWNER, build, carry, reads_only  # noqa: F401
@@ -30,7 +32,12 @@ def raw_english(text: str) -> bool:
     return bool(ENGLISH.search(text))
 
 
-OUTLOOK_LINE_EN = "Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it."
+PT = {"language": "pt-BR"}
+
+
+def outlook_line(body):
+    """True when the first line of a stored (English) card body is the Outlook removal line."""
+    return pk.said(body.splitlines()[0], "CARD_CAL_CANCEL_OUTLOOK")
 
 
 def test_the_live_line_on_an_outlook_event_opens_the_cancel_card_in_portuguese_and_never_the_old_refusal(world, monkeypatch):
@@ -40,7 +47,7 @@ def test_the_live_line_on_an_outlook_event_opens_the_cancel_card_in_portuguese_a
     assert reply == CARD_SENT and "resend" in extras and reads_only(world) == [], "a card waits for the approval; nothing was written"
     assert not raw_english(reply) and "Microsoft" not in reply
     item = ops.pending(world["path"], extras["resend"])
-    assert item["status"] == "open" and item["body"].splitlines()[0] == OUTLOOK_LINE_EN and f"Account: microsoft ({fgc.ADDRESS})" in item["body"].splitlines()
+    assert item["status"] == "open" and outlook_line(item["body"]) and any(pk.said(line, "CARD_ACCOUNT", account="microsoft", address=fgc.ADDRESS) for line in item["body"].splitlines())
     assert [r["method"] for r in world["graph"].graph_requests() if r["method"] != "GET"] == [] and "AAMkOut=" in world["graph"].events
 
 
@@ -48,15 +55,15 @@ def test_the_same_line_in_an_english_project_opens_the_same_card_with_the_englis
     build(world, monkeypatch, language="en")
     add_outlook(world)
     reply, extras = carry(world, LINE, CANCEL)
-    assert reply == "Card #1 waits for your approval." and "resend" in extras
-    assert ops.pending(world["path"], extras["resend"])["body"].splitlines()[0] == OUTLOOK_LINE_EN
+    assert ps.alone(reply, "ACCT_CARD_SENT", {}, pending=1) and "resend" in extras
+    assert outlook_line(ops.pending(world["path"], extras["resend"])["body"])
 
 
 def test_the_typed_path_opens_the_same_card(world, monkeypatch):
     build(world, monkeypatch)
     add_outlook(world)
     started = ops.event_cancel(world["path"], "microsoft", "outlook#1", channel="terminal")
-    assert ops.pending(world["path"], started["pending"])["body"].splitlines()[0] == OUTLOOK_LINE_EN
+    assert outlook_line(ops.pending(world["path"], started["pending"])["body"])
 
 
 def test_a_google_event_of_the_same_line_still_opens_its_cancel_card(world, monkeypatch):
@@ -66,10 +73,16 @@ def test_a_google_event_of_the_same_line_still_opens_its_cancel_card(world, monk
     listed(world, "Cancela o corte de cabelo no google")
     assert say(world, "cancela o 2") == CARD_SENT and model.calls == 0
     item = ops.pending(world["path"], 1)
-    assert item["status"] == "open" and "Account: google (pat@example.com)" in item["body"].splitlines() and reads_only(world) == []
+    assert item["status"] == "open" and any(pk.said(line, "CARD_ACCOUNT", account="google", address="pat@example.com") for line in item["body"].splitlines()) and reads_only(world) == []
 
 
-FILE_SENTENCE = "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive."      # validate: allow english-only -- the Portuguese sentence under test
+
+
+def file_sentence(reply):
+    """True when `reply` is the sentence that says a file is not deleted by message, alone, in Portuguese."""
+    return ps.alone(reply, "PHONE_NO_FILE_DELETE", PT)
+
+
 LIVE_FILE_LINES = ["Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-mark do drive em /openhora", "Remova o arquivo openhora-mark do drive",  # validate: allow english-only -- the live lines (2026-10-22 17:07)
                    "remova openhora-mark.png da pasta /openhora", "Apague o arquivo logo.png do onedrive", "jogue o arquivo openhora-mark na lixeira"]  # validate: allow english-only -- the lines under test
 
@@ -79,7 +92,7 @@ def test_the_live_file_lines_get_the_sentence_in_the_world_of_the_interpreter_wi
     build(world, monkeypatch)
     model = Model(monkeypatch)
     for line in LIVE_FILE_LINES:
-        assert say(world, line) == FILE_SENTENCE, line
+        assert file_sentence(say(world, line)), line
     assert model.calls == 0 and ops.status(world["path"])["requests"] == [] and reads_only(world) == []
 
 
@@ -87,7 +100,7 @@ def test_an_open_list_does_not_make_the_file_line_a_number_or_an_answer(world, m
     build(world, monkeypatch)
     model = Model(monkeypatch)
     listed(world)      # a list of events is open: the next line could be a number or an answer (the check runs before it is asked)
-    assert say(world, "Remova o arquivo openhora-mark.png do drive") == FILE_SENTENCE and model.calls == 0
+    assert file_sentence(say(world, "Remova o arquivo openhora-mark.png do drive")) and model.calls == 0
     assert reads_only(world) == [] and ops.status(world["path"])["requests"] == []
 
 
@@ -95,7 +108,7 @@ def test_event_and_mail_removals_are_not_taken_for_a_file(world, monkeypatch):
     build(world, monkeypatch)
     model = Model(monkeypatch, CANCEL)
     reply = say(world, "Cancela o corte de cabelo")      # the model reads it: an event, so the list of events comes back
-    assert reply.startswith("Mais de um evento combina.") and reply != FILE_SENTENCE      # validate: allow english-only -- the Portuguese sentence under test
+    assert pk.said(reply.split("\n")[0], "EV_MANY_CANCEL", PT) and not file_sentence(reply)
     assert model.calls == 1
 
 

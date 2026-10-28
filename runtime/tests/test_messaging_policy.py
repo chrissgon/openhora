@@ -6,13 +6,12 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_policy.py
 """
 from __future__ import annotations
 
-from phone_literals import PLAIN_REFUSAL  # noqa: E402
-
 import json
 from pathlib import Path
 
 import pytest
 
+import phone_said as ps
 import standin_tree as st
 from expected_kit import extend
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
@@ -156,7 +155,7 @@ def test_typed_commands_follow_the_policy_and_the_default_allows_reads_talk_and_
     for command in (f"/approve {plan_id} {digest}", f"/approve {accept_id}", f"/approve {effect['id']} {effect['payload_sha256']}",
                     f"/reject {plan_id}", "/retry 2", "/cancel 1", "/stop-task 1", "/release 1"):
         reply = ops.say(path, command, channel="messaging", sender="telegram:830461975213")["reply"]
-        assert reply == PLAIN_REFUSAL, command
+        assert ps.refused(reply), command
     assert (ops.status(path), ops.pending(path)) == before and provider_calls(tree) == []
     assert ops.say(path, "/pending", channel="messaging", sender="telegram:830461975213")["reply"].lstrip().startswith("{")
     assert ops.say(path, "/status", channel="messaging", sender="telegram:830461975213")["reply"]

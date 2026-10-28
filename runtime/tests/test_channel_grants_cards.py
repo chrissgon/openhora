@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, SECRET_TEXT, SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
@@ -23,7 +25,11 @@ providers = st.load("messaging_provider")
 
 HASH = "e" * 64
 GRANTED = [*OPEN_POLICY, "approve-effect-write"]
-LABEL = "Approve this exact content"
+
+
+def has_label(actions, key="EFFECT_LABEL", cfg=None):
+    """True when one of the buttons (`message["actions"]`) is the label of `key`."""
+    return any(pk.said(a["label"], key, cfg) for a in actions)
 
 
 def effect(number=7, sha=HASH, word="write", on_cards=True, body="Replace the page with:\n\nOpen at nine.", **more):
@@ -49,7 +55,7 @@ def approve_calls(world):
 
 def approve_action(world, index=-1):
     message = world.sent()[index]["message"]
-    return next(a["id"] for a in message["actions"] if a["label"] == LABEL)
+    return next(a["id"] for a in message["actions"] if pk.said(a["label"], "EFFECT_LABEL"))
 
 
 # --- the card -------------------------------------------------------------------------------------------------------------------
@@ -61,7 +67,8 @@ def test_a_granted_whole_card_has_the_approve_button_the_hash_line_and_the_ledge
     world.bridge.tick()
     [card] = world.sent()
     message = card["message"]
-    assert [a["label"] for a in message["actions"]] == [LABEL, "Reject"] or [a["label"] for a in message["actions"]] == ["Reject", LABEL]
+    labelled = [a["label"] for a in message["actions"]]
+    assert len(labelled) == 2 and sum(pk.said(each, "EFFECT_LABEL") for each in labelled) == 1 and sum(pk.said(each, "LABEL_REJECT") for each in labelled) == 1
     assert "Open at nine." in message["text"] and cards.APPROVES_LINE in message["text"] and "sha256" not in message["text"] and "terminal" not in message["text"]      # the hash binds the button, it is not printed (LIVE-2)
     [entry] = world.bridge.ledger.data["cards"]
     assert entry["whole"] is True and entry["approvable"] is True and entry["effect_word"] == "write" and entry["content_sha256"] == HASH
@@ -111,7 +118,7 @@ def test_the_same_long_effect_on_a_platform_with_documents_sends_the_file_first_
     assert first["message"]["actions"] == [] and cards.DOCUMENT_NOTE in first["message"]["text"], "the file goes alone, with no button"
     message = second["message"]
     assert message["document"] is None and cards.WHOLE_ABOVE in message["text"] and len(message["text"]) <= 300
-    assert LABEL in [a["label"] for a in message["actions"]]
+    assert has_label(message["actions"])
     [entry] = world.bridge.ledger.data["cards"]
     assert entry["whole"] is True and entry["approvable"] is True
     world.fake.answers["approve"] = {"task_state": "done"}
@@ -237,7 +244,7 @@ def test_an_effect_that_cannot_be_on_a_card_draws_no_button_and_no_card_or_typed
     fresh_bridge(world)
     world.items[7] = effect(word="send", on_cards=True)
     world.bridge.tick()
-    assert LABEL in [a["label"] for a in world.sent()[-1]["message"]["actions"]]
+    assert has_label(world.sent()[-1]["message"]["actions"])
 
 
 # --- the tap and the typed line -------------------------------------------------------------------------------------------------
@@ -261,7 +268,7 @@ def test_a_refusal_of_the_operations_layer_is_replied_and_nothing_else_is_said(w
     world.bridge.tick()
     world.fake.answers["approve"] = ops.OpsError("nothing was written: the page changed; the effect stays open", 1)
     world.say(None, action=approve_action(world))
-    assert wait_for(lambda: world.texts()[-1] == "It was not done, and nothing was written. Try again in a moment, or check it on the platform's page.")      # plain words (LIVE-2); the full text is the terminal's
+    assert wait_for(lambda: ps.placed(world.texts()[-1], "FAIL_NOT_DONE"))      # plain words (LIVE-2); the full text is the terminal's
     assert len(approve_calls(world)) == 1 and "Approved" not in " ".join(world.texts()) and "the page changed" not in " ".join(world.texts())
 
 
@@ -294,7 +301,7 @@ def test_a_stale_card_is_refused_with_the_decision_changed_and_a_new_card_with_t
     world.say(None, action=old)
     assert approve_calls(world) == [] and bridge.CHANGED in world.texts()
     fresh = world.sent()[-1]["message"]
-    assert "sha256" not in fresh["text"] and world.bridge.ledger.data["cards"][-1]["content_sha256"] == new_hash and LABEL in [a["label"] for a in fresh["actions"]]
+    assert "sha256" not in fresh["text"] and world.bridge.ledger.data["cards"][-1]["content_sha256"] == new_hash and has_label(fresh["actions"])
     world.fake.answers["approve"] = {"task_state": "done"}
     world.say(None, action=approve_action(world))
     assert wait_for(lambda: approve_calls(world)) and approve_calls(world)[0][2]["sha256"] == new_hash
@@ -331,7 +338,7 @@ def test_the_policy_is_read_when_the_person_taps_so_a_grant_taken_back_approves_
     said = len(world.texts())
     world.fake.config_answer = lambda project: {"path": project, "sha256": "a" * 64, "accepted": False, "data_dir": "x", **world.config}
     world.say(None, action=action)       # a configuration that is not accepted refuses everything: the tap is not acted on, and (S12) the person is told once, in one plain sentence
-    assert approve_calls(world) == [] and world.texts()[said:] == ["The project's configuration changed and must be accepted in the terminal before I can go on."]
+    assert approve_calls(world) == [] and len(world.texts()[said:]) == 1 and pk.said(world.texts()[said], "CONFIG_PENDING")
     world.say(None, action=action)
     assert approve_calls(world) == [] and len(world.texts()) == said + 1, "the same file is told once"
 
@@ -345,7 +352,7 @@ def test_an_effect_card_sent_before_the_word_was_granted_is_sent_again_once_it_c
     assert len(world.sent()) == 1, "nothing changed: nothing is sent again"
     grant(world)                                # the person accepted a configuration that grants the word
     world.bridge.tick()
-    assert len(world.sent()) == 2 and LABEL in [a["label"] for a in world.sent()[1]["message"]["actions"]]
+    assert len(world.sent()) == 2 and has_label(world.sent()[1]["message"]["actions"])
     world.bridge.tick()
     assert len(world.sent()) == 2, "and once"
     grant(world, GRANTED, notices="count")      # a card that cannot carry the text is not sent again for a grant it cannot use
@@ -478,7 +485,7 @@ def test_a_file_that_keeps_failing_is_sent_once_with_its_card_and_not_again_on_e
     world.standin.joinpath("document_fail.json").unlink()
     world.items[8] = effect(number=8, sha="8" * 64, body="y" * 2000)
     world.bridge.tick()
-    assert LABEL in [a["label"] for a in world.sent()[-1]["message"]["actions"]], "a file that arrives gives the card its button"
+    assert has_label(world.sent()[-1]["message"]["actions"]), "a file that arrives gives the card its button"
 
 
 def test_a_hash_typed_with_approve_must_be_the_cards_for_an_acceptance_too(world):
@@ -514,6 +521,6 @@ def test_the_persons_own_pending_tries_a_card_whose_file_failed_once_per_request
     world.standin.joinpath("document_fail.json").unlink()      # the file arrives this time
     world.say("/pending")
     last = world.sent()[-1]["message"]
-    assert LABEL in [a["label"] for a in last["actions"]] and last["document"] is None
+    assert has_label(last["actions"]) and last["document"] is None
     entry = [e for e in world.bridge.ledger.data["cards"] if e["pending_id"] == 7][-1]
     assert entry["whole"] is True and entry["approvable"] is True and not entry.get("blocked")

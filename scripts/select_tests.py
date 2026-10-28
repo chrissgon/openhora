@@ -110,7 +110,7 @@ GUARDS = (
 UNLINKED_MODULES = (
     # (folder, module name glob, test name globs): the module is <folder>/<glob>.py, a test is <folder>/tests/<glob>.py. Written in pieces so that
     # the layer map (scripts/tests/test_layer_map.py) does not read a path of the runtime in this script.
-    ("runtime", "phrases_*", ("test_phrases*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
+    ("runtime", "phrases_*", ("test_phrases*", "test_phrase_snapshot*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
     ("runtime", "natural_lang_*", ("test_natural_*", "test_messaging_natural*")),
 )
 

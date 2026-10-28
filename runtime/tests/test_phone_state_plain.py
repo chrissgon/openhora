@@ -6,7 +6,7 @@ B. Where the state IS asked, the titles of the requests and of what waits are th
    name the platform's internals (the router asks, the route was not recognised) are said as what they mean (`ops_say._title`).
 C. A line that asks to delete a file ("remova o arquivo logo do drive") is answered at once with one plain sentence, by code: no card, no request, no model (runtime/phone_delete.py).
 
-THE ORACLE is this file's own literals: the sentences, the lists of lines, the digest it must not see. It never calls the code under test to decide what is right; the vacuity cases plant the old
+THE ORACLE is phrase keys and their fields (runtime/tests/phrase_kit.py; the wording is pinned by the phrase snapshot), this file's own lists of lines, and the digest it must not see. It never calls the code under test to decide what is right; the vacuity cases plant the old
 digest and show the oracle sees it. Over the REAL operations layer with a stand-in router; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_phone_state_plain.py
@@ -15,17 +15,21 @@ from __future__ import annotations
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_ops_natural import KEY, accept, router_says, with_senders, world  # noqa: F401  (the real-operations world fixture)
 
 ops = st.load("ops")
 ops_say = st.load("ops_say")
 phone_delete = st.load("phone_delete")
+phrases = st.load("phrases")
+PT = {"language": "pt-BR"}
 
 DIRECT = "Route: none (direct)\nWhy: a thanks\nNext: Claro, o arquivo continua no Drive.\n"
 ANSWER = "Claro, o arquivo continua no Drive."  # validate: allow english-only -- the Portuguese sentence under test
+# literal: the words of the old digest that a phone must not show (the text is the limit)
 DIGEST_MARKS = ("tarefas concluídas", "O que espera por você", "Proposes", "O agente de planejamento propõe", "0 of", "Nothing is waiting")  # validate: allow english-only -- Portuguese marks of the old digest
-NO_DELETE = {"pt-BR": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.", "en": "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive."}  # validate: allow english-only -- the Portuguese sentence under test
 
 
 def phone(world, line):
@@ -46,7 +50,7 @@ def test_a_direct_turn_on_a_phone_is_the_answer_alone_and_the_page_keeps_the_dig
     out = phone(world, "Obrigado, era só isso.")  # validate: allow english-only -- the Portuguese line under test
     assert out["reply"] == ANSWER and digest_marks(out["reply"]) == []
     page = ops.say(world["path"], "Obrigado, era só isso.", channel="page")["reply"]  # validate: allow english-only -- the Portuguese line under test
-    assert page.endswith("Claro, o arquivo continua no Drive.") and "O agente de planejamento propõe" in page, "the page and the terminal keep what they always showed"  # validate: allow english-only -- the Portuguese text under test
+    assert page.endswith(phrases.text("PROPOSES", PT) + ANSWER), "the page and the terminal keep what they always showed"  # validate: allow english-only -- the Portuguese text under test
 
 
 def test_vacuity_the_old_digest_is_noticed_by_the_oracle():
@@ -72,22 +76,30 @@ class Reads:
             {"kind": "plan", "title": "Plano do mercado", "pending_id": 30}]}}
 
 
-EXPECTED_PT = (  # validate: allow english-only -- the Portuguese status under test
-    'Pedido 20, "E-mail: enviar da sua conta": 0 de 1 tarefas concluídas.\n'
-    'Esperando você: E-mail: enviar da sua conta.\n'  # validate: allow english-only -- the Portuguese text under test
-    'Pedido 26, "Arquivos: salvar o arquivo que você enviou": 0 de 1 tarefas concluídas.\n'  # validate: allow english-only -- the Portuguese text under test
-    'Pronta: tarefa 27, "Arquivos: salvar o arquivo que você enviou".\n'  # validate: allow english-only -- the Portuguese text under test
-    'O que espera por você: pergunta "Pedido não entendido" (decisão 14); pergunta "Pergunta do assistente" (decisão 25); plano "Plano do mercado" (decisão 30).')  # validate: allow english-only -- the Portuguese text under test
-EXPECTED_EN = (
-    'Request 20, "Mail: send from your account": 0 of 1 tasks done.\nWaiting for you: Mail: send from your account.\n'
-    'Request 26, "Files: save the file you sent": 0 of 1 tasks done.\nReady: task 27, "Files: save the file you sent".\n'
-    'What waits for you: question "Request not understood" (decision 14); question "Question from the assistant" (decision 25); plan "Plano do mercado" (decision 30).')
+def digest_lines(cfg):
+    """The status of `Reads` as the lines a phone is told, in the language of `cfg`: (phrase key, fields) per line. A title code wrote whole, and the two that name the platform's
+    internals, are said as the words of the table; a field that holds another sentence is that sentence said in the same language."""
+    def t(key, **fields):
+        return phrases.text(key, cfg, **fields)
+    mail, save = t("TITLE_MAIL_SEND"), t("TITLE_FILE_SAVE")
+    items = "; ".join([t("STATE_WAIT_ITEM", kind=t("KIND_QUESTION"), title=t("PEND_NOT_UNDERSTOOD_TITLE"), id=14), t("STATE_WAIT_ITEM", kind=t("KIND_QUESTION"), title=t("PEND_CARD_TITLE"), id=25),
+                       t("STATE_WAIT_ITEM", kind=t("KIND_PLAN"), title="Plano do mercado", id=30)])
+    return [("STATE_PROGRESS", {"id": 20, "title": mail, "done": 0, "total": 1, "names": ""}), ("STATE_WAITING", {"names": mail}),
+            ("STATE_PROGRESS", {"id": 26, "title": save, "done": 0, "total": 1, "names": ""}), ("STATE_READY", {"id": 27, "title": save, "held": ""}),
+            ("STATE_WAITS", {"items": items})]
+
+
+def digest_said(text, cfg):
+    """True when the lines of `text` are, in order, the lines of `digest_lines`."""
+    lines = text.split("\n")
+    expected = digest_lines(cfg)
+    return len(lines) == len(expected) and all(pk.said(line, key, cfg, **fields) for line, (key, fields) in zip(lines, expected))
 
 
 def test_a_status_says_the_titles_code_wrote_in_the_language_and_the_internal_ones_as_what_they_mean(monkeypatch):
     monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
-    shown = ops_say.state_reply("project", cfg={"language": "pt-BR"})
-    assert shown == EXPECTED_PT
+    shown = ops_say.state_reply("project", cfg=PT)
+    assert digest_said(shown, PT), shown
     for stored in ("Mail: send from your account", "Files: save the file you sent", "The route was not recognised", "The router asks"):
         assert stored not in shown, stored
     assert not [w for w in ("rota", "roteador", "route", "router") if w in shown.lower()]
@@ -96,14 +108,14 @@ def test_a_status_says_the_titles_code_wrote_in_the_language_and_the_internal_on
 def test_the_same_status_in_english_says_the_plain_titles_too(monkeypatch):
     monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
     shown = ops_say.state_reply("project", cfg={})
-    assert shown == EXPECTED_EN and "router" not in shown.lower()
+    assert digest_said(shown, {}) and "router" not in shown.lower(), shown
 
 
 def test_vacuity_without_the_plain_titles_the_internal_words_come_back_and_the_oracle_sees_them(monkeypatch):
     monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
     monkeypatch.setattr(ops_say, "PLAIN_TITLES", {})
-    old = ops_say.state_reply("project", cfg={"language": "pt-BR"})
-    assert old != EXPECTED_PT and "roteador" in old.lower() and "rota" in old.lower()
+    old = ops_say.state_reply("project", cfg=PT)
+    assert not digest_said(old, PT) and "roteador" in old.lower() and "rota" in old.lower()
 
 
 # --- C. a file is not deleted from a message -------------------------------------------------------------------------------------------------------------
@@ -136,7 +148,7 @@ def test_on_a_phone_a_request_to_delete_a_file_gets_the_plain_sentence_and_opens
     accept(world["path"], language=language)
     for line in ("Remova o arquivo openhora-mark do drive", "Delete the file openhora-mark from the drive"):
         out = phone(world, line)
-        assert out["reply"] == NO_DELETE[key] and out["ran"] is False and out["request_id"] is None and out["pending_id"] is None
+        assert ps.alone(out["reply"], "PHONE_NO_FILE_DELETE", {"language": language}) and out["ran"] is False and out["request_id"] is None and out["pending_id"] is None
     assert st.calls(world["adapter"]) == [], "no model ran"
     assert ops.status(world["path"])["requests"] == [] and ops.pending(world["path"])["pending"] == []
 

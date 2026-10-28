@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import wait_for
@@ -35,7 +36,7 @@ def four(lab):  # noqa: F811
 
 
 def unread_texts(lab, chat):  # noqa: F811
-    return [t for t in lab.texts(chat) if "could not be read and" in t]
+    return [t for t in lab.texts(chat) if pk.said(t, "UNREAD_ONE") or pk.said(t, "UNREAD_MANY")]
 
 
 def give(lab, *counts):  # noqa: F811
@@ -258,7 +259,7 @@ def test_a_bridge_over_a_polled_provider_sends_no_unread_line(lab):  # noqa: F81
     lab.bridge.tick()
     lab.bridge.tick()
     assert lab.bridge.messenger.session is None
-    assert not [t for t in lab.texts() if "could not be read" in t]
+    assert not [t for t in lab.texts() if pk.said(t, "UNREAD_ONE") or pk.said(t, "UNREAD_MANY")]
     assert lab.bridge.unread_waiting == {}
 
 

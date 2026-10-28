@@ -1,0 +1,1031 @@
+ACCT_CARD_SENT: O card #2 espera a sua aprovação.
+ACCT_FILE_BEHIND: A fonte @notes.example foi lida na versão notes.example, plan.example, mas o arquivo agora está em Wed 21/10/2026 12:00: atualize a fonte primeiro e peça de novo.
+ACCT_FILE_KIND: Um arquivo do tipo plan ainda não pode ser escrito: .md, .txt, .csv, .docx, .pdf, .xlsx, .pptx e Google Docs podem.
+ACCT_FILE_NAME_BAD: O nome de um arquivo tem de 1 a 120 caracteres: letras, dígitos, espaços e . _ - ( ), sem começar com hífen nem terminar com ponto.
+ACCT_FILE_NAME_EXT: O nome do arquivo deve terminar em um destes: pdf, png.
+ACCT_FILE_NAME_TAKEN: Já existe nessa pasta um arquivo com o nome indicado no pedido: um arquivo novo nunca substitui outro. Escolha outro nome, ou substitua o arquivo pela fonte dele.
+ACCT_FILE_NOT_FILE: O item não é um arquivo que possa ser escrito (the file is too large).
+ACCT_FILE_NOT_OWNED: O arquivo indicado no pedido não pertence à sua conta Example Calendar (foi compartilhado ou está em outro drive): só se substitui um arquivo que a conta possui.
+ACCT_FILE_ONE_CONTENT: Informe o texto novo ou um arquivo do projeto, um dos dois.
+ACCT_FILE_RETARGET: O destino não é mais o do card sobre o qual você foi consultado (a fonte ou a pasta agora aponta para outro lugar): indique-o de novo e recomece.
+ACCT_FILE_SOURCE: A fonte @notes.example não é um arquivo da sua conta Example Calendar: só se substitui uma fonte adicionada dessa conta.
+ACCT_FILE_TAKEN_ANSWER: Nada foi escrito: já existe um arquivo com esse nome na pasta. A tarefa recomeça na etapa que lê; comece de novo.
+ACCT_FILE_TEXT_BIG: O texto passa de 10 bytes: escreva-o em um arquivo do projeto e indique esse arquivo.
+ACCT_FILE_TEXT_EMPTY: O texto está vazio.
+ACCT_FILE_TEXT_FRAME: O texto tem uma linha parecida com uma linha de moldura do card (começa com cinco hifens): mude essa linha.
+ACCT_FILE_TEXT_HIDDEN: O texto tem um caractere de controle ou invisível (uma inversão de direção, um caractere de largura zero, um código de controle solto): remova-o.
+ACCT_FILE_TYPE: Um plan não pode substituir um pdf: informe um arquivo do projeto do mesmo tipo.
+ACCT_MAIL_BCC_GMAIL: Nesta versão uma conta Google não envia Cco: envie para Para e Cc, ou use a caixa de saída do projeto.
+ACCT_MAIL_FRAME: Uma linha do texto começa como a moldura do card (cinco hifens, ou algo parecido): reescreva essa linha, para que o texto não possa ser tomado pelo fim da mensagem.
+ACCT_MAIL_NOT_REPLIABLE: Essa mensagem não pode ser respondida daqui: o retrato dela não guarda o que a conta precisa para pôr a resposta na conversa. Atualize a fonte e peça de novo.
+ACCT_MAIL_NO_SENDER: Essa mensagem não tem um único endereço de quem enviou, então uma resposta não pode ser endereçada a ninguém.
+ACCT_MAIL_OTHER_ACCOUNT: R-17 é uma mensagem de outra conta que não ana@mail.example: a resposta sai da conta que recebeu a mensagem.
+ACCT_MAIL_REF_INTEGRITY: O retrato de R-17 não bate com o registro dele, ou o índice não bate com o texto: atualize-o e peça de novo.
+ACCT_MAIL_REF_MALFORMED: R-17 não é uma referência a uma mensagem: escreva <source id>#<número>, por exemplo inbox#3.
+ACCT_MAIL_REF_NOT_READABLE: R-17 é um retrato da sua caixa de e-mail, e este canal não pode lê-lo: peça no terminal ou na página, ou faça a configuração do projeto dar ao remetente o grupo ask-mail.
+ACCT_MAIL_REF_NOT_SNAPSHOT: R-17 não é uma fonte de e-mail: só o retrato de e-mail tem mensagens numeradas.
+ACCT_MAIL_REF_NO_INDEX: O retrato mais novo de R-17 foi feito antes de as mensagens poderem ser referidas: atualize-o primeiro.
+ACCT_MAIL_REF_NO_SOURCE: Não há fonte de e-mail para R-17: uma referência nomeia uma fonte de e-mail registrada.
+ACCT_MAIL_REF_NO_VERSION: A fonte de R-17 ainda não tem retrato: atualize-a primeiro.
+ACCT_MAIL_REF_PAST_END: R-17 nomeia uma mensagem além do fim do retrato dela.
+ACCT_MAIL_REF_STALE: O retrato mais novo de R-17 tem mais de 26 horas, ou a hora dele não é confiável: atualize-o e peça de novo.
+ACCT_MAIL_REF_WRONG_KIND: R-17 não é uma mensagem de um retrato de e-mail: uma resposta responde a uma mensagem.
+ACCT_MAIL_REF_ZERO: Os números de um retrato começam em 1: R-17 não nomeia nenhuma mensagem.
+ACCT_MAIL_REPLY_FIELDS: Uma resposta não tem Para, Cc, Cco, assunto nem anexo próprios: ela vai para quem enviou a mensagem, com o assunto depois de Re:.
+ACCT_MAIL_REPLY_MOVED: R-17 não nomeia mais a mensagem que você pediu para responder (o retrato foi atualizado e os itens mudaram de número): nada foi preparado; peça de novo.
+ACCT_MAIL_TEXT_HIDDEN: O texto ou o assunto tem um caractere escondido (de controle, de direção ou invisível) que o card não consegue mostrar: tire-o.
+ACCT_MBOX_DUPLICATE: R-17 foi citada duas vezes.
+ACCT_MBOX_NO_ID: R-17 não pode ser alterada: o retrato dela não guardou o id da mensagem. Atualize a fonte e cite de novo.
+ACCT_MBOX_NO_MESSAGES: Cite pelo menos uma mensagem: <id da fonte>#<número>, várias separadas por vírgula.
+ACCT_MBOX_OTHER_ACCOUNT: R-17 é uma mensagem de outra conta que não a conta ana@mail.example.
+ACCT_MBOX_REF_EVENT: R-17 cita um evento, não uma mensagem.
+ACCT_MBOX_REF_INTEGRITY: Não dá para confiar no retrato de notes.example para citar uma mensagem (os arquivos foram alterados fora do runtime, ou não conferem com o texto): atualize notes.example primeiro.
+ACCT_MBOX_REF_MALFORMED: R-17 não é uma referência a uma mensagem: escreva <source id>#<número>, por exemplo inbox#3.
+ACCT_MBOX_REF_NOT_READABLE: R-17 aponta para um retrato da sua caixa de e-mail, e este canal não pode lê-lo: peça no terminal ou na página, ou configure o projeto para dar ao remetente o grupo ask-mail.
+ACCT_MBOX_REF_NOT_SNAPSHOT: notes.example não é uma fonte de e-mail.
+ACCT_MBOX_REF_NO_INDEX: O retrato mais recente de notes.example foi feito antes de as mensagens poderem ser citadas: atualize notes.example primeiro.
+ACCT_MBOX_REF_NO_SOURCE: Não existe a fonte notes.example: uma mensagem é citada por uma fonte de e-mail cadastrada e um número.
+ACCT_MBOX_REF_NO_VERSION: notes.example ainda não tem retrato: atualize notes.example primeiro.
+ACCT_MBOX_REF_PAST_END: R-17 não existe: o retrato mais recente de notes.example tem menos mensagens.
+ACCT_MBOX_REF_STALE: O retrato mais recente de notes.example é antigo demais para citar uma mensagem: atualize notes.example primeiro.
+ACCT_MBOX_REF_WRONG_KIND: R-17 não cita uma mensagem da sua caixa de e-mail: uma mensagem é citada como <id da fonte>#<número> de uma fonte de e-mail.
+ACCT_MBOX_REF_ZERO: Os números de um retrato começam em 1: R-17 não nomeia nenhuma mensagem.
+ACCT_MBOX_TOO_MANY: Um card altera no máximo 10 mensagens; foram citadas 3.
+ACCT_NOT_CONFIGURED: A conta ana@mail.example não está configurada neste projeto: a chave accounts do runtime.json a lista, com o endereço e o que ela pode escrever.
+ACCT_REF_CREATED_UNKNOWN: Esse card não criou um evento, ou o seu resultado não está registrado.
+ACCT_REF_INTEGRITY: O instantâneo mais recente de notes.example não confere com o seu registro, ou nomeia uma agenda que a sua fonte não nomeia: atualize notes.example primeiro.
+ACCT_REF_MALFORMED: Isso não é uma referência a um item: escreva <id da fonte>#<número>, por exemplo caixa#3, ou created:<número do card> para um evento que você criou.
+ACCT_REF_NOT_AN_EVENT: Essa referência não nomeia um evento da sua conta Google ou Microsoft.
+ACCT_REF_NOT_READABLE: notes.example é um instantâneo do seu e-mail ou da sua agenda, e este canal não pode lê-lo: peça no terminal ou na página, ou configure o projeto para dar ao remetente o grupo ask-mail.
+ACCT_REF_NOT_SNAPSHOT: notes.example não é uma fonte de e-mail ou de agenda: só essas têm itens numerados.
+ACCT_REF_NO_INDEX: O instantâneo mais recente de notes.example foi feito antes de os itens poderem ser referidos: atualize notes.example primeiro.
+ACCT_REF_NO_SOURCE: Não existe a fonte notes.example: as referências nomeiam uma fonte de e-mail ou de agenda registrada.
+ACCT_REF_NO_VERSION: notes.example ainda não tem instantâneo: atualize notes.example primeiro.
+ACCT_REF_PAST_END: notes.example tem menos itens do que isso no instantâneo mais recente.
+ACCT_REF_STALE: O instantâneo mais recente de notes.example tem mais de 26 horas, ou a sua hora não é confiável: atualize notes.example primeiro.
+ACCT_REF_WRONG_KIND: notes.example não é uma fonte de agenda: um evento é nomeado por um item de uma fonte de agenda.
+ACCT_REF_ZERO: Os números de um instantâneo começam em 1.
+ACCT_TRASH_NOT_FILE: O item não pode ir para a lixeira como arquivo (the file is too large).
+ACCT_TRASH_NOT_GRANTED: O arquivo não está dentro de uma pasta que este projeto lista para a sua conta, então ele não vai para a lixeira.
+ACCT_TRASH_NOT_OWNED: O arquivo não pertence à sua conta Example Calendar (foi compartilhado ou está em outro drive): só um arquivo que a conta possui vai para a lixeira.
+ACCT_TRASH_UNPROVEN: Não consegui olhar as pastas até o fim, então não consigo mostrar que o arquivo está dentro de uma pasta que este projeto lista, e ele não vai para a lixeira.
+ACK_CALENDAR: Vou ver sua agenda...
+ACK_CARD: Preparando o card...
+ACK_COMPOSE: Redigindo o e-mail...
+ACK_FILE: Procurando o arquivo...
+ACK_GENERIC: Um momento, estou vendo isso...
+ACK_MAIL: Vou ver seus e-mails...
+ACK_PLAN: Vou trabalhar nisso...
+ACK_RESEARCH: Pesquisando... Digite 'Pare' para cancelar.
+ACK_THINK: Deixa eu ver...
+AFTER_INSTRUCTIONS: O texto depois da linha de instruções foi retirado.
+ANSWERED: #42 respondida.
+ANSWERED_AS: (respondido com base nas fontes: pedido move the review)
+ANSWER_TAKEN: Tomei isso como resposta à pergunta #42.
+APPROVED: #42 aprovada.
+APPROVES_LINE: Aprovar aplica exatamente o texto acima.
+ASK_CANCELLED: A pergunta foi cancelada. Nada foi respondido.
+ASK_FAILED: A execução da resposta falhou (plan): the file is too large. Nada foi respondido.
+ASK_HINT: Para responder a partir das suas fontes, envie /ask <question>.
+ASK_NEXT: Responda com uma mensagem comum ou recomece com /new <text>
+ASK_NEXT_PHONE: Responda numa mensagem simples.
+ASK_NO_ENV: O ambiente que lê as suas fontes está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo.
+ASK_TOO_LARGE: O texto destas fontes é grande demais para uma pergunta (no máximo 64 KiB no total): Ana Lima. Indique menos fontes ou fontes menores.
+ATTACH_ASK: Arquivo seu enviado por social-x: Ana Lima (3.5 KiB, plan).\nAdicionar a Acme Launch como a fonte `42`?
+ATTACH_ASK_VERSION: Arquivo seu enviado por social-x: Ana Lima (3.5 KiB, plan).\nAdicionar a Acme Launch como a versão 3 da fonte `42`?
+ATTACH_COUNT: Um arquivo seu espera pela sua resposta.
+ATTACH_TYPED_SAVE_GOOGLE: Para salvar, escreva "salvar no Google Drive".
+ATTACH_TYPED_SAVE_MICROSOFT: Para salvar, escreva "salvar no OneDrive".
+ATTACH_WHAT: Recebi Ana Lima (3.5 KiB, plan). O que faço?
+ATTACH_WHAT_ADD: "Adicionar ao projeto" a transforma em um documento que o assistente pode ler em Acme Launch, como `42`.
+ATTACH_WHAT_VERSION: "Adicionar ao projeto" a torna a versão 3 do documento `42`.
+ATT_ACCOUNT_MISSING: O Example Calendar não está configurado neste projeto.
+ATT_ADDED: Ana Lima adicionado como `42`, versão 3.
+ATT_ADDED_SAME: Ana Lima já é a versão mais nova de `42` (versão 3): nada mudou.
+ATT_BUSY: Outro arquivo está sendo baixado. Envie este de novo daqui a pouco.
+ATT_CAPTION_IGNORED: O texto enviado junto com um arquivo é lido só como um pedido para salvar; para o resto, use os botões do card dele.
+ATT_DAY: Este projeto já recebeu 3 arquivos (3.5 KiB) de aplicativos de mensagens hoje, que é o limite. Envie de novo amanhã ou adicione na página.
+ATT_DISCARDED: Ana Lima descartado.
+ATT_DUPLICATE: Ana Lima já espera pela sua resposta (arquivo 42).
+ATT_EXPIRED: Ana Lima esperou mais de 2 dias e foi apagado. Envie de novo.
+ATT_FETCH_FAILED: Não foi possível baixar o arquivo. Envie de novo.
+ATT_GONE: Esse arquivo não pode mais ser baixado de social-x. Envie de novo.
+ATT_HELD_FULL: 3 arquivos já esperam pela sua resposta. Responda a eles primeiro (/pending).
+ATT_IMAGE_NOT_SOURCE: Imagens não viram fonte; posso salvar no Drive ou no OneDrive.
+ATT_KEPT_FAILED: Não foi possível guardar Ana Lima nesta máquina. Envie de novo daqui a pouco.
+ATT_LOST: O arquivo guardado sumiu desta máquina. Envie de novo.
+ATT_MACHINE: Não foi possível fazer isso agora. Tente de novo mais tarde ou use a página da plataforma.
+ATT_MEDIA: Notas de voz, vídeos, áudios e figurinhas ainda não são aceitos, nem imagens que não sejam PNG, JPEG, WebP, GIF ou HEIC. Envie uma foto ou imagem desses tipos para salvar no Drive ou no OneDrive, ou um PDF, um documento Word, uma planilha, uma apresentação, uma página HTML ou um arquivo de texto para adicionar ao projeto.
+ATT_MISMATCH: Ana Lima declara o tipo image/png, mas o conteúdo é outro (application/pdf); por isso não foi aceito.
+ATT_NOTE: Nota: bring the report
+ATT_NOT_HELD: Esse arquivo tem o status pending: não está esperando pela sua resposta.
+ATT_NO_FILES: A conexão deste aplicativo ainda não recebe arquivos.
+ATT_NO_SUCH: Não há arquivo 3 esperando por você.
+ATT_OFF: Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página da plataforma.
+ATT_OVER_MESSAGE: No máximo 3 arquivos são aceitos de uma mensagem; os demais não foram.
+ATT_REASON_CHANGED: mudou nesta máquina enquanto esperava
+ATT_REASON_CONVERT: não pôde ser lido como documento
+ATT_REASON_CREDENTIAL: contém algo que parece uma credencial
+ATT_REASON_MACRO: contém macros, que nunca são convertidas
+ATT_REASON_MISMATCH: o conteúdo não corresponde ao tipo declarado
+ATT_REASON_SIZE: o texto é grande demais para uma fonte
+ATT_REASON_TARGET: a fonte que ele indica não é uma fonte de arquivo
+ATT_REASON_TYPE: não é um tipo que se leia como fonte
+ATT_REFUSED: Ana Lima não foi adicionado e foi apagado: the file is too large.
+ATT_SAVE_OFF: Salvar arquivos no Drive ou no OneDrive não está ligado para você neste projeto.
+ATT_SUBTYPE_CSV: planilha (csv)
+ATT_SUBTYPE_DOCX: documento Word
+ATT_SUBTYPE_HTML: página HTML
+ATT_SUBTYPE_OOXML: documento do Office
+ATT_SUBTYPE_PDF: PDF
+ATT_SUBTYPE_PPTX: apresentação
+ATT_SUBTYPE_TEXT: arquivo de texto
+ATT_SUBTYPE_XLSX: planilha
+ATT_TARGET_CHANGED: A fonte `42` mudou desde que este arquivo chegou. Descarte-o (/discard 3) e envie de novo.
+ATT_TARGET_TYPE: `42` é uma fonte do tipo image/png: não dá para adicionar um arquivo a ela. Envie o arquivo sem esse texto ou indique uma fonte do tipo file.
+ATT_TOO_LARGE: Ana Lima tem 3.5 KiB; um arquivo deste aplicativo pode ter no máximo 25.
+ATT_WAITING_HEAD: Acme Launch: arquivos esperando pela sua resposta
+ATT_WAITING_LINE: arquivo #42 Ana Lima: /add 42 ou /discard 42
+A_MESSAGING_APP: um aplicativo de mensagens
+BIDI_LEFT_OUT: Uma linha com controles de direção de texto foi retirada.
+BODY_NOT_NAMED: O agente de planejamento não indicou um fluxo nem uma skill para o pedido move the review
+CARD_ACCOUNT: Conta: ana@mail.example (ana@mail.example)
+CARD_BOX_ARCHIVE: Arquivar: 3 mensagem(ns)
+CARD_BOX_CODE: O código faz esta alteração na sua caixa de e-mail ana@mail.example depois da sua aprovação. Nada é enviado e nada é apagado.
+CARD_BOX_CODE_DRAFT: O código salva este rascunho na sua caixa de e-mail ana@mail.example depois da sua aprovação. Ele não é enviado: fica nos seus Rascunhos para você ler e enviar por conta própria.
+CARD_BOX_DRAFT_BCC: Cco: carla@mail.example
+CARD_BOX_DRAFT_CC: Cópia: bruno@mail.example
+CARD_BOX_DRAFT_END: ----- fim do rascunho -----
+CARD_BOX_DRAFT_REPLY: Resposta a: ana@mail.example, quem enviou R-17 (21/10/2026, 'Lunch on Friday')
+CARD_BOX_DRAFT_REPLY_DIFFERS: A mensagem pede que as respostas vão para another one: este rascunho vai para quem enviou, acima, e não para lá.
+CARD_BOX_DRAFT_REPLY_SUBJECT: Assunto da resposta: Lunch on Friday
+CARD_BOX_DRAFT_REPLY_TO: Destinatário: ana@mail.example
+CARD_BOX_DRAFT_SUBJECT: Assunto: Lunch on Friday
+CARD_BOX_DRAFT_TEXT: O texto do rascunho, exatamente como será salvo (cada linha começa com │):\nSee you on Friday.
+CARD_BOX_DRAFT_TO: Para: ana@mail.example
+CARD_BOX_ITEM: 1. 21/10/2026 · de Bruno Reis · Lunch on Friday
+CARD_BOX_MOVE: Mover para "Inbox": 3 mensagem(ns)
+CARD_BOX_READ: Marcar como lida: 3 mensagem(ns)
+CARD_BOX_READ_AT: Lidas na sua caixa de e-mail em Wed 21/10/2026 12:00. Nada é alterado se alguma mensagem não estiver como listada.
+CARD_BOX_SNAPSHOT: Escolhidas de um retrato lido em Wed 21/10/2026 12:00.
+CARD_BOX_TRASH_GMAIL: Mover para a lixeira (o Gmail a esvazia depois de 30 dias): 3 mensagem(ns)
+CARD_BOX_TRASH_OUTLOOK: Mover para Itens Excluídos (o Outlook as apaga de lá depois de 30 dias): 3 mensagem(ns)
+CARD_BOX_UNREAD: Marcar como não lida: 3 mensagem(ns)
+CARD_CAL_AFTER_NOTES: Depois: Notas: bring the report
+CARD_CAL_AFTER_REMIND: Depois: Lembrete da agenda (min antes): 15
+CARD_CAL_AFTER_TITLE: Depois: Título: Quarterly review
+CARD_CAL_AFTER_WHEN: Depois: Quando: Wed 21/10/2026 13:00
+CARD_CAL_AFTER_WHERE: Depois: Onde: Room 4
+CARD_CAL_BASE: Baseado na versão a1b2c3d do evento.
+CARD_CAL_BEFORE_NOTES: Antes: Notas: bring the report
+CARD_CAL_BEFORE_REMIND: Antes: Lembrete da agenda (min antes): 15
+CARD_CAL_BEFORE_TITLE: Antes: Título: Quarterly review
+CARD_CAL_BEFORE_WHEN: Antes: Quando: Wed 21/10/2026 13:00
+CARD_CAL_BEFORE_WHERE: Antes: Onde: Room 4
+CARD_CAL_CALENDAR: Agenda: Work
+CARD_CAL_CANCEL: O código remove este evento depois da sua aprovação. O Google deve movê-lo para a lixeira da agenda, de onde você pode restaurá-lo por 30 dias (Google Agenda, Lixeira); isso ainda não foi verificado.
+CARD_CAL_CANCEL_OUTLOOK: O código remove este evento depois da sua aprovação. O Outlook pode não guardar uma cópia do evento apagado; depois de aprovado, pode não ser possível recuperá-lo.
+CARD_CAL_CHANGE: O código altera este evento depois da sua aprovação, só se ele ainda estiver como foi lido em Wed 21/10/2026 12:00.
+CARD_CAL_CREATE: O código cria este evento depois da sua aprovação, e nada mais.
+CARD_CAL_DROP_NOTES: Removendo, notas: bring the report
+CARD_CAL_DROP_TITLE: Removendo, título: Quarterly review
+CARD_CAL_DROP_WHERE: Removendo, onde: Room 4
+CARD_CAL_EVENT: Evento: ev-31
+CARD_CAL_KEPT_NOTES: Sem mudança: Notas: bring the report
+CARD_CAL_KEPT_REMIND: Sem mudança: Lembrete da agenda (min antes): 15
+CARD_CAL_KEPT_TITLE: Sem mudança: Título: Quarterly review
+CARD_CAL_KEPT_WHEN: Sem mudança: Quando: Wed 21/10/2026 13:00
+CARD_CAL_KEPT_WHERE: Sem mudança: Onde: Room 4
+CARD_CAL_NOBODY: Ninguém é convidado: nenhum e-mail é enviado.
+CARD_CAL_NOTES: Notas: bring the report
+CARD_CAL_NOW_TITLE: O evento agora: Quarterly review
+CARD_CAL_NOW_WHEN: O evento agora é em: Wed 21/10/2026 13:00
+CARD_CAL_OCCURRENCE_CANCEL: O código cancela só esta vez depois da sua aprovação, e nada mais. Se dá para restaurar uma ocorrência cancelada ainda não foi verificado.
+CARD_CAL_OCCURRENCE_CANCEL_OUTLOOK: O código cancela só esta vez depois da sua aprovação, e nada mais. O Outlook a move para Itens Excluídos; se dá para restaurá-la de lá ainda não foi verificado.
+CARD_CAL_OCCURRENCE_STAYS: O resto da série continua como está.
+CARD_CAL_REMIND: Lembrete da agenda: 15 min antes
+CARD_CAL_REPEAT_DAILY: Repete: todo dia, sem data de fim
+CARD_CAL_REPEAT_NOTE: Para mudar a série, use o app da agenda; para cancelar a série inteira, peça aqui.
+CARD_CAL_REPEAT_WEEKLY_FR: Repete: toda sexta-feira, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_MO: Repete: toda segunda-feira, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_SA: Repete: todo sábado, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_SU: Repete: todo domingo, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_TH: Repete: toda quinta-feira, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_TU: Repete: toda terça-feira, sem data de fim
+CARD_CAL_REPEAT_WEEKLY_WE: Repete: toda quarta-feira, sem data de fim
+CARD_CAL_SERIES_CANCEL: O código cancela a série inteira depois da sua aprovação: todas as ocorrências saem da agenda. O Google deve movê-la para a lixeira da agenda, de onde você pode restaurá-la por 30 dias (Google Agenda, Lixeira); isso ainda não foi verificado.
+CARD_CAL_SERIES_CANCEL_OUTLOOK: O código cancela a série inteira depois da sua aprovação: todas as ocorrências saem da agenda. O Outlook a move para Itens Excluídos; se dá para restaurá-la de lá ainda não foi verificado.
+CARD_CAL_SERIES_SINCE: A série começou em: Wed 21/10/2026 13:00
+CARD_CAL_SNAPSHOT: Nomeado como REF-7, do instantâneo lido em Wed 21/10/2026 12:00.
+CARD_CAL_TITLE: Título: Quarterly review
+CARD_CAL_WHEN: Quando: Wed 21/10/2026 13:00
+CARD_CAL_WHERE: Onde: Room 4
+CARD_FILE_APPROVE: Aprove exatamente isto: /pending
+CARD_FILE_BASE: Substitui a revisão 3 (alterada em Tue 20/10/2026 18:00).
+CARD_FILE_CODE_NEW: O código cria este arquivo depois da sua aprovação, e nada mais.
+CARD_FILE_CODE_REPLACE: O código escreve uma nova revisão deste arquivo depois da sua aprovação, só se ele ainda for o arquivo como foi lido em Wed 21/10/2026 12:00.
+CARD_FILE_CODE_SAVE: O código salva o arquivo que você enviou depois da sua aprovação, e nada mais.
+CARD_FILE_CODE_TRASH: O código move este arquivo para a lixeira depois da sua aprovação, só se ele ainda for o arquivo como foi lido em Wed 21/10/2026 12:00, e nada mais.
+CARD_FILE_FOLDER: Pasta: Inbox
+CARD_FILE_FOUND: Encontrei: Ana Lima em Inbox. É este?
+CARD_FILE_GDOC: Ele é criado como um Google Doc a partir do texto abaixo.
+CARD_FILE_HASH: Hash deste efeito (cobre a conta, o destino, o nome e cada byte): 0123456789abcdef
+CARD_FILE_KEPT_DOC: Um Google Doc guarda o próprio histórico de revisões, que o Google pode reduzir com o tempo: a versão substituída não é guardada para sempre.
+CARD_FILE_KEPT_DRIVE: O Drive guarda a revisão substituída para sempre (um arquivo guarda no máximo 200 revisões para sempre); se não puder, nada é escrito.
+CARD_FILE_KEPT_ONEDRIVE: O OneDrive guarda as versões anteriores pelas próprias regras de retenção, não para sempre.
+CARD_FILE_NAME: Arquivo: Ana Lima (Example Calendar)
+CARD_FILE_NEW: Um arquivo novo: nada que já exista é substituído.
+CARD_FILE_NOW: Arquivo como está agora: Ana Lima (Example Calendar)
+CARD_FILE_OWNED: O arquivo pertence a esta conta: ana@mail.example.
+CARD_FILE_PROJECT: Um arquivo do projeto: docs/notes.md, 3.5 KiB, sha256 0123456. O conteúdo dele não está neste card.
+CARD_FILE_SAVE: Salva o arquivo que você enviou: Ana Lima, 3.5 KiB, sha256 0123456.
+CARD_FILE_SENT: Arquivo enviado: Ana Lima (Example Calendar)
+CARD_FILE_SOURCE: Fonte: @notes.example
+CARD_FILE_TEXT: ----- o texto novo; a marca │ no começo de cada linha não faz parte dele -----\na short note\n----- fim do texto novo -----
+CARD_FILE_TRASH_DRIVE: Vai para a lixeira do Google Drive (recuperável por cerca de 30 dias)
+CARD_FILE_TRASH_MODIFIED: Última alteração: Tue 20/10/2026 18:00
+CARD_FILE_TRASH_ONEDRIVE: Vai para a lixeira do OneDrive (recuperável enquanto estiver na lixeira)
+CARD_FILE_TRASH_SIZE: Tamanho: 3.5 KiB
+CARD_HIDDEN_NOTE: Parte do texto atual do evento ou da mensagem não aparece aqui: a página da plataforma mostra tudo.
+CARD_HIDDEN_NOTE_FILE: Parte do nome do arquivo não aparece aqui: a página da plataforma mostra tudo.
+CARD_HIDDEN_NOTE_MAIL: Parte dos endereços, dos assuntos e do texto do e-mail não aparece aqui: a página da plataforma mostra tudo.
+CARD_HIDDEN_NOTE_TODO: O título da tarefa como ela está agora não aparece aqui: a página da plataforma mostra tudo.
+CARD_HIDDEN_NOTE_WHOLE: O card desta alteração não aparece aqui: a página da plataforma o mostra.
+CARD_MAIL_APPROVE: Aprove exatamente isto: /pending
+CARD_MAIL_ATTACHMENT: Anexo: Ana Lima, 2048 bytes, sha256 0123456789abcdef (de docs/notes.md)
+CARD_MAIL_ATTACHMENTS: Anexos (3), cada um uma cópia de um arquivo do projeto, enviado só se ainda for o mesmo arquivo:
+CARD_MAIL_ATTACH_NOTE: O arquivo em si não está neste card: leia-o no projeto antes de aprovar.
+CARD_MAIL_BCC: Cópia oculta (Cco; escondida dos outros, listada aqui para você): ana@mail.example, bruno@mail.example
+CARD_MAIL_CC: Com cópia (Cc): ana@mail.example, bruno@mail.example
+CARD_MAIL_COUNT: Destinatários no total: 3
+CARD_MAIL_FROM_ACCOUNT: Da sua própria conta: ana@mail.example (ana@mail.example)
+CARD_MAIL_HASH: Hash deste efeito (cobre todos os destinatários acima, o texto e os anexos): 0123456789abcdef
+CARD_MAIL_IN_REPLY: Em resposta à mensagem m-9001
+CARD_MAIL_MESSAGE: ----- a mensagem, exatamente como será enviada (cada linha começa com │) -----\nSee you on Friday.\n----- fim da mensagem -----
+CARD_MAIL_ONCE: Ele é enviado uma vez só, qualquer que seja o número de aprovações deste hash. Ou responda com o que mudar, ou rejeite: nada é enviado até você aprovar.
+CARD_MAIL_REPLY: O código envia esta resposta da sua própria conta depois da sua aprovação, só para o destinatário abaixo e mais ninguém, e nada mais.
+CARD_MAIL_REPLY_TO: Resposta para: ana@mail.example, quem enviou R-17 (no retrato lido em Wed 21/10/2026 12:00): Lunch on Friday
+CARD_MAIL_REPLY_TO_AT: Resposta para: ana@mail.example, quem enviou R-17, recebida em Wed 21/10/2026 09:30 (no retrato lido em Wed 21/10/2026 12:00): Lunch on Friday
+CARD_MAIL_REPLY_TO_DIFFERS: A mensagem pede que as respostas vão para another one: esta resposta vai para quem enviou, acima, e não para lá.
+CARD_MAIL_SEND: O código envia este e-mail da sua própria conta depois da sua aprovação, só para estes destinatários e mais ninguém, e nada mais.
+CARD_MAIL_SUBJECT: Assunto: Lunch on Friday
+CARD_MAIL_SUBJECT_REPLY: Assunto: Lunch on Friday
+CARD_MAIL_TO: Para: ana@mail.example, bruno@mail.example
+CARD_TODO_ADD: O código adiciona esta tarefa depois da sua aprovação, e nada mais.
+CARD_TODO_DONE: O código marca esta tarefa como concluída depois da sua aprovação, só se ela ainda estiver como foi lida em Wed 21/10/2026 12:00.
+CARD_TODO_LIST: Lista: one, two, three (Example Calendar)
+CARD_TODO_NOW_TITLE: Tarefa: Quarterly review
+CARD_TODO_PLAIN: Uma tarefa só com este título: sem data de vencimento e sem nota.
+CARD_TODO_TITLE: Tarefa: Quarterly review
+CHANGED: Esta decisão mudou desde que você a viu.
+CMD_ATTACHMENTS: Arquivos esperando sua resposta: 3.
+CMD_CANCELLED: Pedido 3 cancelado.
+CMD_CANCEL_ALREADY: O pedido 3 já estava cancelado.
+CMD_DONE: Pronto.
+CMD_ROUTINE_PAUSED: Rotina 3 pausada.
+CMD_STATUS: Pedidos abertos: 2. Esperando você: 1.
+CMD_STATUS_HELD: A tarefa 3 está retida: the file is too large.
+CMD_TASK_NOT_RUNNING: A tarefa 3 não estava em execução.
+CMD_TASK_RETRY: A tarefa 3 está pronta para rodar de novo.
+CMD_TASK_STOPPED: Tarefa 3 parada.
+CONFIG_PENDING: A configuração do projeto mudou e precisa ser aceita no terminal antes de eu continuar.
+CUT: (continua na página)
+DOCUMENT_LINE: O arquivo com o texto inteiro não chegou, então este card não pode ser aprovado aqui: aprove na página da plataforma, ou envie /pending para tentar o arquivo de novo.
+DOCUMENT_NOTE: O texto inteiro desta decisão, como arquivo. O card com os botões chega depois que este arquivo chegar.
+EFFECT_LABEL: Aprovar este conteúdo exato
+EFFECT_LINE: Aprove na página da plataforma.
+EFFECT_REPLY: Um efeito é aprovado onde o texto inteiro aparece, on the platform's page
+EMPTY_REPLY: (resposta vazia)
+EV_ACCOUNT_NONE: Não há agenda configurada para Example Calendar aqui, então não fiz nada. Diga outra conta, ou deixe a conta de fora.
+EV_ALLDAY_CLOCK: Esse evento é de dia inteiro, então não o mudei: um horário não diz quanto tempo ele dura. Diga a hora de início e a de fim, por exemplo: das 10h às 11h.
+EV_ASK_DAY: Não consegui ler o dia que você quis dizer. Diga o nome do evento e o dia, por exemplo: amanhã ou 22/10.
+EV_ASK_WHICH_DAY: Você escreveu dois dias para este evento: 6 e 7. Diga o evento e o dia de novo.
+EV_CHANGE_WHAT: Achei o evento, mas não entendi o que mudar. Diga o novo dia e horário, ou o novo nome.
+EV_CHECK_FAILED: Não consegui conferir a sua agenda agora, então não fiz nada. Tente de novo em instantes.
+EV_FOUND: Encontrei: Quarterly review, Wed 21/10/2026 13:00. É este?
+EV_LIST_AGAIN: Essa lista ficou desatualizada, ou o número não está mais claro. Diga o evento pelo nome e pelo dia.
+EV_LIST_WHAT: O que você quer fazer com o evento 3? Diga, por exemplo: cancela o evento 3, ou remarca o evento 3 para sexta às 15h.
+EV_MANY_CANCEL: Mais de um evento combina. Qual deles você quer cancelar?
+EV_MANY_CANCEL_HOW: Diga, por exemplo: cancela o evento 3.
+EV_MANY_CHANGE: Mais de um evento combina. Qual deles você quer mudar?
+EV_MANY_CHANGE_HOW: Diga o número e o novo horário, por exemplo: remarca o evento 3 para sexta às 15h.
+EV_MORE: ...e mais 2. Diga o dia para eu separar.
+EV_NAME_NONE: Não encontrei nenhum evento com nome parecido nos próximos 2 dias. Peça a sua agenda para ver os eventos.
+EV_NAME_NONE_DAY: Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos.
+EV_NONE: Não encontrei esse evento na sua agenda nos próximos 2 dias.
+EV_NONE_DAY: Não encontrei esse evento na sua agenda nesse dia.
+EV_NONE_NO_SOURCE: Não encontrei esse evento. Nenhuma agenda sua foi adicionada a este projeto ainda, então só consigo achar os eventos que eu mesmo criei aqui. Adicione a sua agenda para achar os outros.
+FAIL_FILE: Não consegui abrir esse arquivo no seu Example Calendar. Confira se ele ainda existe e se você pode escrever nele.
+FAIL_FOLDER: Não consegui abrir a pasta "Inbox" no seu Example Calendar. Confira se ela existe e se o nome dela na configuração está certo.
+FAIL_FOLDER_HINT: Em contas em português, a pasta padrão costuma se chamar Documentos.
+FAIL_GONE: Esse item não está mais lá, então nada foi feito.
+FAIL_LOOK_ANY: no serviço
+FAIL_LOOK_CALENDAR: na sua agenda
+FAIL_LOOK_FILES: no seu drive
+FAIL_LOOK_MAILBOX: na sua caixa de e-mail
+FAIL_LOOK_POST: no perfil
+FAIL_LOOK_SENT: nos seus e-mails enviados
+FAIL_LOOK_TASKS: na sua lista de tarefas
+FAIL_NAME_TAKEN: Já existe um arquivo com esse nome na pasta, e um arquivo novo nunca substitui outro. Escolha outro nome.
+FAIL_NETWORK: Example Calendar: o serviço não respondeu, então nada foi feito. Tente de novo daqui a pouco.
+FAIL_NOT_AUTHORIZED: Sua conta Example Calendar ainda não está conectada, então nada foi feito. Peça de novo depois de conectá-la on the platform's page
+FAIL_NOT_DONE: Não foi feito, e nada foi escrito. Tente de novo daqui a pouco, ou confira on the platform's page
+FAIL_QUOTA: Example Calendar: não há mais espaço para isso, então nada foi escrito. Libere espaço lá e peça de novo.
+FAIL_REFUSED: Example Calendar: o serviço recusou, então nada foi feito. Confira os detalhes e as permissões da conta.
+FAIL_SERVICE_ANY: Sua conta
+FAIL_SERVICE_FILES_GOOGLE: Google Drive
+FAIL_SERVICE_FILES_MICROSOFT: OneDrive
+FAIL_SERVICE_MAIL_GOOGLE: Gmail
+FAIL_SERVICE_MAIL_MICROSOFT: Outlook
+FAIL_SERVICE_TASKS_GOOGLE: Google Tasks
+FAIL_SERVICE_TASKS_MICROSOFT: Microsoft To Do
+FAIL_TOO_LARGE: Isso é grande demais para ser escrito lá, então nada foi feito.
+FAIL_UNKNOWN: O resultado é desconhecido: o serviço não confirmou se foi feito. Antes de pedir de novo, olhe Room 4.
+FA_BUSY: Já estou respondendo outra pergunta; tente de novo em instantes.
+FA_CAP: A pergunta sobre o arquivo chegou ao limite de custo e foi interrompida.
+FA_CUT: … (resposta cortada)
+FA_DAY_LIMIT: Já respondi 3 perguntas sobre arquivos hoje, que é o limite do dia.
+FA_DAY_LIMIT_ONE: Já respondi 1 pergunta sobre um arquivo hoje, que é o limite do dia.
+FA_FAILED: Não consegui responder sobre o arquivo agora. Tente de novo em alguns minutos.
+FA_NOT_BUILT: Ainda não consigo responder perguntas sobre arquivos: o leitor não está instalado.
+FA_NOT_FOUND: O arquivo não traz a resposta.
+FA_NOT_PROVEN: Ainda não consigo responder perguntas sobre arquivos: o leitor ainda não passou no primeiro teste completo.
+FA_READ: Lido: Ana Lima (ana@mail.example, pasta Inbox).
+FA_READ_ACCOUNT: Lido: Ana Lima (ana@mail.example).
+FA_REQUEST_TEXT: pergunta sobre um arquivo
+FA_STORED: (respondido sobre um arquivo)
+FA_TIMEOUT: A pergunta sobre o arquivo demorou demais e foi interrompida.
+FA_TOO_LARGE: Encontrei Ana Lima (ana@mail.example), mas o texto dele é grande demais para eu entregar ao leitor aqui.
+FILE_WORD: arquivo
+FR_CUT: Parei de procurar antes do fim (as pastas são mais fundas ou maiores do que procuro de uma vez), então o arquivo pode estar mais adiante.
+FR_DRIVE_ROOT: Meu Drive
+FR_EMPTY: Encontrei Ana Lima (ana@mail.example), mas não há texto nele para mostrar.
+FR_FOLDER: Inbox (ana@mail.example)
+FR_FOLDER_MISSING: Não achei a pasta "Inbox"; procurei em todas as suas pastas.
+FR_GOOGLE: Google Drive
+FR_HEAD: Ana Lima (ana@mail.example, pasta Inbox):
+FR_HEAD_ACCOUNT: Ana Lima (no ana@mail.example):
+FR_INCOMPLETE: Não olhei tudo (as pastas são mais fundas ou maiores do que procuro de uma vez, ou alguma não respondeu), então outro arquivo pode combinar também.
+FR_ITEM: 3. Ana Lima - pasta Inbox, ana@mail.example
+FR_ITEM_ACCOUNT: 3. Ana Lima - no ana@mail.example
+FR_MICROSOFT: OneDrive
+FR_MORE: O texto continua: faltam mostrar 2 caracteres.
+FR_NONE: Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas: Inbox, Archive.
+FR_NONE_SUB: Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: Inbox, Archive.
+FR_NO_FOLDERS: Nenhuma pasta do seu Google Drive ou do OneDrive está configurada neste projeto, então não consigo procurar arquivos.
+FR_NO_SUCH_FOLDER: Não encontrei essa pasta dentro das pastas configuradas para as suas contas, e não procuro fora delas: Inbox, Archive.
+FR_PARTIAL: Não consegui olhar todos os arquivos dessas pastas (algumas têm mais arquivos do que consigo listar, ou não responderam), então o arquivo pode estar lá.
+FR_SEVERAL: Encontrei 3 arquivos com esse nome. Qual deles? Diga o nome completo com a terminação e o Google Drive ou o OneDrive.
+FR_SEVERAL_NAME: Encontrei 3 arquivos que combinam. Qual deles? Escreva o nome completo, ou diga a pasta ou a conta em que ele está.
+FR_SEVERAL_PICK: Encontrei 3 arquivos que combinam. Qual deles? Diga o número, por exemplo "o 2".
+FR_TOO_BIG: Encontrei Ana Lima (ana@mail.example), mas ele é grande demais para eu ler aqui.
+FR_UNAVAILABLE: Não consegui olhar as suas pastas agora. Tente de novo em alguns minutos.
+FR_UNREADABLE: Encontrei Ana Lima (ana@mail.example), mas não consigo ler esse tipo de arquivo aqui.
+FR_WITHHELD: Encontrei Ana Lima (ana@mail.example), mas não mostrei: o texto tem algo que parece uma senha ou uma chave.
+FS_FILE: Aqui está o arquivo Ana Lima (ana@mail.example, pasta Inbox).
+FS_FILE_ACCOUNT: Aqui está o arquivo Ana Lima (ana@mail.example).
+FS_KIND: Encontrei Ana Lima (ana@mail.example), mas não consigo enviar esse tipo de arquivo por aqui.
+FS_NOT_SENT: O arquivo não chegou. Tente de novo em alguns minutos.
+FS_RIGHT_CHANGED: Não enviei o arquivo: o que você pode receber por aqui mudou depois do seu pedido.
+FS_SENT: Aqui está Ana Lima (ana@mail.example, pasta Inbox).
+FS_TOO_BIG: Encontrei Ana Lima (ana@mail.example), mas ele é grande demais para eu enviar por aqui.
+FS_WITHHELD: Encontrei Ana Lima (ana@mail.example), mas não envio por aqui: o arquivo parece conter uma senha ou uma chave.
+FT_SEVERAL_PICK: Encontrei 3 arquivos que combinam. Qual deles vai para a lixeira? Diga o número, por exemplo "o 2".
+FWD_NOT_A_REQUEST: Não atendo mensagens encaminhadas. Para pedir algo, escreva com suas palavras.
+GREET_APPROVE: - aprovar um card respondendo "aprovo" ou "sim", ou recusar respondendo "não"
+GREET_ASK_WORK: - me mande um pedido em uma frase e eu o passo ao agente de planejamento
+GREET_CALENDAR: - criar, mudar ou cancelar eventos na sua agenda, com a sua aprovação
+GREET_FILES: - salvar arquivos no seu Drive ou OneDrive, com a sua aprovação
+GREET_HEAD: Olá! Eu posso ajudar com isto:
+GREET_MAIL: - ler e resumir os seus e-mails
+GREET_ORGANIZE: - organizar a sua caixa de e-mail (rascunho, arquivar, mover, marcar, lixeira), com a sua aprovação
+GREET_OWN_WORDS: - você pode pedir com as suas palavras, em qualquer uma de seis línguas
+GREET_REMIND: - criar lembretes
+GREET_SEND: - escrever e enviar e-mails, cada um só depois da sua aprovação
+HAND_CHANGED: A versão mais nova de uma fonte desta pergunta é um arquivo que você mudou à mão: ele só é lido por uma pergunta feita no terminal. Pergunte lá ou importe um novo arquivo para a fonte. Nada foi executado.
+HEADER: Acme Launch · plan #42
+HEADER_FILE: Acme Launch · arquivo #42
+HELP: Comandos:\n\nPedidos\n/pending — o que espera por você\n/approve <id> — aprova o que o último card de <id> mostrou\n/reject <id> [nota] — rejeita, ou dispensa uma pergunta\n/release <id> — libera uma entrega\n/answer <id> <texto> — responde a uma pergunta\n/ask <pergunta> — responde a uma pergunta com as fontes do projeto\n\nArquivos\n/add <n> — adiciona como fonte um arquivo que você enviou\n/discard <n> — apaga um arquivo que você enviou\n\nLembretes\n/remind <hora> <texto> — um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders — os lembretes que esperam\n/forget <n> — cancela um lembrete\n\nProjeto\n/project [nome] — escolhe o projeto para onde vão suas mensagens\n/help — esta lista\n\nTodo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões.
+INSTRUCTIONS: Instruções encontradas em conteúdo externo:
+INSTRUCTION_LINE: [42] "the review is on Friday" (não seguida)
+INSTRUCTION_UNVERIFIED: Uma instrução encontrada em uma fonte foi retirada: o trecho citado não está nessa fonte.
+INSTR_PROPOSAL_ASK: Adicionar esta linha às instruções do projeto?
+INSTR_WHERE_ELSEWHERE: aceite na página (Building > Instructions) ou no terminal
+INSTR_WHERE_SAYS: ou na página: Building > Instructions
+IX_ANSWER_ON_QUESTION: Uma pergunta se responde respondendo a ela: escreva a sua resposta.
+IX_ASK_AGAIN: Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?
+IX_ASK_FAR: Isso está a mais de um ano. Diga um dia mais perto.
+IX_ASK_PAST: Esse horário já passou. Diga um horário que ainda vem pela frente.
+IX_ASK_TIME: Não tenho certeza do dia e da hora. Diga de novo, com o dia e a hora.
+IX_CANNOT_EVENT_CREATE: Entendi que você quer criar um evento, mas não consegui montar o cartão. Diga o título, o dia e a hora.
+IX_CANNOT_WRITE: Entendi que você quer mudar algo nas suas contas, mas não consegui montar o cartão, então não fiz nada. Diga o que é, qual item e quando.
+IX_LONG_LINE: Essa mensagem é longa demais para eu ler aqui. Envie em partes menores.
+IX_NONE: Não vi um pedido nessa mensagem.
+IX_OUTAGE: Não consegui entender agora. Tente de novo em alguns minutos.
+IX_PRIVATE_LINE: (uma mensagem)
+IX_WRITE_LANGUAGE: Por enquanto, peça isso em português ou em inglês.
+KIND_ACCEPTANCE: aceite
+KIND_EFFECT: pedido
+KIND_PLAN: plano
+KIND_QUESTION: pergunta
+KIND_REVIEW: revisão
+KIND_YOUR_DOCUMENT: documento
+LABEL_ADD: Adicionar ao projeto
+LABEL_APPROVE: Aprovar
+LABEL_DISCARD: Descartar
+LABEL_REJECT: Rejeitar
+LABEL_RELEASE: Liberar
+LABEL_SAVE_GOOGLE: Salvar no Google Drive
+LABEL_SAVE_MICROSOFT: Salvar no OneDrive
+LP_AND: e
+LP_DAY_OR_POSITION: Isso pode ser o dia (6) ou 2 da lista (7). Diga o número.
+LP_LAST_NOT_SHOWN: A lista tem mais itens do que mostrei; diga o número.
+LP_NONE: Nenhum da lista é yes. Diga o número.
+LP_ORDINAL_CLASH: Você quer o evento 3 ou 2 da lista (evento 5)? Diga o número.
+LP_SEVERAL: Mais de um da lista é yes: 8. Diga o número.
+LP_VALUE_ACCOUNT: do Example Calendar
+LP_VALUE_CLOCK: às 13:00
+LP_VALUE_DAY: na Wed 21/10/2026
+LP_VALUE_ORDINAL: o da posição 4
+LP_VALUE_WEEKDAY: na Wed
+MC_ASK_BODY: O que o e-mail para ana@mail.example deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com "texto exato:".
+MC_REPLY_NOT_WORDED: Não consegui redigir esta resposta; o card mostra as suas próprias palavras, como você escreveu. Confira o texto antes de aprovar.
+MORE_LINE: E mais 3 esperando. Envie /pending para listar.
+MR_ASK: Qual e-mail? Diga o número dele, ou algumas palavras do remetente ou do assunto.
+MR_BODY_CUT: … (texto cortado)
+MR_BOX_FAILED: Não consegui ler Inbox, Archive agora, então não vou adivinhar qual é o e-mail 3. Tente de novo em alguns minutos.
+MR_BOX_NOTE: Não consegui ler Inbox, Archive agora, então pode haver mais.
+MR_DAY_UNREAD: Não consegui entender qual dia você quer, ou um e-mail está sem horário registrado, então não escolhi por data. Diga o número dele ou algumas palavras do remetente ou do assunto.
+MR_FOUND_ONE: Achei 1 e-mail que combina:\n8
+MR_HEAD: Inbox · one line of text
+MR_NONE: Não achei nenhum e-mail com essas palavras no snapshot mais novo das suas caixas.
+MR_NO_TEXT: (sem texto)
+MR_PAST_END: O Inbox tem 3 e-mails no snapshot mais novo, então não existe o e-mail 3 ali.
+MR_PICK: Diga “lê o 3 do Inbox”, com o número e a caixa do que você quer.
+MR_ROW: 3. Inbox · one line of text
+MR_SEVERAL: Achei 3 e-mails que combinam:\n8
+MR_TOO_MANY: Achei 3 e-mails que combinam; diga mais palavras do remetente ou do assunto.
+MR_UNAVAILABLE: Não consegui ler esse e-mail agora. Peça a lista dos seus e-mails de novo e depois o número dele.
+MR_WHICH_BOX: 3 das suas caixas têm um e-mail 3: one, two, three.
+MR_WHICH_PAGE: Algumas dessas caixas são da mesma conta, então não consigo distingui-las só pelas palavras: escolha on the platform's page
+MR_WHICH_SAY_ONE: Diga “lê o 3 do Inbox” para ler o que está no Inbox.
+MR_WHICH_SAY_TWO: Diga “lê o 3 do Inbox” ou “do Archive”.
+MR_WHICH_TYPED: Indique qual com --message R-17, R-18.
+NAMES_MORE:  e mais 3
+NAT_ASK_ID: Qual número? Diga de novo com o número na mensagem.
+NAT_ASK_REMIND_HINT: Isso parece um lembrete: escreva em palavras, por exemplo 'me lembra sexta às 17h de pegar a encomenda na portaria'.
+NAT_ASK_WHICH: Qual arquivo você quer dizer? Responda com o número.\none, two, three
+NAT_DECISION_CARD: Uma decisão se aprova pelo card, nunca por uma frase: enviei de novo o card de #42 para você ver exatamente o que aprova; aprove pelo botão dele, ou dizendo "aprovo" logo depois.
+NAT_DECISION_NO_CARD: Uma decisão é tomada pelo card, nunca por uma frase, e o card não pôde ser enviado agora. Envie /pending.
+NAT_DECISION_TYPED: Uma decisão é tomada pelo comando, nunca por uma frase. Envie: /pending
+NAT_GATED: Isso não é feito por uma frase. Faça Room 4/pending
+NAT_NOTHING: Nada para mostrar.
+NAT_NOTHING_WAITS: Nada aguarda você.
+NAT_NOT_BELIEVED: Não consegui conferir isso com o que você escreveu, então nada foi feito. Diga de novo, por favor.
+NAT_NO_DECISION: Não há decisão aberta #42.
+NAT_NO_SOURCE: Nenhuma fonte deste projeto corresponde a isso. A busca nas suas contas está planejada, ainda não foi construída.
+NAT_NO_SOURCES: Ainda não há fontes.
+NAT_PLACE_BOTH: no terminal ou na página
+NAT_PLACE_PAGE: na página
+NAT_PLACE_TERMINAL: no terminal
+NAT_PRIVATE_LINE: (um lembrete)
+NAT_PRIVATE_REPLY: (lembrete)
+NAT_READ_REPLY: (mostrado onde foi pedido)
+NAT_TYPE_IT: Isso muda algo, então é feito pelo comando, não por uma frase. Envie: /pending
+NAT_USED: Usei: Ana Lima.
+NAT_WHICH_DECISION: Qual decisão? Diga o número dela na mesma frase.
+NOTHING_TO_ACT: Ana Lima: nada aguarda uma ação sua.
+NOTHING_WAITS: Ana Lima: nada pendente para você.
+NOT_ACCEPTED: A configuração deste projeto ainda não foi aceita. Aceite on the platform's page
+NOT_ANSWERABLE: A decisão pendente 12 é do tipo plan: ela se aprova ou se rejeita, não se responde.
+NOT_APPROVABLE: A decisão pendente 12 é do tipo plan: aprovar vale só para um plano ou um aceite.
+NOT_BUILT: Nenhuma skill desta instalação responde a partir das fontes ainda (asst-answer está planejada).
+NOT_FOUND: Não encontrado nas fontes lidas: notes.example, plan.example.
+NOT_NAMED_NEXT: Cancele com /cancel move the review, indique um fluxo no terminal com: primary, ou comece de novo com /new <text>
+NOT_NAMED_NEXT_PHONE: Cancele com /cancel move the review, indique um fluxo on the platform's page, ou comece de novo com /new <text>
+NOT_OFFERED: Esse card não ofereceu uma aprovação. Envie /pending para ver o atual.
+NOT_OPEN: A decisão pendente 12 tem o status pending: não está aberta.
+NOT_OPEN_DONE: O pedido #12 já foi pending.
+NOT_REJECTABLE: A decisão pendente 12 é do tipo plan: rejeitar vale só para um plano, um aceite, uma ação ou uma pergunta.
+NOT_RELEASABLE: A decisão pendente 12 é do tipo plan: ela se responde, não se libera.
+NOT_STARTED: O agente planner não pode começar agora: it is the only free slot. Nada foi executado.
+NO_CARD: Use o card que foi enviado a você (envie /pending).
+NO_MATCH: Nenhuma fonte deste projeto parece tratar disso. Indique uma com @<id>: 41, 42.
+NO_REPLY: (sem resposta)
+NO_SOURCES: Este projeto não tem nenhuma fonte com versão para usar na resposta. Importe uma primeiro.
+NO_SUCH_DECISION: Não encontrei a decisão 12.
+NT_ASK_AGAIN: Para quando? Responda com o dia e a hora, por exemplo amanhã às 13h.
+NT_ASK_EVENT_OR_OTHER: Evento na agenda, ou outra coisa? Responda agenda, ou outra coisa para enviar a mensagem adiante.
+NT_ASK_FORGET_COUNT: Cancelar o lembrete #42: Wed 21/10/2026 13:00? (sim / não)
+NT_ASK_FORGET_MANY: Cancelar estes lembretes? (sim / não)
+NT_ASK_FORGET_TEXT: Cancelar o lembrete #42: Wed 21/10/2026 13:00: see you soon? (sim / não)
+NT_ASK_KIND_COUNT: Wed 21/10/2026 13:00. Um lembrete aqui no chat, ou um evento na sua agenda?
+NT_ASK_KIND_TEXT: Wed 21/10/2026 13:00: see you soon. Um lembrete aqui no chat, ou um evento na sua agenda?
+NT_ASK_NOTE: Quer um lembrete? Então diga para quando, por exemplo: amanhã às 13h
+NT_ASK_READINGS: Qual horário você quer: yes, no? Responda com a hora.
+NT_ASK_TEXT: Do que devo lembrar você? Responda com as palavras a enviar.
+NT_ASK_TIME: A que horas? Responda com uma hora, por exemplo 13h.
+NT_ASK_TIME_DAY: Wed 21/10/2026: a que horas? Responda com uma hora, por exemplo 13h.
+NT_ASK_WEEKDAY: Qual dia da semana que vem? Responda com o dia da semana, por exemplo terça.
+NT_ASK_WHEN: Quando? Ex.: me lembra amanhã às 13h de regar as plantas
+NT_ASK_WHEN_SLASH: Quando? Ex.: /remind amanhã 13h regar as plantas
+NT_BTN_YES: Sim
+NT_CANCELLED: Certo, nenhum lembrete foi criado.
+NT_CONFIRM_COUNT: Entendi: Wed 21/10/2026 13:00. Confirma? (sim / outra hora)
+NT_CONFIRM_TEXT: Entendi: Wed 21/10/2026 13:00: see you soon. Confirma? (sim / outra hora)
+NT_DISCARDED: A pergunta anterior foi descartada.
+NT_EXPIRED: Essa pergunta não está mais aberta: ela espera dez minutos. Envie a frase de novo.
+NT_FORGOT_COUNT: Lembrete #42 cancelado: Wed 21/10/2026 13:00. Para tê-lo de volta, envie: desfaz
+NT_FORGOT_TEXT: Lembrete #42 cancelado: Wed 21/10/2026 13:00: see you soon. Para tê-lo de volta, envie: desfaz
+NT_KEPT: Certo, nada foi cancelado.
+NT_NO_MATCH: Nenhum lembrete seu pendente corresponde a isso. Envie /reminders para ver a lista.
+NT_OR: ou
+NT_RECURRING: Um lembrete aqui acontece uma vez. O que se repete é uma rotina: configure na página da plataforma. Para um lembrete único, diga quando.
+NT_REL_0: hoje
+NT_REL_1: amanhã
+NT_RESTORED_COUNT: O lembrete #Wed 21/10/2026 13:00 está de volta como #42: Wed 21/10/2026 13:00.
+NT_RESTORED_TEXT: O lembrete #Wed 21/10/2026 13:00 está de volta como #42: Wed 21/10/2026 13:00: see you soon.
+NT_ROLLED: 13:00 de hoje já passou: Wed 21/10/2026 13:00
+NT_SET_COUNT: Lembrete #42: Wed 21/10/2026 13:00. Para desfazer: /forget 42.
+NT_SET_TEXT: Lembrete #42: Wed 21/10/2026 13:00: see you soon. Para desfazer: /forget 42.
+NT_WD_0: seg
+NT_WD_1: ter
+NT_WD_2: qua
+NT_WD_3: qui
+NT_WD_4: sex
+NT_WD_5: sáb
+NT_WD_6: dom
+NT_WHEN_FAR: Wed Bruno Reis às 13:00
+NT_WHEN_REL: docs/notes.md, Wed Bruno Reis, às 13:00
+NT_WHICH: Qual deles? Envie /forget <n>.
+NW_APPROVE_WITH: Para aprovar, com o hash dele: /pending
+NW_ASK_ACCOUNT: Em qual conta?
+NW_ASK_ATTACHMENT: Qual arquivo?
+NW_ASK_CALENDAR: Não tenho a agenda 'Ana Lima'. As agendas configuradas: Ana Lima, Bruno Reis. Qual?
+NW_ASK_DAY: Qual o dia do evento de dia todo?
+NW_ASK_DAY_INVALID: Essa data não existe. Qual é o dia do evento?
+NW_ASK_END: O fim precisa ser depois do começo. A que horas termina?
+NW_ASK_EVENT: Qual evento? Diga o número (peça 'lista os eventos' para ver).
+NW_ASK_FILE: Qual arquivo você quer dizer?
+NW_ASK_FILE_NAME: Qual o nome do arquivo? Diga com a extensão (por exemplo notas.md), ou diga 'documento google'.
+NW_ASK_FOLDER: Não tenho a pasta 'Ana Lima'. As pastas configuradas: Ana Lima, Bruno Reis. Qual?
+NW_ASK_FOLDER_NONE: Em qual pasta? As pastas configuradas: Ana Lima, Bruno Reis.
+NW_ASK_SOURCE: De qual agenda?
+NW_ASK_TIME: Para quando é o evento 'Quarterly review'? (ou 'o dia todo')
+NW_ASK_TIME_PLAIN: Para quando é o evento? (ou 'o dia todo')
+NW_ASK_TITLE: Qual o título do evento de Wed 21/10/2026 13:00?
+NW_ASK_TITLE_PLAIN: Qual o título do evento?
+NW_CANCELLED: Nada foi aberto.
+NW_CARD_NOT_SENT: O card #2 foi aberto, mas não pôde ser enviado para este chat. Aprove na página da plataforma, ou envie /pending.
+NW_CHANGE_BY_NUMBER: Para mudar um evento, diga o número dele e o novo horário, por exemplo: remarca o evento 2 para sexta às 15h. Peça a sua agenda para ver os números.
+NW_CHECK_DATE: Confira a data: entendi Wed 21/10/2026 13:00.
+NW_GIVE_UP: Não consegui entender o que você quis dizer, então nada foi aberto. Diga o pedido de novo.
+NW_ITEMS_ADD_CAL: A sua agenda ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, on the platform's page
+NW_ITEMS_ADD_CAL_ACCOUNT: A sua agenda do Example Calendar ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, on the platform's page
+NW_ITEMS_ADD_MAIL: A sua caixa de e-mail ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, on the platform's page
+NW_ITEMS_ADD_MAIL_ACCOUNT: A sua caixa de e-mail do Example Calendar ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, on the platform's page
+NW_ITEMS_ALLDAY: dia inteiro
+NW_ITEMS_ALLDAY_UNTIL: dia inteiro até 21/10/2026
+NW_ITEMS_CMD_CAL: A sua agenda ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
+NW_ITEMS_CMD_CAL_ACCOUNT: A sua agenda do Example Calendar ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
+NW_ITEMS_CMD_MAIL: A sua caixa de e-mail ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
+NW_ITEMS_CMD_MAIL_ACCOUNT: A sua caixa de e-mail do Example Calendar ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
+NW_ITEMS_EMPTY_CAL: Nenhum evento na Ana Lima entre 1 e 3 (open).
+NW_ITEMS_EMPTY_CAL_AT: Nenhum evento na Ana Lima Wed 21/10/2026 13:00 (open).
+NW_ITEMS_EMPTY_CAL_MATCH: Nenhum eventoopen na Ana Lima (open).
+NW_ITEMS_EMPTY_MAIL: Nenhum e-mail na Ana Lima nos últimos 2 dias (open).
+NW_ITEMS_EMPTY_MAIL_MATCH: Nenhum e-mailopen na Ana Lima (open).
+NW_ITEMS_EMPTY_MAIL_ONE: Nenhum e-mail na Ana Lima no último dia (open).
+NW_ITEMS_EW_DAY: em Wed 21/10/2026
+NW_ITEMS_EW_RANGE: entre 1 e 3
+NW_ITEMS_EW_TODAY: hoje
+NW_ITEMS_EW_TOMORROW: amanhã
+NW_ITEMS_HEAD: notes.example (lido Wed 21/10/2026 12:00):
+NW_ITEMS_HEAD_CHECKED: Ana Lima (verificado Wed 21/10/2026 13:00):
+NW_ITEMS_HEAD_PHONE: Ana Lima (lido Wed 21/10/2026 13:00):
+NW_ITEMS_MAILBOX: Não consegui saber qual caixa você quer dizer. Suas fontes de e-mail: Ana Lima, Bruno Reis. Diga o nome de uma delas.
+NW_ITEMS_MATCH_DAY: Não entendi qual dia ou semana você quer. Diga, por exemplo, hoje, amanhã, sexta ou esta semana.
+NW_ITEMS_MATCH_EMPTY: Não achei nenhuma palavra para procurar nisso, então esta é a lista inteira.
+NW_ITEMS_MATCH_HEAD: Seus e-mailsopen:
+NW_ITEMS_MATCH_HEAD_CAL: Eventosopen:
+NW_ITEMS_MATCH_NODATE: Ficaram de fora do filtro de dia: 3 sem data.
+NW_ITEMS_MATCH_STATE: Só sei filtrar os e-mails não lidos. Peça os não lidos, ou a lista inteira.
+NW_ITEMS_MATCH_UNREAD: (só os não lidos)
+NW_ITEMS_MATCH_WORDS: com “move, review”
+NW_ITEMS_MORE: ... e mais 3
+NW_ITEMS_NAMEIN_CAL: Agenda do Example Calendar
+NW_ITEMS_NAMEIN_MAIL: caixa do Example Calendar
+NW_ITEMS_NAME_CAL: Agenda do Example Calendar
+NW_ITEMS_NONE: Ainda não há itens numerados: uma fonte de e-mail ou agenda precisa de um retrato antes.
+NW_ITEMS_OLD: (lista de 13:00)
+NW_ITEMS_ORG: organizado por Bruno Reis
+NW_ITEMS_PREVIEW: Início do texto: see you soon
+NW_ITEMS_RANGE_HEAD: Agenda work:
+NW_ITEMS_REFUSED_PHONE: Não consegui ler Ana Lima agora.
+NW_ITEMS_RL_DAY: de Wed 21/10/2026
+NW_ITEMS_RL_TODAY: de hoje, Wed 21/10/2026
+NW_ITEMS_RL_TOMORROW: de amanhã, Wed 21/10/2026
+NW_ITEMS_RL_WEEK: da semana, 1 a 3
+NW_ITEMS_R_ACCEPTED: você aceitou
+NW_ITEMS_R_DECLINED: você recusou
+NW_ITEMS_R_NOANSWER: sem resposta sua ainda
+NW_ITEMS_R_TENTATIVE: você respondeu talvez
+NW_ITEMS_STATE_CHECKED: verificado Wed 21/10/2026 13:00
+NW_ITEMS_STATE_READ: lido Wed 21/10/2026 13:00
+NW_ITEMS_TODAY: hoje
+NW_ITEMS_T_CANCELLED: cancelado
+NW_ITEMS_T_ONLINE: reunião online
+NW_ITEMS_T_RECURRING: recorrente
+NW_ITEMS_T_TENTATIVE: provisório
+NW_ITEMS_UNREAD_MARK: •
+NW_ITEMS_UNREAD_UNKNOWN: Não consigo saber quais e-mails da Ana Lima não foram lidos: o provedor não informou quais foram lidos.
+NW_ITEMS_WHEN_DAY: em Wed 21/10/2026 às 13:00
+NW_ITEMS_WHEN_TODAY: às 13:00
+NW_ITEMS_YESTERDAY: ontem
+NW_MAIL_ASK_BODY: O que o e-mail para ana@mail.example deve dizer?
+NW_MAIL_ASK_BODY_REPLY: O que a resposta deve dizer?
+NW_MAIL_ASK_MESSAGE: Achei 3 e-mails. Qual deles? Responda com o número.
+NW_MAIL_ASK_MESSAGES_OVER: Achei 3 e-mails, e um card aceita no máximo 10. Quais? Responda com os números (os 3 mais novos estão listados).
+NW_MAIL_ASK_SENDER: Nenhum e-mail desse remetente traz todas essas palavras. Estes as trazem no remetente ou no assunto. Responda com o número do que você quer.
+NW_MAIL_ASK_SOURCE: De qual caixa?
+NW_MAIL_ASK_STATE: Marcar como lido ou como não lido?
+NW_MAIL_ASK_SUBJECT: Qual o assunto do e-mail para ana@mail.example?
+NW_MAIL_ASK_TO: Qual o e-mail de Ana Lima?
+NW_MAIL_BY_DATE: Ainda não sei escolher e-mails por data: diga os números (peça a lista dos seus e-mails para vê-los).
+NW_MAIL_LIST_CHANGED: Sua caixa de e-mail mudou desde que listei essas mensagens, então não fiz nada. Peça de novo que eu listo outra vez.
+NW_MAIL_NONE: Nenhuma mensagem do snapshot mais novo de notes.example tem todas estas palavras: move, review.
+NW_MAIL_NO_FOLDERS: Nenhuma pasta de e-mail está configurada para a conta ana@mail.example, então nada pode ser movido: a chave accounts do runtime.json as lista.
+NW_MAIL_NO_FORWARD: Ainda não sei encaminhar um e-mail, e 'Ana Lima' não é uma das suas pastas de e-mail (Ana Lima, Bruno Reis). Mover é para uma delas.
+NW_MAIL_NO_SOURCE: Nenhuma fonte de e-mail da sua caixa está registrada para isso: registre uma com source-mail primeiro e peça de novo.
+NW_MAIL_REFRESH_FAILED: Não consegui atualizar o notes.example agora, então não fiz nada. Tente de novo daqui a pouco; se continuar, veja na página da plataforma.
+NW_MAIL_STATE_READ: lido
+NW_MAIL_STATE_UNREAD: não lido
+NW_MAIL_TOO_MANY: Um card aceita no máximo 10 mensagens: indique menos.
+NW_NO_ACCOUNT: Nenhuma das suas contas está configurada para isso: a chave accounts do runtime.json lista as contas, com o que cada uma pode escrever.
+NW_NO_CALENDAR_SOURCE: Nenhuma agenda sua é fonte deste projeto, então não sei qual evento você quer dizer.
+NW_NO_CARDS: Você não recebe cards aqui: peça na página da plataforma.
+NW_NO_HELD: Não tenho nenhum arquivo seu aguardando. Envie o arquivo e diga onde salvar.
+NW_NO_HELD_KIND: Nenhum dos seus arquivos aguardando é plan. Envie e peça de novo.
+NW_PICK_ON_CARD: Escolha onde salvar no card do arquivo:
+NW_PRIVATE_LINE: (um pedido para as suas contas)
+NW_PRIVATE_REPLY: (pedido para as suas contas)
+NW_RECURRING_EVENT: Um evento que se repete ainda não está disponível. Para um evento só, diga o dia e a hora.
+NW_REF_NOT_READABLE: As mensagens e os eventos são numerados num retrato da sua caixa de e-mail ou agenda, e este canal não pode ler: peça na página da plataforma, ou configure no projeto o grupo ask-mail para você.
+NW_WHICH_FILE: Qual arquivo? Escolha no card dele:
+OUT_ACCT_GOOGLE: Google
+OUT_ACCT_MICROSOFT: Microsoft
+OUT_BOX_ARCHIVE: Arquivada(s): 3 mensagem(ns).
+OUT_BOX_DRAFT: Rascunho salvo na sua caixa de e-mail. Ele não foi enviado.
+OUT_BOX_MOVE: Movida(s): 3 mensagem(ns).
+OUT_BOX_READ: Marcada(s) como lida(s): 3 mensagem(ns).
+OUT_BOX_TRASH: Movida(s) para a lixeira: 3 mensagem(ns).
+OUT_BOX_UNREAD: Marcada(s) como não lida(s): 3 mensagem(ns).
+OUT_CAL_CANCEL: Evento removido (Example Calendar).
+OUT_CAL_CANCEL_OCCURRENCE: Só essa vez foi cancelada (Example Calendar); a série continua.
+OUT_CAL_CANCEL_SERIES: Série cancelada (Example Calendar).
+OUT_CAL_CHANGE: Evento alterado: Quarterly review, Wed 21/10/2026 13:00 (Example Calendar).
+OUT_CAL_CHANGE_BARE: Evento alterado (Example Calendar).
+OUT_CAL_CREATE: Evento criado: Quarterly review, Wed 21/10/2026 13:00 (Example Calendar).
+OUT_CAL_CREATE_BARE: Evento criado (Example Calendar).
+OUT_CAL_GOOGLE: Google Agenda
+OUT_CAL_MICROSOFT: Agenda do Outlook
+OUT_DONE: Pedido #42 aprovado e executado.
+OUT_FILE_CREATE: Arquivo criado (Example Calendar).
+OUT_FILE_REPLACE: Arquivo atualizado (Example Calendar).
+OUT_FILE_SAVE: Arquivo salvo (Example Calendar).
+OUT_MAIL_REPLIED: Resposta enviada.
+OUT_MAIL_SENT: E-mail enviado.
+OUT_REPLAYED: Isso já tinha sido feito: nada foi repetido.
+OUT_TODO_ADDED: Tarefa adicionada: Quarterly review (Example Calendar).
+OUT_TODO_ADDED_BARE: Tarefa adicionada (Example Calendar).
+OUT_TODO_DONE: Tarefa concluída (Example Calendar).
+OUT_TODO_GOOGLE: Google Tasks
+OUT_TODO_MICROSOFT: Microsoft To Do
+PAGE_LABEL: Abrir a página
+PAGE_LINE: Resolva isso na página da plataforma.
+PEND_CARD_TITLE: Pergunta do assistente
+PEND_DISMISS_REPLY: Para dispensar, responda à mensagem dela com: /reject <número>.
+PEND_DISMISS_TYPED: Para dispensar, responda: /reject <número>.
+PEND_NOT_UNDERSTOOD: #42 pedido não entendido
+PEND_NOT_UNDERSTOOD_TITLE: Pedido não entendido
+PEND_QUESTION: #42 pergunta do assistente: see you soon
+PHONE_ACCOUNT_WRITE: Uma mudança nas suas contas se faz on the platform's page
+PHONE_APPROVE_EFFECT: Isto se aprova onde o texto inteiro aparece, on the platform's page
+PHONE_BOX_DRAFT_REPLY: Resposta a: ana@mail.example, quem enviou a mensagem (21/10/2026, 'Lunch on Friday')
+PHONE_BOX_READ_AT: Nada é alterado se alguma mensagem não estiver como listada.
+PHONE_CAL_CHANGE: O código altera este evento depois da sua aprovação, só se ele ainda estiver como está agora.
+PHONE_CAL_DROP_NOTES: Notas: bring the report
+PHONE_CAL_DROP_WHERE: Onde: Room 4
+PHONE_ELSEWHERE: Isso não é feito por mensagem. Faça on the platform's page
+PHONE_EVENT_AGAIN: Não consegui ler isso como um pedido para a sua agenda, então nada foi feito. Diga de novo com o dia e a hora, por exemplo: marca dentista quinta às 15h.
+PHONE_FAILED: Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu on the platform's page
+PHONE_FILE_BASE: Substitui a versão de Tue 20/10/2026 18:00.
+PHONE_FILE_CODE_REPLACE: O código escreve uma nova revisão deste arquivo depois da sua aprovação, só se ele ainda for o arquivo como está agora.
+PHONE_FILE_CODE_TRASH: O código move este arquivo para a lixeira depois da sua aprovação, só se ele ainda for o arquivo como está agora, e nada mais.
+PHONE_FILE_PROJECT: Um arquivo do projeto: 3.5 KiB. O conteúdo dele não está neste card.
+PHONE_FILE_SAVE: Salva o arquivo que você enviou: Ana Lima, 3.5 KiB.
+PHONE_INSTRUCTIONS: As instruções permanentes do projeto se mudam on the platform's page
+PHONE_LEDGER_FILE: um arquivo nesta máquina
+PHONE_MAIL_ATTACHMENT: Anexo: Ana Lima, 2048 bytes
+PHONE_MAIL_REPLY_TO: Resposta para: ana@mail.example, quem enviou a mensagem R-17: Lunch on Friday
+PHONE_MAIL_REPLY_TO_AT: Resposta para: ana@mail.example, quem enviou a mensagem R-17 de Wed 21/10/2026 09:30: Lunch on Friday
+PHONE_NOT_ALLOWED: Você ainda não tem permissão para isso por aqui. Ela pode ser liberada on the platform's page
+PHONE_NOT_PLANNED: Não planejado 3: the first item.
+PHONE_NOT_UNDERSTOOD: Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?
+PHONE_NO_FILE_DELETE: Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.
+PHONE_RESTORE: Trazer um lembrete de volta, quando não tenho certeza de qual você quer dizer, se faz on the platform's page
+PHONE_ROUTER_FAILED: Não consegui olhar o seu pedido agora. Tente de novo em alguns minutos.
+PHONE_ROUTINES: Uma rotina se cria, se muda e se aprova on the platform's page
+PHONE_ROUTINE_CANCEL: Para parar uma rotina por enquanto, diga "pausa a rotina" e o número dela. Uma rotina se cancela de vez on the platform's page
+PHONE_SETTINGS: Configurações, contas e permissões se mudam on the platform's page
+PHONE_SOURCES: Fontes e arquivos são adicionados ao projeto on the platform's page
+PHONE_STRIPPED: O resto se faz on the platform's page
+PHONE_USE_CARD: Use o botão do card, ou envie /approve <id> como a mensagem inteira.
+PHONE_WHERE: na página da plataforma
+PHONE_WHERE_LINK: na página da plataforma: https://page.example/p/1
+PHONE_WRITE_AGAIN: Não consegui ler isso como um pedido claro para as suas contas, então nada foi feito. Diga de novo com os detalhes: o quê, e quando ou para quem.
+PLANNING_NOT_STARTED: O agente de planejamento não pode começar agora: it is the only free slot. Nada foi executado.
+PLAN_ASK: Posso?
+PLAN_BTN_NO: Não
+PLAN_DROPPED: Certo, não fiz nada.
+PLAN_ESTIMATE: Estimativa de execuções: 3
+PLAN_GONE: Essa pergunta expirou: peça de novo.
+PLAN_HEAD: Entendi: move the review to Friday.
+PLAN_NEXT: Aprove com /approve 2
+PLAN_NOT_LAST: Para confirmar, responda “sim” à pergunta que termina em “Posso?”, ou peça de novo.
+PLAN_NOT_PLANNED: Não planejado 3: the first item. Resposta do roteador:
+PLAN_REPLY_HOW_EMAIL: Responda “sim” a esta mensagem para confirmar.
+PLAN_STEP: etapa 2
+PLAN_STORED: (um plano foi mostrado e aguarda um OK)
+PLAN_TWO_OPEN: Há duas perguntas esperando sua resposta: um card e “Posso?”. Responda à mensagem certa.
+PQ_LABEL_NEXT: Próximo passo
+PQ_LABEL_QUESTION: Pergunta
+PQ_LABEL_RECOMMENDED: Recomendado
+PQ_LABEL_ROUTE: Rota
+PQ_LABEL_WHY: Por quê
+PQ_NAME_BRAND_IDENTITY: a identidade visual
+PQ_NAME_BRAND_NAME: a checagem do nome
+PQ_NAME_BRAND_PROFILE: o perfil da marca
+PQ_NAME_BRAND_STRATEGY: a estratégia de marca
+PQ_NAME_BRAND_VOICE: o tom de voz da marca
+PQ_NAME_CORE_CLARIFY: a etapa de esclarecimento
+PQ_NAME_CORE_RESEARCH: a pesquisa
+PQ_NAME_FLOW_BRAND: o fluxo de marca
+PQ_NAME_FLOW_BUILD_FEATURE: o fluxo de funcionalidade nova
+PQ_NAME_FLOW_CODE_CHANGE: o fluxo de mudança de código
+PQ_NAME_FLOW_DESIGN: o fluxo de design
+PQ_NAME_FLOW_FIX_BUG: o fluxo de correção de erro
+PQ_NAME_FLOW_IMPROVE_CODE: o fluxo de melhoria de código
+PQ_NAME_FLOW_MARKET_POSITIONING: o fluxo de posicionamento de mercado
+PQ_NAME_FLOW_NEW_PROJECT: o fluxo de projeto novo
+PQ_NAME_FLOW_PUBLISH_POST: o fluxo de publicação de post
+PQ_NAME_FLOW_SEND_EMAIL: o fluxo de e-mail
+PQ_NAME_FLOW_SHORT_VIDEO: o fluxo de vídeo curto
+PQ_NAME_FLOW_WEBSITE: o fluxo do site
+PQ_NAME_MKT_PUBLISH: a etapa de publicação
+PROJECT_NONE: Esse projeto não existe. Projetos: Acme Launch, Beta Site.
+PROJECT_NOW: Suas mensagens vão para Ana Lima. Projetos: Acme Launch, Beta Site.
+PROJECT_SET: Suas mensagens agora vão para Ana Lima.
+PROPOSES: O agente de planejamento propõe: 
+QUESTION_DISMISSED: Pergunta #42 dispensada.
+QUESTION_HAS_COMPANY: A pergunta 12 não foi dispensada: o pedido dela ainda tem outras decisões abertas.
+QUEUED: Anotado: respondo a esta mensagem depois da atual.
+QUEUED_REQUEST: Registrado como pedido move the review. O agente de planejamento o encaminha quando a execução terminar.
+QUEUE_DEAD_LINE: Uma mensagem na fila ficou sem resposta: o serviço parou enquanto ela era encaminhada. Envie de novo.
+QUEUE_DEAD_WHY: o serviço parou enquanto ele era encaminhado
+QUEUE_DROPPED_LINE: Uma mensagem na fila ficou sem resposta: it is the only free slot
+QUEUE_EXPIRED: Sem resposta: o projeto ficou ocupado por 30 minutos. Envie de novo.
+QUEUE_STOPPED: Sem resposta: a ponte de mensagens parou. Envie de novo.
+QUOTE_CHECKED: Citação verificada [42]: "see you soon"
+QUOTE_IMITATED: Uma linha da resposta imitou uma citação verificada e foi retirada.
+QUOTE_NOT_FOUND: Esta citação não está em 42:
+QUOTE_TOO_LONG: Esta citação tem mais de 10 caracteres e não foi verificada (42):
+QUOTE_TOO_SHORT: Esta citação é curta demais para verificar (42):
+READ: Lidas: notes.example, plan.example
+READ_VERSION: notes.example (versão 1.2.0)
+RECUR_ASK_DATE: Qual dia? Diga assim: “cancela só Quarterly review de an example”.
+RECUR_CANCEL_NOT_SIMPLE: Só consigo cancelar uma série que se repete todo dia ou toda semana, sem fim, que é sua e não tem outros convidados. Esta não é assim: use o app da agenda.
+RECUR_CHANGE_REFUSED: Ainda não consigo mudar um evento que se repete. Você pode mudar a série no app da agenda, ou me pedir para cancelar a série inteira.
+RECUR_FOUND_OCCURRENCE: Encontrei Quarterly review, Wed 21/10/2026 13:00, que se repete no weekends. É esta?
+RECUR_FOUND_SERIES: Encontrei a série Quarterly review, no weekends. É esta?
+RECUR_NOT_READ: Ainda não consigo marcar eventos que se repetem assim. Consigo todo dia ou toda semana (ex.: “toda segunda às 7h”).
+RECUR_NO_OCCURRENCE: Quarterly review não acontece em Wed 21/10/2026.
+RECUR_OCCURRENCE_PAST: Essa vez de Quarterly review já começou, então não há o que cancelar.
+RECUR_RULE_DAILY: todo dia às 13:00
+RECUR_RULE_WEEKLY_FR: toda sexta às 13:00
+RECUR_RULE_WEEKLY_MO: toda segunda às 13:00
+RECUR_RULE_WEEKLY_SA: todo sábado às 13:00
+RECUR_RULE_WEEKLY_SU: todo domingo às 13:00
+RECUR_RULE_WEEKLY_TH: toda quinta às 13:00
+RECUR_RULE_WEEKLY_TU: toda terça às 13:00
+RECUR_RULE_WEEKLY_WE: toda quarta às 13:00
+RECUR_WHICH: Quarterly review se repete no weekends. Quer cancelar só uma vez (diga “cancela só Quarterly review de an example”) ou a série inteira (diga “cancela a série inteira Quarterly review”)?
+RECUR_WHICH_DAY: Quarterly review acontece mais de uma vez nesse período: 2. Diga qual dia, por exemplo “cancela só Quarterly review de an example”.
+REJECTED: #42 rejeitada.
+RELEASED: #42 liberada.
+REPLY_LINE: Responda a esta mensagem com a sua resposta.
+REPLY_TO_CARD: Responda ao card desta decisão para agir sobre ela.
+REPLY_WORDS_LINE: Responda sim para aprovar ou não para recusar.
+REQUEST_NOT_ROUTED: O pedido 42 não foi encaminhado: it is the only free slot. Encaminhe de novo quando quiser que ele seja planejado.
+RM_ALREADY_BACK: O lembrete 3 já está de volta.
+RM_BACK: O lembrete #Wed 21/10/2026 13:00 está de volta como #Thu 22/10/2026 13:00.
+RM_BEING_SENT: O lembrete 3 está sendo enviado agora.
+RM_CHAT_FULL: Já há 3 lembretes esperando neste chat. Cancele um primeiro.
+RM_COUNT_LATE:  Estava marcado para Wed 21/10/2026 13:00.
+RM_COUNT_LINE: Há um lembrete para agora (#42).
+RM_CREDENTIAL: Esse texto parece uma credencial (work, home); um lembrete é uma mensagem enviada ao seu celular, então não foi guardado.
+RM_DAY_FULL: Já foram feitos 3 lembretes neste chat hoje. Tente de novo amanhã.
+RM_FORGET_WORDS_NONE: Não achei um lembrete seu à espera com essas palavras. Peça a lista dos seus lembretes para ver quais são.
+RM_FORGET_WORDS_WHICH: Mais de um lembrete seu à espera combina com isso. Qual devo cancelar? Diga o número, por exemplo “cancela o lembrete 3”.
+RM_FORGOT: Lembrete #42 cancelado.
+RM_NONE_WAIT: nenhum lembrete pendente.
+RM_NOTHING_TO_RESTORE: Não há lembrete seu cancelado nos últimos 10 minutos para trazer de volta.
+RM_NOT_A_TIME: plan não é uma hora do dia (00:00 a 23:59).
+RM_NOT_LISTED: Você não é um remetente listado deste projeto.
+RM_NOT_SENT_HEAD: Não enviados recentemente:
+RM_NOT_WAITING: O lembrete 3 tem o status pending: não está esperando.
+RM_NO_SUCH: Não há lembrete 3 esperando por você.
+RM_NO_SUCH_DATE: plan não é um dia do calendário.
+RM_NO_SUCH_TIME: plan não existe nesse dia (o relógio pula esse horário). Escolha outra hora.
+RM_NO_TEXT: Um lembrete precisa de um texto para enviar.
+RM_OPEN_FULL: Já há 3 lembretes esperando neste projeto. Cancele um primeiro.
+RM_PAST: Esse horário já passou. Agora são Wed 21/10/2026 12:00.
+RM_RESTORE_TOO_LATE: O lembrete 3 está perto demais do horário para ser trazido de volta.
+RM_SET: Lembrete #42 marcado para Wed 21/10/2026 13:00 (America/Sao_Paulo).
+RM_TEXT_LATE:  (marcado para Wed 21/10/2026 13:00)
+RM_TEXT_LINE: Lembrete: see you soon
+RM_TOO_FAR: Um lembrete pode ser marcado com no máximo 366 dias de antecedência.
+RM_TOO_LONG: Um lembrete tem no máximo 10 caracteres; o seu tem 3.
+RM_TOO_SOON: Um lembrete precisa ser marcado com pelo menos um minuto de antecedência. Agora são Wed 21/10/2026 12:00.
+RM_USAGE: Uso: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> ou /remind in <n>m|h|d <text> (relógio de 24 horas, dois dígitos).
+RM_WAITING_HEAD: lembretes pendentes (America/Sao_Paulo)
+RM_WHY_LATE: perdido: a ponte de mensagens só o verificou mais de 6 horas depois do horário marcado
+RM_WHY_NOT_PERMITTED: não enviado: os lembretes estão desligados para você agora
+RM_WHY_OTHER: não enviado
+RM_WHY_SENDER_REMOVED: não enviado: você não é mais um remetente listado
+ROUTER_ASKS_FRAME: Perguntas:
+ROUTER_FAILED: O roteador não pôde rodar: the connection closed
+ROUTER_QUOTED_NOTE: O pedido citou instruções de conteúdo externo; elas não foram seguidas. Veja na página.
+RS_ASK_AGAIN: Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?
+RS_BUSY: Já estou pesquisando outra pergunta; tente de novo em instantes.
+RS_CANCELLED: Parei a pesquisa, como você pediu. Nada foi respondido.
+RS_CAP: A pesquisa chegou ao limite de custo e foi interrompida. Tente de novo, ou aumente research.max_cost_usd no runtime.json do projeto e aceite a configuração de novo.
+RS_ESTIMATE: estimativa
+RS_FAILED: Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.
+RS_LIMIT: Já fiz 3 pesquisas hoje, que é o limite do dia.
+RS_LIMIT_ONE: Já fiz 1 pesquisa hoje, que é o limite do dia.
+RS_LOW: pouca certeza
+RS_NOTHING: Pesquisei, mas não encontrei uma resposta confiável para isso.
+RS_NOT_BUILT: A pesquisa na web não está disponível nesta instalação.
+RS_NO_ENV: O ambiente de pesquisa está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo.
+RS_NO_LINKS: Não consegui anexar as fontes.
+RS_NO_WEB: Não consegui acessar a web agora para pesquisar.
+RS_OPINION: opinião
+RS_SOURCES: Fontes:
+RS_STORED: (respondido por uma pesquisa na web)
+RS_TIMEOUT: A pesquisa demorou demais e foi interrompida.
+RS_UNPROVEN: Esta pesquisa ainda não passou por um teste completo neste modelo; confira nas fontes antes de confiar.
+RUN_BUSY: O agente de planejamento está respondendo a outro pedido. Envie de novo daqui a pouco.
+RV_ALREADY: O e-mail já está assim.
+RV_DECIDED: Esse card já foi decidido antes de eu conseguir ajustá-lo, então nada foi alterado.
+RV_DONE_EVENT: Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.
+RV_DONE_MAIL: Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.
+RV_FAILED: Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card.
+RV_LOST: Não consegui preparar o card ajustado e o anterior foi encerrado. Peça de novo.
+RV_NOT_REVISABLE: Para mudar este card, rejeite e peça de novo.
+RV_RECIPIENTS: Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.
+RV_REPLACED: Esse card foi substituído por um mais novo. Ajuste o card mais novo ou peça de novo.
+SEND_LINE: Envie one line of text
+SKIPPED: Não lidas, grandes demais para uma pergunta: Ana Lima.
+SNAPSHOT_HERE: Uma caixa de e-mail ou uma agenda só é lida por uma pergunta feita no terminal ou na página: pergunte lá. Nada foi executado.
+SOURCE_REFUSED: Não foi possível entregar uma fonte: it is the only free slot Nada foi executado.
+SRC_BOX_IMPORTANT: importantes
+SRC_BOX_INBOX: caixa de entrada
+SRC_BOX_STARRED: com estrela
+SRC_BOX_UNREAD: não lidos
+SRC_CAL_MAIN: principal
+SRC_ITEM: Ana Lima, mensagem 3
+SRC_ITEM_CARD: 3 do Ana Lima
+SRC_TWIN: Ana Lima (the server did not answer)
+STALE: Este botão não é mais válido. Envie /pending.
+STATE_FINISHED:  Concluídos: 3.
+STATE_HELD:  (retida: the file is too large)
+STATE_NONE_OPEN: Nenhum pedido aberto.
+STATE_NOTHING: nada
+STATE_PROGRESS: Pedido 42, "Quarterly review": 1 de 4 tarefas concluídasAna Lima, Bruno Reis.
+STATE_READY: Pronta: tarefa 42, "Quarterly review"1.
+STATE_RECORDED: Pedido 42, "Quarterly review": registrado; espera pelo encaminhamento.
+STATE_RUNNING: Rodando agora: Ana Lima, Bruno Reis.
+STATE_STUCK: Travada: tarefa 42, "Quarterly review", status openbring the report.
+STATE_WAITING: Esperando você: Ana Lima, Bruno Reis.
+STATE_WAITS: O que espera por você: 3.
+STATE_WAIT_ITEM: plan "Quarterly review" (decisão 42)
+STILL_WORKING: Ainda estou trabalhando na última mensagem.
+TITLE_BOX_ARCHIVE: Caixa de e-mail: arquivar mensagens
+TITLE_BOX_DRAFT: Caixa de e-mail: salvar um rascunho
+TITLE_BOX_MARK: Caixa de e-mail: marcar mensagens como lidas ou não lidas
+TITLE_BOX_MOVE: Caixa de e-mail: mover mensagens para uma pasta
+TITLE_BOX_TRASH: Caixa de e-mail: mover mensagens para a lixeira
+TITLE_CAL_CANCEL: Agenda: remover um evento
+TITLE_CAL_CANCEL_OCCURRENCE: Agenda: cancelar só uma vez
+TITLE_CAL_CANCEL_SERIES: Agenda: cancelar a série inteira
+TITLE_CAL_CHANGE: Agenda: alterar um evento
+TITLE_CAL_CREATE: Agenda: novo evento
+TITLE_FILE_CREATE: Arquivos: novo arquivo
+TITLE_FILE_REPLACE: Arquivos: nova revisão
+TITLE_FILE_SAVE: Arquivos: salvar o arquivo que você enviou
+TITLE_FILE_TRASH: Arquivos: mover um arquivo para a lixeira
+TITLE_MAIL_REPLY: E-mail: responder da sua conta
+TITLE_MAIL_SEND: E-mail: enviar da sua conta
+TITLE_NO_DELIVERY_ROUTED: Nenhuma entrega foi encaminhada
+TITLE_REROUTE_ACCEPT: Aceitar as tarefas da entrega 2, encaminhadas depois do briefing
+TITLE_REROUTE_FAILED: A entrega 2 não foi encaminhada depois do briefing
+TITLE_ROUTER_ASKS: O roteador pergunta
+TITLE_ROUTE_UNRECOGNISED: A rota não foi reconhecida
+TITLE_TODO_ADD: Tarefas: adicionar uma tarefa
+TITLE_TODO_DONE: Tarefas: concluir uma tarefa
+TODO_ASK_ACCOUNT: Qual: Google Tasks ou Microsoft To Do? Diga de novo citando o nome.
+TODO_BAD_TITLE: Não consegui usar isso como tarefa: precisa ser uma linha de no máximo 200 caracteres.
+TODO_EMPTY: Nenhuma tarefa aberta no Example Calendar, lista one, two, three.
+TODO_HEAD: Tarefas abertas no Example Calendar, lista one, two, three:
+TODO_ITEM: 3. Quarterly review
+TODO_MORE: Há mais tarefas abertas do que as mostradas.
+TODO_NONE: Não encontrei nenhuma tarefa aberta assim.
+TODO_NO_LISTS: Nenhuma lista de tarefas está configurada ainda. Indique uma na configuração do projeto, nas listas de tarefas da conta.
+TODO_NO_LIST_SHOWN: Não tenho uma lista de tarefas para apontar. Peça suas tarefas primeiro e depois diga o número.
+TODO_SEVERAL: Qual tarefa? 3 tarefas abertas combinam:
+TODO_UNAVAILABLE: Não consegui ler suas tarefas do Example Calendar agora. Tente de novo daqui a pouco.
+TOO_LONG: Longo demais para aprovar aqui. Aprove on the platform's page
+TOO_LONG_LINE: Longo demais para aprovar aqui: aprove na página da plataforma.
+TOO_MANY: Uma pergunta lê no máximo 10 fontes, e você indicou 3.
+UNCHECKED: Esta resposta não está na forma esperada; confira com as fontes.
+UNDERSTOOD_AGENTS: mostrar os agentes e o uso de hoje
+UNDERSTOOD_ARTIFACT: mostrar o arquivo “docs/notes.md”
+UNDERSTOOD_ARTIFACTS: listar os arquivos do projeto
+UNDERSTOOD_ASK: responder à sua pergunta a partir das fontes do projeto (um modelo as lê)
+UNDERSTOOD_ATTACHMENTS: listar os arquivos enviados
+UNDERSTOOD_ATTACHMENT_ADD: adicionar o arquivo #42 às fontes do projeto
+UNDERSTOOD_ATTACHMENT_DISCARD: apagar o arquivo #42 que foi enviado
+UNDERSTOOD_CANCEL: cancelar o pedido #42
+UNDERSTOOD_CONNECTIONS: mostrar as conexões
+UNDERSTOOD_COSTS: mostrar os custos das execuções
+UNDERSTOOD_FILE_ASK: responder sobre o arquivo “photo.png” do seu Drive ou OneDrive (um modelo lê o arquivo numa execução isolada, até US$ 25)
+UNDERSTOOD_FILE_READ: mostrar o arquivo “photo.png” do seu Drive ou OneDrive
+UNDERSTOOD_FLOWS: listar os fluxos
+UNDERSTOOD_FLOW_CHECK: verificar o fluxo “weekly report”
+UNDERSTOOD_INSTRUCTIONS: mostrar suas instruções fixas
+UNDERSTOOD_ITEMS: listar seus e-mails e eventos
+UNDERSTOOD_ITEMS_CALENDAR: mostrar os eventos da sua agenda
+UNDERSTOOD_ITEMS_CALENDAR_MATCH: mostrar os eventos da sua agenda com “move, review”
+UNDERSTOOD_ITEMS_MAIL: listar seus e-mails
+UNDERSTOOD_ITEMS_MAIL_MATCH: listar seus e-mails com “move, review”
+UNDERSTOOD_ITEMS_UNREAD: (só os não lidos)
+UNDERSTOOD_MAIL_READ_DAY: mostrar o texto do e-mail de “Wed 21/10/2026”
+UNDERSTOOD_MAIL_READ_N: mostrar o texto do e-mail 3
+UNDERSTOOD_MAIL_READ_WORDS: mostrar o texto do e-mail com “move, review”
+UNDERSTOOD_MAIL_READ_WORDS_DAY: mostrar o texto do e-mail com “move, review” de “Wed 21/10/2026”
+UNDERSTOOD_ON_DAY:  de Wed 21/10/2026
+UNDERSTOOD_PENDING: listar o que espera por você
+UNDERSTOOD_PENDING_ONE: mostrar a decisão #42
+UNDERSTOOD_PROGRESS: mostrar o que aconteceu ultimamente
+UNDERSTOOD_REJECT: recusar a decisão #42
+UNDERSTOOD_RELEASE: liberar a entrega #42
+UNDERSTOOD_REMINDERS: listar seus lembretes
+UNDERSTOOD_RESEARCH: pesquisar na web: “which day?” (uma execução paga de modelo, até US$ 25)
+UNDERSTOOD_RETRY: deixar a tarefa #42 pronta de novo
+UNDERSTOOD_ROUTINES: listar as rotinas
+UNDERSTOOD_ROUTINE_ONE: mostrar a rotina #42
+UNDERSTOOD_ROUTINE_PAUSE: pausar a rotina #42
+UNDERSTOOD_SINCE:  (desde “Mon 19/10/2026”)
+UNDERSTOOD_SKILLS: listar as skills e a prova de cada uma
+UNDERSTOOD_SOURCES: listar as fontes do projeto
+UNDERSTOOD_STATUS: mostrar como está o trabalho
+UNDERSTOOD_STOP_TASK: parar a tarefa #42
+UNDERSTOOD_TASK: mostrar a tarefa #42
+UNDERSTOOD_TODO_LIST: listar suas tarefas abertas
+UNKNOWN_SOURCE: Esta fonte não foi entregue à execução: 42.
+UNPROVEN: Sem prova: eng-implement não tem teste aprovado em model-x; confira a resposta com as citações.
+UNREAD_MANY: 3 mensagens enviadas a este canal não puderam ser lidas e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie de novo.
+UNREAD_ONE: Uma mensagem enviada a este canal não pôde ser lida e foi deixada de lado: nada foi feito com ela. Se era sua, envie de novo.
+UNVERIFIED: Nenhuma citação desta resposta pôde ser verificada com as fontes; confira você mesmo.
+USAGE_ADD: Uso: /add <n>
+USAGE_ANSWER: Uso: /answer <id> <text>
+USAGE_APPROVE: Uso: /approve <id>
+USAGE_DISCARD: Uso: /discard <n>
+USAGE_FORGET: Uso: /forget <n>
+USAGE_REJECT: Uso: /reject <id> [note]
+USAGE_RELEASE: Uso: /release <id>
+WAITS_COUNT: Aguardando você: plan.
+WD_FRI: sex
+WD_MON: seg
+WD_SAT: sáb
+WD_SUN: dom
+WD_THU: qui
+WD_TUE: ter
+WD_WED: qua
+WHOLE: (o texto inteiro segue como documento)
+WHOLE_ABOVE: (o texto inteiro está no arquivo acima)
+WITHHELD: A resposta foi retida: você não pode mais perguntar neste canal.
+WORD_LIST_HEAD: Mais de uma decisão espera. Diga qual pelo número, por exemplo "aprovo o 2":
+WORD_ONE_AT_A_TIME: Aprovo uma decisão de cada vez. Diga qual, por exemplo "aprovo o 2".
+WRONG_HASH: O hash que você digitou não é o do card que você viu. Envie /pending.

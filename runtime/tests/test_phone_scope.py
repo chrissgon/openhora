@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import world  # noqa: F401  (the stand-in world: a fake operations object)
 from test_messaging import wait_for
@@ -33,6 +34,7 @@ ops_step_effects = st.load("ops_step_effects")
 HASH = "e" * 64
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 SENDER = "telegram:42"
+PT = {"language": "pt-BR"}
 
 
 def effect(card, word, title="Calendar: new event"):
@@ -103,7 +105,9 @@ def test_the_approve_how_to_line_of_a_stored_body_and_the_ledger_path_are_the_on
             "effect_on_cards": True, "payload_sha256": HASH, "payload": {}}
     text = cards.build("office", item, CAPS, {"messaging": ["read", "approve-effect-write"]}, "text", None, operations=operations, sender=SENDER)["message"]["text"]
     assert "Approve exactly this: uv run runtime/cli.py is the person's own line" in text and "Ledger (the person's own note): /Users/ana/notes.txt" in text
-    assert "Ledger (the publisher's record of the keys it published): a file on this machine" in text and "/var/folders" not in text
+    [ledger] = [line for line in text.split("\n") if line.startswith("Ledger (the publisher")]
+    label, _, value = ledger.rpartition(": ")
+    assert label == "Ledger (the publisher's record of the keys it published)" and pk.said(value, "PHONE_LEDGER_FILE") and "/var/folders" not in text      # literal: the label is the stand-in publisher's own line, not a table sentence
     assert "approve --project <project>" not in text and text.rstrip().endswith("Key: launch") or "Key: launch" in text
 
 
@@ -114,7 +118,8 @@ def test_the_hash_lines_of_the_mail_and_file_cards_and_the_hash_of_a_save_line_a
     built = cards.build("office", item, CAPS, {"messaging": ["read", "approve-effect-files"]}, "text", None, operations=operations, sender=SENDER)
     text = built["message"]["text"]
     assert "plan.pdf" in text and "abcdef123456" not in text and HASH not in text and "sha256" not in text
-    assert phrases.text("PHONE_FILE_SAVE", {"language": "pt-BR"}, name="a.pdf", size="1 KiB") == "Salva o arquivo que voc\u00ea enviou: a.pdf, 1 KiB."  # validate: allow english-only -- the pt-BR sentence
+    pk.assert_said(phrases.text("PHONE_FILE_SAVE", PT, name="a.pdf", size="1 KiB"), "PHONE_FILE_SAVE", PT, name="a.pdf", size="1 KiB")
+    assert phrases.text("PHONE_FILE_SAVE", PT, name="a.pdf", size="1 KiB") != phrases.text("PHONE_FILE_SAVE", None, name="a.pdf", size="1 KiB"), "the two languages say it differently"
     assert HASH in cards.effect_card_text(item, None) and "abcdef123456" in cards.effect_card_text(item, None), "the terminal and the page still read both"
 
 
@@ -148,9 +153,9 @@ class Err(Exception):
         self.code = code
 
 
-MODULES = (("calendar", effect_calendar.UNKNOWN_NEXT, "your calendar"), ("files", effect_files.UNKNOWN_NEXT, "your drive"),
-           ("mailbox", effect_mailbox.UNKNOWN_NEXT, "your mailbox"), ("send", effect_send.UNKNOWN_NEXT, "your sent mail"),
-           ("send-own", effect_send.UNKNOWN_NEXT_ACCOUNT, "your sent mail"), ("write", ops_step_effects.UNKNOWN_NEXT, "the service"))
+MODULES = (("calendar", effect_calendar.UNKNOWN_NEXT, "FAIL_LOOK_CALENDAR"), ("files", effect_files.UNKNOWN_NEXT, "FAIL_LOOK_FILES"),
+           ("mailbox", effect_mailbox.UNKNOWN_NEXT, "FAIL_LOOK_MAILBOX"), ("send", effect_send.UNKNOWN_NEXT, "FAIL_LOOK_SENT"),
+           ("send-own", effect_send.UNKNOWN_NEXT_ACCOUNT, "FAIL_LOOK_SENT"), ("write", ops_step_effects.UNKNOWN_NEXT, "FAIL_LOOK_ANY"))      # (the word, the effect module's own text, the key of the place to look)
 REASONS = ["timed out after 120 s", "the provider exited with code 4", "HTTP 503", "connection reset by peer"]
 
 
@@ -158,20 +163,20 @@ REASONS = ["timed out after 120 s", "the provider exited with code 4", "HTTP 503
 @pytest.mark.parametrize("reason", REASONS)
 def test_the_real_text_of_each_effects_unknown_outcome_is_told_as_unknown_with_where_to_look(word, unknown_next, place, reason):
     said = failure.from_error(Err(f"create: {reason}; {unknown_next}"), None, word=word, account="google")
-    assert said == f"The result is unknown: the service did not confirm whether it was done. Before asking again, look in {place}."
-    assert "nothing was" not in said.lower() and "hash" not in said and guard.find(said) == []
+    pk.assert_said(said, "FAIL_UNKNOWN", None, place=phrases.text(place, None))
+    assert "nothing was" not in said.lower() and "hash" not in said and guard.find(said) == []      # literal: the words of "nothing was done", which an unknown outcome never says
     portuguese = failure.from_error(Err(f"create: {reason}; {unknown_next}"), {"language": "pt-BR"}, word=word, account="google")
-    assert portuguese.startswith("O resultado \u00e9 desconhecido") and "nada foi" not in portuguese  # validate: allow english-only -- the pt-BR sentence
+    assert pk.said(portuguese, "FAIL_UNKNOWN", PT, place=phrases.text(place, PT)) and "nada foi" not in portuguese      # literal: the words of "nothing was done", which an unknown outcome never says  # validate: allow english-only -- the pt-BR words
 
 
 def test_a_provider_exit_4_alone_is_unknown_and_a_plain_timeout_with_no_such_text_is_a_failure_to_answer():
-    assert failure.from_error(Err("send: the provider exited with code 4"), None, word="send").startswith("The result is unknown")
-    assert failure.from_error(Err("send: the provider exited with status 4"), None, word="send").startswith("The result is unknown")
-    assert failure.from_error(Err("the request timed out"), None, word="files", account="google").startswith("Google Drive did not answer")
+    assert pk.said(failure.from_error(Err("send: the provider exited with code 4"), None, word="send"), "FAIL_UNKNOWN")
+    assert pk.said(failure.from_error(Err("send: the provider exited with status 4"), None, word="send"), "FAIL_UNKNOWN")
+    assert pk.said(failure.from_error(Err("the request timed out"), None, word="files", account="google"), "FAIL_NETWORK", service=phrases.text("FAIL_SERVICE_FILES_GOOGLE", None))
 
 
 def test_the_outcome_of_an_own_account_send_is_told():
-    assert outcome.sentence({"effect_word": "send-own"}, {"sent": True, "reply": False}, None) == "E-mail sent."
+    pk.assert_said(outcome.sentence({"effect_word": "send-own"}, {"sent": True, "reply": False}, None), "OUT_MAIL_SENT")
     assert failure.SERVICE_OF_WORD["send-own"] == "MAIL"
 
 

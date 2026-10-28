@@ -8,8 +8,6 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_reminders.p
 """
 from __future__ import annotations
 
-from phone_literals import PLAIN_REFUSAL  # noqa: E402
-
 import datetime
 import json
 import re
@@ -17,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging_queue import WAIT, planner, settle  # noqa: F401  (the planner stand-in and the waiting for the bridge's jobs)
@@ -34,6 +34,7 @@ providers = st.load("messaging_provider")
 rm = st.load("reminders")
 effects = st.load("effects")
 attachments = st.load("attachments")
+phrases = st.load("phrases")
 
 # The owner and a desk hold the group `reminders`; the employee's profile does not; the channel's default is the employee's.
 WITH = {**POLICIES_ALL, "owner": [*POLICIES["owner"], "reminders"], "desk": ["read-limited", "talk", "reminders"]}
@@ -45,7 +46,21 @@ def listed(lab, notices="text", senders=None):
 
 
 def reminder_texts(lab, chat):
-    return [t for t in lab.texts(chat) if t.startswith(("Reminder:", "A reminder is due"))]
+    return [t for t in lab.texts(chat) if pk.said(t, "RM_TEXT_LINE") or pk.said(t, "RM_COUNT_LINE")]
+
+
+def reminder_bodies(lab, chat):
+    """What the chat was sent as reminders: the words of each `Reminder: <text>` line, and None for a count line (`A reminder is due`)."""
+    return [pk.which(t)[1]["text"] if pk.said(t, "RM_TEXT_LINE") else None for t in reminder_texts(lab, chat)]
+
+
+def listing(text):
+    """A `/reminders` reply as (project, sentence after it, the other lines): the first line is `<project>: <sentence>`."""
+    first, *rest = text.split("\n")
+    project, _, sentence = first.partition(": ")
+    return project, sentence, rest
+
+
 
 
 @pytest.fixture
@@ -70,7 +85,8 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
     for line, rest in (("/remind", ""), ("/remind 15:00", "15:00"), ("/remind   ", ""), ("/remind in 2h", "in 2h"), ("/remind 13hrs oil change tomorrow", "13hrs oil change tomorrow")):
         assert parse(update(line)) == {"kind": "natural", "op": "remind", "how": "command", "text": rest}, line      # the strict grammar does not claim it: the person's own words (NR-1)
     for line in ("/forget", "/forget x", "/forget -1", "/forget 3x"):
-        assert parse(update(line)) == {"kind": "usage", "text": "Usage: /forget <n>"}, line
+        got = parse(update(line))
+        assert set(got) == {"kind", "text"} and got["kind"] == "usage" and pk.said(got["text"], "USAGE_FORGET"), line
     assert parse(update("remind me at 15:00")) == {"kind": "natural", "op": "remind", "how": "trigger", "text": "remind me at 15:00"}, "NR-1: a remind word starts a reminder"
     assert parse(update("when does the shop open")) == {"kind": "text", "text": "when does the shop open"}, "free text still goes to the planning agent"
     for blank in ("\n", "\u00a0", "\t", "\u2003", "  ", "\r\n"):         # the command word ends at any blank: the line is a command, never a line for a model
@@ -82,23 +98,21 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
 
 
 def test_a_line_the_bridge_cannot_read_is_asked_back_and_makes_nothing(day):
-    ask_when = "When? Example: /remind tomorrow 1 pm water the plants"
-    for line, sentence in (("/remind", ask_when), ("/remind buy milk", ask_when), ("/remind 15:00", "What should I remind you of? Reply with the words to send."),
-                           ("/remind 25:00 call", "25:00 is not a time of day (00:00 to 23:59)."), ("/remind 13:00 x", None),
-                           ("/forget", "Usage: /forget <n>")):
+    rolled = phrases.text("NT_ROLLED", None, time="13:00", when="tomorrow, Mon 19/10, at 13:00 (BRT)")
+    for line, key, fields in (("/remind", "NT_ASK_WHEN_SLASH", {}), ("/remind buy milk", "NT_ASK_WHEN_SLASH", {}), ("/remind 15:00", "NT_ASK_TEXT", {}),
+                              ("/remind 25:00 call", "RM_NOT_A_TIME", {"given": "25:00"}), ("/remind 13:00 x", "NT_SET_TEXT", {"id": 1, "when": rolled, "text": "x"}),
+                              ("/forget", "USAGE_FORGET", {})):
         before = len(day.texts(OWNER))
         day.say(OWNER, line)
-        if sentence is None:
-            assert day.texts(OWNER)[before:] == ["Reminder #1: 13:00 today has passed: tomorrow, Mon 19/10, at 13:00 (BRT): x. To undo: /forget 1."], "past means tomorrow, and says so"
-        else:
-            assert day.texts(OWNER)[before:] == [sentence], line
+        got = day.texts(OWNER)[before:]
+        assert len(got) == 1 and pk.said(got[0], key, **fields), (line, got)      # for `/remind 13:00 x`: past means tomorrow, and says so
         day.bridge.remind.drafts.clear()
     assert [r["id"] for r in day.all()["open"]] == [1]
 
 
 def test_a_sender_whose_profile_lacks_the_group_is_refused_and_so_is_the_default_policy(day):
     day.say(STAFF, "/remind 15:00 Call the dentist")
-    assert day.texts(STAFF)[-1] == PLAIN_REFUSAL
+    assert ps.refused(day.texts(STAFF)[-1])
     day.say(STAFF, "/reminders")
     assert NOT_ENABLED in day.texts(STAFF)[-1]
     day.say(STAFF, "/forget 1")
@@ -115,11 +129,12 @@ def test_a_sender_whose_profile_lacks_the_group_is_refused_and_so_is_the_default
 
 def test_the_reply_names_the_number_the_day_the_weekday_the_time_the_zone_and_the_way_to_undo_it(day):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[-1] == f"Reminder #1: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To undo: /forget 1."
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_TEXT", id=1, when="today, Sun 18/10, at 15:00 (BRT)", text=DENTIST)
     day.say(OWNER, "/remind in 2h stretch a little")
     day.say(OWNER, "/remind 2026-10-20 09:30 renew the passport")
-    assert day.texts(OWNER)[-2:] == ["Reminder #2: today, Sun 18/10, at 16:00 (BRT): stretch a little. To undo: /forget 2.",
-                                     "Reminder #3: Tue 20/10 at 09:30 (BRT): renew the passport. To undo: /forget 3."]
+    second, third = day.texts(OWNER)[-2:]
+    pk.assert_said(second, "NT_SET_TEXT", id=2, when="today, Sun 18/10, at 16:00 (BRT)", text="stretch a little")
+    pk.assert_said(third, "NT_SET_TEXT", id=3, when="Tue 20/10 at 09:30 (BRT)", text="renew the passport")
     assert day.texts(STAFF) == [], "nobody else is told"
 
 
@@ -127,10 +142,10 @@ def test_in_count_mode_the_reply_names_the_moment_and_never_the_words(day):
     listed(day, notices="count")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.say(OWNER, "/remind tomorrow 1 pm stretch a little")      # in words: the reading is shown, and a yes makes it
-    assert day.texts(OWNER)[-1] == "I understood: tomorrow, Mon 19/10, at 13:00. Confirm? (yes / another time)"
+    pk.assert_said(day.texts(OWNER)[-1], "NT_CONFIRM_COUNT", when="tomorrow, Mon 19/10, at 13:00")
     day.say(OWNER, "yes")
-    assert [day.texts(OWNER)[-3], day.texts(OWNER)[-1]] == ["Reminder #1: today, Sun 18/10, at 15:00 (BRT). To undo: /forget 1.",
-                                                          "Reminder #2: tomorrow, Mon 19/10, at 13:00 (BRT). To undo: /forget 2."]
+    pk.assert_said(day.texts(OWNER)[-3], "NT_SET_COUNT", id=1, when="today, Sun 18/10, at 15:00 (BRT)")
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_COUNT", id=2, when="tomorrow, Mon 19/10, at 13:00 (BRT)")
     assert "dentist" not in " ".join(day.texts(OWNER)) and "stretch" not in " ".join(day.texts(OWNER))
 
 
@@ -145,28 +160,32 @@ def test_reminders_lists_the_senders_own_and_forget_cancels_only_theirs(day):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.say(OTHER, "/remind 16:00 Take the bread out")
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00: {DENTIST}"
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    assert project == "northwind-shop" and pk.said(sentence, "RM_WAITING_HEAD", zone="BRT") and rows == [f"#1 today, Sun 18/10, at 15:00: {DENTIST}"]      # literal: a row is the layer's own line (number, moment, words), not a table sentence
     assert "bread" not in day.texts(OWNER)[-1]
     day.say(OTHER, "/reminders")
-    assert day.texts(OTHER)[-1] == "northwind-shop: reminders that wait (BRT)\n#2 today, Sun 18/10, at 16:00: Take the bread out"
+    project, sentence, rows = listing(day.texts(OTHER)[-1])
+    assert project == "northwind-shop" and pk.said(sentence, "RM_WAITING_HEAD", zone="BRT") and rows == ["#2 today, Sun 18/10, at 16:00: Take the bread out"]
     day.say(OTHER, "/forget 1")
-    assert day.texts(OTHER)[-1] == "No reminder 1 waits for you.", "another's reminder is answered as one that does not exist"
+    assert pk.said(day.texts(OTHER)[-1], "RM_NO_SUCH", n=1), "another's reminder is answered as one that does not exist"
     day.say(OTHER, "/forget 99")
-    assert day.texts(OTHER)[-1] == "No reminder 99 waits for you."
+    assert pk.said(day.texts(OTHER)[-1], "RM_NO_SUCH", n=99)
     assert [r["status"] for r in day.all()["open"]] == ["open", "open"]
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == f"Reminder #1 cancelled: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To get it back, send: undo"
+    pk.assert_said(day.texts(OWNER)[-1], "NT_FORGOT_TEXT", id=1, when="today, Sun 18/10, at 15:00 (BRT)", text=DENTIST)
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == "northwind-shop: no reminders wait."
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    assert project == "northwind-shop" and pk.said(sentence, "RM_NONE_WAIT") and rows == []
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "Reminder 1 is cancelled, not waiting."
+    assert pk.said(day.texts(OWNER)[-1], "RM_NOT_WAITING", n=1, status="cancelled")
 
 
 def test_in_count_mode_the_list_names_the_time_and_not_the_words(day):
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     listed(day, notices="count")
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == "northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00" and "dentist" not in day.texts(OWNER)[-1]
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    assert project == "northwind-shop" and pk.said(sentence, "RM_WAITING_HEAD", zone="BRT") and rows == ["#1 today, Sun 18/10, at 15:00"] and "dentist" not in day.texts(OWNER)[-1]
 
 
 # --- the queue of waiting lines (BQ-1) never keeps these ---------------------------------------------------------------------------------------
@@ -183,18 +202,20 @@ def test_the_three_commands_are_never_kept_by_the_queue_and_are_handled_at_once_
     waiting = len(day.bridge.waiting)
     before = len(day.texts(OWNER))
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[before:] == [f"Reminder #1: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To undo: /forget 1."], "answered at once, not kept and not refused as busy"
+    got = day.texts(OWNER)[before:]
+    assert len(got) == 1 and pk.said(got[0], "NT_SET_TEXT", id=1, when="today, Sun 18/10, at 15:00 (BRT)", text=DENTIST), "answered at once, not kept and not refused as busy"
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: reminders that wait (BRT)\n#1 today, Sun 18/10, at 15:00: {DENTIST}"
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    assert project == "northwind-shop" and pk.said(sentence, "RM_WAITING_HEAD", zone="BRT") and rows == [f"#1 today, Sun 18/10, at 15:00: {DENTIST}"]
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == f"Reminder #1 cancelled: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To get it back, send: undo"
+    pk.assert_said(day.texts(OWNER)[-1], "NT_FORGOT_TEXT", id=1, when="today, Sun 18/10, at 15:00 (BRT)", text=DENTIST)
     day.say(OWNER, "/remind 15:00 again")
-    assert day.texts(OWNER)[-1] == "Reminder #2: today, Sun 18/10, at 15:00 (BRT): again. To undo: /forget 2."
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_TEXT", id=2, when="today, Sun 18/10, at 15:00 (BRT)", text="again")
     assert len(day.bridge.waiting) == waiting and not any(bridge.QUEUED == t for t in day.texts(OWNER)[before:]), "the queue holds what it held"
     assert all("remind" not in c for c in planner.texts()), "no model run saw a reminder command"
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()                                              # the delivery goes on while the slot is held
-    assert reminder_texts(day, OWNER) == ["Reminder: again"]
+    assert reminder_bodies(day, OWNER) == ["again"]
     planner.open_all()
     assert settle(day)
     assert planner.texts() == ["when does the shop open", "another plain line"] and not any("remind" in t.lower() for t in planner.texts())
@@ -210,11 +231,11 @@ def test_a_due_reminder_goes_once_to_the_chat_that_made_it_and_to_no_other(day):
     assert reminder_texts(day, OWNER) == [] and reminder_texts(day, OTHER) == [], "not before its time"
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"] and reminder_texts(day, OTHER) == ["Reminder: Take the bread out"]
+    assert reminder_bodies(day, OWNER) == [DENTIST] and reminder_bodies(day, OTHER) == ["Take the bread out"]
     assert reminder_texts(day, STAFF) == [] and not any("dentist" in t or "bread" in t for t in day.texts(STAFF))
     day.bridge.tick()
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"], "delivered once"
+    assert reminder_bodies(day, OWNER) == [DENTIST], "delivered once"
     assert sorted(r["status"] for r in day.all()["open"]) == []
     assert [r["status"] for r in ops_reminders.core.context(day.path)["store"].reminders_list(ops_reminders.core.context(day.path)["conn"])] == ["sent", "sent"]
 
@@ -223,7 +244,7 @@ def test_a_reminder_made_in_the_terminal_goes_to_the_listed_sender_it_names_and_
     ops.remind(day.path, "in 5m", "From the terminal", OWNER_KEY, channel="terminal")
     day.clock.set("2026-10-18 14:10")
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == ["Reminder: From the terminal"] and reminder_texts(day, OTHER) == [] and reminder_texts(day, STAFF) == []
+    assert reminder_bodies(day, OWNER) == ["From the terminal"] and reminder_texts(day, OTHER) == [] and reminder_texts(day, STAFF) == []
 
 
 def test_in_count_mode_the_phone_gets_the_number_and_no_text(day):
@@ -231,7 +252,8 @@ def test_in_count_mode_the_phone_gets_the_number_and_no_text(day):
     listed(day, notices="count")
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == ["A reminder is due (#1)."]
+    [due] = reminder_texts(day, OWNER)
+    pk.assert_said(due, "RM_COUNT_LINE", id=1)
     assert not any("dentist" in t for t in day.texts(OWNER)[1:]) and "dentist" not in json.dumps(day.sent()[1:]), "after the reply that made it, no line carries the words"
 
 
@@ -241,11 +263,14 @@ def test_a_sender_removed_before_the_time_gets_nothing_and_the_creator_can_read_
     listed(day, senders=[{"id": OTHER, "policy": "desk"}])
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [] and reminder_texts(day, OTHER) == ["Reminder: Take the bread out"]
+    assert reminder_texts(day, OWNER) == [] and reminder_bodies(day, OTHER) == ["Take the bread out"]
     assert [(r["id"], r["why"]) for r in day.all()["not_sent"]] == [(1, "sender removed")]
     listed(day)
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: no reminders wait.\nNot sent lately:\n#1 today, Sun 18/10, at 15:00: {DENTIST} (not sent, you are no longer a listed sender)"
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    row, _, why = rows[1].rpartition(" (")
+    assert project == "northwind-shop" and pk.said(sentence, "RM_NONE_WAIT") and len(rows) == 2 and pk.said(rows[0], "RM_NOT_SENT_HEAD")
+    assert row == f"#1 today, Sun 18/10, at 15:00: {DENTIST}" and pk.said(why.rstrip(")"), "RM_WHY_SENDER_REMOVED")
 
 
 def test_a_sender_narrowed_before_the_time_gets_nothing(day):
@@ -262,14 +287,17 @@ def test_late_by_five_hours_it_goes_with_the_time_it_was_due_and_late_by_seven_i
     day.say(OWNER, f"/remind 2026-10-19 09:00 {DENTIST}")
     day.clock.set("2026-10-19 14:00")                               # five hours past 09:00: the bridge was not running
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST} (due at 09:00)"]
+    [late] = reminder_texts(day, OWNER)
+    pk.assert_said(late, "RM_TEXT_LINE", text=DENTIST + phrases.text("RM_TEXT_LATE", None, at="09:00"))
     day.say(OWNER, "/remind 2026-10-20 08:00 Third")
     day.clock.set("2026-10-20 15:00")                               # seven hours past 08:00
     day.bridge.tick()
     assert not any("Third" in t for t in reminder_texts(day, OWNER)), "seven hours late is never sent"
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == ("northwind-shop: no reminders wait.\nNot sent lately:\n"
-                                    "#2 today, Tue 20/10, at 08:00: Third (missed, it was more than 6 hours past its time when the bridge looked)")
+    project, sentence, rows = listing(day.texts(OWNER)[-1])
+    row, _, why = rows[1].rpartition(" (")
+    assert project == "northwind-shop" and pk.said(sentence, "RM_NONE_WAIT") and len(rows) == 2 and pk.said(rows[0], "RM_NOT_SENT_HEAD")
+    assert row == "#2 today, Tue 20/10, at 08:00: Third" and pk.said(why.rstrip(")"), "RM_WHY_LATE")
     assert "Third" not in " ".join(day.log) and DENTIST not in " ".join(day.log)
 
 
@@ -297,7 +325,7 @@ def test_a_send_that_failed_or_was_deferred_is_tried_again_after_a_pause_that_do
     assert reminder_texts(day, OWNER) == [], "two minutes were asked for"
     day.clock.moment += datetime.timedelta(seconds=1)
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"] and day.all()["open"] == [], "four minutes late: within the tick's own delay, no mark"
+    assert reminder_bodies(day, OWNER) == [DENTIST] and day.all()["open"] == [], "four minutes late: within the tick's own delay, no mark"
     day.bridge.tick()
     assert len(reminder_texts(day, OWNER)) == 1
     assert DENTIST not in " ".join(day.log), "a failed send logs its class, never the words"
@@ -309,7 +337,7 @@ def test_a_mark_that_fails_after_the_line_went_out_is_logged_by_class_and_the_li
     real = ops.reminders_sent
     monkeypatch.setattr(ops, "reminders_sent", lambda *a, **k: (_ for _ in ()).throw(ops.OpsError("the store at /Users/someone/x: locked", 1)))
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"]
+    assert reminder_bodies(day, OWNER) == [DENTIST]
     assert any("a reminder could not be marked (OpsError)" in x for x in day.log) and not any("/Users" in x or "dentist" in x for x in day.log)
     day.bridge.tick()
     assert len(reminder_texts(day, OWNER)) == 1, "still claimed"
@@ -334,7 +362,8 @@ def test_a_restart_does_not_send_again_what_was_sent_and_sends_what_a_stopped_br
     assert reminder_texts(day, OWNER) == [], "the second is still claimed: not before the claim is stale"
     day.clock.moment += datetime.timedelta(seconds=rm.CLAIM_STALE + 1)
     fresh.tick()
-    assert reminder_texts(day, OWNER) == ["Reminder: Second (due at 15:00)"], "a stopped bridge's reminder goes out when a new one starts, and the sent one does not"
+    [second] = reminder_texts(day, OWNER)
+    pk.assert_said(second, "RM_TEXT_LINE", text="Second" + phrases.text("RM_TEXT_LATE", None, at="15:00"))      # a stopped bridge's reminder goes out when a new one starts, and the sent one does not"
     fresh.tick()
     assert len(reminder_texts(day, OWNER)) == 1
 
@@ -380,7 +409,7 @@ def test_a_raw_error_of_the_store_never_ends_the_bridge_and_the_next_tick_delive
     monkeypatch.setattr(ops, "reminders_due", real_due)
     monkeypatch.setattr(ops, "reminders_sent", lambda *a, **k: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
     day.bridge.tick()                                                      # the line goes out; marking it fails; the tick goes on
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"]
+    assert reminder_bodies(day, OWNER) == [DENTIST]
     assert any("a reminder could not be marked (OperationalError)" in x for x in day.log)
     monkeypatch.setattr(ops, "reminders_sent", real_sent)
     day.bridge.tick()
@@ -394,12 +423,12 @@ def test_a_raw_error_of_the_store_never_ends_the_bridge_and_the_next_tick_delive
 
     def reply(chat, text):
         calls.append(text)
-        if text == "Reminder: Second":
+        if pk.said(text, "RM_TEXT_LINE", text="Second"):
             raise RuntimeError("boom with " + text)
         return real_reply(chat, text)
     monkeypatch.setattr(day.bridge, "reply", reply)
     day.bridge.tick()
-    assert "Reminder: Third" in reminder_texts(day, OWNER) and "Reminder: Second" not in reminder_texts(day, OWNER)
+    assert reminder_bodies(day, OWNER).count("Third") == 1 and "Second" not in reminder_bodies(day, OWNER)
     assert any("a reminder could not be sent (RuntimeError)" in x for x in day.log) and not any("boom" in x or "Second" in x for x in day.log)
 
 
@@ -429,8 +458,8 @@ def test_limit_51_a_reminder_is_a_notice_to_the_sender_who_set_it_and_never_an_e
         ops.remind(day.path, "15:00", "x", other_key, channel="messaging", sender=OWNER_KEY)  # a messaging sender never names another chat
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()
-    assert reminder_texts(day, OWNER) == [f"Reminder: {DENTIST}"] and reminder_texts(day, OTHER) == ["Reminder: From the terminal"] and reminder_texts(day, STAFF) == []
-    assert {r["chat"] for r in day.sent() if r["message"]["text"].startswith("Reminder:")} == {OWNER, OTHER}
+    assert reminder_bodies(day, OWNER) == [DENTIST] and reminder_bodies(day, OTHER) == ["From the terminal"] and reminder_texts(day, STAFF) == []
+    assert {r["chat"] for r in day.sent() if pk.said(r["message"]["text"], "RM_TEXT_LINE")} == {OWNER, OTHER}
     assert counts() == before, "no decision, approval, task or action: nothing is done in the world"
     # in code: it is not in the vocabulary of effects, takes no hash, and no module of it reaches an effect, a provider or the network
     assert "reminder" not in " ".join(effects.KINDS) and not any("remind" in w for w in operations.EFFECT_APPROVAL_WORDS)

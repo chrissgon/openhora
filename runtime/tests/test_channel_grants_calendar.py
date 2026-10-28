@@ -18,6 +18,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import (EVENTS, PIECES, TITLE, approve, create, effect_doc, item_of, made_event, ops, ops_core, operations, rows, world)  # noqa: F401  (the calendar world)
 from test_channel_grants import accept
@@ -26,6 +27,7 @@ cards = st.load("messaging_cards")
 account_start = st.load("account_start")
 steps = st.load("steps")
 SENDER = "telegram:830461975213"
+PT = {"language": "pt-BR"}
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 
 
@@ -37,6 +39,10 @@ def card_of(world, started, notices="text"):
 
 def labels(card):
     return [a["label"] for a in card["message"]["actions"]]
+
+
+def has_label(card, key="EFFECT_LABEL", cfg=None):
+    return any(pk.said(label, key, cfg) for label in labels(card))
 
 
 def prepare(world, channel="messaging", sender=SENDER, **more):
@@ -54,8 +60,9 @@ def test_a_messaging_sender_prepares_a_card_only_with_the_group_and_nothing_is_w
     accepted = accept(world["path"], {"messaging": ["read", "calendar-write"]})
     assert [w["group"] for w in accepted["widened"]] == ["calendar-write"] and "calendars" in accepted["widened"][0]["means"]
     started = prepare(world, **PIECES)
-    assert started["word"] == "calendar" and started["on_cards"] is True and account_start.reply_text({}, started) == f"Card #{started['pending']} waits for your approval."
-    assert account_start.reply_text({"language": "pt-BR"}, started) == f"O card #{started['pending']} espera a sua aprova\u00e7\u00e3o."
+    assert started["word"] == "calendar" and started["on_cards"] is True
+    pk.assert_said(account_start.reply_text({}, started), "ACCT_CARD_SENT", {}, pending=started["pending"])
+    pk.assert_said(account_start.reply_text(PT, started), "ACCT_CARD_SENT", PT, pending=started["pending"])
     assert world["google"].requests == [] and world["graph"].requests == []
     item = item_of(world, started)
     assert item["kind"] == "effect" and TITLE in item["body"] and item["payload_sha256"]
@@ -69,7 +76,7 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
     with pytest.raises(ops.OpsError) as no:
         approve(world, started, "messaging")
     assert "an effect is approved in the terminal, with its hash" in str(no.value) and "approve-effect-calendar" in str(no.value) and world["google"].requests == []
-    assert "Approve this exact content" not in labels(card_of(world, started))
+    assert not has_label(card_of(world, started))
     accept(world["path"], {"messaging": ["read", "calendar-write", "approve-effect-write", "approve-effect-send"]})      # another word's grant covers nothing here
     with pytest.raises(ops.OpsError):
         approve(world, started, "messaging")
@@ -77,9 +84,9 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
     accepted = accept(world["path"], {"messaging": ["read", "calendar-write", "approve-effect-calendar"]})
     assert [w["group"] for w in accepted["widened"]] == ["approve-effect-calendar"] and "event" in accepted["widened"][0]["means"]
     card = card_of(world, started)
-    assert "Approve this exact content" in labels(card) and card["whole"] is True and card["approvable"] is True
-    for line in ("Title: " + TITLE, "When: Mon 19/10/2026 13:00-14:00", "No one is invited"):
-        assert line in card["message"]["text"], line
+    assert has_label(card) and card["whole"] is True and card["approvable"] is True
+    for key, fields in (("CARD_CAL_TITLE", {"title": TITLE}), ("CARD_CAL_WHEN", {"when": "Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)"}), ("CARD_CAL_NOBODY", {})):
+        pk.assert_said(card["message"]["text"], key, **fields)
     with pytest.raises(ops.OpsError) as wrong:
         ops.approve(world["path"], started["pending"], "0" * 64, channel="messaging", sender=SENDER)
     assert "nothing was approved" in str(wrong.value) and world["google"].requests == []
@@ -96,8 +103,8 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
 def test_the_notices_of_count_draw_no_approve_action_for_a_calendar_card(world):
     accept(world["path"], {"messaging": ["read", "calendar-write", "approve-effect-calendar"]})
     started = prepare(world)
-    assert "Approve this exact content" in labels(card_of(world, started))
-    assert "Approve this exact content" not in labels(card_of(world, started, "count")) and TITLE not in card_of(world, started, "count")["message"]["text"]
+    assert has_label(card_of(world, started))
+    assert not has_label(card_of(world, started, "count")) and TITLE not in card_of(world, started, "count")["message"]["text"]
 
 
 def test_the_mcp_mode_and_the_conversation_never_prepare_or_approve_a_calendar_change(world):
@@ -159,34 +166,35 @@ def test_a_change_card_shows_the_events_current_text_on_messaging_only_to_a_send
     made = made_event(world)
     started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="Haircut with Pat", start="2026-10-20T10:00", notes="New notes")
     body = item_of(world, started)["body"]
-    assert f"Before: Title: {TITLE}" in body and "Before: Notes: Bring cash" in body and "Unchanged: Where: Main Street" in body      # the terminal and the page: all of it
+    assert pk.said(body, "CARD_CAL_BEFORE_TITLE", title=TITLE) and pk.said(body, "CARD_CAL_BEFORE_NOTES", notes="Bring cash") and pk.said(body, "CARD_CAL_KEPT_WHERE", location="Main Street")      # the terminal and the page: all of it
     holder = card_for(world, started, ["read", "approve-effect-calendar", "ask-mail"])
     other = card_for(world, started, ["read", "approve-effect-calendar"])
-    assert f"Before: Title: {TITLE}" in holder["message"]["text"] and holder["approvable"] is True
+    assert pk.said(holder["message"]["text"], "CARD_CAL_BEFORE_TITLE", title=TITLE) and holder["approvable"] is True
     text = other["message"]["text"]
-    for hidden in (f"Before: Title: {TITLE}", "Before: Notes: Bring cash", "Unchanged: Where: Main Street"):
-        assert hidden not in text, hidden
-    assert f"The event now: {TITLE}" in body and f"The event now: {TITLE}" in holder["message"]["text"] and f"The event now: {TITLE}" not in text
-    assert "Event: ev0001" not in text and "Based on version" not in text and "only if it is still as read at" not in text, "the internals stay off a phone (S16c)"
-    for shown in ("The event now is at: Mon 19/10/2026 13:00-14:00", "After: Title: Haircut with Pat", "After: Notes: New notes", "Before: When: Mon 19/10/2026 13:00-14:00", "Some of the current text of the event or the message is not shown here"):
-        assert shown in text, shown
-    assert other["approvable"] is False and "Approve this exact content" not in labels(other), "a card that leaves a line out is not approved where it is partial"
+    for key, fields in (("CARD_CAL_BEFORE_TITLE", {"title": TITLE}), ("CARD_CAL_BEFORE_NOTES", {"notes": "Bring cash"}), ("CARD_CAL_KEPT_WHERE", {"location": "Main Street"})):
+        assert not pk.said(text, key, **fields), key
+    assert pk.said(body, "CARD_CAL_NOW_TITLE", title=TITLE) and pk.said(holder["message"]["text"], "CARD_CAL_NOW_TITLE", title=TITLE) and not pk.said(text, "CARD_CAL_NOW_TITLE", title=TITLE)
+    assert "Event: ev0001" not in text and "Based on version" not in text and "only if it is still as read at" not in text, "the internals stay off a phone (S16c)"      # literal: a phone card shows no raw event id, snapshot name or version
+    for key, fields in (("CARD_CAL_NOW_WHEN", {"when": "Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)"}), ("CARD_CAL_AFTER_TITLE", {"title": "Haircut with Pat"}), ("CARD_CAL_AFTER_NOTES", {"notes": "New notes"}),
+                        ("CARD_CAL_BEFORE_WHEN", {"when": "Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)"}), ("CARD_HIDDEN_NOTE", {})):
+        pk.assert_said(text, key, **fields)
+    assert other["approvable"] is False and not has_label(other), "a card that leaves a line out is not approved where it is partial"
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
     portuguese = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read"]}, "text", None, operations=operations, sender=SENDER,
                              cfg={"language": "pt-BR"})["message"]["text"]
-    assert "Parte do texto atual do evento ou da mensagem n\u00e3o aparece aqui" in portuguese and "Evento: ev0001" not in portuguese and "O evento agora \u00e9 em: " in portuguese and "O evento agora: Haircut" not in portuguese
-    assert "Antes: T\u00edtulo" not in portuguese and "Depois: T\u00edtulo: Haircut with Pat" in portuguese
+    assert pk.said(portuguese, "CARD_HIDDEN_NOTE", PT) and "Evento: ev0001" not in portuguese and pk.said(portuguese, "CARD_CAL_NOW_WHEN", PT) and not pk.said(portuguese, "CARD_CAL_NOW_TITLE", PT)
+    assert not pk.said(portuguese, "CARD_CAL_BEFORE_TITLE", PT) and pk.said(portuguese, "CARD_CAL_AFTER_TITLE", PT, title="Haircut with Pat")
 
 
 def test_a_removal_card_hides_title_place_and_notes_from_a_sender_without_ask_mail_but_not_the_time(world):
     made = made_event(world)
     started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}")
     other = card_for(world, started, ["read", "approve-effect-calendar"])["message"]["text"]
-    assert "Removing, title" not in other and "Main Street" not in other and "Bring cash" not in other
-    assert "The event now is at: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in other and "Event: ev0001" not in other, "the time read live is always there; the id is for the terminal and the page (S16c)"
-    assert "The event now:" not in other, "the title read live is the person's text: only for a reader of mail and calendar"
+    assert not pk.said(other, "CARD_CAL_DROP_TITLE") and "Main Street" not in other and "Bring cash" not in other
+    assert pk.said(other, "CARD_CAL_NOW_WHEN", when="Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)") and "Event: ev0001" not in other, "the time read live is always there; the id is for the terminal and the page (S16c)"
+    assert not pk.said(other, "CARD_CAL_NOW_TITLE"), "the title read live is the person's text: only for a reader of mail and calendar"
     holder = card_for(world, started, ["read", "approve-effect-calendar", "ask-mail"])["message"]["text"]
-    assert f"The event now: {TITLE}" in holder and "Notes: Bring cash" in holder and "not shown here" not in holder and "Removing, title" not in holder, "the event is said once on a phone"
+    assert pk.said(holder, "CARD_CAL_NOW_TITLE", title=TITLE) and pk.said(holder, "CARD_CAL_NOTES", notes="Bring cash") and not pk.said(holder, "CARD_HIDDEN_NOTE") and not pk.said(holder, "CARD_CAL_DROP_TITLE"), "the event is said once on a phone"
     assert cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, {"messaging": ["read", "approve-effect-calendar", "ask-mail"]}, "text", None,
                        operations=operations, sender=None)["approvable"] is False, "no sender, no private text"
 
@@ -194,7 +202,7 @@ def test_a_removal_card_hides_title_place_and_notes_from_a_sender_without_ask_ma
 def test_a_create_card_has_no_private_line_so_it_is_whole_for_every_sender(world):
     started = create(world, **PIECES)
     card = card_for(world, started, ["read", "approve-effect-calendar"])
-    assert card["approvable"] is True and "not shown here" not in card["message"]["text"] and f"Title: {TITLE}" in card["message"]["text"]
+    assert card["approvable"] is True and not pk.said(card["message"]["text"], "CARD_HIDDEN_NOTE") and pk.said(card["message"]["text"], "CARD_CAL_TITLE", title=TITLE)
 
 
 def test_the_task_row_of_a_calendar_write_shows_the_mcp_mode_and_a_reader_without_ask_mail_only_closed_arguments_and_never_a_sender(world):

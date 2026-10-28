@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+import phone_said as ps
 import standin_tree as st
 from test_messaging import OPEN_POLICY, SENDER, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
@@ -28,8 +29,6 @@ LIMITS = {"max_bytes": 1000, "photo_max_bytes": 500, "photo_types": ["png"], "ty
 BYTES = b"Segunda: ensaio do coral.\n"
 HELD = {"name": "Atividades.txt", "kind": "document", "data": BYTES}
 SAID = "Atividades (OneDrive, pasta Documentos):\n\nSegunda: ensaio do coral."
-NOT_SENT = "The file did not arrive. Try again in a few minutes."
-RIGHT = "I did not send the file: what you may receive here changed after you asked."
 
 
 @pytest.fixture
@@ -83,7 +82,7 @@ def test_a_provider_that_declares_no_send_files_is_told_nothing_and_is_never_han
     [sent] = wait_sent(sending)
     assert "can_send" not in say_calls(sending)[0][2]
     assert "file" not in sent["message"]
-    assert sent["message"]["text"] == NOT_SENT, "an attachment the provider cannot carry stays home, and the reply is the sentence alone (no caption that promises a file)"
+    assert ps.alone(sent["message"]["text"], "FS_NOT_SENT"), "an attachment the provider cannot carry stays home, and the reply is the sentence alone (no caption that promises a file)"
 
 
 def test_vacuity_a_provider_that_declares_send_files_is_told_its_limits(sending):
@@ -99,7 +98,7 @@ def test_a_profile_that_lost_the_group_since_the_search_sends_no_file_and_the_re
     sending.config["channels"] = {"messaging": OPEN_POLICY + ["read-files"]}
     sending.say("bring me the activities")
     [sent] = wait_sent(sending)
-    assert "file" not in sent["message"] and sent["message"]["text"] == RIGHT
+    assert "file" not in sent["message"] and ps.alone(sent["message"]["text"], "FS_RIGHT_CHANGED")
     assert sending.gone()
 
 
@@ -108,7 +107,7 @@ def test_a_profile_that_lost_the_right_to_read_files_since_the_search_gets_neith
     sending.config["channels"] = {"messaging": OPEN_POLICY + ["send-files"]}
     sending.say("bring me the activities")
     [sent] = wait_sent(sending)
-    assert "file" not in sent["message"] and sent["message"]["text"] == RIGHT, "the preview of a file the sender may no longer read is not sent"
+    assert "file" not in sent["message"] and ps.alone(sent["message"]["text"], "FS_RIGHT_CHANGED"), "the preview of a file the sender may no longer read is not sent"
     assert "ensaio" not in json.dumps(sent["message"])
 
 
@@ -124,7 +123,7 @@ def test_a_file_beyond_the_limits_of_the_app_is_not_handed_to_the_provider(sendi
     sending.answer(held)
     sending.say("bring me the activities")
     [sent] = wait_sent(sending)
-    assert "file" not in sent["message"] and sent["message"]["text"] == NOT_SENT
+    assert "file" not in sent["message"] and ps.alone(sent["message"]["text"], "FS_NOT_SENT")
 
 
 def test_a_file_that_did_not_arrive_after_the_text_went_out_is_one_plain_sentence(sending):
@@ -133,7 +132,7 @@ def test_a_file_that_did_not_arrive_after_the_text_went_out_is_one_plain_sentenc
     sending.say("bring me the activities")
     first, second = wait_sent(sending, 2)
     assert first["message"]["text"] == SAID and "file" in first["message"]
-    assert second["message"]["text"] == NOT_SENT and "file" not in second["message"]
+    assert ps.alone(second["message"]["text"], "FS_NOT_SENT") and "file" not in second["message"]
     assert sending.gone()
 
 
@@ -142,7 +141,7 @@ def test_a_file_the_provider_refused_before_sending_anything_sends_the_sentence_
     sending.answer()
     sending.say("bring me the activities")
     [only] = wait_sent(sending)
-    assert only["message"]["text"] == NOT_SENT and "file" not in only["message"], "the caption promised a file: only the sentence goes"
+    assert ps.alone(only["message"]["text"], "FS_NOT_SENT") and "file" not in only["message"], "the caption promised a file: only the sentence goes"
     assert sending.gone(), "the folder is gone although the provider refused"
 
 
@@ -195,7 +194,7 @@ def test_a_send_that_ran_over_its_time_after_the_text_may_have_gone_says_the_fil
     sending.answer()
     sending.say("bring me the activities")
     [only] = wait_sent(sending)
-    assert only["message"]["text"] == NOT_SENT and "file" not in only["message"], "the sentence only: the text is not sent again (it may be in the chat already)"
+    assert ps.alone(only["message"]["text"], "FS_NOT_SENT") and "file" not in only["message"], "the sentence only: the text is not sent again (it may be in the chat already)"
     assert sending.gone()
     assert wait_for(lambda: any("ran over the time" in line for line in sending.log), 5) and all("activities" not in line and "coral" not in line for line in sending.log)
 

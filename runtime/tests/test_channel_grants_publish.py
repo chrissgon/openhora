@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_channel_grants import accept
 from test_publish_post import CONTENT, approve, confirmed, content_file, opened, posts, world  # noqa: F401  (the post world of test_publish_post.py)
@@ -22,7 +23,10 @@ ops = st.load("ops")
 operations = st.load("operations")
 cards = st.load("messaging_cards")
 
-LABEL = "Approve this exact content"
+
+
+def has_label(card, key="EFFECT_LABEL", cfg=None):
+    return any(pk.said(a["label"], key, cfg) for a in card["message"]["actions"])
 
 
 def card_of(world, item, notices="text"):
@@ -50,7 +54,7 @@ def test_a_post_without_an_image_is_approved_on_messaging_after_the_grant_with_i
     assert confirmed(world) == []
     accepted = accept(world["path"], {"messaging": ["read", "approve-effect-publish"]})
     assert [w["group"] for w in accepted["widened"]] == ["approve-effect-publish"] and "post" in accepted["widened"][0]["means"]
-    assert LABEL in labels(card_of(world, item))
+    assert has_label(card_of(world, item))
     done = approve(world, item, "messaging")
     assert done["task_state"] == "done" and len(confirmed(world)) == 1 and len(posts(world)) == 1
     with pytest.raises(ops.OpsError):
@@ -64,7 +68,7 @@ def test_a_post_with_an_image_is_not_approvable_on_messaging_even_with_the_group
     assert full["effect_word"] == "publish" and full["effect_on_cards"] is False
     accept(world["path"], {"messaging": ["read", "approve-effect-publish"]})
     card = card_of(world, item)
-    assert LABEL not in labels(card) and card["approvable"] is False and cards.EFFECT_LINE in card["message"]["text"]
+    assert not has_label(card) and card["approvable"] is False and cards.EFFECT_LINE in card["message"]["text"]
     with pytest.raises(ops.OpsError) as no:
         approve(world, item, "messaging")
     assert "more than a card can show" in str(no.value) and confirmed(world) == [] and posts(world) == []
