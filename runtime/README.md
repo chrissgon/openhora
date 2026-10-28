@@ -219,6 +219,16 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `ops_mailbox.py`: The operations `mail-draft`, `mail-archive`, `mail-move`, `mail-mark` and `mail-trash` (W3): the references `<source>#<n>` are resolved with the caller's own right to read the snapshot, then `account_start.start` prepares the card; none writes, sends or deletes
 
+`tasks_document.py`: The document of a change to the person's own task list and nothing that writes (CB-5): the effect document, its card, its closed facts and the flags of the writer's verbs; a task is a title only.
+
+`effect_tasks.py`: The effect kind `tasks` (CB-5), the step path like `calendar`: `execute`, the one place a task is added or completed, which refuses an approval of another hash, reads a completion's task again (its etag must be the one read) and sends the one verb after the dry run's hash matches.
+
+`step_tasks_item.py`: The step kind `tasks-item` (CB-5): `prepare` resolves the list, reads a completion's task through the read-only service and previews the writer's request; the gate opens the card.
+
+`tasks_reader.py`: The reader of the person's own task lists (CB-5): the class `integration:tasks`, `lists` and `open` only, with every answer checked and every title cleaned.
+
+`ops_todo.py`: The operations `todo-list`, `todo-add` and `todo-done` (CB-5) and the replies of a line in words; the list a number answers is held in memory for the sender's next line.
+
 `account_start.py`: The start of a write to the person's own accounts (FND; limit L55): `start(project, kind, args, key_words=, title_key=, account=, channel=, sender=)` checks the channel's policy (the MCP mode never; a messaging app not while the step brake is stopped), that `accounts` lists the account, that the step kind ends in a gate of an account word and that the operation is in that word's group, makes one request with one step task, runs the preparation here with no model, checks the card (title, lines, effect word: it fails closed and cancels what it made) and returns `{request, task, pending, word, on_cards}`. It writes nothing and imports no effect module, no provider and no writer; the title is a phrase key of the family `TITLE_`. `reply_text` is `ACCT_CARD_SENT`
 
 `files_document.py`: The document of a write to the person's own Drive or OneDrive (W4a), pure: the effect document of a new file, a new revision, a saved file or a file moved to the trash (R2-A: no content; the base carries the file's version, folder, granted folder, folder path by real names and size), its checks and the credential scan of its text, the exact requests the writer will send and their hash (the dry run), the key, the card lines (`CARD_FILE_*`) and the arguments of the writer's verbs

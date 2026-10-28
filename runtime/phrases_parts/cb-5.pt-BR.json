@@ -1,0 +1,41 @@
+{
+  "package": "cb-5",
+  "table": {
+    "TITLE_TODO_ADD": "Tarefas: adicionar uma tarefa",
+    "TITLE_TODO_DONE": "Tarefas: concluir uma tarefa",
+    "CARD_TODO_ADD": "O código adiciona esta tarefa depois da sua aprovação, e nada mais.",
+    "CARD_TODO_DONE": "O código marca esta tarefa como concluída depois da sua aprovação, só se ela ainda estiver como foi lida em {read_at}.",
+    "CARD_TODO_LIST": "Lista: {list} ({service})",
+    "CARD_TODO_TITLE": "Tarefa: {title}",
+    "CARD_TODO_NOW_TITLE": "Tarefa: {title}",
+    "CARD_TODO_PLAIN": "Uma tarefa só com este título: sem data de vencimento e sem nota.",
+    "CARD_HIDDEN_NOTE_TODO": "O título da tarefa como ela está agora não aparece aqui: a página da plataforma mostra tudo.",
+    "OUT_TODO_GOOGLE": "Google Tasks",
+    "OUT_TODO_MICROSOFT": "Microsoft To Do",
+    "OUT_TODO_ADDED": "Tarefa adicionada: {title} ({service}).",
+    "OUT_TODO_ADDED_BARE": "Tarefa adicionada ({service}).",
+    "OUT_TODO_DONE": "Tarefa concluída ({service}).",
+    "FAIL_SERVICE_TASKS_GOOGLE": "Google Tasks",
+    "FAIL_SERVICE_TASKS_MICROSOFT": "Microsoft To Do",
+    "FAIL_LOOK_TASKS": "na sua lista de tarefas",
+    "TODO_HEAD": "Tarefas abertas no {service}, lista {list}:",
+    "TODO_ITEM": "{n}. {title}",
+    "TODO_EMPTY": "Nenhuma tarefa aberta no {service}, lista {list}.",
+    "TODO_MORE": "Há mais tarefas abertas do que as mostradas.",
+    "TODO_NO_LISTS": "Nenhuma lista de tarefas está configurada ainda. Indique uma na configuração do projeto, nas listas de tarefas da conta.",
+    "TODO_UNAVAILABLE": "Não consegui ler suas tarefas do {service} agora. Tente de novo daqui a pouco.",
+    "TODO_NONE": "Não encontrei nenhuma tarefa aberta assim.",
+    "TODO_SEVERAL": "Qual tarefa? {count} tarefas abertas combinam:",
+    "TODO_NO_LIST_SHOWN": "Não tenho uma lista de tarefas para apontar. Peça suas tarefas primeiro e depois diga o número.",
+    "TODO_ASK_ACCOUNT": "Qual: Google Tasks ou Microsoft To Do? Diga de novo citando o nome.",
+    "TODO_BAD_TITLE": "Não consegui usar isso como tarefa: precisa ser uma linha de no máximo 200 caracteres.",
+    "UNDERSTOOD_TODO_LIST": "listar suas tarefas abertas"
+  },
+  "same_as_english": [
+    "OUT_TODO_GOOGLE",
+    "OUT_TODO_MICROSOFT",
+    "FAIL_SERVICE_TASKS_GOOGLE",
+    "FAIL_SERVICE_TASKS_MICROSOFT",
+    "TODO_ITEM"
+  ]
+}

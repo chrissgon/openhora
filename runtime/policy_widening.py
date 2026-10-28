@@ -260,7 +260,8 @@ def widening(old: dict, new: dict, secret: str = "") -> list:
 PROVIDER_NAME = {"google": "Google", "microsoft": "Microsoft"}
 ACCOUNT_KINDS = (("calendars", "calendar", "the platform may create, change and remove events on the {provider} calendar '{name}'"),
                  ("folders", "folder", "the platform may create files and write new revisions in the {provider} folder '{name}'"),
-                 ("mail_folders", "mail-folder", "the platform may move messages into the {provider} mail folder '{name}' (and mark, archive and trash in the mailbox)"))
+                 ("mail_folders", "mail-folder", "the platform may move messages into the {provider} mail folder '{name}' (and mark, archive and trash in the mailbox)"),
+                 ("task_lists", "task-list", "the platform may add tasks to and complete tasks in the {provider} task list '{name}'"))
 DIGEST = 10     # hexadecimal characters of one item's digest
 
 
@@ -288,6 +289,9 @@ def account_items(cfg: dict, secret: str = "") -> list:
             if section == "calendars" and entry.get(section):
                 first = next(iter(entry[section]))
                 items.append((f"{provider}:default-calendar={first}", f"an event with no calendar named goes to the {shown} calendar '{first}' (the first of the file)"))
+            if section == "task_lists" and entry.get(section):
+                first = next(iter(entry[section]))
+                items.append((f"{provider}:default-task-list={first}", f"a task with no list named goes to the {shown} task list '{first}' (the first of the file)"))
         if entry.get("move_removes_inbox") is True:
             items.append((f"{provider}:move_removes_inbox", f"moving a message to a mail folder of the {shown} account also takes it out of the Inbox"))
         out += [{"place": "accounts", "channel": "accounts", "group": group, "means": means, "digest": _digest(group, secret)} for group, means in items]

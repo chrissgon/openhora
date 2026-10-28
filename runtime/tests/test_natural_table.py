@@ -92,7 +92,7 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
     for name in R - {"research"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
-        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body")), name
+        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body", "tasks-read")), name
     # R2-F1: `research` is the one read that calls a model (a web search run by the research skill). It changes nothing and reads nothing of the person's, and it has a group of its own,
     # in no default policy, so that no sender gets it from a group that was granted for another reason.
     row = operations.by_name("research")

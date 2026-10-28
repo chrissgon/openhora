@@ -26,10 +26,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phone_errors  # noqa: E402  (what an English sentence becomes on a phone that does not speak English)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
-SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
-SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL", "send-own": "MAIL"}
+SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL", "tasks-item": "TASKS"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
+SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL", "send-own": "MAIL", "tasks": "TASKS"}
 PLACE_OF_WORD = {"calendar": "FAIL_LOOK_CALENDAR", "mailbox": "FAIL_LOOK_MAILBOX", "files": "FAIL_LOOK_FILES", "send": "FAIL_LOOK_SENT", "send-own": "FAIL_LOOK_SENT",
-                 "publish": "FAIL_LOOK_POST"}      # where the person looks when the outcome of a write is unknown
+                 "publish": "FAIL_LOOK_POST", "tasks": "FAIL_LOOK_TASKS"}      # where the person looks when the outcome of a write is unknown
 QUOTA = re.compile(r"quota|insufficient ?storage|storage (limit|full)|no (space|room) left", re.I)
 TOO_LARGE = re.compile(r"too (large|big)|size limit|payload too large|exceeds the (size|maximum)", re.I)
 TAKEN = re.compile(r"already (exists|there|in)|name (is )?taken|conflict", re.I)
@@ -47,7 +47,7 @@ def _family(kind=None, word=None):
 
 
 def _service(family, account, cfg) -> str:
-    if family in ("FILES", "MAIL") and account in ("google", "microsoft"):
+    if family in ("FILES", "MAIL", "TASKS") and account in ("google", "microsoft"):
         return phrases.text(f"FAIL_SERVICE_{family}_{account.upper()}", cfg)
     if family == "CALENDAR" and account in ("google", "microsoft"):
         return phrases.text("OUT_CAL_MICROSOFT" if account == "microsoft" else "OUT_CAL_GOOGLE", cfg)

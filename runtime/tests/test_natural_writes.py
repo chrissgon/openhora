@@ -54,7 +54,9 @@ def test_a_phrase_with_a_regular_expression_character_or_an_unknown_key_is_refus
 
 def test_the_registry_names_the_families_and_every_operation_has_one():
     assert set(nw.FAMILIES) <= {"calendar", "files", "mail"}
-    assert {name for name, cls in natural.CLASSES.items() if cls == "E"} == set(nw.OP_FAMILY)
+    not_in_a_family = {"todo-add", "todo-done"}      # CB-5: the to-do list's cards are opened by runtime/ops_todo.py (the interpreter's branch), never by a natural-writes family
+    assert {name for name, cls in natural.CLASSES.items() if cls == "E"} - not_in_a_family == set(nw.OP_FAMILY)
+    assert not not_in_a_family & set(nw.OP_FAMILY)
 
 
 def test_line_gives_back_the_persons_words_not_the_folded_ones():

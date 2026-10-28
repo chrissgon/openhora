@@ -536,8 +536,8 @@ ALLOWED = {
     "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
     "subject": _WORDED, "body": _WORDED, "text": _WORDED,
     "title": _TEXTS, "content": _TEXTS, "name": _TEXTS, "file_name": _TEXTS,
-    "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS,
-    "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES,
+    "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS, "item": _ITEMS,      # `item`: a task of the list the sender was shown, or found by the words of the line (CB-5)
+    "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES, "list": _NAMES,      # `list`: a name of the accepted `task_lists` (CB-5)
     "start": _TIMES, "end": _TIMES,
     "attachment": ("held",),
     "state": ("line-span", "picked"),
@@ -553,6 +553,8 @@ OPS = {
     "file-replace": ("account", "file", "content"),
     "file-save": ("account", "attachment", "folder"),
     "file-trash": ("account", "file", "folder"),
+    "todo-add": ("account", "title", "list"),      # CB-5: a task is a title and the list the project names (no due date, no note)
+    "todo-done": ("account", "item", "list"),
     "mail-send": ("account", "to", "subject", "text"),
     "mail-reply": ("account", "message", "text"),
     "mail-draft": ("account", "to", "subject", "body", "message"),
