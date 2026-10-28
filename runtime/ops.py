@@ -219,7 +219,7 @@ import ops_models  # noqa: E402  (which model a run goes to: the choice, the key
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import ops_language  # noqa: E402  (the language of a deliverable: the check of a request's choice and the line of a run)
 import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
-import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
+import autonomy  # noqa: E402  (the same folder, as runtime/handlers/social.py imports social_vote)
 import board  # noqa: E402
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)

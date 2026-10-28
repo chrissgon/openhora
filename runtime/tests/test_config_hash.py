@@ -141,13 +141,13 @@ def test_the_first_runtimes_keys_stay_valid_in_the_same_file(tree):
 def test_every_key_the_first_runtime_reads_is_known():
     import re
     from pathlib import Path
-    scripts = Path(__file__).resolve().parents[2] / "scripts"
-    DERIVED = {"paths", "providers", "limits", "_redact"}  # set by the loader of scripts/runtime.py itself
+    handlers = Path(__file__).resolve().parents[2] / "runtime" / "handlers"
+    DERIVED = {"paths", "providers", "limits", "_redact"}  # set by the loader of runtime/handlers/social.py itself
     known = set(project_config.FIRST_RUNTIME_KEYS) | set(project_config.TASK_RUNTIME_KEYS) | DERIVED
     pattern = re.compile(r'\bcfg(?:\[|\.get\()\s*"([A-Za-z_]+)"')
     found = set()
-    for name in ("runtime.py", "runtime_vote.py", "vote_job.py"):
-        found |= set(pattern.findall((scripts / name).read_text(encoding="utf-8")))
+    for name in ("social.py", "social_vote.py", "social_vote_job.py"):  # T6: was the first runtime's three scripts
+        found |= set(pattern.findall((handlers / name).read_text(encoding="utf-8")))
     assert found, "the scan found no key: the pattern is stale"
     assert found <= known, f"read from the file but not in the key tuples: {sorted(found - known)}"
 

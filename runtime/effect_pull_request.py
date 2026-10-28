@@ -190,7 +190,7 @@ def verify(doc: dict, changeset: dict, facts: dict, protected) -> dict:
 
 
 def execute(doc: dict, changeset_dir: str, work_dir: str, provider: str, key_prefix: str, run=None) -> dict:
-    """Run the code provider's verbs, as scripts/runtime_vote.py starts the same verb (the interpreter the script's header asks for, then the verb): the
+    """Run the code provider's verbs, as runtime/handlers/social_vote.py starts the same verb (the interpreter the script's header asks for, then the verb): the
     runtime passes no credential, the provider reads its own. In order: write the commit message, the title and the
     body into work_dir (a private folder); a dry run of commit-files, whose base commit must be the document's
     project_commit and whose branch must not exist yet (unless the key already committed); commit-files, one commit

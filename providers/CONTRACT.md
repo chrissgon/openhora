@@ -42,7 +42,7 @@ PLATFORMS = ("<platform>", "<another platform>")
 
 ## Selection
 
-One function chooses the implementation of a class: `providers/resolve.py` (`resolve(cls)` when imported; `python3 providers/resolve.py --class <class>` prints the script's path, `--list` every class with its implementations and the one that resolves now). Skills, the agent runtime (`scripts/runtime.py`) and `scripts/doctor.py` all go through it. Nothing outside `providers/` names an implementation or builds a provider's path: a skill names the class and runs the path the function prints.
+One function chooses the implementation of a class: `providers/resolve.py` (`resolve(cls)` when imported; `python3 providers/resolve.py --class <class>` prints the script's path, `--list` every class with its implementations and the one that resolves now). Skills, the agent runtime (`runtime/handlers/social.py`) and `scripts/doctor.py` all go through it. Nothing outside `providers/` names an implementation or builds a provider's path: a skill names the class and runs the path the function prints.
 
 The order, first match wins:
 
@@ -93,7 +93,7 @@ One function runs a provider's verb for every caller of the task runtime: `provi
 A scheduler starts its jobs with the system interpreter (`/usr/bin/python3`, Python 3.9 on macOS), because that path and its hash survive package upgrades and cache cleaning. So one set of scripts must run on Python 3.9, standard library only:
 
 - the scheduler providers themselves (`providers/scheduler/*.py`), whose runner copy the scheduler calls;
-- the agent runtime the scheduler runs (`scripts/runtime.py`, `scripts/runtime_vote.py`, `scripts/vote_job.py`) and `providers/resolve.py`, which it imports;
+- the agent runtime the scheduler runs (`runtime/handlers/social.py`, `social_vote.py`, `social_vote_job.py`) and `providers/resolve.py`, which it imports;
 - every script the runtime starts with its own interpreter: the store provider (`providers/store/*.py`) and the skill scripts it calls (the gate, the parsers, the builders).
 
 Rules for a script in that set:

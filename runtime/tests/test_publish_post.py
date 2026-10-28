@@ -779,10 +779,10 @@ def test_a_ledger_variable_of_the_persons_environment_that_names_another_file_op
 
 def test_a_scheduled_job_for_this_key_pinned_to_another_ledger_opens_no_effect_and_blocks_the_approval(world):
     mine = str(world["provider"] / "standin-ledger.json")
-    scheduled(world, [{"id": "2027-10-13-other", "argv": ["python", "/x/vote_job.py", "--key", "2027-10-13-other", "--ledger", "/elsewhere/l.json"]},
+    scheduled(world, [{"id": "2027-10-13-other", "argv": ["python", "/x/social_vote_job.py", "--key", "2027-10-13-other", "--ledger", "/elsewhere/l.json"]},
                       {"id": KEY, "argv": ["python", "/x/job.py", "--idempotency-key", KEY, "--ledger", mine]}, {"id": "no-argv"}, "junk"])
     task, item = opened(world)      # another key's job, and a job of this key on the same ledger, are no problem
-    scheduled(world, [{"id": KEY, "argv": ["python", "/x/vote_job.py", "--key", KEY, "--ledger", "/elsewhere/l.json"]}])
+    scheduled(world, [{"id": KEY, "argv": ["python", "/x/social_vote_job.py", "--key", KEY, "--ledger", "/elsewhere/l.json"]}])
     with pytest.raises(ops_core.OpsError) as refused:
         approve(world, item)
     assert "a scheduled job for this key is pinned to the ledger /elsewhere/l.json" in str(refused.value) and posts(world) == []

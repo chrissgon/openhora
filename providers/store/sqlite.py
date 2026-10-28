@@ -7,7 +7,7 @@
 
 Tables: cursors (where a trigger source left off), events (triggers to handle, deduplicated and
 claimed atomically), runs (one row per agent run), inbox (what waits for the user) and actions
-(outward actions the runtime executed, for daily limits and audit). The first runtime (scripts/runtime.py) calls
+(outward actions the runtime executed, for daily limits and audit). A runtime that is not the task runtime calls
 this script through its CLI, so another implementation of the `store:runtime` class can replace it (STORE_PROVIDER).
 
 Since schema version 2 the file also holds the tables of the task runtime (runtime/): tasks (a request and the

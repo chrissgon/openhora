@@ -145,8 +145,8 @@ TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_a
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
                      "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research")
-# The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
-# (the first runtime). Leaves with stage 7.
+# The top-level keys runtime/handlers/social.py, social_vote.py and social_vote_job.py read from the same file
+# (the social agent, which the first runtime was ported to).
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
                       "first_lookback_minutes", "max_events_per_tick", "daily_cost_cap_usd", "timeout_seconds",
                       "notify", "path", "vote")

@@ -12,7 +12,7 @@
     "agents": "read at run time: the agent body (without frontmatter) becomes the system prompt",
     "skills": "read at run time: each --skill-dir's SKILL.md is quoted whole in the system prompt; scripts, references and evals are never sent"
   },
-  "install": "none: nothing is installed; scripts/runtime.py calls run-agent.sh from this folder when runtime.json has \"harness\": \"api\"",
+  "install": "none: nothing is installed; no runtime of the core calls run-agent.sh from this folder until one reads runtime.json's \"harness\": \"api\"",
   "generated": [],
   "runtime_runner": "run-agent.sh",
   "secrets": [
