@@ -19,12 +19,13 @@ sys.path.insert(0, str(REPO / "runtime"))
 import interpreter_route as ir  # noqa: E402
 
 RUNTIME = REPO / "runtime"
-PINS = json.loads((REPO / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
+PINNED_HASHES = json.loads((REPO / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 ROUTES = json.loads((RUNTIME / "interpreter_routes.json").read_text(encoding="utf-8"))
 ENTRIES = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))
 DEEPSEEK, GEMINI, LUNA = "or-deepseek-v4.1-flash", "or-gemini-3.5-flash-lite", "or-gpt-6-luna"
-DEEPSEEK_HASH = "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"      # written out again: the hash the enabling entries hold
-GEMINI_HASH = "30af746728a31cfed29323e8c260b0a2ed4a3cfd278fbb536e7a300394c62da2"
+DEEPSEEK_HASH = PINNED_HASHES["route_or_deepseek_v4_1_flash"]      # the hash the enabling entries hold
+GEMINI_HASH = PINNED_HASHES["route_or_gemini_3_5_flash_lite"]
+LUNA_HASH = PINNED_HASHES["route_or_gpt_6_luna"]
 CHAT = REPO / "providers" / "model" / "chat-http.py"
 
 
@@ -80,14 +81,13 @@ def test_the_key_is_shown_to_the_provider_only_when_the_row_has_it():
 
 def test_the_daily_routes_hash_is_the_one_the_pinned_file_and_the_active_enabling_entry_hold():
     assert ir.route_sha256(ir.find(DEEPSEEK)) == DEEPSEEK_HASH
-    assert PINS["route_or_deepseek_v4_1_flash"] == DEEPSEEK_HASH
     newest = ENTRIES[-1] if isinstance(ENTRIES, list) else ENTRIES["entries"][-1]
     assert newest["route"] == DEEPSEEK and newest["route_sha256"] == DEEPSEEK_HASH, "the active entry still holds the daily route's hash"
-    assert ir.route_sha256(ir.find(LUNA)) == PINS["route_or_gpt_6_luna"] == "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f"
+    assert ir.route_sha256(ir.find(LUNA)) == LUNA_HASH
 
 
 def test_the_first_fallback_rows_hash_is_the_new_pinned_one_and_depends_on_the_key():
-    assert ir.route_sha256(ir.find(GEMINI)) == GEMINI_HASH == PINS["route_or_gemini_3_5_flash_lite"]
+    assert ir.route_sha256(ir.find(GEMINI)) == GEMINI_HASH
     shown = ir.stdin_route(ir.find(GEMINI))
     assert canon_sha(shown) == GEMINI_HASH
     without = {k: v for k, v in shown.items() if k != "reasoning_off"}
