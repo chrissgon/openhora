@@ -341,6 +341,8 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
             opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+        elif op in ("todo-add", "todo-done"):          # CB-5: the person's own to-do list: the task is a span of the line, or a number of the list shown, or found by its words (runtime/ops_todo.py)
+            opened = importlib.import_module("ops_todo").reply(project, ctx, op, decision["args"], said, CHANNEL, sender, extras)
         elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
             opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
         elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))

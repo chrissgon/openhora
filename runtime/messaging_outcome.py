@@ -32,6 +32,7 @@ CALENDAR_SERVICE = {"google": "OUT_CAL_GOOGLE", "microsoft": "OUT_CAL_MICROSOFT"
 ACCOUNT_SERVICE = {"google": "OUT_ACCT_GOOGLE", "microsoft": "OUT_ACCT_MICROSOFT"}
 BOX = {"archive": "OUT_BOX_ARCHIVE", "move": "OUT_BOX_MOVE", "trash": "OUT_BOX_TRASH", "draft": "OUT_BOX_DRAFT"}
 FILE = {"create": "OUT_FILE_CREATE", "replace": "OUT_FILE_REPLACE", "save": "OUT_FILE_SAVE"}
+TASKS_SERVICE = {"google": "OUT_TODO_GOOGLE", "microsoft": "OUT_TODO_MICROSOFT"}
 
 
 def _service(table: dict, account, cfg) -> str:
@@ -52,6 +53,8 @@ def _card_fields(item: dict) -> dict:
             out["title"] = fields.get("title")
         elif key == "CARD_CAL_WHEN":
             out["when"] = fields.get("when")
+        elif key == "CARD_TODO_TITLE":      # the title of a task the person is adding is their own words (the title of one the service holds is private and is never said)
+            out["task"] = fields.get("title")
     return out
 
 
@@ -87,6 +90,12 @@ def sentence(item, result, cfg=None):
     if word == "files" and result.get("written") is True:
         key = FILE.get(result.get("operation"))
         return phrases.text(key, cfg, service=_service(ACCOUNT_SERVICE, result.get("account"), cfg)) if key else None
+    if word == "tasks" and result.get("done") is True:      # CB-5: a task added (its title, when the card showed it) or completed (never named: its title is the service's)
+        service = _service(TASKS_SERVICE, result.get("account"), cfg)
+        if result.get("operation") == "complete":
+            return phrases.text("OUT_TODO_DONE", cfg, service=service)
+        shown = _card_fields(item).get("task")
+        return phrases.text("OUT_TODO_ADDED", cfg, title=shown, service=service) if shown else phrases.text("OUT_TODO_ADDED_BARE", cfg, service=service)
     if word in ("send", "send-own") and result.get("sent") is True:
         return phrases.text("OUT_MAIL_REPLIED" if result.get("reply") is True else "OUT_MAIL_SENT", cfg)
     return None

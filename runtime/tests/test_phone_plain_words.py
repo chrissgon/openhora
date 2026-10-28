@@ -226,7 +226,7 @@ def column_problems(keys, table_en, table_pt) -> list:
         said = table_pt.get(key)
         if said is None:
             out.append((key, "missing"))
-        elif said == table_en[key] and key not in SAME_AS_ENGLISH:
+        elif said == table_en[key] and key not in SAME_AS_ENGLISH and key not in phrases.SAME_AS_ENGLISH:      # a phrase part declares its own (HOT-2)
             out.append((key, "same as the English"))
         elif key not in PAGE_ONLY and problems(said.replace("{", "").replace("}", "")) and not re.fullmatch(r"[^a-z]*", said):
             out.append((key, "internal or English words: " + str(problems(said))))

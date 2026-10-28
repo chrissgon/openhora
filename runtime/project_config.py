@@ -55,7 +55,7 @@ accepted with accept-config; it holds no secret (the password is the secret MAIL
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
 "calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id or /path | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
-"<label or folder id>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
+"<label or folder id>"}, "task_lists": {"<name>": "<task list id | default>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
 account a line in words goes to when it names no service and both could serve it, package NR-5; `account_default`). A name is lowercase letters, digits and hyphens, at most 32; an id is
 checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). A Google folder may also be a path from
 My Drive in the same form ("/Documentos", "/Clientes/2026"): accepting the file resolves each one to its folder id through the Drive provider (`resolve-path`, runtime/ops_config.py), the
@@ -702,9 +702,9 @@ def _outbox(value, workbench: str):
 
 ACCOUNT_PROVIDERS = ("google", "microsoft")
 ACCOUNT_DEFAULT = "default"          # NR-5 (Q2): the key of `accounts` that names which account a line in words goes to when it names none and both could serve
-ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
-ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "move_removes_inbox")
-ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders")      # the three maps of names to ids: the targets the platform may write to
+ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files", "tasks")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
+ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "task_lists", "move_removes_inbox")
+ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders", "task_lists")      # the maps of names to ids: the targets the platform may write to (`task_lists`: CB-5; the id `default` is the account's default list)
 ACCOUNT_NAME = re.compile(r"[a-z0-9-]{1,32}")
 ACCOUNT_SECTION_MAX = 50                                         # names in one map
 ACCOUNT_DEFAULT_FOLDER = "default"                               # the name of the folder a file goes to when the person names none
@@ -717,6 +717,8 @@ ACCOUNT_ID = {       # (provider, section) -> the full-match pattern of an id; n
     ("microsoft", "calendars"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
     ("microsoft", "folders"): re.compile(r"[A-Za-z0-9_=!-]{1,200}"),
     ("microsoft", "mail_folders"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
+    ("google", "task_lists"): re.compile(r"[A-Za-z0-9_-]{1,128}"),      # `default` matches: the service's own word for the account's default list
+    ("microsoft", "task_lists"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),      # `default` matches too: the runtime resolves it to the id of the list the service marks as the default one
 }
 
 
@@ -853,8 +855,8 @@ def clean_name(value, width: int = 40) -> str:
 
 def account_target(cfg: dict, account, section: str, name=None) -> tuple:
     """(id, None) of a target the project lists for an account, or (None, the sentence that refuses it): the one place the write kinds ask whether the
-    platform may write somewhere (limit L55). `section` is calendars, folders or mail_folders. Without a name, calendars means the first one listed and
-    folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
+    platform may write somewhere (limit L55). `section` is calendars, folders, mail_folders or task_lists. Without a name, calendars and task lists mean the first one
+    listed and folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
     entry = account_entry(cfg, account)
     if entry is None:
         return None, phrases.en("ACCT_NOT_CONFIGURED").format(account=clean_name(account, 20))
@@ -864,7 +866,7 @@ def account_target(cfg: dict, account, section: str, name=None) -> tuple:
         return None, f"a name is a text: {clean_name(name)!r} is not one of the {section.replace('_', ' ')} the project lists for the account {account}"
     listed, what = entry[section], section.replace("_", " ")
     if name is None:
-        name = next(iter(listed), None) if section == "calendars" else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
+        name = next(iter(listed), None) if section in ("calendars", "task_lists") else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
         if name is None:
             return None, f"name one of the {what} the project lists for the account {account}: {', '.join(listed) or 'none are listed'}"
     if name not in listed:

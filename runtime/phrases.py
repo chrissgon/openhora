@@ -1445,6 +1445,7 @@ CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT"
 CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
 # W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
 # mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
+CARD_PRIVATE += ("CARD_TODO_NOW_TITLE",)      # CB-5: the title of a task as the service holds it now (a completion's card); the title of a task the person is adding is their own words and is not private
 CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
 CARD_PRIVATE_GROUP = "ask-mail"
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
@@ -1488,6 +1489,8 @@ def hidden_note_key(card, kept) -> str:
     left_out = [line[0] for line in card if line not in kept]
     if left_out and all(key.startswith("CARD_FILE") for key in left_out):
         return "CARD_HIDDEN_NOTE_FILE"
+    if left_out and all(key.startswith("CARD_TODO_") for key in left_out):
+        return "CARD_HIDDEN_NOTE_TODO"
     return "CARD_HIDDEN_NOTE_MAIL" if left_out and all(key.startswith(("CARD_MAIL_", "CARD_BOX_")) for key in left_out) else "CARD_HIDDEN_NOTE"
 
 

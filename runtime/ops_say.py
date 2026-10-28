@@ -196,6 +196,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     with turns.turn(), _sentences(ctx, channel):      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
         importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
         importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
+        importlib.import_module("ops_todo").begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
         if plan_ok is not None:
             confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
             if confirmed is not None:
