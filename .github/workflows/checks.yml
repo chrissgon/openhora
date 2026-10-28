@@ -13,13 +13,18 @@
 # the main ruleset, and so is never skipped (nor is `validate`, the other one): any label reruns both. It is the aggregator of the shards
 # (`if: always()`, `needs: tests-shard`) and fails unless every shard succeeded. `always()` is the condition that never skips. The jobs
 # that need docker or Go run when the paths they depend on changed, and always in the four cases of the whole suite.
+# A DRAFT pull request runs only `validate` and `changes` (which then says nothing changed: `container`, `converter` and `go` skip), and
+# its `tests` FAILS on purpose with "a draft pull request runs no tests; mark it ready for review to run them" (approved by the maintainer
+# on 2026-10-27): a job skipped by its condition counts as passing, so `tests` is never skipped and is red, never a false
+# green. Marking the pull request ready (`ready_for_review`) runs everything once. GitHub refuses to merge a draft at all. A red `tests` on
+# a draft means "not run", and is never read as a failure of the code.
 name: checks
 
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -61,8 +66,8 @@ jobs:
 
   # The tests in three shards (docs/decisions.md, the entry of T3 and the entry of TEST-SPEED): each job keeps the K-th of 3 items of the
   # collection (scripts/shard_tests.py, scripts/pytest_plugins/wb_shard.py) of the list of its mode. Every collected item is in exactly one
-  # shard; the job `tests` below is the one required check and fails unless every shard succeeded. The shards run on every event, because
-  # the gate needs them in both modes (scripts/tests/test_checks_wiring.py holds that). WHOLE (a push to main, a pull request into main, a
+  # shard; the job `tests` below is the one required check and fails unless every shard succeeded. The shards run on every event but a draft
+  # pull request (whose `tests` fails by its own step), because the gate needs them in both modes (scripts/tests/test_checks_wiring.py holds that). WHOLE (a push to main, a pull request into main, a
   # manual run, a pull request labelled full-suite): every test folder with WB_FULL_FUZZ=1 (the fuzz of the natural writes walked line by
   # line, about eight minutes of one process, runtime/README.md, "The natural-writes fuzz"). SELECTED (a pull request into a branch other
   # than main): the list that scripts/select_tests.py prints for the files the pull request changed since its merge base with the base,
@@ -72,6 +77,7 @@ jobs:
   # headroom for a slow runner or a worker that waits on a timeout.
   tests-shard:
     name: tests shard ${{ matrix.shard }} of 3
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -119,7 +125,8 @@ jobs:
   # event, so that the check exists and means something on every run (a label added to a pull request reruns it): `if: always()` is
   # required, because without it a failed shard makes GitHub skip this job, and a skipped required check counts as passing. Its step fails
   # unless `needs.tests-shard.result` is `success` (a matrix is `success` only when every leg is: a failed, cancelled, timed-out or skipped
-  # shard fails the check). Which tests the shards ran, the selection or the whole suite, is chosen by the steps of `tests-shard`; the whole
+  # shard fails the check). Exactly one of its two steps runs on every event, chosen by the draft flag: on a draft pull request the shards do not run
+  # and the step "Draft: no test has run" fails; the condition of "Every shard passed" is the job condition of `tests-shard`, word for word. Which tests the shards ran, the selection or the whole suite, is chosen by the steps of `tests-shard`; the whole
   # suite catches what the selection cannot see (a dynamic import, a long call chain without an import edge).
   tests:
     name: tests
@@ -128,7 +135,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: "Draft: no test has run"
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft
+        run: |
+          echo "a draft pull request runs no tests; mark it ready for review to run them"
+          exit 1
       - name: Every shard passed
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
         env:
           SHARDS: ${{ needs.tests-shard.result }}
         run: |
@@ -136,7 +149,7 @@ jobs:
           test "$SHARDS" = "success"
 
   # Which of the docker and Go jobs have anything to check: on a pull request into a branch other than main, those whose paths changed;
-  # in the four cases of the whole suite, all of them. The paths are what each job's tests read: the eval container and its adapters,
+  # in the four cases of the whole suite, all of them; on a draft pull request, none. The paths are what each job's tests read: the eval container and its adapters,
   # the converter and exporter images and the workcopy scan, the WhatsApp program. This file counts for all three.
   changes:
     name: changes
@@ -159,8 +172,15 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-suite') }}
+          DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -eu
+          if [ "$DRAFT" = "true" ]; then # a draft runs no docker or Go job: no diff is read
+            echo "container=false" >> "$GITHUB_OUTPUT"
+            echo "converter=false" >> "$GITHUB_OUTPUT"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           everything=false
           if [ "$EVENT" != "pull_request" ] || [ "$ACTION" = "labeled" ] || [ "$BASE_REF" = "main" ] || [ "$FULL_LABEL" = "true" ]; then
             everything=true
@@ -201,7 +221,9 @@ jobs:
   # Each leg chooses the list the same way, from the same commit and base. `python39` is not a required check, so its name may be a shard's.
   python39:
     name: python39 shard ${{ matrix.shard }} of 3
-    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-suite')
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:

@@ -189,7 +189,7 @@ def step_condition(job, step_name, text=None):
     """The `if:` of the step of that job with that name (None when it has none)."""
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text() if text is None else text
     lines = job_block(text, job).splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: " + step_name)
+    start = next(i for i, line in enumerate(lines) if line.strip().replace('"', "") == "- name: " + step_name)
     parts, found = [], False
     for line in lines[start + 1:]:
         if re.match(r"^      - ", line):
@@ -206,16 +206,16 @@ def step_condition(job, step_name, text=None):
     return " ".join(parts) if found else None
 
 
-def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None):
+def evaluate(expression, event_name, action=None, base_ref="", labels=(), label=None, draft=None):
     if expression is None:
         return True  # a job without a condition runs
     expression = expression.replace("always()", "True")  # the condition of the aggregator: it runs, whatever its needs ended in
     py = re.sub(r"contains\(github\.event\.pull_request\.labels\.\*\.name,\s*'([^']+)'\)", lambda m: "(%r in labels)" % m.group(1), expression)
     py = py.replace("github.event_name", "event_name").replace("github.event.action", "action").replace("github.base_ref", "base_ref")
-    py = py.replace("github.event.label.name", "label")
+    py = py.replace("github.event.label.name", "label").replace("github.event.pull_request.draft", "draft")
     py = py.replace("&&", " and ").replace("||", " or ")
     py = re.sub(r"!(?!=)", " not ", py)
-    names = {"event_name": event_name, "action": action, "base_ref": base_ref, "labels": list(labels), "label": label}
+    names = {"event_name": event_name, "action": action, "base_ref": base_ref, "labels": list(labels), "label": label, "draft": draft}
     return bool(walk(ast.parse(py.strip(), mode="eval").body, names))
 
 
@@ -245,6 +245,9 @@ EVENTS = {
     "a pull request into an integration branch": dict(event_name="pull_request", action="synchronize", base_ref="feature/x"),
     "another label just added": dict(event_name="pull_request", action="labeled", base_ref="feature/x", labels=["docs"], label="docs"),
     "another label added to a pull request into main": dict(event_name="pull_request", action="labeled", base_ref="main", labels=["docs"], label="docs"),
+    "a draft pull request into an integration branch": dict(event_name="pull_request", action="synchronize", base_ref="feature/x", draft=True),
+    "a draft pull request into main": dict(event_name="pull_request", action="synchronize", base_ref="main", draft=True),
+    "a draft marked ready": dict(event_name="pull_request", action="ready_for_review", base_ref="feature/x", draft=False),
 }
 
 
@@ -255,6 +258,7 @@ REQUIRED_CHECKS = ("validate", "tests")
 WHOLE = "Scanner and provider tests, the whole suite"  # the step of each shard that runs its part of the suite
 GATE = "Every shard passed"  # the step of the aggregator that fails unless every shard did
 SHARDS = "tests-shard"
+DRAFT_STEP = "Draft: no test has run"  # the step of the aggregator that fails on a draft pull request
 SELECTED = "Selected scanner, provider, runtime and script tests"
 CHOOSE = "Choose the tests this pull request can reach"
 
@@ -276,6 +280,7 @@ WANTED_MODES = {
     "a push to main": "whole", "a pull request into main": "whole", "a manual run": "whole",
     "a pull request labelled full-suite, a new commit": "whole", "the label full-suite just added": "whole",
     "a pull request into an integration branch": "selected", "another label just added": "selected", "another label added to a pull request into main": "whole",
+    "a draft pull request into an integration branch": None, "a draft pull request into main": None, "a draft marked ready": "selected",
 }
 
 
@@ -287,7 +292,7 @@ def step_text(block, name):
     """The text of the step of that block with that name: up to the next step, or the end of the job (a comment that sits above the
     next job belongs to this block and is not part of the step)."""
     lines = block.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: " + name)
+    start = next(i for i, line in enumerate(lines) if line.strip().replace('"', "") == "- name: " + name)
     out = [lines[start]]
     for line in lines[start + 1:]:
         if re.match(r"^      - ", line) or (line.strip() and not line.startswith("        ")):
@@ -304,8 +309,15 @@ def test_the_shards_run_the_selection_or_the_whole_list_and_the_tests_job_gates_
     assert got == WANTED_MODES
     assert step_condition(SHARDS, CHOOSE) == step_condition(SHARDS, SELECTED)  # the selector runs exactly when its targets are used
     assert squash(step_condition("tests", GATE) or "") == squash(job_condition(SHARDS) or "")  # the shards run exactly when the gate needs them
+    # exactly one of the two steps of the aggregator runs on every event, and the draft one is the logical negation of the gate's
+    for name, event in EVENTS.items():
+        assert evaluate(step_condition("tests", DRAFT_STEP), **event) is (not evaluate(step_condition("tests", GATE), **event)), name
+    assert [e for e, event in EVENTS.items() if evaluate(step_condition("tests", DRAFT_STEP), **event)] == [
+        "a draft pull request into an integration branch", "a draft pull request into main"]
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     block = job_block(text, "tests")
+    draft = step_text(block, DRAFT_STEP)
+    assert "exit 1" in draft and "a draft pull request runs no tests; mark it ready for review to run them" in draft
     gate = step_text(block, GATE)
     assert "SHARDS: ${{ needs.tests-shard.result }}" in gate and 'test "$SHARDS" = "success"' in gate
     assert re.search(r"^    needs: (tests-shard|\[.*\btests-shard\b.*\])\s*$", block, re.M) and re.search(r"^    if: always\(\)\s*$", block, re.M)
@@ -336,8 +348,8 @@ def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_
     for name, event in EVENTS.items():
         if event.get("event_name") == "pull_request" and event.get("base_ref") == "main":
             assert evaluate(selected, **event) is False, name
-    for action in ("opened", "synchronize", "reopened", "labeled"):
-        event = dict(event_name="pull_request", action=action, base_ref="main", labels=["docs"], label="docs" if action == "labeled" else None)
+    for action in ("opened", "synchronize", "reopened", "labeled", "ready_for_review"):
+        event = dict(event_name="pull_request", action=action, base_ref="main", labels=["docs"], label="docs" if action == "labeled" else None, draft=False)
         assert evaluate(step_condition("tests", GATE), **event) is True and evaluate(selected, **event) is False, action
         assert evaluate(job_condition(SHARDS), **event) is True, action  # and the shards run, so the gate has something to wait for
     # no other job takes the name of a required check: a shard is named `tests shard <k> of 3`, which is never `tests`
@@ -368,6 +380,22 @@ def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main
     # a selected step that forgets the base: a pull request into main would run both
     with pytest.raises(AssertionError):
         modes(None, whole, "github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-suite')")
+    # shards that also run on a draft: the draft step of the aggregator fails, and these would have run the whole suite for nothing
+    runs_on_a_draft = modes(None, whole, selected)
+    assert runs_on_a_draft != WANTED_MODES and runs_on_a_draft["a draft pull request into main"] == "whole"
+
+
+def draft_step_fails_closed(text):
+    """True only when the aggregator has a draft step that fails (an `exit 1` that nothing follows) and runs exactly when the gate step does not."""
+    block = job_block(text, "tests")
+    try:
+        script = step_text(block, DRAFT_STEP)
+        draft_if, gate_if = step_condition("tests", DRAFT_STEP, text), step_condition("tests", GATE, text)
+    except StopIteration:
+        return False
+    if draft_if is None or gate_if is None or not re.search(r"^\s+exit 1\s*$", script, re.M):
+        return False
+    return all(evaluate(draft_if, **event) is (not evaluate(gate_if, **event)) for event in EVENTS.values())
 
 
 def gate_holds(text):
@@ -379,6 +407,8 @@ def gate_holds(text):
     gate = step_text(block, GATE)
     if not ("SHARDS: ${{ needs.tests-shard.result }}" in gate and 'test "$SHARDS" = "success"' in gate):
         return False
+    if not draft_step_fails_closed(text):
+        return False
     if squash(step_condition("tests", GATE, text) or "") != squash(job_condition(SHARDS, text) or ""):
         return False
     count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_block)
@@ -388,14 +418,19 @@ def gate_holds(text):
 def test_planted_gates_that_let_a_failed_or_missing_shard_pass_are_caught_by_the_oracle():
     real = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     assert gate_holds(real)
-    shard_name = "    name: tests shard ${{ matrix.shard }} of 3\n"
+    shard_if = "    if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n"
+    gate_if = "        if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n"
     plants = {
         "the aggregator is skipped when a shard fails": real.replace("    needs: tests-shard\n    if: always()\n", "    needs: tests-shard\n", 1),
         "a shard is left out of the matrix": real.replace("[1, 2, 3]", "[1, 2]", 1),
         "the gate does not compare the result": real.replace('test "$SHARDS" = "success"', "true", 1),
-        "the gate step is skipped on some event, which counts as a pass": real.replace(
-            "      - name: Every shard passed\n", "      - name: Every shard passed\n        if: github.event_name != 'pull_request'\n", 1),
-        "the shards run on fewer events than the gate waits for": real.replace(shard_name, shard_name + "    if: github.event_name != 'pull_request'\n", 1),
+        "the gate step is skipped on some event, which counts as a pass": real.replace(gate_if, "        if: github.event_name != 'pull_request'\n", 1),
+        "the shards run on fewer events than the gate waits for": real.replace(shard_if, "    if: github.event_name != 'pull_request'\n", 1),
+        "the gate condition also runs on a draft, so a skipped shard counts as passing": real.replace(gate_if, "", 1),
+        "the shards are skipped on a draft but the gate runs there": real.replace(gate_if, "        if: github.event_name != 'pull_request' || github.base_ref == 'main'\n", 1),
+        "the draft step does not fail": real.replace("          exit 1\n", "          true\n", 1),
+        "the draft step is skipped on a draft": real.replace(
+            "        if: github.event_name == 'pull_request' && github.event.pull_request.draft\n", "        if: github.event_name == 'push'\n", 1),
     }
     for name, planted in plants.items():
         assert planted != real, name
@@ -471,7 +506,7 @@ def run_changes(tmp_path, files, **env):
     return dict(line.split("=") for line in out.read_text().split())
 
 
-PR = dict(EVENT="pull_request", ACTION="synchronize", BASE_REF="feature/x", FULL_LABEL="false")
+PR = dict(EVENT="pull_request", ACTION="synchronize", BASE_REF="feature/x", FULL_LABEL="false", DRAFT="false")
 
 
 def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of_the_whole_suite(tmp_path):
@@ -485,8 +520,13 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
         (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
         (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
         (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": ""}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": ""}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
+        # a draft runs none of the three jobs, whatever changed and whatever the label or the base, and reads no diff (the base below is no commit)
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "go": "false"}),
+        (["evals/container/Dockerfile"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "BASE_REF": "main"}, {"container": "false", "converter": "false", "go": "false"}),
+        (["docs/decisions.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "ACTION": "labeled", "FULL_LABEL": "true"}, {"container": "false", "converter": "false", "go": "false"}),
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"container": "false", "converter": "false", "go": "true"}),  # marked ready: read as any push
     ]):
         case = tmp_path / ("case%d" % i)
         case.mkdir()
@@ -496,7 +536,7 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
 def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run():
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     head = text[:text.index("\npermissions:")]
-    assert "workflow_dispatch:" in head and "types: [opened, synchronize, reopened, labeled]" in head and "branches: [main]" in head
+    assert "workflow_dispatch:" in head and "types: [opened, synchronize, reopened, labeled, ready_for_review]" in head and "branches: [main]" in head
     assert "github.event.action == 'labeled' && 'label' || 'code'" in text  # a label does not cancel the run of the last push
     # and a label run is never cancelled itself (it may be the whole suite, started by the label full-suite)
     assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event.action != 'labeled' }}" in text
@@ -658,7 +698,7 @@ def test_the_python39_job_selects_under_the_condition_of_the_shards_and_runs_the
     got = modes(job_condition("python39"), step_condition("python39", PY39_WHOLE), choose)
     wanted = dict(WANTED_MODES)
     wanted["another label just added"] = wanted["another label added to a pull request into main"] = None  # the job waits for the label full-suite
-    assert got == wanted
+    assert got == wanted and got["a draft pull request into main"] is None and got["a draft marked ready"] == "selected"  # a draft runs no shard of the list
     block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
     assert "fetch-depth: 0" in block  # the selector reads the merge base with the pull request's base
     pytest_step = step_text(block, PY39_STEP)

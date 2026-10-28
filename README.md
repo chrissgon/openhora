@@ -105,7 +105,7 @@ python3 scripts/security_scan.py --strict   # secrets, hidden text, unsafe scrip
 bash scripts/install-hooks.sh               # once per clone: enables .githooks/ (--check, --uninstall)
 ```
 
-The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then a fast set of tests: the guards and the tests named for each file the commit touches (`select_tests.py --direct`); `WB_HOOK_FULL=1 git commit` runs the full selection instead. The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, and `tests` runs the selection of the tests that the pull request can reach, in three shards (the whole suite at the end of a delivery), beside the `python39` shards and a `container` job for the eval container.
+The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then a fast set of tests: the guards and the tests named for each file the commit touches (`select_tests.py --direct`); `WB_HOOK_FULL=1 git commit` runs the full selection instead. The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, and `tests` runs the selection of the tests that the pull request can reach, in three shards (the whole suite at the end of a delivery), beside the `python39` shards and a `container` job for the eval container; a draft pull request runs only `validate` and `changes`, and its `tests` is red until it is marked ready.
 
 A new skill starts from `bash scripts/new-skill.sh --name <prefix-name> --kind capability|flow --area <area>`; `AGENTS.md`, "Adding a skill", has the rest.
 
