@@ -192,7 +192,7 @@ def env(tmp_path, monkeypatch):
     for name in REAL_RUNTIME:  # the real operations layer, behind the stand-in cli.py
         shutil.copy(REPO / "runtime" / name, wb / "runtime" / name)
     roles = json.loads((REPO / "runtime" / "roles.json").read_text())  # which it checks against the skills and packs it names
-    for skill in (roles["router"], roles["brief"], roles["subtask"]):
+    for skill in (roles["router"], roles["brief"], roles["subtask"], *([roles["answer"]] if "answer" in roles else [])):
         (wb / "skills" / skill).mkdir(parents=True, exist_ok=True)
         (wb / "skills" / skill / "SKILL.md").write_text(f"---\nname: {skill}\n---\n")
     (wb / "packs").mkdir()

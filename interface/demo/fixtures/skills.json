@@ -1,6 +1,48 @@
 {
   "skills": [
     {
+      "name": "asst-answer",
+      "version": "0.1.0",
+      "area": "assistant",
+      "manifest": true,
+      "proof": [
+        {
+          "model": "demo-model-a",
+          "adapter": "adapter",
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no evidence on this model",
+          "score": null,
+          "mean": null,
+          "runs": 0,
+          "web_measured": false,
+          "usage_mean": null,
+          "source": null,
+          "price": null,
+          "expected_cost": null,
+          "key": "lab"
+        },
+        {
+          "model": "demo-model-b",
+          "adapter": "adapter",
+          "provider": null,
+          "band": "needs a test",
+          "cause": "no evidence on this model",
+          "score": null,
+          "mean": null,
+          "runs": 0,
+          "web_measured": false,
+          "usage_mean": null,
+          "source": null,
+          "price": null,
+          "expected_cost": null,
+          "key": "lab"
+        }
+      ],
+      "recommended": null,
+      "runs_here": 0
+    },
+    {
       "name": "biz-icp-positioning",
       "version": "1.0.0",
       "area": "business",
