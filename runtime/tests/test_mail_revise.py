@@ -38,6 +38,8 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
+    assert "fallback" in every[-1] and "fallback" not in every[-2], "the newest entry is the outage-path entry of LUNA-ENABLE (it carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before it"
+    every = every[:-1]
     current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()

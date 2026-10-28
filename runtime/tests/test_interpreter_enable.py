@@ -49,9 +49,12 @@ R2A_STATUS_LINE = S13B_STATUS_LINE + "; file-trash added to the catalog 2026-10-
 BL1_STATUS_LINE = R2A_STATUS_LINE + "; target and day slots added to the catalog 2026-10-24 (B″-lite), served before its measurement"      # the entry of slice BL1
 BL5B_STATUS_LINE = BL1_STATUS_LINE + "; the prompt revised 2026-10-25 (BL5B: a correction after \"Posso?\" states a new plan), served before its measurement"      # the entry of package BL5B
 BL73_STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: described replies, subject kept in target, inherit and correction rules), measured on this PR's head before merge"      # the entry of package BL7-3
-STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
-               "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge")      # the newest entry (package CB-9); the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
+CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
+               "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge")      # the entry of package CB-9; the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
+assert len(CB9_STATUS_LINE) <= 600
+STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the newest entry (package LUNA-ENABLE): the entry of CB-9 and the outage path
 assert len(STATUS_LINE) <= 600
+LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
 
 def status_module():
@@ -115,9 +118,15 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    assert {key for key in entry if entry[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the newest entry (CB-9) changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-2] == bl73 and "CB-9" in entry["status_line"] and "CB-9" in entry["reason"] and "version 2" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
-    assert "Measured on this PR's head before merge" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
+    cb9 = doc["entries"][-2]
+    assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
+    assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
+    assert doc["entries"][-3] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
+    # LUNA-ENABLE: the newest entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
+    assert {key for key in entry if entry.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the newest entry changes the reason and the status line and adds `fallback`; every pin stands as decided"
+    assert entry["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": entry["fallback"][0]["measured"]}] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "20261028T201315Z-daa387c8" in entry["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in entry["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in entry["fallback"][0]["measured"]
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
