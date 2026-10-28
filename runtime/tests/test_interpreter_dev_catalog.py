@@ -1,4 +1,4 @@
-"""The catalog-batch dev file of CB-9 (package CB-9): `evals/interpreter/dev-catalog-v1.jsonl`, 75 fictional lines written by the CB-9 executor (not by the author of any `about` text), the lines of
+"""The catalog-batch dev file of CB-9 (package CB-9): `evals/interpreter/dev-catalog-v1.jsonl`, 77 fictional lines written by the CB-9 executor (not by the author of any `about` text), the lines of
 the operations the version-2 catalog adds (a filtered items read, mail-read, todo-list, todo-add, todo-done, a repeat slot on event-create, series and occurrence cancels, a series change,
 reminder-forget by words, file-ask) with their confusables. It is dev evidence, never blind, and a NEW file: the frozen corpora are not touched.
 
@@ -37,8 +37,8 @@ FROZEN = ("dev.jsonl", "dev-relabelled.jsonl", "ix-test-v1.jsonl", "dev-long-v1.
 
 IDS_BY_LANG = {"pt-BR": "dev-pt-br-600", "en": "dev-en-600", "es": "dev-es-600", "fr": "dev-fr-600", "de": "dev-de-600", "it": "dev-it-600"}
 ZONES = {"pt-BR": "America/Sao_Paulo", "en": "America/New_York", "es": "Europe/Madrid", "fr": "Europe/Paris", "de": "Europe/Berlin", "it": "Europe/Rome"}
-LANG_COUNTS = {"de": 2, "en": 25, "es": 3, "fr": 3, "it": 1, "pt-BR": 41}
-OP_COUNTS = {"ask": 1, "event-cancel": 6, "event-change": 1, "event-create": 13, "file-ask": 7, "file-read": 2, "items": 9, "mail-read": 8, "remind": 1, "reminder-forget": 2,
+LANG_COUNTS = {"de": 2, "en": 26, "es": 3, "fr": 3, "it": 1, "pt-BR": 42}
+OP_COUNTS = {"ask": 1, "event-cancel": 6, "event-change": 1, "event-create": 15, "file-ask": 7, "file-read": 2, "items": 9, "mail-read": 8, "remind": 1, "reminder-forget": 2,
              "research": 2, "status": 2, "task": 1, "todo-add": 9, "todo-done": 5, "todo-list": 6}
 CLOCK = "2026-11-03T09:30"      # a Tuesday; US clocks changed on 2026-11-01, European ones on 2026-10-25
 UNREAD_NEGATED = "dev-pt-br-60003"      # "os e-mails não lidos, não a agenda": a negated noun, gold items {state} (ITEMS-NEGATION)      # validate: allow english-only -- the Portuguese line under test
@@ -75,12 +75,12 @@ def test_the_file_is_canonical_sorted_and_loads_in_the_harness():
     raw = FILE.read_text(encoding="utf-8")
     assert raw.endswith("\n") and "\r" not in raw
     lines = raw.split("\n")[:-1]
-    assert len(lines) == 75 == len(ITEMS)
+    assert len(lines) == 77 == len(ITEMS)
     assert lines == [canon(item) for item in ITEMS], "every line is the canonical JSON of its item"
     ids = [item["id"] for item in ITEMS]
-    assert ids == sorted(ids) and len(set(ids)) == 75
+    assert ids == sorted(ids) and len(set(ids)) == 77
     loaded, data = interpreter_measure.load_corpus(str(FILE))
-    assert len(loaded) == 75 and data == FILE.read_bytes()
+    assert len(loaded) == 77 and data == FILE.read_bytes()
 
 
 def test_ids_are_in_the_60000_range_and_carry_their_language():
@@ -132,8 +132,8 @@ def test_every_gold_op_and_slot_is_served_at_catalog_version_2_and_every_span_is
 def test_the_counts_by_language_and_by_operation_are_literals():
     assert dict(sorted(collections.Counter(item["lang"] for item in ITEMS).items())) == LANG_COUNTS
     assert dict(sorted(collections.Counter(item["gold"]["op"] for item in ITEMS).items())) == OP_COUNTS
-    assert sum(LANG_COUNTS.values()) == sum(OP_COUNTS.values()) == 75
-    assert LANG_COUNTS["pt-BR"] == 41 and LANG_COUNTS["en"] == 25 and sum(LANG_COUNTS[lang] for lang in ("es", "fr", "de", "it")) == 9
+    assert sum(LANG_COUNTS.values()) == sum(OP_COUNTS.values()) == 77
+    assert LANG_COUNTS["pt-BR"] == 42 and LANG_COUNTS["en"] == 26 and sum(LANG_COUNTS[lang] for lang in ("es", "fr", "de", "it")) == 9
 
 
 def test_the_new_slots_of_the_catalog_are_what_the_file_measures():
@@ -155,7 +155,7 @@ def test_one_items_line_carries_a_negated_noun():
 def test_the_lines_are_new_and_hold_no_address_and_no_phone_like_run():
     frozen = {normal(item["line"]) for name in FROZEN for item in rows(FOLDER / name)}
     lines = [normal(item["line"]) for item in ITEMS]
-    assert len(set(lines)) == 75
+    assert len(set(lines)) == 77
     assert not frozen & set(lines), "no line of a frozen set"
     for item in ITEMS:
         text = item["line"]
@@ -223,7 +223,7 @@ def test_the_summary_of_the_second_blind_set_has_its_shape_its_groups_and_the_ke
     summary = json.loads((FOLDER / "cb9-blind-v2-split.json").read_text(encoding="utf-8"))
     assert set(summary) == {"v", "file", "sha256", "items", "counts", "frozen", "group_of_id"} and summary["v"] == 1
     assert summary["file"] == "cb9-blind-v2.jsonl" and summary["items"] == 50 and summary["frozen"] == "2026-10-28"
-    assert summary["sha256"] == "e62cbff0588df2a99a2dc6b91bb6d75dd7c6f015cf3f2ec7401720322ca8aa77"      # the hash the measurement script (ix-cb9.sh) holds as WANT_SET
+    assert summary["sha256"] == "10f3308fdd2708b0cf678d9b45c9f293302f23e42602e0c385fe810b0ebd891e"      # the hash the measurement script (ix-cb9.sh) holds as WANT_SET
     counts = summary["counts"]
     assert sum(counts["group"].values()) == sum(counts["lang"].values()) == sum(counts["outcome"].values()) == 50 and len(summary["group_of_id"]) == 50
     assert counts["group"]["mail-write-numbered"] == 6 and counts["group"]["mail-reply-sender"] == 6, "the 12 follow-up lines of BL7-4 and BL7-5, reported apart"
@@ -232,3 +232,18 @@ def test_the_summary_of_the_second_blind_set_has_its_shape_its_groups_and_the_ke
     assert all(re.fullmatch(r"test-(pt-br|en|es|fr|de|it)-[0-9]{5}", item_id) for item_id in summary["group_of_id"])
     harness = interpreter_measure.thresholds()      # the loader the harness runs reads `sha256` and `items` and no other key
     assert harness["runs"] == 2 and isinstance(summary["sha256"], str) and isinstance(summary["items"], int)
+
+
+def test_two_lines_hold_a_series_word_in_a_one_off_event_title_and_their_gold_has_no_repeat():
+    """The review of 2026-10-28: with the interpreter on, "put weekly review on my calendar tomorrow at 3pm" and "marca uma daily amanhã às 9h" go to the model; the gold keeps the word in the title."""      # validate: allow english-only -- the Portuguese line under test
+    recurrence = st.load("recurrence")
+    found = {item["id"]: item for item in ITEMS if item["id"] in ("dev-en-60025", "dev-pt-br-60041")}
+    assert set(found) == {"dev-en-60025", "dev-pt-br-60041"}
+    for item in found.values():
+        gold = item["gold"]
+        assert gold["op"] == "event-create" and "repeat" not in gold["slots"] and recurrence.mentions(item["line"]), item["id"]
+        assert any(word in gold["slots"]["title"][0] for word in ("weekly", "daily")) and gold["time"], item["id"]
+    assert found["dev-en-60025"]["gold"]["time"] == ["2026-11-04T15:00"] and found["dev-pt-br-60041"]["gold"]["time"] == ["2026-11-04T09:00"]
+    loud = copy.deepcopy(found["dev-en-60025"])
+    loud["gold"]["slots"]["repeat"] = ["weekly"]      # vacuity: a gold that held a repeat would be a different item, and this test would refuse it
+    assert "repeat" in loud["gold"]["slots"] and loud["gold"] != found["dev-en-60025"]["gold"]

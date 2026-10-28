@@ -433,8 +433,10 @@ def _claim(text: str) -> bool:
     return bool(text.strip()) and not text.lstrip().startswith("/") and len(text.split()) <= LINE_WORDS_MAX and not MENTION.search(text)
 
 
-def read(line, now=None, languages=None, op=None):
-    """The reading of a write line (see the module's text), or None when it is not one. With `op` the family of that operation reads the line with the operation fixed."""
+def read(line, now=None, languages=None, op=None, *, claim=True):
+    """The reading of a write line (see the module's text), or None when it is not one. With `op` the family of that operation reads the line with the operation fixed. With `claim` (the
+    default) a line that holds a repetition phrase is no event form when the interpreter is on for the sender (`natural.repeat_goes_on`, CB-9); a site that only recognises a request of its own
+    passes `claim=False`."""
     tables = _tables(languages)
     text = line if isinstance(line, str) else ""
     if not _claim(text):
@@ -447,7 +449,7 @@ def read(line, now=None, languages=None, op=None):
         got = family_module(name).read(text, tables, now, op=op) if _takes_op(name) else family_module(name).read(text, tables, now)
         return _finish(got, name, shaped, tables, op)
     found = _read_closed(text, tables, now, shaped)
-    if found is not None and found["op"] == "event-create" and natural.repeat_goes_on(text):
+    if found is not None and found["op"] == "event-create" and claim and natural.repeat_goes_on(text):
         return None      # CB-9: since catalog version 2 a line that holds a repetition phrase goes on to the interpreter: an event form does not claim it, so NW_RECURRING_EVENT never answers it
     return found
 
@@ -500,9 +502,9 @@ def file_line(text, languages=None):
     return None
 
 
-def candidate(line, languages=None):
-    """What the line is, with no clock: {"family", "op"} | None. The same test as `read`, without the time engine."""
-    got = read(line, None, languages)
+def candidate(line, languages=None, *, claim=True):
+    """What the line is, with no clock: {"family", "op"} | None. The same test as `read`, without the time engine. `claim=False`: read without the repeat scope (a recogniser, CB-9)."""
+    got = read(line, None, languages, claim=claim)
     return {"family": got["family"], "op": got["op"]} if got else None
 
 

@@ -60,7 +60,7 @@
    "no-accents": 3,
    "typo": 2
   },
-  "with_also": 7
+  "with_also": 8
  },
  "file": "cb9-blind-v2.jsonl",
  "frozen": "2026-10-28",
@@ -117,6 +117,6 @@
   "test-pt-br-70030": "mail-reply-sender"
  },
  "items": 50,
- "sha256": "e62cbff0588df2a99a2dc6b91bb6d75dd7c6f015cf3f2ec7401720322ca8aa77",
+ "sha256": "10f3308fdd2708b0cf678d9b45c9f293302f23e42602e0c385fe810b0ebd891e",
  "v": 1
 }

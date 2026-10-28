@@ -158,15 +158,16 @@ def _live(slot: tuple):
     return draft
 
 
-def peek(ctx: dict, said: str, channel, sender) -> bool:
-    """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing."""
+def peek(ctx: dict, said: str, channel, sender, claim: bool = True) -> bool:
+    """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing. `claim=False` (a recogniser) reads a write form without the
+    repeat scope (CB-9): a repeating line that the interpreter will read is still a request of its own."""
     if natural.match(said) is not None:
         return True
     slot = _slot(channel, sender)
     draft = _live(slot)
     if draft is not None and _owner(draft) == "write":
         return channel != "mcp" and _writes().answers(ctx, draft, said)
-    if channel != "mcp" and natural_writes().candidate(said) is not None:      # a write form (package NR-5): code, no model, no route lock
+    if channel != "mcp" and natural_writes().candidate(said, claim=claim) is not None:      # a write form (package NR-5): code, no model, no route lock
         return True
     if draft is None:
         return False
@@ -178,7 +179,7 @@ def recognises(ctx: dict, said: str, channel, sender) -> bool:
     """Whether a plain line is a request of its own that code recognises: any tier-1 form (a list or any other read included, S4b), a reminder, a write to the person's accounts (a
     save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2, slice S4b);
     only a question about the state ("progress"), a plain sentence and a reply to the question's own message may be the answer. Reads, changes nothing."""
-    return peek(ctx, said, channel, sender) or natural.candidate(said) is not None
+    return peek(ctx, said, channel, sender, claim=False) or natural.candidate(said) is not None
 
 
 def peek_model(ctx: dict, said: str, channel, sender) -> bool:
@@ -215,7 +216,7 @@ def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
         draft = drafts.get(*_slot(channel, sender), "write")
         if draft is not None:
             return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
-    if natural_writes().candidate(said) is not None:
+    if natural_writes().candidate(said, claim=False) is not None:      # a private line is private whatever reads it (CB-9)
         return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     kind = turn_gate.private_kind(said)
     if kind == "write":      # a line the gate reads as a write to the person's accounts that no family read whole: stored as a request to the accounts, never as "a reminder"

@@ -164,34 +164,47 @@ def span_args_of(args) -> dict:
     return {slot: args[param] for slot, param in SPAN_PARAMS.items() if isinstance(args, dict) and isinstance(args.get(param), str) and args[param].strip()}
 
 
-MAILBOX_NOUNS = frozenset(("caixa", "caixas", "mailbox", "mailboxes", "inbox", "box", "caja", "cajas", "buzon", "buzones", "boite", "boites", "postfach", "posteingang", "casella", "caselle"))      # folded; pt-BR, en, es, fr, de, it
+MAILBOX_STRONG = frozenset(("mailbox", "mailboxes", "inbox", "buzon", "buzones", "postfach", "posteingang"))      # folded; a word that means a mailbox and nothing else
+MAILBOX_AMBIGUOUS = frozenset(("caixa", "caixas", "box", "caja", "cajas", "boite", "boites", "casella", "caselle"))      # a mailbox, and also a bank, a shop, a till: a name of a sender when it stands alone
+MAILBOX_NOUNS = MAILBOX_STRONG | MAILBOX_AMBIGUOUS
+INBOX_PHRASE = re.compile(r"\b(?:caixa de entrada|caixa entrada|bandeja de entrada|boite de reception|casella di posta in arrivo|posta in arrivo)\b")      # folded; the phrases that mean the inbox, one noun
 LEAD_WORDS = frozenset(("o", "a", "os", "as", "do", "da", "dos", "das", "de", "no", "na", "nos", "nas", "the", "my", "of", "in", "your", "minha", "meu", "seu", "sua", "el", "la", "los", "las", "del",
                         "mi", "tu", "le", "les", "du", "mon", "ma", "der", "die", "das", "dem", "mein", "dein", "il", "lo", "gli", "della", "dello", "um", "uma", "e", "and"))      # folded articles and small words
+MAILBOX_OF = frozenset(("do", "da", "dos", "das", "de", "of", "del", "du", "della", "dello"))      # "of": a box OF a place or a person is a mailbox ("caixa do trabalho"); a box that follows "of" is a sender ("da Caixa")
+MAILBOX_LEADS = LEAD_WORDS - MAILBOX_OF - frozenset(("e", "and"))      # a determiner or a place ("na caixa", "my box"); never "from" or "of" ("da Caixa" is a sender)
 
 
 def mailbox_target(ctx, spans):
-    """CB-9: what a `target` span that names a mailbox or a source is: ("source", the source id) when it names exactly one mail source, ("ask", the plain names of the mail sources) when it holds a mailbox
-    noun ("caixa", "mailbox") and names none or several, else None (the span is words of a sender or a subject, a word filter, as before). A mailbox is never a word filter: "na caixa do trabalho" would
-    keep the messages that hold "caixa" and "trabalho" and show a list that looks filtered while it is not. The words that name a source are those of its id, its plain name and its service words;
-    a span with no mailbox noun is the source only when every content word is one of them. Reads the catalog of sources, nothing else."""
+    """CB-9: what a `target` span that names a mailbox or a source is: ("source", the source id) when it names exactly one mail source, ("ask", the plain names of the mail sources) when it names a mailbox and
+    no source and the project has several, else None (the span is words of a sender or a subject, a word filter, as before). A mailbox is never a word filter: "na caixa do trabalho" would keep the messages
+    that hold "caixa" and "trabalho" and show a list that looks filtered while it is not. What counts as naming a mailbox: a word that means one and nothing else ("inbox", "mailbox", "posteingang"), an inbox
+    phrase ("caixa de entrada", one noun), or an ambiguous word ("caixa", "box") with a determiner or a place before it ("na caixa", "my box") or followed by "of" and a name ("caixa do trabalho"); the ambiguous word alone, with
+    other words ("Caixa Econômica") or after "of" ("da Caixa"), is a sender and stays a word filter. A span that holds only the noun is the one mail source the project has, or a question when it has several. The words that name a source are those of its id, its plain name
+    and its service words when a mailbox is named; a span with no mailbox is the source only when every content word is one of its own id or name words, never of its service words alone ("Google" is a
+    sender, not the source). Reads the catalog of sources, nothing else."""
     target = spans.get("target") if isinstance(spans, dict) else None
     if not isinstance(target, str) or not target.strip():
         return None
-    tokens = natural.normal(target).split()
-    noun = bool(MAILBOX_NOUNS & set(tokens))
+    tokens = INBOX_PHRASE.sub("inbox", natural.normal(target)).split()
+    of_noun = any(t in MAILBOX_AMBIGUOUS and n + 1 < len(tokens) and tokens[n + 1] in MAILBOX_OF for n, t in enumerate(tokens))      # "caixa do trabalho": the box OF something
+    mailbox = bool(MAILBOX_STRONG & set(tokens)) or (bool(MAILBOX_AMBIGUOUS & set(tokens)) and (bool(MAILBOX_LEADS & set(tokens)) or of_noun))
     content = [t for t in tokens if t not in MAILBOX_NOUNS and t not in LEAD_WORDS and len(t) > 1]
     table = source_names.catalog(ctx)
     mail = {i: e for i, e in table.items() if e["type"] == "mail"}
-    if not mail or (not noun and not content):
+    if not mail or (not mailbox and not content):
         return None
-    named = {}
+    named, own = {}, {}
     for ident, entry in mail.items():
-        pieces = list(natural.normal(ident.replace("-", " ").replace("_", " ").replace(".", " ")).split()) + natural.normal(entry["name"]).split() + [w for w in natural.normal(" ".join(source_names.words(entry))).split()]
-        named[ident] = {w for w in pieces if len(w) > 2}
-    hits = [i for i, words in named.items() if content and any(w in words for w in content)]
-    if not noun:
-        whole = [i for i in hits if all(w in named[i] for w in content)]
+        service = {w for w in natural.normal(" ".join(source_names.words(entry))).split()}
+        pieces = list(natural.normal(ident.replace("-", " ").replace("_", " ").replace(".", " ")).split()) + natural.normal(entry["name"]).split()
+        named[ident] = {w for w in pieces + list(service) if len(w) > 2}
+        own[ident] = {w for w in pieces if len(w) > 2 and w not in service}
+    if not mailbox:
+        whole = [i for i, words in own.items() if words and all(w in words for w in content)]
         return ("source", whole[0]) if len(whole) == 1 else None
+    if not content:
+        return ("source", next(iter(mail))) if len(mail) == 1 else ("ask", ", ".join(e["name"] for e in mail.values()))
+    hits = [i for i, words in named.items() if any(w in words for w in content)]
     if len(hits) == 1:
         return ("source", hits[0])
     return ("ask", ", ".join(e["name"] for e in mail.values()))

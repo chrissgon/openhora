@@ -402,3 +402,53 @@ def test_vacuity_without_the_mailbox_rule_the_box_becomes_a_word_filter(world, s
     monkeypatch.setattr(ops_items, "mailbox_target", lambda ctx, spans: None)
     reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
     assert "with “caixa trabalho”" in reply and "No e-mail with “caixa trabalho”" in reply, "a filter on `caixa` and `trabalho`, which no message holds: an empty list that looks filtered"
+
+
+
+# --- the inbox phrases, a sender called "Caixa" and a lone service word (CB-9, round 2 review) -----------------------------------------------------------------------------------------
+
+
+def two_mail_sources(monkeypatch):
+    real = st.load("source_names").catalog
+    monkeypatch.setattr(ops_items.source_names, "catalog", lambda ctx, cfg=None: {**real(ctx), "work": {"name": "Work", "type": "mail", "account": None}})
+
+
+def test_with_one_mail_source_an_inbox_phrase_is_that_source_and_filters_no_word(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("inbox", "my inbox", "caixa de entrada", "Caixa de Entrada", "a caixa", "na caixa"):      # validate: allow english-only -- the Portuguese words under test
+        assert ops_items.mailbox_target(ctx, {"target": target}) == ("source", "inbox"), target
+        reply = mailbox_reply(world, target)
+        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and "with “" not in reply and reply != phrases.text("NW_ITEMS_MAILBOX", cfg_of(world), names="Gmail"), (target, reply)
+
+
+def test_with_several_mail_sources_an_inbox_phrase_is_a_question(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    two_mail_sources(monkeypatch)
+    ctx = ops_core.context(world["path"])
+    for target in ("inbox", "my inbox", "caixa de entrada"):      # validate: allow english-only -- the Portuguese words under test
+        assert ops_items.mailbox_target(ctx, {"target": target}) == ("ask", "Gmail, Work"), target
+
+
+def test_a_lone_caixa_and_a_caixa_after_of_are_a_sender_and_stay_a_word_filter(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("Caixa", "caixa", "da Caixa", "Caixa Econômica"):      # validate: allow english-only -- the Portuguese words under test: a bank
+        assert ops_items.mailbox_target(ctx, {"target": target}) is None, target
+    reply = mailbox_reply(world, "Caixa")
+    assert "with “caixa”" in reply and "No e-mail with “caixa”" in reply, reply
+
+
+def test_a_lone_service_word_stays_a_word_filter_and_is_not_the_whole_source(world, snaps, clock):
+    inbox(world, snaps, mails())
+    ctx = ops_core.context(world["path"])
+    for target in ("Google", "do google", "Gmail"):
+        assert ops_items.mailbox_target(ctx, {"target": target}) is None, target
+    assert "with “google”" in mailbox_reply(world, "Google")
+    assert ops_items.mailbox_target(ctx, {"target": "caixa do gmail"}) == ("source", "inbox"), "with a mailbox named, the service word names the source"      # validate: allow english-only -- the Portuguese words under test
+
+
+def test_vacuity_if_every_mailbox_noun_counted_a_lone_caixa_would_become_the_source(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    monkeypatch.setattr(ops_items, "MAILBOX_STRONG", ops_items.MAILBOX_NOUNS)      # the planted fault: an ambiguous noun alone names a mailbox
+    assert ops_items.mailbox_target(ops_core.context(world["path"]), {"target": "Caixa"}) == ("source", "inbox"), "the oracle above (a word filter) fails on the planted fault"

@@ -10,7 +10,7 @@ and outside a scope nothing goes on, so with the interpreter off (or in any entr
 goes to the router. This is the restrictive default.
 
 What is checked, with this test's own literals: for each of the ten repeating lines (the seven the closed forms claimed at version 1 and three that they never did) neither `natural_writes.candidate`
-nor `natural.candidate` nor the bridge's `messaging_inbound.parse` claims the line at version 2 with the scope on (the bridge says `text`: the line goes to `say` and its interpreter), and at version 1
+nor `natural.claim` nor the bridge's `messaging_inbound.parse` claims the line at version 2 with the scope on (the bridge says `text`: the line goes to `say` and its interpreter), and at version 1
 and at version 2 with the scope off or none the seven are claimed as they were; a line with a time and no repetition and a reminder that repeats are claimed in every case; the fixed operation
 (`op="event-create"`, what the interpreter's seed uses) still reads a repeating line at version 2; the scope asks its question at most once, only for a repeating line, never outside the version,
 ends with its block and reads a failing question as off; and a vacuity case that fails on a planted wrong result (the rule turned off gives the seven back at version 2 with the scope on). Offline;
@@ -30,6 +30,8 @@ natural = st.load("natural")
 natural_writes = st.load("natural_writes")
 messaging_inbound = st.load("messaging_inbound")
 operations = st.load("operations")
+ops_natural = st.load("ops_natural")
+ops_natural_writes = st.load("ops_natural_writes")
 
 CLAIMED_AT_V1 = (
     "marca academia toda segunda às 7h",      # validate: allow english-only -- the Portuguese lines under test
@@ -61,9 +63,9 @@ def test_at_version_1_the_closed_forms_claim_the_seven_lines_as_they_did(monkeyp
     at_version(monkeypatch, 1)
     for line in CLAIMED_AT_V1:
         assert natural_writes.candidate(line) == {"family": "calendar", "op": "event-create"}, line
-        assert natural.candidate(line) == {"op": "calendar-event-create", "how": "trigger"}, line
+        assert natural.claim(line) == {"op": "calendar-event-create", "how": "trigger"}, line
         assert parsed(line)["kind"] == "natural" and parsed(line)["op"] == "write", line
-    assert natural.candidate(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"} and parsed(ASKED_AT_V1)["kind"] == "natural"
+    assert natural.claim(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"} and parsed(ASKED_AT_V1)["kind"] == "natural"
     assert not natural_writes.candidate(NEVER_CLAIMED[0]) and parsed(NEVER_CLAIMED[0])["kind"] == "text"
 
 
@@ -72,7 +74,7 @@ def test_at_version_2_with_the_scope_on_no_closed_form_claims_a_repeating_line_a
     with natural.repeat_scope(True):
         for line in CLAIMED_AT_V1 + NEVER_CLAIMED + (ASKED_AT_V1,):
             assert natural_writes.candidate(line) is None, line
-            assert natural.candidate(line) is None, line
+            assert natural.claim(line) is None, line
             assert parsed(line) == {"kind": "text", "text": line}, line
 
 
@@ -82,9 +84,9 @@ def test_at_version_2_with_the_interpreter_off_the_closed_forms_keep_the_seven_l
     with natural.repeat_scope(False) if scope is False else contextlib.nullcontext():      # no scope at all is the restrictive default; a scope that says off is the same
         for line in CLAIMED_AT_V1:
             assert natural_writes.candidate(line) == {"family": "calendar", "op": "event-create"}, line
-            assert natural.candidate(line) == {"op": "calendar-event-create", "how": "trigger"}, line
+            assert natural.claim(line) == {"op": "calendar-event-create", "how": "trigger"}, line
             assert parsed(line)["kind"] == "natural" and parsed(line)["op"] == "write", line
-        assert natural.candidate(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"} and parsed(ASKED_AT_V1)["kind"] == "natural"
+        assert natural.claim(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"} and parsed(ASKED_AT_V1)["kind"] == "natural"
         assert not natural_writes.candidate(NEVER_CLAIMED[0]) and parsed(NEVER_CLAIMED[0])["kind"] == "text"
 
 
@@ -95,7 +97,7 @@ def test_a_line_with_no_repetition_and_a_reminder_that_repeats_are_claimed_at_bo
             with contextlib.nullcontext() if on is None else natural.repeat_scope(on):
                 assert natural_writes.candidate(NO_REPEAT) == {"family": "calendar", "op": "event-create"}, (version, on)
                 assert parsed(NO_REPEAT)["kind"] == "natural" and parsed(NO_REPEAT)["op"] == "write", (version, on)
-                assert natural.candidate(REMINDER) == {"op": "remind", "how": "trigger"} and parsed(REMINDER)["kind"] == "natural", (version, on)
+                assert natural.claim(REMINDER) == {"op": "remind", "how": "trigger"} and parsed(REMINDER)["kind"] == "natural", (version, on)
 
 
 def test_the_operation_fixed_by_the_interpreter_still_reads_a_repeating_line_at_version_2(monkeypatch):
@@ -140,9 +142,57 @@ def test_vacuity_without_the_rule_the_seven_lines_are_claimed_again_at_version_2
     with natural.repeat_scope(True):
         for line in CLAIMED_AT_V1:
             assert natural_writes.candidate(line) is not None and parsed(line)["kind"] == "natural", line
-        assert natural.candidate(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"}
+        assert natural.claim(ASKED_AT_V1) == {"op": "calendar-event-create", "how": "ask"}
     monkeypatch.undo()
     at_version(monkeypatch, 1)
     with natural.repeat_scope(True):
         assert natural.repeat_goes_on(CLAIMED_AT_V1[0]) is False, "the rule is a rule of version 2 only"
         assert natural.repeat_goes_on(None) is False
+
+
+# --- the gate is at the claim sites only: a recogniser reads the line as it always did ----------------------------------------------------------
+
+
+def draft_state(need="subject"):
+    """The state of an open mail draft that asks for its `need` (the shape `ops_natural_writes._classify` reads), for the project key of a context with the project name "p"."""
+    return {"project": ops_natural.project_key("p"), "need": need, "family": "mail", "op": "mail-send", "slots": {"to": "bia@exemplo.example", "body": "ok"}, "options": None}
+
+
+def classify(line):
+    return ops_natural_writes._classify({"cfg": {"project": "p"}}, draft_state(), line)
+
+
+def test_a_repeating_line_is_a_new_request_for_an_open_mail_draft_that_asks_its_subject_with_the_scope_on_off_or_none(monkeypatch):
+    at_version(monkeypatch, 2)
+    for scope in (None, False, True):
+        with contextlib.nullcontext() if scope is None else natural.repeat_scope(scope):
+            assert classify(CLAIMED_AT_V1[0]) is None, scope      # a new line, never the subject of the e-mail
+            assert classify("assunto da reunião de pais")["kind"] == "slots", scope      # validate: allow english-only -- the Portuguese line under test: a line that is no request is the subject
+
+
+def test_the_recognisers_read_a_repeating_line_whatever_the_scope(monkeypatch):
+    at_version(monkeypatch, 2)
+    ctx = {"cfg": {"project": "p"}}
+    for on in (False, True):
+        with natural.repeat_scope(on):
+            for line in CLAIMED_AT_V1:
+                assert natural.candidate(line) == {"op": "calendar-event-create", "how": "trigger"}, (on, line)
+                assert natural_writes.candidate(line, claim=False) == {"family": "calendar", "op": "event-create"}, (on, line)
+                assert ops_natural.recognises(ctx, line, "messaging", "telegram:1") is True, (on, line)
+            assert natural.private(CLAIMED_AT_V1[0]) is True, "a repeating line stays a private line"
+    with natural.repeat_scope(True):
+        assert natural_writes.candidate(CLAIMED_AT_V1[0]) is None and ops_natural.peek(ctx, CLAIMED_AT_V1[0], "messaging", "telegram:1") is False, "the claim sites are the ones that let it go on"
+
+
+def test_vacuity_a_recogniser_that_reads_through_the_scope_takes_the_line_for_the_subject(monkeypatch):
+    at_version(monkeypatch, 2)
+    real = natural_writes.candidate
+    monkeypatch.setattr(ops_natural_writes.nw, "candidate", lambda line, languages=None, claim=True: real(line, languages))      # the planted fault: the recogniser reads through the scope
+    plain = natural.candidate
+
+    def through_the_scope(line, languages=None):
+        got = plain(line, languages)
+        return None if got is not None and got["op"] == "calendar-event-create" and natural.repeat_goes_on(line) else got
+    monkeypatch.setattr(ops_natural_writes.natural, "candidate", through_the_scope)
+    with natural.repeat_scope(True):
+        assert classify(CLAIMED_AT_V1[0]) is not None, "the oracle above (a new line) fails on the planted fault"

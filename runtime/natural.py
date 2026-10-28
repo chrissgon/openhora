@@ -254,16 +254,17 @@ def repeat_goes_on(line) -> bool:
     return bool(recurrence.mentions(line)) and scope.on()
 
 
-def candidate(line, languages=None):
-    """What the line is, with no clock (see `_candidate_reading`), or None; a line that asks for an event and holds a repetition phrase is none of the closed forms since catalog version 2
-    (`repeat_goes_on`): the interpreter reads it."""
-    got = _candidate_reading(line, languages)
+def claim(line, languages=None):
+    """CB-9: `candidate`, for a site that CLAIMS the line for a closed form (the bridge's reading of an update): a line that asks for an event and holds a repetition phrase is none of the
+    closed forms at catalog version 2 when the interpreter is on for the sender (`repeat_goes_on`): the interpreter reads it. Every site that only RECOGNISES a request of its own (is this
+    line a new request, is it private, is it a memory of the conversation, does it answer a question) reads `candidate`, which never takes the scope into account."""
+    got = candidate(line, languages)
     if got is not None and got["op"] == "calendar-event-create" and repeat_goes_on(line):
         return None
     return got
 
 
-def _candidate_reading(line, languages=None):
+def candidate(line, languages=None):
     """What the line is, with no clock (see the module's text), or None. Pure, and never wider than `understand`: the bridge sends a line here to one place."""
     tables = _tables(languages)
     text = line if isinstance(line, str) else ""
@@ -1156,7 +1157,7 @@ def private(line: str, languages=None) -> bool:
     if found is not None and found["op"] in PRIVATE:
         return True
     import importlib
-    return importlib.import_module("natural_writes").candidate(line, languages) is not None          # a write to the person's accounts (package NR-5, limit L61)
+    return importlib.import_module("natural_writes").candidate(line, languages, claim=False) is not None          # a write to the person's accounts (package NR-5, limit L61)
 
 
 def confirm_kind(said, languages=None):

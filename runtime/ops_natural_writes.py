@@ -489,7 +489,7 @@ def _classify(ctx: dict, state: dict, said: str):
     if natural.confirm_kind(said) == "no":
         return {"kind": "cancel"}
     named = natural.candidate(said)
-    if nw.candidate(said) is not None or natural.match(said) is not None or (named is not None and named["how"] == "trigger"):
+    if nw.candidate(said, claim=False) is not None or natural.match(said) is not None or (named is not None and named["how"] == "trigger"):
         return None
     need, tables, now = state["need"], natural._tables(None), _now()
     module = importlib.import_module(nw.FAMILIES[state["family"]])
