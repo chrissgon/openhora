@@ -115,6 +115,8 @@ Beside them:
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-18: mail and calendar as sources (package RT-1): migration 21 (the types `mail` and `calendar`), `runtime/sources_mail.py`, `runtime/snapshot_text.py`, `source-mail` and `source-calendar` (the terminal alone), the refresh through `source-refresh` and the `ingest` step, rule 18, limits L52 and L53 (the age of a snapshot in `task_copies`).
 - 2026-10-18: the index of a snapshot (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4): `index` in the manifest of each mail or calendar version, `runtime/item_refs.py` (`<source id>#<n>` and `created:<number>`, refused past 26 hours), `reply_to` in the two mailbox readers, `snapshot_text.calendar_order` and numbered calendar event lines; no limit row (the rows L55 to L62 belong to the packages that write).
 - 2026-10-24: `received` in the mail entries of the index (package BL4, S16C-REPLY-DATE): the moment a message came, in UTC, read back through the shape `YYYY-MM-DDTHH:MM:SSZ` (any other value is null; an index written before the key has none and still passes its digest, which is over the stored bytes); `SIGNATURE_MARK` is not raised, so a snapshot read before keeps its index until the next refresh makes a version; no limit row (L60 says what the reply document does with it).

@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "architecture_tables.py"
 
@@ -62,10 +64,15 @@ RUNTIME_CONTRACT = """# Runtime
 
 ## The limits
 
-| # | Limit | Built by | Test |
-|---|---|---|---|
-| L1 | A copy is new | stage 2 | anything |
-| L2 | A record \\| only grows | stage 4 | anything |
+One paragraph each. A paragraph that is not an entry is prose.
+
+**L1.** A copy is new
+Built by: stage 2. Test: anything.
+
+**L2.** A record | only grows
+Built by: stage 4. Test: anything.
+
+**Drafted, not in force.** Not an entry: a paragraph of prose.
 """
 
 LIMIT_TESTS = """def test_limit_01_a_copy_is_new():
@@ -365,6 +372,24 @@ def test_an_unknown_table_or_a_missing_source_is_named_and_the_block_kept(tmp_pa
     assert "no-such-table: unknown table" in written.stderr and "dispatcher-jobs: source not readable" in written.stderr
     assert "kept" in page.read_text(encoding="utf-8") and block(root, "dispatcher-jobs") == "stale\n"
     assert block(root, "limits") != "stale\n"
+
+
+def test_the_limits_are_read_from_their_paragraphs_and_a_malformed_entry_is_refused_not_dropped(tmp_path):
+    """Vacuity of the reader: a planted entry that is not in the form stops it, naming the entry, where a reader that skipped it would leave a limit unlisted."""
+    root = fixture(tmp_path)
+    assert tables._limit_entries((root / "contracts/runtime.md").read_text(encoding="utf-8")) == [
+        ["L1", "A copy is new", "stage 2", "anything"], ["L2", "A record | only grows", "stage 4", "anything"]]
+    contract = root / "contracts/runtime.md"
+    for broken in ("**L3.** No second line\n\n", "**L3.** One\nBuilt by: stage 2\n\n", "**L3.** One\nBuilt by: stage 2. Test: anything\n\n"):
+        contract.write_text(RUNTIME_CONTRACT.replace("**Drafted", broken + "**Drafted"), encoding="utf-8")
+        with pytest.raises(tables.SourceError, match="not '"):
+            tables.limits(str(root))
+    contract.write_text(RUNTIME_CONTRACT.replace("## The limits", "## Something else"), encoding="utf-8")
+    with pytest.raises(tables.SourceError, match="no heading"):
+        tables.limits(str(root))
+    contract.write_text(RUNTIME_CONTRACT.split("**L1.**")[0], encoding="utf-8")
+    with pytest.raises(tables.SourceError, match="no limit entry"):
+        tables.limits(str(root))
 
 
 def test_usage_errors_exit_2_on_stderr(tmp_path):

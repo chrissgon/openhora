@@ -337,13 +337,25 @@ def test_a_yes_to_a_forget_question_is_the_ids_for_the_bridge_to_cancel_one_by_o
 # --- the documents ------------------------------------------------------------------------------------------------------------------------------------
 
 
+def module_entries(text: str) -> dict:
+    """{"seen": {name: line}, "twice": [names]} of the module entries of a document that name `remind` or `natural`: a paragraph that starts with the module's name in backticks and
+    a colon (`file.py`: what it owns; the form of the Modules and Pieces sections, SPEC-HOTSPOTS)."""
+    seen, twice = {}, []
+    for line in text.splitlines():
+        if line.startswith("`") and "`: " in line:
+            name = line.split("`: ", 1)[0] + "`"
+            if any(word in name for word in ("remind", "natural")):
+                if name in seen:
+                    twice.append(name)
+                seen[name] = line
+    return {"seen": seen, "twice": twice}
+
+
 def test_no_module_row_of_the_reminders_is_listed_twice_in_the_documents():
     root = st.RUNTIME.parent
     for path in ("contracts/runtime.md", "runtime/README.md"):
-        seen = {}
-        for line in (root / path).read_text(encoding="utf-8").splitlines():
-            if line.startswith("| `") and any(word in line.split("|")[1] for word in ("remind", "natural")):
-                name = line.split("|")[1].strip()
-                assert name not in seen, f"{path} lists {name} twice"
-                seen[name] = line
-        assert seen
+        found = module_entries((root / path).read_text(encoding="utf-8"))
+        assert found["twice"] == [], f"{path} lists {found['twice']} twice"
+        assert found["seen"]
+    planted = module_entries("`runtime/reminders.py`: one\n\n`runtime/natural.py`: two\n\n`runtime/reminders.py`: three\n")
+    assert planted["twice"] == ["`runtime/reminders.py`"] and len(planted["seen"]) == 2
