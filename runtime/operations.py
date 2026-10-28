@@ -101,9 +101,10 @@ HELP_WIDTH = 27
 
 # The catalog version a line may reach (PLAN-BRAIN section 4.2, SPEC-CATALOG-BATCH OPEN-CB-3). `natural.NATURAL` and the served catalog (runtime/interpreter_catalog.py) show only the
 # rows and the slots whose `since` is at most this number; `natural.CLASSES` keeps every row (a class is a property of the operation on every path, so a typed command of a row of
-# a later version works at once). At 1 the served catalog is byte for byte the one the newest enabling entry pins (runtime/interpreter_enable.json), so the interpreter stays on.
-# Only package CB-9 raises it, together with the served catalog and ONE new dated enabling entry (a draft pull request, decided by the maintainer after one measurement).
-LINE_CATALOG = 1
+# a later version works at once). The served catalog is byte for byte the one the newest enabling entry pins (runtime/interpreter_enable.json), so the interpreter stays on.
+# Package CB-9 (2026-10-28) raised it from 1 to 2, together with the served catalog and ONE new dated enabling entry (a draft pull request, decided by the maintainer after one measurement); at 1 the
+# catalog is the one of the entry before it (`interpreter_catalog.py --version 1 --print`).
+LINE_CATALOG = 2
 
 OPERATIONS = (
     {"name": "request", "call": "request",
@@ -912,7 +913,7 @@ OPERATIONS = (
                  "about": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
                  "slots": {"event": {"kind": "int", "param": "event", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
     # CB-5: the person's own to-do list (SPEC-CATALOG-BATCH 6.5): Google Tasks and Microsoft To Do, only the lists the project names under `accounts.<a>.task_lists`. The names are `todo-*`, not `task-*`: the
-    # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words only after the flip (LINE_CATALOG).
+    # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words since the flip of CB-9 (LINE_CATALOG).
     # `todo-list` is a read; `todo-add` and `todo-done` only PREPARE a card (the effect word `tasks`): the write is the approval of the card's hash. In no default policy; never on the MCP mode.
     {"name": "todo-list", "call": "todo_list",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft")},),

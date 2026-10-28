@@ -38,7 +38,7 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    carried, every = every[-3], every[:-4]      # the four newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
+    current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
     assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in first_revise["reason"] and "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]
@@ -47,7 +47,7 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     assert pinned == [first_revise, every[-2], newest] and every[-2]["revise_prompt_sha256"] == first_revise["revise_prompt_sha256"], "the entry of R2-F1 between them keeps the older pin"
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
     assert [e["catalog_sha256"] for e in every[-1:]] == [every[-2]["catalog_sha256"]], "S13b names the catalog of R2-F1; the current hash of the checkout is the one of the entry of R2-A, below"
-    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [carried["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
+    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [current["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
     assert interpreter_enable.revise_active("pt-BR") is not None and interpreter_enable.compose_active("pt-BR") is not None
 
 

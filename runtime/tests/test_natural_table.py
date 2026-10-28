@@ -28,6 +28,7 @@ E = extend("natural_table.E", {"event-create", "event-change", "event-cancel", "
      "file-create", "file-replace", "file-save", "file-trash"})
 WORK = extend("natural_table.WORK", {"say", "request", "route", "ask"})
 GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
+WORDS_PARAMS = {("items", "day"): "day_span", ("items", "state"): "state_span", ("reminder-forget", "target"): "matching", ("todo-done", "target"): "target"}      # the test's own literal: CB-1, CB-5 and CB-8 (served since CB-9): words that name an item by itself, read by code from the span (runtime/ops_items.py SPAN_PARAMS, the reminders' matcher, runtime/ops_todo.py), never an argument of the operation
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
 
@@ -121,6 +122,9 @@ def test_a_row_has_slots_of_known_kinds_that_fill_real_parameters_and_forms_belo
             assert kind in ("int", "ints", "word", "span", "when"), (name, slot)
             if slot in GROUNDING and name in E:      # B''-lite: the words of the item and its day are read by code from the spans (runtime/event_lookup.py, runtime/ops_natural_mail.py), never passed to the operation
                 assert param == slot and param not in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
+                continue
+            if (name, slot) in WORDS_PARAMS:      # a slot of the words of an item: its parameter is the one code reads the span as, and it is no argument of the operation
+                assert param == WORDS_PARAMS[(name, slot)] and param not in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
                 continue
             assert param in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
     assert set(forms()) <= set(natural.NATURAL)

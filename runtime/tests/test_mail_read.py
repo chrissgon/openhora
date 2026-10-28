@@ -411,10 +411,15 @@ def test_the_conversation_keeps_a_neutral_word_for_every_reply_of_the_read(world
         assert extras["stored"] == phrases.text("NAT_READ_REPLY", cfg), args
 
 
-def test_the_read_is_not_a_write_a_line_cannot_reach_it_before_the_flip_and_the_write_family_never_opens_it(world, snaps, clock):
+def test_the_read_is_not_a_write_a_line_reaches_it_only_since_the_flip_and_the_write_family_never_opens_it(world, snaps, clock, monkeypatch):
     boxes(world, snaps)
-    assert operations.LINE_CATALOG == 1 and "mail-read" not in natural.NATURAL and natural.CLASSES["mail-read"] == "R"
-    assert natural.check_operation("mail-read", {"message": "2"}, None, "read 2")["ok"] is False, "a line reaches only the operations of the served catalog"
+    assert operations.LINE_CATALOG == 2 and "mail-read" in natural.NATURAL and natural.CLASSES["mail-read"] == "R"
+    with monkeypatch.context() as at_version_1:
+        classes1, table1 = natural.views(1)
+        at_version_1.setattr(natural, "CLASSES", classes1)
+        at_version_1.setattr(natural, "NATURAL", table1)
+        assert "mail-read" not in natural.NATURAL and natural.CLASSES["mail-read"] == "R"
+        assert natural.check_operation("mail-read", {"message": "2"}, None, "read 2")["ok"] is False, "a line reaches only the operations of the served catalog"
     classes, table = natural.views(2)
     assert classes["mail-read"] == "R" and table["mail-read"]["slots"] == {"message": ["int", "number"], "target": ["span", "match"], "day": ["span", "day"], "service": ["word", "account"]}
     ctx = ops_core.context(world["path"])

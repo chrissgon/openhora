@@ -34,8 +34,8 @@ REPO = Path(__file__).resolve().parents[2]
 FILE = REPO / "runtime" / "interpreter_enable.json"
 ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
-          "catalog_sha256": PINNED_HASHES["interpreter_catalog_blite"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}
-RECORDED = dict(HASHES, prompt_sha256=PINNED_HASHES["interpreter_prompt_5bee"])      # the prompt every entry before BL5B was decided on (rule 9 of BL5B changed it)
+          "catalog_sha256": PINNED_HASHES["interpreter_catalog_cb9"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}      # CB-9: the catalog of version 2
+RECORDED = dict(HASHES, prompt_sha256=PINNED_HASHES["interpreter_prompt_5bee"], catalog_sha256=PINNED_HASHES["interpreter_catalog_blite"])      # the prompt and the catalog every entry before BL5B was decided on (rule 9 of BL5B changed the prompt)
 FIRST = dict(RECORDED, catalog_sha256=PINNED_HASHES["interpreter_catalog_before_s8"])      # the entry decided before slice S8 added `file-read` to the catalog
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
 S8_STATUS_LINE = "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
@@ -48,7 +48,10 @@ S13B_STATUS_LINE = "enabled by maintainer decision 2026-10-21, below the gate; t
 R2A_STATUS_LINE = S13B_STATUS_LINE + "; file-trash added to the catalog 2026-10-22 (R2-A)"      # the entry of slice R2-A
 BL1_STATUS_LINE = R2A_STATUS_LINE + "; target and day slots added to the catalog 2026-10-24 (B″-lite), served before its measurement"      # the entry of slice BL1
 BL5B_STATUS_LINE = BL1_STATUS_LINE + "; the prompt revised 2026-10-25 (BL5B: a correction after \"Posso?\" states a new plan), served before its measurement"      # the entry of package BL5B
-STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: described replies, subject kept in target, inherit and correction rules), measured on this PR's head before merge"      # the newest entry (package BL7-3)
+BL73_STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: described replies, subject kept in target, inherit and correction rules), measured on this PR's head before merge"      # the entry of package BL7-3
+STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
+               "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions), measured on this PR's head before merge")      # the newest entry (package CB-9); the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
+assert len(STATUS_LINE) <= 600
 
 
 def status_module():
@@ -84,7 +87,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-26" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-28" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -108,10 +111,13 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     bl5b = by_line[BL5B_STATUS_LINE]
     assert bl5b["date"] == "2026-10-25" and bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"] != bl1["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_5bee"]
     assert {key for key in bl5b if bl5b[key] != bl1[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL5B changes the prompt hash, the date, the reason and the status line, and nothing else"
-    assert {key for key in entry if entry[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the newest entry (BL7-3) changes the prompt hash, the date, the reason and the status line, and nothing else"
-    assert entry["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
-    assert doc["entries"][-2] == bl5b and "BL7-3" in entry["status_line"] and "rule 10" in entry["reason"] and "rule 11" in entry["reason"] and len(entry["reason"]) <= 600
-    assert "Measured on this PR's head before merge (OPEN-BL7-C)" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
+    bl73 = by_line[BL73_STATUS_LINE]
+    assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
+    assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
+    assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
+    assert {key for key in entry if entry[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the newest entry (CB-9) changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
+    assert doc["entries"][-2] == bl73 and "CB-9" in entry["status_line"] and "CB-9" in entry["reason"] and "version 2" in entry["reason"] and len(entry["reason"]) <= 700
+    assert "Measured on this PR's head before merge" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
@@ -119,7 +125,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-26", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-28", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
 
@@ -170,7 +176,7 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-26" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-10-28" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 

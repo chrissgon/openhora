@@ -604,7 +604,7 @@ def test_only_research_runs_count_for_the_day(research, monkeypatch):
 def test_the_catalog_serves_research_as_a_read_with_a_span_and_the_other_reads_keep_their_words():
     rows = {row["op"]: row for row in interpreter.SERVED["ops"]}
     assert rows["research"]["class"] == "R" and rows["research"]["slots"] == {"question": "span"}
-    assert "general information" in rows["research"]["what"] and "not about the person's own files, mail, calendar or sources" in rows["research"]["what"]
+    assert "general information" in rows["research"]["what"] and "Never for the person's own mail, calendar, files or tasks" in rows["research"]["what"]      # CB-9: the model-facing text of version 2
     assert "file-read" in rows and "items" in rows and "ask" in rows
 
 

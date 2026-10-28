@@ -1,7 +1,6 @@
 {
   "package": "cb-5",
   "add": {
-    "interpreter_coverage.NOT_SERVED": ["todo-add", "todo-done", "todo-list"],
     "mcp.CHANNEL_ARG": ["todo-list", "todo-add", "todo-done"],
     "messaging_policy.NOT_PERMITTED_BY_DEFAULT": ["todo-list", "todo-add", "todo-done"],
     "messaging_policy.ON_MESSAGING": ["todo-list", "todo-add", "todo-done"],

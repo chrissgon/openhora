@@ -327,6 +327,9 @@ def decide(catalog, line, slots):
 
 def test_a_line_of_version_2_reaches_the_slots_and_a_line_of_version_1_does_not(monkeypatch):
     line = "tem algum email do banco essa semana?"
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
     assert natural.check_operation("items", {"target": "do banco"}, None, line)["ok"] is False, "L54: at version 1 the slot is not reachable"
     classes, table = natural.views(2)
     monkeypatch.setattr(natural, "CLASSES", classes)
@@ -346,8 +349,13 @@ def test_the_model_names_the_bank_and_this_week_and_only_the_bank_is_listed(worl
     assert "Fatura" not in reply and "Consulta" not in reply
 
 
-def test_vacuity_without_the_slots_in_the_view_the_model_cannot_name_the_bank(world, snaps, clock):
-    decision = decide(interpreter_catalog.generate(1), "tem algum email do banco essa semana?", {"target": "do banco"})
+def test_vacuity_without_the_slots_in_the_view_the_model_cannot_name_the_bank(world, snaps, clock, monkeypatch):
+    version1 = interpreter_catalog.generate(1)
+    monkeypatch.setattr(interpreter, "SERVED_SHA256", interpreter.catalog_sha256(version1))      # CB-9: the served catalog is version 2; the catalog of version 1 must be the one the check accepts for the control to be a refusal of the slot
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
+    decision = decide(version1, "tem algum email do banco essa semana?", {"target": "do banco"})
     assert decision["kind"] != "op", decision
 
 
@@ -356,4 +364,4 @@ def test_the_row_of_the_registry_carries_the_three_slots_of_version_2():
     assert {slot: (spec["kind"], spec["param"], spec["since"]) for slot, spec in rec["slots"].items()} == {
         "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}
     assert {r["op"]: r for r in st.load("registry").rows(1)}["items"]["slots"] == {}
-    assert operations.LINE_CATALOG == 1, "CB-9 alone raises it"
+    assert operations.LINE_CATALOG == 2, "CB-9 raised it"

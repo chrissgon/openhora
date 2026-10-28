@@ -24,12 +24,23 @@ from plan_confirm_kit import OWNER, ok_of, op as model_op, ops, ops_say, phrases
 
 interp = st.load("interpreter")
 ops_natural_mail = st.load("ops_natural_mail")
+interpreter_catalog = st.load("interpreter_catalog")
 mail_words = importlib.import_module("natural_writes_mail")
 natural = kit.natural
 
 
 def run(obj, line, frame=None, allowed=None):
     return interp.check(obj, line, frame, kit.CATALOG, kit.NOW, kit.ZONE, kit.ALL_OPS if allowed is None else allowed)
+
+
+def run_at_version_1(monkeypatch, obj, line, frame=None):
+    """`run` over the catalog of version 1 (CB-9: the served catalog is version 2, where `items` has the slots target, day and state; at version 1 it had none)."""
+    classes1, table1 = natural.views(1)
+    catalog1 = interpreter_catalog.generate(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
+    monkeypatch.setattr(interp, "SERVED_SHA256", interp.catalog_sha256(catalog1))
+    return interp.check(obj, line, frame, catalog1, kit.NOW, kit.ZONE, frozenset(row["op"] for row in catalog1["ops"]))
 
 
 def op(name, slots=None, **more):
@@ -260,10 +271,15 @@ READ_CORRECTIONS = (
 )
 
 
+READ_CORRECTED = {READ_CORRECTIONS[0][0]: ({"state_span": "unread", "day_span": "this morning"}, {"state": "unread", "day": "this morning"}),
+                  READ_CORRECTIONS[1][0]: ({"day_span": "de hoje"}, {"day": "de hoje"})}      # CB-9: since catalog version 2 `items` has the slots target, day and state, so the corrected read keeps the slots of the model's card that it has
+
+
 def check_the_corrected_reads():
     for line, obj in READ_CORRECTIONS:
+        args, spans = READ_CORRECTED[line]
         got = run(obj, line, READ_FRAME)
-        assert got["kind"] == "op" and got["op"] == "items" and got["args"] == {} and got["spans"] == {} and got["time"] is None and got["inherited"] == [], (line, got)
+        assert got["kind"] == "op" and got["op"] == "items" and got["args"] == args and got["spans"] == spans and got["time"] is None and got["inherited"] == [], (line, got)
         assert got["corrects"] == "i1", "it is the correction of the plan the frame holds: code asks it as a NEW plan"
 
 
@@ -271,9 +287,21 @@ def test_a_no_that_names_another_act_for_a_read_plan_is_the_plans_own_read():
     check_the_corrected_reads()
 
 
-def test_the_corrected_read_is_a_decision_of_the_plans_read_with_no_slot_the_model_gave_when_the_read_is_a_list():
+def test_the_corrected_read_is_a_decision_of_the_plans_read_with_the_slots_the_read_has():
     got = run(op("mail-mark", {"state": "unread", "day": "this morning"}), READ_CORRECTIONS[0][0], READ_FRAME)
     assert set(got) == {"kind", "error", "op", "args", "spans", "time", "inherited", "time_disagree", "corrects"} and got["error"] is None
+
+
+def test_at_catalog_version_1_the_read_is_a_list_with_no_slot_so_the_corrected_read_keeps_none(monkeypatch):
+    got = run_at_version_1(monkeypatch, READ_CORRECTIONS[0][1], READ_CORRECTIONS[0][0], READ_FRAME)
+    assert got["kind"] == "op" and got["op"] == "items" and got["args"] == {} and got["spans"] == {} and got["corrects"] == "i1", got
+
+
+def test_a_card_with_a_slot_the_list_lacks_is_the_models_card_at_version_2(monkeypatch):
+    got = run(op("mail-mark", {"state": "unread", "place": "inbox"}), "nope, I meant my unread emails, not the calendar", READ_FRAME)
+    assert got["kind"] == "clarify", "a slot that no operation of the catalog has is refused, never carried into the read"
+    got = run(op("mail-mark", {"messages": "2"}), "nope, I meant my unread emails 2, not the calendar", READ_FRAME)
+    assert got["kind"] == "op" and got["op"] == "mail-mark" and "corrects" not in got, "a slot of the card that `items` lacks: the model meant another act, today's path stands"
 
 
 def test_a_correction_that_names_a_slot_of_the_read_keeps_it(monkeypatch):
@@ -530,7 +558,8 @@ def test_a_card_that_carries_the_content_of_a_new_act_is_never_a_read_even_when_
     got = run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)
     assert got["kind"] == "op" and got["op"] == "mail-draft" and "corrects" not in got, got
     monkeypatch.setattr(interp, "ACT_CONTENT_SLOTS", frozenset())          # vacuity: without the content-slot guard the draft would have become the read
-    assert run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "items"
+    assert run(op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "mail-draft", "at version 2 `items` has slots that the draft lacks: the slot guard of the read holds it too"
+    assert run_at_version_1(monkeypatch, op("mail-draft", {"to": "Dana", "body": "I am late"}), line, READ_FRAME)["op"] == "items", "at version 1 the list had no slot: only the content-slot guard held the draft"
 
 
 def test_only_a_card_the_reads_words_can_be_mistaken_for_is_turned_into_the_read(monkeypatch):

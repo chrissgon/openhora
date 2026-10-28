@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import standin_tree as st
 
 natural = st.load("natural")
+operations = st.load("operations")
 
 # The test's own literal lists (the oracle reads these, never the code under test).
 D_OPS = ["approve", "reject", "release", "answer", "go-ahead"]
@@ -31,17 +32,23 @@ def now_at(wall: str = "2026-10-20 09:00", zone: str = ZONE) -> datetime.datetim
 NOW = now_at()
 
 
+def _words(op: str) -> str:
+    """The text a row is served with: its `what` at catalog version 1, its `about` from version 2 (CB-9; the record of the row is the operations table's `natural` key)."""
+    record = next(row["natural"] for row in operations.OPERATIONS if row["name"] == op)
+    return record["what"] if operations.LINE_CATALOG <= 1 else record["about"]
+
+
 def _row(op: str, cls: str) -> dict:
-    return {"op": op, "class": cls, "what": natural.NATURAL[op]["what"], "slots": {slot: kind for slot, (kind, _param) in natural.NATURAL[op]["slots"].items()}}
+    return {"op": op, "class": cls, "what": _words(op), "slots": {slot: kind for slot, (kind, _param) in natural.NATURAL[op]["slots"].items()}}
 
 
 def build_catalog() -> dict:
     ops = [_row(op, natural.CLASSES[op]) for op in natural.NATURAL if natural.CLASSES.get(op) in ("R", "N", "W", "E")]
     ops.append(_row("ask", "work"))
     ops += [_row(op, "G") for op in natural.NATURAL if op in OPERATIONAL]
-    refused = [{"op": op, "class": "D", "what": natural.NATURAL[op]["what"]} for op in natural.NATURAL if op in D_OPS]
-    refused += [{"op": op, "class": "G", "what": natural.NATURAL[op]["what"]} for op in natural.NATURAL if op in WIDENING]
-    return {"v": 1, "ops": ops, "refused": refused}
+    refused = [{"op": op, "class": "D", "what": _words(op)} for op in natural.NATURAL if op in D_OPS]
+    refused += [{"op": op, "class": "G", "what": _words(op)} for op in natural.NATURAL if op in WIDENING]
+    return {"v": operations.LINE_CATALOG, "ops": ops, "refused": refused}      # CB-9: the version of the served catalog (2)
 
 
 CATALOG = build_catalog()

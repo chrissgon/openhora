@@ -188,7 +188,7 @@ def test_the_registry_file_is_well_formed_and_a_planted_defect_is_reported(tmp_p
 
 @pytest.fixture
 def v2(monkeypatch):
-    """The catalog of version 2 and the views over it: what a line reaches after the flip, which CB-9 alone makes (`LINE_CATALOG` is 1)."""
+    """The catalog of version 2 and the views over it: what a line reaches since the flip of CB-9 (`LINE_CATALOG` is 2)."""
     classes, table = natural.views(2)
     monkeypatch.setattr(natural, "CLASSES", classes)
     monkeypatch.setattr(natural, "NATURAL", table)
@@ -288,7 +288,12 @@ def test_at_version_2_the_span_makes_a_weekly_card_with_the_repetition_in_words_
 def test_the_model_cannot_give_the_slot_at_version_1(world, monkeypatch):
     configure(world)
     clock_and_snapshots(world, monkeypatch)
-    decision = create_decision(LINE, {"title": "academia teste", "time": "toda segunda às 7h", "repeat": "toda segunda"})      # validate: allow english-only -- the Portuguese words under test
+    version1 = interpreter_catalog.generate(1)
+    classes1, table1 = natural.views(1)
+    monkeypatch.setattr(natural, "CLASSES", classes1)
+    monkeypatch.setattr(natural, "NATURAL", table1)
+    monkeypatch.setattr(interpreter, "SERVED_SHA256", interpreter.catalog_sha256(version1))      # CB-9: the served catalog is version 2; the check accepts only the catalog it is served, so the one of version 1 is the served one here
+    decision = create_decision(LINE, {"title": "academia teste", "time": "toda segunda às 7h", "repeat": "toda segunda"}, catalog=version1)      # validate: allow english-only -- the Portuguese words under test
     assert decision["kind"] == "clarify" and decision["error"] == "E_SLOT_UNKNOWN", "L54: a line reaches the slot only after the flip"
 
 

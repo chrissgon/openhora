@@ -25,9 +25,6 @@
   "operations_table.PUBLIC_MODULES": [
    "ops_file_ask"
   ],
-  "interpreter_coverage.NOT_SERVED": [
-   "file-ask"
-  ],
   "operations_table.NOT_OPERATIONS": [
    "purge",
    "read_whole",
