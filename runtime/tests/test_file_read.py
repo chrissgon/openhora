@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
@@ -57,8 +58,9 @@ SECRET_MARK = "ZEBRA-CLAUSE-7-UNIQUE-MARK"
 ACTIVITIES = f"Atividades da semana\n\nSegunda: ensaio do coral.\nQuarta: visita as familias. {SECRET_MARK}\n"
 LINE_1 = f"Me traga o conteudo do arquivo {WANTED}"
 LINE_2 = f'Leia o arquivo do meu onedrive com o nome "{WANTED}"'
-HEAD = f"{WANTED} (OneDrive, pasta Documentos):\n\n"
-NONE = "Não encontrei um arquivo com esse nome. Procurei só nas pastas configuradas para as suas contas e nas pastas dentro delas: Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive)."  # validate: allow english-only -- the Portuguese sentence or name under test
+PT = {"language": "pt-BR"}
+HEAD = f"{WANTED} (OneDrive, pasta Documentos):\n\n"      # literal: kept only because test_file_send.py imports it (its asserts are T8-5's); this file asserts FR_HEAD through `shown`
+NONE_FOLDERS = "Arquivos (Google Drive), Contratos 2026 (Google Drive), Documentos (OneDrive)"      # the names the configuration gives its folders, as the sentence lists them
 REFUSAL = "error: /file-read is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
 
 
@@ -130,6 +132,20 @@ def phone(world, line, key=READER_KEY):
     return ops.say(world["path"], line, channel="messaging", sender=key)["reply"]
 
 
+def shown(reply, text, name=WANTED, folder="Documentos", account="OneDrive"):
+    """`reply` is the head of the file (FR_HEAD), a blank line and exactly `text`."""
+    head, blank, body = reply.partition("\n\n")
+    assert blank == "\n\n" and "\n" not in head, reply
+    pk.assert_said(head, "FR_HEAD", PT, name=name, folder=folder, account=account)
+    assert body == text, body
+
+
+def one_line(reply, key, **fields):
+    """`reply` is exactly the one sentence of `key` in Portuguese (one line, nothing else is said)."""
+    assert "\n" not in reply, reply
+    pk.assert_said(reply, key, PT, **fields)
+
+
 def stored(world) -> list:
     ctx = ops_core.context(world["path"])
     return ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)
@@ -139,14 +155,14 @@ def stored(world) -> list:
 
 
 def test_the_first_line_with_no_service_shows_the_text_of_the_file_found_in_the_configured_folders(drives):
-    assert phone(drives, LINE_1) == HEAD + ACTIVITIES.strip()
+    shown(phone(drives, LINE_1), ACTIVITIES.strip())
     assert sorted(drives["drives"].listed()) == [("google", "GDRIVEFOLDER0001"), ("google", "GDRIVEFOLDER0002"), ("google", "gsub000000000001"), ("microsoft", "/Documentos")]      # S17: the subfolder is walked too
     assert drives["drives"].reads() == [("microsoft", "drv1/it!1")]
 
 
 def test_the_second_line_that_names_onedrive_searches_that_account_only(drives):
     drives["answer"]["text"] = op("file-read", {"file": WANTED, "service": "onedrive"})
-    assert phone(drives, LINE_2) == HEAD + ACTIVITIES.strip()
+    shown(phone(drives, LINE_2), ACTIVITIES.strip())
     assert drives["drives"].listed() == [("microsoft", "/Documentos")]
     assert [c for c in drives["drives"].calls if c[0] == "google"] == []
 
@@ -154,7 +170,7 @@ def test_the_second_line_that_names_onedrive_searches_that_account_only(drives):
 def test_a_file_outside_the_configured_folders_and_a_folder_of_that_name_are_never_found(drives):
     drives["drives"].folders[("microsoft", "/Documentos")] = [item("drv1/it!2", "Lista de presenca.txt")]
     reply = phone(drives, LINE_1)
-    assert reply == NONE
+    one_line(reply, "FR_NONE_SUB", folders=NONE_FOLDERS)
     assert drives["drives"].reads() == []
     assert ("google", "OUTSIDEFOLDER0001") not in drives["drives"].listed() and ("microsoft", "/Particular") not in drives["drives"].listed()
     for piece in ("OUTSIDE", "Particular", "GDRIVEFOLDER", "/Documentos", "the file outside"):
@@ -170,25 +186,27 @@ def test_vacuity_a_search_that_also_listed_an_unconfigured_folder_would_be_seen(
         cfg = dict(cfg, accounts={**cfg["accounts"], "google": {**cfg["accounts"]["google"], "folders": {"default": "OUTSIDEFOLDER0001"}}})
         return real(cfg, wanted, account, said)
     monkeypatch.setattr(ops_file_read, "_search", wrong)
-    assert phone(drives, LINE_1) != NONE
+    assert not pk.said(phone(drives, LINE_1), "FR_NONE_SUB", PT)
     assert ("google", "OUTSIDEFOLDER0001") in drives["drives"].listed()
 
 
 def test_several_files_with_the_name_are_listed_as_a_numbered_list_and_nothing_is_read(drives):
     drives["drives"].folders[("google", "GDRIVEFOLDER0002")].append(item("gfile0000000003", WANTED))
-    assert phone(drives, LINE_1) == ("Encontrei 2 arquivos que combinam. Qual deles? Diga o número, por exemplo \"o 2\".\n"  # validate: allow english-only -- the Portuguese sentence or name under test
-                                      f"1. {WANTED} - pasta Contratos 2026, Google Drive\n2. {WANTED} - pasta Documentos, OneDrive")
+    pick, first, second = phone(drives, LINE_1).split("\n")
+    pk.assert_said(pick, "FR_SEVERAL_PICK", PT, count=2)
+    pk.assert_said(first, "FR_ITEM", PT, n=1, name=WANTED, folder="Contratos 2026", account="Google Drive")
+    pk.assert_said(second, "FR_ITEM", PT, n=2, name=WANTED, folder="Documentos", account="OneDrive")
     assert drives["drives"].reads() == []
 
 
 def test_no_file_with_the_name_gets_one_sentence_naming_the_folders_by_their_configured_names(drives):
     drives["answer"]["text"] = op("file-read", {"file": "Relatorio inexistente"})
-    assert phone(drives, "Mostre o arquivo Relatorio inexistente") == NONE
+    one_line(phone(drives, "Mostre o arquivo Relatorio inexistente"), "FR_NONE_SUB", folders=NONE_FOLDERS)
 
 
 def test_the_name_may_be_typed_without_case_accents_or_the_extension(drives):
     drives["answer"]["text"] = op("file-read", {"file": "LISTA DE PRESENÇA"})  # validate: allow english-only -- the Portuguese sentence or name under test
-    assert phone(drives, "mostre o arquivo LISTA DE PRESENÇA") == "Lista de presenca.txt (OneDrive, pasta Documentos):\n\nAna\nBeto"  # validate: allow english-only -- the Portuguese sentence or name under test
+    shown(phone(drives, "mostre o arquivo LISTA DE PRESENÇA"), "Ana\nBeto", name="Lista de presenca.txt")  # validate: allow english-only -- the name under test
 
 
 @pytest.mark.parametrize("wanted, found, same", [
@@ -241,8 +259,11 @@ def test_a_text_over_the_cap_is_cut_on_a_word_and_says_how_many_characters_remai
     long = " ".join(["palavra"] * 600)      # 600 words of 7 letters and 599 spaces: 4,799 characters
     drives["drives"].files[("microsoft", "drv1/it!1")] = long.encode("utf-8")
     reply = phone(drives, LINE_1)
-    body, _, more = reply[len(HEAD):].partition("\n\nO texto continua: faltam mostrar ")
-    assert len(body) == 3495 and body == " ".join(["palavra"] * 437) and more == "1304 caracteres."
+    head, _, rest = reply.partition("\n\n")
+    body, _, more = rest.rpartition("\n\n")
+    pk.assert_said(head, "FR_HEAD", PT, name=WANTED, folder="Documentos", account="OneDrive")
+    pk.assert_said(more, "FR_MORE", PT, remaining=1304)
+    assert len(body) == 3495 and body == " ".join(["palavra"] * 437)
     assert len(long) - len(body) == 1304
 
 
@@ -252,7 +273,9 @@ def test_a_google_doc_exported_as_markdown_is_shown_without_its_pictures(drives)
     drives["drives"].files[("google", "gdoc0000000001")] = b"# Atividades\n\n![logo](data:image/png;base64,AAAA)\n\nSegunda: ensaio.\n"
     drives["drives"].markdown.add(("google", "gdoc0000000001"))
     reply = phone(drives, LINE_1)
-    assert reply.startswith(f"{WANTED} (Google Drive, pasta Contratos 2026):\n\n# Atividades\n\n")
+    head, _, rest = reply.partition("\n\n")
+    pk.assert_said(head, "FR_HEAD", PT, name=WANTED, folder="Contratos 2026", account="Google Drive")
+    assert rest.startswith("# Atividades\n\n")
     assert "base64" not in reply and reply.endswith("Segunda: ensaio.")
 
 
@@ -265,7 +288,7 @@ def test_a_pdf_goes_through_the_converter_of_a_source_and_a_text_file_does_not(d
         return {"converter": "stand-in"}
     monkeypatch.setattr(ops_file_read, "converter", converter)
     drives["answer"]["text"] = op("file-read", {"file": "Contrato de locacao"})
-    assert phone(drives, "mostre o arquivo Contrato de locacao") == "Contrato de locacao.docx (Google Drive, pasta Contratos 2026):\n\nContrato de locacao\n\nClausula 3: o prazo e de doze meses."
+    shown(phone(drives, "mostre o arquivo Contrato de locacao"), "Contrato de locacao\n\nClausula 3: o prazo e de doze meses.", name="Contrato de locacao.docx", folder="Contratos 2026", account="Google Drive")
     assert converted == ["pdf"]
     drives["answer"]["text"] = op("file-read", {"file": "Lista de presenca"})
     phone(drives, "mostre o arquivo Lista de presenca")
@@ -275,7 +298,7 @@ def test_a_pdf_goes_through_the_converter_of_a_source_and_a_text_file_does_not(d
 def test_a_text_that_looks_like_a_credential_is_withheld_and_never_shown(drives):
     drives["drives"].files[("microsoft", "drv1/it!1")] = (b"notes\n-----BEGIN PRIV" + b"ATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIV" + b"ATE KEY-----\n")
     reply = phone(drives, LINE_1)
-    assert reply == f"Encontrei {WANTED} (OneDrive), mas não mostrei: o texto tem algo que parece uma senha ou uma chave."  # validate: allow english-only -- the Portuguese sentence or name under test
+    one_line(reply, "FR_WITHHELD", name=WANTED, account="OneDrive")
     assert "MIIEvQ" not in reply
 
 
@@ -284,21 +307,20 @@ def test_a_provider_that_fails_is_a_fixed_sentence_with_none_of_its_words(drives
         raise RuntimeError("Graph said: token abc-SECRET-123 for ana@outlook.example refused")
     monkeypatch.setattr(ops_file_read, "provider_call", failing)
     reply = phone(drives, LINE_1)
-    assert reply == "Não consegui olhar as suas pastas agora. Tente de novo em alguns minutos."  # validate: allow english-only -- the Portuguese sentence or name under test
+    one_line(reply, "FR_UNAVAILABLE")
     assert "SECRET" not in reply and "ana@" not in reply
 
 
 def test_a_project_with_no_folders_says_so(drives):
     accept(drives["path"], accounts={"google": {"address": "ana@mail.example"}})
-    assert phone(drives, LINE_1) == "Nenhuma pasta do seu Google Drive ou do OneDrive está configurada neste projeto, então não consigo procurar arquivos."  # validate: allow english-only -- the Portuguese sentence or name under test
+    one_line(phone(drives, LINE_1), "FR_NO_FOLDERS")
 
 
 def test_a_service_word_no_table_reads_as_one_service_or_a_name_that_is_not_in_the_line_asks_again(drives):
-    again = "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?"  # validate: allow english-only -- the Portuguese sentence or name under test
     drives["answer"]["text"] = op("file-read", {"file": WANTED, "service": "dropbox"})
-    assert phone(drives, f"Leia o arquivo {WANTED} do meu dropbox") == again
+    one_line(phone(drives, f"Leia o arquivo {WANTED} do meu dropbox"), "IX_ASK_AGAIN")
     drives["answer"]["text"] = op("file-read", {"file": "Outro nome"})
-    assert phone(drives, "Leia o arquivo " + WANTED) == again
+    one_line(phone(drives, "Leia o arquivo " + WANTED), "IX_ASK_AGAIN")
     assert drives["drives"].calls == []
 
 
@@ -309,6 +331,7 @@ def test_nothing_of_the_file_is_kept_the_conversation_holds_a_neutral_word_and_n
     reply = phone(drives, LINE_1)
     assert SECRET_MARK in reply
     rows = stored(drives)
+    # literal: the neutral words are the stored text itself, what the conversation keeps instead of the file's words
     assert [r["text"] for r in rows if r["role"] == "assistant"][-1] == "(mostrado onde foi pedido)"
     assert [r["text"] for r in rows if r["role"] == "user"][-1] == "(uma mensagem)"
     everything = json.dumps(rows, ensure_ascii=False)
