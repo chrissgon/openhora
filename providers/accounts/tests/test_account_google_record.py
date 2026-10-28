@@ -68,8 +68,9 @@ def record_text(**over):
 # --- the scope set --------------------------------------------------------------------------------------------------------
 
 
-def test_the_platform_set_is_the_four_scopes_the_decision_names():
-    assert google.PLATFORM_SCOPES == fga.PLATFORM_SET
+def test_the_platform_set_is_the_five_scopes_the_decision_names_and_the_previous_set_the_four_of_before_google_tasks():
+    assert google.PLATFORM_SCOPES == fga.PLATFORM_SET and google.PREVIOUS_SCOPES == fga.PREVIOUS_SET and google.PLATFORM_SCOPES == google.PREVIOUS_SCOPES + (google.TASKS_SCOPE,)
+    assert google.TASKS_SCOPE == fga.TASKS and google.TASKS_SCOPE.endswith("/auth/tasks")
     assert google.GMAIL_SCOPE.endswith("/gmail.modify") and google.DRIVE_SCOPE.endswith("/auth/drive")
     assert google.CALENDAR_EVENTS_SCOPE.endswith("/calendar.events") and google.CALENDAR_LIST_SCOPE.endswith("/calendar.calendarlist.readonly")
     assert "https://mail.google.com/" not in google.PLATFORM_SCOPES, "the scope that deletes permanently is never asked"
@@ -82,7 +83,7 @@ def test_exactly_the_set_passes_in_any_order_with_or_without_identity_words():
     google.check_platform_scope(SET + " https://www.googleapis.com/auth/userinfo.email", None, Boom)
 
 
-@pytest.mark.parametrize("granted", [" ".join(fga.PLATFORM_SET[1:]), " ".join(fga.PLATFORM_SET[:-1]), fga.GMAIL_MODIFY,
+@pytest.mark.parametrize("granted", [" ".join(fga.PLATFORM_SET[1:]), " ".join(fga.PLATFORM_SET[:3] + (fga.TASKS,)), fga.GMAIL_MODIFY,
                                      f"{fga.GMAIL_READONLY} {fga.CALENDAR_EVENTS} {fga.CALENDAR_LIST} {fga.DRIVE}"])
 def test_a_token_that_lacks_a_scope_is_refused_with_exit_3_and_the_command(granted):
     with pytest.raises(Boom) as refused:

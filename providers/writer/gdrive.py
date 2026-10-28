@@ -416,7 +416,7 @@ def cmd_check(a) -> int:
     _, token_url, test_mode = endpoints()
     loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=WriterError)
     _google.refresh_access_token(token_url, loaded.record, WriterError)
-    return emit({"ok": True, "account": loaded.record.get("account"), "record": "account", "scope": sorted(_google.PLATFORM_SCOPES),
+    return emit({"ok": True, "account": loaded.record.get("account"), "record": "account", "scope": sorted(_google.PREVIOUS_SCOPES),
                  "implementation": IMPLEMENTATION})
 
 
