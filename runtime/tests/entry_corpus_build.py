@@ -23,7 +23,8 @@ The golden, `entry_golden.jsonl`, is the outcome of every scenario on the tree a
 
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record
 
-A later package never records it again: a difference is the finding. A change of the golden is a reviewed decision (runtime/README.md, "The entry replay").
+A later package never records it again: a difference is the finding. A change of the golden is a reviewed decision (runtime/README.md, "The entry replay"); it is made with `--re-record`
+(package L64H), which replaces the named rows of the base golden only and names the change in the header's `changes`.
 
 THE BASE IS CLOSED (HOT-1; SPEC-HOTSPOTS 4.1). `entry_corpus.jsonl`, `entry_golden.jsonl` (its header included) and the tables of this script take no new scenario. A package that adds scenarios writes
 `runtime/tests/entry_ext/<id>.scenarios.jsonl` (the corpus keys in the corpus order, every id starting with `<id>.`, an optional `model_text` for the stand-in model's answer to the scenario's
@@ -31,6 +32,8 @@ text) and records `entry_ext/<id>.golden.jsonl` with `--record-package <id>`; th
 
   python3 runtime/tests/entry_corpus_build.py            writes entry_corpus.jsonl
   python3 runtime/tests/entry_corpus_build.py --stats    the number of scenarios by channel, claimer and source
+  WB_ENTRY_RECORD_AGAIN="yes, a reviewed decision" uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --re-record ID[,ID...] --cause TEXT    replaces the named rows of the
+      base golden (a reviewed decision of the maintainer: every other row stays byte for byte, the header names the change in `changes`)
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-package <id>    records entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl
   python3 runtime/tests/entry_corpus_build.py --record-added    refuses: the base golden is closed (use --record-package)
   uv run --with pytest==9.1.1 python3 runtime/tests/entry_corpus_build.py --check    fails when the committed corpus is not what this script writes, a scenario is not well formed, or a file of entry_ext/ has a problem
@@ -548,12 +551,74 @@ def record_package(package: str, workers: int) -> int:
     return 0
 
 
+def replace_rows(lines: list, new_rows: list) -> list:
+    """The golden's row lines with the rows of `new_rows` ({"id", "outcome"}) in place of the rows of the same id; every other line is returned as it is. ValueError when an id is not a row of `lines`
+    or is named twice."""
+    wanted = {}
+    for row in new_rows:
+        if row["id"] in wanted:
+            raise ValueError(f"{row['id']} is named twice")
+        wanted[row["id"]] = row
+    known = {json.loads(line)["id"] for line in lines}
+    unknown = sorted(set(wanted) - known)
+    if unknown:
+        raise ValueError(f"not a row of the golden: {unknown[0]}")
+    return [json.dumps(wanted[json.loads(line)["id"]], ensure_ascii=False) if json.loads(line)["id"] in wanted else line for line in lines]
+
+
+def re_record(workers: int, commit: str, ids: list, cause: str) -> int:
+    """Change the golden's rows named by `ids` (L64H; a reviewed decision, never an executor's own): refuses unless WB_ENTRY_RECORD_AGAIN is the guard phrase of `record`, a cause is given and every id
+    is a row of the golden; only those scenarios are run, each named row is replaced in place, every other line is byte for byte as it was, and the header keeps its hashes and its count and gains
+    one entry of `changes`: {"commit", "ids", "cause"}."""
+    import tempfile
+    if os.environ.get("WB_ENTRY_RECORD_AGAIN") != "yes, a reviewed decision":
+        print("a row of the golden is changed only as a reviewed decision: set WB_ENTRY_RECORD_AGAIN (runtime/README.md, 'The entry replay')", file=sys.stderr)
+        return 2
+    if not cause.strip() or not ids or len(set(ids)) != len(ids):
+        print("--re-record needs ids that are named once and a --cause", file=sys.stderr)
+        return 2
+    lines = GOLDEN_FILE.read_text(encoding="utf-8").splitlines()
+    header, rows = json.loads(lines[0]), lines[1:]
+    unknown = [i for i in ids if i not in {json.loads(line)["id"] for line in rows}]
+    if unknown:
+        print(f"not a row of the golden: {unknown[0]}", file=sys.stderr)
+        return 1
+    folder = tempfile.mkdtemp(prefix="entry-golden-again-")
+    only = "^(" + "|".join(__import__("re").escape(i) for i in ids) + ")$"
+    env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_ONLY=only)
+    command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(HERE / "test_entry_replay.py"), "-k", "record_the_golden"]
+    if workers > 1:
+        command += ["-n", str(workers)]
+    code = subprocess.call(command, env=env, cwd=str(REPO))
+    if code != 0:
+        return code
+    new = {}
+    for shard in sorted(Path(folder).glob("shard-*.jsonl")):
+        for row in read_rows(shard):
+            new[row["id"]] = row
+    missing = [i for i in ids if i not in new]
+    if missing:
+        print(f"{len(missing)} scenarios were not recorded, the first is {missing[0]}", file=sys.stderr)
+        return 1
+    replaced = replace_rows(rows, [new[i] for i in ids])
+    named = set(ids)
+    if any(a != b for a, b in zip(rows, replaced) if json.loads(a)["id"] not in named) or len(rows) != len(replaced):
+        print("a row that was not named changed: nothing written", file=sys.stderr)
+        return 1
+    header["changes"] = list(header.get("changes", [])) + [{"commit": commit, "ids": list(ids), "cause": cause}]
+    GOLDEN_FILE.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "\n".join(replaced) + "\n", encoding="utf-8")
+    print(f"{len(ids)} rows of the golden replaced, recorded at {commit[:9]}", file=sys.stderr)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Write the corpus of the entry replay, check it, or record the golden of the tree it runs on.")
     parser.add_argument("--check", action="store_true", help="fail when the committed corpus is not what this script writes")
     parser.add_argument("--record", action="store_true", help="record entry_golden.jsonl on the tree as it is now (once; never to change a golden)")
     parser.add_argument("--record-added", action="store_true", help="refused: the base golden is closed; use --record-package")
     parser.add_argument("--record-package", metavar="ID", help="record entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl (HOT-1)")
+    parser.add_argument("--re-record", default="", metavar="ID[,ID...]", help="replace the named rows of the base golden (L64H; needs WB_ENTRY_RECORD_AGAIN and --cause); every other row stays as it is")
+    parser.add_argument("--cause", default="", help="with --re-record: why the rows change (written into the header's `changes`)")
     parser.add_argument("--stats", action="store_true", help="print the number of scenarios by channel, source and claimer")
     parser.add_argument("--full", action="store_true", help="take every line of the sampled corpora (the same as WB_FULL_FUZZ=1); written to entry_corpus_full.jsonl, never committed")
     parser.add_argument("--workers", type=int, default=4, help="pytest-xdist workers of --record (default 4)")
@@ -571,6 +636,8 @@ def main(argv=None) -> int:
         return record(args.workers)
     if args.record_package:
         return record_package(args.record_package, args.workers)
+    if args.re_record:
+        return re_record(args.workers, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip(), [i for i in args.re_record.split(",") if i], args.cause)
     if args.record_added:
         return record_added(args.workers, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip())
     count = write_corpus(full, HERE / ("entry_corpus_full.jsonl" if full else "entry_corpus.jsonl"))
