@@ -30,6 +30,9 @@ The decision, always {"kind", "error"} plus, by kind:
   clarify   slot | ops (code writes the question), why: model | time-ask | time-past | time-far | time-gap | time-fold | weekday | private-route | invalid | long-line
   route     none
   refuse    class D | G, op            refuse_policy   op
+BL7-4, three rules of the check, none of which can open a card or run anything: a plain no (a line that opens with a no word and holds no digit, date, clock or relative time) is the `answer` no
+of a plan item, from a model's `confirm: no` that names no slot and no span and from a model's `none`; a `mail-draft` with no recipient, target, message, day or subject in a line with a draft verb
+and no mail noun or reply verb is `route` (`private-route` for a private line), before the policy check; and a date the time engine set apart as a deadline counts as read by code.
 `error` is None or one of E_JSON, E_SIZE, E_SHAPE, E_VERSION, E_OP_UNKNOWN, E_SLOT_UNKNOWN, E_SPAN, E_INT, E_TIME_FORMAT, E_WEEKDAY, E_ITEM_UNKNOWN, E_INHERIT; any of them
 but E_WEEKDAY gives a `clarify` with why `invalid` (never an op).
 
@@ -575,7 +578,7 @@ def _known(span: str, tables: list) -> bool:
 def _known_outside(found: dict) -> bool:
     """Whether the line holds, outside its time phrases, a word (of three letters or more) that some shipped table holds."""
     folded, known = found["norm"], nt.known_words(found["tables"])
-    covered = [(h["s"], h["e"]) for h in found["hits"]]
+    covered = [(h["s"], h["e"]) for h in found["hits"] + found.get("deadline", [])]          # BL7-4: a deadline date was read by code
     outside = "".join(" " if any(a <= i < b for a, b in covered) else c for i, c in enumerate(folded))
     return any(len(word) >= KNOWN_MIN and word in known for word in re.findall(r"[a-z0-9]+", outside))
 
@@ -630,7 +633,7 @@ def _unread_day(found: dict, dated: bool) -> bool:
     two-letter weekday with its period, or a day written as numbers ("29/10"); and, when code read an hour only (`dated` is False), also a length of days ("en dos dias", "dans 2 jours") or a whole
     number from 1 to 31 ("the 29", "el 29"). A dated reading is asked only for what conflicts with the day it read: a bare number or a unit word ("2 apples", "this month") does not."""
     norm = found["norm"]
-    covered = [(h["s"], h["e"]) for h in found["hits"]]
+    covered = [(h["s"], h["e"]) for h in found["hits"] + found.get("deadline", [])]          # BL7-4: a deadline date was read by code
     outside = "".join(" " if any(a <= i < b for a, b in covered) else c for i, c in enumerate(norm))
     tokens = [m.group() for m in re.finditer(r"[a-z0-9]+", outside)]
     phrases = DAY_PHRASES if dated else DAY_PHRASES + UNIT_PHRASES
@@ -847,6 +850,9 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
         return _invalid("E_SHAPE")
     kind = obj["kind"]
     if kind == "none":
+        plan = next((i for i in (frame or {}).get("items") or [] if i.get("kind") == "plan-confirm"), None)
+        if plan is not None and _plain_no(line):          # BL7-4 (E): a model's `none` on a plain no of a live plan is that no; it can only drop the plan
+            return {"kind": "answer", "error": None, "item": plan["id"], "need": "confirm", "confirm": "no"}
         return {"kind": "none", "error": None}
     if kind == "route":
         return _clarify("private-route") if turn_gate.private_line(line) else {"kind": "route", "error": None}
@@ -882,6 +888,8 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         return {"kind": "refuse", "error": None, "class": refused[name]["class"], "op": name}
     if name not in ops or (ops[name]["class"] == "work" and name != "ask"):
         return _invalid("E_OP_UNKNOWN")
+    if _open_note(name, obj, line, ops):          # BL7-4 (C): a draft of a note with no recipient, message, day or subject is open writing, not a mail card
+        return _clarify("private-route") if turn_gate.private_line(line) else {"kind": "route", "error": None}
     if allowed is None or name not in allowed:
         return {"kind": "refuse_policy", "error": None, "op": name}
     row = ops[name]["slots"]
@@ -930,6 +938,8 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         span = slots[time_slots[0]]
         if not _span_in_line(span, line) or len(span) > SPAN_MAX:
             return _invalid("E_SPAN")
+        if name == "event-change" and _deadline_set_apart(line):          # BL7-4: in a change the date before a deadline word may be the event's old day and the one after it the new day: asked, as before the deadline rule
+            return _clarify("time-ask", slot=time_slots[0], op=name)
         time, disagree, problem = _time(span, _without_old_day(name, slots, span, line), obj["time_iso"], obj["weekday"], now_local, zone)
         if problem:
             return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
@@ -1081,6 +1091,52 @@ def polite_no(line) -> bool:
     return bool(words) and words[0] in NO_LEAD and any(w in THANKS for w in rest) and all(w in THANKS or w in COURTESY_FILL for w in rest)
 
 
+NOTE_BLOCKERS = frozenset(("to", "target", "message", "day", "subject"))          # a draft that holds one of these slots names a recipient, a message, a day or a subject: today's path
+
+
+def _open_note(name, obj, line, ops) -> bool:
+    """BL7-4 (C): whether a `mail-draft` of the model is an open writing request ("draft a nice note to the neighbours about our party"): every slot of the object is a slot of the
+    catalog row, none of them is a recipient, message, day or subject (NOTE_BLOCKERS, as a slot or an inherited one), and the folded line holds, as whole words in a row, a draft verb of
+    some table and no mail noun and no reply verb of any table (`requests.writes.mail`, read from the tables and never copied here). Such a draft has no seed (`mail_compose.seed` refuses a
+    draft with no recipient), so the card would be a dead end: the line is `route`, the same answer the model's `route` gets."""
+    if name != "mail-draft" or name not in ops:
+        return False
+    slots, inherit = obj.get("slots") or {}, obj.get("inherit") or {}
+    names = set(slots) | set(inherit)
+    if not names <= set(ops[name]["slots"]) or names & NOTE_BLOCKERS:
+        return False
+    import importlib
+    writes = importlib.import_module("natural_writes")
+    tables = natural._tables(None)
+    words = natural.normal(line).split()
+
+    def held(phrases):
+        return any(words[at:at + len(p)] == p for p in (phrase.split() for phrase in phrases) if p for at in range(len(words)))
+    return (held(writes.listed(tables, "mail", "draft_verbs")) and not held(writes.listed(tables, "mail", "nouns"))
+            and not held(writes.listed(tables, "mail", "reply_verbs")))
+
+
+def _deadline_set_apart(line) -> bool:
+    """BL7-4: whether the time engine set a date of the line apart as a deadline (`natural_time.find`'s `deadline`)."""
+    return bool(nt.find(collapse(line)).get("deadline"))
+
+
+PLAIN_NO_FILLER = frozenset(THANKS | COURTESY_FILL | {          # the folded words that may follow a no in a plain no: a courtesy, "leave it", "I will look later" (pt-BR and en); nothing else
+    "obrigado", "obrigada", "ok", "okay", "tudo", "bem", "entao", "deixa", "deixe", "deixar", "pra", "la", "isso", "eu", "vejo", "depois", "com", "calma", "mais", "tarde", "agora", "por",      # validate: allow english-only -- the Portuguese filler words of a no
+    "enquanto", "leave", "it", "then", "i", "will", "look", "at", "later", "see", "that", "alone", "fine", "all", "right", "is", "its", "never", "mind", "forget", "just", "for", "now"})
+
+
+def _plain_no(line) -> bool:
+    """BL7-4 (B, E): whether the line is a plain no of a plan: it opens with a no word (`starts_with_no`) and every word after it is a word of the closed list PLAIN_NO_FILLER (a courtesy,
+    "leave it", "I will look at it later"), so it holds no digit and no time; the time engine reads no date, slash date, clock or relative time in it either (a vague word such as "depois" is
+    allowed). A no that carries any other word (a new request, "no problem", "nao esquece") is not a plain no and keeps the path it had. It can only drop a plan (L65)."""
+    if not starts_with_no(line) or any(c.isdigit() for c in line):
+        return False
+    if any(word not in PLAIN_NO_FILLER for word in natural.normal(line).split()[1:]):
+        return False
+    return not any(hit["kind"] in ("date", "slash", "clock", "relative") for hit in nt.find(collapse(line))["hits"])
+
+
 def _plan_correction(obj, item, line, frame, ops, now_local, zone, allowed):
     """The decision for a model's `confirm: "no"` on a `plan-confirm` item when the line is a correction ("no, the one for tomorrow"), else None (the answer is checked as before). BL5B.
     Only a plan item of the operation the frame's `last` holds, only a no that is not a bare no, and never a yes: a model's yes is never turned into anything. The result is an `op`
@@ -1133,6 +1189,8 @@ def _check_answer(obj, line, frame, ops, now_local, zone, allowed) -> dict:
             return corrected
         if obj["confirm"] == "no" and polite_no(line):          # BL5B: "no, thanks" is a no whatever the model made of the courtesy (a slot, a span): the plan is dropped
             return {**out, "confirm": "no"}
+        if obj["confirm"] == "no" and item.get("kind") == "plan-confirm" and "slot" not in obj and "span" not in obj and _plain_no(line):
+            return {**out, "confirm": "no"}          # BL7-4 (B): a plain no ("no, leave it, I will look at it later") is a no, though it is not a closed one; the plan is dropped, nothing runs
         probe = line.replace(obj["span"], " ", 1) if "span" in obj else line          # the words that are left once the answer's own span is taken out
         if natural.confirm_kind(probe) != obj["confirm"]:
             return _clarify("model", item=item["id"])          # the line does not say what the model says: asked again, by code

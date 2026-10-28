@@ -173,12 +173,14 @@ def test_a_models_yes_to_a_list_is_never_turned_into_a_revised_plan(rig):
 # --- 6. a no without a new detail drops the plan ------------------------------------------------------------------------------------------------------
 
 
-def test_a_no_that_holds_no_day_after_a_list_is_asked_again_and_the_plan_is_dropped(rig):
+def test_a_no_that_holds_no_day_after_a_list_is_a_plain_no_and_the_plan_is_dropped(rig):
+    """BL7-4 (B): the model's `confirm: no` on a line that opens with a no and holds no digit, date, clock or relative time is that no, though no closed list reads it: the plan is dropped with the
+    sentence of any no. Before BL7-4 the check asked again (IX_ASK_AGAIN) and the plan was dropped all the same."""
     reads = spy_read(rig)
     first_plan(rig)
     rig.says["text"] = ANSWERS["confirm"]
     out = say(rig, OWNER, "não, obrigado, deixa pra lá então")      # validate: allow english-only -- the Portuguese line under test
-    assert out["reply"] == phrases.text("IX_ASK_AGAIN", rig.cfg) and "plan_confirm" not in out and ops.plan_live(rig.world["path"], OWNER) is None and reads == []
+    assert out["reply"] == phrases.text("PLAN_DROPPED", rig.cfg) and "plan_confirm" not in out and ops.plan_live(rig.world["path"], OWNER) is None and reads == []
 
 
 def test_a_no_with_the_same_words_changes_nothing_and_drops_the_plan(searched):

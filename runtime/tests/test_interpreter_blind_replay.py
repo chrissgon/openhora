@@ -62,8 +62,8 @@ PUBLISHED_RATES = {
 }
 # REPLAY: what the current code gives the recorded answers.
 REPLAY = {
-    DEEPSEEK: {"correct": 53, "clarify": 5, "wrong_read": 1, "wrong_route": 1},      # BL7-1 (the line's subject stays in a message's target, an inherit of a slot the line fills is dropped, a corrected read stays a read): 48/7/3 -> 53/5/0, the dev re-score of the spent answers, not a blind number; the PUBLISHED counts above stay as they were
-    SONNET: {"correct": 54, "clarify": 2, "wrong_card": 2, "wrong_read": 2},      # BL7-1 moves no Sonnet item
+    DEEPSEEK: {"correct": 48, "clarify": 10, "wrong_read": 1, "wrong_route": 1},      # BL7-1 (the line's subject stays in a message's target, an inherit of a slot the line fills is dropped, a corrected read stays a read): 48/7/3 -> 53/5/0; then BL7-4 (the scorer follows the product for a mail write: a card the product does not open, a question it asks first, is a clarify): 53/5 -> 48/10, five correct items the product asks about; the dev re-score of the spent answers, not a blind number; the PUBLISHED counts above stay as they were
+    SONNET: {"correct": 49, "clarify": 7, "wrong_card": 2, "wrong_read": 2},      # BL7-1 moves no Sonnet item; BL7-4 (the same scorer step): 54/2 -> 49/7, five correct items the product asks about
 }
 
 
