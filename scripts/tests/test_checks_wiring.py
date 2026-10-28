@@ -334,6 +334,82 @@ def test_the_shards_run_the_selection_or_the_whole_list_and_the_tests_job_gates_
     assert not re.search(r"^  full-suite:\s*$", text, re.M)  # no second job to be the only gate
 
 
+# The steps that run the failures again, with the detail `--assert=plain` leaves out of a first report. Per job: the name of each step and the
+# `id` of the run step it answers. They exist so that a failure is readable; they must never be able to make a red job green.
+FAILURE_STEPS = {
+    SHARDS: [("The failures again, with assertion detail (the whole suite)", "whole"),
+             ("The failures again, with assertion detail (the selection)", "selected")],
+    "python39": [("The failures again, with assertion detail (Python 3.9)", "py39")],
+}
+
+
+def failure_step_problems(text):
+    """What is wrong with the failure re-runs of a text of checks.yml, as a list. Each one: exists after the run step it answers; runs under
+    `failure()` AND the outcome of that run step (never `always()`, never an `||`); is `continue-on-error: true`, so that its own result
+    never reaches the job; reruns only the cache's failures (`--lf --lfnf=none`) without the launcher, the workers or the plain mode. And in
+    the job nothing else is `continue-on-error` (a run step that is would turn the job green when its tests fail) and a run step has its id."""
+    found = []
+    for job, steps in FAILURE_STEPS.items():
+        block = job_block(text, job)
+        plain = "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#"))
+        if plain.count("continue-on-error") != len(steps) or plain.count("continue-on-error: true") != len(steps):
+            found.append(job + ": a step other than the failure re-runs is continue-on-error, or one is not `true`")
+        for name, run_id in steps:
+            try:
+                step = step_text(plain, name)
+            except StopIteration:
+                found.append(job + ": no step " + name)
+                continue
+            condition = squash(step_condition(job, name, text) or "")
+            if not re.fullmatch(r"failure\(\) && steps\.%s\.outcome == 'failure'" % run_id, condition):
+                found.append("%s: %s: the condition is %r" % (job, name, condition))
+            if not re.search(r"^        continue-on-error: true\s*$", step, re.M):
+                found.append("%s: %s: it is not continue-on-error: true" % (job, name))
+            if not all(word in step for word in ("--lf ", "--lfnf=none")) or any(word in step for word in ("shard_tests.py", "-n auto", "--assert=plain", "--dist")):
+                found.append("%s: %s: it does not rerun only the cache's failures in the default mode" % (job, name))
+            run = next((l for l in plain.splitlines() if l.strip() == "id: " + run_id), None)
+            if run is None or plain.index(run) > plain.index(step):
+                found.append("%s: %s: the run step `%s` is missing or comes after it" % (job, name, run_id))
+    return found
+
+
+def job_ends(steps):
+    """GitHub's rule for a job, on a list of (outcome, continue_on_error): the job ends red when a step failed that is not continue-on-error."""
+    return "failure" if any(outcome == "failure" and not keeps_going for outcome, keeps_going in steps) else "success"
+
+
+def test_the_failure_reruns_can_never_turn_a_red_job_green():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    assert failure_step_problems(text) == []
+    # the rule they rest on, for the three jobs: the run step failed (its tests did), the re-run fails or passes either way, the job is red
+    for rerun_outcome in ("failure", "success", "skipped"):
+        assert job_ends([("failure", False), (rerun_outcome, True)]) == "failure"
+    assert job_ends([("success", False), ("skipped", True)]) == "success"  # and a green run is untouched
+    # `tests` reads the shards' own result, which the re-runs do not change
+    assert 'test "$SHARDS" = "success"' in step_text(job_block(text, "tests"), GATE)
+
+
+def test_vacuity_a_failure_rerun_that_could_mask_a_failure_is_caught():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    first, second = FAILURE_STEPS[SHARDS][0][0], FAILURE_STEPS["python39"][0][0]
+    plants = {
+        "always instead of failure": text.replace("if: failure() && steps.whole.outcome == 'failure'", "if: always()", 1),
+        "an or in the condition": text.replace("if: failure() && steps.selected.outcome == 'failure'", "if: failure() || steps.selected.outcome == 'failure'", 1),
+        "no continue-on-error": text.replace("        continue-on-error: true\n        timeout-minutes: 10\n        env:\n          WB_FULL_FUZZ", "        timeout-minutes: 10\n        env:\n          WB_FULL_FUZZ", 1),
+        "continue-on-error false": text.replace("continue-on-error: true", "continue-on-error: false", 1),
+        "a run step that goes on": text.replace("        id: py39\n", "        id: py39\n        continue-on-error: true\n", 1),
+        "the re-run is sharded": text.replace("pytest -q --lf --lfnf=none -o faulthandler_timeout=120\n          $(cat \"$RUNNER_TEMP/py39.txt\")",
+                                              "python scripts/shard_tests.py --shard 1/3 -- -q --lf --lfnf=none\n          $(cat \"$RUNNER_TEMP/py39.txt\")", 1),
+        "it never stops at none": text.replace("--lf --lfnf=none", "--lf", 1),
+        "it answers the wrong step": text.replace("steps.py39.outcome", "steps.whole.outcome", 1),
+        "the step is gone": text.replace(second, "Another step", 1),
+    }
+    assert first and second
+    for name, planted in plants.items():
+        assert planted != text, name
+        assert failure_step_problems(planted), name
+
+
 def matrix_of(shard_block):
     match = re.search(r"^        shard: \[(.*)\]\s*$", shard_block, re.M)
     return [int(x) for x in match.group(1).split(",")] if match else None

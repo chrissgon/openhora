@@ -102,6 +102,7 @@ jobs:
         shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
         run: python3 scripts/select_tests.py --base "$BASE_SHA" --explain | tee "$RUNNER_TEMP/selected-tests.txt"
       - name: Scanner and provider tests, the whole suite
+        id: whole
         if: >-
           github.event_name != 'pull_request' || github.base_ref == 'main'
           || contains(github.event.pull_request.labels.*.name, 'full-suite')
@@ -110,8 +111,22 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: >-
           uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
-          -q -n auto -o faulthandler_timeout=120 --durations=40 $(python3 scripts/test_dirs.py)
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(python3 scripts/test_dirs.py)
+      - name: The failures again, with assertion detail (the whole suite)
+        # Only to print what `--assert=plain` leaves out of a failure's first report. The job is already red: this step cannot make it green
+        # (`continue-on-error` keeps its own failure from changing the job, and a later success never undoes an earlier failed step), and
+        # `tests` reads `needs.tests-shard.result` as before. It runs only after the run step above failed, only the failures it left in
+        # the cache (`--lf`), and nothing when none is recorded (`--lfnf=none`: a crash or a collection error).
+        if: failure() && steps.whole.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          WB_FULL_FUZZ: "1"
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(python3 scripts/test_dirs.py)
       - name: Selected scanner, provider, runtime and script tests
+        id: selected
         if: >-
           github.event_name == 'pull_request' && github.base_ref != 'main'
           && !contains(github.event.pull_request.labels.*.name, 'full-suite')
@@ -119,7 +134,15 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: >-
           uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
-          -q -n auto -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/selected-tests.txt")
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/selected-tests.txt")
+      - name: The failures again, with assertion detail (the selection)
+        # As the step of the whole suite above: the same targets, only the failures, and it can never turn the job green.
+        if: failure() && steps.selected.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(cat "$RUNNER_TEMP/selected-tests.txt")
 
   # The one required check, the aggregator of the shards. It runs no test, so it needs no checkout and no uv. It is never skipped, on any
   # event, so that the check exists and means something on every run (a label added to a pull request reruns it): `if: always()` is
@@ -263,12 +286,23 @@ jobs:
         shell: bash
         run: grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
       - name: The scripts the scheduler starts, on Python 3.9
+        id: py39
         env:
           WB_SKIP_JS_ONLY_TESTS: "1"
           SHARD: ${{ matrix.shard }}
         run: >-
           uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
-          -q -n auto -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/py39.txt")
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/py39.txt")
+      - name: The failures again, with assertion detail (Python 3.9)
+        # As the steps of `tests-shard`: only the failures of the step above, with the detail; it can never turn the job green.
+        if: failure() && steps.py39.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          WB_SKIP_JS_ONLY_TESTS: "1"
+        run: >-
+          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(cat "$RUNNER_TEMP/py39.txt")
 
   container:
     name: container
