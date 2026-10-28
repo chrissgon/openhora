@@ -889,7 +889,7 @@ def test_a_service_that_says_no_leaves_the_effect_open_and_nothing_written(world
 
 
 def test_limit_58_the_seam_starts_only_an_event_read_and_a_dry_run_and_the_dry_run_carries_no_credential(world, monkeypatch):
-    assert ops_step_seams.CALENDAR_READ_VERBS == ("event-get",)
+    assert ops_step_seams.CALENDAR_READ_VERBS == ("event-get", "event-instances")      # CB-7 (L58): the second read is a series' instances in a window of two days, the one place a series is listed
     made = made_event(world)      # the approval of this one writes (that is the effect module's call, not the seam's): it is done before the spy
     seen = []
     real = effect_calendar.provider_call

@@ -171,10 +171,11 @@ def events(ctx: dict, sender) -> tuple:
         except item_refs.ItemRefError:
             refused += 1
             continue
-        known = {e["n"] for e in snapshot["entries"]}
+        known = {e["n"]: e for e in snapshot["entries"]}
         for n, day, fields in _rows(ctx, source["id"], snapshot["version"]):
             if n in known and "cancelled" not in fields[2:]:
-                out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1], "read_at": snapshot["read_at"]})
+                out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1], "read_at": snapshot["read_at"],
+                            "recurring": known[n].get("recurring") is True})          # CB-7: the index's own record that the event belongs to a series (never the text's word)
     return (out, None) if refused < len(listed) else ([], "stale")
 
 
@@ -1113,6 +1114,10 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
             return _text(ctx, "EV_CHECK_FAILED")          # a read-back failed: neither a card nor "not found" is true; nothing of the failure is said
     if not found:
         return _none(ctx, kind, problem, account)
+    if all(r.get("recurring") for r in found):          # CB-7: every event found is part of a series: a change is refused in a plain sentence, a cancel is the whole series, one occurrence or a question
+        series = importlib.import_module("event_series").reply(project, ctx, op, found, kind, value, spans, said, sender, extras, writes, now, account)
+        if series is not None:
+            return series
     if len(found) > 1 or extra:
         remember_list(ctx, sender, op, found, ("@" + time_["local"][11:16] if _clock_only(time_, spans, now) else time_["local"]) if op == "event-change" and time_ else None)
         note_start_source(ctx, sender, time_.get("source") if time_ else None)

@@ -1,0 +1,179 @@
+{
+ "v": 1,
+ "made_from": "6f9df1b",
+ "rule": "the folded phrases of a repetition in a line (pt-BR and en): daily, weekly, the weekdays and the words that lead one, what is not supported or ends a series, and the words that say whether a cancel is of one occurrence or of the whole series",
+ "daily": [
+  "daily",
+  "diariamente",
+  "every day",
+  "everyday",
+  "todo dia",
+  "todos os dias"
+ ],
+ "weekly_lead": [
+  "cada",
+  "each",
+  "every",
+  "toda",
+  "todas",
+  "todas as",
+  "todo",
+  "todos",
+  "todos os"
+ ],
+ "weekly_plain": [
+  "every week",
+  "semanal",
+  "semanalmente",
+  "toda semana",
+  "todas as semanas",
+  "weekly"
+ ],
+ "unsupported": [
+  "a cada",
+  "alternate",
+  "annually",
+  "anual",
+  "anualmente",
+  "bimestral",
+  "bimonthly",
+  "biweekly",
+  "dias uteis",
+  "each other",
+  "every fortnight",
+  "every month",
+  "every other",
+  "every weekday",
+  "every weekend",
+  "every year",
+  "fins de semana",
+  "fortnightly",
+  "mensal",
+  "mensalmente",
+  "monthly",
+  "quarterly",
+  "quinzenal",
+  "quinzenalmente",
+  "semestral",
+  "toda quinzena",
+  "todo ano",
+  "todo mes",
+  "todos os anos",
+  "todos os meses",
+  "trimestral",
+  "twice a week",
+  "weekdays",
+  "weekends",
+  "yearly"
+ ],
+ "end": [
+  "ate",
+  "durante",
+  "encerra",
+  "ends",
+  "termina",
+  "through",
+  "times",
+  "until",
+  "vezes"
+ ],
+ "occurrence": [
+  "apenas",
+  "da proxima",
+  "de amanha",
+  "de hoje",
+  "dessa",
+  "dessa semana",
+  "dessa vez",
+  "desta",
+  "desta semana",
+  "do dia",
+  "essa semana",
+  "essa vez",
+  "esta semana",
+  "just",
+  "next",
+  "only",
+  "so",
+  "so dessa vez",
+  "so essa",
+  "somente",
+  "this time",
+  "this week",
+  "today s",
+  "tomorrow s"
+ ],
+ "series": [
+  "a serie",
+  "all",
+  "de vez",
+  "every",
+  "serie inteira",
+  "the series",
+  "the whole series",
+  "toda a serie",
+  "todas",
+  "todos"
+ ],
+ "week_range": [
+  "dessa semana",
+  "desta semana",
+  "essa semana",
+  "esta semana",
+  "this week"
+ ],
+ "weekdays": {
+  "MO": [
+   "monday",
+   "mondays",
+   "segunda",
+   "segunda feira",
+   "segundas",
+   "segundas feiras"
+  ],
+  "TU": [
+   "terca",
+   "terca feira",
+   "tercas",
+   "tercas feiras",
+   "tuesday",
+   "tuesdays"
+  ],
+  "WE": [
+   "quarta",
+   "quarta feira",
+   "quartas",
+   "quartas feiras",
+   "wednesday",
+   "wednesdays"
+  ],
+  "TH": [
+   "quinta",
+   "quinta feira",
+   "quintas",
+   "quintas feiras",
+   "thursday",
+   "thursdays"
+  ],
+  "FR": [
+   "friday",
+   "fridays",
+   "sexta",
+   "sexta feira",
+   "sextas",
+   "sextas feiras"
+  ],
+  "SA": [
+   "sabado",
+   "sabados",
+   "saturday",
+   "saturdays"
+  ],
+  "SU": [
+   "domingo",
+   "domingos",
+   "sunday",
+   "sundays"
+  ]
+ }
+}

@@ -56,6 +56,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/ops_interpret.py --he
 """
 from __future__ import annotations
 
+import datetime
 import importlib
 import os
 import re
@@ -74,6 +75,7 @@ import ops_natural
 import phone_refusal
 import phrases
 import plan_confirm
+import recurrence
 import turn_gate
 
 CHANNEL = "messaging"
@@ -328,16 +330,44 @@ def _day_read(span: str, now) -> dict:
     return {"kind": kind, "value": value.isoformat() if kind == "day" else value, "today": now.date().isoformat(), "zone": zone}
 
 
+def _repeat(decision: dict, said: str, time_):
+    """("daily" | "weekly" | None, whether the line is understood) for a new event (CB-7, limits L54 and L61). A line that holds a repetition phrase of the closed lists (or that the time engine
+    says repeats) and has none read by code opens NO card: never one event with "toda segunda" in its title. A repetition is read when ALL hold: the model named the span of the line that
+    holds it (the slot `repeat`, from catalog version 2), the time is one the time engine read, `recurrence.read` reads that span AND the whole line as the same daily or weekly
+    repetition (a weekly one on the weekday of the start; no end, no interval, no second weekday), and the title span holds no repetition phrase. The weekday of the start is the engine's."""
+    spans = decision.get("spans") or {}
+    span = spans.get("repeat")
+    mentioned = recurrence.mentions(said)
+    if not span and not mentioned:
+        return None, True
+    start = None
+    if isinstance(time_, dict) and time_.get("source") == "code" and isinstance(time_.get("local"), str):
+        try:
+            start = datetime.date.fromisoformat(time_["local"][:10]).weekday()
+        except ValueError:
+            start = None
+    read = recurrence.read(span, start) if span and start is not None else None
+    if read is None or recurrence.read(said, start) != read or recurrence.mentions(spans.get("title") or ""):
+        return None, False
+    return read["freq"], True
+
+
 def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> tuple:
     """An operation the check believed: a write opens its card through its family (a seed of the time when the model gave one; an event to change or cancel found by the
     words of the line, runtime/event_lookup.py), every other class goes through the dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
     op, time_ = decision["op"], decision.get("time")
     if natural.class_of(op) == "E":
         writes = importlib.import_module("ops_natural_writes")
+        repeat = None
+        if op == "event-create":
+            repeat, understood = _repeat(decision, said, time_)
+            if not understood:      # a repetition the line says and code cannot read opens no event, one or many (scenario 20)
+                extras["stored"] = phrases.text("NW_PRIVATE_REPLY", ctx["cfg"])
+                return _said(phrases.text("RECUR_NOT_READ", ctx["cfg"]), extras)
         if op == "event-create" and time_:
             local = time_["local"]
-            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""},
-                                  {"start": turn_gate.time_origin(time_), "title": "line-span"})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds
+            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or "", **({"repeat": repeat} if repeat else {})},
+                                  {"start": turn_gate.time_origin(time_), "title": "line-span", **({"repeat": "time-engine"} if repeat else {})})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds; a repetition is the code's (CB-7)
             sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
             if sentence:
                 return _said(sentence, extras)

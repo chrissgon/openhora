@@ -71,6 +71,8 @@ def sentence(item, result, cfg=None):
         service = _service(CALENDAR_SERVICE, result.get("account"), cfg)
         if operation == "cancel":
             return phrases.text("OUT_CAL_CANCEL", cfg, service=service)
+        if operation in ("cancel-series", "cancel-occurrence"):      # CB-7: the whole series, or only one occurrence with the series staying, said in words
+            return phrases.text("OUT_CAL_CANCEL_SERIES" if operation == "cancel-series" else "OUT_CAL_CANCEL_OCCURRENCE", cfg, service=service)
         shown = _card_fields(item)
         key = "OUT_CAL_CREATE" if operation == "create" else "OUT_CAL_CHANGE" if operation == "change" else None
         if key is None:
