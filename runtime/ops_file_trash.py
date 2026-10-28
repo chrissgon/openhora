@@ -188,7 +188,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
         notes = ([phrases.text("FR_FOLDER_MISSING", cfg, folder=got["folder_missing"])] if got.get("folder_missing") else []) + ([phrases.text("FR_INCOMPLETE", cfg)] if got.get("incomplete") else [])
         return text + "".join("\n\n" + n for n in notes) if extras.get("resend") else text      # a card that was opened says what the search could not see; a refusal says only itself
     if got["status"] == "several" and channel == "messaging":
-        reader._remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), purpose="trash")
+        reader._remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), purpose="trash", whole=got["count"] <= len(got["refs"]))
     return _render(cfg, got, channel == "messaging")
 
 

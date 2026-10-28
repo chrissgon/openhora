@@ -33,8 +33,7 @@ place of the list as it was printed (the files are numbered 1..k, so a position 
 against the printed places, in `_place`, so a pick is always one of the files the list showed this sender, in the list that is the last thing said, and from there it goes exactly as its number goes
 (the same checks of the right to read, of the grant and of the group `send-files`; a list for the trash or for a question opens that card or runs that question). What is NOT a pick of a file: a
 verb with it ("lê o primeiro"), a value the list shows (a clock, a day, an account, a sender: the list shows names and folders, OPEN-LP-7), a place beyond the list, a longer request, and "a última"
-when the list printed fewer files than fit (the sentence said "N arquivos" and showed 8: the last file of the list is not the last row printed, so the line goes on as before). Only the
-list of `file-read` says it printed every file (`whole`); the lists for the trash and for a question do not say so yet, so "a última" is not taken there. No interpreter slot, plan item or card word ever receives a number that the line did not write.
+when the list printed fewer files than fit (the sentence said "N arquivos" and showed 8: the last file of the list is not the last row printed, so the line goes on as before). Each list says whether it printed every file that fit (`whole`: the lists of `file-read`, of the trash and of a question). No interpreter slot, plan item or card word ever receives a number that the line did not write.
 
 The read goes through the providers of `integration:documents` that already read the files of a source (`sources.drive_call`, `sources_onedrive.onedrive_call`: `read`,
 with `children` for the listing), the same intake, the same converter and the same credential scan (limit L14) as a source, and registers nothing: no source, no version,
