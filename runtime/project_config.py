@@ -390,6 +390,9 @@ def _check_assigned(where: str, channel: str, groups: list, profile: str | None,
     if "files-trash" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'files-trash' needs 'read-files' beside it "
                           "(it finds the file by its name and lists names, as reading files does, so a policy that only trashes is refused)")
+    if channel == "messaging" and "read-mail-body" in groups and "ask-mail" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'read-mail-body' needs 'ask-mail' beside it "
+                          "(it shows the text of the messages that the right to read your mail snapshots reaches, so a policy that lists it alone is refused)")
     if channel in operations.MUST_READ and "read" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}must list the group 'read' (the {channel} reads what it shows)")
 

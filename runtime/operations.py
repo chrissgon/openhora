@@ -757,6 +757,19 @@ OPERATIONS = (
                  "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)",
                  "about": "Choose this to show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists; file is the name as the line writes it, service only when the line says Google Drive or OneDrive. Not a mail message.",
                  "slots": {"file": {"kind": "span", "param": "file", "since": 1}, "service": {"kind": "word", "param": "account", "since": 1}}}},
+    # CB-3: the text of ONE message of the mail snapshots, by its number or by words of its sender or subject (runtime/ops_mail_read.py). A read: nothing is written and no model reads the
+    # message, whose words are another person's: they are shown to the channel that asked and the conversation keeps a neutral word. The group `read-mail-body` is in no default policy, is
+    # given only by `accept-config --widen`, needs `ask-mail` beside it on a messaging app (project_config) and is never on the MCP mode (this row does not list it).
+    {"name": "mail-read", "call": "mail_read",
+     "args": ({"name": "message", "kind": "str", "label": "<source>#<n>"}, {"name": "number", "kind": "int"}, {"name": "match", "kind": "str"},
+              {"name": "day", "kind": "str"}, {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "show the text of ONE message of the newest snapshot of a mail source, as the sender wrote it (the words are another person's, cleaned, links replaced, at most 4,000 characters, 1,500 on a phone): --message <source>#<n> or --number <n> names it by its number, --match <words> by words of its sender or subject (with --day <day> for the day it came), --account google|microsoft narrows the boxes; two boxes with the number, or several matches, are listed to choose from, and the reply never picks one. Nothing is written, sent or read by a model; a messaging sender needs the groups read-mail-body and ask-mail",
+     "natural": {"class": "R", "since": 2, "order": 100, "privacy": "account", "cost": "provider",
+                 "what": "show the text of one e-mail of the mail snapshots, by its number or by words of its sender or subject (the number is written in the line; the words are the target span; the day the e-mail came is the day span; the service word only when the line says Gmail or Outlook)",
+                 "about": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
+                 "slots": {"message": {"kind": "int", "param": "number", "since": 2}, "target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day", "since": 2},
+                           "service": {"kind": "word", "param": "account", "since": 2}}}},
     # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
     # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
     {"name": "research", "call": "research",
@@ -1050,6 +1063,10 @@ GROUPS = {
     # `read-files` beside it (project_config refuses a policy that lists it alone). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the MCP mode. The whole file leaves the drive for the messaging app's servers.
     "send-files": {"operations": ("file-read",), "kind": "send"},
+    # CB-3: the whole text of ONE e-mail of the mail snapshots, shown in the chat (runtime/ops_mail_read.py; the maintainer's decision of 2026-10-27, OPEN-CB-5). A group of its own: `ask-mail` is not widened or
+    # re-worded and grants nothing of it. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with `accept-config --widen`, and project_config refuses a messaging
+    # policy that lists it without `ask-mail` beside it (the reader of the person's own mailbox). Never on the MCP mode (the row does not list it). Valid on the page and the terminal inside their ceiling.
+    "read-mail-body": {"operations": ("mail-read",), "kind": None},
     # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the page or the MCP mode (the row does not list them). It reads and answers; it writes nothing, opens no card and sends nothing but the question, to a search service and a model.
     "research": {"operations": ("research",), "kind": None},
@@ -1165,6 +1182,7 @@ GROUP_TEXT = {
     "read-files": "shows the text of the files in your configured Drive and OneDrive folders in the chat, found by their names; a messaging app's servers see it as they see any message, and no model reads it",
     "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
+    "read-mail-body": "shows in the chat the text of a message of your mail snapshots that you ask for (the sender's own words, up to 1,500 characters): the messaging app's servers see it; no model reads it (adds to ask-mail)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
 }

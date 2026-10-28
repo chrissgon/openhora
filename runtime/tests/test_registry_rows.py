@@ -99,8 +99,8 @@ def test_the_views_equal_the_literals_they_replace():
     assert operations.LINE_CATALOG == 1
     assert views_hashes(1) == pinned_views()
     assert hashes_of(natural.CLASSES, natural.NATURAL) == pinned_views()
-    assert list(natural.CLASSES) == list(natural.NATURAL), "the classes are in the order of the table"
-    assert len(natural.CLASSES) == len(natural.NATURAL) == 99 == len(operations.OPERATIONS)
+    assert [op for op in natural.CLASSES if op in natural.NATURAL] == list(natural.NATURAL), "the classes are in the order of the table"      # CB-3: a row of a later catalog version has a class and no row of the table
+    assert len(natural.NATURAL) == 99 and len(natural.CLASSES) == len(operations.OPERATIONS) >= 99
 
 
 def test_vacuity_a_changed_class_a_changed_order_or_a_new_v1_slot_moves_the_pinned_hashes(monkeypatch):
@@ -179,7 +179,10 @@ def test_the_catalog_of_version_2_prints_without_writing_and_words_each_row_with
     assert done.stderr.strip() == sha(printed)
     assert (RUNTIME / "interpreter_catalog.json").read_bytes() == before, "printing writes nothing"
     about = {rec["op"]: rec["about"] for rec in registry.rows(2)}
-    assert [r["op"] for r in printed["ops"]] == [r["op"] for r in catalog.generate(version=1)["ops"]], "no row of version 2 exists yet: the same operations in the same order"
+    first = [r["op"] for r in catalog.generate(version=1)["ops"]]
+    later = [r["op"] for r in printed["ops"] if r["op"] not in first]
+    assert [r["op"] for r in printed["ops"] if r["op"] in first] == first, "the operations of version 1 keep their order"
+    assert later and set(later) == {r["op"] for r in registry.rows(2) if r["since"] == 2 and r["class"] in ("R", "N", "W", "E")}, "version 2 adds the served rows of version 2, and only those"
     assert all(row["what"] == about[row["op"]] for row in printed["ops"] + printed["refused"])
     wrong = subprocess.run([sys.executable, str(RUNTIME / "interpreter_catalog.py"), "--version", "2", "--check"], capture_output=True, text=True, timeout=60)
     assert wrong.returncode == 2, "a version goes with --print only"
@@ -316,7 +319,7 @@ def test_vacuity_a_slot_the_gate_does_not_declare_is_refused_not_guessed(monkeyp
 def test_rows_row_and_the_fields_read_the_records_and_give_copies(monkeypatch):
     rows = registry.rows()
     assert [rec["op"] for rec in rows] == list(natural.NATURAL), "the served order is the table's order"
-    assert [rec["op"] for rec in registry.rows(2)] == [rec["op"] for rec in rows], "version 2 has the same rows until a package adds one"
+    assert [rec["op"] for rec in registry.rows(2) if rec["since"] == 1] == [rec["op"] for rec in rows], "version 2 has the rows of version 1, in their order, and the rows a package added at version 2"
     whole = registry.row("event-change")
     assert whole["class"] == "E" and whole["slots"]["target"] == {"kind": "span", "param": "target", "since": 1}
     assert registry.row("nothing") is None and registry.privacy("nothing") is None and registry.cost("nothing") is None and registry.about("nothing") is None

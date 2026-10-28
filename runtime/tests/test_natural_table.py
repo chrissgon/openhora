@@ -51,7 +51,8 @@ def forms():
 def test_every_operation_of_the_table_has_a_row_and_one_class_so_that_nothing_is_left_unclassified():
     missing = sorted(OPS - set(natural.CLASSES))
     assert not missing, f"operations with no class in runtime/natural.py CLASSES: {missing}"
-    assert not sorted(OPS - set(natural.NATURAL)), "operations with no row in NATURAL"
+    later = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] > operations.LINE_CATALOG}      # CB-3: a row of a later catalog version has a class and no row of NATURAL until the flip
+    assert not sorted(OPS - later - set(natural.NATURAL)), "operations with no row in NATURAL"
     assert set(natural.CLASSES) == OPS, sorted(set(natural.CLASSES) ^ OPS)      # a class for something that is not an operation: nothing is planned any more
     served = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] <= operations.LINE_CATALOG}      # CB-0: what a line may reach; a row of a later catalog version has a class and no line row
     assert set(natural.NATURAL) == served and served <= set(natural.CLASSES)
@@ -91,7 +92,7 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
     for name in R - {"research"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
-        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files")), name
+        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body")), name
     # R2-F1: `research` is the one read that calls a model (a web search run by the research skill). It changes nothing and reads nothing of the person's, and it has a group of its own,
     # in no default policy, so that no sender gets it from a group that was granted for another reason.
     row = operations.by_name("research")
