@@ -221,7 +221,7 @@ channel and line, and the served catalog.
 ## Running the measurement
 
 The harness is `runtime/interpreter_measure.py` (package IX-2c; the arms, the mapping and what it cannot measure are in `docs/architecture/platform/runtime.md`, "The interpreter's
-measurement"). It makes the only model calls of the experiment, through `runtime/interpreter_route.py`; every command below that is not a replay or a test needs the maintainer's own
+measurement"). Since BL7-4 its mapping observes a believed mail write as the product carries it out (`interpreter_pipeline.mail_step`, mirroring `ops_interpret._carry_out`, proved by `runtime/tests/test_interpreter_card_parity.py`): `clarify` where the product asks for a recipient, a body, a folder or a state or says it could not prepare the write, `card` where it opens one. A replay of the recorded answers therefore gives other counts than the ones published: the published counts and every evidence file never change, and the REPLAY literals of the replay tests (`test_interpreter_blind_replay.py`, `test_interpreter_blite_replay.py`, `test_interpreter_blite2_replay.py`, `test_interpreter_replay_gate.py`) carry the counts of the current code, each with its reason. It makes the only model calls of the experiment, through `runtime/interpreter_route.py`; every command below that is not a replay or a test needs the maintainer's own
 go-ahead for the calls it makes. Run from a checkout of the integration branch, never the live one.
 
 ```

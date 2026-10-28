@@ -50,7 +50,7 @@
     "route_acct_haiku_4_5": "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02",
     "route_acct_sonnet_5_5": "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b",
     "route_or_deepseek_v4_1_flash": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
-    "route_or_gemini_3_5_flash_lite": "d6c0cc655c62ac9a02706f109022aed4520a57f221f0bdc96beed79406f2d706",
+    "route_or_gemini_3_5_flash_lite": "30af746728a31cfed29323e8c260b0a2ed4a3cfd278fbb536e7a300394c62da2",
     "route_or_gpt_6_luna": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
     "scheduler_legacy_one_shot_digest": "00c3c13de6c9aa168a5ab098078ec9d03691e7461183c08f2b676e60ec23656e",
     "scheduler_legacy_recurring_digest": "43223010e49d0e71239f533a0e7087da4561e20116d26b6eb3a64b3581bb48cb"

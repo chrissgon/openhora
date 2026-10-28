@@ -730,17 +730,65 @@ def test_the_effect_of_an_outlook_removal_passes_the_document_check_and_the_pref
     assert calendar_document.provider_args(doc, None) == ["--calendar", "default", "--event", GRAPH_SEEDED, "--base-etag", doc["base_etag"], "--idempotency-key", doc["idempotency_key"]]
 
 
+def _zone_doc(account="microsoft", operation="create", zone="America/Sao_Paulo", day=False, edit=("title",)):
+    """A checked document for provider_args: a timed (or all-day) event, as a create, a change of `edit` fields, or a removal."""
+    times = calendar_document.times
+    when = times("2026-10-19", None) if day else times("2026-10-19T13:00", None)
+    event = calendar_document.event_of(TITLE, "", None, "", when)
+    base = dict(task_id=7, account=account, address=fgc.ADDRESS, calendar="personal", calendar_id="default", operation=operation, zone=zone, dry_run_sha256="a" * 64)
+    if operation == "create":
+        return calendar_document.document(**base, event=event)
+    base.update(event_id="AAMkEvent9999=", base_etag="ck1", read_at="2026-10-19T12:00:00Z")
+    if operation == "cancel":
+        return calendar_document.document(**base, before=event)
+    after = dict(event)
+    if "title" in edit:
+        after["title"] = "Moved"
+    if "when" in edit:
+        later = times("2026-10-20", None) if day else times("2026-10-20T09:00", None)
+        after.update({k: later[k] for k in ("all_day", "start", "end", "start_at", "end_at")})
+    return calendar_document.document(**base, before=event, event=after, changed=calendar_document.changed_fields(event, after))
+
+
+def _flag(argv):
+    return argv[argv.index("--time-zone") + 1] if "--time-zone" in argv else None
+
+
+def test_the_outlook_writer_gets_the_hosts_zone_for_a_timed_create_and_for_a_change_of_times_only(tmp_path):
+    spec = str(tmp_path / "spec.json")
+    create_args = calendar_document.provider_args(_zone_doc(), spec)
+    assert create_args == ["--calendar", "default", "--spec-file", spec, "--idempotency-key", _zone_doc()["idempotency_key"], "--time-zone", "America/Sao_Paulo"]
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("when",)), spec)) == "America/Sao_Paulo"
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("title", "when"), zone="Europe/Lisbon"), spec)) == "Europe/Lisbon"
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("title",)), spec)) is None, "a change with no times writes no zone"
+
+
+def test_the_zone_flag_is_not_given_for_google_a_removal_an_all_day_event_or_an_offset_zone(tmp_path):
+    spec = str(tmp_path / "spec.json")
+    google = _zone_doc(account="google")
+    assert _flag(calendar_document.provider_args(google, spec)) is None and "--time-zone" not in calendar_document.provider_args(google, spec)
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="cancel"), None)) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(day=True), spec)) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", day=True, edit=("when",)), spec)) is None
+    for offset in ("UTC-03:00", "UTC+05:30", "Local"):
+        assert _flag(calendar_document.provider_args(_zone_doc(zone=offset), spec)) is None, offset
+    assert _flag(calendar_document.provider_args(_zone_doc(zone="Etc/GMT+12"), spec)) == "Etc/GMT+12"
+    # vacuity: the helper does see a flag when there is one, and the flag is exactly the document's zone, never anything else
+    assert _flag(["--time-zone", "Zone/Planted"]) == "Zone/Planted" and _flag(["--calendar", "default"]) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(zone="Europe/Lisbon"), spec)) != "America/Sao_Paulo"
+
+
 # --- Outlook: a create and a change -------------------------------------------------------------------------------------------------------------
 
 
-def test_an_outlook_create_is_one_post_in_utc_with_no_attendee_and_the_card_says_so(world):
+def test_an_outlook_create_is_one_post_in_the_hosts_zone_with_no_attendee_and_the_card_says_so(world):
     started = create(world, "microsoft", **PIECES)
     assert world["graph"].requests == [] and item_of(world, started)["body"].splitlines()[1] == f"Account: microsoft ({fgc.ADDRESS})"
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["event_id"] == "AAMkEvent0001="
     [(method, path, query, body)] = [(r["method"], r["path"], r["query"], r["body"]) for r in world["graph"].graph_requests()]
     assert (method, path, query) == ("POST", GRAPH_EVENTS, {})
-    assert body["subject"] == TITLE and body["start"] == {"dateTime": "2026-10-19T16:00:00", "timeZone": "UTC"} and "attendees" not in body
+    assert body["subject"] == TITLE and body["start"] == {"dateTime": "2026-10-19T13:00:00", "timeZone": "America/Sao_Paulo"} and "attendees" not in body
     assert body["singleValueExtendedProperties"] == [{"id": fgc.KEY_PROPERTY, "value": effect_doc(world, started)["idempotency_key"]}]
     assert len(world["graph"].token_forms) == 1 and world["google"].requests == [] and world["graph"].unexpected() == []
 
@@ -758,7 +806,7 @@ def test_an_outlook_change_reads_the_event_compares_the_change_key_and_sends_one
     sent = [(r["method"], r["path"]) for r in world["graph"].graph_requests()]
     assert sent == [("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"), ("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"), ("PATCH", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}")]
     patch = world["graph"].graph_requests()[-1]["body"]
-    assert patch["subject"] == "Dentist (moved)" and patch["start"] == {"dateTime": "2026-10-20T12:00:00", "timeZone": "UTC"} and "attendees" not in patch
+    assert patch["subject"] == "Dentist (moved)" and patch["start"] == {"dateTime": "2026-10-20T09:00:00", "timeZone": "America/Sao_Paulo"} and "attendees" not in patch
     assert world["graph"].events[GRAPH_SEEDED]["subject"] == "Dentist (moved)" and world["graph"].unexpected() == []
 
 

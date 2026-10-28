@@ -14,7 +14,7 @@ later package lets the two overlap in outcome, the test fails and the order must
 (4) The corpus lines the spec names: a "no" with a card last while a search runs rejects the card and leaves the search running (the card words go before the brake); a "stop" stops the search and leaves the
 card open; a greeting that is also a yes ("beleza", "tudo bem", "ok, beleza") OKs a plan that is the last message, and a greeting in question form ("oi, tudo bem?", "tudo bem?") never does: it is the greeting
 (the maintainer's decision of 2026-10-26, DECISIONS.md, package L64H; the golden rows of the two question forms with the plan last were re-recorded for it), and with the plan not last all five are as recorded.
-(5) The envelope is read once: over the corpus, no ledger record of the same message is read twice in one dispatch, and at most two messages (the one replied to and the last) are read; with the memo
+(5) The envelope is read once (`envelope_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`; the vacuity without the memo and the size of the set are here): over the corpus, no ledger record of the same message is read twice in one dispatch, and at most two messages (the one replied to and the last) are read; with the memo
 taken away the same scenarios read twice (vacuity); a record that was not found is never kept. The envelope does not keep `last_sent`: the kind `plan-confirm` reads the last record when it acts, so a
 message sent after the line was read ends the OK (a barrier test). The kind `decision-card-word` reads `last_sent` once, when it takes the line, and `word_act` reads it again just before the act
 (`Bridge.still_last`, package L64H), as `plan_decide` does for a yes: a message sent between the two decides nothing (test_messaging_word_barrier.py, test_messaging_plan_greeting.py).
@@ -185,15 +185,26 @@ def test_the_two_reminder_questions_are_disjoint_by_the_mark_and_their_swap_is_n
     assert not to.changed(swapping("reminder-draft", "reminder-expired"), scenarios, tmp_path), "the two kinds never read the same line, so their order is no outcome"
 
 
-def test_the_ok_of_a_plan_and_the_card_words_read_the_same_word_and_never_take_the_same_line(tmp_path):
-    """SPEC-41-2 asked for a swap of the OK of a plan and the card words that changes a scenario. It cannot: the two read the same word (a "sim" is a yes and an approve), and their `take`s are
-    disjoint by their own conditions, not by their place. `plan-confirm` takes only a ledger record of kind `plan-confirm`; `decision-card-word` decides only a decision card (`word_reply` and
-    `word_cards` refuse every kind of `NOT_DECISION`, which holds `plan-confirm`) and, with a plan that waits and a card sent after it, answers `PLAN_TWO_OPEN` without deciding. This test records the
-    finding on every scenario either takes, and on every scenario where both read the word (at least 20 of them): the swap changes none."""
-    _, recorded = rp.golden()
+def plan_and_card_candidates() -> list:
+    """The scenarios either of the OK of a plan and the card words takes, with the pre-states the two tests below need (at least 40 of them)."""
     scenarios = candidates("plan-confirm", "decision-card-word")
     assert len(scenarios) >= 40 and {s["prestate"] for s in scenarios} >= {"plan_last", "plan_not_last", "plan_then_card", "card_last", "two_cards"}
+    return scenarios
+
+
+def test_the_ok_of_a_plan_and_the_card_words_both_read_the_word_in_many_scenarios(tmp_path):
+    """SPEC-41-2 asked for a swap of the OK of a plan and the card words that changes a scenario. It cannot: the two read the same word (a "sim" is a yes and an approve), and their `take`s are
+    disjoint by their own conditions, not by their place. SLOW-1 split the one test that held this and the swap below in two (the same work, half the longest item): this half is "on every scenario
+    where both read the word (at least 20 of them)"."""
+    scenarios = plan_and_card_candidates()
     assert len([s for s in scenarios if {"plan-confirm", "decision-card-word"} <= set(applying(s, tmp_path))]) >= 20, "both read the word in many scenarios"
+
+
+def test_the_ok_of_a_plan_and_the_card_words_swap_changes_no_scenario(tmp_path):
+    """The other half of the finding: `plan-confirm` takes only a ledger record of kind `plan-confirm`; `decision-card-word` decides only a decision card (`word_reply` and `word_cards` refuse every
+    kind of `NOT_DECISION`, which holds `plan-confirm`) and, with a plan that waits and a card sent after it, answers `PLAN_TWO_OPEN` without deciding. On every scenario either takes, the swap
+    changes none."""
+    scenarios = plan_and_card_candidates()
     assert not to.changed(swapping("plan-confirm", "decision-card-word"), scenarios, tmp_path)
 
 
@@ -258,12 +269,14 @@ def test_a_greeting_that_is_a_yes_oks_a_plan_that_is_last_and_a_greeting_questio
 # --- the envelope is read once ----------------------------------------------------------------------------------------------------------------------
 
 
-def reads_of(scenario, tmp_path, memo=True) -> list:
-    """The `(chat, message id)` of every ledger read that found a record, which this scenario's own dispatch makes (the thread that delivers the line), with the turn's memo as it is or taken away."""
-    seen, handling, mine = [], [], threading.current_thread()
-    real, real_handle = messaging_ledger.Ledger.by_message, messaging_bridge.Bridge._handle
+def envelope_hook(seen, memo=True):
+    """A hook that records in `seen` the `(chat, message id)` of every ledger read that found a record, which this scenario's own dispatch makes (the thread that builds the hook is the one that delivers the
+    line), with the turn's memo as it is or taken away."""
+    handling, mine = [], threading.current_thread()
 
     def hook(mp):
+        real, real_handle = messaging_ledger.Ledger.by_message, messaging_bridge.Bridge._handle
+
         def by_message(self, chat, message_id):
             found = real(self, chat, message_id)
             if found is not None and threading.current_thread() is mine and handling:      # the kit reads the ledger itself before it delivers the line: only what `Bridge._handle` reads is the dispatch's; a record not found is read again on purpose
@@ -280,7 +293,13 @@ def reads_of(scenario, tmp_path, memo=True) -> list:
         mp.setattr(messaging_bridge.Bridge, "_handle", handle)
         if not memo:
             mp.setattr(messaging_turn.Turn, "record", lambda self, message_id: self.bridge.ledger.by_message(self.chat, message_id) if message_id else None)
-    rp.replay(scenario, tmp_path, hook)
+    return hook
+
+
+def reads_of(scenario, tmp_path, memo=True) -> list:
+    """The `(chat, message id)` of every ledger read that found a record, which this scenario's own dispatch makes, with the turn's memo as it is or taken away."""
+    seen = []
+    rp.replay(scenario, tmp_path, envelope_hook(seen, memo))
     return seen
 
 
@@ -290,19 +309,30 @@ def envelope_scenarios() -> list:
     return [s for s in rp.corpus() if s["channel"] == "messaging" and (s["reply_to"] is not None or (frame_names & set(recorded[s["id"]]["trace"])))]
 
 
-def test_the_envelope_is_read_once_no_message_is_read_twice_in_a_dispatch(tmp_path):
-    """Today's chain read the record of the message replied to up to four times (the rewrite of a reply, the OK of a plan, the card words, the change of a card) and the last message's twice; the
-    envelope reads each once. The spy counts the reads of the dispatching thread over the scenarios where a kind reads a record (a reply, a plan, a card, a stop, a change): at most two messages (the
-    one replied to and the last), each read once."""
+def envelope_problems(results, ids) -> list:
+    """Item (5), run once per scenario with the other observers by `test_entry_observed.py`: `results` is `[(scenario, what envelope_hook recorded)]` and `ids` the ids of `envelope_scenarios()`. Today's
+    chain read the record of the message replied to up to four times (the rewrite of a reply, the OK of a plan, the card words, the change of a card) and the last message's twice; the envelope reads
+    each once. The spy counts the reads of the dispatching thread over the scenarios where a kind reads a record (a reply, a plan, a card, a stop, a change): at most two messages (the one replied to
+    and the last), each read once; and the spy sees at least one read in the set it is given (a line reads the record of the message it replies to, or of the last message: in this corpus never
+    both, a reply names its card)."""
+    found, worst = [], 0
+    for scenario, reads in results:
+        if scenario["id"] not in ids:
+            continue
+        if len(reads) != len(set(reads)):
+            found.append(f"{scenario['id']}: a message was read twice in one dispatch: {reads}")
+        if len({message for _, message in reads}) > 2:
+            found.append(f"{scenario['id']}: more than the replied and the last message: {reads}")
+        worst = max(worst, len(reads))
+    if worst < 1:
+        found.append("the spy sees no read: a line reads the record of the message it replies to, or of the last message")
+    return found
+
+
+def test_the_envelope_scenarios_are_enough():
+    """The size of the set `envelope_problems` is run over (no replay): the scenarios where a kind reads a record (a reply, a plan, a card, a stop, a change), at least 100, at least 30 of them replies."""
     scenarios = envelope_scenarios()
     assert len(scenarios) >= 100 and len([s for s in scenarios if s["reply_to"] is not None]) >= 30
-    worst = 0
-    for scenario in scenarios:
-        reads = reads_of(scenario, tmp_path)
-        assert len(reads) == len(set(reads)), f"{scenario['id']}: a message was read twice in one dispatch: {reads}"
-        assert len({message for _, message in reads}) <= 2, f"{scenario['id']}: more than the replied and the last message: {reads}"
-        worst = max(worst, len(reads))
-    assert worst >= 1, "the spy sees the reads: a line reads the record of the message it replies to, or of the last message (in this corpus never both: a reply names its card)"
 
 
 def test_vacuity_without_the_memo_the_same_scenarios_read_a_message_twice(tmp_path):

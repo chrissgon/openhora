@@ -3,7 +3,7 @@
 WHAT IS CHECKED. (1) The table is well formed: names are unique, each row of the bridge stages has a row of code in `messaging_turn` and each row of code a name (the stage `ops` is read by runtime/tests/test_ops_turn.py), the bridge names are the ones the entry kit's trace uses, the module is pure data
 (standard library only; AST), the dispatcher reaches no operations module (AST). (2) The dispatcher behaves as the chain it replaced: the first row that takes a line ends the dispatch, an exception
 of a row propagates and `Bridge.handle_safely` logs it and nothing after it runs. (3) Every row is load-bearing: with its code replaced by "takes nothing", at least one scenario of the entry corpus
-no longer has the outcome of the golden (a row no scenario needs is a corpus gap, reported, never a pass). (4) The row `frame` is load-bearing (the order of its kinds, in runtime/tests/test_frame_dispatch.py: limits L64 and L65). (5) The trace the table gives (`messaging_turn.TRACE`) is the trace the kit records by wrapping the methods, on every messaging scenario. (6) S41-8: the seven claimers that answered what is open
+no longer has the outcome of the golden (a row no scenario needs is a corpus gap, reported, never a pass). (4) The row `frame` is load-bearing (the order of its kinds, in runtime/tests/test_frame_dispatch.py: limits L64 and L65). (5) The trace the table gives (`messaging_turn.TRACE`) is the trace the kit records by wrapping the methods, on every messaging scenario (`bridge_trace_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`). (6) S41-8: the seven claimers that answered what is open
 are the kinds of the one row `frame` (`FRAME_KINDS`): names unique, each with code that has `applies` and `take`, the seven retired names named with their replacement; the kinds' own tests (the
 order of adjacent kinds, each kind load-bearing, the envelope read once) are runtime/tests/test_frame_dispatch.py.
 
@@ -36,7 +36,6 @@ FRAME_ROW = "frame"
 FRAME_TRACE = tuple(ek.FRAME_KIT_NAMES[kind] for kind in turn_order.kinds())      # the names the kit's trace and the golden give the claimers the row `frame` took over
 FINAL = {"bridge": "say", "bridge-say": "say-queue", "ops": "planning-agent"}      # the last row of a stage always takes the line
 BRIDGE_STAGES = ("bridge", "bridge-say")      # the stages `messaging_turn` dispatches; the stage `ops` is dispatched by `ops_turn` (test_ops_turn.py)
-SHARDS = rp.SHARDS
 
 
 # --- the table is well formed ------------------------------------------------------------------------------------------------------------------------
@@ -193,6 +192,9 @@ class Double:
     def project_of(self, sender, listed):
         return listed[0]
 
+    def sentences_for(self, chat, project=None):      # TT-2: the scope of the sender's sentence language; none is read here
+        return contextlib.nullcontext()
+
     def write_open(self, project, chat):
         return False
 
@@ -297,26 +299,29 @@ def test_the_last_row_of_a_stage_always_takes_the_line(stage):
 # --- the table's trace is the kit's trace --------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("shard", range(SHARDS))
-def test_the_table_trace_equals_the_wrapped_trace(shard, tmp_path):
-    """On every messaging scenario of the corpus the rows that took the line, in the two stages, are the claimers the kit's wrappers recorded in the golden (the kit's marker of a reply to a card
-    is the rewrite the row `reply-to-card` made, or the line was claimed before that row)."""
-    _, recorded = rp.golden()
+def bridge_trace_hook(got):
+    """A hook that records, in `got`, `(name, rewritten)` of every row of the bridge that took the line, through `messaging_turn.TRACE`, on the thread that builds the hook (the one that replays the
+    scenario): a typed line handed back by a job is another dispatch, on another thread, and the kit's first-event rule reads the first claim of the update."""
+    mine = threading.current_thread()
+
+    def trace(name, turn):
+        if threading.current_thread() is mine:
+            got.append((ek.FRAME_KIT_NAMES[turn.frame_kind] if name == FRAME_ROW else name, turn.rewritten))
+
+    def hook(mp):
+        mp.setattr(messaging_turn, "TRACE", trace)
+    return hook
+
+
+def bridge_trace_problems(results, recorded) -> list:
+    """Item (5), run once per scenario with the other observers by `test_entry_observed.py`: `results` is `[(scenario, what bridge_trace_hook recorded)]`; `recorded` is the golden. On every messaging
+    scenario of the corpus the rows that took the line, in the two stages, are the claimers the kit's wrappers recorded in the golden (the kit's marker of a reply to a card is the rewrite the row
+    `reply-to-card` made, or the line was claimed before that row)."""
     bridge_names, say_names = set(read_as_claimers(turn_order.names("bridge"))), set(turn_order.names("bridge-say"))      # the row `frame` is the seven claimers it took over: its trace names the kind
     wrong, count = [], 0
-    for scenario in rp.shard_of(rp.corpus(), shard):
+    for scenario, got in results:
         if scenario["channel"] != "messaging":
             continue
-        got = []
-        mine = threading.current_thread()
-
-        def trace(name, turn, got=got, mine=mine):
-            if threading.current_thread() is mine:      # a typed line handed back by a job is another dispatch, on another thread: the kit's first-event rule reads the first claim of the update
-                got.append((ek.FRAME_KIT_NAMES[turn.frame_kind] if name == FRAME_ROW else name, turn.rewritten))
-
-        def hook(mp, trace=trace):
-            mp.setattr(messaging_turn, "TRACE", trace)
-        rp.replay(scenario, tmp_path, hook)
         count += 1
         first_bridge = next(((n, r) for n, r in got if n in bridge_names), None)
         first_say = next((n for n, _ in got if n in say_names), None)
@@ -324,4 +329,7 @@ def test_the_table_trace_equals_the_wrapped_trace(shard, tmp_path):
         kit = [n for n in recorded[scenario["id"]]["trace"] if n in bridge_names or n in say_names]
         if table != kit:
             wrong.append(f"{scenario['id']}: table {table}, wrapped {kit}")
-    assert count and not wrong, f"{len(wrong)} of {count} scenarios of shard {shard} have another trace:\n" + "\n".join(wrong[:12])
+    found = list(wrong)
+    if not count:
+        found.append("no messaging scenario was seen")
+    return found

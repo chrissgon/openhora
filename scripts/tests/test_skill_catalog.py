@@ -302,7 +302,7 @@ def test_smoke_on_the_real_tree_with_the_real_status(tmp_path):
     assert len(entries(done.stdout, "flow")) == len(list((ROOT / "flows").glob("*.json")))
     assert len(entries(done.stdout, "planned")) >= 1
     contained = [l for l in entries(done.stdout, "skill") if "runtime: contained" in l]
-    assert sorted(re.search(r"`([^`]+)`", l).group(1) for l in contained) == ["mkt-engage", "mkt-vote-round"]
+    assert sorted(re.search(r"`([^`]+)`", l).group(1) for l in contained) == ["asst-answer", "mkt-engage", "mkt-vote-round"]
 
 
 def test_a_status_row_with_no_models_still_prints_one_line_for_each_gate_model(tree, tmp_path):

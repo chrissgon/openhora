@@ -19,13 +19,16 @@ Sources (Microsoft's own documentation, accessed 2026-10-18; what is not read th
   If-Match): https://learn.microsoft.com/en-us/graph/api/event-delete
 - Extended properties (singleValueExtendedProperties on create and update, and a $filter on them): https://learn.microsoft.com/en-us/graph/api/resources/extended-properties-overview
 - Permissions reference (Calendars.ReadWrite): https://learn.microsoft.com/en-us/graph/permissions-reference
+- The dateTimeTimeZone type (`timeZone` "can be set to any of the time zones currently supported by Windows, as well as the other time zones supported by the calendar
+  API", with a list of IANA names such as America/Sao_Paulo; "create or update might not support all" of them; accessed 2026-10-27):
+  https://learn.microsoft.com/en-us/graph/api/resources/datetimetimezone
 
 Usage:
   uv run providers/writer/outlook-calendar.py --help
   uv run providers/writer/outlook-calendar.py --check
   uv run providers/writer/outlook-calendar.py event-get --calendar <default|id> --event <id>
-  uv run providers/writer/outlook-calendar.py event-create --calendar <default|id> --spec-file <file> --idempotency-key <key> (--dry-run | --confirmed)
-  uv run providers/writer/outlook-calendar.py event-patch --calendar <default|id> --event <id> --base-etag <changeKey> --spec-file <file> --idempotency-key <key> (--dry-run | --confirmed)
+  uv run providers/writer/outlook-calendar.py event-create --calendar <default|id> --spec-file <file> --idempotency-key <key> [--time-zone <IANA name>] (--dry-run | --confirmed)
+  uv run providers/writer/outlook-calendar.py event-patch --calendar <default|id> --event <id> --base-etag <changeKey> --spec-file <file> --idempotency-key <key> [--time-zone <IANA name>] (--dry-run | --confirmed)
   uv run providers/writer/outlook-calendar.py event-delete --calendar <default|id> --event <id> --base-etag <changeKey> --idempotency-key <key> (--dry-run | --confirmed)
 
   --check        refreshes the access token, checks that the account token carries the platform's whole set of permissions, and reads one entry of the calendar list;
@@ -41,6 +44,13 @@ Usage:
                  only if it is the person's alone: organised by them, with no other attendee, not a series (else exit 1, `not eligible:`; nobody is ever told, and a
                  meeting or a series is not removed here). Where the removed event goes is NOT VERIFIED: it may not be recoverable. {"done": true, "replayed", "event_id", "etag": null}.
                  An event that is gone after an answer was lost counts as removed (`replayed`).
+  --time-zone    (event-create and event-patch, optional) the IANA name of the zone the event is written in, for example America/Sao_Paulo: a timed event's `start` and
+                 `end` are then sent as the same instants in that zone's wall time, with `"timeZone": "<name>"`, so the event carries its own named zone (and a series made
+                 later keeps its hour across a clock change). Exit 2 unless the name is an IANA name of the form Area/Place (or Area/Region/Place) that the machine's zone
+                 database knows. A wall time that is ambiguous in the zone (the repeated hour of a clock change), or that does not read back as the same instant, is sent in
+                 UTC as without the flag. An all-day event, and a run without the flag, send what they always sent. The name is a flag, not a spec key: it is not the person's
+                 words (the runtime passes the host's zone). Reads stay in UTC (`Prefer: outlook.timezone="UTC"`): Graph converts, and the same instant comes back.
+                 Microsoft's page lists only some IANA names; a name Graph does not accept is refused by Graph, nothing is written, and the error is reported.
   --dry-run      reads no credential, opens no connection and prints {"dry_run": true, "would": {"method", "path", "query", "headers", "body"}, "would_sha256",
                  "ledger"}: the exact request `--confirmed` sends, and its hash.
   --confirmed    sends exactly that request. The key is recorded `pending` in the ledger first and `done` after the answer; a key that is `done` is not sent again
@@ -75,6 +85,7 @@ import sys
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def _shared(name: str, filename: str):
@@ -124,6 +135,7 @@ PAGE_BYTES = 1024 * 1024
 NOTES_SHOWN = 2000
 RECURRING_TYPES = ("seriesMaster", "occurrence", "exception")
 GRAPH_LOCAL_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?")
+ZONE_NAME_RE = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2}")      # an IANA name: Area/Place or Area/Region/Place (no dot, so no `..`)
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 CHANGE_KEY_RE = re.compile(r"(?!-)[A-Za-z0-9_=+/.-]{1,200}")
 
@@ -258,18 +270,45 @@ def utc_of(instant: str) -> str:
     return datetime.fromisoformat(instant[:-1] + "+00:00" if instant.endswith("Z") else instant).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def moment(spec: dict, name: str) -> dict:
-    """A Graph dateTimeTimeZone: UTC for a timed event, midnight for an all-day one."""
-    return {"dateTime": f"{spec[name]}T00:00:00" if spec["all_day"] else utc_of(spec[name]), "timeZone": "UTC"}
+def time_zone_of(value):
+    """The IANA name of --time-zone, checked, or None when the flag is absent. Usage error (exit 2) unless it is an Area/Place name the machine's zone database loads."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not ZONE_NAME_RE.fullmatch(value):
+        raise WriterError("--time-zone is an IANA zone name such as America/Sao_Paulo", EXIT_USAGE)
+    try:
+        ZoneInfo(value)
+    except Exception:
+        raise WriterError(f"--time-zone {value}: this machine's zone database does not know that zone", EXIT_USAGE) from None
+    return value
 
 
-def body_of(spec: dict, key: str, whole: bool) -> dict:
+def zoned(instant: str, zone: str):
+    """{"dateTime": the instant's wall time in `zone`, "timeZone": zone}, or None when that wall time is ambiguous in the zone (a repeated hour: `fold`) or does not
+    read back as the same instant: the caller then sends UTC, as it does without the flag."""
+    moment_utc = datetime.fromisoformat(instant[:-1] + "+00:00" if instant.endswith("Z") else instant).astimezone(timezone.utc)
+    info = ZoneInfo(zone)
+    wall = moment_utc.astimezone(info).replace(tzinfo=None)
+    first, second = wall.replace(tzinfo=info, fold=0), wall.replace(tzinfo=info, fold=1)
+    if first.utcoffset() != second.utcoffset() or first.astimezone(timezone.utc) != moment_utc:
+        return None
+    return {"dateTime": wall.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": zone}
+
+
+def moment(spec: dict, name: str, zone=None) -> dict:
+    """A Graph dateTimeTimeZone: midnight for an all-day event; for a timed one the wall time in `zone` when it is given and the instant is not ambiguous in it, else UTC."""
+    if spec["all_day"]:
+        return {"dateTime": f"{spec[name]}T00:00:00", "timeZone": "UTC"}
+    return (zone and zoned(spec[name], zone)) or {"dateTime": utc_of(spec[name]), "timeZone": "UTC"}
+
+
+def body_of(spec: dict, key: str, whole: bool, zone=None) -> dict:
     """The body of a create (the whole event) or of a patch (the parts in the spec). The private property `openhora_key` is in both. No attendee, ever."""
     out = {}
     if "title" in spec:
         out["subject"] = spec["title"]
     if "start_at" in spec:
-        out["isAllDay"], out["start"], out["end"] = spec["all_day"], moment(spec, "start_at"), moment(spec, "end_at")
+        out["isAllDay"], out["start"], out["end"] = spec["all_day"], moment(spec, "start_at", zone), moment(spec, "end_at", zone)
     if "location" in spec and (spec["location"] or not whole):
         out["location"] = {"displayName": spec["location"]}
     if "notes" in spec and (spec["notes"] or not whole):
@@ -283,13 +322,14 @@ def body_of(spec: dict, key: str, whole: bool) -> dict:
 def build(verb: str, args) -> dict:
     """The request a verb sends, as {"entry", "method", "path", "query", "headers", "body"}: checked arguments in, no credential, no connection."""
     calendar, key = calendar_id(args.calendar), idempotency_key(args.idempotency_key)
+    zone = time_zone_of(getattr(args, "time_zone", None))
     if verb == "event-create":
         spec = _calendar.read_spec(args.spec_file, "create")
-        entry, path, body = entry_for("POST", calendar, False), events_path(calendar), body_of(spec, key, True)
+        entry, path, body = entry_for("POST", calendar, False), events_path(calendar), body_of(spec, key, True, zone)
     elif verb == "event-patch":
         spec = _calendar.read_spec(args.spec_file, "change")
         base_etag(args.base_etag)
-        entry, path, body = entry_for("PATCH", calendar, True), events_path(calendar, event_id(args.event)), body_of(spec, key, False)
+        entry, path, body = entry_for("PATCH", calendar, True), events_path(calendar, event_id(args.event)), body_of(spec, key, False, zone)
     else:
         base_etag(args.base_etag)
         entry, path, body = REMOVE_DEFAULT if calendar == "default" else REMOVE_IN, events_path(calendar, event_id(args.event)), None
@@ -496,10 +536,12 @@ def _record_done(key: str, facts: dict) -> None:
 
 
 VERBS = ("event-get", "event-create", "event-patch", "event-delete")
-FLAG_NAMES = {"calendar": "--calendar", "event": "--event", "base_etag": "--base-etag", "spec_file": "--spec-file", "idempotency_key": "--idempotency-key"}
+FLAG_NAMES = {"calendar": "--calendar", "event": "--event", "base_etag": "--base-etag", "spec_file": "--spec-file", "idempotency_key": "--idempotency-key",
+              "time_zone": "--time-zone"}
 VERB_FLAGS = {"event-get": {"calendar", "event"}, "event-create": {"calendar", "spec_file", "idempotency_key"},
               "event-patch": {"calendar", "event", "base_etag", "spec_file", "idempotency_key"},
               "event-delete": {"calendar", "event", "base_etag", "idempotency_key"}, None: set()}
+OPTIONAL_FLAGS = {"event-create": {"time_zone"}, "event-patch": {"time_zone"}}      # accepted, never required
 
 
 def check_flags(args) -> None:
@@ -511,7 +553,7 @@ def check_flags(args) -> None:
     if not args.verb:
         raise WriterError("give a verb (event-get, event-create, event-patch, event-delete) or --check; see --help", EXIT_USAGE)
     wanted = VERB_FLAGS[args.verb]
-    extra = [flag for dest, flag in FLAG_NAMES.items() if getattr(args, dest) is not None and dest not in wanted]
+    extra = [flag for dest, flag in FLAG_NAMES.items() if getattr(args, dest) is not None and dest not in wanted | OPTIONAL_FLAGS.get(args.verb, set())]
     if extra:
         raise WriterError(f"{', '.join(extra)}: not a flag of {args.verb} (see --help)", EXIT_USAGE)
     missing = [FLAG_NAMES[dest] for dest in wanted if getattr(args, dest) is None]
@@ -532,6 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-etag", dest="base_etag", help="the changeKey the event had when it was read")
     parser.add_argument("--spec-file", dest="spec_file", help="the file that holds the event, or the parts to change, as JSON")
     parser.add_argument("--idempotency-key", dest="idempotency_key", help="the key of this one request")
+    parser.add_argument("--time-zone", dest="time_zone", help="event-create and event-patch: the IANA zone name the timed event is written in (optional; default UTC)")
     parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="print the exact request and its hash; read no credential, open no connection")
     parser.add_argument("--confirmed", action="store_true", help="send exactly that request")
     return parser

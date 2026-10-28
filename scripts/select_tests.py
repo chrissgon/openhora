@@ -120,7 +120,7 @@ UNLINKED_MODULES = (
 _RUNTIME = "runtime"
 _PHRASE_TESTS = tuple(_RUNTIME + "/tests/" + g + ".py" for folder, module_glob, globs in UNLINKED_MODULES if module_glob == "phrases_*" for g in globs)
 DATA_FOLDERS = (
-    (_RUNTIME + "/tests/entry_ext/", (_RUNTIME + "/tests/test_entry_replay.py",)),      # HOT-1: the scenarios and the golden of each package, read by the entry replay
+    (_RUNTIME + "/tests/entry_ext/", (_RUNTIME + "/tests/test_entry_replay.py", _RUNTIME + "/tests/test_entry_observed.py")),      # HOT-1: the scenarios and the golden of each package, read by the entry replay; SLOW-1: and by the observed replay
     (_RUNTIME + "/tests/expected/", tuple(_RUNTIME + "/tests/test_" + name + ".py" for name in (
         "expected_kit", "natural_table", "registry_rows", "messaging_policy", "mcp", "operations_table", "interpreter_coverage", "phone_plain_words", "run_limits"))),      # HOT-1: the ledger
     (_RUNTIME + "/phrases_parts/", _PHRASE_TESTS),      # HOT-2: the phrase parts, read by runtime/phrases.py through a folder

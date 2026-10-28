@@ -417,7 +417,7 @@ def cmd_check(args: dict) -> int:
     record = load_record(test_mode)
     refresh_access_token(token_url, record)
     if record["kind"] == "account":
-        return emit({"ok": True, "scope": sorted(_google.PLATFORM_SCOPES), "account": record.get("account"), "record": "account",
+        return emit({"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES), "account": record.get("account"), "record": "account",
                      "obtained_at": record.get("obtained_at")})
     return emit({"ok": True, "scope": SCOPE, "obtained_at": record.get("obtained_at")})
 

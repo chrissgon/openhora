@@ -387,18 +387,46 @@ class Bridge(shell_kit.Jobs):
             self.scope.cache = None
 
     def inherit(self, call):
-        """`call` as a job that sees the languages read by the thread that creates it."""
+        """`call` as a job that sees the languages read by the thread that creates it, and the language of the fixed sentences for the person it is run for (`sentences_for`)."""
         cache = getattr(self.scope, "cache", None)
-        if cache is None:
+        said = phrases.current_scope()
+        if cache is None and said is None:
             return call
 
         def run():
             self.scope.cache = cache
             try:
-                return call()
+                with phrases.scope(said):
+                    return call()
             finally:
                 self.scope.cache = None
         return run
+
+    def sentence_name(self, chat: str, project=None):
+        """The tag a profile sets for the fixed sentences said to `chat`'s sender (TT-2: `sentence_language` of the sender's profile, else of the channel's, in the ACCEPTED
+        configuration), or None: then the sentences are the project's language, as they always were. With no `project`, the first served project that lists `chat`.
+        Read once per scope (`read_once`). A project that cannot be read, or an unaccepted file, gives None."""
+        try:
+            if project is None:
+                project = next(iter(self.projects_for(chat)), None)
+            if project is None:
+                return None
+            cache = getattr(self.scope, "cache", None)
+            key = ("sentences", project["id"], chat)
+            if cache is not None and key in cache:
+                return cache[key]
+            read = self.ops.config(project["path"])
+            found = phrases.sentence_override(read, CHANNEL, self.key(chat)) if read.get("accepted") else None
+            if cache is not None:
+                cache[key] = found
+            return found
+        except Exception:      # a sentence is never held back by a configuration that cannot be read: it is said in the project's language
+            return None
+
+    def sentences_for(self, chat: str, project=None):
+        """The `with` block (phrases.scope) inside which every fixed sentence is said in the language of `chat`'s sender: opened where a line or a notice is handled for one person,
+        closed on every path, so that it never reaches the next line handled on the thread. Outside one, the project's language."""
+        return phrases.scope(self.sentence_name(chat, project))
 
     def t(self, key: str, project=None, chat=None, cfg=None, **fields) -> str:
         """The sentence `key` in the project's language (runtime/phrases.py). `cfg` is the language already read (a settings dict), else it is read from
@@ -641,6 +669,10 @@ class Bridge(shell_kit.Jobs):
         return function(project["path"], **args)
 
     def send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
+        with self.sentences_for(chat, project):      # TT-2: a card is drawn in the language of the sender it is sent to
+            return self._send_card(project, settings, item, chat)
+
+    def _send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
         operations = self.ops.operations
         caps = self.messenger.capabilities()
         sender = self.key(chat)
@@ -779,8 +811,11 @@ class Bridge(shell_kit.Jobs):
                 key = (project["id"], chat)
                 if not left:
                     self.more.pop(key, None)
-                elif self.more.get(key) != left and self.reply(chat, phrases.text("MORE_LINE", settings, n=left), project) is not None:
-                    self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
+                elif self.more.get(key) != left:
+                    with self.sentences_for(chat, project):
+                        sent = self.reply(chat, phrases.text("MORE_LINE", settings, n=left), project)
+                    if sent is not None:
+                        self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
         self.remind.deliver()
         self.notify_unread()
 
@@ -818,7 +853,8 @@ class Bridge(shell_kit.Jobs):
             last = self.unread_told.get(chat)
             if last is not None and now - last < UNREAD_EVERY:
                 continue
-            sent = self.reply(chat, self.t("UNREAD_ONE", chat=chat) if count == 1 else self.t("UNREAD_MANY", chat=chat, n=count))
+            with self.sentences_for(chat):
+                sent = self.reply(chat, self.t("UNREAD_ONE", chat=chat) if count == 1 else self.t("UNREAD_MANY", chat=chat, n=count))
             if sent is None:
                 continue
             self.unread_told[chat] = now
@@ -835,7 +871,8 @@ class Bridge(shell_kit.Jobs):
         """One update in. The order in which it is claimed is the table `turn_order.ORDER` (stage `bridge`), dispatched by runtime/messaging_turn.py; the rows hold the conditions and the calls."""
         sender, chat = str(update.get("sender")), str(update.get("chat"))
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
-        messaging_turn.dispatch(self, messaging_turn.Turn(update=update, sender=sender, chat=chat, listed=listed))
+        with self.sentences_for(sender, self.project_of(sender, listed) if listed else None):      # TT-2: the sender's `sentence_language`, for every sentence of this line
+            messaging_turn.dispatch(self, messaging_turn.Turn(update=update, sender=sender, chat=chat, listed=listed))
 
     def greets(self, project: dict, chat: str, text: str) -> bool:
         """S5: whether a help line in words ("ajuda", "what can you do") is a greeting that `say` answers with the summary of what this sender may do: the whole line is a greeting or
@@ -1837,7 +1874,9 @@ class Bridge(shell_kit.Jobs):
                             continue
                         oldest["starting"] = True
                     try:
-                        self.start_job(oldest["project"]["id"], "say", self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest)))
+                        with self.sentences_for(oldest["chat"], oldest["project"]):      # TT-2: the job says its sentences in the language of the chat's sender
+                            job = self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
+                        self.start_job(oldest["project"]["id"], "say", job)
                     except shell_kit.Stopping:
                         self.leave(oldest)
                         told.append((oldest["chat"], "QUEUE_STOPPED", oldest["project"]))
@@ -1850,7 +1889,8 @@ class Bridge(shell_kit.Jobs):
             if expired:
                 self.log(f"{len(expired)} waiting line(s) dropped after {QUEUE_WAIT // 60} minutes")
             for chat, key, project in told:
-                self.reply(chat, self.t(key, project=project), project)
+                with self.sentences_for(chat, project):
+                    self.reply(chat, self.t(key, project=project), project)
 
     def drain_safely(self) -> None:
         try:
@@ -1864,7 +1904,8 @@ class Bridge(shell_kit.Jobs):
 
     def tell_stopped(self, chat: str, project=None) -> None:
         try:
-            self.reply(chat, self.t("QUEUE_STOPPED", project=project, chat=chat), project)
+            with self.sentences_for(chat, project):
+                self.reply(chat, self.t("QUEUE_STOPPED", project=project, chat=chat), project)
         except Exception:  # best effort: the stop goes on, and the class says what failed, never the content
             self.log("a waiting line's chat could not be told of the stop: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
 
