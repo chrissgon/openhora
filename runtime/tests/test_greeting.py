@@ -90,3 +90,20 @@ def test_the_lists_are_phrases_in_the_form_the_line_is_normalised_to():
     for table in greeting.WORDS.values():
         for key in ("greet", "help", "filler"):
             assert all(p == greeting.normal(p) for p in table[key])
+
+
+QUESTIONS = ["oi, tudo bem?", "tudo bem?", "beleza?", "oi tudo bem? \U0001f642", "tudo bem\uff1f", "\u00bftodo bien?", "\u00e7a va?", "hi, how are you?", "how are you?"]
+NOT_QUESTIONS = ["tudo bem", "beleza", "oi, tudo bem", "ok, beleza", "ok, tudo bem?", "tudo bem? sim", "sim?", "ajuda?", "what can you do?", "all good?", "", None, "/start?"]
+
+
+@pytest.mark.parametrize("line,expected", [(line, True) for line in QUESTIONS] + [(line, False) for line in NOT_QUESTIONS])
+def test_a_greeting_written_as_a_question_is_read_as_one_and_nothing_else_is(line, expected):
+    """L64H: the WHOLE line is a greeting (never a help form) and carries a question mark, in any of the languages. The verdicts are written by hand."""
+    assert greeting.as_question(line) is expected, line
+
+
+def test_vacuity_the_question_table_catches_a_reader_that_is_wrong():
+    wrong = [lambda line: True, lambda line: False, lambda line: isinstance(line, str) and "?" in line, lambda line: greeting.is_greeting(line, None, helps=False)]
+    for reader in wrong:
+        found = [line for line in QUESTIONS + NOT_QUESTIONS if bool(reader(line)) != (line in QUESTIONS)]
+        assert found, "a reader that is wrong is seen by the table"

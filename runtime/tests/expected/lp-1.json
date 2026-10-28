@@ -1,0 +1,8 @@
+{
+ "package": "lp-1",
+ "add": {
+  "operations_table.NOT_OPERATIONS": [
+   "event_list_picks"
+  ]
+ }
+}

@@ -29,6 +29,8 @@ from test_ask import accept
 from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
 
 lab = st.load("lab")
+autonomy = st.load("autonomy")
+pending_items = st.load("pending_items")
 ops = st.load("ops")
 ops_contained = st.load("ops_contained")
 ops_core = st.load("ops_core")
@@ -98,6 +100,7 @@ SENTENCES = {
     "timeout": "A pesquisa demorou demais e foi interrompida.",
     "cap": "A pesquisa chegou ao limite de custo e foi interrompida. Tente de novo, ou aumente research.max_cost_usd no runtime.json do projeto e aceite a configuração de novo.",  # validate: allow english-only -- the Portuguese sentence under test
     "failed": "Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.",  # validate: allow english-only -- the Portuguese sentence under test
+    "no-env": "O ambiente de pesquisa está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo.",  # validate: allow english-only -- the Portuguese sentence under test
     "nothing": "Pesquisei, mas não encontrei uma resposta confiável para isso.",  # validate: allow english-only -- the Portuguese sentence under test
     "ask-again": "Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?",  # validate: allow english-only -- the Portuguese sentence under test
     "limit": "Já fiz 2 pesquisas hoje, que é o limite do dia.",  # validate: allow english-only -- the Portuguese sentence under test
@@ -132,6 +135,8 @@ class FakeRun:
         counts = {"attempts": 1, "timeouts": 0, "refusals": 0, "adapter_failures": 0, "early_ends": 0, "pauses": 0, "redactions": 0}
         base = {"run_dir": str(dest), "cwd": str(cwd), "outputs": str(dest / "outputs"), "counts": counts, "model": model, "adapter": "h", "web": web,
                 "image_digest": "sha256:" + "5" * 64, "image_platform": "linux/arm64", "base_commit": None, "tmp": None, "staged": []}
+        if self.mode in ("docker", "container"):      # the lab could not make the run at all: the kind says why (lab.LabError, turned into an OpsError by ops_contained.execute)
+            raise lab.LabError(self.mode, f"the {self.mode} is unreachable: {prompt.splitlines()[0]}")
         if self.mode == "boom":
             raise RuntimeError(f"the fake exploded while it held the question: {prompt.splitlines()[0]}")
         if self.mode in ("timeout", "adapter", "cap"):
@@ -381,6 +386,71 @@ def test_a_run_that_fails_gives_one_plain_sentence(research, mode, word, capsys)
     assert row["status"] == "failed" and row["skill"] == "core-research"
     seen = capsys.readouterr()
     assert "exploded" not in seen.out + seen.err and "Como vai" not in seen.out + seen.err
+
+
+# --- the research environment is off (RESEARCH-NO-DOCKER) --------------------------------------------------------------------------------------------------
+
+NO_ENV_EN = "The research environment is off on this computer (Docker is not running). Start Docker and ask again."
+NOT_THESE = ("alguns minutos", "few minutes", "daemon", "container:", "docker:", "Tente de novo", "Try again", "internal", "LabError", "unreachable", MARK)
+
+
+def test_with_docker_off_the_phone_is_told_the_research_environment_is_off_and_not_to_try_again_in_a_few_minutes(research, capsys):
+    research["run"].mode = "docker"
+    before = pending_items.count()
+    reply = phone(research, LINE_1)
+    assert reply == SENTENCES["no-env"]
+    for private in NOT_THESE:
+        assert private not in reply, private
+    [row] = runs(research)
+    assert row["status"] == "failed" and row["skill"] == "core-research" and row["failure"] == "internal" and row["attempts"] == 0
+    assert autonomy.never_reached_the_model(row), "the row says no model was reached, so the day's spend is not charged for it (the store's closed list has no `environment`)"
+    assert pending_items.count() == before, "the research brake item of the run is popped"
+    seen = capsys.readouterr()
+    assert "unreachable" not in seen.out + seen.err and "Como vai" not in seen.out + seen.err
+
+
+def test_the_same_sentence_in_english(research):
+    accept(research["path"], language="en")
+    research["run"].mode = "docker"
+    reply = phone(research, LINE_1)
+    assert reply == NO_ENV_EN and "few minutes" not in reply and "daemon" not in reply
+
+
+def test_a_run_that_could_not_start_for_another_reason_keeps_the_general_sentence_and_the_run_counts_for_the_day(research):
+    """The control: the kind `container` (an image that is missing) is `RS_FAILED` as before, so the new sentence is only for Docker being off."""
+    set_limits(research, max_per_day=2)
+    research["run"].mode = "container"
+    before = pending_items.count()
+    assert phone(research, LINE_1) == SENTENCES["failed"] != SENTENCES["no-env"]
+    assert pending_items.count() == before
+    research["run"].mode = "docker"
+    assert phone(research, LINE_1) == SENTENCES["no-env"]
+    [first, second] = sorted(runs(research), key=lambda row: row["id"])
+    assert (first["failure"], second["failure"]) == ("internal", "internal") and autonomy.never_reached_the_model(second)
+    research["run"].mode = "ok"
+    assert phone(research, LINE_1) == SENTENCES["limit"], "a run that could not start counts for the day, as any failed run"
+
+
+@pytest.mark.parametrize("kind, word", [("docker", "no-env"), ("container", "failed"), (None, "failed")])
+def test_a_stand_in_execute_that_raises_an_ops_error_is_told_by_its_lab_kind(research, monkeypatch, kind, word):
+    def refuse(*args, **kwargs):
+        error = ops_core.OpsError(f"{kind}: planted reason", 3)
+        if kind is not None:
+            error.lab_kind = kind
+        raise error
+    monkeypatch.setattr(ops_contained, "execute", refuse)
+    assert phone(research, LINE_1) == SENTENCES[word]
+    assert [row["failure"] for row in runs(research)] == ["internal"]
+
+
+def test_the_new_sentences_exist_in_both_tables_and_carry_no_field():
+    for key in ("RS_NO_ENV", "ASK_NO_ENV"):
+        for tag in ("en", "pt-BR"):
+            text = phrases.TABLE[tag][key]
+            assert text and "{" not in text and "}" not in text, (key, tag)
+            assert "daemon" not in text and "alguns minutos" not in text and "few minutes" not in text
+    assert phrases.TABLE["en"]["RS_NO_ENV"] == NO_ENV_EN and phrases.TABLE["pt-BR"]["RS_NO_ENV"] == SENTENCES["no-env"]
+    assert phrases.TABLE["en"]["RS_NO_ENV"] != phrases.TABLE["en"]["RS_FAILED"] and phrases.TABLE["pt-BR"]["RS_NO_ENV"] != phrases.TABLE["pt-BR"]["RS_FAILED"]
 
 
 def test_the_cap_sentence_says_what_to_do_next_in_both_languages():

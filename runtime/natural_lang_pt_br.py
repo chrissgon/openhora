@@ -219,6 +219,8 @@ TABLE = {
             "polite": ["por favor", "pf", "pode", "poderia", "consegue", "oi", "ola", "ei"],
             "articles": ["o", "a", "os", "as", "um", "uma", "uns", "umas", "meu", "minha", "meus", "minhas", "ao", "aos", "novo", "nova"],
             "joiners": ["e"],
+            # as palavras que fazem do substantivo depois delas o que a pessoa nao quer ("os e-mails, nao a agenda"): nunca "menos" ("pelo menos a agenda" nao nega nada)
+            "negators": ["nao", "nem", "sem", "exceto", "em vez de", "em vez do", "em vez da", "ao inves de", "ao inves do", "ao inves da"],
             "range": ["a", "ate"],
             "service_in": ["no", "na", "pelo", "pela", "via", "usando", "pro", "pra"],
             # as palavras que podem cercar o tipo na resposta a pergunta de lembrete ou evento (artigo, possessivo, lugar, cortesia): uma lista fechada

@@ -116,7 +116,9 @@ def execute(ctx: dict, skill: str, meta: dict, keys, routing: dict, prompt: str,
     except lab.LabError as e:
         with contextlib.suppress(OSError):
             os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
-        raise core.OpsError(f"{e.kind}: {e.reason}", 3) from None
+        refused = core.OpsError(f"{e.kind}: {e.reason}", 3)
+        refused.lab_kind = e.kind      # which kind of lab failure: read by ops_research and ops_ask to say "the environment is off" for `docker`
+        raise refused from None
 
 
 def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms=(), timeout=None) -> dict:

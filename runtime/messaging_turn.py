@@ -15,8 +15,8 @@ that order, each a `Kind` of `KINDS` with two functions, `applies(bridge, turn)`
 does not read this line, else a truthy value that `take` receives) and `take(bridge, turn, found)` (the call; True when it took the line, False when the line goes on, as the write kind does
 after it dropped its question). The envelope checks every kind made for itself (a tap is no line, an empty line, a command, a forwarded message, an e-mail that is not a reply) are the properties of
 `Turn`, which are read the same way by every kind and read once when they read the world outside the turn. Where two kinds tested different things (the raw text of the update, the first line of an
-e-mail reply), each keeps its own, named. The two checks the acts make again at act time (`Bridge.word_act` against the ledger and the decision as they are now; `Bridge.plan_decide` against the
-live plan's item and hash) are the bridge's and are not here.
+e-mail reply), each keeps its own, named. The two checks the acts make again at act time (`Bridge.word_act` against the ledger, the decision and the last message as they are now, `Bridge.still_last`; `Bridge.plan_decide` against the
+live plan's item and hash and, for a yes, the last message again) are the bridge's and are not here. A greeting in question form ("oi, tudo bem?") is never the OK of a plan (L64H, `greeting.as_question`).
 
 THE LAYER. A `messaging_*` module may not import the operations layer (scripts/tests/test_layer_map.py). This module takes the bridge as an argument and reads everything else through it, so it
 imports no operations module; the order of the operations layer's own claimers is the second stage of the table, dispatched by a module of that layer (package S41-3).
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import card_words
 import command_words
+import greeting
 import messaging_inbound as inbound
 import messaging_provider as provider
 import natural
@@ -243,6 +244,8 @@ def plan_confirm_applies(bridge, turn):
     """A yes or no word, as code reads it (`natural.confirm_kind`, the first line of an e-mail reply), in a plain line that is no forward: the word, else None."""
     if turn.kind not in FREE or not turn.plain or turn.forwarded:
         return None
+    if greeting.as_question(turn.first_line):
+        return None      # L64H: a greeting in question form is never the OK of a plan; it goes on as any other line and gets the greeting
     return natural.confirm_kind(turn.first_line)
 
 
@@ -251,18 +254,20 @@ def plan_confirm_take(bridge, turn, word):
     after a restart); on a platform whose acts are replies (e-mail) only a reply counts; the question's project lists the sender and its chat is this chat. A decision card is never touched here: only a
     record of kind `plan-confirm` is taken, any other record returns False to the card words. A "no" drops the plan, a "yes" starts the confirmed call (`Bridge.plan_decide`, which looks at the live plan again)."""
     replied = turn.update.get("reply_to")
+    last = None
     if replied:
         rec = turn.replied_record if isinstance(replied, str) else None
     elif turn.email:
         return False      # e-mail: an OK is a reply to the question (rule 50)
     else:
         rec = turn.last_record      # a restart forgets the last message and a send in flight clears it: a word then decides nothing
+        last = rec.get("message_id") if rec else None      # the id the word was read against: `plan_decide` reads the last message again just before a yes starts (L64H)
     if rec is None or rec.get("kind") != "plan-confirm" or rec.get("chat") != turn.chat:
         return False
     target = next((p for p in turn.listed if p["id"] == rec.get("project")), None)
     if target is None:
         return False
-    bridge.plan_decide(target, turn.chat, rec, word, turn.first_line)
+    bridge.plan_decide(target, turn.chat, rec, word, turn.first_line, last=last)
     return True
 
 
@@ -417,7 +422,11 @@ def write_form(bridge, turn) -> bool:
 
 
 def reminder_form(bridge, turn) -> bool:
-    return turn.kind == "natural" and turn.intent.get("op") != "write" and bool(bridge.remind.natural(turn.project, turn.chat, turn.intent))
+    if turn.kind != "natural" or turn.intent.get("op") == "write":
+        return False
+    if turn.intent.get("op") == "remind" and turn.intent.get("how") == "bare" and bridge.list_picks(turn.project, turn.chat, turn.intent["text"]):
+        return False          # LP-1: "a das 15h" right after a list of events answers the list; it is no reminder with no words (the line goes on to `say`, where `event-list-number` takes it)
+    return bool(bridge.remind.natural(turn.project, turn.chat, turn.intent))
 
 
 def say_natural(bridge, turn) -> bool:

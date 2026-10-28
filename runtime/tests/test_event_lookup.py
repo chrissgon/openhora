@@ -370,7 +370,7 @@ def test_the_window_is_today_to_thirty_days_ahead_and_a_named_day_may_lie_outsid
 # --- a write that cannot be prepared ---------------------------------------------------------------------------------------------------------------
 
 E_OPS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "file-create", "file-replace",
-         "file-save", "file-trash"]
+         "file-save", "file-trash", "todo-add", "todo-done"]      # CB-5: the two cards of the to-do list are class E too
 LANGUAGE = {"pt-BR": "Por enquanto, peça isso em português ou em inglês.", "en": "For now, ask for that in Portuguese or in English."}      # validate: allow english-only -- the Portuguese line or sentence under test
 CREATE = {"pt-BR": "Entendi que você quer criar um evento, mas não consegui montar o cartão. Diga o título, o dia e a hora.",      # validate: allow english-only -- the Portuguese line or sentence under test
           "en": "I understood that you want to create an event, but I could not prepare it. Tell me the title, the day and the time."}
@@ -378,7 +378,7 @@ GENERIC = {"pt-BR": "Entendi que você quer mudar algo nas suas contas, mas não
            "en": "I understood that you want to change something in your accounts, but I could not prepare it, so I did nothing. Tell me what it is, which item and when."}
 
 
-def test_the_class_e_operations_are_these_fourteen():
+def test_the_class_e_operations_are_these_sixteen():
     natural = st.load("natural")
     assert sorted(k for k, v in natural.CLASSES.items() if v == "E") == sorted(E_OPS), "an operation was added: give it a sentence here"
 

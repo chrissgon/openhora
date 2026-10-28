@@ -196,6 +196,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     with turns.turn(), _sentences(ctx, channel):      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
         importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
         importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
+        importlib.import_module("ops_todo").begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
         if plan_ok is not None:
             confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
             if confirmed is not None:
@@ -330,6 +331,12 @@ def natural_write(project: str, line: str, channel: str = "messaging", sender=No
 def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
     """Whether this sender has a live question about a write (the bridge asks it before it reads a line as new). Not an operation of the table."""
     return importlib.import_module("ops_natural_writes").has_live(project, channel, sender)
+
+
+def event_list_picks(project: str, said: str, sender) -> bool:
+    """Whether this sender's live list of events would take the line as a pick by an ordinal word or by a value the list shows (LP-1, runtime/list_pick.py): the bridge asks it before it
+    takes a line that holds only a clock for a reminder. Read-only; not an operation of the table."""
+    return importlib.import_module("event_lookup").picks(core.context(project), said, sender, importlib.import_module("ops_natural")._clock())
 
 
 def natural_forget(project: str, sender, channel: str = "messaging") -> None:

@@ -67,6 +67,7 @@ GOOD = {
     "event-cancel": ({"account": "google", "event": "agenda#2"}, {"account": "config", "event": "grounded"}),
     "file-create": ({"account": "google", "file_name": "notes.txt", "content": "rascunho", "folder": "cv"}, {"account": "line-span", "file_name": "line-span", "content": "line-span", "folder": "picked"}),
     "file-replace": ({"account": "google", "file": "roteiro", "content": "rascunho"}, {"account": "config", "file": "grounded", "content": "line-span"}),
+
     "file-save": ({"account": "google", "attachment": 11, "folder": "cv"}, {"account": "config", "attachment": "held", "folder": "config"}),
     "mail-send": ({"account": "google", "to": "bia@exemplo.example", "subject": "Hello there", "text": "rascunho"}, {"account": "config", "to": "line-span", "subject": "composed", "text": "composed"}),
     "mail-reply": ({"account": "google", "message": "inbox#3", "text": "rascunho"}, {"account": "line-span", "message": "line-number", "text": "composed"}),
@@ -76,6 +77,9 @@ GOOD = {
     "mail-move": ({"account": "google", "messages": "inbox#3", "folder": "contas"}, {"account": "config", "messages": "grounded", "folder": "picked"}),
     "mail-mark": ({"account": "google", "messages": "inbox#3", "state": "read"}, {"account": "config", "messages": "grounded", "state": "line-span"}),
 }
+# CB-5: the to-do list's two cards are not opened by a family's resolver (ops_todo.py `_card` asks the gate itself, tested in test_tasks_line.py), so the planted-resolver tests below do not take them
+GOOD_TODO = {"todo-add": ({"account": "google", "title": "comprar café"}, {"account": "config", "title": "line-span"}),
+             "todo-done": ({"account": "google", "item": "todo:2", "list": "tarefas"}, {"account": "config", "item": "listed", "list": "config"})}
 
 
 # --- the table ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -87,8 +91,8 @@ def test_every_key_every_operation_takes_has_a_row_and_every_origin_of_a_row_is_
     assert set(turn_gate.ALLOWED) <= taken | {"cc", "bcc", "name", "mail_folder"}, "a row for a key no operation takes is a loosening nobody asked for (the four listed are the spec's)"
     for key, origins in turn_gate.ALLOWED.items():
         assert origins and set(origins) <= set(turn_gate.ORIGINS), key
-    assert set(GOOD) == set(turn_gate.OPS) - {"file-trash"}, "every operation but the trash card (its own test below) has a planted result here"
-    for op, (args, origins) in GOOD.items():
+    assert set(GOOD) | set(GOOD_TODO) == set(turn_gate.OPS) - {"file-trash"}, "every operation but the trash card (its own test below) has a planted result here"
+    for op, (args, origins) in {**GOOD, **GOOD_TODO}.items():
         assert set(args) <= set(turn_gate.OPS[op]) and set(args) == set(origins), op
         assert turn_gate.provenance(op, args, origins) == [], (op, turn_gate.provenance(op, args, origins))
 
@@ -126,9 +130,9 @@ def test_the_closed_table_refuses_what_it_does_not_name():
     assert turn_gate.provenance("mail-trash", {"Bia <bia@exemplo.example>": 1}, {}) == ["?: not an argument of mail-trash"], "an argument's name is a word of code or `?`: never a value"
 
 
-@pytest.mark.parametrize("op", sorted(GOOD))
+@pytest.mark.parametrize("op", sorted({**GOOD, **GOOD_TODO}))
 def test_each_key_of_each_operation_refuses_every_origin_it_may_not_have_and_a_missing_one(op):
-    args, origins = GOOD[op]
+    args, origins = {**GOOD, **GOOD_TODO}[op]
     for key in args:
         for origin in turn_gate.ORIGINS:
             found = turn_gate.provenance(op, args, dict(origins, **{key: origin}))
@@ -307,6 +311,8 @@ def test_every_opener_from_a_line_checks_provenance_before_it_opens_anything():
     assert first_line(writes, "_opened", "provenance") is not None and first_line(writes, "_opened", "provenance") < first_line(writes, "_opened", "_call_operation")
     trash = parse("ops_file_trash.py")
     assert first_line(trash, "_card", "provenance") is not None and first_line(trash, "_card", "provenance") < first_line(trash, "_card", "start_card")
+    todo = parse("ops_todo.py")
+    assert first_line(todo, "_card", "provenance") is not None and first_line(todo, "_card", "provenance") < first_line(todo, "_card", "start"), "CB-5: the to-do card asks the gate before the card is started"
     revise = parse("ops_event_revise.py")
     assert first_line(revise, "_refused", "provenance") is not None, "the event card's revision asks the gate"
     assert first_line(revise, "revise", "_refused") is not None and first_line(revise, "revise", "_refused") < first_line(revise, "revise", "swap"), "before the old card is ended and the new one opened"
@@ -334,7 +340,7 @@ def test_the_set_of_callers_that_open_a_card_is_the_one_listed_here():
     `ops_mail_send`) and through `ops_file_trash.start_card`. The typed operations are called from `_call_operation` (after `_opened`'s check) and from the event card's revision (after
     `_refused`'s); `start_card` from `_card` (after its check) and from the typed `file_trash`. A caller that is not listed here is a way to open a card from a line that skips the gate."""
     assert account_start_callers() == [("ops_calendar.py", "_start"), ("ops_file_trash.py", "start_card"), ("ops_files.py", "file_create"), ("ops_files.py", "file_replace"),
-                                       ("ops_files.py", "file_save"), ("ops_mail_send.py", "_start"), ("ops_mailbox.py", "_start")], account_start_callers()
+                                       ("ops_files.py", "file_save"), ("ops_mail_send.py", "_start"), ("ops_mailbox.py", "_start"), ("ops_todo.py", "_start")], account_start_callers()
     callers = {"_call_operation": [], "start_card": [], "swap": []}
     for path in sorted(RUNTIME.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))

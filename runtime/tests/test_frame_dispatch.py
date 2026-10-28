@@ -12,12 +12,12 @@ the first kind wins in the golden and swapping the two changes an outcome; for t
 `drafted` mark; the OK of a plan and the card words, which share a word and never a record), the corpus shows that they are disjoint, and the swap is shown to change nothing (a finding, stated: if a
 later package lets the two overlap in outcome, the test fails and the order must be reconsidered with L64 and L65 in hand).
 (4) The corpus lines the spec names: a "no" with a card last while a search runs rejects the card and leaves the search running (the card words go before the brake); a "stop" stops the search and leaves the
-card open; a greeting that is also a yes ("beleza", "tudo bem", "oi, tudo bem?", "tudo bem?", "ok, beleza") OKs a plan that is the last message, and is a greeting when the plan is not (the outcome
-recorded in the golden, kept: a separate product decision is pending with the maintainer and this package does not change it).
+card open; a greeting that is also a yes ("beleza", "tudo bem", "ok, beleza") OKs a plan that is the last message, and a greeting in question form ("oi, tudo bem?", "tudo bem?") never does: it is the greeting
+(the maintainer's decision of 2026-10-26, DECISIONS.md, package L64H; the golden rows of the two question forms with the plan last were re-recorded for it), and with the plan not last all five are as recorded.
 (5) The envelope is read once (`envelope_problems`: run once per scenario, with the other observers, by `test_entry_observed.py`; the vacuity without the memo and the size of the set are here): over the corpus, no ledger record of the same message is read twice in one dispatch, and at most two messages (the one replied to and the last) are read; with the memo
 taken away the same scenarios read twice (vacuity); a record that was not found is never kept. The envelope does not keep `last_sent`: the kind `plan-confirm` reads the last record when it acts, so a
-message sent after the line was read ends the OK (a barrier test). The kind `decision-card-word` reads `last_sent` once, when it takes the line, and `word_act` does not read it again: a message sent
-between the two is not seen, as before this package (a known gap, stated in the contract's L64 row, not tested as a guarantee here).
+message sent after the line was read ends the OK (a barrier test). The kind `decision-card-word` reads `last_sent` once, when it takes the line, and `word_act` reads it again just before the act
+(`Bridge.still_last`, package L64H), as `plan_decide` does for a yes: a message sent between the two decides nothing (test_messaging_word_barrier.py, test_messaging_plan_greeting.py).
 (6) Two guards no corpus line reaches, kept by unit tests: the card words' kind refuses a forwarded line, and the plan kind refuses a question of a project that no longer lists the sender.
 
 NO CALLS. The scenarios are replayed with the stand-ins of entry_kit.py: no model, no provider process. The golden is never recorded here.
@@ -236,24 +236,34 @@ def test_a_stop_word_with_a_card_last_while_a_search_runs_stops_the_search_and_l
         assert [call[0] for call in found["ops_calls"] if call[0] in ("reject", "approve", "research_stop")] == ["research_stop"], "the search is stopped and no card is decided"
 
 
-GREETINGS_THAT_ARE_YES = ("beleza", "tudo bem", "oi, tudo bem?", "tudo bem?", "ok, beleza")
+YES_GREETINGS = ("beleza", "tudo bem", "ok, beleza")
+GREETING_QUESTIONS = ("oi, tudo bem?", "tudo bem?")
+GREETINGS_THAT_ARE_YES = YES_GREETINGS + GREETING_QUESTIONS
 
 
-def test_a_greeting_that_is_also_a_yes_is_the_ok_of_a_plan_that_is_last_and_a_greeting_when_it_is_not(tmp_path):
-    """The recorded behaviour, kept: it is a pending product decision of the maintainer, and this package changes no outcome. With the plan's question as the last message the word is its OK (the
-    confirmed call runs: a read of the items); with another message after it, the same word is the greeting (or the told refusal for `ok, beleza`)."""
+def test_a_greeting_that_is_a_yes_oks_a_plan_that_is_last_and_a_greeting_question_never_does(tmp_path):
+    """With the plan's question as the last message the yes greetings are its OK (the confirmed call runs: a read of the items) and a greeting in question form is the greeting (the maintainer's decision
+    of 2026-10-26, L64H): trace `say`, `say-queue`, `greeting`, no read, each equal to its golden row, and field by field the outcome of its `plan_not_last` twin (the same id suffix). With another message
+    after the question all five are as recorded."""
     _, recorded = rp.golden()
-    last = [s for s in rp.corpus() if s["id"].startswith("opscomp.plan_last_and_a_greeting_that_is_a_yes.") and s["channel"] == "messaging" and s["text"] in GREETINGS_THAT_ARE_YES]
-    not_last = [s for s in rp.corpus() if s["id"].startswith("opscomp.plan_not_last_and_a_greeting_that_is_a_yes.") and s["channel"] == "messaging" and s["text"] in GREETINGS_THAT_ARE_YES]
-    assert {s["text"] for s in last} == set(GREETINGS_THAT_ARE_YES) and {s["text"] for s in not_last} == set(GREETINGS_THAT_ARE_YES)
-    for scenario in last:
-        found = rp.replay(scenario, tmp_path)
-        assert found["trace"] == ["plan-confirm-word", "confirmed-plan"] and "read:items" in [call[0] for call in found["ops_calls"]], scenario["id"]
-        assert not rp.differences(recorded[scenario["id"]], found)
-    for scenario in not_last:
-        found = rp.replay(scenario, tmp_path)
-        assert "plan-confirm-word" not in found["trace"] and "confirmed-plan" not in found["trace"], scenario["id"]
-        assert not rp.differences(recorded[scenario["id"]], found)
+    last = {s["text"]: s for s in rp.corpus() if s["id"].startswith("opscomp.plan_last_and_a_greeting_that_is_a_yes.") and s["channel"] == "messaging" and s["text"] in GREETINGS_THAT_ARE_YES}
+    not_last = {s["text"]: s for s in rp.corpus() if s["id"].startswith("opscomp.plan_not_last_and_a_greeting_that_is_a_yes.") and s["channel"] == "messaging" and s["text"] in GREETINGS_THAT_ARE_YES}
+    assert set(last) == set(GREETINGS_THAT_ARE_YES) and set(not_last) == set(GREETINGS_THAT_ARE_YES)
+    for text in YES_GREETINGS:
+        found = rp.replay(last[text], tmp_path)
+        assert found["trace"] == ["plan-confirm-word", "confirmed-plan"] and "read:items" in [call[0] for call in found["ops_calls"]], text
+        assert not rp.differences(recorded[last[text]["id"]], found)
+    for text in GREETING_QUESTIONS:
+        found = rp.replay(last[text], tmp_path)
+        assert found["trace"] == ["say", "say-queue", "greeting"] and "read:items" not in [call[0] for call in found["ops_calls"]], text
+        assert not rp.differences(recorded[last[text]["id"]], found)
+        twin = rp.replay(not_last[text], tmp_path)
+        assert not rp.differences(twin, found), f"{text}: the same outcome as the plan that is not last"
+        assert last[text]["id"].rsplit(".", 1)[1] == not_last[text]["id"].rsplit(".", 1)[1], "the twin has the same id suffix"
+    for text in GREETINGS_THAT_ARE_YES:
+        found = rp.replay(not_last[text], tmp_path)
+        assert "plan-confirm-word" not in found["trace"] and "confirmed-plan" not in found["trace"], text
+        assert not rp.differences(recorded[not_last[text]["id"]], found)
 
 
 # --- the envelope is read once ----------------------------------------------------------------------------------------------------------------------
@@ -348,7 +358,7 @@ class Barrier:
         self.read.append(message_id)
         return self.records.get(message_id)
 
-    def plan_decide(self, target, chat, rec, word, said):
+    def plan_decide(self, target, chat, rec, word, said, last=None):
         self.decided.append((rec["message_id"], word))
 
 

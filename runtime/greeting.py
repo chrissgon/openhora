@@ -17,6 +17,9 @@ The answer is built by `ops_say._greeting_reply` (a greeting in the project's la
 phrase table), which the row `greeting` of runtime/ops_turn.py calls before the interpreter's seam for any sender who may talk, and which the messaging bridge lets through to `say` for a help line of such
 a sender. This module reads nothing of the project: a pure reading of one line.
 
+`as_question(line, language=None)` is true for a line that is wholly a greeting (never a help form) and carries a question mark ("oi, tudo bem?"): it asks how the other one is, so it is never
+the answer yes to a question (package L64H; the kind `plan-confirm` of runtime/messaging_turn.py reads it).
+
 Standard library only. Runs on Python 3.9: python3 runtime/greeting.py --help
 """
 from __future__ import annotations
@@ -27,6 +30,7 @@ import unicodedata
 
 
 LINE_WORDS_MAX = 10      # a longer line is a sentence, never a greeting
+QUESTION_MARKS = ("?", "\u00bf")      # read after NFKC, so the full-width question mark is "?"
 STRETCH_MAX = 4          # extra copies of the last letter of a short word that may be stretched ("oiiii")
 STRETCHED = ("oi", "ola", "opa", "hi", "hey", "hello", "hola", "hallo", "ciao")
 
@@ -121,6 +125,15 @@ def is_greeting(line, language=None, helps=True) -> bool:
     if not flat or len(flat.split()) > LINE_WORDS_MAX:
         return False
     return _shape(language, helps).fullmatch(flat) is not None
+
+
+def as_question(line, language=None) -> bool:
+    """Whether the WHOLE line is a greeting (never a help form) written as a question: `is_greeting(line, language, helps=False)` and a question mark anywhere in it ("oi, tudo bem?", "tudo bem?",
+    "hi, how are you?"). Such a line asks how the other one is; it is never the answer yes to a question (package L64H)."""
+    if not is_greeting(line, language, helps=False):
+        return False
+    folded = unicodedata.normalize("NFKC", line)
+    return any(mark in folded for mark in QUESTION_MARKS)
 
 
 if __name__ == "__main__":

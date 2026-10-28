@@ -25,7 +25,7 @@
 #    selection here (use it before pushing a risky change). The pytest run takes the xdist workers that scripts/test_slots.py --workers
 #    gives (the machine's cores divided by the slots; WB_TEST_WORKERS sets it by hand). At most WB_TEST_SLOTS (default 3) test runs share a
 #    machine: scripts/test_slots.py makes the hook wait for a slot, at most WB_TEST_SLOT_WAIT seconds (default 3600), and fails with
-#    the message if none frees. A provider class left without tests is refused. Each phase prints the seconds it took.
+#    the message if none frees. On a merge commit the changed files are those that differ from MERGE_HEAD (see staged() below). A provider class left without tests is refused. Each phase prints the seconds it took.
 #
 # Skipping the hook (git commit --no-verify) is the user's decision, never a skill's.
 set -euo pipefail
@@ -53,7 +53,18 @@ phase_done "security scan"
 
 # NUL-separated so names with spaces or non-ASCII characters are not quoted; no rename detection, so a file moved out of a folder
 # still counts for the folder it left; deleted files are included (a removed module breaks the tests that name it).
-staged() { git diff --cached --name-only -z --no-renames --diff-filter=ACMRDT; }
+#
+# On a merge commit (git merge brought a base into this branch, so .git/MERGE_HEAD exists) the staged diff against HEAD holds every file the
+# base brought in, which the branch did not change: the fast set ran 4,113 tests where the branch's own change needed a few hundred. There the
+# index is compared with MERGE_HEAD, the incoming side: what differs from the base is the branch's own changes and the conflicts' resolutions.
+# Without MERGE_HEAD nothing changes. The guards run either way.
+staged() {
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    git diff --cached --name-only -z --no-renames --diff-filter=ACMRDT MERGE_HEAD
+  else
+    git diff --cached --name-only -z --no-renames --diff-filter=ACMRDT
+  fi
+}
 
 # A provider acts on the outside world, so it cannot lose its tests (providers/CONTRACT.md). A class removed entirely has no
 # folder left and is not checked.

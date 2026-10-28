@@ -63,7 +63,7 @@ SENTENCES = {      # the phrase key of each operation's sentence; the ones that 
     "skills": "UNDERSTOOD_SKILLS", "costs": "UNDERSTOOD_COSTS", "artifacts": "UNDERSTOOD_ARTIFACTS", "artifact": "UNDERSTOOD_ARTIFACT", "instructions": "UNDERSTOOD_INSTRUCTIONS",
     "routines": "UNDERSTOOD_ROUTINES", "sources": "UNDERSTOOD_SOURCES", "attachments": "UNDERSTOOD_ATTACHMENTS", "reminders": "UNDERSTOOD_REMINDERS", "flows": "UNDERSTOOD_FLOWS",
     "flow-check": "UNDERSTOOD_FLOW_CHECK", "connections": "UNDERSTOOD_CONNECTIONS", "items": "UNDERSTOOD_ITEMS", "file-read": "UNDERSTOOD_FILE_READ", "research": "UNDERSTOOD_RESEARCH",
-    "mail-read": "UNDERSTOOD_MAIL_READ_N", "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
+    "mail-read": "UNDERSTOOD_MAIL_READ_N", "todo-list": "UNDERSTOOD_TODO_LIST", "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
     "attachment-add": "UNDERSTOOD_ATTACHMENT_ADD", "attachment-discard": "UNDERSTOOD_ATTACHMENT_DISCARD", "reject": "UNDERSTOOD_REJECT", "release": "UNDERSTOOD_RELEASE"}
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the English abbreviation the operations layer writes (phrases.localize_dates turns it into the language's)
 

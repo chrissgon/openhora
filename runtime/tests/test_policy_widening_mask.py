@@ -121,7 +121,7 @@ def test_the_worst_case_is_far_under_the_cursor_and_keeps_room_for_the_next_grou
     snap = {"channels": {c: list(NAMES) for c in operations.POLICY_CHANNELS}, "senders": {f"{'p' * 32}:{n:064d}": list(NAMES) for n in range(project_config.SENDERS_MAX)}}
     size = len(policy_widening.dump(snap, "the-projects-key").encode())
     assert size < 3700, size
-    assert size + 12 * (len("approve-effect-publish") + 4) + 2 * 100 < 4 * 1024, "twelve more groups and two more digits on every one of 100 senders still fit"
+    assert size + 9 * (len("approve-effect-publish") + 4) + 2 * 100 < 4 * 1024, "nine more groups and two more digits on every one of 100 senders still fit (the room was for twelve before CB-5 added three groups)"
     hex_size = len(hex_record(snap, 3).encode())
     assert hex_size > size + 300, "base 64 gives about a third less on the masks"
 

@@ -90,7 +90,8 @@ text of an `OpsError` are not translated (contracts/runtime.md, "The language of
 Words that decide a card (S2, limit L64; the words are runtime/card_words.py). A plain line that is, whole, only an approve or a reject form ("Aprovo", "sim", "pode marcar", "nao",
 "aprovo o 2") decides a decision card exactly as that card's own button would (the kind `decision-card-word` of runtime/messaging_turn.py -> `word_last` or `word_reply` -> `Bridge.act`, which asks the policy for the sender, binds the act to the card's hash and
 runs the same operation), and only when ALL of these hold: the update is a private line of a listed sender in the chat the card was sent to and is not a forwarded message; the card is
-the LAST message the platform sent to that chat (`last_sent`, memory only: every message, a reply or a delivered reminder included, so any later message ends it and a restart forgets it);
+the LAST message the platform sent to that chat (`last_sent`, memory only: every message, a reply or a delivered reminder included, so any later message ends it and a restart forgets it; it is read again under
+the send lock just before the act, `still_last`, L64H: a message sent since decides nothing and the card is sent once more);
 it is the only decision card of that sender in that chat that a word could decide (sent whole, offering the act); the decision is open and its content hash is the card's (`CHANGED` and a
 new card otherwise). Several such cards: one numbered list is sent (kind and title, no id) and nothing is decided; for `LIST_SECONDS`, while the list is the last message, a position
 ("aprovo o 2") decides that card; "approve all" is never done (`WORD_ONE_AT_A_TIME`); "todos nao" rejects every card of the list, each through its own card. A line that is a reply
@@ -113,8 +114,8 @@ agent answers); `project_line` reads "muda para o projeto X" (runtime/command_wo
 The OK of a plan (D5, package BL2b, limits L64 and L65). A read or an act asked in words is answered by the operations layer with a question code wrote from the typed call ("I understood: ... Shall I
 go ahead?"; runtime/plan_confirm.py), and `line` sends it with `ask_plan` (a Yes and a No button when the platform has them, one line "reply yes" on e-mail) and records it in the ledger as a
 record of kind `plan-confirm` (ids, a hash and an operation name, never text). the kind `plan-confirm` of the row `frame` (runtime/messaging_turn.py) takes the OK, in the order of `turn_order.FRAME_KINDS`, right before the card words, under the conditions of L64: a private line of
-a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
-reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
+a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`; never a greeting in question form, "oi, tudo bem?": `greeting.as_question`, L64H) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
+reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`; with no reply it reads the last message again just before, `still_last`, else `PLAN_NOT_LAST`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
 it did; a correction reaches `say`, where the interpreter reads it with the plan as a typed frame item. A card that came after a question whose plan still waits is not decided by a bare word
 (`word_last`: `PLAN_TWO_OPEN`, whichever of the two was recorded first; a reply names the message it means). A research that runs is stopped by its asker's stop word (the kind `research-run`, right AFTER the card words).
 
@@ -925,10 +926,11 @@ class Bridge(shell_kit.Jobs):
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
             self.ops.plan_drop(project["path"], self.key(chat))
 
-    def plan_decide(self, target: dict, chat: str, rec: dict, word: str, said: str) -> None:
+    def plan_decide(self, target: dict, chat: str, rec: dict, word: str, said: str, last=None) -> None:
         """The decision on a plan's question once the OK or the refusal was read (a word under L64's rule, or a button): "no" drops the sender's plan; "yes" starts the confirmed call as a job
         labelled with the plan's operation (a read that calls no model takes no model slot; research and ask take it, and a busy project answers `STILL_WORKING`), but only while the
-        plan that is live is the one this question was drawn for (its item AND its hash); the operations layer takes it once and asks the policy again."""
+        plan that is live is the one this question was drawn for (its item AND its hash); the operations layer takes it once and asks the policy again. With `last` (the id of the message the word
+        was read against: a word with no reply) a yes reads the last message again, the last thing before it starts (`still_last`, L64H): another message sent since says `PLAN_NOT_LAST` and the plan waits."""
         key = self.key(chat)
         try:
             live = self.ops.plan_live(target["path"], key)
@@ -942,6 +944,9 @@ class Bridge(shell_kit.Jobs):
             return
         if not current:
             self.reply(chat, self.t("PLAN_GONE", project=target), target)
+            return
+        if last is not None and not self.still_last(chat, last):
+            self.reply(chat, self.t("PLAN_NOT_LAST", project=target), target)      # the plan waits; the person replies to the question, or asks again
             return
         self.start(target, chat, rec["plan_op"], self.line(target, chat, said, None, plan_ok={"item": rec["plan_item"], "sha256": rec["plan_sha256"]}, allow_as=rec["plan_op"]))
 
@@ -1026,7 +1031,7 @@ class Bridge(shell_kit.Jobs):
         elif word["n"] is not None:
             return False      # a position chooses from the list only
         else:
-            return self.word_act(newest[0], chat, newest[1], word["op"]) or False
+            return self.word_act(newest[0], chat, newest[1], word["op"], last=last) or False
         return True
 
     # --- the project the lines go to, said in words (S20) -----------------------------------------------------------------------
@@ -1155,11 +1160,14 @@ class Bridge(shell_kit.Jobs):
         if word["all"] and word["op"] == "approve":
             self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=named[0][0]), named[0][0])
         elif word["all"]:
+            if not self.still_last(chat, shown["message_id"]):      # once, before the loop: each reject replies, and that reply is itself the last message (L64H)
+                self.send_list(chat, found)
+                return True
             for project, card, _ in named:
                 self.word_act(project, chat, card, "reject")
         elif word["n"] is not None and 1 <= word["n"] <= len(named):
             project, card, _ = named[word["n"] - 1]
-            if not self.word_act(project, chat, card, word["op"]):
+            if not self.word_act(project, chat, card, word["op"], last=shown["message_id"]):
                 self.send_list(chat, found)
         else:
             self.send_list(chat, found)
@@ -1184,6 +1192,11 @@ class Bridge(shell_kit.Jobs):
                 self.last_sent[chat] = before
             return self.last_sent.get(chat)
 
+    def still_last(self, chat: str, last) -> bool:
+        """Whether `last` is still the id of the chat's last message, read under `send_lock` (L64, L64H): a message another thread sent since, or one on its way, makes it False."""
+        with self.send_lock:
+            return bool(last) and self.last_sent.get(chat) == last
+
     def keep_cards(self, chat: str, text: str, project: dict) -> None:
         """Say `text` about the cards a word was about and leave the last message as it was: the sentence is the answer to that word and shows no other subject, so the card (or
         the list) it was about is still the last thing the person was shown, and the next word may decide it. A compare and set: the last message is put back only when this reply
@@ -1203,10 +1216,11 @@ class Bridge(shell_kit.Jobs):
         if listed:
             self.card_lists[chat] = {"message_id": listed, "at": self.monotonic(), "cards": [(p["id"], r["pending_id"], r["content_sha256"]) for p, r, _ in found]}
 
-    def word_act(self, project: dict, chat: str, card: dict, op: str) -> bool:
+    def word_act(self, project: dict, chat: str, card: dict, op: str, last=None) -> bool:
         """Decide `card` with `op` as its button would: the same call (`act`: the policy for the sender, the hash of the card, the operation). False, with nothing said and
         nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (NOT_OPEN,
-        CHANGED and a new card) and nothing is decided."""
+        CHANGED and a new card) and nothing is decided. With `last` (a word with no reply: the id of the message it was read against) the last message is read again, the last thing before
+        the act (`still_last`, L64H): another message sent since decides nothing, and the card is sent once more so that the next word decides it."""
         if card.get("chat") != chat or card.get("whole") is not True or op not in self.offers(card):
             return False
         try:
@@ -1218,6 +1232,9 @@ class Bridge(shell_kit.Jobs):
         elif cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, self.t("CHANGED", project=project), project)
             self.renew(project, chat, item["id"], card)
+        elif last is not None and not self.still_last(chat, last):
+            if not self.resend(project, chat, card["pending_id"], force=True):      # the card again, the last message once more: the next word decides it
+                self.reply(chat, self.t("REPLY_TO_CARD", project=project), project)
         else:
             self.act(project, chat, op, card["pending_id"], card=card)
         return True
@@ -1558,6 +1575,16 @@ class Bridge(shell_kit.Jobs):
         """Whether a plain line answers the chat's open question about a write (the operations layer decides: `natural_needs` names the draft's operation then)."""
         try:
             return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL) is not None
+        except self.ops.OpsError:
+            return False
+
+    def list_picks(self, project: dict, chat: str, text: str) -> bool:
+        """Whether the chat's live list of events would take a plain line as a pick by an ordinal word or by a value the list shows (LP-1: "a última", "a das 15h"); the operations layer decides."""
+        found = getattr(self.ops, "event_list_picks", None)          # an operations object without it (a test's) has no list
+        if found is None:
+            return False
+        try:
+            return bool(found(project["path"], text, self.key(chat)))
         except self.ops.OpsError:
             return False
 

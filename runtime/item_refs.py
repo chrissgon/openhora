@@ -70,6 +70,8 @@ SUBJECT_MAX = 120
 # messaging sender read one.
 SNAPSHOT_READERS = (None, "terminal", "chat", "page")
 READ_GROUP = "ask-mail"
+TASKS_GROUP = "tasks-read"      # CB-5: the group that shows the title of a task the service holds now on a card (runtime/phrases.py CARD_PRIVATE_GROUP_OF; a test holds the two equal)
+PRIVATE_GROUPS = (READ_GROUP, TASKS_GROUP)
 
 ITEM_REF = re.compile(r"([a-z0-9][a-z0-9-]{0,39})#([0-9]{1,4})")
 CREATED_REF = re.compile(r"created:([1-9][0-9]{0,8})")
@@ -139,6 +141,23 @@ def may_read(ctx: dict, channel, sender=None) -> bool:
         groups = operations.effective_groups(ops_actor.MESSAGING, cfg.get("channels"), sender)
         return bool(groups) and READ_GROUP in groups
     return False
+
+
+def private_groups(ctx: dict, channel, sender=None) -> frozenset:
+    """The groups of PRIVATE_GROUPS the caller holds, which decide the private lines of a card it is shown (runtime/phrases.py `card_without_private`): all of them for the
+    terminal, the conversation, the page and a call with no channel (they read everything), those of the sender's own profile, else the channel's, for a messaging sender
+    named as <platform>:<id>, and none for any other caller (the MCP mode included). A messaging call with no sender gets none. The group READ_GROUP is `may_read`, so that the
+    two never say different things."""
+    cfg = ctx["cfg"]
+    held = {READ_GROUP} if may_read(ctx, channel, sender) else set()
+    if channel is not None and not (isinstance(channel, str) and channel):
+        return frozenset(held)
+    if ops_actor.label(cfg, channel, sender) in SNAPSHOT_READERS:
+        held.add(TASKS_GROUP)
+    elif channel == ops_actor.MESSAGING and ops_actor.split(sender)[0]:
+        if TASKS_GROUP in (operations.effective_groups(ops_actor.MESSAGING, cfg.get("channels"), sender) or ()):
+            held.add(TASKS_GROUP)
+    return frozenset(held)
 
 
 # --- reading the index ------------------------------------------------------------------------------------------------------------

@@ -135,6 +135,16 @@ def reads_private(policy, sender, operations) -> bool:
     return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
 
 
+def private_groups(policy, sender, operations) -> frozenset:
+    """The groups of phrases.PRIVATE_GROUPS the sender holds (the groups that show a private line: `ask-mail` for the e-mail and calendar lines, `tasks-read` for the title of a task
+    the service holds now); none for no sender, no entry or a policy this function cannot read."""
+    try:
+        groups = operations.effective_groups(CHANNEL, policy, sender)
+    except Exception:      # a policy this function cannot read shows nothing private
+        return frozenset()
+    return frozenset(g for g in phrases.PRIVATE_GROUPS if g in groups) if sender and groups else frozenset()
+
+
 PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a card: a command's argument, which a phone does not type (the button binds to the hash the ledger recorded)
 # What a phone does not show of a card (slice S16c): the internals the page and the terminal keep. A raw id of an event, the name of a snapshot and the time it was read, the version of an
 # event or of a file, the id of a message, the path of a file on this machine and a file's hash are for the one who checks a card in the terminal; the card's hash and its effect document
@@ -182,7 +192,8 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
         return None
     if phrases.card_text(card).strip() != (item.get("body") or "").strip():
         return None
-    shown = card if private else phrases.card_without_private(card, owner)
+    groups = frozenset(phrases.PRIVATE_GROUPS) if private is True else frozenset() if private is False else private      # True and False are the whole and the none; a set of groups is the sender's own (CB-5)
+    shown = card if groups >= frozenset(phrases.PRIVATE_GROUPS) else phrases.card_without_private(card, owner, groups)
     # `approvable` False is the phone (LIVE-2): the lines that are the platform's own how-to for a terminal go (the approve command, the hash line the command needs), and the
     # save line says no hash; every line of the person's data is as the card holds it. A reader offered no approval is not told how to approve either.
     present = {line[0] for line in shown}
@@ -219,9 +230,10 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     blocked = _blocked or ("document" if delivery == "failed" else None)
     approval_ok = False
     private = reads_private(policy, sender, operations)
+    groups = private_groups(policy, sender, operations)
     owner = bool(sender) and item.get("reader_sent_file") is True      # the sender who sent the held file a save card writes (W4a) sees its name there and approves it
     unreadable = kind == "effect" and not private and item.get("effect_word") in operations.ACCOUNT_APPROVAL_WORDS and not phrases.card_valid((item.get("payload") or {}).get("card"))
-    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
+    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, groups, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
     if shown_body is None and router_asks(item):
         shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
     shown_title = phrases.heading(item.get("title"), cfg)
@@ -233,7 +245,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     if shown_body is None and kind == "effect":      # a stored body (no card): only the platform's two frame lines are touched, every other line is the person's data and is shown as it is
         full = APPROVE_FRAME.sub("", LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)).rstrip("\n")
-    cut_private = unreadable or (kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
+    cut_private = unreadable or (kind == "effect" and effect_card_text(item, None, True) != effect_card_text(item, None, groups, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
     if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
             approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender) \

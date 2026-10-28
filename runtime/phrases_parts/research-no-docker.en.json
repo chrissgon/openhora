@@ -1,0 +1,7 @@
+{
+  "package": "research-no-docker",
+  "table": {
+    "ASK_NO_ENV": "The environment that reads your sources is off on this computer (Docker is not running). Start Docker and ask again.",
+    "RS_NO_ENV": "The research environment is off on this computer (Docker is not running). Start Docker and ask again."
+  }
+}

@@ -52,7 +52,7 @@ LOCAL_RECORD_TEXT = re.compile(r"secret store", re.I)
 TOKEN = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 CASE_METHODS = ("upper", "lower", "title", "casefold", "capitalize", "swapcase", "strip", "lstrip", "rstrip")
 # L58 -- the modules of runtime/ that may name a writer.
-WRITER_NAMERS = ("effect_calendar.py", "effect_mailbox.py", "effect_files.py", "ops_step_seams.py")
+WRITER_NAMERS = ("effect_calendar.py", "effect_mailbox.py", "effect_files.py", "effect_tasks.py", "ops_step_seams.py")
 
 
 def _docstrings(tree) -> set:

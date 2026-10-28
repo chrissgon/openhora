@@ -1,4 +1,4 @@
-"""The vocabulary the writes to the person's own accounts arrived with (package FND): the three side-effect words `calendar`, `mailbox` and `files` (the validator's
+"""The vocabulary the writes to the person's own accounts arrived with (package FND): the side-effect words `calendar`, `mailbox`, `files` and (CB-5) `tasks` (the validator's
 list and the table of contracts/environment.md, which a test elsewhere holds equal), and the runtime-only provider role `writer` of providers/resolve.py
 (`writer:calendar`, `writer:mailbox`, `writer:files`, the folder providers/writer/). The words arrive with the runtime, not with a skill: nothing here makes a
 skill declare them. Offline.
@@ -26,12 +26,12 @@ def load(name, path):
 validate = load("validate_for_account_words", REPO / "scripts" / "validate.py")
 resolve = load("resolve_for_account_words", REPO / "providers" / "resolve.py")
 
-WORDS = ("calendar", "mailbox", "files")
-CLASSES = ("writer:calendar", "writer:mailbox", "writer:files")
+WORDS = ("calendar", "mailbox", "files", "tasks")
+CLASSES = ("writer:calendar", "writer:mailbox", "writer:files", "writer:tasks")
 
 
-def test_the_three_words_are_in_the_validators_list_after_write_and_in_the_contract_table_in_the_same_order():
-    assert validate.SIDE_EFFECTS[-3:] == WORDS and "write" in validate.SIDE_EFFECTS[:-3]
+def test_the_account_words_are_in_the_validators_list_after_write_and_in_the_contract_table_in_the_same_order():
+    assert validate.SIDE_EFFECTS[-4:] == WORDS and "write" in validate.SIDE_EFFECTS[:-4]
     text = (REPO / "contracts" / "environment.md").read_text(encoding="utf-8")
     assert tuple(row[0] for row in validate.markdown_table(text, "Word")) == validate.SIDE_EFFECTS
 

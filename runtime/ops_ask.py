@@ -330,10 +330,11 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         done = core._stored(ctx, store.answer_run_finish, run_id, run_dir=dest, **fields)
         return _outcome(phrases.text("ASK_CANCELLED", cfg), refusal="cancelled", ran=True, **base) if done["cancelled"] else None
 
-    def fail(kind: str, reason: str, counts=None, image=None, reported=None) -> dict:
+    def fail(kind: str, reason: str, counts=None, image=None, reported=None, no_env=False) -> dict:
+        said = phrases.text("ASK_NO_ENV", cfg) if no_env else phrases.text("ASK_FAILED", cfg, kind=kind, reason=_ops()._note(reason))
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
                       error=_ops()._note(reason), **_ops()._reported_usage(reported, routing)) or \
-            _outcome(phrases.text("ASK_FAILED", cfg, kind=kind, reason=_ops()._note(reason)), refusal="failed", ran=True, **base)
+            _outcome(said, refusal="failed", ran=True, **base)
 
     try:
         if actor:
@@ -342,6 +343,8 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         result = ops_contained.execute(ctx, skill, meta, keys, routing, prompt, timeout=ASK_TIMEOUT, dest=dest, prepared_dir=prepared_dir,
                                        max_cost=budget, sourced=got["files"], around=ops_cancel.watch(ctx, request_id))
     except core.OpsError as e:
+        if getattr(e, "lab_kind", None) == "docker":      # Docker is not running (or not installed): the same plain sentence as a web research
+            return fail("internal", "the reading environment is off", no_env=True)      # `internal`, attempts 0: no model was reached
         return fail("internal", str(e))
     except Exception as e:                            # the run row never stays `running`: the error is recorded, then shown
         traceback.print_exc()
