@@ -63,7 +63,7 @@ SENTENCES = {      # the phrase key of each operation's sentence; the ones that 
     "skills": "UNDERSTOOD_SKILLS", "costs": "UNDERSTOOD_COSTS", "artifacts": "UNDERSTOOD_ARTIFACTS", "artifact": "UNDERSTOOD_ARTIFACT", "instructions": "UNDERSTOOD_INSTRUCTIONS",
     "routines": "UNDERSTOOD_ROUTINES", "sources": "UNDERSTOOD_SOURCES", "attachments": "UNDERSTOOD_ATTACHMENTS", "reminders": "UNDERSTOOD_REMINDERS", "flows": "UNDERSTOOD_FLOWS",
     "flow-check": "UNDERSTOOD_FLOW_CHECK", "connections": "UNDERSTOOD_CONNECTIONS", "items": "UNDERSTOOD_ITEMS", "file-read": "UNDERSTOOD_FILE_READ", "research": "UNDERSTOOD_RESEARCH",
-    "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
+    "mail-read": "UNDERSTOOD_MAIL_READ_N", "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
     "attachment-add": "UNDERSTOOD_ATTACHMENT_ADD", "attachment-discard": "UNDERSTOOD_ATTACHMENT_DISCARD", "reject": "UNDERSTOOD_REJECT", "release": "UNDERSTOOD_RELEASE"}
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the English abbreviation the operations layer writes (phrases.localize_dates turns it into the language's)
 
@@ -94,6 +94,8 @@ def incomplete(name: str, args: dict) -> bool:
     """Whether the call lacks what its sentence is about: the number of an act or of a task (the line's own answer is the sentence that asks for it), or the question of a search."""
     if name in NUMBER or name == "task":
         return args.get(NUMBER.get(name, "task_id")) is None
+    if name == "mail-read":      # CB-3: no number, no words and no day: the reply asks which message (a sentence of its own), not "Shall I go ahead?"
+        return not (args.get("number") is not None or any(isinstance(args.get(key), str) and args[key].strip() for key in ("match", "day")))
     return name == "research" and not (isinstance(args.get("question"), str) and args["question"].strip())
 
 
@@ -148,6 +150,11 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
         return t(key, flow=_clip(args.get("flow") or "")) if args.get("flow") else t("UNDERSTOOD_FLOWS")
     if name == "file-read":
         return t(key, file=_clip(args.get("file") or ""))
+    if name == "mail-read":      # CB-3: the number, or the words and the day of the person's own line (a span `natural` checked), never a word of the message
+        words, day = _clip(args.get("match") or ""), _clip(args.get("day") or "")
+        if args.get("number") is not None:
+            return t("UNDERSTOOD_MAIL_READ_N", n=_number(args["number"]))
+        return t("UNDERSTOOD_MAIL_READ_WORDS_DAY", words=words, day=day) if words and day else t("UNDERSTOOD_MAIL_READ_WORDS", words=words) if words else t("UNDERSTOOD_MAIL_READ_DAY", day=day)
     if name == "research":
         cap = ((ctx.get("cfg") or {}).get("research") or {}).get("max_cost_usd")
         return t(key, question=_clip(args.get("question") or ""), cap=phrases.decimal(f"{float(cap):.2f}", cfg) if isinstance(cap, (int, float)) else "?")

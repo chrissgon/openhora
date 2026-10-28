@@ -1,6 +1,9 @@
 """The regression gate of the interpreter in use (slice S1): the recorded answers of the development pilots, replayed with no call, still give the counts the evidence states, and the
 decision the runtime takes for an answer is the decision the measured pipeline took.
 
+Two kinds of literal, kept apart because later code changes move one and never the other (BL7-4): PUBLISHED, the counts the evidence files state (what happened, never re-scored), and
+REPLAY, the counts the CURRENT code gives the recorded answers. A package that changes the check or the mapping updates REPLAY, with its reason, and never PUBLISHED or an evidence file.
+
 The three answer files recorded at the prompt `5bee55ce...` (DeepSeek iteration 2, Sonnet and Haiku on the maintainer's account; the prompt in use until BL5B added rule 9 on 2026-10-25, so they are
 kept now as a regression of the CODE on answers recorded at the previous prompt, and the CLI's header check refuses them) are replayed on `evals/interpreter/dev.jsonl`
 with the pipeline of the measurement; the count of each category must equal the count of the evidence lines of the same test, written here as literals and read again from the evidence
@@ -38,11 +41,22 @@ DATA_FILES = ("runtime/interpreter_prompt.txt", "runtime/interpreter_catalog.jso
 CORPUS = REPO / "evals" / "interpreter" / "dev.jsonl"
 REPLAY = REPO / "evals" / "interpreter" / "replay"
 EVIDENCE = REPO / "evals" / "interpreter" / "evidence"
-IN_USE = {   # answers file -> (its evidence file, the counts of the categories of its 50 items, as the evidence states them)
-    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": ("ix-20261021T155019Z-f148397b.jsonl", {"clarify": 4, "correct": 46}),
-    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": ("ix-20261021T184159Z-cda87ebe.jsonl", {"clarify": 2, "correct": 48}),
-    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": ("ix-20261021T184159Z-7ceca7ad.jsonl",
-                                                                                           {"clarify": 15, "correct": 32, "wrong_card": 2, "wrong_item_binding": 1}),
+IN_USE = {   # answers file -> its evidence file
+    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": "ix-20261021T155019Z-f148397b.jsonl",
+    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": "ix-20261021T184159Z-cda87ebe.jsonl",
+    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": "ix-20261021T184159Z-7ceca7ad.jsonl",
+}
+PUBLISHED = {   # answers file -> the counts of the categories of its 50 items, as the evidence files state them (never re-scored)
+    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": {"clarify": 4, "correct": 46},
+    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": {"clarify": 2, "correct": 48},
+    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": {"clarify": 15, "correct": 32, "wrong_card": 2, "wrong_item_binding": 1},
+}
+REPLAY_COUNTS = {   # answers file -> what the current code gives the recorded answers
+    # BL7-4 (the scorer follows the product for a mail write: a card the product does not open, a recipient, a body, a folder or a state it asks, is a clarify): 4 -> 7 and 2 -> 5 and 15 -> 18 clarify, the
+    # same correct items less; the dev re-score of the recorded answers, never a published number
+    "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl": {"clarify": 7, "correct": 43},
+    "acct-claude-sonnet-5.5/iter-1-20261021T154157/20261021T184159Z-cda87ebe.answers.jsonl": {"clarify": 5, "correct": 45},
+    "acct-claude-haiku-4.5/iter-1-20261021T154157/20261021T184159Z-7ceca7ad.answers.jsonl": {"clarify": 18, "correct": 29, "wrong_card": 2, "wrong_item_binding": 1},
 }
 EARLIER = ("or-deepseek-v4.1-flash/iter-1-20261021T094443/20261021T124445Z-ea9f0c2f.answers.jsonl", "or-deepseek-v4.1-flash/iter-1-20261021T094736/20261021T124738Z-d0fc5d83.answers.jsonl")
 PROMPT_IN_USE = PINNED_HASHES["interpreter_prompt"]      # the prompt of this checkout (BL5B added rule 9 to it)
@@ -88,10 +102,10 @@ def test_the_data_files_the_gate_depends_on_exist_and_the_prompt_in_use_is_the_c
 
 @pytest.mark.parametrize("name", sorted(IN_USE))
 def test_the_replay_gives_the_counts_of_the_evidence(name, recorded_catalog):
-    evidence, literal = IN_USE[name]
     chosen, scored, rows, _ = replay(REPLAY / name)
     got = dict(collections.Counter(row["category"] for row in rows))
-    assert got == literal == evidence_counts(evidence), f"{name}: the replay, the literal and the evidence must agree"
+    assert got == REPLAY_COUNTS[name], f"{name}: the replay of the current code is the REPLAY literal"
+    assert PUBLISHED[name] == evidence_counts(IN_USE[name]), f"{name}: the PUBLISHED literal is what the evidence file states"
     assert len(chosen) == 50 and sum(got.values()) == 50
 
 
@@ -104,7 +118,8 @@ def test_the_decision_of_the_runtime_for_a_recorded_answer_is_the_decision_of_th
             continue
         record = found[(item["id"], run)]
         decision = ops_interpret.decide(item["line"], record["text"], interpreter_pipeline.now_of(item), item["zone"], interpreter_pipeline.ALLOWED)
-        assert interpreter_pipeline.observe(decision) == (outcome["observed"], outcome["detail"]), item["id"]
+        seen = interpreter_pipeline.with_mail_step(decision, item["line"], interpreter_pipeline.now_of(item), item["zone"], item["lang"])          # BL7-4: the measurement's own step for a mail write
+        assert interpreter_pipeline.observe(seen) == (outcome["observed"], outcome["detail"]), item["id"]
         compared += 1
     assert compared >= 35, "most of the sample reaches the model with no frame"
 
@@ -131,7 +146,7 @@ def test_vacuity_one_recorded_answer_altered_in_a_copy_changes_the_counts(tmp_pa
             break
     copy.write_text("\n".join(lines) + "\n", encoding="utf-8")
     _, _, rows, _ = replay(copy)
-    assert dict(collections.Counter(row["category"] for row in rows)) != IN_USE[name][1]
+    assert dict(collections.Counter(row["category"] for row in rows)) != REPLAY_COUNTS[name]
 
 
 @pytest.mark.parametrize("name", sorted(IN_USE))
@@ -166,4 +181,4 @@ def test_vacuity_a_recorded_copy_that_lost_an_operation_changes_the_replay(monke
     name = "or-deepseek-v4.1-flash/iter-2-20261021T125017/20261021T155019Z-f148397b.answers.jsonl"
     monkeypatch.setattr(interpreter_pipeline, "ALLOWED", frozenset(row["op"] for row in altered["ops"]))
     _, _, rows, _ = replay(REPLAY / name)
-    assert dict(collections.Counter(row["category"] for row in rows)) != IN_USE[name][1]
+    assert dict(collections.Counter(row["category"] for row in rows)) != REPLAY_COUNTS[name]

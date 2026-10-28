@@ -172,3 +172,48 @@ def test_vacuity_a_selection_that_drops_the_entry_replay_is_caught_and_names_the
     monkeypatch.setattr(sel, "select", selects_no_replay)
     files = ["runtime/%s.py" % name for name in ENTRY_PATH_MODULES]
     assert without_the_replay(real, files) == files
+
+
+# SLOW-1: the corpus-wide properties of the entry path (the claims, the two traces, the reads, the envelope) are checked once, by the observed replay
+# (runtime/tests/test_entry_observed.py), no longer by a replay in each of four test files. CI's selection must still run it whenever the entry path moves,
+# and the hook's fast set does not (decision SL-2: CI runs it before any merge).
+OBSERVED_REPLAY = "runtime/tests/test_entry_observed.py"
+ENTRY_DATA_FILES = ["runtime/tests/entry_ext/zz-pack.scenarios.jsonl", "runtime/tests/entry_ext/zz-pack.golden.jsonl"]
+
+
+def selected(repo, changed, target):
+    """Whether the selection for the changed file holds `target`, or a folder that holds it."""
+    result = sel.select(repo, [changed]).result()
+    return target in result or any(target.startswith(t + "/") for t in result)
+
+
+def without_target(repo, files, target):
+    return [f for f in files if not selected(repo, f, target)]
+
+
+def test_a_change_to_any_module_of_the_messaging_entry_path_selects_the_observed_replay(real):
+    files = ["runtime/%s.py" % name for name in ENTRY_PATH_MODULES]
+    assert [f for f in files if not (REPO / f).is_file()] == []
+    assert (REPO / OBSERVED_REPLAY).is_file()
+    assert without_target(real, files, OBSERVED_REPLAY) == []
+
+
+def test_a_change_to_a_scenario_or_a_golden_file_of_a_package_selects_the_observed_replay(real):
+    assert without_target(real, ENTRY_DATA_FILES, OBSERVED_REPLAY) == []
+    assert without_target(real, ENTRY_DATA_FILES, ENTRY_REPLAY) == [], "and still the golden's own replay"
+
+
+def test_vacuity_a_selection_that_drops_the_observed_replay_is_caught_and_names_the_file(real, monkeypatch):
+    """The oracle's own sensitivity: with the observed replay removed from every selection, every module of the list and every data file is named."""
+    real_select = sel.select
+
+    def selects_no_observed_replay(repo, files, copies=None):
+        selection = real_select(repo, files, copies)
+        for target in list(selection.targets):
+            if target == OBSERVED_REPLAY:
+                del selection.targets[target]
+        return selection
+
+    monkeypatch.setattr(sel, "select", selects_no_observed_replay)
+    files = ["runtime/%s.py" % name for name in ENTRY_PATH_MODULES] + ENTRY_DATA_FILES
+    assert without_target(real, files, OBSERVED_REPLAY) == files

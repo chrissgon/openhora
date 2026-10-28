@@ -158,6 +158,12 @@ TABLE = {
     "topic_words": ["of", "about"],
     # the word that joins a date to the hour before it ("9am on 12/12")
     "date_after_clock": ["on"],
+    # a date right after one of these, after the moment, is the content of the request, not its moment ("tomorrow at 9am ... before it expires on the 15th"); never "before", "until" or "by": they may name the moment
+    "deadline_words": ["expires", "expire", "expiring", "expired", "due", "deadline"],
+    # a date right after one of these is where something goes, never the content of the request ("move the meeting to the deadline on the 20th")
+    "deadline_to": ["to", "for", "until", "till", "into"],
+    # a word between the moment and the date that says a second moment follows ("tomorrow at 9am, then again on the due date, the 15th")
+    "deadline_breaks": ["then", "again", "and", "also"],
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
     # "yes, but at 3pm": the word that joins a yes to the change
     "but_words": ["but", "except", "only"],

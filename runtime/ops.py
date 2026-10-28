@@ -2800,6 +2800,9 @@ from ops_reads import (  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401
 from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
 # --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---
+from ops_mail_read import (  # noqa: E402,F401
+    mail_read,
+)
 
 
 if __name__ == "__main__":

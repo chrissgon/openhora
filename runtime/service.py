@@ -362,6 +362,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/files/save", "file-save", take=("account", "attachment", "file_name", "folder")),
     _route("POST", "/projects/{p}/files/trash", "file-trash", take=("file", "account", "folder")),      # R2-A: prepares the card of a file found by its name; a POST so that a name is never in a URL
     _route("POST", "/projects/{p}/files/read", "file-read", take=("file", "account")),      # S8: the text of a file found by its name in the configured folders; a POST so that a name is never in a URL
+    _route("POST", "/projects/{p}/mail/read", "mail-read", take=("message", "number", "match", "day", "account")),      # CB-3: the text of one message of the mail snapshots, behind the group read-mail-body; a POST so that a word of a sender or a subject is never in a URL
     _route("POST", "/projects/{p}/mail/send", "mail-send"),
     _route("POST", "/projects/{p}/mail/reply", "mail-reply"),
     _route("POST", "/projects/{p}/mail/draft", "mail-draft"),
