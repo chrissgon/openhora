@@ -470,3 +470,21 @@ def test_the_runtime_decides_the_removal_with_an_unasked_time_as_the_check_does(
     assert again == runtime, "an op is left as it is"
     day_no_event = json.dumps(op("event-cancel", {"day": "tomorrow"}))
     assert ops_interpret.decide("remove it for tomorrow", day_no_event, now, NEW_YORK, kit.ALL_OPS)["why"] == "no-target"
+
+
+# --- a date the calendar does not have ---------------------------------------------------------------------------------------------------------------------
+
+IMPOSSIBLE_DAYS = (("30/02", "2026-03-02", "mon"), ("31/04", "2026-05-01", "fri"), ("29/02", "2026-03-01", "sun"))          # 30 February, 31 April, 29 February of a common year (the kit's year)
+
+
+@pytest.mark.parametrize("day, stamp, weekday", IMPOSSIBLE_DAYS)
+def test_a_date_the_calendar_does_not_have_is_asked_and_never_raises(day, stamp, weekday):
+    """The time reader passes such a date on as written; the validator must ask back (`time-ask`, scope time) whatever the model says, and a model that moved it to a real day is not believed."""
+    line = f"remind me on {day} at 9am to call ben"
+    moved = op("remind", {"text": "call ben", "when": f"{day} at 9am"}, time_iso=f"{stamp}T09:00", weekday=weekday)          # a real day: the model's own reading of the impossible one
+    got = run(moved, line)
+    assert got["kind"] == "clarify" and got["why"] == "time-ask", got
+    same = op("remind", {"text": "call ben", "when": f"{day} at 9am"}, time_iso=f"{stamp[:4]}-{day[3:]}-{day[:2]}T09:00", weekday=weekday)          # the model wrote the impossible day too
+    assert run(same, line)["error"] == "E_TIME_FORMAT"          # refused before the time is read, as before
+    real = op("remind", {"text": "call ben", "when": "30/11 at 9am"}, time_iso="2026-11-30T09:00", weekday="mon")
+    assert run(real, "remind me on 30/11 at 9am to call ben")["kind"] == "op"          # a real day is unchanged

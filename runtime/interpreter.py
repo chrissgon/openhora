@@ -647,6 +647,17 @@ def _unread_day(found: dict, dated: bool) -> bool:
     return not dated and any(w.isdigit() and 1 <= int(w) <= 31 for w in tokens)
 
 
+def _real_stamp(stamp: str) -> bool:
+    """Whether `stamp` is `YYYY-MM-DDTHH:MM` and a moment the calendar has: the engine passes on a date it does not have as written (`natural_time._valid`), so the shape alone is not enough."""
+    if not TIME_RE.fullmatch(stamp):
+        return False
+    try:
+        datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        return False
+    return True
+
+
 def _classify(span: str, line: str, now_local):
     """(source, reading): who may decide the time of a span, and the reading code has of it (the model's `time_iso` is checked against it, never the other way). The decision
     is made from the WHOLE LINE and never from the span the model chose, since the model picks the span: "code" only when the span holds every time phrase of the line and
@@ -664,8 +675,8 @@ def _classify(span: str, line: str, now_local):
         return "ask", None
     reading = parsed["reading"]
     if (parsed.get("vague") or whole.get("vague") or nt.doubt(piece) or reading.get("assumed_year") or whole["reading"]["when"] != reading["when"]
-            or not TIME_RE.fullmatch(f"{reading.get('date')}T{reading.get('time')}")):
-        return "ask", None
+            or not _real_stamp(f"{reading.get('date')}T{reading.get('time')}")):
+        return "ask", None          # a date the calendar does not have (30 February, 29 February of a common year) is read as written by the engine and asked here, never believed
     if not reading.get("dated") and nt.leftover_doubt(found, None, tables, unknown=True):
         if not _known_outside(found):
             return "model", reading          # code read an hour only, the line holds words no table has and none that a table does (a language without tables): the model's date, the code's hour
