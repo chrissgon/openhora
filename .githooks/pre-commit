@@ -17,8 +17,9 @@
 #    re-export it, the tests that name a changed data file, the whole test folder of a conftest or a test kit: the text at the top of that
 #    script) runs in CI, in the three `tests-shard` jobs of .github/workflows/checks.yml on every pull request into a branch other than
 #    main, and the whole suite runs there in the same jobs at the end of a large delivery (a pull request into main, a push to main, a
-#    manual run, a pull request labelled full-suite) and every night (.github/workflows/nightly.yml). CI is the gate: the supervisor
-#    merges a pull request only when its `tests` and `validate` checks are green on its head commit, and `main` requires both. A
+#    manual run, a pull request labelled full-suite) and every night (.github/workflows/nightly.yml). CI is the gate: `main` and the
+#    integration branch both require the checks `validate` and `tests` (branch protection set by the supervisor on 2026-10-27 with the
+#    maintainer's ok), so a red commit can sit on a package branch and cannot be merged into either. A
 #    failure that only the selection would catch is found after the push, not before the commit. WB_HOOK_FULL=1 brings back the full
 #    selection here (use it before pushing a risky change). The pytest run takes the xdist workers that scripts/test_slots.py --workers
 #    gives (the machine's cores divided by the slots; WB_TEST_WORKERS sets it by hand). At most WB_TEST_SLOTS (default 3) test runs share a

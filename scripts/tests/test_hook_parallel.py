@@ -90,7 +90,7 @@ def test_the_jobs_that_run_pytest_do_it_in_parallel_with_a_time_limit_and_the_ag
         assert re.search(r"^    timeout-minutes: %d\s*$" % limit, block, re.M), name
         assert "--with pytest-xdist==3.8.0" in block, name
         assert re.search(r"-q -n auto\b", block), name
-        assert "--durations=20" in block, name
+        assert "--durations=40" in block, name
         assert "scripts/shard_tests.py" in block, name
     aggregator = job_block("tests")
     assert "pytest" not in aggregator and re.search(r"^    timeout-minutes: 5\s*$", aggregator, re.M)
@@ -102,7 +102,7 @@ def test_the_tests_shards_have_the_whole_suite_mode_with_the_full_fuzz_and_a_lon
     whole = block[block.index("- name: Scanner and provider tests, the whole suite"):block.index("- name: Selected scanner")]
     assert 'WB_FULL_FUZZ: "1"' in whole and "$(python3 scripts/test_dirs.py)" in whole
     assert "select_tests" not in whole  # the whole suite is not a selection
-    assert "pytest-xdist==3.8.0" in whole and "-n auto" in whole and "--durations=20" in whole and "scripts/shard_tests.py" in whole
+    assert "pytest-xdist==3.8.0" in whole and "-n auto" in whole and "--durations=40" in whole and "scripts/shard_tests.py" in whole
 
 
 def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz():
