@@ -1,0 +1,37 @@
+## 2026-10-28: T5' measured on the last 50 merges: a whole-module call map misses its bar (V1 1.9% against 30%) and is archived (T5', SPEC-V3-STRUCTURE section 2; no model call, no provider call, no lab run, fingerprint unchanged; the code is not merged)
+
+**Status: archived by the maintainer on 2026-10-27; not enabled; the code is not merged.** Only this entry is kept (principle 10: a result is published whether it passed or not). The recorder, the nightly artifact, the protected list and the selector change were built in three branches, measured, and left unmerged; they are not in the repository.
+
+**What was measured.** SPEC-V3-STRUCTURE section 2.4 and 2.5.1 (T5', a changed module selects the test files that executed any function of it, with a list of data modules kept on today's rule 2), with the maintainer's decisions of 2026-10-27 (T5' measured inside v3; the map a nightly artifact kept 7 days; both pytest-testmon and an in-repo plugin measured). Five whole-suite recordings on CI at 6fd70c14 (the parent of the window, so that every merge has an earlier map), 81c12746, ca6ad445, d7312656 and 3afee52b, each in three shards at the default fuzz, with the in-repo plugin (a tracer: which functions each test file ran, calls made at import, at collection or in a session fixture kept apart as "owned by no test"), and five whole-suite recordings with pytest-testmon 2.2.0 at the same commits. Replay on the 50 merges a82857b6 to 3afee52b (parent P, changed files from `git diff P S`), each with the newest map recorded before it (the oldest map used is 38 hours old, under the 72 of the spec); time per test file from one untraced whole-suite run at 3afee52b. A mutation probe on the 30 newest merges that changed a module-level constant or table (35 of the 50 had one; 196 mutations: a string gets a suffix, a number gets 1 added, a boolean flips, the last row of a list, tuple, set or dict is dropped), the whole suite run once per merge on CI, three shards, failures rerun twice.
+
+**The bar and the result.**
+
+| Bar | Result |
+|---|---|
+| V1: mean selected CPU-seconds at pull-request level falls by at least 30% against today | **Not met: 1.9%** (today 3817 s per merge, with the map 3746 s; 71.7% of the suite against 70.3%). With no protected list at all (not a rule: unsafe) the ceiling is **3.3%**; a variant that sends a protected module's readers' tests instead of rule 2 gives 1.3% |
+| V2: the map is recorded within one nightly job of 45 minutes | Met for the plugin: 2667 shard-seconds traced against 2071 untraced on 3afee52b (1.29 times), the slowest traced shard 18.4 minutes. Not for testmon unsharded: 27, 31, 30, 49 and 43 minutes at the five commits, over the limit on the two newest |
+| S1: no guard file is ever missed | Met: the 14 always-run guards are in every selection; no limit-row test file was missed except the one explained below (a race, not a mutation) |
+| S2: the hybrid's misses are no more than today's, each explained | Met (see below), but moot |
+| S3: every nightly or whole-suite failure of the window is selected | No failure to select: the three nightly runs of the integration branch were green; of four failed whole-suite runs, three failed only `validate` and one was a flaky test fixed by T1 (no causing merge) |
+
+V1 is a condition of the bar, so the bar is not met and T5' stops here.
+
+**Why V1 fails (cause breakdown).** Of the 256 changed source modules in the 50 merges: 115 (45%) are on the protected list (some other file reads a module-level name of them without calling a function: a map of functions cannot see it, so they keep rule 2); 54 (21%) are new modules, which no map has seen; 51 (20%) hold a function that ran at import or in a session fixture, which no one test owns; 35 (14%) are mappable; 1 was deleted. Sixteen of the 50 merges changed at least one mappable module. The protected list the spec's own rule computes is 184 of 376 non-test modules (142 of the 193 in `runtime/`), not a short list of data modules. The cause is structural, not a tuning of the safe side: the changes of this repository are dominated by new modules, by modules with import-time work and by modules whose constants others read.
+
+**Safety findings (all moot while V1 fails).**
+- No guard was missed.
+- Against the test files that executed a changed function in the next map (function level, 50 merges): the rule of the spec missed 1 file, today's rule missed the same file, and the union variant (a module that keeps rule 2 also selects the tests the map names for it) missed 0. The file is `runtime/tests/test_messaging_natural_reply.py`, reached when `runtime/natural.py` changed; it is a test today's depth-limited rule does not reach.
+- Against the failing files of the mutated whole suite (30 probed merges, 2059 failing files in all): the spec rule 3 misses, today's rule the same 3, the union variant 2. The files: `runtime/tests/test_messaging_natural_reply.py` (again; the union variant selects it), `providers/script/tests/test_egress_proxy.py` (a limit-row file; failed in the mutated run of 2fb497d7 and passed in an unmutated control run of the same commit: a network race, not caused by the mutation) and `providers/scheduler/tests/test_launchd.py` (f334bdd0; later found to be a time-zone leak of the test and fixed in TEST-SPEED, #598, not a map blind spot).
+
+**What did not hold in the spec.**
+- 2.6 item 3: a merge job uploading one artifact needs the shard jobs to upload their parts, which is a second artifact step against the amended wiring rule ("exactly that artifact"); the build used one step in the three-leg job, parts merged where they are read.
+- 2.2: `sys.setprofile` was replaced by `sys.settrace` with no local trace (the same cost per Python call, and no event for C calls).
+- 2.6 / `scripts/tests/test_checks_wiring.py:545`: the word check holds, but the checkout count (`== 2`) and the check that a `run:` line holds no `${{` (it also reads a job's header when the job follows another job's last step) had to change too.
+- The recorder of the spec had no place for what runs at import or in a session fixture ("module body"); it needed a list of its own.
+- 2.5.1: the protected list is not small (above).
+- 2.4: the oldest merge of the window is a82857b6, not bd04ea5e; the first recording sits at its parent.
+- 2.3: testmon could not be compared on safety (no selection of its own was replayed to the end); on cost it was slower to record unsharded, as the plan expected.
+
+**What was kept and what was not.** Not merged: `scripts/pytest_plugins/wb_callmap.py`, `scripts/callmap.py`, `scripts/callmap_protected.py` and its list, the `--map` option of `scripts/select_tests.py`, the three `nightly-callmap` jobs and the amendment of the wiring rule of the nightly. The rule "no `upload-artifact` in the nightly" stays as it is. One result worth keeping for a later try: treating a module that a change ADDS as needing no reach beyond its direct references is safe by construction (any file that imports a new module is itself changed, so rule 2 follows from there) and would cut today's selection without any map; it was not measured.
+
+**Principle 13 (what it would have saved and what it would have cost).** Saving: 1.9% of the selected test time per pull request. Cost: three nightly jobs of up to 45 minutes, a list of modules to keep, a new artifact and a wiring exception. The saving is clearly smaller than the cost, which is why the maintainer archived it.
