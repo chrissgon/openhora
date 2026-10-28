@@ -591,6 +591,7 @@ def test_limit_57_a_removal_is_one_delete_with_if_match_and_send_updates_none_th
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["operation"] == "cancel"
     assert [(m, p, q, b) for m, p, q, b in calls(world["google"])] == [("GET", f"{EVENTS}/ev0001", calls(world["google"])[0][2], None),
+                                                                      ("GET", f"{EVENTS}/ev0001", calls(world["google"])[1][2], None),      # CB-6: the writer reads the event again: a plain removal is of no series
                                                                       ("DELETE", f"{EVENTS}/ev0001", {"sendUpdates": "none"}, None)]
     assert [r for r in world["google"].requests if r["method"] == "DELETE"][0]["if_match"] == doc["base_etag"]
     assert "ev0001" in world["google"].removed and world["google"].events == {} and world["google"].unexpected() == []
