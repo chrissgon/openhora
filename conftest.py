@@ -16,6 +16,13 @@ A test must never be the one that asks. So, for the whole test process and for e
    lock file the Microsoft providers take before they write a record (providers/_msgraph.py `record_lock`) is never made in the
    real state folder of the person who runs the tests.
 
+5. The process time zone follows `os.environ["TZ"]` again after every test (`pytest_runtest_teardown` below). A fixture that sets `TZ` and calls
+   `time.tzset()` and then fails in its setup leaves the zone changed after `monkeypatch` has put the variable back, because nothing calls
+   `tzset()` again; the next test of that worker then computed local time in a zone that the children it started (which read the variable)
+   did not have. This is a hook around the teardown, not an autouse fixture: the autouse fixture below requests `monkeypatch`, so
+   `monkeypatch` would be torn down after any fixture of ours, and the hook runs after every fixture of the test is torn down,
+   `monkeypatch`'s undo included.
+
 This file sits at the root, next to `pytest.ini`, which makes the root the rootdir and so makes pytest load this file
 whichever test folder is named on the command line. `scripts/tests/test_test_isolation.py` fails when any test folder
 would run without it. "Tests never touch the real secret store" is the rule stated in `contracts/secrets.md`.
@@ -25,6 +32,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 import pytest
 
@@ -78,6 +86,13 @@ def no_test_reaches_the_real_secret_store(monkeypatch):
     except Exception:   # no keyring library here: nothing to isolate in this process
         return
     monkeypatch.setattr(keyring.core, "_keyring_backend", null.Keyring())
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    yield  # every fixture of the test is torn down, monkeypatch's undo included
+    if hasattr(time, "tzset"):
+        time.tzset()  # the process zone follows os.environ["TZ"] again, whatever a failed fixture left
 
 
 def pytest_report_header(config):

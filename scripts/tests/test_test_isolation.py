@@ -10,10 +10,14 @@ Run: uv run --with pytest==9.1.1 pytest scripts/tests/test_test_isolation.py
 """
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 NULL_BACKEND = "keyring.backends.null.Keyring"
@@ -91,3 +95,64 @@ def test_the_callers_env_dict_is_not_changed_and_a_backend_it_names_is_kept():
     subprocess.run([sys.executable, "-c", "pass"], env=env)
     assert env == {"PATH": os.environ["PATH"]}
     assert read_vars(PYTHON_KEYRING_BACKEND="keyring.backends.fail.Keyring") == "keyring.backends.fail.Keyring"
+
+
+# ---- the process time zone after a failed fixture (TEST-SPEED, part D(b)) --------------------------------------------------------------------
+
+TZ_A = """import time
+
+import pytest
+
+
+@pytest.fixture
+def world(monkeypatch):
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")
+    time.tzset()
+    raise RuntimeError("the setup of this fixture fails after it changed the zone")
+
+
+def test_a(world):
+    pass
+"""
+
+TZ_B = """import os
+import subprocess
+import sys
+import time
+
+CHILD = "import time;print(time.strftime('%z'), time.timezone, time.tzname)"
+
+
+def test_b():
+    child = subprocess.run([sys.executable, "-c", CHILD], env=dict(os.environ), capture_output=True, text=True)
+    # `time.timezone` and `time.tzname` change only when tzset() runs (Linux's localtime_r does not read TZ again by itself; macOS's does, which
+    # is why the attributes are compared too): both must say what a process that starts now, with this environment, says
+    assert "%s %s %s" % (time.strftime("%z"), time.timezone, time.tzname) == child.stdout.strip()
+"""
+
+
+def run_zone_suite(tmp_path, with_conftest=True):
+    """A fictional root with two tests in one process: `test_a`'s fixture sets TZ, calls tzset() and then raises; `test_b` compares the zone
+    of this process (the attributes tzset() sets, and local time) with the zone of a child that reads os.environ. Returns the last line of pytest's report."""
+    (tmp_path / "tests").mkdir()
+    if with_conftest:
+        shutil.copy(ROOT / "conftest.py", tmp_path / "conftest.py")
+    (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_a.py").write_text(TZ_A, encoding="utf-8")
+    (tmp_path / "tests" / "test_b.py").write_text(TZ_B, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("TZ", "PYTEST_ADDOPTS", "PYTEST_XDIST_WORKER")}
+    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist", "-p", "no:randomly", "tests"],
+                          capture_output=True, text=True, timeout=120, cwd=str(tmp_path), env=env)
+    return done.stdout.strip().splitlines()[-1]
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="this platform has no time.tzset")
+def test_a_zone_a_failed_fixture_left_behind_does_not_reach_the_next_test(tmp_path):
+    last = run_zone_suite(tmp_path)
+    assert "1 passed" in last and "1 error" in last and "failed" not in last, last
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="this platform has no time.tzset")
+def test_vacuity_without_the_root_conftest_the_next_test_sees_the_zone_the_failed_fixture_left(tmp_path):
+    last = run_zone_suite(tmp_path, with_conftest=False)
+    assert "1 failed" in last and "1 error" in last, last

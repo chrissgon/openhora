@@ -253,7 +253,7 @@ EVENTS = {
 # required check (and the ruleset itself, which is the maintainer's action).
 REQUIRED_CHECKS = ("validate", "tests")
 WHOLE = "Scanner and provider tests, the whole suite"  # the step of each shard that runs its part of the suite
-GATE = "The whole suite, every shard passed"  # the step of the aggregator that fails unless every shard did
+GATE = "Every shard passed"  # the step of the aggregator that fails unless every shard did
 SHARDS = "tests-shard"
 SELECTED = "Selected scanner, provider, runtime and script tests"
 CHOOSE = "Choose the tests this pull request can reach"
@@ -296,26 +296,29 @@ def step_text(block, name):
     return "\n".join(out)
 
 
-def test_the_tests_job_gates_the_shards_of_the_whole_list_on_the_four_events_of_the_end_of_a_delivery_and_runs_the_selection_otherwise():
-    """The required check of the main ruleset is `tests`: on a pull request into main it must run, and it must fail unless every shard
-    of the whole list (every test folder) succeeded."""
-    got = modes(job_condition("tests"), step_condition("tests", GATE), step_condition("tests", SELECTED))
+def test_the_shards_run_the_selection_or_the_whole_list_and_the_tests_job_gates_them():
+    """The required check of the main ruleset is `tests`: it runs no test, on a pull request into main it must run, and it must fail unless every
+    shard succeeded. The shards run on every event, in the mode the event asks for: the whole list (every test folder) at the end of a delivery,
+    the selection otherwise."""
+    got = modes(job_condition(SHARDS), step_condition(SHARDS, WHOLE), step_condition(SHARDS, SELECTED))
     assert got == WANTED_MODES
-    assert step_condition("tests", CHOOSE) == step_condition("tests", SELECTED)  # the selector runs exactly when its targets are used
-    assert squash(step_condition("tests", GATE)) == squash(job_condition(SHARDS))  # the shards run exactly when the gate needs them
+    assert step_condition(SHARDS, CHOOSE) == step_condition(SHARDS, SELECTED)  # the selector runs exactly when its targets are used
+    assert squash(step_condition("tests", GATE) or "") == squash(job_condition(SHARDS) or "")  # the shards run exactly when the gate needs them
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     block = job_block(text, "tests")
     gate = step_text(block, GATE)
     assert "SHARDS: ${{ needs.tests-shard.result }}" in gate and 'test "$SHARDS" = "success"' in gate
     assert re.search(r"^    needs: (tests-shard|\[.*\btests-shard\b.*\])\s*$", block, re.M) and re.search(r"^    if: always\(\)\s*$", block, re.M)
+    assert "pytest" not in block and "checkout" not in block and "setup-uv" not in block  # the aggregator runs no test, so it has nothing to check out
     shard_block = job_block(text, SHARDS)
     shard_step = step_text(shard_block, WHOLE)
     assert "$(python3 scripts/test_dirs.py)" in shard_step and 'WB_FULL_FUZZ: "1"' in shard_step and "select_tests" not in shard_step
     count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_step)
     assert count, "each shard starts the launcher with its K of an integer N"
     assert matrix_of(shard_block) == list(range(1, int(count.group(1)) + 1)) and re.search(r"^      fail-fast: false\s*$", shard_block, re.M)
-    selected_step = step_text(block, SELECTED)
+    selected_step = step_text(shard_block, SELECTED)
     assert "selected-tests.txt" in selected_step and "WB_FULL_FUZZ" not in selected_step
+    assert re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/%s"' % count.group(1), selected_step)  # the selection is sharded the same way
     assert not re.search(r"^  full-suite:\s*$", text, re.M)  # no second job to be the only gate
 
 
@@ -329,7 +332,7 @@ def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_
     so a label added to a pull request must not be able to skip either (`tests` has only `if: always()`, the condition that never skips);
     on a pull request into main every event runs the whole suite."""
     assert job_condition("tests") in (None, "always()") and job_condition("validate") is None
-    selected = step_condition("tests", SELECTED)
+    selected = step_condition(SHARDS, SELECTED)
     for name, event in EVENTS.items():
         if event.get("event_name") == "pull_request" and event.get("base_ref") == "main":
             assert evaluate(selected, **event) is False, name
@@ -351,7 +354,7 @@ def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_
 
 
 def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main_are_caught_by_the_oracle():
-    whole, selected = step_condition("tests", GATE), step_condition("tests", SELECTED)
+    whole, selected = step_condition(SHARDS, WHOLE), step_condition(SHARDS, SELECTED)
     # the design of the previous head: the job is skipped on a label other than full-suite (a skipped required check passes)
     skips_on_a_label = "github.event.action != 'labeled' || github.event.label.name == 'full-suite'"
     assert modes(skips_on_a_label, whole, selected) != WANTED_MODES
@@ -385,26 +388,30 @@ def gate_holds(text):
 def test_planted_gates_that_let_a_failed_or_missing_shard_pass_are_caught_by_the_oracle():
     real = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     assert gate_holds(real)
-    shard_if = ("    if: >-\n      github.event_name != 'pull_request' || github.base_ref == 'main'\n"
-                "      || contains(github.event.pull_request.labels.*.name, 'full-suite')\n")
+    shard_name = "    name: tests shard ${{ matrix.shard }} of 3\n"
     plants = {
         "the aggregator is skipped when a shard fails": real.replace("    needs: tests-shard\n    if: always()\n", "    needs: tests-shard\n", 1),
         "a shard is left out of the matrix": real.replace("[1, 2, 3]", "[1, 2]", 1),
         "the gate does not compare the result": real.replace('test "$SHARDS" = "success"', "true", 1),
-        "the shards run on fewer events than the gate waits for": real.replace(
-            shard_if, "    if: >-\n      github.event_name != 'pull_request'\n", 1),
+        "the gate step is skipped on some event, which counts as a pass": real.replace(
+            "      - name: Every shard passed\n", "      - name: Every shard passed\n        if: github.event_name != 'pull_request'\n", 1),
+        "the shards run on fewer events than the gate waits for": real.replace(shard_name, shard_name + "    if: github.event_name != 'pull_request'\n", 1),
     }
     for name, planted in plants.items():
         assert planted != real, name
         assert not gate_holds(planted), name
 
 
-def test_an_unrelated_label_skips_the_optional_jobs_and_the_label_of_the_whole_suite_starts_them():
+def test_an_unrelated_label_skips_the_optional_jobs_runs_the_shards_the_gate_needs_and_the_label_of_the_whole_suite_starts_them():
     other = EVENTS["another label just added"]
     full = EVENTS["the label full-suite just added"]
-    for name in ("python39", "changes", SHARDS):
+    for name in ("python39", "changes"):
         assert evaluate(job_condition(name), **other) is False, name
         assert evaluate(job_condition(name), **full) is True, name
+    # the gate `tests` runs on every label event, so the shards it waits for run too (a skipped shard would make the gate fail): in the mode the base asks for
+    assert evaluate(job_condition(SHARDS), **other) is True and evaluate(job_condition(SHARDS), **full) is True
+    assert evaluate(step_condition(SHARDS, SELECTED), **other) is True and evaluate(step_condition(SHARDS, WHOLE), **other) is False
+    assert evaluate(step_condition(SHARDS, WHOLE), **full) is True and evaluate(step_condition(SHARDS, SELECTED), **full) is False
 
 
 def test_the_docker_and_go_jobs_wait_for_the_job_that_says_whether_their_paths_changed():
@@ -496,8 +503,8 @@ def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run
 
 
 def test_the_step_that_pipes_the_selector_into_tee_fails_when_the_selector_does():
-    text = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "tests")
-    step = text[text.index("- name: Choose the tests"):text.index("- name: Selected scanner")]
+    text = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), SHARDS)
+    step = text[text.index("- name: Choose the tests"):text.index("- name: Scanner and provider tests")]
     assert re.search(r"^        shell: bash\b", step, re.M) and "select_tests.py --base" in step and "| tee" in step  # bash -e -o pipefail
 
 
@@ -645,9 +652,9 @@ def step_script(block, name):
     return "\n".join(body) + "\n"
 
 
-def test_the_python39_job_selects_under_the_condition_of_the_tests_job_and_runs_the_whole_list_in_every_other_case():
+def test_the_python39_job_selects_under_the_condition_of_the_shards_and_runs_the_whole_list_in_every_other_case_in_three_shards():
     choose = step_condition("python39", PY39_CHOOSE)
-    assert squash(choose) == squash(step_condition("tests", SELECTED))  # the same pull requests: into a branch other than main, no full-suite label
+    assert squash(choose) == squash(step_condition(SHARDS, CHOOSE))  # the same pull requests: into a branch other than main, no full-suite label
     got = modes(job_condition("python39"), step_condition("python39", PY39_WHOLE), choose)
     wanted = dict(WANTED_MODES)
     wanted["another label just added"] = wanted["another label added to a pull request into main"] = None  # the job waits for the label full-suite
@@ -657,7 +664,12 @@ def test_the_python39_job_selects_under_the_condition_of_the_tests_job_and_runs_
     pytest_step = step_text(block, PY39_STEP)
     assert '$(cat "$RUNNER_TEMP/py39.txt")' in pytest_step and "--python 3.9" in pytest_step and "--with pytest==8.4.2" in pytest_step
     assert "--with pytest-xdist==3.8.0" in pytest_step and 'WB_SKIP_JS_ONLY_TESTS: "1"' in pytest_step
-    assert re.search(r"^    name: python39\s*$", block, re.M)  # the check keeps its name
+    # three shards of the list, the way tests-shard shards the selection: the launcher, K of 3, a matrix 1..3
+    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', pytest_step)
+    assert count and "SHARD: ${{ matrix.shard }}" in pytest_step
+    assert matrix_of(block) == list(range(1, int(count.group(1)) + 1)) == [1, 2, 3] and re.search(r"^      fail-fast: false\s*$", block, re.M)
+    assert re.search(r"^    name: python39 shard \$\{\{ matrix\.shard \}\} of 3\s*$", block, re.M)  # not a required check: its name is a shard's
+    assert "python39" not in REQUIRED_CHECKS
 
 
 def py39_repo(tmp_path, changed, list_text):
