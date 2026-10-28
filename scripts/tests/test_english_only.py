@@ -87,3 +87,22 @@ def test_html_comment_allow_with_reason_exempts_the_line(tmp_path):
     write(tmp_path, "docs/a.md", f"{NAO} <!-- validate: allow english-only -- a quoted source title -->\n")
     write(tmp_path, "docs/b.css", f"/* {NAO} validate: allow english-only -- a fixture string */\n")
     assert errors(tmp_path) == []
+
+
+def test_phrase_part_portuguese_file_passes_without_an_allow_line(tmp_path):
+    write(tmp_path, "runtime/phrases_parts/demo-1.pt-BR.json",
+          '{"package": "demo-1", "table": {"DEMO_KEY": "Voc\u00ea ' + NAO + ' tem a\u00e7\u00e3o"}}\n')
+    assert errors(tmp_path) == []
+
+
+def test_phrase_part_exemption_is_narrow(tmp_path):
+    # Vacuity: the same Portuguese in any other file, or in a near-miss path, still fails.
+    text = '{"table": {"DEMO_KEY": "' + NAO + '"}}\n'
+    write(tmp_path, "runtime/phrases_parts/demo-1.en.json", text)
+    write(tmp_path, "runtime/phrases_parts/sub/demo-1.pt-BR.json", text)
+    write(tmp_path, "runtime/other/demo-1.pt-BR.json", text)
+    write(tmp_path, "runtime/phrases_parts/demo-1.pt-BR.json.bak", text)
+    write(tmp_path, "docs/notes.md", NAO + "\n")
+    found = errors(tmp_path)
+    assert len(found) == 5
+    assert not any(f.startswith("runtime/phrases_parts/demo-1.pt-BR.json:") for f in found)

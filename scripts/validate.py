@@ -37,8 +37,9 @@ Checks every skill under skills/ and every agent under agents/:
     credential listed by two manifests has the same word in both. An error, one line per entry
   - frontmatter is read by this file's own parser on every machine, whatever library is installed
   - english-only: no tracked text file contains Portuguese-specific diacritics or words, except
-    on a line carrying `validate: allow english-only -- <reason>` or a path listed in
-    .security-scan-allow with the rule english-only
+    on a line carrying `validate: allow english-only -- <reason>`, a path listed in
+    .security-scan-allow with the rule english-only, or a file matching
+    runtime/phrases_parts/*.pt-BR.json (the Portuguese half of a phrase part, by rule)
   - private-term: when a local, git-ignored terms file exists (.private-terms at the repository root, or
     the path in WORKBENCH_PRIVATE_TERMS), no tracked text file contains any of its terms, except on a line
     carrying `validate: allow private-term -- <reason>` or in a path the file excludes. The file lists one
@@ -327,6 +328,9 @@ PORTUGUESE_RE = re.compile(
 # Group 1 is the reason: it must follow "-- " and cannot be only a comment terminator, or
 # "english-only -->" would read ">" as the reason. Any other "--" tail matches without group 1,
 # so the check reports a missing reason instead of plain Portuguese text.
+# A Portuguese phrase part is Portuguese by design (runtime/phrases_parts/README.md), so the check exempts it by rule
+# and a package adds no allow line; phrases.load_parts still refuses a file there that is not a valid part pair.
+ENGLISH_EXEMPT_RE = re.compile(r"^runtime/phrases_parts/[^/]+\.pt-BR\.json$")
 ENGLISH_ALLOW_RE = re.compile(
     r"validate:\s*allow\s+english-only"
     r"(?:\s+--\s+(?!(?:-->|\*/)\s*$)(\S.*?)|\s*--.*?)?\s*(?:-->|\*/)?\s*$")
@@ -1501,13 +1505,15 @@ def check_english(report, root=ROOT):
     """english-only: tracked text files carry no Portuguese-specific diacritics or words.
 
     A line is exempt when it carries `validate: allow english-only -- <reason>`; a whole file
-    when .security-scan-allow has `<path glob> english-only -- <reason>`.
+    when .security-scan-allow has `<path glob> english-only -- <reason>`, or when it is the
+    Portuguese half of a phrase part (ENGLISH_EXEMPT_RE).
     """
     scanner = load_scanner()
     entries, _ = scanner.load_allow_file(root)
     for path in sorted(scanner.list_files(root, None)):
         rel = os.path.relpath(path, root).replace(os.sep, "/")
-        if rel.startswith(".git/") or scanner.path_allowed(entries, rel, "english-only"):
+        if (rel.startswith(".git/") or ENGLISH_EXEMPT_RE.match(rel)
+                or scanner.path_allowed(entries, rel, "english-only")):
             continue
         text = scanner.read_text(path)
         if text is None:
