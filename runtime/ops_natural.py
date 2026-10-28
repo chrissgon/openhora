@@ -499,6 +499,8 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         except core.OpsError as e:
             return _error(cfg, e, channel)
         return _ask_draft(ctx, asked, channel, sender, "command")
+    if name == "reminder-forget" and isinstance(args.get("matching"), str):      # CB-8 (catalog version 2): the reminder is named by words, found by code among the sender's own waiting ones
+        return _forget_by_words(project, ctx, row, args["matching"], channel, sender, extras)
     if _missing(row, args):
         return t("NAT_ASK_ID")
     if name == "reminder-restore" and routed:      # the router chose it and no code can check the choice against the line: nothing is brought back from it, the reply is the command
@@ -517,6 +519,33 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         return _error(cfg, e, channel)
     sentence, draft = natural.forget_question([shown], cfg, channel != "messaging" or _notices_text(cfg))
     extras["stored"] = t("NAT_PRIVATE_REPLY")      # the question shows the reminder's words: the conversation keeps a neutral word (limit L51)
+    drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
+    return sentence
+
+
+def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sender, extras: dict) -> str:
+    """CB-8: "cancela o lembrete da florista" read by the interpreter or the router: the words of the span (`reminders.forget_words`) find the sender's waiting reminders (`reminders.matching`, the one rule
+    the bridge's own form uses too). One: shown with what it is and cancelled only on the person's yes (the same question as a reminder named by a number, `natural.forget_question`). Several: a
+    numbered list that asks which, the words shown only when the project's notices carry text (limit L51). None, or no word to look for: one sentence. Another sender's reminder never matches, and
+    nothing is cancelled here."""
+    cfg = ctx["cfg"]
+    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
+    extras["stored"] = t("NAT_PRIVATE_REPLY")      # the reply shows the reminder's words: the conversation keeps a neutral word (limit L51)
+    words = importlib.import_module("reminders").forget_words(span)
+    if not words:
+        return t("RM_FORGET_WORDS_NONE")
+    try:
+        found = _call(project, row, {"matching": words, "preview": True}, channel, sender)
+    except core.OpsError as e:
+        return _error(cfg, e, channel)
+    with_text = channel != "messaging" or _notices_text(cfg)
+    if found.get("none"):
+        return t("RM_FORGET_WORDS_NONE")
+    if found.get("choose"):
+        today = importlib.import_module("ops_reminders").now().date()
+        lines = [f"#{r['id']} " + natural.describe(natural.info_of(r["due"][:10], r["due"][11:16], today), cfg) + (f": {r['text']}" if "text" in r else "") for r in found["choose"]]
+        return "\n".join([t("RM_FORGET_WORDS_WHICH")] + lines)
+    sentence, draft = natural.forget_question([found], cfg, with_text)
     drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
     return sentence
 
