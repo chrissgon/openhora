@@ -228,7 +228,8 @@ def provider_args(doc: dict, spec_file) -> list:
 
 def get_args(doc: dict) -> list:
     """The flags of the writer's `task-get` for the task a document (or {"address", "list_id", "task_id"}) names."""
-    return ["--account", doc["address"], "--list", doc["list_id"], "--task", doc["task_id"]]
+    args = ["--account", doc["address"], "--list", doc["list_id"], "--task", doc["task_id"]]
+    return args
 
 
 if __name__ == "__main__":
