@@ -89,7 +89,7 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
         assert natural.class_of(name) == ("R" if name == "sources" else "G"), name
     for name in ("approve", "reject", "release", "answer", "go-ahead"):
         assert natural.class_of(name) == "D"
-    for name in R - {"research"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
+    for name in R - {"research", "file-ask"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
         assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body", "tasks-read")), name
@@ -99,6 +99,13 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
     assert row["model"] is True and row["channels"] == ("terminal", "messaging")
     assert operations.GROUPS["research"] == {"operations": ("research",), "kind": None}
     assert [g for g, spec in operations.GROUPS.items() if "research" in spec["operations"]] == ["research"]
+    # FA-1: `file-ask` is the other read that calls a model, and the only one that hands the text of the person's own file to one (the quarantined reader, runtime/ops_file_ask.py). It has a group
+    # of its own, in no default policy, which `read-files` never covers, and no row on the MCP mode.
+    row = operations.by_name("file-ask")
+    assert row["model"] is True and row["channels"] == ("terminal", "page", "messaging") and "mcp" not in row["channels"]
+    assert operations.GROUPS["ask-files"] == {"operations": ("file-ask",), "kind": None}
+    assert [g for g, spec in operations.GROUPS.items() if "file-ask" in spec["operations"]] == ["ask-files"]
+    assert operations.GROUPS["read-files"] == {"operations": ("file-read",), "kind": None}
     for name, cls in natural.CLASSES.items():      # an operation that is only the terminal's is never run from a line
         if operations.by_name(name)["channels"] == ("terminal",):
             assert cls == "G", name

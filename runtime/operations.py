@@ -770,6 +770,18 @@ OPERATIONS = (
                  "about": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
                  "slots": {"message": {"kind": "int", "param": "number", "since": 2}, "target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day", "since": 2},
                            "service": {"kind": "word", "param": "account", "since": 2}}}},
+    # FA-1: a question about what ONE file of the person's own Drive or OneDrive says, answered by the quarantined reader (runtime/ops_file_ask.py): the file is found by the search of `file-read`,
+    # its converted text goes only to one contained run of the answer skill (container, web off, nothing brought back) and the answer comes back to the chat that asked with the passages code
+    # checked. The text goes to a model, so the group `ask-files` is a group of its own, in no default policy, widened only with `accept-config --widen`, never on the MCP mode (this row does not list it).
+    {"name": "file-ask", "call": "file_ask",
+     "args": ({"name": "file", "kind": "str", "required": True}, {"name": "question", "kind": "str", "required": True},
+              {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
+     "channels": ("terminal", "page", "messaging"), "model": True, "job": True, "channel_arg": True,
+     "help": "answer a question about what ONE file of your Google Drive (account google) or OneDrive (account microsoft) says, found by its name by the search of file-read (the folders the project lists under accounts.<account>.folders and the folders inside them; several matches are listed to choose from on a messaging app, and the full name is asked elsewhere): the converted text of that file, read now, goes to one run of the answer skill in an isolated container with no web that can act on nothing, within the project's file_ask bounds (max_cost_usd, timeout_seconds, max_per_day); the answer comes back only to the shell or chat that asked, with the passages code checked in the file; nothing of the file is registered or kept. A messaging sender needs the groups ask-files and read-files",
+     "natural": {"class": "R", "since": 2, "order": 150, "privacy": "off-host", "cost": "model",
+                 "what": "answer a question about what ONE file of the person's own Drive or OneDrive says (the name is the file span; the service word only when the line says Google Drive or OneDrive; the question is the person's whole line)",
+                 "about": "Choose this to answer a question about what ONE file of the person's own Drive or OneDrive says (a total, a date, a clause); file is its name as the line writes it. Not to show the file (file-read), not the project's sources (ask), not the web (research).",
+                 "slots": {"file": {"kind": "span", "param": "file", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
     # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
     # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
     {"name": "research", "call": "research",
@@ -1105,6 +1117,11 @@ GROUPS = {
     # re-worded and grants nothing of it. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with `accept-config --widen`, and project_config refuses a messaging
     # policy that lists it without `ask-mail` beside it (the reader of the person's own mailbox). Never on the MCP mode (the row does not list it). Valid on the page and the terminal inside their ceiling.
     "read-mail-body": {"operations": ("mail-read",), "kind": None},
+    # FA-1: a question about what ONE file of the person's Drive or OneDrive says, answered by a model that reads the file in an isolated run (runtime/ops_file_ask.py). The file's text goes to a
+    # model, which `read-files` promises never to happen, so this is a group of its own (the maintainer's decision of 2026-10-26, "Sim, pelo leitor isolado"): in no default policy, widened only with
+    # `accept-config --widen`, never on the MCP mode (the row does not list it), valid on the page and the terminal inside their ceiling. A policy that lists it, for any channel, needs `read-files` beside it
+    # (project_config: the search lists names), and the operation asks for both again. `read-files` is neither widened nor re-worded.
+    "ask-files": {"operations": ("file-ask",), "kind": None},
     # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
     # --widen; never on the page or the MCP mode (the row does not list them). It reads and answers; it writes nothing, opens no card and sends nothing but the question, to a search service and a model.
     "research": {"operations": ("research",), "kind": None},
@@ -1225,6 +1242,7 @@ GROUP_TEXT = {
     "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
     "read-mail-body": "shows in the chat the text of a message of your mail snapshots that you ask for (the sender's own words, up to 1,500 characters): the messaging app's servers see it; no model reads it (adds to ask-mail)",
+    "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
 }

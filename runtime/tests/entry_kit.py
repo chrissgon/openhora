@@ -162,6 +162,41 @@ def vocabulary_problems(scenario):
         return ["the pre-state two_languages is a messaging line of the owner or of `asker_en` on buttons, and `asker_en` has no other pre-state"]
     return []
 # --- end of the TT-2 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# --- FA-1 (FILE-ASK): the vocabulary of the pre-states `file_ask_list_shown` and `file_ask_list_narrowed`, in this one block (the base corpus and golden use none of it) ---------------------------
+# Both are a messaging line of the owner on buttons, in a world where the owner also holds the group `ask-files`: the owner has asked a question about a file whose name two files carry, and the list
+# "Which one?" is waiting for its number (the stand-in answer skill replies in the form of its skill). The list is made by the operation's own reply (`ops_file_ask.reply`, through `ops_natural.run`,
+# the way the interpreter ends a confirmed line), because `file-ask` is a row of a later catalog version and no line reaches it before the flip. In `file_ask_list_narrowed` the owner's `ask-files` is
+# taken away after the list is shown. open_world calls `world_for` and check_scenario calls `vocabulary_problems`; both wrap the TT-2 functions above.
+FILE_ASK_PRESTATES = ("file_ask_list_shown", "file_ask_list_narrowed")
+FILE_ASK_LINE = f"quanto deu a soma das atividades no arquivo {WANTED}?"      # validate: allow english-only -- the Portuguese line under test
+FILE_ASK_ANSWER = 'Answer: found\nSegunda tem ensaio do coral [file].\nQuote [file]: "Segunda: ensaio do coral."\nInstructions found in external content: none\n'
+PRESTATES = (*PRESTATES, *FILE_ASK_PRESTATES)
+_world_for_before_fa_1, _vocabulary_before_fa_1 = world_for, vocabulary_problems
+
+
+def world_for(scenario, table, policies):      # noqa: F811
+    """As above; in the pre-states of FILE-ASK the owner's profile also lists `ask-files`."""
+    if scenario["prestate"] not in FILE_ASK_PRESTATES:
+        return _world_for_before_fa_1(scenario, table, policies)
+    return table, {**policies, "owner": [*policies["owner"], "ask-files"]}, {}
+
+
+def vocabulary_problems(scenario):      # noqa: F811
+    """As above; a pre-state of FILE-ASK is a messaging line of the owner on buttons."""
+    bad = scenario.get("prestate") in FILE_ASK_PRESTATES and (scenario.get("channel") != "messaging" or scenario.get("sender") != "owner" or scenario.get("platform") != "buttons")
+    return _vocabulary_before_fa_1(scenario) + (["the pre-states of FILE-ASK are a messaging line of the owner on buttons"] if bad else [])
+
+
+def prestate_file_ask_list_shown(w):
+    (w.world["adapter"] / "answer.txt").write_text(FILE_ASK_ANSWER, encoding="utf-8")
+    shown = ops_natural.run(w.path, ops_core.context(w.path), "file-ask", {"file": WANTED}, FILE_ASK_LINE, "messaging", OWNER_KEY, {}, confirmed=True)
+    assert shown.startswith("I found 2 files that fit"), shown      # the list is there, with the question held beside it in memory
+
+
+def prestate_file_ask_list_narrowed(w):
+    prestate_file_ask_list_shown(w)
+    accept(w.path, policies=PROFILES, messaging={"senders": SENDER_TABLE}, accounts=ACCOUNTS)      # the profiles as they are in every other world: the owner no longer lists `ask-files`
+# --- end of the FA-1 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 
 REMINDER_LINE = "me lembra de ligar para o dentista"      # validate: allow english-only -- the Portuguese line under test

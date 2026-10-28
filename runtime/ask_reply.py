@@ -206,19 +206,40 @@ def _names(line: str, ids: set) -> bool:
     return any(re.search(r"(?<![\w-])" + re.escape(i) + r"(?![\w-])", line) for i in ids)
 
 
-def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None) -> dict:
+def _trim(text: str, room: int, mark: str) -> str:
+    """The text cut on a word so that it and the mark fit in `room` characters (the mark alone when there is no room)."""
+    if len(text) <= room:
+        return text
+    head = text[:max(room - len(mark) - 1, 0)]
+    space = head.rfind(" ")
+    if space > len(head) * 0.8:
+        head = head[:space]
+    return (head.rstrip() + " " + mark).strip()
+
+
+def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None, read_label=None, max_chars=None) -> dict:
     """The reply the person is sent and what was found: {"text", "outcome": "found" | "partial" | "not-found" | "unchecked",
     "flags": [words], "verified": the number of quotes found in their sources}. `given` is [{"source", "version"}] of the copies
     the run received, `copies` {source id: the text of that copy}, `proven` whether the run was proven (autonomy "proven"). `cfg` carries
-    the project's `language` (runtime/phrases.py): the sentences code adds are said in it; the form the skill writes is English."""
+    the project's `language` (runtime/phrases.py): the sentences code adds are said in it; the form the skill writes is English. `read_label` (FA-1, `file-ask`) is the footer's
+    own sentence, a text code wrote (the file's name, account and folder, no id and no version: L62), shown in the place of the line that lists the sources and versions read;
+    left out (the default), every reply is byte for byte what it was. `max_chars` (FA-1) is the most characters the reply may have: what is over is taken from the model's prose (or, for a reply in
+    another form, from its text), cut on a word with the sentence FA_CUT, so that the quotes code checked, the notes, the instruction lines and the footer are never the part that is cut; only when the
+    prose cannot give enough is the whole reply cut at the limit. Left out, nothing is cut."""
     say = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     read = read_line(given, cfg)
+    read_label = read_label if isinstance(read_label, str) and read_label else None
+    footer_read = read_label if read_label else say("READ", read=read)
     footer = [] if proven else [say("UNPROVEN", skill=skill, model=model)]
     parsed = parse(response)
     ids = {g["source"] for g in given}
     flags = []
     if parsed["answer"] is None:
-        text = "\n\n".join([say("UNCHECKED"), clean(response or "").strip() or say("EMPTY_REPLY"), say("READ", read=read), *footer])
+        body = clean(response or "").strip() or say("EMPTY_REPLY")
+        text = "\n\n".join([say("UNCHECKED"), body, footer_read, *footer])
+        if max_chars is not None and len(text) > max_chars:
+            body = _trim(body, len(body) - (len(text) - max_chars), say("FA_CUT"))
+            text = "\n\n".join([say("UNCHECKED"), body, footer_read, *footer])
         return {"text": text, "outcome": "unchecked", "flags": ["UNCHECKED"], "verified": 0}
     copies_flat = {i: collapse(t) for i, t in copies.items()}
     kept, other, unverified = [], 0, 0
@@ -240,8 +261,11 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     if unverified:
         flags.append("INSTRUCTION_UNVERIFIED")
     if parsed["answer"] == "not-found":
-        return {"text": "\n\n".join([say("NOT_FOUND", read=read)] + ([instructions] if instructions else []) + footer),
-                "outcome": "not-found", "flags": flags, "verified": 0}
+        first = say("FA_NOT_FOUND") if read_label else say("NOT_FOUND", read=read)      # with a read_label the line that lists ids and versions is not written at all
+        text = "\n\n".join([first] + ([instructions] if instructions else []) + ([footer_read] if read_label else []) + footer)
+        if max_chars is not None and len(text) > max_chars:
+            text = _trim(text, max_chars, say("FA_CUT"))
+        return {"text": text, "outcome": "not-found", "flags": flags, "verified": 0}
     shown, verified = [], 0
     for source_id, passage in parsed["quotes"]:
         flat = collapse(passage)
@@ -278,7 +302,14 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
         flags.append("UNVERIFIED")
         notes.append(say("UNVERIFIED"))
     pieces = [p for p in (prose, "\n".join(shown), "\n".join(notes), instructions) if p]
-    text = "\n\n".join(pieces + [say("READ", read=read), *footer])
+    text = "\n\n".join(pieces + [footer_read, *footer])
+    if max_chars is not None and len(text) > max_chars:      # FA-1: the prose gives way first; the whole is cut at the limit only when it cannot
+        over = len(text) - max_chars
+        if prose and over < len(prose):
+            pieces[0] = _trim(prose, len(prose) - over, say("FA_CUT"))
+            text = "\n\n".join(pieces + [footer_read, *footer])
+        if len(text) > max_chars:
+            text = _trim(text, max_chars, say("FA_CUT"))
     return {"text": text, "outcome": parsed["answer"], "flags": list(dict.fromkeys(flags)), "verified": verified}
 
 
