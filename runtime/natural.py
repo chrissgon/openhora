@@ -48,10 +48,12 @@ Standard library only. Runs on Python 3.9: python3 runtime/natural.py --help
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
 import re
 import sys
+import threading
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -203,14 +205,53 @@ def _verb_noun(norm: str, tables: list):
     return best
 
 
+class _RepeatScope:
+    """What `repeat_scope` keeps for the line in hand: the question whether the interpreter is on, asked at most once."""
+    __slots__ = ("ask", "known")
+
+    def __init__(self, ask):
+        self.ask, self.known = ask, None
+
+    def on(self) -> bool:
+        if self.known is None:
+            try:
+                self.known = bool(self.ask() if callable(self.ask) else self.ask)
+            except Exception:      # noqa: BLE001 - a project whose configuration cannot be read has no interpreter on: the closed forms keep the line
+                self.known = False
+        return self.known
+
+
+_REPEAT = threading.local()      # one scope for each thread: a line is handled in the thread that opened its scope
+
+
+@contextlib.contextmanager
+def repeat_scope(ask):
+    """CB-9: the scope inside which a repeating line may go on to the interpreter (`repeat_goes_on`). `ask` is the answer, or a function that gives it (called at most once, and only
+    for a line that holds a repetition phrase): whether the interpreter is ON for this sender and this language (ops_interpret.enabled). Outside a scope nothing is ever on, so the
+    closed forms keep every repeating line, as they did before catalog version 2: that is the restrictive default. A scope that is already open is kept (the outermost entry decides
+    for the whole line). Ends with the block, on every path."""
+    if getattr(_REPEAT, "scope", None) is not None:
+        yield
+        return
+    _REPEAT.scope = _RepeatScope(ask)
+    try:
+        yield
+    finally:
+        _REPEAT.scope = None
+
+
 def repeat_goes_on(line) -> bool:
-    """CB-9: whether a line that holds a repetition phrase (`recurrence.mentions`) goes on to the interpreter instead of being claimed by a closed form. At catalog version 2 the interpreter
-    reads `repeat` (CB-7: a daily or weekly series, or the honest sentence for a repetition code cannot read), so a closed form that answers "an event that repeats is not available yet"
-    (NW_RECURRING_EVENT) or asks "an event, or something else?" must not take the line first. At version 1 nothing changes. Pure."""
+    """CB-9: whether a line that holds a repetition phrase (`recurrence.mentions`) goes on to the interpreter instead of being claimed by a closed form. It does only when ALL hold: the
+    catalog is at version 2 (the interpreter then reads `repeat`: CB-7, a daily or weekly series, or the honest sentence for a repetition code cannot read), a `repeat_scope` is open and
+    says the interpreter is ON for this sender and language, and the line holds a repetition phrase. Otherwise the closed form that answers "an event that repeats is not available yet"
+    (NW_RECURRING_EVENT) keeps the line, as it always did: with the interpreter off, a repeating line never goes to the router. Pure but for the scope's one question."""
     if operations.LINE_CATALOG < 2 or not isinstance(line, str):
         return False
+    scope = getattr(_REPEAT, "scope", None)
+    if scope is None:
+        return False
     import recurrence
-    return bool(recurrence.mentions(line))
+    return bool(recurrence.mentions(line)) and scope.on()
 
 
 def candidate(line, languages=None):

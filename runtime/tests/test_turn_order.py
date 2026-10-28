@@ -195,6 +195,9 @@ class Double:
     def sentences_for(self, chat, project=None):      # TT-2: the scope of the sender's sentence language; none is read here
         return contextlib.nullcontext()
 
+    def repeat_scope(self, project, chat):      # CB-9: the scope in which a repeating line goes to the interpreter; none is open here
+        return contextlib.nullcontext()
+
     def write_open(self, project, chat):
         return False
 

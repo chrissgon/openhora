@@ -202,8 +202,9 @@ def prestate_file_ask_list_narrowed(w):
 # new rows reaches the question "Shall I go ahead?" as it does for a person who holds them. `cb9_file_ask_asked`: the same world, a file that one drive holds under a name no other file carries, the stand-in
 # answer skill's reply, and the owner's question about that file already said, so that the question is waiting and the line of the scenario is the owner's "sim". Its variants change one thing each: the
 # reply carries an instruction found in the file (`_injected`), the role `answer` names no skill (`_not_built`), the answer skill has not passed its first full test (`_not_proven`: FA_NOT_PROVEN).
-# All are a messaging line of the owner on buttons. open_world calls `world_for` and check_scenario calls `vocabulary_problems`; both wrap the FA-1 functions above.
-CB9_PRESTATES = ("cb9_groups", "cb9_file_ask_asked", "cb9_file_ask_asked_injected", "cb9_file_ask_asked_not_built", "cb9_file_ask_asked_not_proven")
+# `cb9_interpreter_off`: no state is built; the owner's profile lacks the group `interpret`, so the interpreter is off for the owner and a line that repeats keeps the closed form's answer ("not available yet")
+# at catalog version 2, as it did before the flip. All are a messaging line of the owner on buttons. open_world calls `world_for` and check_scenario calls `vocabulary_problems`; both wrap the FA-1 functions above.
+CB9_PRESTATES = ("cb9_groups", "cb9_interpreter_off", "cb9_file_ask_asked", "cb9_file_ask_asked_injected", "cb9_file_ask_asked_not_built", "cb9_file_ask_asked_not_proven")
 CB9_GROUPS = ("ask-files", "read-mail-body", "tasks-read", "tasks-write", "approve-effect-tasks")
 CB9_FILE = "orcamento-teste"
 CB9_FILE_ASK_LINE = f"quanto deu o total no {CB9_FILE}?"      # validate: allow english-only -- the Portuguese line under test
@@ -220,6 +221,8 @@ def world_for(scenario, table, policies):      # noqa: F811
     """As above; in the pre-states of CB-9 the owner's profile also lists the groups of the rows of catalog version 2."""
     if scenario["prestate"] not in CB9_PRESTATES:
         return _world_for_before_cb_9(scenario, table, policies)
+    if scenario["prestate"] == "cb9_interpreter_off":
+        return table, {**policies, "owner": [group for group in policies["owner"] if group != "interpret"]}, {}
     return table, {**policies, "owner": [*policies["owner"], *CB9_GROUPS]}, {}
 
 
@@ -230,6 +233,10 @@ def vocabulary_problems(scenario):      # noqa: F811
 
 
 def prestate_cb9_groups(w):
+    """No state is built: the world is the pre-state (`world_for`)."""
+
+
+def prestate_cb9_interpreter_off(w):
     """No state is built: the world is the pre-state (`world_for`)."""
 
 

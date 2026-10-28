@@ -493,9 +493,16 @@ CLOSED = ["marca academia semanal amanhã às 7h no google", "marca academia qui
           "marca academia 3x por semana amanhã às 7h no google", "marca academia toda segunda às 7h no google"]      # validate: allow english-only -- the Portuguese lines under test
 
 
+def interpreter_state(monkeypatch, on):
+    """The owner holds the group `interpret` (test_series_cancel.PROFILES); `on` says whether an enabling entry is in force for the project's language, which is what turns the interpreter on."""
+    monkeypatch.setattr(st.load("ops_interpret").interpreter_enable, "active", lambda tag: {"status_line": "on"} if on else None)
+
+
+@pytest.mark.parametrize("version", [1, 2])
 @pytest.mark.parametrize("line", CLOSED)
-def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line):
-    monkeypatch.setattr(operations, "LINE_CATALOG", 1)      # CB-9: since version 2 the closed forms do not claim a repeating line (test_repeat_goes_on.py, the test below)
+def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line, version):
+    monkeypatch.setattr(operations, "LINE_CATALOG", version)      # CB-9: at version 2 with the interpreter off for the language the closed forms keep the line, as at version 1 (the test below is the interpreter on)
+    interpreter_state(monkeypatch, False)
     configure(world)
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
@@ -506,8 +513,9 @@ def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence
 
 
 @pytest.mark.parametrize("line", CLOSED)
-def test_since_catalog_version_2_the_closed_forms_do_not_claim_a_repeating_line(world, monkeypatch, line):
+def test_at_catalog_version_2_with_the_interpreter_on_the_closed_forms_do_not_claim_a_repeating_line(world, monkeypatch, line):
     monkeypatch.setattr(operations, "LINE_CATALOG", 2)
+    interpreter_state(monkeypatch, True)
     configure(world)
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
@@ -531,7 +539,8 @@ def test_a_plain_event_on_the_closed_path_is_untouched(world, monkeypatch):
 
 @pytest.mark.parametrize("line", ["add to my calendar gym every other day tomorrow at 7am on google", "add to my calendar gym weekly tomorrow at 7am on google", "add to my calendar gym biweekly tomorrow at 7am on google"])
 def test_an_english_project_gets_the_sentence_too(world, monkeypatch, line):
-    monkeypatch.setattr(operations, "LINE_CATALOG", 1)      # CB-9: at version 2 the line goes on to the interpreter
+    monkeypatch.setattr(operations, "LINE_CATALOG", 2)      # CB-9: at version 2 with the interpreter off for the language (the default, whatever the version) the closed form answers
+    interpreter_state(monkeypatch, False)
     configure(world, language="en")
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)

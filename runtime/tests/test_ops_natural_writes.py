@@ -251,18 +251,45 @@ def test_an_all_day_event_with_no_day_asks_the_day_and_with_one_has_no_hour(worl
     assert "Sat 24/10/2026" in body(world, direct)
 
 
-def test_a_line_that_repeats_is_refused_in_words_and_opens_nothing_at_catalog_version_1(world, clock, spy, monkeypatch):
-    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 1)      # CB-9: since version 2 the closed form does not claim it (the next test)
+@pytest.mark.parametrize("version", [1, 2])
+def test_a_line_that_repeats_is_refused_in_words_and_opens_nothing_at_catalog_version_1_and_at_version_2_with_the_interpreter_off(world, clock, spy, monkeypatch, version):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", version)      # CB-9: at version 2 the sender has no group `interpret` here: the interpreter is off, and the closed form answers as before
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
     assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None) and spy == [] and not drafts.count()
 
 
-def test_since_catalog_version_2_a_line_that_repeats_is_no_write_form_and_opens_nothing_here(world, clock, spy, monkeypatch):
+def interpreter_for_owner(monkeypatch, entry):
+    """The owner's profile holds the group `interpret`; `entry` is what the enabling entry for the project's language gives (None: no entry in force, so the interpreter is off)."""
+    monkeypatch.setitem(PROFILES, "owner", PROFILES["owner"] + ["interpret"])
+    monkeypatch.setattr(st.load("ops_interpret").interpreter_enable, "active", lambda tag: entry)
+
+
+def test_at_catalog_version_2_with_the_group_held_and_no_entry_for_the_language_a_line_that_repeats_keeps_the_sentence(world, clock, spy, monkeypatch):
     monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
+    interpreter_for_owner(monkeypatch, None)
+    policy(world)
+    out = phone(world, "marca yoga toda segunda às 7h no google")
+    assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None) and spy == [] and not drafts.count()
+
+
+def test_at_catalog_version_2_with_the_interpreter_on_a_line_that_repeats_is_no_write_form_and_opens_nothing_here(world, clock, spy, monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
+    interpreter_for_owner(monkeypatch, {"status_line": "on"})      # the group is held and an entry is in force: the interpreter is on for this sender and language
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
     assert out["reply"] is None and spy == [] and not drafts.count(), "the caller handles it as any plain line: the interpreter reads it"
+    other = phone(world, "marca yoga toda segunda às 7h no google", sender="telegram:5151")
+    assert other["reply"] == phrases.text("NW_RECURRING_EVENT", None), "another sender, who holds no `interpret`, keeps the closed form's sentence"
+
+
+def test_vacuity_the_scope_left_out_the_interpreter_on_gives_the_sentence_back(world, clock, spy, monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
+    interpreter_for_owner(monkeypatch, {"status_line": "on"})
+    monkeypatch.setattr(st.load("ops_interpret"), "repeat_scope", lambda where, channel, sender: st.load("natural").repeat_scope(False))      # the planted fault: the scope never says on
+    policy(world)
+    out = phone(world, "marca yoga toda segunda às 7h no google")
+    assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None), "the oracle above (reply None) fails on the planted fault"
 
 
 def test_a_reading_the_engine_is_unsure_of_opens_the_card_with_a_line_that_says_which_part_to_check(world, clock):
