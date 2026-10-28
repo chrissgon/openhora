@@ -10,6 +10,13 @@ the snapshot.
   python3 runtime/tests/phrase_snapshot.py --check     exit 0 when both files equal the table, else exit 1 and print what differs and the command above
   python3 runtime/tests/phrase_snapshot.py --help
 
+Strict and lenient (HOT-1 for this file, the same variable as the generated blocks of docs/architecture/platform/): the test of the snapshot reads WB_GENERATED_BLOCKS. `strict`
+(a batch pull request, a pull request into main, a push to main, the nightly run) compares the files with the table byte for byte. `lenient` (a package's pull request into the
+integration branch; also the default when the variable is unset) fails only for what a package cannot leave stale: a key of a snapshot file that the table does not have, a
+snapshot file that does not exist, and a key of the table whose sentence cannot be rendered (an invalid field or format). A reworded sentence, an added key and a key missing from
+the snapshot pass there, so two packages that add phrase keys never conflict on a sorted snapshot file; the batch regenerates both files (`--write`, with
+`python3 scripts/architecture_tables.py --write`, docs/decisions/2026-10-28-keeper-snapshot-batch-strict.md) and strict mode checks them on the batch.
+
 A line is `KEY: sentence`, a newline inside a sentence is written `\\n` and a backslash `\\\\`. A `{field}` takes the value `VALUES` gives its name (a fictional day, a
 name, a count...), and any other field the text `<field>`, so a field that a sentence gains, loses or renames shows in the diff. The snapshot is generated: a conflict in
 a snapshot file is resolved by running `--write` on the rebased tree, never by hand (SPEC-V3-STRUCTURE OPEN-S10). The test is runtime/tests/test_phrase_snapshot.py.
@@ -127,6 +134,32 @@ def differences(folder=None, table=None, limit: int = 40) -> list:
             if len(lines) > limit:
                 found.append(f"... {len(lines) - limit} more lines")
     return found
+
+
+def lenient_problems(folder=None, table=None) -> list:
+    """What fails in lenient mode (a package's pull request): a snapshot file that does not exist, a key of a snapshot file that the table does not have, and a key of the table
+    whose sentence cannot be rendered (an invalid field or format). A reworded sentence and a key that is not yet in the snapshot are not problems."""
+    table = phrases.TABLE if table is None else table
+    found = []
+    for language in LANGUAGES:
+        path = path_of(language, folder)
+        have = _read(path)
+        if have is None:
+            found.append(f"{os.path.basename(path)}: the file does not exist")
+        else:
+            known = {line.split(": ", 1)[0] for line in have.splitlines() if ": " in line}
+            found.extend(f"{os.path.basename(path)}: the key {key} is not in the table" for key in sorted(known - set(table[language])))
+        for key in sorted(table[language]):
+            try:
+                render_sentence(table[language][key])
+            except (KeyError, IndexError, ValueError, AttributeError, TypeError) as error:
+                found.append(f"{language} {key}: the sentence cannot be rendered ({type(error).__name__}: {error})")
+    return found
+
+
+def problems(mode: str = "lenient", folder=None, table=None) -> list:
+    """The problems of the snapshot in `mode` (`strict`: `differences`; anything else: `lenient_problems`)."""
+    return differences(folder, table) if mode == "strict" else lenient_problems(folder, table)
 
 
 def main(argv=None) -> int:

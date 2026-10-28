@@ -51,7 +51,7 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   card_valid(card)            whether a decision's `card` (a list of [key, {field: text}] lines, every key of the family CARD_) can be said line by line
   card_text(card, cfg)        the lines of a valid card said in the project's language, one per line (the stored body of an effect that carries one is this in English)
 
-A test asserts a sentence by its key and its fields (runtime/tests/phrase_kit.py), and the wording of the table is pinned once, by runtime/tests/snapshots/ (python3 runtime/tests/phrase_snapshot.py --write after a change of a sentence).
+A test asserts a sentence by its key and its fields (runtime/tests/phrase_kit.py), and the wording of the table is pinned once, by runtime/tests/snapshots/ (python3 runtime/tests/phrase_snapshot.py --write after a change of a sentence; the batch does it for a package's pull request, which the lenient mode of its test allows).
 
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """

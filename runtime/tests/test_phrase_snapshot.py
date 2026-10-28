@@ -6,6 +6,7 @@ own literals, so the oracle is not the wording it renders; the planted cases at 
 a missing file, each makes the check fail).
 """
 import copy
+import os
 import sys
 from pathlib import Path
 
@@ -25,8 +26,11 @@ SMALL = {
 
 
 def test_the_snapshot_is_the_table():
-    found = snap.differences()
-    assert not found, "\n".join(found) + f"\nthe wording of the table changed: review it, then run `{snap.COMMAND}`"
+    """Strict (WB_GENERATED_BLOCKS=strict: a batch, a pull request into main, a push, the nightly run): the files are the table's, byte for byte. Lenient (a package's pull
+    request, and the default): only what a package cannot leave stale (`phrase_snapshot.lenient_problems`); the batch regenerates the files."""
+    mode = os.environ.get("WB_GENERATED_BLOCKS", "lenient")
+    found = snap.problems(mode)
+    assert not found, "\n".join(found) + f"\nthe wording of the table changed: review it, then run `{snap.COMMAND}` (the batch does it for a package's pull request)"
 
 
 def test_every_key_of_each_language_is_a_line_sorted_once():
@@ -130,3 +134,59 @@ def test_check_prints_the_command_and_exits_1(tmp_path, monkeypatch, capsys):
 def test_the_command_line_needs_a_mode():
     with pytest.raises(SystemExit):
         snap.main([])
+
+
+# --- strict and lenient (WB_GENERATED_BLOCKS), the same variable as the generated blocks of the platform pages ---------------------------------------------------
+
+def test_strict_fails_on_a_reworded_sentence_and_lenient_passes_it(tmp_path):
+    snap.write(tmp_path, SMALL)
+    planted = copy.deepcopy(SMALL)
+    planted["en"]["BYE"] = "See you."
+    strict = snap.problems("strict", tmp_path, planted)
+    assert any(line.startswith("+BYE: See you.") for line in strict)
+    assert snap.problems("lenient", tmp_path, planted) == []
+
+
+def test_lenient_passes_an_added_key_and_strict_does_not(tmp_path):
+    snap.write(tmp_path, SMALL)
+    added = copy.deepcopy(SMALL)
+    added["en"]["NEW"] = "New {name}."
+    added["pt-BR"]["NEW"] = "Novo {name}."
+    assert snap.problems("lenient", tmp_path, added) == []
+    assert "+NEW: New Ana Lima." in "\n".join(snap.problems("strict", tmp_path, added))
+
+
+def test_lenient_still_fails_for_a_snapshot_key_the_table_lacks_a_missing_file_and_an_invalid_sentence(tmp_path):
+    snap.write(tmp_path, SMALL)
+    removed = copy.deepcopy(SMALL)
+    del removed["en"]["BYE"]
+    assert snap.problems("lenient", tmp_path, removed) == ["phrases.en.txt: the key BYE is not in the table"]
+    bad = copy.deepcopy(SMALL)
+    bad["pt-BR"]["BYE"] = "Tchau {0} e {name"
+    problems = snap.problems("lenient", tmp_path, bad)
+    assert len(problems) == 1 and problems[0].startswith("pt-BR BYE: the sentence cannot be rendered")
+    (tmp_path / "phrases.pt-BR.txt").unlink()
+    assert snap.problems("lenient", tmp_path, SMALL) == ["phrases.pt-BR.txt: the file does not exist"]
+
+
+def test_an_unset_or_unknown_mode_is_lenient_and_only_strict_is_strict(tmp_path):
+    snap.write(tmp_path, SMALL)
+    planted = copy.deepcopy(SMALL)
+    planted["en"]["BYE"] = "See you."
+    for mode in ("lenient", "", "other"):
+        assert snap.problems(mode, tmp_path, planted) == [], mode
+    assert snap.problems("strict", tmp_path, planted)
+
+
+def test_vacuity_a_lenient_check_that_compares_byte_for_byte_would_fail_a_package_that_rewords_a_sentence(tmp_path, monkeypatch):
+    """The point of the lenient mode: with the strict comparison in its place, the planted reword (the case of a package's pull request) fails."""
+    snap.write(tmp_path, SMALL)
+    planted = copy.deepcopy(SMALL)
+    planted["en"]["BYE"] = "See you."
+    assert snap.problems("lenient", tmp_path, planted) == []
+    monkeypatch.setattr(snap, "lenient_problems", snap.differences)
+    assert snap.problems("lenient", tmp_path, planted) != []
+
+
+def test_the_real_table_is_lenient_clean_and_strict_clean_on_this_tree():
+    assert snap.problems("lenient") == [] and snap.problems("strict") == []
