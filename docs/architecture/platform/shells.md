@@ -524,6 +524,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the verbs, the conversation's commands, the dispatcher's jobs).
 - 2026-10-07: the local service is built (`runtime/service.py`): the shell, its artifacts, the channel rule with the page, and what stays planned (the pages, the MCP mode).

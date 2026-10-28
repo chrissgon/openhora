@@ -160,6 +160,8 @@ Each invariant with its guard. A test is in the adapter's own `tests/` folder un
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-09: the page is brought to the code of the central branch: the readers of the adapters' files are the kit, the runner, the executor and the facade, the files each script writes are listed per script, `--no-tools` is said to be `claude-code`'s alone, the contained run and the first runtime's rollback are stated, the listing budget's `apply` and `undo` are in the entry points, the layer map is named as the guard that no adapter file reaches the runtime or the lab, and the rows for findings 12 and 13 and for the web key are added.
 - 2026-10-21 (review of #506): the text runner's deadline covers the version check and bounds the whole call; its roots live in a fixed folder with a sweep of stale ones; the probe uses adversarial texts, scrubs the root and dates before the hash, checks the reply and the credential, and lists files written outside the root.
