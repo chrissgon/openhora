@@ -26,7 +26,9 @@ reply to several messages is not taken either.
                                                  said of the messages), `newest`, `plural`, `service` (google | microsoft), `state` (read | unread) and `folder_name` (as
                                                  written); `need` lists, in the order they are asked, the slots the line leaves open (to, subject, body, state)
   answer(need, line, slots, tables, now=None, options=None)   {"slots": the update} that a line makes when it answers the question `need`, or None when it is not an answer
-  match_words(entries, words, newest)            the entries of a snapshot's index whose from-address words and subject words hold EVERY one of `words`, as whole words
+  match_words(entries, words, newest, sender=())  the entries of a snapshot's index whose from-address words and subject words hold EVERY one of `words`, as whole words; with `sender`
+                                                 (GROUNDING-FROM: the words of a person's name that a target was widened from) every one of those must also be a from-address word
+                                                 (`from_words`: the local part and the domain labels but the last), never a subject word only
   plural_mentioned(text, tables)                 whether `text` holds a noun of the tables' `plural` list ("e-mails", "mensagens"), the words the closed form reads as several messages
   target_words(span, tables, cap=TARGET_WORDS_MAX)  the content words of a `target` span the interpreter verified (B''-lite): the span's words without the tables' articles, polite
                                                  words, joiners, mail nouns, plural words, "of" words and "newest" words, in order, none twice; [] when more than `cap`
@@ -787,15 +789,21 @@ def _words_of(text) -> list:
     return re.findall(r"[^\W_]+", nt.normalise(str(text or ""))[0])
 
 
-def entry_words(entry: dict) -> set:
-    """The whole words of one message of an index: the words of the local part of its from-address (split on . _ - +), the labels of its domain except the last, and the words of its
-    subject, folded."""
+def from_words(entry: dict) -> set:
+    """The whole words of the sender half of one message of an index: the words of the local part of its from-address (split on . _ - +) and the labels of its domain except the last,
+    folded. The index holds no display name, only the address (`runtime/item_refs.py` `INDEX_KEYS`)."""
     local, _sign, domain = str(entry.get("from_address") or "").partition("@")
     labels = domain.lower().split(".")
     words = set(_words_of(local))
     for label in labels[:-1] if len(labels) > 1 else labels:
         words |= set(_words_of(label))
-    return words | set(_words_of(entry.get("subject")))
+    return words
+
+
+def entry_words(entry: dict) -> set:
+    """The whole words of one message of an index: `from_words` (the local part of its from-address and the labels of its domain except the last) and the words of its subject,
+    folded, in one set."""
+    return from_words(entry) | set(_words_of(entry.get("subject")))
 
 
 def target_words(span, tables, *, cap: int = TARGET_WORDS_MAX) -> list:
@@ -918,13 +926,15 @@ def plural_mentioned(text, tables) -> bool:
     return False
 
 
-def match_words(entries, words, newest: bool = False) -> list:
+def match_words(entries, words, newest: bool = False, sender=()) -> list:
     """The entries of a snapshot's index (clean entries, `n` from 1, newest first) that hold EVERY one of `words` as a whole word, in the order of their numbers; with `newest`
-    only the one with the lowest number. An empty `words` matches nothing."""
+    only the one with the lowest number. An empty `words` matches nothing. With `sender` (the words of the person's name), an entry must also hold every one of them in `from_words`
+    (the address half), so a word only the subject carries is not the sender; `sender=()` is the rule without it."""
     wanted = [w for w in words if w]
     if not wanted:
         return []
-    strong = sorted((e for e in entries if set(wanted) <= entry_words(e)), key=lambda e: e["n"])
+    from_only = [w for w in sender if w]
+    strong = sorted((e for e in entries if set(wanted) <= entry_words(e) and set(from_only) <= from_words(e)), key=lambda e: e["n"])
     return strong[:1] if newest else strong
 
 

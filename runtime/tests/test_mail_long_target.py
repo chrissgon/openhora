@@ -156,7 +156,7 @@ def test_a_target_with_a_marker_and_five_words_has_no_ground_and_a_widened_targe
     got = check(line, {"target": "Marta Siqueira sobre o reembolso da viagem a Curitiba"})
     assert got["kind"] == "op" and "target_ground" not in got and "target_sender" not in got, got
     widened = check("reply to Orla Whitcombe about the greenhouse lease and say we accept", {"target": "Orla Whitcombe", "body": "we accept"})
-    assert widened["target_ground"] == "Orla Whitcombe the greenhouse lease" and "target_sender" not in widened, widened          # BL7-1's ground is untouched
+    assert widened["target_ground"] == "Orla Whitcombe the greenhouse lease" and widened["target_sender"] == "Orla Whitcombe", widened          # BL7-1's ground is untouched; GROUNDING-FROM records the person's part for it too (the model's own target, before the widening)
 
 
 # --- the product's own turn --------------------------------------------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ def test_vacuity_a_ground_cap_of_six_gives_the_card_rows_no_seed(world, clock, m
 
 
 def test_vacuity_a_match_on_any_one_word_takes_both_messages_where_the_real_one_takes_one(world, clock, monkeypatch):
-    def any_word(entries, words, newest=False):
+    def any_word(entries, words, newest=False, sender=()):          # GROUNDING-FROM: a G3 seed also carries the person's words, which this plant ignores
         wanted = [w for w in words if w]
         return [e for e in sorted(entries, key=lambda e: e["n"]) if set(wanted) & nwm.entry_words(e)]
     monkeypatch.setattr(nwm, "match_words", any_word)
