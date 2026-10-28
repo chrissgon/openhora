@@ -33,7 +33,7 @@ def _header_models(path):
 # The fixtures below start from a committed file and read its header as the OLD shape (`models` is {tier: id}, one gate): the files of that
 # shape. A file with the list header (a new skill's first full test, such as asst-answer's) is a source for the tests of the list shape and for
 # the two tests that read every committed file (ALL_COMMITTED). Taking the first file of the whole glob made the fixtures depend on which skill
-# sorts first: on 2026-10-28 a new `asst-answer` file with the list header broke 33 tests of this file and of test_local_model_event.py.
+# sorts first: on 2026-10-28 a new `asst-answer` file with the list header broke 46 tests of this file and of test_local_model_event.py.
 COMMITTED = [p for p in ALL_COMMITTED if isinstance(_header_models(p), dict)]
 LIST_COMMITTED = [p for p in ALL_COMMITTED if isinstance(_header_models(p), list)]
 H = {c: c * 64 for c in "abcdef"}
