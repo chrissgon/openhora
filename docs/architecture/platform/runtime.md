@@ -688,7 +688,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 | `attachments` | - | `attachments` |
-| `items` | `[--kind]` `[--source]` | `items` |
+| `items` | `[--kind]` `[--source]` `[--match]` `[--unread]` | `items` |
 | `attachment-add` | `--id` | `attachment_add` |
 | `attachment-discard` | `--id` | `attachment_discard` |
 | `remind` | `--when` `--text \| --text-file` `[--to]` | `remind` |
@@ -818,7 +818,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `source_describe` | `source-describe` | terminal, page | no | set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it |
 | `sources_catalog` | `sources` | terminal, page, mcp, messaging | no | the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime |
 | `attachments` | `attachments` | terminal, chat, page, messaging | no | the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder |
-| `items` | `items` | terminal, page, messaging | no | the numbered items of the newest snapshot of each mail or calendar source (--kind mail\|calendar and --source <id> narrow it): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is called and nothing is written |
+| `items` | `items` | terminal, page, messaging | no | the numbered items of the newest snapshot of each mail or calendar source (--kind mail\|calendar and --source <id> narrow it; --match <words> keeps the messages whose sender or subject hold every word, and the events whose title holds them; --unread keeps the messages the provider says are not read): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is written |
 | `attachment_hold` | `attachment-hold` | messaging | no | the messaging bridge's call after it fetched a file into an incoming folder it made: the intake bounds it, reads its type from its bytes and hashes it, and it is kept for your answer; with the grant add-sources-direct a file for a new source is added at once; with failed, a fetch that ended with no file is recorded so that it counts against the day |
 | `attachment_add` | `attachment-add` | terminal, page, messaging | no | add a held file as a source of the project, or as the next version of the source it names: converted in a container with no network, scanned for credentials, kept as an immutable version with where it came from (never who sent it); the held file is deleted whatever the result |
 | `attachment_discard` | `attachment-discard` | terminal, page, messaging | no | delete a held file without adding it (from a messaging app, only a file you sent, and only by the answer to its card: /add and /discard) |
