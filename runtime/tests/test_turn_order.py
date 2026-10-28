@@ -117,7 +117,7 @@ def test_the_table_imports_only_the_standard_library():
 def test_the_dispatcher_imports_no_operations_module():
     """The layer map (scripts/tests/test_layer_map.py) says it too; the names are checked here, where the reader looks."""
     found = imported(RUNTIME / "messaging_turn.py")
-    assert found == {"__future__", "card_words", "command_words", "messaging_inbound", "messaging_provider", "natural", "phone_delete", "turn_order"}, found
+    assert found == {"__future__", "card_words", "command_words", "greeting", "messaging_inbound", "messaging_provider", "natural", "phone_delete", "turn_order"}, found
     assert not {name for name in found if name.startswith("ops") or name in ("operations", "shell_kit", "messaging_bridge")}
 
 

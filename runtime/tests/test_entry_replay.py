@@ -6,7 +6,8 @@ return the whole set, so every test below covers the package rows too; `test_the
 WHAT THIS HOLDS. The golden was recorded ONCE, on the tree as it was before any package of step 1 moved the order of the claimers (the commit is in its header). Every later package that
 changes who takes a line first (S41-2 and S41-3: one table of order, S41-8: one frame dispatcher) runs this file and must leave every outcome as it is: the claimer trace, the operations
 called, the messages sent, the ledger records added, the drafts and plans left, the conversation rows stored, the jobs started, and the counts of model and provider calls. A difference
-fails with the scenario, the field and both values (the corpus is fictional data); it is never recorded again by the package that meets it. A change of the golden is a reviewed decision.
+fails with the scenario, the field and both values (the corpus is fictional data); it is never recorded again by the package that meets it. A change of the golden is a reviewed decision: it is made with `entry_corpus_build.py --re-record` (package L64H), which replaces the named rows
+of the base golden only and names the change (commit, ids, cause) in the header's `changes`.
 
 OBSERVERS. This file replays the corpus with no observer attached, so that the golden is proved on code nothing wraps. The five properties that only observe (the claims, the two traces, the reads, the envelope) are
 checked in one more replay with all five installed, by test_entry_observed.py.
@@ -226,6 +227,35 @@ def test_vacuity_a_package_golden_is_replayed_and_checked_and_a_wrong_row_or_has
     own = dict(rows[0], model_text="{}")
     (folder / "zz-plant.scenarios.jsonl").write_text(ek.ext_render([own, rows[1]]), encoding="utf-8")
     assert ek.override_problems(folder), "a model text keyed on a text that a base scenario also has would change that scenario's answer"
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_change_the_header_names_is_made_of_rows_of_the_corpus_with_a_cause_and_a_commit():
+    """L64H: a row of the golden changes only through `--re-record`, which writes `{"commit", "ids", "cause"}` into the header's `changes`: the ids are scenarios of the corpus, the cause is a
+    text and the commit has 7 or more characters."""
+    header, _ = golden()
+    ids = {s["id"] for s in corpus()}
+    for change in header.get("changes", []):
+        assert set(change) == {"commit", "ids", "cause"}, change
+        assert change["ids"] and set(change["ids"]) <= ids, "every id is a scenario of the corpus"
+        assert isinstance(change["cause"], str) and change["cause"].strip(), "a cause"
+        assert isinstance(change["commit"], str) and len(change["commit"]) >= 7, "a commit"
+
+
+def test_replace_rows_leaves_every_unnamed_line_identical_and_raises_on_an_unknown_id():
+    lines = ['{"id": "a.01", "outcome": {"trace": ["x"]}}', '{"id": "a.02",  "outcome": {"trace": ["y"]}}', '{"id": "a.03", "outcome": {"trace": ["z"]}}']
+    new = {"id": "a.02", "outcome": {"trace": ["w"]}}
+
+    def others_identical(out):
+        return len(out) == len(lines) and out[0] == lines[0] and out[2] == lines[2]
+    out = build.replace_rows(lines, [new])
+    assert others_identical(out), "the lines that were not named are returned as they were, byte for byte"
+    assert json.loads(out[1]) == new and out[1] != lines[1], "the named row is replaced in place"
+    assert not others_identical([json.dumps(new)] * 3), "vacuity: a replacement that rewrote every line fails the same comparison"
+    with pytest.raises(ValueError):
+        build.replace_rows(lines, [{"id": "a.09", "outcome": {}}])
+    with pytest.raises(ValueError):
+        build.replace_rows(lines, [new, new])
 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
