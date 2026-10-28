@@ -1,0 +1,47 @@
+{
+ "counts": {
+  "author": {
+   "opus": 50
+  },
+  "frame": {
+   "none": 50
+  },
+  "lang": {
+   "de": 1,
+   "en": 16,
+   "es": 1,
+   "fr": 1,
+   "it": 1,
+   "pt-BR": 30
+  },
+  "op": {
+   "event-cancel": 4,
+   "event-change": 1,
+   "event-create": 5,
+   "file-ask": 5,
+   "file-read": 2,
+   "items": 5,
+   "mail-archive": 2,
+   "mail-mark": 1,
+   "mail-move": 1,
+   "mail-read": 4,
+   "mail-reply": 6,
+   "mail-trash": 2,
+   "reminder-forget": 1,
+   "research": 1,
+   "todo-add": 4,
+   "todo-done": 3,
+   "todo-list": 3
+  },
+  "outcome": {
+   "op": 50
+  },
+  "tags": {},
+  "with_also": 1
+ },
+ "file": "cb9-blind-v1.jsonl",
+ "frozen": "2026-10-28",
+ "items": 50,
+ "sha256": "1c9808b7b12fdf4945b7633ee8fbc849f591531a98be820e4d6365ed05464eeb",
+ "v": 1
+}

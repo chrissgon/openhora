@@ -2691,6 +2691,7 @@ DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this 
 from ops_say import (  # noqa: E402,F401
     chat_memory,
     event_list_picks,
+    interpreter_on,
     natural_draft,
     natural_file_accounts,
     natural_forget,

@@ -168,7 +168,7 @@ def test_a_corrected_line_that_negates_the_calendar_asks_a_new_question_for_the_
 
 def test_vacuity_without_the_negation_the_corrected_line_is_the_old_plan_and_is_dropped(typed, monkeypatch):
     monkeypatch.setattr(natural_writes, "_negated_before", lambda norm, at, negators, articles: False)
-    old, out, reads = corrected(typed, "no, I meant my unread emails, not the calendar", model_op("mail-mark", {"state": "unread"}))
+    old, out, reads = corrected(typed, "no, I meant my unread emails, not the calendar", model_op("mail-mark"))      # CB-9: a card with no slot, so that the revised read has none either, as at catalog version 1; with the slot `state` (a slot of `items` since version 2) the revised read would be a plan of its own
     assert out["reply"] == phrases.text("PLAN_DROPPED", typed.cfg) and "plan_confirm" not in out and reads == []
     typed.now[0] += 30
     typed.says["text"] = model_op("items")

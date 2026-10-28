@@ -1,6 +1,6 @@
 """The to-do list asked in words, on a messaging app (package CB-5: runtime/ops_todo.py `reply` and `reply_list`, the branch of runtime/ops_interpret.py `_carry_out`, the gate rows of
 runtime/turn_gate.py, the sentence of runtime/plan_confirm.py), end to end against the stand-in services of providers/tasks/tests/ (see test_tasks_ops.py) and a stand-in of the
-interpreter's model service that answers the one line each test reads. The catalog is at version 2 for these tests only (`operations.LINE_CATALOG` patched, the served catalog and
+interpreter's model service that answers the one line each test reads. The catalog is at version 2 since CB-9; `flip` puts it at a version by hand (`operations.LINE_CATALOG` patched, the served catalog and
 the views regenerated from the rows): at version 1 a line reaches none of the three operations, and a test holds that too.
 
 What is held here: "adiciona comprar café na minha lista de tarefas" opens the card of the task and writes nothing before the approval; a title that is not a span of the line opens no card;
@@ -377,7 +377,8 @@ def test_a_reminder_line_is_a_reminder_and_never_a_task(ready):
 
 
 def test_at_catalog_version_1_no_line_reaches_a_task_operation(world, monkeypatch):
-    """The L54 switch: with the catalog at 1 (what is shipped) the rows exist for a typed command and are refused as operations of a line."""
+    """The L54 switch: with the catalog at 1 (what was shipped before CB-9) the rows exist for a typed command and are refused as operations of a line; at 2 a line reaches them."""
+    flip(monkeypatch, 1)
     for op in ("todo-list", "todo-add", "todo-done"):
         assert op in natural.CLASSES and op not in natural.NATURAL, op
         assert natural.check_operation(op, {}, None, "adiciona comprar café")["ok"] is False

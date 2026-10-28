@@ -82,16 +82,19 @@ def test_a_catalog_that_is_not_the_served_one_is_not_sent():
 
 
 def test_the_catalog_is_rendered_one_line_per_op_then_the_refused_block():
+    """One line per op, worded with the model-facing `about` of catalog version 2 (CB-9), then the refused block."""
     rendered = interp.render_catalog(kit.CATALOG).split("\n")
-    assert rendered[0] == "- status [R] where the work stands; slots: none"
-    assert "- remind [N] a reminder sent back once at a time; slots: text:span, when:when" in rendered
-    assert ("- mail-archive [E] a card that takes messages out of the inbox (the messages are named by their words in target: a sender or a subject, with the day in day; "
-            "messages only when the line writes their numbers); slots: messages:ints, target:span, day:span") in rendered
-    assert "- ask [work] answer a question from the text of the project's sources (the question is the person's whole line); slots: none" in rendered
+    assert rendered[0] == ("- status [R] Choose this for where the platform's own work stands (its requests, its tasks, what waits for the person); not the person's own to-do list, mail or calendar.; slots: none")
+    assert ("- remind [N] Choose this to be reminded once at a time; text is what to remind, as the line says it, and when is the time. Not a calendar event and not an item of a to-do list.; "
+            "slots: text:span, when:when") in rendered
+    assert ("- mail-archive [E] Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes "
+            "their numbers.; slots: messages:ints, target:span, day:span") in rendered
+    assert ("- ask [work] Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of "
+            "the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.; slots: none") in rendered
     at = rendered.index("refused:")
-    assert at == 65 and len(rendered) == 65 + 1 + 21
-    assert rendered[at + 1] == "- approve [refused D] approve a plan or an acceptance (from its card)"
-    assert "- config [refused G] the configuration and its hash" in rendered[at + 1:]
+    assert at == 70 and len(rendered) == 70 + 1 + 21
+    assert rendered[at + 1] == "- approve [refused D] Approve a plan or an acceptance from its card; id is the card's number."
+    assert "- config [refused G] The project's configuration and its hash." in rendered[at + 1:]
     assert not any(" [refused" in line for line in rendered[:at])
 
 

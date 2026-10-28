@@ -1,0 +1,7 @@
+{
+  "package": "cb-9",
+  "table": {
+    "NW_ITEMS_MAILBOX": "Não consegui saber qual caixa você quer dizer. Suas fontes de e-mail: {names}. Diga o nome de uma delas."
+  },
+  "same_as_english": []
+}

@@ -1561,6 +1561,18 @@ class Bridge(shell_kit.Jobs):
         self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING")
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
 
+    def repeat_scope(self, project: dict, chat: str):
+        """CB-9: the scope in which the closed forms leave a line that repeats ("every Monday at 9") to the interpreter, which is when the interpreter is ON for this sender in the
+        project's language (the operations layer decides). An operations object without `interpreter_on` (a test's), or one that cannot say, keeps the closed forms: the restrictive default."""
+        found = getattr(self.ops, "interpreter_on", None)
+
+        def on() -> bool:
+            try:
+                return bool(found is not None and found(project["path"], self.key(chat), channel=CHANNEL))
+            except self.ops.OpsError:
+                return False
+        return natural.repeat_scope(on)
+
     def write_open(self, project: dict, chat: str) -> bool:
         """Whether this chat has a live question about a write to the person's accounts (memory only, the one store of drafts)."""
         found = getattr(self.ops, "natural_draft", None)          # an operations object without it (a test's) has no question open

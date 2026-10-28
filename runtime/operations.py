@@ -101,9 +101,10 @@ HELP_WIDTH = 27
 
 # The catalog version a line may reach (PLAN-BRAIN section 4.2, SPEC-CATALOG-BATCH OPEN-CB-3). `natural.NATURAL` and the served catalog (runtime/interpreter_catalog.py) show only the
 # rows and the slots whose `since` is at most this number; `natural.CLASSES` keeps every row (a class is a property of the operation on every path, so a typed command of a row of
-# a later version works at once). At 1 the served catalog is byte for byte the one the newest enabling entry pins (runtime/interpreter_enable.json), so the interpreter stays on.
-# Only package CB-9 raises it, together with the served catalog and ONE new dated enabling entry (a draft pull request, decided by the maintainer after one measurement).
-LINE_CATALOG = 1
+# a later version works at once). The served catalog is byte for byte the one the newest enabling entry pins (runtime/interpreter_enable.json), so the interpreter stays on.
+# Package CB-9 (2026-10-28) raised it from 1 to 2, together with the served catalog and ONE new dated enabling entry (a draft pull request, decided by the maintainer after one measurement); at 1 the
+# catalog is the one of the entry before it (`interpreter_catalog.py --version 1 --print`).
+LINE_CATALOG = 2
 
 OPERATIONS = (
     {"name": "request", "call": "request",
@@ -457,7 +458,7 @@ OPERATIONS = (
      "help": "answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask",
      "natural": {"class": "work", "since": 1, "order": 99, "privacy": "off-host", "cost": "model",
                  "what": "answer a question from the text of the project's sources (the question is the person's whole line)",
-                 "about": "Choose this to answer a question from the text of the project's sources; the question is the person's whole line. Not a web search (research) and not the person's mail, calendar or tasks.",
+                 "about": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.",
                  "slots": {}}},
     {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "each area agent: its mode, its caps, what it used today and how many tasks wait for it",
@@ -755,7 +756,7 @@ OPERATIONS = (
      "help": "show the text of a file of your Google Drive (account google) or OneDrive (account microsoft), found by its name (case, accents and the extension do not matter) among the direct contents of the folders the project lists under accounts.<account>.folders in runtime.json, and in no other folder; without --account both accounts are searched. One match is read and its text shown (at most 3,500 characters, then how many remain); several are listed to choose from; none says which folders were searched. Nothing is written or sent to a model; from a messaging app the sender needs the group read-files",
      "natural": {"class": "R", "since": 1, "order": 20, "privacy": "account", "cost": "provider",
                  "what": "show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists (the name is the span; the service word only when the line says Google Drive or OneDrive)",
-                 "about": "Choose this to show the text of a file of the person's own Drive or OneDrive, found by its name in the folders the project lists; file is the name as the line writes it, service only when the line says Google Drive or OneDrive. Not a mail message.",
+                 "about": "Choose this only to show the text of a file of the person's own Drive or OneDrive that the line names (open it, show it, bring it); file is the name as the line writes it, service only when the line says Google Drive or OneDrive. A question about what the file says is file-ask. Not a mail message.",
                  "slots": {"file": {"kind": "span", "param": "file", "since": 1}, "service": {"kind": "word", "param": "account", "since": 1}}}},
     # CB-3: the text of ONE message of the mail snapshots, by its number or by words of its sender or subject (runtime/ops_mail_read.py). A read: nothing is written and no model reads the
     # message, whose words are another person's: they are shown to the channel that asked and the conversation keeps a neutral word. The group `read-mail-body` is in no default policy, is
@@ -780,7 +781,7 @@ OPERATIONS = (
      "help": "answer a question about what ONE file of your Google Drive (account google) or OneDrive (account microsoft) says, found by its name by the search of file-read (the folders the project lists under accounts.<account>.folders and the folders inside them; several matches are listed to choose from on a messaging app, and the full name is asked elsewhere): the converted text of that file, read now, goes to one run of the answer skill in an isolated container with no web that can act on nothing, within the project's file_ask bounds (max_cost_usd, timeout_seconds, max_per_day); the answer comes back only to the shell or chat that asked, with the passages code checked in the file; nothing of the file is registered or kept. A messaging sender needs the groups ask-files and read-files",
      "natural": {"class": "R", "since": 2, "order": 150, "privacy": "off-host", "cost": "model",
                  "what": "answer a question about what ONE file of the person's own Drive or OneDrive says (the name is the file span; the service word only when the line says Google Drive or OneDrive; the question is the person's whole line)",
-                 "about": "Choose this to answer a question about what ONE file of the person's own Drive or OneDrive says (a total, a date, a clause); file is its name as the line writes it. Not to show the file (file-read), not the project's sources (ask), not the web (research).",
+                 "about": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it (a total, a date, a clause), even with the name mid-question; file is the name as written. Not to show it (file-read), not the project's sources when no file is named (ask), not the web (research).",
                  "slots": {"file": {"kind": "span", "param": "file", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
     # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
     # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
@@ -832,7 +833,7 @@ OPERATIONS = (
      "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project's `channels.messaging` lists routine-edit, and never for a flow with a networked script or one a standing policy covers",
      "natural": {"class": "W", "since": 1, "order": 30, "privacy": "own", "cost": "none",
                  "what": "create a routine",
-                 "about": "Choose this to create a routine, work the platform repeats on a schedule; not a reminder, which fires once, and not a calendar event.",
+                 "about": "Choose this only when the person asks for work of the platform itself to repeat on a schedule (a report, a check). Never for something to put on the person's calendar, even a repeating one (event-create), and never a reminder (remind).",
                  "slots": {}}},
     {"name": "routine-change", "call": "routine_change",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "params", "kind": "list", "flag": "param"},
@@ -886,7 +887,7 @@ OPERATIONS = (
      "help": "prepare a new event on a calendar of your own Google or Microsoft account and stop at a card that asks you to approve it (nothing is written until you do, with its hash): --start and --end are YYYY-MM-DDTHH:MM in this machine's zone or YYYY-MM-DD for an all-day event (the end defaults to an hour after the start, or the same day); --calendar is a name of the account's calendars in runtime.json (the first when absent); nobody is invited and no e-mail is sent; --repeat daily or weekly makes a series with no end (weekly is on the weekday of --start; a timed event, written in this machine's named time zone), said on the card",
      "natural": {"class": "E", "since": 1, "order": 39, "privacy": "account", "cost": "provider",
                  "what": "a card that creates an event on the person's own calendar",
-                 "about": "Choose this to open a card that creates an event on the person's own calendar; title, time (the whole start, weekday included), calendar and service are the line's own words; repeat holds the words that say it repeats (every day, every Monday). Not a reminder, not a to-do item.",
+                 "about": "Choose this to open a card that creates an event on the person's own calendar, once or repeating; title, time (the whole start: weekday and a bare clock like 6pm), calendar and service are the line's own words; repeat holds the words that say it repeats (every Monday). Not a reminder or a routine.",
                  "slots": {"title": {"kind": "span", "param": "title", "since": 1}, "time": {"kind": "span", "param": "start", "since": 1}, "calendar": {"kind": "word", "param": "calendar", "since": 1}, "service": {"kind": "word", "param": "account", "since": 1},
                            "repeat": {"kind": "span", "param": "repeat", "since": 2}}}},
     {"name": "event-change", "call": "event_change",
@@ -912,7 +913,7 @@ OPERATIONS = (
                  "about": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
                  "slots": {"event": {"kind": "int", "param": "event", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
     # CB-5: the person's own to-do list (SPEC-CATALOG-BATCH 6.5): Google Tasks and Microsoft To Do, only the lists the project names under `accounts.<a>.task_lists`. The names are `todo-*`, not `task-*`: the
-    # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words only after the flip (LINE_CATALOG).
+    # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words since the flip of CB-9 (LINE_CATALOG).
     # `todo-list` is a read; `todo-add` and `todo-done` only PREPARE a card (the effect word `tasks`): the write is the approval of the card's hash. In no default policy; never on the MCP mode.
     {"name": "todo-list", "call": "todo_list",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft")},),

@@ -137,7 +137,7 @@ def parse(update: dict) -> dict:
     written = natural_writes.candidate(text)          # a write to the person's accounts (NR-5): before the reminders' intents, so that "marca o e-mail 3 como lido" is a mail form
     if written:
         return {"kind": "natural", "op": "write", "write": written["op"], "how": "trigger", "text": text}
-    named = natural.candidate(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
+    named = natural.claim(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
     if named:
         return {"kind": "natural", "text": text, **named}
     if update.get("reply_to"):

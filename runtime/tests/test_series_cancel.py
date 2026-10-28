@@ -383,3 +383,76 @@ def test_a_series_rule_that_is_not_plain_is_refused_on_the_typed_path(world, mon
         with pytest.raises(ops.OpsError) as refused:
             call()
         assert "plain daily or weekly" in str(refused.value) and no_card(world) and google_writes(world) == []
+
+
+# --- the words a model put inside the target (CB-9, round 2) -------------------------------------------------------------------------------------
+# The measurement of 2026-10-28 read the recorded answers of the product: `event_series` took every word of the target out of the line before it looked for the person's words, so a target
+# that holds them ("aula de violao que se repete toda semana", "this week's piano lesson", "yoga de todo dia", "weekly piano lesson") lost them and the reply was a question. The words of the
+# target that say series or occurrence now count, unless they stand in the event's own name.
+
+MARKERS = [("aula de violão que se repete toda semana", "Aula de violão", "toda semana"), ("this week's piano lesson", "Piano lesson", "this week"),      # validate: allow english-only -- the Portuguese words under test
+           ("yoga de todo dia", "Yoga", "todo dia"), ("weekly piano lesson", "Piano lesson", "weekly"), ("todas as aulas de natação", "Aula de natação", "todas"),      # validate: allow english-only -- the Portuguese words under test
+           ("the daily meeting every day", "Daily", "every day")]
+
+
+@pytest.mark.parametrize("target,title,wanted", MARKERS)
+def test_the_series_or_occurrence_words_inside_a_target_are_the_persons_unless_they_stand_in_the_title(target, title, wanted):
+    assert recurrence.markers(target, title) == wanted
+
+
+@pytest.mark.parametrize("target,title", [("daily", "Daily"), ("weekly review", "Weekly review"), ("curso todos os santos", "Curso todos os santos"), ("the daily standup", "Daily standup"),
+                                          ("", "Daily"), (None, "Daily")])
+def test_the_words_of_the_events_own_title_never_count(target, title):
+    assert recurrence.markers(target, title) == ""
+
+
+def test_vacuity_without_the_title_the_same_words_count():
+    assert recurrence.markers("daily", "Aula") == "daily" and recurrence.markers("curso todos os santos", "Aula") == "todos"
+
+
+def test_a_target_that_says_weekly_opens_the_card_of_the_series(world, monkeypatch):
+    google_series(world, monkeypatch, title="Piano lesson")
+    reply, extras = cancel(world, "cancel my weekly piano lesson", target="weekly piano lesson")
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply      # a name that is near, not the same, is shown first: "Encontrei a série ... É esta?"
+    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval") and f"Event: {MASTER}" in body_lines(world, extras)
+
+
+def test_a_target_that_says_every_day_of_a_series_opens_the_card_of_the_series(world, monkeypatch):
+    google_series(world, monkeypatch, title="Yoga")
+    reply, extras = cancel(world, "tira da agenda a yoga todo dia", target="yoga todo dia")      # validate: allow english-only -- the Portuguese line under test
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
+    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval")
+
+
+def test_a_target_that_says_this_weeks_asks_for_the_instance_of_this_week_and_not_a_date(world, monkeypatch):
+    google_series(world, monkeypatch, title="Piano lesson")
+    reply, extras = cancel(world, "cancel just this week's piano lesson", target="this week's piano lesson")
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
+    assert body_lines(world, extras)[0].startswith("Code cancels only this one occurrence") and "Event: gymmaster_1" in body_lines(world, extras), "the instance of Monday 09/11, the one inside the week"
+
+
+def test_a_target_that_holds_the_repetition_of_the_line_in_its_own_words_is_the_series(world, monkeypatch):
+    google_series(world, monkeypatch, title="Aula de violão")      # validate: allow english-only -- the Portuguese title under test
+    reply, extras = cancel(world, "apaga da agenda a aula de violão toda semana", target="aula de violão toda semana")      # validate: allow english-only -- the Portuguese line under test
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
+    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval")
+
+
+def test_a_series_called_daily_and_a_target_with_its_name_alone_is_still_asked_about(world, monkeypatch):
+    google_series(world, monkeypatch, title="Daily")
+    reply, extras = cancel(world, "cancel the daily standup", target="daily standup")
+    assert reply == text_of("RECUR_WHICH", title="Daily", rule=text_of("RECUR_RULE_WEEKLY_MO", time="07:00"), example="Mon 09/11"), reply
+    assert nothing_started(world)
+
+
+def test_a_series_called_daily_and_a_target_that_adds_every_day_is_the_series(world, monkeypatch):
+    google_series(world, monkeypatch, title="Daily")
+    reply, extras = cancel(world, "cancel the daily every day", target="daily every day")
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+
+
+def test_vacuity_with_the_markers_taken_out_the_target_that_says_weekly_is_asked_about_again(world, monkeypatch):
+    google_series(world, monkeypatch, title="Piano lesson")
+    monkeypatch.setattr(recurrence, "markers", lambda text, *titles: "")
+    reply, extras = cancel(world, "cancel my weekly piano lesson", target="weekly piano lesson")
+    assert reply == text_of("RECUR_WHICH", title="Piano lesson", rule=text_of("RECUR_RULE_WEEKLY_MO", time="07:00"), example="Mon 09/11")

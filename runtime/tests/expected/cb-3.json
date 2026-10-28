@@ -15,9 +15,6 @@
   ],
   "operations_table.PUBLIC_MODULES": [
    "ops_mail_read"
-  ],
-  "interpreter_coverage.NOT_SERVED": [
-   "mail-read"
   ]
  }
 }
