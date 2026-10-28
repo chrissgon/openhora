@@ -58,14 +58,17 @@ THE RULES (conservative: when the selector is unsure it selects more)
     script check, the architecture tables, the wiring of the hook (the CI wiring, test_checks_wiring.py, is not a guard: rule 5 and the
     nightly run it), the test isolation and this script's own tests.
  7. A change inside skills/<name>/ other than scripts/ selects nothing beyond the guards (the lab measures skills, the validator
-    checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4.
+    checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4,
+    and skills/*/evals/evidence/*.jsonl (committed lab or field evidence, a file a change may add or delete) selects EVIDENCE_TESTS: the
+    tests that read the repository's own committed evidence, which no test names (a new file of another header shape once turned the base
+    red, 2026-10-28).
  8. Fuzz files run in their default sampled mode; only the whole-suite shards and the nightly run set WB_FULL_FUZZ=1.
  9. `--direct`: the hook's fast set; CI's selection, not this, is the gate. It prints, sorted and without duplicates, exactly: every
     guard (rule 6); every changed test file that still exists, with no importers; for each changed .py file that is not inside a
     test folder and is not a conftest.py or an __init__.py (a deleted file included), the tests named test_<stem>.py or
     test_<stem>_*.py (`-` in the stem read as `_` too); and the identity tests of the copies when a shared script, one of its
-    generated copies or shared/scripts/copies.json changed. Nothing for any other file (data, documents, test kits, conftest files,
-    the wiring, skills), and never a folder. A file of a DATA_FOLDERS folder is data: the hook does not run its tests; CI's selection does. It cannot be combined with --within.
+    generated copies or shared/scripts/copies.json changed; and EVIDENCE_TESTS when a committed evidence file of a skill changed (rule 7).
+    Nothing for any other file (data, documents, test kits, conftest files, the wiring, skills), and never a folder. A file of a DATA_FOLDERS folder is data: the hook does not run its tests; CI's selection does. It cannot be combined with --within.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 
@@ -129,6 +132,14 @@ DATA_FOLDERS = (
 # A data file under one of these folders does not link a module (rule 4's `data_files_naming`): a package golden quotes module stems inside its traces, and
 # those folders already select their tests through DATA_FOLDERS, so reading them as "named by a data file that no test names" would select the whole test folder.
 DATA_NAMING_SKIP = (_RUNTIME + "/tests/entry_ext/", _RUNTIME + "/tests/expected/")
+
+# The tests that read the repository's own committed evidence (skills/*/evals/evidence/*.jsonl) as a whole: no test names such a file, so a changed or added
+# evidence file selects them (rule 7, and rule 9 for the hook). A test (scripts/tests/test_select_tests.py) fails when one of them does not exist.
+EVIDENCE_TESTS = (
+    "evals/tests/test_evidence_lines.py", "evals/tests/test_local_model_event.py", "evals/tests/test_eval_status.py", "evals/tests/test_bands.py",
+    "evals/tests/test_quick_pool.py", "evals/tests/test_community_evidence.py", "scripts/tests/test_verify_community.py",
+)
+EVIDENCE_PATH = re.compile(r"^skills/[^/]+/evals/evidence/[^/]+\.jsonl$")
 
 # The two tests that read the manifest of generated copies (shared/scripts/copies.json).
 COPY_IDENTITY_TESTS = ("scripts/tests/test_script_copies.py", "scripts/tests/test_sync_copies.py")
@@ -579,6 +590,11 @@ def handle_file(repo, sel, rel):
         return
 
     # Rule 7: a skill's own content is measured by the lab and read by the validator.
+    if EVIDENCE_PATH.match(rel):  # committed evidence: read as a whole by the tests of EVIDENCE_TESTS
+        for test in EVIDENCE_TESTS:
+            if test in repo.tests:
+                sel.add(test, "rule 7: %s is committed evidence" % rel)
+        return
     if parts[0] == "skills":
         in_scripts = len(parts) > 3 and parts[2] == "scripts"
         manifest = len(parts) == 4 and parts[2] == "evals" and base == "runtime-manifest.json"
@@ -705,6 +721,11 @@ def select_direct(repo, files, copies=None):
         if rel in copies or rel in destination_of or rel == "shared/scripts/copies.json":
             for test in COPY_IDENTITY_TESTS:
                 sel.add(test, "copies: %s is a shared script, a generated copy or their manifest" % rel)
+        if EVIDENCE_PATH.match(rel):
+            for test in EVIDENCE_TESTS:
+                if test in repo.tests:
+                    sel.add(test, "rule 9: %s is committed evidence" % rel)
+            continue
         if repo.is_test_file(rel):
             if os.path.isfile(os.path.join(repo.root, rel)):
                 sel.add(rel, "rule 9: a changed test")
