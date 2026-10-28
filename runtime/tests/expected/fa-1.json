@@ -30,7 +30,8 @@
   ],
   "operations_table.NOT_OPERATIONS": [
    "purge",
-   "read_whole"
+   "read_whole",
+   "sweep"
   ]
  }
 }

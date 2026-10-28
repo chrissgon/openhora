@@ -20,7 +20,9 @@ import ast
 import datetime
 import hashlib
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -36,6 +38,7 @@ ops = st.load("ops")
 ops_ask = st.load("ops_ask")
 ops_core = st.load("ops_core")
 ops_contained = st.load("ops_contained")
+ops_runs = st.load("ops_runs")
 interpreter_route = st.load("interpreter_route")
 turn_gate = st.load("turn_gate")
 ops_file_ask = st.load("ops_file_ask")
@@ -244,7 +247,7 @@ def test_the_group_is_in_no_default_and_no_grant_has_a_row_of_its_own_and_the_wi
     assert operations.GROUPS["ask-files"] == {"operations": ("file-ask",), "kind": None} and "ask-files" not in operations.MESSAGING_ONLY_GROUPS + operations.KIND_ONLY
     assert operations.by_name("file-ask")["channels"] == ("terminal", "page", "messaging")      # never the MCP mode: no row lists it
     assert policy_widening.means("messaging", "ask-files") == (
-        "answers a question about one file of your configured Drive or OneDrive folders: a model reads its text in an isolated run that cannot act, and only the answer and its quotes come back to this chat "
+        "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here "
         "(adds to read-files)")
     assert len(operations.GROUP_TEXT["ask-files"]) < 220      # the one line of a group (test_sender_profiles): the record of a widening is bounded
     assert operations.GROUPS["read-files"] == {"operations": ("file-read",), "kind": None}      # `read-files` is neither widened nor re-worded
@@ -302,14 +305,15 @@ def test_one_match_hands_exactly_one_temporary_source_to_the_run_and_registers_n
     reply, _ = say_run(desk)
     assert found(reply)
     run = left.seen[0]
-    assert [f for f in run["files"] if "/.workbench-local/" in f] == ["./.workbench-local/sources/file/orcamento-teste.md"]
-    assert list(run["copy"]) == [".workbench-local/sources/file/orcamento-teste.md"]
-    text = run["copy"][".workbench-local/sources/file/orcamento-teste.md"]
+    assert [f for f in run["files"] if "/.workbench-local/" in f] == ["./.workbench-local/sources/file/file.md"]
+    assert list(run["copy"]) == [".workbench-local/sources/file/file.md"]
+    text = run["copy"][".workbench-local/sources/file/file.md"]
     first, rest = text.split("\n\n", 1)
     assert DATA_LINE.fullmatch(first) and rest == BUDGET
     prompt = run["prompt"]
     assert prompt.startswith(LINE) and ops_ask.ASK_TASK_TEXT in prompt
-    assert prompt.rstrip().endswith(ops_sources.SOURCES_LINE + "\n- .workbench-local/sources/file/orcamento-teste.md (source file, version v1)")
+    assert prompt.rstrip().endswith(ops_sources.SOURCES_LINE + "\n- .workbench-local/sources/file/file.md (source file, version v1)")
+    assert "orcamento" not in prompt.replace(LINE, ""), "the prompt names the copy by a fixed name and the question is the only place the person's words are"
     assert "lease-contract" not in prompt and not [f for f in run["files"] if "lease" in f or "converted.md" in f]
     assert [r["id"] for r in sources.list_catalog(desk["ctx"], hashes=False)] == [r["id"] for r in before] == ["lease-contract"], "nothing is registered"
     assert len(seen) == 1 and seen[0]["web"] is False and seen[0]["retries"] == 0 and seen[0]["max_cost"] == 0.25 and seen[0]["timeout"] == 180
@@ -341,7 +345,7 @@ def test_several_files_are_listed_with_the_question_held_in_memory_and_o_2_runs_
     assert found(out, prose="The total is 250.00 [file].", quote=OLD_QUOTE, name="orcamento-teste-antigo")
     assert desk["drives"].reads() == [("google", "gfile0000000002")]
     assert left.seen[0]["prompt"].startswith(SEVERAL) and ops_file_read._LISTS == {}, "the list is used once"
-    assert not found(pick(desk), prose="The total is 250.00 [file].", quote=OLD_QUOTE, name="orcamento-teste-antigo") and len(left.seen) == 1, "a second 'o 2' runs nothing"
+    assert not found(pick(desk), prose="The total is 250.00 [file].", quote=OLD_QUOTE, name="orcamento-teste-antigo") and ops_file_ask._made_today(desk["ctx"]) == 1, "a second 'o 2' runs nothing"
 
 
 def listed(desk, sender="asker"):
@@ -464,8 +468,8 @@ def test_a_long_text_reaches_the_reader_whole_not_cut_at_the_phone_limit_of_file
     assert len(long) > 3500 and long.index("Total,1234.50") > 3500
     desk["drives"].files[("google", "gfile0000000001")] = long.encode("utf-8")
     say_run(desk)
-    assert left.seen[0]["copy"][".workbench-local/sources/file/orcamento-teste.md"].endswith("\n\n" + long)
-    assert "Total,1234.50" in left.seen[0]["copy"][".workbench-local/sources/file/orcamento-teste.md"]
+    assert left.seen[0]["copy"][".workbench-local/sources/file/file.md"].endswith("\n\n" + long)
+    assert "Total,1234.50" in left.seen[0]["copy"][".workbench-local/sources/file/file.md"]
 
 
 def test_an_unreadable_kind_gets_the_sentence_of_file_read_and_nothing_runs(desk):
@@ -660,9 +664,11 @@ def test_vacuity_the_import_scan_sees_a_planted_import_a_planted_call_and_an_eff
 # --- what is kept -------------------------------------------------------------------------------------------------------------------------------
 
 
-def test_nothing_of_the_file_the_question_or_its_name_is_kept_and_the_run_folder_keeps_the_reply_and_the_counts(desk, capfd):
+def test_nothing_of_the_file_the_question_or_its_name_is_kept_and_the_run_folder_keeps_the_counts_only(desk, capfd):
+    canary_quote = f"Observacao,{CANARY} verba de reserva"      # the model's quote holds the planted sentence: the reply is the chat's, and no file keeps it
+    answer(desk, f'Answer: found\n{PROSE}\nQuote [file]: "{canary_quote}"\nInstructions found in external content: none\n')
     reply, extras = say_run(desk)
-    assert found(reply) and CANARY not in reply and pk.said(extras["stored"], "FA_STORED", CFG)
+    assert found(reply, quote=canary_quote) and CANARY in reply and pk.said(extras["stored"], "FA_STORED", CFG)
     assert leaked(desk, CANARY) == [] and leaked(desk, LINE) == [] and leaked(desk, "orcamento-teste") == [], "no file holds the text, the question or the name"
     out, err = capfd.readouterr()
     assert CANARY not in out + err and "orcamento" not in out + err
@@ -671,8 +677,7 @@ def test_nothing_of_the_file_the_question_or_its_name_is_kept_and_the_run_folder
     (run,) = runs(desk)
     folder = Path(desk["ctx"]["store"].task_run_get(desk["ctx"]["conn"], run["id"])["run_dir"])
     left = sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
-    assert left == ["outputs", "outputs/response.md", "outputs/timing.json"], "only the reply and the counts stay"
-    assert (folder / "outputs" / "response.md").read_text(encoding="utf-8") == FOUND
+    assert left == ["outputs", "outputs/timing.json"], "only the counts stay: not the reply, whose quotes are the file's words"
     assert list((Path(desk["ctx"]["cfg"]["data_dir"]) / "prepared").glob("*")) == [], "the private prepared folder is gone"
 
 
@@ -682,7 +687,7 @@ def test_a_failed_run_is_purged_too_and_the_neutral_request_is_what_the_day_coun
     say_run(desk)
     (run,) = runs(desk)
     folder = Path(desk["ctx"]["store"].task_run_get(desk["ctx"]["conn"], run["id"])["run_dir"])
-    assert [p for p in folder.rglob("*") if p.is_file() and p.name not in ("response.md", "timing.json")] == []
+    assert [p for p in folder.rglob("*") if p.is_file() and p.name != "timing.json"] == []
     assert leaked(desk, CANARY) == []
     assert ops_file_ask._made_today(desk["ctx"]) == 1
 
@@ -727,7 +732,7 @@ def purge_tree(tmp_path):
     (dest / "cwd" / ".git" / "obj").write_text(CANARY)
     (dest / "outputs").mkdir()
     (dest / "prompt.md").write_text(CANARY)
-    (dest / "outputs" / "response.md").write_text("the reply")
+    (dest / "outputs" / "response.md").write_text(f'Quote [file]: "{CANARY} verba de reserva"')      # the model's reply: its quotes are the file's words
     (dest / "outputs" / "timing.json").write_text('{"total_tokens": 7}')
     (dest / "outputs" / "stderr.log").write_text(CANARY)
     (dest / "outputs" / "stream.jsonl").write_text(json.dumps({"type": "step_finish", "part": {"tokens": {"input": 10, "output": 5, "reasoning": 0, "cache": {"read": 2, "write": 1}}}, "text": CANARY}) + "\n")
@@ -739,16 +744,16 @@ def purge_tree(tmp_path):
     return dest
 
 
-def test_purge_removes_every_copy_of_the_text_and_keeps_the_reply_the_counts_and_the_usage_costs_reads(tmp_path):
+def test_purge_removes_every_copy_of_the_text_the_reply_included_and_keeps_the_counts_and_the_usage_costs_reads(tmp_path):
     dest = purge_tree(tmp_path)
     usage = costs.usage_of(str(dest))
     assert usage == {"input": 10, "output": 5, "cache_read": 2, "cache_write": 1}
     ops_file_ask.purge(str(dest))
     files = sorted(str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file())
-    assert files == ["failed-1/outputs/timing.json", "outputs/raw.json", "outputs/response.md", "outputs/timing.json"]
+    assert files == ["failed-1/outputs/timing.json", "outputs/raw.json", "outputs/timing.json"]
     assert not any(CANARY.encode() in p.read_bytes() for p in dest.rglob("*") if p.is_file())
     assert costs.usage_of(str(dest)) == usage, "the cost recomputed from the run folder is the same number"
-    assert (dest / "outputs" / "response.md").read_text() == "the reply"
+    assert not (dest / "outputs" / "response.md").exists() and not (dest / "failed-1" / "outputs" / "response.md").exists()
 
 
 def test_purge_keeps_a_meter_and_leaves_a_missing_or_foreign_folder_alone(tmp_path):
@@ -801,7 +806,169 @@ def test_vacuity_read_whole_replaced_by_the_cut_of_file_read_loses_the_total_aft
     real = ops_file_read.read_whole
     monkeypatch.setattr(ops_file_read, "read_whole", lambda cfg, match: dict(real(cfg, match), text=ops_file_read._cut(real(cfg, match)["text"])[0]))
     say_run(desk)
-    assert "Total,1234.50" not in left.seen[0]["copy"][".workbench-local/sources/file/orcamento-teste.md"], "the planted cut drops the total placed after character 3,500"
+    assert "Total,1234.50" not in left.seen[0]["copy"][".workbench-local/sources/file/file.md"], "the planted cut drops the total placed after character 3,500"
+
+
+# --- review round: a fixed reason, the reader proven first, a crash's leftovers, the surviving mutants ---------------------------------------------------
+
+
+def test_a_failed_run_stores_a_fixed_reason_by_its_kind_never_the_words_of_the_lab(desk, monkeypatch):
+    real = ops_contained.execute
+    words = f"the model service said: {CANARY} and then it stopped"      # the adapter's last output line can hold the model's words, and the file's
+    monkeypatch.setattr(ops_contained, "execute", lambda *a, **k: dict(real(*a, **k), status="failed", failure={"kind": "adapter", "reason": words}))
+    say_run(desk)
+    (run,) = runs(desk)
+    assert run["status"] == "failed" and run["failure"] == "adapter"
+    assert leaked(desk, CANARY) == [] and leaked(desk, "the model service said") == [], "no file of the store, the data folder or the project holds the lab's words"
+    assert ops_file_ask.FAILURE_REASONS["adapter"] == "the model service failed" and set(ops_file_ask.FAILURE_REASONS) >= {"timeout", "refused", "auth", "adapter", "early_end", "settings", "stopped", "internal"}
+
+
+def test_vacuity_a_reason_stored_as_the_lab_wrote_it_would_hold_the_canary(desk, monkeypatch):
+    real = ops_contained.execute
+    monkeypatch.setattr(ops_contained, "execute", lambda *a, **k: dict(real(*a, **k), status="failed", failure={"kind": "adapter", "reason": CANARY}))
+    monkeypatch.setattr(ops_file_ask, "FAILURE_REASONS", {"adapter": CANARY})
+    say_run(desk)
+    assert leaked(desk, CANARY) != [], "the planted reason reaches the store, and the oracle of the test above finds it"
+
+
+def band_of(monkeypatch, band, figures=True):
+    """The standing of the answer skill with the band of the reference model set to `band` (or with no figures for it)."""
+    real = getattr(lab.standing, "base", lab.standing)      # the fixture's standing, whatever an earlier call of this helper put over it
+
+    def standing(skill):
+        found = real(skill)
+        found["models"] = {"m": dict(found["models"]["m"], band=band)} if figures else {}
+        return found
+    standing.base = real
+    monkeypatch.setattr(lab, "standing", standing)
+
+
+def served(reply) -> bool:
+    """The reply is an answer (its second block is the checked quote), whether or not the pair is proven (an `Unproven:` block may follow), and not the sentence that refuses."""
+    parts = reply.split("\n\n")
+    return not pk.said(reply, "FA_NOT_PROVEN", CFG) and len(parts) > 1 and pk.said(parts[1], "QUOTE_CHECKED", CFG, id="file", text=QUOTE)
+
+
+def test_the_reader_is_not_served_until_its_first_full_test_has_passed_on_the_reference_model(desk, monkeypatch):
+    for band, figures in (("needs a test", True), ("reliable", False)):      # no passed full test; no figures at all
+        band_of(monkeypatch, band, figures)
+        reply, _ = say_run(desk)
+        assert pk.said(reply, "FA_NOT_PROVEN", CFG), (band, figures)
+        out = ops.file_ask(desk["path"], "orcamento-teste", LINE, channel="terminal")
+        assert out["status"] == "not-proven" and out["refusal"] == "not-proven" and out["ran"] is False and pk.said(out["reply"], "FA_NOT_PROVEN", CFG)
+        assert desk["drives"].calls == [], "no provider is called"
+        nothing_ran(desk)
+    for band in ("watch", "reliable"):      # a full test passed, whatever else holds a skill in `watch`
+        band_of(monkeypatch, band)
+        assert served(say_run(desk)[0]), band
+    monkeypatch.setattr(lab, "standing", lambda skill: (_ for _ in ()).throw(lab.LabError("config", "no status script")))
+    assert pk.said(say_run(desk)[0], "FA_NOT_PROVEN", CFG), "a standing that cannot be read is no standing"
+
+
+def test_a_pick_is_not_served_either_and_ask_over_the_sources_is_not_held_by_it(desk, monkeypatch):
+    listed(desk)
+    band_of(monkeypatch, "needs a test")
+    assert pk.said(pick(desk), "FA_NOT_PROVEN", CFG) and desk["drives"].reads() == [] and runs(desk) == []
+    add_source(desk, "lease-contract", "# Contrato\n\nClausula 3. O prazo e de 12 meses.\n")
+    assert ops.ask(desk["path"], "qual o prazo do contrato?", channel="terminal")["ran"] is True, "`ask` shows its Unproven footer instead of refusing"
+
+
+def test_vacuity_a_proof_check_that_passes_everything_serves_a_reader_with_no_passed_test(desk, monkeypatch):
+    band_of(monkeypatch, "needs a test")
+    monkeypatch.setattr(ops_file_ask, "_passed", lambda skill: True)
+    assert served(say_run(desk)[0]), "the planted fault serves it: the test above fails then"
+
+
+def test_the_prompt_names_the_copy_by_a_fixed_name_and_never_by_the_files_own(desk, monkeypatch):
+    left = Leftovers(monkeypatch)
+    desk["drives"].folders[("google", "GDRIVEFOLDER0001")][0] = item("gfile0000000001", "Contrato do João - orçamento final.xlsx")      # validate: allow english-only -- a file name with accents
+    asked = "quanto deu o total no orçamento final?"      # validate: allow english-only -- a file name with accents
+    say_run(desk, said=asked, file="orçamento final")      # validate: allow english-only -- a file name with accents
+    prompt = left.seen[0]["prompt"]
+    assert "João" not in prompt and "final" not in prompt.replace(asked, "") and prompt.rstrip().endswith("- .workbench-local/sources/file/file.md (source file, version v1)")      # validate: allow english-only -- a file name with accents
+    assert list(left.seen[0]["copy"]) == [".workbench-local/sources/file/file.md"]
+
+
+def test_a_crash_leaves_nothing_the_next_recovery_purges_the_run_folder_and_a_stale_prepared_folder(desk, monkeypatch):
+    real_purge, real = ops_file_ask.purge, ops_contained.execute
+    monkeypatch.setattr(ops_file_ask, "purge", lambda dest: None)      # the process died before its purge
+    monkeypatch.setattr(ops_contained, "execute", lambda *a, **k: dict(real(*a, **k), status="failed", failure={"kind": "adapter", "reason": "x"}))
+    say_run(desk)
+    add_source(desk, "lease-contract", "# Contrato\n\nClausula 3. O prazo e de 12 meses.\n")
+    other = ops.ask(desk["path"], "qual o prazo do contrato?", channel="terminal")      # a run that is not a question about a file keeps its folder as it was
+    other_folder = Path(desk["ctx"]["store"].task_run_get(desk["ctx"]["conn"], other["run_id"])["run_dir"])
+    assert leaked(desk, CANARY) != [] and (other_folder / "cwd").is_dir()
+    prepared = Path(desk["ctx"]["cfg"]["data_dir"]) / "prepared"
+    stale, fresh = prepared / "contained-98", prepared / "contained-99"
+    for folder in (stale, fresh):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "copy.md").write_text(CANARY)
+    old = time.time() - ops_file_ask.STALE_PREPARED_SECONDS - 60
+    os.utime(stale, (old, old))
+    monkeypatch.setattr(ops_file_ask, "purge", real_purge)
+    ops_runs._recover(ops_core.context(desk["path"]))
+    assert not stale.exists() and fresh.is_dir(), "a prepared folder older than the longest run goes; a younger one may belong to a live run"
+    assert [p for p in Path(desk["ctx"]["store"].task_run_get(desk["ctx"]["conn"], runs(desk)[0]["id"])["run_dir"]).rglob("*") if p.is_file() and p.name != "timing.json"] == []
+    assert (other_folder / "cwd").is_dir(), "the folder of a run of `ask` is not touched"
+
+
+def test_vacuity_a_recovery_that_does_not_sweep_leaves_the_text_of_the_file_in_the_run_folder(desk, monkeypatch):
+    real = ops_contained.execute
+    monkeypatch.setattr(ops_file_ask, "purge", lambda dest: None)
+    monkeypatch.setattr(ops_contained, "execute", lambda *a, **k: dict(real(*a, **k), status="failed", failure={"kind": "adapter", "reason": "x"}))
+    monkeypatch.setattr(ops_file_ask, "sweep", lambda ctx: None)
+    say_run(desk)
+    ops_runs._recover(ops_core.context(desk["path"]))
+    assert leaked(desk, CANARY) != []
+
+
+def read_files_refused(monkeypatch):
+    """The policy refuses `file-read` and nothing else, as a profile that holds `ask-files` and not `read-files` would if the configuration let it (it does not: these tests keep the code's own checks honest)."""
+    real = operations.refusal
+    monkeypatch.setattr(operations, "refusal", lambda name, *a, **k: "read-files is not given" if name == "file-read" else real(name, *a, **k))
+
+
+@pytest.mark.parametrize("channel, sender", [("messaging", "asker"), ("page", None)])
+def test_the_typed_operation_asks_the_right_to_read_files_beside_the_right_to_ask(desk, monkeypatch, channel, sender):
+    read_files_refused(monkeypatch)
+    with pytest.raises(ops_core.OpsError, match="read-files is not given"):
+        ops.file_ask(desk["path"], "orcamento-teste", LINE, channel=channel, sender=KEYS[sender] if sender else None)
+    assert desk["drives"].calls == []
+    nothing_ran(desk)
+
+
+def test_a_line_asks_the_right_to_read_files_beside_the_right_to_ask(desk, monkeypatch):
+    read_files_refused(monkeypatch)
+    reply, _ = say_run(desk)
+    assert reply == PLAIN_REFUSAL and desk["drives"].calls == []
+    nothing_ran(desk)
+
+
+@pytest.mark.parametrize("channel, sender", [("messaging", "asker"), ("page", None)])
+def test_the_right_to_read_files_is_asked_again_after_the_run(desk, monkeypatch, channel, sender):
+    real_run, real_permitted = lab.run_skill, operations.permitted
+
+    def narrowing(*a, **k):
+        result = real_run(*a, **k)
+        monkeypatch.setattr(operations, "permitted", lambda name, *x, **y: False if name == "file-read" else real_permitted(name, *x, **y))      # only `read-files` goes, while the run is on
+        return result
+    monkeypatch.setattr(lab, "run_skill", narrowing)
+    if channel == "messaging":
+        reply, _ = say_run(desk)
+    else:
+        reply = ops.file_ask(desk["path"], "orcamento-teste", LINE, channel="page")["reply"]
+    assert pk.said(reply, "WITHHELD", CFG) and [r["status"] for r in runs(desk)] == ["ok"]
+
+
+def test_a_policy_of_any_channel_that_lists_ask_files_without_read_files_is_refused(desk):
+    write_config(desk["path"], channels={"page": ["read", "ask-files"]})
+    with pytest.raises(project_config.ConfigError, match=r"channels.page: 'ask-files' needs 'read-files' beside it"):
+        project_config.load(desk["path"])
+    write_config(desk["path"], channels={"page": ["read", "read-files", "ask-files"]})
+    assert project_config.load(desk["path"])["channels"]["page"]
+    write_config(desk["path"], channels={"mcp": ["read", "ask-files", "read-files"]})
+    with pytest.raises(project_config.ConfigError, match="ask-files"):      # the MCP mode has no row for it, whatever else the file lists
+        project_config.load(desk["path"])
 
 
 # --- the strip of a Google Doc and the helpers ---------------------------------------------------------------------------------------------------

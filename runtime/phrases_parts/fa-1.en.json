@@ -15,6 +15,7 @@
   "FA_FAILED": "I could not answer about the file right now. Try again in a few minutes.",
   "FA_TIMEOUT": "The question about the file took too long and was stopped.",
   "FA_CAP": "The question about the file reached its cost limit and was stopped.",
-  "FA_NOT_FOUND": "The file does not hold the answer."
+  "FA_NOT_FOUND": "The file does not hold the answer.",
+  "FA_NOT_PROVEN": "I cannot answer questions about files yet: the reader has not passed its first full test."
  }
 }

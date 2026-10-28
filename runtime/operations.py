@@ -1119,7 +1119,7 @@ GROUPS = {
     "read-mail-body": {"operations": ("mail-read",), "kind": None},
     # FA-1: a question about what ONE file of the person's Drive or OneDrive says, answered by a model that reads the file in an isolated run (runtime/ops_file_ask.py). The file's text goes to a
     # model, which `read-files` promises never to happen, so this is a group of its own (the maintainer's decision of 2026-10-26, "Sim, pelo leitor isolado"): in no default policy, widened only with
-    # `accept-config --widen`, never on the MCP mode (the row does not list it), valid on the page and the terminal inside their ceiling. A messaging policy that lists it needs `read-files` beside it
+    # `accept-config --widen`, never on the MCP mode (the row does not list it), valid on the page and the terminal inside their ceiling. A policy that lists it, for any channel, needs `read-files` beside it
     # (project_config: the search lists names), and the operation asks for both again. `read-files` is neither widened nor re-worded.
     "ask-files": {"operations": ("file-ask",), "kind": None},
     # R2-F1: a question of general information answered by a web search (runtime/ops_research.py). In no default policy: a messaging sender gets it only from a profile or channel entry accepted with
@@ -1242,7 +1242,7 @@ GROUP_TEXT = {
     "confirm-reads-off": "turns off the question \u201cShall I go ahead?\u201d before a read asked in words on a messaging app: the read runs at once (a web search, an answer from the sources and an act such as cancel or reject still ask)",
     "send-files": "sends the found file itself to the chat, not only its text: the whole file leaves your drive for the messaging app's servers; one whose text looks like a password or a key is not sent (adds to read-files)",
     "read-mail-body": "shows in the chat the text of a message of your mail snapshots that you ask for (the sender's own words, up to 1,500 characters): the messaging app's servers see it; no model reads it (adds to ask-mail)",
-    "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: a model reads its text in an isolated run that cannot act, and only the answer and its quotes come back to this chat (adds to read-files)",
+    "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
 }

@@ -15,7 +15,8 @@
   "FA_FAILED": "Não consegui responder sobre o arquivo agora. Tente de novo em alguns minutos.",
   "FA_TIMEOUT": "A pergunta sobre o arquivo demorou demais e foi interrompida.",
   "FA_CAP": "A pergunta sobre o arquivo chegou ao limite de custo e foi interrompida.",
-  "FA_NOT_FOUND": "O arquivo não traz a resposta."
+  "FA_NOT_FOUND": "O arquivo não traz a resposta.",
+  "FA_NOT_PROVEN": "Ainda não consigo responder perguntas sobre arquivos: o leitor ainda não passou no primeiro teste completo."
  },
  "same_as_english": []
 }
