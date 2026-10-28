@@ -21,6 +21,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_event_lookup as tel
 import test_sources_mail as tsm
@@ -38,8 +39,7 @@ interpreter_route = st.load("interpreter_route")
 phrases = st.load("phrases")
 
 LIVE = 'Mude o título do evento para "Evento Coders 26K"'      # validate: allow english-only -- the live line, Portuguese
-FAILED = "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card."      # validate: allow english-only -- the Portuguese sentence under test
-NOT_REVISABLE = "Para mudar este card, rejeite e peça de novo."      # validate: allow english-only -- the Portuguese sentence under test
+CFG, PT = {"language": "en"}, {"language": "pt-BR"}      # the cards are English; the replies of these tests are pt-BR
 PROFILES = {"owner": ["read", "talk", "calendar-write", "ask-mail", "interpret", "reject-cancel"], "talker": ["read", "talk", "calendar-write", "reject-cancel"]}
 
 
@@ -90,6 +90,21 @@ def body(world, number):
     return ops.pending(world["path"], number)["body"].splitlines()
 
 
+def card_says(world, number):
+    """What each line of a card says, as `(phrase key, fields)`, in the order of the card."""
+    return [pk.which(line, CFG) for line in body(world, number)]
+
+
+def card_has(lines, key, **fields):
+    """True when a line of the card says the sentence of phrase key `key` with `fields`."""
+    return pk.said("\n".join(lines), key, CFG, **fields)
+
+
+def kept_part(line):
+    """True for the lines of a card that name the place, the reminder or the notes."""
+    return any(pk.said(line, key, CFG) for key in ("CARD_CAL_WHERE", "CARD_CAL_REMIND", "CARD_CAL_NOTES"))
+
+
 def status(world, number):
     ctx = ops_core.context(world["path"])
     return ctx["store"].pending_get(ctx["conn"], number)["status"]
@@ -104,20 +119,22 @@ def refused_for_good(world, number, sha):
         ops.approve(world["path"], number, sha256=sha, channel="terminal")
 
 
-OLD = ["Code creates this event after your approval, and nothing else.", "Account: google (pat@example.com)", "Calendar: personal", "Title: evento social",
-       "When: Sat 24/10/2026 08:00-09:00 (America/Sao_Paulo)", "No one is invited: no e-mail is sent."]
+def new_event_card(title="evento social", when="Sat 24/10/2026 08:00-09:00 (America/Sao_Paulo)"):
+    """The card of the event these tests create, as the `(phrase key, fields)` of its lines."""
+    return [("CARD_CAL_CREATE", {}), ("CARD_ACCOUNT", {"account": "google", "address": "pat@example.com"}), ("CARD_CAL_CALENDAR", {"calendar": "personal"}),
+            ("CARD_CAL_TITLE", {"title": title}), ("CARD_CAL_WHEN", {"when": when}), ("CARD_CAL_NOBODY", {})]
 
 
 def test_the_live_line_on_the_card_of_a_new_event_opens_a_new_card_with_the_new_title_and_the_old_one_is_never_approvable(world, monkeypatch):
     model = build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
     old, sha = create(world)
-    assert body(world, old) == OLD
+    assert card_says(world, old) == new_event_card()
     assert check(world, old, sha, LIVE) == "event"
     got = revise(world, old, sha, LIVE)
     new = got["resend"]
     assert isinstance(new, int) and new != old
-    assert got["say"] == "Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este." and "e-mail" not in got["say"]      # validate: allow english-only -- the Portuguese sentence under test
-    assert body(world, new) == [line.replace("Title: evento social", "Title: Evento Coders 26K") for line in OLD], "only the title moved"
+    assert tel.alone(got["say"], "RV_DONE_EVENT", PT) and "e-mail" not in got["say"]
+    assert card_says(world, new) == new_event_card(title="Evento Coders 26K"), "only the title moved"
     assert status(world, old) != "open" and open_cards(world) == [new]
     refused_for_good(world, old, sha)
     assert reads_only(world) == [] and len(model.calls) == 1, "nothing is written to a calendar, and the line is read by the model once"
@@ -127,14 +144,14 @@ def test_the_live_line_on_the_card_of_a_new_event_opens_a_new_card_with_the_new_
 def test_a_title_the_model_quotes_is_taken_without_its_quotation_marks(world, monkeypatch):
     build(world, monkeypatch, op_text("event-change", {"title": '"Evento Coders 26K"'}))
     old, sha = create(world)
-    assert "Title: Evento Coders 26K" in body(world, revise(world, old, sha, LIVE)["resend"])
+    assert card_has(body(world, revise(world, old, sha, LIVE)["resend"]), "CARD_CAL_TITLE", title="Evento Coders 26K")
 
 
 def test_vacuity_the_title_oracle_fails_for_a_card_that_kept_the_old_title(world, monkeypatch):
     build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
     old, sha = create(world)
-    assert "Title: Evento Coders 26K" not in body(world, old)
-    assert "Title: Evento Coders 26K" in body(world, revise(world, old, sha, LIVE)["resend"])
+    assert not card_has(body(world, old), "CARD_CAL_TITLE", title="Evento Coders 26K")
+    assert card_has(body(world, revise(world, old, sha, LIVE)["resend"]), "CARD_CAL_TITLE", title="Evento Coders 26K")
 
 
 def test_muda_para_as_10h_moves_the_hour_on_the_cards_day_and_keeps_the_length(world, monkeypatch):
@@ -143,7 +160,7 @@ def test_muda_para_as_10h_moves_the_hour_on_the_cards_day_and_keeps_the_length(w
     line = "muda para as 10h"
     assert check(world, old, sha, line) == "event"
     new = revise(world, old, sha, line)["resend"]
-    assert body(world, new) == [l.replace("08:00-09:00", "10:00-11:00") for l in OLD]
+    assert card_says(world, new) == new_event_card(when="Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)")
     assert status(world, old) != "open"
     refused_for_good(world, old, sha)
     assert reads_only(world) == []
@@ -153,14 +170,14 @@ def test_a_day_the_line_names_is_taken_and_a_longer_event_keeps_its_length(world
     build(world, monkeypatch, op_text("event-change", {"time": "as 15h do dia 23"}, time_iso="2026-10-23T15:00", weekday="fri"))
     old, sha = create(world, start="2026-10-24T08:00", end="2026-10-24T10:30")
     new = revise(world, old, sha, "muda para as 15h do dia 23")["resend"]
-    assert "When: Fri 23/10/2026 15:00-17:30 (America/Sao_Paulo)" in body(world, new)
+    assert card_has(body(world, new), "CARD_CAL_WHEN", when="Fri 23/10/2026 15:00-17:30 (America/Sao_Paulo)")
 
 
 def test_title_and_hour_in_one_line_change_both(world, monkeypatch):
     build(world, monkeypatch, op_text("event-change", {"title": "yoga", "time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
     old, sha = create(world)
     new = revise(world, old, sha, "Muda o yoga para as 10h do dia 23")["resend"]      # validate: allow english-only -- the Portuguese line under test
-    assert body(world, new)[3:5] == ["Title: yoga", "When: Fri 23/10/2026 10:00-11:00 (America/Sao_Paulo)"]
+    assert card_says(world, new)[3:5] == [("CARD_CAL_TITLE", {"title": "yoga"}), ("CARD_CAL_WHEN", {"when": "Fri 23/10/2026 10:00-11:00 (America/Sao_Paulo)"})]
 
 
 def test_the_account_word_changes_the_account_of_a_card_that_creates_an_event_and_nothing_else(world, monkeypatch):
@@ -168,7 +185,7 @@ def test_the_account_word_changes_the_account_of_a_card_that_creates_an_event_an
     old, sha = create(world)
     new = revise(world, old, sha, "muda para as 10h no outlook")["resend"]
     lines = body(world, new)
-    assert lines[1].startswith("Account: microsoft") and "When: Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)" in lines and "Title: evento social" in lines
+    assert pk.said(lines[1], "CARD_ACCOUNT", CFG, account="microsoft") and card_has(lines, "CARD_CAL_WHEN", when="Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)") and card_has(lines, "CARD_CAL_TITLE", title="evento social")
 
 
 def test_a_time_that_needs_a_question_is_asked_as_it_is_for_any_line_and_nothing_changes(world, monkeypatch):
@@ -207,13 +224,13 @@ def test_the_card_of_a_change_of_an_event_found_in_a_snapshot_is_changed_with_th
     old = extras["resend"]
     sha = ops.pending(world["path"], old)["payload_sha256"]
     before = body(world, old)
-    assert any("Named as agenda#3" in l for l in before) and check(world, old, sha, "muda o título para Barbeiro") == "event"
+    assert card_has(before, "CARD_CAL_SNAPSHOT", reference="agenda#3") and check(world, old, sha, "muda o título para Barbeiro") == "event"
     model.text = op_text("event-change", {"title": "Barbeiro"})
     ops_interpret.forget_all()
     new = revise(world, old, sha, "muda o título para Barbeiro")["resend"]
     after = body(world, new)
-    assert any("Named as agenda#3" in l for l in after) and any("Barbeiro" in l for l in after)
-    assert [l for l in before if "When" in l] == [l for l in after if "When" in l], "the new time of the first change is kept"
+    assert card_has(after, "CARD_CAL_SNAPSHOT", reference="agenda#3") and any("Barbeiro" in l for l in after)
+    assert [l for l in before if pk.said(l, "CARD_CAL_WHEN", CFG)] == [l for l in after if pk.said(l, "CARD_CAL_WHEN", CFG)], "the new time of the first change is kept"
     assert status(world, old) != "open"
     assert reads_only(world) == []
 
@@ -224,7 +241,8 @@ def test_the_card_of_a_cancel_gets_the_sentence_that_it_cannot_be_changed_by_wor
     number = extras["resend"]
     sha = ops.pending(world["path"], number)["payload_sha256"]
     assert check(world, number, sha, "muda o título para Barbeiro") == "sentence"
-    assert revise(world, number, sha, "muda o título para Barbeiro") == {"say": NOT_REVISABLE, "resend": None}
+    got = revise(world, number, sha, "muda o título para Barbeiro")
+    assert set(got) == {"say", "resend"} and got["resend"] is None and tel.alone(got["say"], "RV_NOT_REVISABLE", PT), got
     assert check(world, number, sha, "e o dentista?") is None, "no word that asks for a change: it goes on"
     assert status(world, number) == "open" and model.calls == []
 
@@ -257,7 +275,7 @@ def snapshot_cards(world, monkeypatch, text):
 
 def test_a_snapshot_refreshed_meanwhile_never_makes_the_new_card_move_another_event(world, monkeypatch):
     old, sha = snapshot_cards(world, monkeypatch, op_text("event-change", {"title": "Barbeiro"}))
-    assert any("Named as agenda#3" in l for l in body(world, old))
+    assert card_has(body(world, old), "CARD_CAL_SNAPSHOT", reference="agenda#3")
     provided = [tsm.event(i + 1, f"2026-10-{day}T{start}:00-03:00", f"2026-10-{day}T{end}:00-03:00", title, id=ident)
                 for i, (day, start, end, title, ident) in enumerate([("20", "09:00", "10:00", "Early", "evearly")] + tel.EVENTS)]      # an earlier event: every number after it moves by one
     world["google"].add_event("evearly", "Early", {"dateTime": "2026-10-20T09:00:00-03:00"}, {"dateTime": "2026-10-20T10:00:00-03:00"})
@@ -283,7 +301,7 @@ def test_a_line_that_names_the_cards_own_event_or_none_still_revises_it(world, m
     build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
     old, sha = create(world)
     new = revise(world, old, sha, line)["resend"]
-    assert "When: Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)" in body(world, new)
+    assert card_has(body(world, new), "CARD_CAL_WHEN", when="Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)")
 
 
 def test_a_moment_in_the_past_is_asked_as_a_typed_line_would_be(world, monkeypatch):
@@ -296,7 +314,7 @@ def test_a_moment_in_the_past_is_asked_as_a_typed_line_would_be(world, monkeypat
 def test_the_parts_the_line_did_not_name_are_copied_and_a_card_that_lost_one_is_ended(world, monkeypatch):
     build(world, monkeypatch, op_text("event-change", {"title": "Evento Coders 26K"}))
     old, sha = create(world, location="Main Street", reminder_minutes=30, notes="Bring cash")
-    kept = [l for l in body(world, old) if l.startswith(("Where", "Calendar reminder", "Notes"))]
+    kept = [l for l in body(world, old) if kept_part(l)]
     assert len(kept) == 3
     real = ops.event_create
     monkeypatch.setattr(ops, "event_create", lambda project, **kw: real(project, **dict(kw, location="Elsewhere")))
@@ -305,7 +323,7 @@ def test_the_parts_the_line_did_not_name_are_copied_and_a_card_that_lost_one_is_
     monkeypatch.setattr(ops, "event_create", real)
     old2, sha2 = create(world, location="Main Street", reminder_minutes=30, notes="Bring cash")
     new = revise(world, old2, sha2, LIVE)["resend"]
-    assert [l for l in body(world, new) if l.startswith(("Where", "Calendar reminder", "Notes"))] == kept
+    assert [l for l in body(world, new) if kept_part(l)] == kept
 
 
 def test_a_card_that_cannot_be_ended_or_a_new_card_that_cannot_be_opened_never_leaves_two_open_cards(world, monkeypatch):
@@ -328,7 +346,7 @@ def test_the_gate_checks_the_new_cards_origins_before_the_old_card_is_ended_and_
     seen, real = [], turn_gate.provenance
     monkeypatch.setattr(turn_gate, "provenance", lambda op, args, origins: ["title: no origin"])
     got = revise(world, old, sha, LIVE)
-    assert got["say"] == FAILED and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
+    assert tel.alone(got["say"], "RV_FAILED", PT) and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
     assert capsys.readouterr().err == "gate: provenance refused event-create (title)\n"
     monkeypatch.setattr(turn_gate, "provenance", lambda op, args, origins: seen.append((op, dict(origins))) or real(op, args, origins))
     got = revise(world, old, sha, LIVE)
@@ -363,13 +381,14 @@ def test_muda_para_as_10h_revises_the_event_card_whatever_the_shape_of_the_model
     model = build(world, monkeypatch, SHAPES[shape])
     old, sha = haircut_card(world)
     before = body(world, old)
-    assert "Account: microsoft" in before[1] and "Title: corte de cabelo" in before and "When: Fri 23/10/2026 14:00-15:00 (America/Sao_Paulo)" in before
+    assert pk.said(before[1], "CARD_ACCOUNT", CFG, account="microsoft") and card_has(before, "CARD_CAL_TITLE", title="corte de cabelo") and card_has(before, "CARD_CAL_WHEN", when="Fri 23/10/2026 14:00-15:00 (America/Sao_Paulo)")
     assert check(world, old, sha, MUDA) == "event"
     got = revise(world, old, sha, MUDA)
     new = got["resend"]
     assert isinstance(new, int) and new != old, got
     after = body(world, new)
-    assert after == [l.replace("14:00-15:00", "10:00-11:00") for l in before], "the new hour on the card's day, the length kept, the account and the calendar kept"
+    moved = [(key, {name: value.replace("14:00-15:00", "10:00-11:00") for name, value in fields.items()}) for key, fields in (pk.which(l, CFG) for l in before)]
+    assert [pk.which(l, CFG) for l in after] == moved, "the new hour on the card's day, the length kept, the account and the calendar kept"
     assert status(world, old) != "open" and open_cards(world) == [new] and len(model.calls) == 1
     refused_for_good(world, old, sha)
     assert all(r["method"] == "GET" or r["path"].endswith("/token") for r in world["graph"].requests), "nothing is written to the calendar"

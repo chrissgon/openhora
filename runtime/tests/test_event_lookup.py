@@ -14,6 +14,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, fgw, rows, world  # noqa: F401  (the calendar world and its real snapshots)
@@ -44,7 +45,20 @@ EVENTS = [
     ("25", "08:00", "09:00", "Consulta Dra Lima", "evcons"),   # 5  Sunday 25/10
 ]
 CANCEL = '{"v":1,"kind":"op","op":"event-cancel","slots":{}}'
+CFG, PT = {"language": "en"}, {"language": "pt-BR"}      # the cards are English; the chat replies of these tests are pt-BR unless a test builds an English project
+READ_AT = "2026-10-21T17:00:00Z"
 ALLOWED = {"event-cancel", "event-change", "event-create", "mail-archive"}
+
+
+def alone(text, key, cfg, **fields):
+    """True when the whole of `text` (one line, nothing else) is the sentence of phrase key `key` with `fields`: the exactness of the `reply == "<sentence>"` it replaces."""
+    return isinstance(text, str) and "\n" not in text and pk.said(text, key, cfg, **fields)
+
+
+def says(text, sentence, cfg=PT):
+    """`alone` for a `(key, fields)` pair: the module constants of the event tests name the sentences a reply says, as the phrase table's key and the values of its fields."""
+    key, fields = sentence
+    return alone(text, key, cfg, **fields)
 
 
 def op_text(name, slots=None, **more):
@@ -101,19 +115,19 @@ def reads_only(world):
 
 def card_problems(item, ref, title, when):
     """What is wrong with a card, read from its own lines: the event it names (`<source>#<n>`, the provider's title) and the time it shows."""
-    lines = item["body"].splitlines()
-    wanted = [f"Named as {ref}, from the snapshot read at 2026-10-21T17:00:00Z.", f"Removing, title: {title}", f"When: {when} (America/Sao_Paulo)",
-              "Account: google (pat@example.com)"]
-    return [w for w in wanted if w not in lines]
+    body = item["body"]
+    wanted = [("CARD_CAL_SNAPSHOT", {"reference": ref, "read_at": READ_AT}), ("CARD_CAL_DROP_TITLE", {"title": title}), ("CARD_CAL_WHEN", {"when": f"{when} (America/Sao_Paulo)"}),
+              ("CARD_ACCOUNT", {"account": "google", "address": "pat@example.com"})]
+    return [w for w in wanted if not pk.said(body, w[0], CFG, **w[1])]
 
 
 def test_the_live_line_opens_the_cancel_card_of_the_one_event_tomorrow(world, monkeypatch):
     build(world, monkeypatch)
     reply, extras = carry(world, LIVE, CANCEL)
     item = card(world, extras)
-    assert reply == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "ACCT_CARD_SENT", PT, pending=1), reply
     assert card_problems(item, "agenda#2", "corte de cabelo", "Thu 22/10/2026 13:00-14:00") == []
-    assert "Event: evhair22" in item["body"].splitlines()
+    assert pk.said(item["body"], "CARD_CAL_EVENT", CFG, event_id="evhair22")
     assert reads_only(world) == [], "a card is opened; the approval writes"
     assert item["status"] == "open" and len(rows(world)[1]) == 1, "nothing is approved by this path"
     # the same card as the numbered form opens for the same event
@@ -132,10 +146,11 @@ def test_the_oracle_of_the_card_fails_for_another_event(world, monkeypatch):
 def test_two_events_with_the_title_are_listed_by_the_numbers_of_the_snapshot_and_nothing_is_opened(world, monkeypatch):
     build(world, monkeypatch)
     reply, extras = carry(world, "Cancela o corte de cabelo", CANCEL)
-    assert reply == ("Mais de um evento combina. Qual deles você quer cancelar?\n"      # validate: allow english-only -- the Portuguese line or sentence under test
-                     "2. Thu 22/10/2026 13:00-14:00 · corte de cabelo\n4. Fri 23/10/2026 13:00-14:00 · corte de cabelo\n"
-                     "Diga, por exemplo: cancela o evento 2.")      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert "resend" not in extras and rows(world) == ([], []) and extras["stored"] == "(pedido para as suas contas)"      # validate: allow english-only -- the Portuguese line or sentence under test
+    lines = reply.splitlines()
+    assert len(lines) == 4 and alone(lines[0], "EV_MANY_CANCEL", PT) and alone(lines[3], "EV_MANY_CANCEL_HOW", PT, n=2), reply
+    # literal: a list row is data (number, day, time, title), not a sentence of the table
+    assert lines[1:3] == ["2. Thu 22/10/2026 13:00-14:00 · corte de cabelo", "4. Fri 23/10/2026 13:00-14:00 · corte de cabelo"], reply
+    assert "resend" not in extras and rows(world) == ([], []) and alone(extras["stored"], "NW_PRIVATE_REPLY", PT)
     # the numbered form that the list asks for opens the card of the number said
     numbered = ops.natural_write(world["path"], "cancela o evento 4", channel="messaging", sender=OWNER)
     assert card_problems(ops.pending(world["path"], numbered["resend"]), "agenda#4", "corte de cabelo", "Fri 23/10/2026 13:00-14:00") == []
@@ -144,27 +159,29 @@ def test_two_events_with_the_title_are_listed_by_the_numbers_of_the_snapshot_and
 def test_the_list_of_a_change_asks_for_the_number_and_the_new_time_in_english_too(world, monkeypatch):
     build(world, monkeypatch, language="en")
     reply, _ = carry(world, "Move the corte de cabelo to friday at 3pm", op_text("event-change", {"time": "friday at 3pm"}, time_iso="2026-10-23T15:00", weekday="fri"))
-    assert reply == ("More than one event fits. Which one do you want to change?\n2. Thu 22/10/2026 13:00-14:00 · corte de cabelo\n"
-                     "4. Fri 23/10/2026 13:00-14:00 · corte de cabelo\nSay its number and the new time, for example: move event 2 to Friday at 3 pm.")
+    lines = reply.splitlines()
+    assert len(lines) == 4 and alone(lines[0], "EV_MANY_CHANGE", CFG) and alone(lines[3], "EV_MANY_CHANGE_HOW", CFG, n=2), reply
+    # literal: a list row is data (number, day, time, title), not a sentence of the table
+    assert lines[1:3] == ["2. Thu 22/10/2026 13:00-14:00 · corte de cabelo", "4. Fri 23/10/2026 13:00-14:00 · corte de cabelo"], reply
 
 
-@pytest.mark.parametrize("line, sentence", [
-    ("Cancela a consulta", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),      # nor is the first word of a longer title  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Cancela a aula de natação", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o corte de cabelo de hoje", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),      # the haircuts are tomorrow and the day after  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o Dentist pra amanha", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),      # the dentist is today  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o corte de cabelo dia 24", "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."),  # validate: allow english-only -- the Portuguese line or sentence under test
-    ("Remova o yoga de sexta", "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos."),      # a weekday: the yoga is on a Thursday  # validate: allow english-only -- the Portuguese line or sentence under test
-])      # validate: allow english-only -- the Portuguese line or sentence under test
-def test_a_title_that_only_partly_fits_or_falls_on_another_day_is_not_that_event(world, monkeypatch, line, sentence):
+@pytest.mark.parametrize("line, key, fields", [
+    ("Cancela a consulta", "EV_NAME_NONE", {"days": 30}),      # nor is the first word of a longer title
+    ("Cancela a aula de natação", "EV_NAME_NONE", {"days": 30}),  # validate: allow english-only -- the Portuguese line under test
+    ("Remova o corte de cabelo de hoje", "EV_NAME_NONE_DAY", {}),      # the haircuts are tomorrow and the day after
+    ("Remova o Dentist pra amanha", "EV_NAME_NONE_DAY", {}),      # the dentist is today      # validate: allow english-only -- the Portuguese line under test
+    ("Remova o corte de cabelo dia 24", "EV_NAME_NONE_DAY", {}),
+    ("Remova o yoga de sexta", "EV_NAME_NONE", {"days": 30}),      # a weekday: the yoga is on a Thursday
+])
+def test_a_title_that_only_partly_fits_or_falls_on_another_day_is_not_that_event(world, monkeypatch, line, key, fields):
     build(world, monkeypatch)
     reply, extras = carry(world, line, CANCEL)
-    assert reply == sentence and "resend" not in extras and rows(world) == ([], [])
+    assert alone(reply, key, PT, **fields) and "resend" not in extras and rows(world) == ([], []), reply
 
 
 def test_the_not_found_sentence_in_english(world, monkeypatch):
     build(world, monkeypatch, language="en")
-    assert carry(world, "Cancel the swimming class", CANCEL)[0] == "I did not find an event with a similar name in the next 30 days. Ask for your calendar to see the events."
+    assert alone(carry(world, "Cancel the swimming class", CANCEL)[0], "EV_NAME_NONE", CFG, days=30)
 
 
 def test_a_day_the_words_name_narrows_the_list_to_that_day_and_a_weekday_to_its_dates(world, monkeypatch):
@@ -178,7 +195,7 @@ def test_a_day_code_cannot_read_is_asked_and_nothing_is_opened(world, monkeypatc
     build(world, monkeypatch)
     for line in ("Remova o corte de cabelo dia 40", "Remova o corte de cabelo 31/02", "Remova o corte de cabelo na terça passada", "Remova o corte de cabelo hoje ou amanha"):  # validate: allow english-only -- the Portuguese line or sentence under test
         reply, extras = carry(world, line, CANCEL)
-        assert reply == "Não consegui ler o dia que você quis dizer. Diga o nome do evento e o dia, por exemplo: amanhã ou 22/10." and "resend" not in extras, line      # validate: allow english-only -- the Portuguese line or sentence under test
+        assert alone(reply, "EV_ASK_DAY", PT) and "resend" not in extras, line
 
 
 def test_a_change_by_description_takes_the_new_time_from_the_verified_span_and_not_the_day_it_names(world, monkeypatch):
@@ -187,26 +204,27 @@ def test_a_change_by_description_takes_the_new_time_from_the_verified_span_and_n
     reply, extras = carry(world, line, op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
     item = card(world, extras)
     lines = item["body"].splitlines()
-    assert "Named as agenda#5, from the snapshot read at 2026-10-21T17:00:00Z." in lines      # the consultation is on Sunday 25: the 23rd is the new day, not the event's
-    assert "The event now is at: Sun 25/10/2026 08:00-09:00 (America/Sao_Paulo)" in lines
-    assert "Before: When: Sun 25/10/2026 08:00-09:00 (America/Sao_Paulo)" in lines and "After: When: Fri 23/10/2026 10:00-11:00 (America/Sao_Paulo)" in lines
-    assert "Unchanged: Title: Consulta Dra Lima" in lines, "only the time of the verified span changes"
+    body = item["body"]
+    assert pk.said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#5", read_at=READ_AT)      # the consultation is on Sunday 25: the 23rd is the new day, not the event's
+    assert pk.said(body, "CARD_CAL_NOW_WHEN", CFG, when="Sun 25/10/2026 08:00-09:00 (America/Sao_Paulo)")
+    assert pk.said(body, "CARD_CAL_BEFORE_WHEN", CFG, when="Sun 25/10/2026 08:00-09:00 (America/Sao_Paulo)") and pk.said(body, "CARD_CAL_AFTER_WHEN", CFG, when="Fri 23/10/2026 10:00-11:00 (America/Sao_Paulo)")
+    assert pk.said(body, "CARD_CAL_KEPT_TITLE", CFG, title="Consulta Dra Lima"), "only the time of the verified span changes"
     assert reads_only(world) == [] and item["status"] == "open"
 
 
 def test_a_change_with_nothing_to_change_says_so_and_a_title_alone_is_a_change(world, monkeypatch):
     build(world, monkeypatch)
     reply, extras = carry(world, "Muda a consulta Dra Lima", op_text("event-change"))
-    assert reply == "Achei o evento, mas não entendi o que mudar. Diga o novo dia e horário, ou o novo nome." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "EV_CHANGE_WHAT", PT) and "resend" not in extras, reply
     _, extras = carry(world, "Renomeia a consulta Dra Lima para Retorno", op_text("event-change", {"title": "Retorno"}))
-    lines = card(world, extras)["body"].splitlines()
-    assert "Named as agenda#5, from the snapshot read at 2026-10-21T17:00:00Z." in lines and "After: Title: Retorno" in lines, lines
+    body = card(world, extras)["body"]
+    assert pk.said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#5", read_at=READ_AT) and pk.said(body, "CARD_CAL_AFTER_TITLE", CFG, title="Retorno"), body
 
 
 def test_a_sender_who_may_not_read_a_snapshot_learns_nothing_of_the_calendar(world, monkeypatch):
     build(world, monkeypatch)
     reply, extras = carry(world, LIVE, CANCEL, sender=TALKER)
-    assert reply.startswith("As mensagens e os eventos são numerados num retrato") and "corte" not in reply and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "NW_REF_NOT_READABLE", PT) and "corte" not in reply and rows(world) == ([], [])
 
 
 def calendar_reads(world):
@@ -228,17 +246,17 @@ def test_an_event_made_after_the_snapshot_is_found_after_one_refresh_and_its_car
     assert "reuniao com a Bia" not in [e["title"] for e in event_lookup.events(ops_core.context(world["path"]), OWNER)[0]], "control: the snapshot does not hold it yet"
     before = len(calendar_reads(world))
     reply, extras = carry(world, "Cancela a reuniao com a Bia", CANCEL)
-    assert reply == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "ACCT_CARD_SENT", PT, pending=1), reply
     assert len(calendar_reads(world)) - before == 1, "one read of the one calendar source"
-    assert "Named as agenda#5, from the snapshot read at 2026-10-21T17:00:00Z." in card(world, extras)["body"].splitlines()
+    assert pk.said(card(world, extras)["body"], "CARD_CAL_SNAPSHOT", CFG, reference="agenda#5", read_at=READ_AT)
     assert reads_only(world) == [] and card(world, extras)["status"] == "open"
 
 
 def test_a_second_miss_makes_exactly_one_provider_read_and_says_not_found(world, monkeypatch):
     build(world, monkeypatch)
     before = len(calendar_reads(world))
-    reply, extras = carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    reply, extras = carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line under test
+    assert alone(reply, "EV_NAME_NONE", PT, days=30) and "resend" not in extras, reply
     assert len(calendar_reads(world)) - before == 1, "one read for the line, never a loop"
     carry(world, "Cancela a aula de natação", CANCEL)      # validate: allow english-only -- the Portuguese line or sentence under test
     assert len(calendar_reads(world)) - before == 2, "one more for the next line, and only one"
@@ -256,7 +274,7 @@ def test_a_sender_without_the_read_group_gets_no_refresh(world, monkeypatch):
     add_new_event(world)
     before = len(calendar_reads(world))
     reply, _ = carry(world, "Cancela a reuniao com a Bia", CANCEL, sender=TALKER)
-    assert reply.startswith("As mensagens e os eventos são numerados num retrato") and len(calendar_reads(world)) == before      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "NW_REF_NOT_READABLE", PT) and len(calendar_reads(world)) == before
 
 
 def test_a_failed_refresh_is_the_not_found_sentence_and_nothing_else(world, monkeypatch, capfd):
@@ -264,7 +282,7 @@ def test_a_failed_refresh_is_the_not_found_sentence_and_nothing_else(world, monk
     add_new_event(world)
     world["snaps"].providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
     reply, extras = carry(world, "Cancela a reuniao com a Bia", CANCEL)
-    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "EV_NAME_NONE", PT, days=30) and "resend" not in extras, reply
     assert "ZEBRA" not in reply + " ".join(capfd.readouterr())
 
 
@@ -273,7 +291,7 @@ def test_a_snapshot_older_than_26_hours_counts_as_a_miss_and_is_read_again(world
     world["snaps"].later(hours=30)
     before = len(calendar_reads(world))
     reply, extras = carry(world, "Cancela o yoga", CANCEL)
-    assert reply == "O card #1 espera a sua aprovação." and len(calendar_reads(world)) - before == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "ACCT_CARD_SENT", PT, pending=1) and len(calendar_reads(world)) - before == 1, reply
     assert card(world, extras)["status"] == "open"
 
 
@@ -281,32 +299,34 @@ def test_a_stale_snapshot_that_cannot_be_read_again_is_the_not_found_sentence(wo
     build(world, monkeypatch)
     world["snaps"].later(hours=30)
     world["snaps"].providers.fail = tsm.Failure()
-    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(carry(world, LIVE, CANCEL)[0], "EV_NAME_NONE_DAY", PT)
 
 
 def test_a_cancelled_event_is_never_found(world, monkeypatch):
     build(world, monkeypatch, events=[("22", "13:00", "14:00", "corte de cabelo", "evgone", {"status": "cancelled"}), ("22", "18:00", "19:00", "Yoga", "evyoga")])
-    assert carry(world, LIVE, CANCEL)[0] == "Não encontrei nenhum evento com nome parecido nesse dia. Peça a sua agenda para ver os eventos."      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert carry(world, "Cancela o yoga", CANCEL)[0] == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test, and the control: a live event is found
+    assert alone(carry(world, LIVE, CANCEL)[0], "EV_NAME_NONE_DAY", PT)
+    assert alone(carry(world, "Cancela o yoga", CANCEL)[0], "ACCT_CARD_SENT", PT, pending=1)      # the control: a live event is found
 
 
 def test_a_rename_does_not_match_the_new_title_as_the_event_to_change(world, monkeypatch):
     build(world, monkeypatch, events=[("22", "10:00", "11:00", "Planejamento", "evplan")])
     text = op_text("event-change", {"title": "Planejamento trimestral"})
     reply, extras = carry(world, "Renomeia a reunião para Planejamento trimestral", text)      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert reply == "Não encontrei nenhum evento com nome parecido nos próximos 30 dias. Peça a sua agenda para ver os eventos." and "resend" not in extras and rows(world) == ([], [])      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(reply, "EV_NAME_NONE", PT, days=30) and "resend" not in extras and rows(world) == ([], []), reply
     # control: when the old title is in the line, the same title span renames that event
     _, extras = carry(world, "Renomeia o planejamento para Planejamento trimestral", text)
-    lines = card(world, extras)["body"].splitlines()
-    assert "Named as agenda#1, from the snapshot read at 2026-10-21T17:00:00Z." in lines and "After: Title: Planejamento trimestral" in lines, lines
+    body = card(world, extras)["body"]
+    assert pk.said(body, "CARD_CAL_SNAPSHOT", CFG, reference="agenda#1", read_at=READ_AT) and pk.said(body, "CARD_CAL_AFTER_TITLE", CFG, title="Planejamento trimestral"), body
 
 
 @pytest.mark.parametrize("line", ["Muda o yoga para as 10h do dia 23", "Muda o yoga para as 10h do\ndia 23", "Muda o yoga para as 10h do  dia 23", "Muda o yoga para as 10h do \t dia   23"])
 def test_a_break_or_a_double_space_in_the_time_phrase_does_not_make_its_day_the_old_events_day(world, monkeypatch, line):
     build(world, monkeypatch, events=[("22", "18:00", "19:00", "Yoga", "evyoga22"), ("23", "18:00", "19:00", "Yoga", "evyoga23")])
     reply, extras = carry(world, line, op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
-    assert reply == ("Mais de um evento combina. Qual deles você quer mudar?\n1. Thu 22/10/2026 18:00-19:00 · Yoga\n2. Fri 23/10/2026 18:00-19:00 · Yoga\n"      # validate: allow english-only -- the Portuguese line or sentence under test
-                     "Diga o número e o novo horário, por exemplo: remarca o evento 1 para sexta às 15h."), line      # validate: allow english-only -- the Portuguese line or sentence under test
+    lines = reply.splitlines()
+    assert len(lines) == 4 and alone(lines[0], "EV_MANY_CHANGE", PT) and alone(lines[3], "EV_MANY_CHANGE_HOW", PT, n=1), (line, reply)
+    # literal: a list row is data (number, day, time, title), not a sentence of the table
+    assert lines[1:3] == ["1. Thu 22/10/2026 18:00-19:00 · Yoga", "2. Fri 23/10/2026 18:00-19:00 · Yoga"], (line, reply)
     assert "resend" not in extras
 
 
@@ -316,14 +336,14 @@ def test_a_span_the_line_does_not_hold_is_a_question_and_no_day_is_read_from_the
     made = decision("Muda o yoga para as 10h do dia 23", op_text("event-change", {"time": "as 10h do dia 23"}, time_iso="2026-10-23T10:00", weekday="fri"))
     made["spans"] = {"time": "as 11h do dia 24"}      # a span the line does not hold (planted)
     got = event_lookup.open_event(world["path"], ctx, made, "Muda o yoga para as 10h do dia 23", OWNER, {}, st.load("ops_natural_writes"), ops_natural._clock())
-    assert got == "Não consegui ler o dia que você quis dizer. Diga o nome do evento e o dia, por exemplo: amanhã ou 22/10."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(got, "EV_ASK_DAY", PT), got
 
 
 def test_a_word_of_the_day_or_a_yes_is_not_the_title_of_an_event(world, monkeypatch):
     build(world, monkeypatch, events=[("23", "09:00", "10:00", "Dia", "evdia"), ("23", "11:00", "12:00", "Sim", "evsim")])
     for line in ("cancela o dentista dia 23", "sim, cancela o dentista", "cancela o dentista, ok"):
         reply, extras = carry(world, line, CANCEL)
-        assert reply.startswith("Não encontrei nenhum evento com nome parecido") and "resend" not in extras, line      # validate: allow english-only -- the Portuguese line or sentence under test
+        assert (alone(reply, "EV_NAME_NONE", PT, days=30) or alone(reply, "EV_NAME_NONE_DAY", PT)) and "resend" not in extras, (line, reply)
 
 
 # --- the pure rule: which events a line names ------------------------------------------------------------------------------------------------------
@@ -371,11 +391,12 @@ def test_the_window_is_today_to_thirty_days_ahead_and_a_named_day_may_lie_outsid
 
 E_OPS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "file-create", "file-replace",
          "file-save", "file-trash", "todo-add", "todo-done"]      # CB-5: the two cards of the to-do list are class E too
-LANGUAGE = {"pt-BR": "Por enquanto, peça isso em português ou em inglês.", "en": "For now, ask for that in Portuguese or in English."}      # validate: allow english-only -- the Portuguese line or sentence under test
-CREATE = {"pt-BR": "Entendi que você quer criar um evento, mas não consegui montar o cartão. Diga o título, o dia e a hora.",      # validate: allow english-only -- the Portuguese line or sentence under test
-          "en": "I understood that you want to create an event, but I could not prepare it. Tell me the title, the day and the time."}
-GENERIC = {"pt-BR": "Entendi que você quer mudar algo nas suas contas, mas não consegui montar o cartão, então não fiz nada. Diga o que é, qual item e quando.",      # validate: allow english-only -- the Portuguese line or sentence under test
-           "en": "I understood that you want to change something in your accounts, but I could not prepare it, so I did nothing. Tell me what it is, which item and when."}
+TONGUE = {"pt-BR": PT, "en": CFG}
+
+
+def cannot_key(name):
+    """The phrase key of what a write that cannot be prepared answers: its own sentence for a create, the generic one for any other write."""
+    return "IX_CANNOT_EVENT_CREATE" if name == "event-create" else "IX_CANNOT_WRITE"
 
 
 def test_the_class_e_operations_are_these_sixteen():
@@ -388,26 +409,30 @@ def test_a_pt_br_or_en_project_is_never_told_to_ask_in_another_language_for_any_
     build(world, monkeypatch, language=language)
     ctx = ops_core.context(world["path"])
     for name in E_OPS:
-        wanted = CREATE[language] if name == "event-create" else GENERIC[language]
-        assert ops_interpret._cannot(ctx, name) == wanted, name
-        assert ops_interpret._cannot(ctx, name) != LANGUAGE[language]
+        got = ops_interpret._cannot(ctx, name)
+        assert alone(got, cannot_key(name), TONGUE[language]), (name, got)
+        assert not alone(got, "IX_WRITE_LANGUAGE", TONGUE[language]), (name, got)
 
 
 def test_a_language_with_no_write_forms_is_still_told_so_for_every_write(world, monkeypatch):
     build(world, monkeypatch, language="es")
     ctx = ops_core.context(world["path"])
     for name in E_OPS:
-        assert ops_interpret._cannot(ctx, name) == "For now, ask for that in Portuguese or in English.", name
+        got = ops_interpret._cannot(ctx, name)
+        assert alone(got, "IX_WRITE_LANGUAGE", CFG), (name, got)      # a language with no table of its own says the English sentence
 
 
 def test_an_event_with_no_time_in_a_pt_br_project_says_what_is_missing(world, monkeypatch):
     build(world, monkeypatch)
     reply, extras = carry(world, "preciso de um evento novo", op_text("event-create"))
-    assert reply == CREATE["pt-BR"] and "resend" not in extras
+    assert alone(reply, "IX_CANNOT_EVENT_CREATE", PT) and "resend" not in extras, reply
 
 
 def test_the_sentence_of_a_failed_write_is_not_the_language_sentence_vacuity():
-    assert CREATE["pt-BR"] != LANGUAGE["pt-BR"] and GENERIC["en"] != LANGUAGE["en"]
+    phrases = st.load("phrases")
+    created, generic = phrases.text("IX_CANNOT_EVENT_CREATE", PT), phrases.text("IX_CANNOT_WRITE", CFG)
+    assert alone(created, "IX_CANNOT_EVENT_CREATE", PT) and not alone(created, "IX_WRITE_LANGUAGE", PT)
+    assert alone(generic, "IX_CANNOT_WRITE", CFG) and not alone(generic, "IX_WRITE_LANGUAGE", CFG)
 
 
 # --- privacy: the whole turn --------------------------------------------------------------------------------------------------------------------
@@ -425,13 +450,14 @@ def test_the_whole_turn_stores_neither_the_line_nor_a_title_and_prints_nothing(w
     caplog.set_level(0)
     first = ops.say(world["path"], LIVE, channel="messaging", sender=OWNER)["reply"]
     second = ops.say(world["path"], "Cancela o corte de cabelo", channel="messaging", sender=OWNER)["reply"]
-    assert first == "O card #1 espera a sua aprovação." and second.startswith("Mais de um evento combina."), (first, second)      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert alone(first, "ACCT_CARD_SENT", PT, pending=1) and pk.said(second.splitlines()[0], "EV_MANY_CANCEL", PT), (first, second)
     ctx = ops_core.context(world["path"])
-    stored = " ".join(m["text"] for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500))
+    texts = [m["text"] for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)]
+    stored = " ".join(texts)
     seen = stored + " ".join(r.getMessage() for r in caplog.records) + " ".join(capfd.readouterr())
     for piece in ("corte de cabelo", "Remova", "Cancela o", "amanha"):
         assert piece.lower() not in seen.lower(), piece
-    assert "(pedido para as suas contas)" in stored or "(uma mensagem)" in stored      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert any(pk.said(t, "NW_PRIVATE_REPLY", PT) or pk.said(t, "IX_PRIVATE_LINE", PT) for t in texts)
 
 
 def test_the_words_the_time_engine_reads_and_a_yes_at_the_edges_are_not_matched_against_titles():
