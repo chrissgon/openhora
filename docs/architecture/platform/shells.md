@@ -345,6 +345,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `file-save` | `--account` `--attachment` `[--name]` `[--folder]` | `file_save` |
 | `file-trash` | `--file` `[--account]` `[--folder]` | `file_trash` |
 | `file-read` | `--file` `[--account]` | `file_read` |
+| `mail-read` | `[--message]` `[--number]` `[--match]` `[--day]` `[--account]` | `mail_read` |
 | `research` | `--question` | `research` |
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
@@ -495,6 +496,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/files/save` | `file-save` | - | `account`, `attachment`, `file_name`, `folder` | - | - |
 | POST | `/projects/{p}/files/trash` | `file-trash` | - | `file`, `account`, `folder` | - | - |
 | POST | `/projects/{p}/files/read` | `file-read` | - | `file`, `account` | - | - |
+| POST | `/projects/{p}/mail/read` | `mail-read` | - | `message`, `number`, `match`, `day`, `account` | - | - |
 | POST | `/projects/{p}/mail/send` | `mail-send` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/reply` | `mail-reply` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/draft` | `mail-draft` | - | every other argument | - | - |
