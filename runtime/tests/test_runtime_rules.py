@@ -243,17 +243,138 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
                             "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py", "ops_turn.py"}, "the guard covers each of its files"
 
 
-# The size budget (CONS-1B). ops.py held 3,514 lines before the move; after it, 2,676. The budget is that count plus
-# 100, so that a change that adds an operation does not breach it by a few lines but a block that should live in a
-# sibling does. A sibling is capped at 1,200 lines. The next package of the layer (the domain out of ops.py, after the
-# launch) lowers OPS_PY_BUDGET as it moves code; nothing raises it without a reason written beside the number.
-OPS_PY_BUDGET = 2776
+# The size budget (CONS-1B, counting rule of SPEC-HOTSPOTS). ops.py held 3,514 lines before the move; after it, 2,676. The budget keeps
+# headroom, so that a change that adds an operation does not breach it by a few lines but a block that should live in a sibling does. A sibling
+# is capped at 1,200 lines. The next package of the layer (the domain out of ops.py, after the launch) lowers OPS_PY_BUDGET as it moves code;
+# nothing raises it without a reason written beside the number.
+# The count is the lines of ops.py OUTSIDE its top-level `import` and `from ... import` statements: most changes to the file were a re-export line,
+# and a re-export is not code to move out. The budget is that count on the file as migrated (2,655 lines: the file's 2,744 lines before the move to
+# one name per line, less its imports, plus the marker line) plus 32, the headroom the old rule had (2,776 lines for a file of 2,744).
+OPS_PY_BUDGET = 2687
 SIBLING_BUDGET = 1200
+REEXPORT_MARKER = "# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---"
+
+
+def import_lines(tree) -> set:
+    """The line numbers (1-based) covered by the top-level import statements of a module, a multi-line statement included."""
+    covered = set()
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            covered.update(range(node.lineno, node.end_lineno + 1))
+    return covered
+
+
+def code_lines(source: str) -> int:
+    """The lines of a module's source that no top-level import statement covers: code, comments and blank lines."""
+    return len(source.splitlines()) - len(import_lines(ast.parse(source)))
+
+
+def reexport_tail_problems(source: str) -> list:
+    """What is wrong with the blocks after the marker: anything but an import statement (the `if __name__` guard that ends the file is the one
+    exception), a statement that is not `from <module> import (...)` or `import <module>`, a module that is not after the one before it."""
+    lines = source.splitlines()
+    marks = [n for n, line in enumerate(lines, 1) if line == REEXPORT_MARKER]
+    if len(marks) != 1:
+        return [f"the marker line must appear once, it appears {len(marks)} times"]
+    problems, previous = [], ""
+    after = [node for node in ast.parse(source).body if node.lineno > marks[0]]
+    for node in after:
+        if isinstance(node, ast.If) and node is after[-1] and ast.unparse(node.test) == "__name__ == '__main__'":
+            continue
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            problems.append(f"line {node.lineno}: {type(node).__name__} after the marker, only imports belong there")
+            continue
+        module = node.module if isinstance(node, ast.ImportFrom) else node.names[0].name
+        if module <= previous:
+            problems.append(f"line {node.lineno}: {module} is not after {previous} (one block per module, sorted by module name)")
+        previous = module
+    return problems
 
 
 def test_the_operations_layer_keeps_its_size_budget():
-    assert len((RUNTIME / "ops.py").read_text(encoding="utf-8").splitlines()) <= OPS_PY_BUDGET, \
+    source = (RUNTIME / "ops.py").read_text(encoding="utf-8")
+    assert code_lines(source) <= OPS_PY_BUDGET, \
         "runtime/ops.py is over its budget (package CONS-1B): move a block to a sibling of the layer, do not raise the number"
+    assert OPS_PY_BUDGET - code_lines(source) <= 32, "the headroom is 32 lines (SPEC-HOTSPOTS): lower the budget when code moves out, do not leave room"
+    assert reexport_tail_problems(source) == []
     over = {p.name: n for p in sorted(RUNTIME.glob("ops_*.py"))
             if (n := len(p.read_text(encoding="utf-8").splitlines())) > SIBLING_BUDGET}
     assert over == {}, f"a sibling of ops.py is over {SIBLING_BUDGET} lines (package CONS-1B): split it by job"
+
+
+def test_the_counting_rule_leaves_out_imports_only_and_the_tail_rule_catches_code_and_disorder():
+    """Vacuity of the two rules above, on planted sources: each fails on a wrong result."""
+    planted = ("import os\nfrom a import (\n    b,\n    c,\n)\nx = 1\n# a comment\n\n" + REEXPORT_MARKER + "\n"
+               "from b_mod import d  # noqa\nfrom c_mod import (\n    e,\n)\nif __name__ == \"__main__\":\n    pass\n")
+    assert code_lines(planted) == 6, "the assignment, the comment, the blank, the marker and the guard (two lines): the eight lines of imports are out"
+    assert reexport_tail_problems(planted) == []
+    assert reexport_tail_problems(planted.replace(REEXPORT_MARKER + "\n", "")) != [], "no marker"
+    with_def = planted.replace("if __name__", "def helper():\n    return 1\nif __name__")
+    assert any("FunctionDef after the marker" in p for p in reexport_tail_problems(with_def))
+    unsorted = planted.replace("from b_mod import d  # noqa\n", "from d_mod import d\n")
+    assert any("not after" in p for p in reexport_tail_problems(unsorted)), "an unsorted block"
+    twice = planted.replace("from b_mod import d  # noqa\n", "from c_mod import d\n")
+    assert any("not after" in p for p in reexport_tail_problems(twice)), "one block per module"
+    assert code_lines(planted + "y = 2\n") == code_lines(planted) + 1, "a planted line of code counts"
+
+
+# --- the three lists that were tables are paragraphs (SPEC-HOTSPOTS) -----------------------------------------------------------------------------------
+# runtime/README.md "## Modules", contracts/runtime.md "## Pieces" and "## The limits" were tables of one row per entry: the place where most packages edited the
+# same few lines, adjacent rows included. An entry is a paragraph of its own (a blank line before and after), so that two packages that add an entry edit
+# different places. A module is `` `path`: what it owns `` on one line; a limit is `**L<n>.** <limit>` and, on the next line, `Built by: <cell>. Test: <cell>.`.
+MODULE_ENTRY = re.compile(r"`[^`\n]+`(?:, `[^`\n]+`| and `[^`\n]+`)*: ")
+LIMIT_START = re.compile(r"\*\*L\d+\.\*\* ")
+LIMIT_SECOND = re.compile(r"Built by: .+\. Test: .+\.")
+PARAGRAPH_SECTIONS = (("runtime/README.md", "## Modules", MODULE_ENTRY, 1), ("contracts/runtime.md", "## Pieces", MODULE_ENTRY, 1),
+                      ("contracts/runtime.md", "## The limits", LIMIT_START, 2))
+
+
+def section_of(text: str, heading: str) -> list:
+    """The lines of a section, from the line after its heading to the line before the next `## ` heading."""
+    body = text.split("\n" + heading + "\n", 1)[1].split("\n## ", 1)[0]
+    return body.split("\n")
+
+
+def paragraph_problems(lines: list, start, length: int) -> list:
+    """What is wrong with a section's entries: a table row anywhere, an entry (a line that starts like `start`) that is not `length` lines followed by a blank
+    line, an entry that does not follow a blank line, or, for two lines, a second line that is not `Built by: ... Test: ....`."""
+    problems = [f"a table row: {line[:50]!r}" for line in lines if line.startswith("|")]
+    entries = 0
+    for n, line in enumerate(lines):
+        if not start.match(line):
+            continue
+        entries += 1
+        block = lines[n:n + length]
+        after = lines[n + length] if n + length < len(lines) else ""
+        if n > 0 and lines[n - 1].strip():
+            problems.append(f"entry without a blank line before it: {line[:50]!r}")
+        if len(block) < length or any(not part.strip() for part in block) or after.strip():
+            problems.append(f"entry that is not {length} line(s) and a blank line: {line[:50]!r}")
+        elif length == 2 and not LIMIT_SECOND.fullmatch(block[1]):
+            problems.append(f"limit without its `Built by: ... Test: ....` line: {line[:50]!r}")
+    if not entries:
+        problems.append("no entry")
+    return problems
+
+
+def test_the_modules_the_pieces_and_the_limits_are_one_paragraph_each_and_hold_no_table_row():
+    for path, heading, start, length in PARAGRAPH_SECTIONS:
+        lines = section_of((REPO / path).read_text(encoding="utf-8"), heading)
+        assert paragraph_problems(lines, start, length) == [], (path, heading)
+        assert sum(1 for line in lines if start.match(line)) >= (60 if length == 2 else 100), (path, heading, "the entries are all there")
+
+
+def test_the_paragraph_rule_catches_a_table_row_a_missing_blank_line_and_a_half_entry():
+    """Vacuity of the rule above, on planted sections: each wrong shape is named, and the right one passes."""
+    good = ["", "`a.py`: one.", "", "`b.py`: two.", "", "Prose after the entries."]
+    assert paragraph_problems(good, MODULE_ENTRY, 1) == []
+    assert paragraph_problems(good + ["| `c.py` | a table row |"], MODULE_ENTRY, 1) != [], "a table row"
+    assert paragraph_problems(["", "`a.py`: one.", "`b.py`: two.", ""], MODULE_ENTRY, 1) != [], "two entries in one paragraph"
+    assert paragraph_problems(["", "`a.py`: one.", "continued on a next line", ""], MODULE_ENTRY, 1) != [], "an entry that runs on"
+    assert paragraph_problems(["", "Prose.", "`a.py`: one.", ""], MODULE_ENTRY, 1) != [], "no blank line before"
+    assert paragraph_problems([], MODULE_ENTRY, 1) == ["no entry"]
+    limit = ["", "**L1.** A copy is new.", "Built by: stage 2. Test: `t.py`, `test_x`.", "", "**L2.** Two.", "Built by: stage 4. Test: anything.", ""]
+    assert paragraph_problems(limit, LIMIT_START, 2) == []
+    assert paragraph_problems(["", "**L1.** A copy is new.", "", "**L2.** Two.", "Built by: x. Test: y.", ""], LIMIT_START, 2) != [], "a limit with no second line"
+    assert paragraph_problems(["", "**L1.** One.", "Built by: stage 2", ""], LIMIT_START, 2) != [], "a second line that is not the form"
+    assert paragraph_problems(["", "**L1.** One.", "Built by: x. Test: y.", "**L2.** Two.", "Built by: x. Test: y.", ""], LIMIT_START, 2) != [], "no blank line between limits"

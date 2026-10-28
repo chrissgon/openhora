@@ -895,6 +895,8 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the migrations, the task-runtime tables, the limits, the verbs, the conversation's commands, the operations, the dispatcher's jobs).
 - 2026-10-07: the store's functions are the runtime's own persistence (decision D2); the known-limits rows the fixes closed are removed; the row on effect documents written before the registry of kinds is added (close-out).

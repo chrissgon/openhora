@@ -1099,6 +1099,8 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-24: an item named by its words (B″-lite, BL1): `target` and `day` on the event and mail operations that act on an existing item, grounded by code (`event_lookup._by_target`, `natural_writes_mail.target_words`, `ops_natural_mail.mail_target_seed`), a new dated entry of `runtime/interpreter_enable.json` for the changed catalog; rule 59 and limit L61.
 - 2026-10-24: D5 on the operations side (BL2a, limit L65; no model call, no lab run): `runtime/plan_confirm.py`, the `plan-confirm` frame item, `ops_say.say(plan_ok=...)`, the policy group `confirm-reads-off`, the research brake `ops_research.stop`; shipped switched off (`plan_confirm.ACTIVE` False) until the bridge's package (BL2b) can take a yes to the question.
 - 2026-10-24: D5 on the bridge (BL2b, limits L64 and L65; no model call, no lab run): `Bridge.plan_line`, `ask_plan`, `plan_tapped`, `research_stop_line` and the two-question guard of `word_line`; `plan_confirm.ACTIVE` is True and the S20 verb lists of `command_words.vet` are gone; `ACK_RESEARCH` names the stop word.

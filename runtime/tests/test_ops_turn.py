@@ -289,7 +289,8 @@ REPLACED = "Replaced so far:"
 
 
 def l63_row(path: Path) -> str:
-    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("| L63 |")]
+    """The line of L63: a table row in the generated mirror, `**L63.** <limit>` in the contract (an entry of "The limits": a paragraph each)."""
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith(("| L63 |", "**L63.** "))]
     assert len(rows) == 1, f"{path.name} holds one L63 row"
     return rows[0]
 

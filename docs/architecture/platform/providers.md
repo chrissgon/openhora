@@ -316,6 +316,8 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the classes, implementations and verbs).
 - 2026-10-06: the provider suites reach no network but loopback (`providers/loopback_only.py`), the board's 429 and 5xx and the append-before-delete order have tests, and the latest migration puts delete triggers on tasks, task runs and pending decisions (#214).
