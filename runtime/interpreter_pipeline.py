@@ -18,7 +18,8 @@ The forward is first because a forward is never a request, whatever its length.
 
 Resolution always succeeds here (an account, a calendar, a folder, a source, a file, a mail number, an attachment, a task, a routine or a request that a decision names
 is taken to exist, and a named message is found once): the stubs of both arms. For a MAIL operation the mapping follows the product's carrying out step by step (`mail_step`,
-BL7-4, mirroring `ops_interpret._carry_out`): the seed of a new e-mail, a message named by words, the closed forms, and the question the family would ask first (a recipient,
+BL7-4, mirroring `ops_interpret._carry_out`): the seed of a new e-mail, a message named by words (a sender and a subject of up to GROUND_WORDS_MAX content words: BL7-5), the closed forms,
+the numbers the model gave when the closed forms read none (BL7-5: exactly the line's free numbers and no words beside them), and the question the family would ask first (a recipient,
 a body, a folder, a state) or the sentence that says it could not prepare the write: those are `clarify`, never `card`; every other write is still `card`. The mapping cannot
 measure resolution failures, several matching messages, an event's or a file's family, the card's rendering, the per-sender policy, the rate limit or the circuit breaker, nor
 approval by word: `confirm` and `card` mean "code would show this exact operation with these spans", not "this card was sent".
@@ -181,7 +182,9 @@ def mail_step(decision: dict, line: str, now: datetime.datetime, lang: str):
         return None
     if op in MAIL_TARGET_OPS and lang in ROUTE_LANGUAGES and (spans.get("target") or spans.get("day")) and "message" not in args and "messages" not in args:
         tables = natural._tables(None)          # 2. a message named by its words: found once (the stub), then `_reference_args` asks what is missing
-        if not natural_writes_mail.target_words(decision.get("target_ground") or spans.get("target") or "", tables) and not spans.get("day"):
+        ground = decision.get("target_ground")          # BL7-5: a ground (BL7-1's widened target, or a target with its own subject) may hold up to GROUND_WORDS_MAX words
+        words = natural_writes_mail.ground_words(ground, tables) if ground else natural_writes_mail.target_words(spans.get("target") or "", tables)
+        if not words and not spans.get("day"):
             return "cannot"          # `mail_target_seed` is None: nothing to look a message up by
         if op in ("mail-reply", "mail-draft") and (not spans.get("body") or not mail_compose.strip_marker(spans["body"])[0].strip()):
             return "body"
@@ -192,8 +195,33 @@ def mail_step(decision: dict, line: str, now: datetime.datetime, lang: str):
         return None
     got = natural_writes.read(line, now, op=op)          # 3. the closed forms, with the operation fixed
     if got is None:
+        if op in MAIL_TARGET_OPS and lang in ROUTE_LANGUAGES and ("message" in args or "messages" in args):          # BL7-5 (G1): the model's numbers, when the closed forms read none (`ops_natural_mail.mail_number_seed`)
+            return _numbers_step(op, decision, line)
         return "cannot"
     return got["need"][0] if got.get("need") else None
+
+
+def _numbers_step(op: str, decision: dict, line: str):
+    """BL7-5. The mirror of `ops_natural_mail.mail_number_seed` and of what the family asks of its seed: "cannot" when the decision's spans hold a `target`, `day`, `to` or `subject`, or the
+    numbers the model gave are not exactly the line's free numbers (`natural_writes_mail.free_numbers`, with the decision's text and word spans); else the slot the family would ask first
+    ("body" for a reply or a draft with no body or only a literal marker, "folder" for a move with no folder, "state" for a mark whose span reads none), else None (the card)."""
+    spans, args = decision.get("spans") or {}, decision.get("args") or {}
+    if any(spans.get(slot) for slot in ("target", "day", "to", "subject")):
+        return "cannot"
+    given = args.get("message") if "message" in args else args.get("messages")
+    numbers = [given] if isinstance(given, int) and not isinstance(given, bool) else list(given) if isinstance(given, (list, tuple)) else []
+    if not numbers or not all(isinstance(n, int) and not isinstance(n, bool) for n in numbers):
+        return "cannot"
+    texts = [str(spans[slot]) for slot, spec in natural.NATURAL[op]["slots"].items() if spec[0] in ("span", "word") and spans.get(slot)]
+    if sorted(set(numbers)) != sorted(natural_writes_mail.free_numbers(line, texts)):
+        return "cannot"
+    if op in ("mail-reply", "mail-draft") and (not spans.get("body") or not mail_compose.strip_marker(spans["body"])[0].strip()):
+        return "body"
+    if op == "mail-move" and not args.get("folder"):
+        return "folder"
+    if op == "mail-mark" and not (spans.get("state") and natural_writes_mail.answer("state", spans["state"], {}, natural._tables(None))):
+        return "state"
+    return None
 
 
 def with_mail_step(decision: dict, line: str, now: datetime.datetime, zone: str, lang: str) -> dict:
