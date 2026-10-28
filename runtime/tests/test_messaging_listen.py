@@ -286,12 +286,26 @@ def test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_
     first, second = (s["message"]["actions"][0]["id"] for s in r.sent())
     assert first == "1:approve" and second == "2:approve"
     assert any("exited (1)" in line for line in r.log) and any("could not be sent (failed)" in line for line in r.log)
+    assert wait_for(lambda: r.bridge.ledger.by_action("crash-1", second) is not None), "the bridge has recorded the second copy (the provider logs a send before the bridge's record of it is written)"
     stale = {"sender": "crash-1", "chat": "crash-1", "private": True, "text": None, "action": first, "action_ref": None, "reply_to": None}
     r.bridge.handle(stale)
     assert bridge.STALE in r.texts() and not r.calls("approve")
     r.bridge.handle({**stale, "action": second})
     assert r.calls("approve") and "Approved #1." in r.texts()
     r.finish()
+
+
+def test_the_crash_test_does_not_race_the_bridges_ledger_write(tmp_path, monkeypatch, rig):
+    """The provider logs a send before the bridge's record of the card is written (the send returns to the bridge first). The crash test above taps the second copy's button, and a tap on a card
+    the bridge has not recorded yet is `STALE`: it waits for the record. Here every record is written 0.4 s late, which is that order on any machine: the test must still pass."""
+    ledger = st.load("messaging_ledger")
+    real = ledger.Ledger.add
+
+    def add(self, record, *args, **kwargs):
+        time.sleep(0.4)
+        return real(self, record, *args, **kwargs)
+    monkeypatch.setattr(ledger.Ledger, "add", add)
+    test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_copys_button_is_stale(tmp_path, monkeypatch, rig)
 
 
 def test_exit_3_and_exit_2_stop_the_bridge_with_the_reason_the_provider_gave(tmp_path, monkeypatch, rig):

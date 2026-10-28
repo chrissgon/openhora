@@ -145,6 +145,7 @@ PLAN_LINE = "mostra minha agenda"      # validate: allow english-only -- the Por
 EVENT_LIST_LINE = "Cancela o corte de cabelo"      # two events of the calendar of `snapshots` carry the title: the list "Which one?" and its numbers
 LATER_MESSAGE = "A reminder: water the plants."
 SETTLE_SECONDS = 20.0
+HELD_SECONDS = 120.0      # how long a search that the pre-state holds waits to be released (a bound against a hung test, not a timing of the scenario: the line releases it)
 QUIET_SECONDS = 0.35
 
 BLOCKED_STARTS = ("providers/model/", "providers/writer/")      # no provider process is started: the writer the runtime asks for a dry run and an event is the stand-in below
@@ -834,24 +835,28 @@ def prestate_plan_not_last(w):
 
 
 def prestate_research_running(w):
+    """A search of the owner's runs and is held. Nothing in it depends on a timer being faster than the machine: the line that asks the question gets no acknowledgement (a timer of 0.2 s fired on a loaded
+    machine, its send began, and it reached the chat AFTER the question, which was then not the last message: the owner's yes was refused and no search began), the owner's yes is the line whose
+    acknowledgement is waited for, and the held search is released by the line, not by a 10 s bound (the bound was reached on a loaded machine and the search answered before the line)."""
     release, started = threading.Event(), threading.Event()
     w.release = release
-    w.monkeypatch.setattr(ack, "ACK_DELAY", 0.2)      # the search tells the person the word that stops it, after this long: the pre-state waits for that message, as the guard tests of the brake do
+    w.monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the line that asks the question is answered by the question, and never acknowledged
 
     class Held(FakeRun):
         def __call__(self, *args, **kwargs):
             started.set()
-            release.wait(WAIT)
+            release.wait(HELD_SECONDS)
             return super().__call__(*args, **kwargs)
     w.research_run = Held()
     w.monkeypatch.setattr(lab, "stop_runs", lambda *a, **k: release.set())
     w.b.ask(RESEARCH_LINE)
+    asked = len(w.b.texts(OWNER))
+    w.monkeypatch.setattr(ack, "ACK_DELAY", 0.2)      # the search tells the person the word that stops it, after this long: the owner's yes is the line it is for
     say_yes(w)
     w.refs["plan"] = None
-    assert wait_for(started.is_set, SETTLE_SECONDS), "the pre-state research_running: the search began after the owner's yes"      # never go on with a state that was not reached
+    assert wait_for(started.is_set, SETTLE_SECONDS), f"the pre-state research_running: the search began after the owner's yes (the chat: {[t[:40] for t in w.b.texts(OWNER)]}, the plan still waits: {ops.plan_live(w.path, OWNER_KEY) is not None})"      # never go on with a state that was not reached
     wait_for(lambda: bool(w.b.bridge.exclusive), SETTLE_SECONDS)
-    told = phrases.text("ACK_RESEARCH", ops_core.context(w.path)["cfg"])
-    wait_for(lambda: told in w.b.texts(OWNER), SETTLE_SECONDS)      # the acknowledgement is the last message now, and the question is not
+    assert wait_for(lambda: len(w.b.texts(OWNER)) > asked and w.b.bridge.last_sent.get(OWNER) is not None, SETTLE_SECONDS), "the pre-state research_running: the search's acknowledgement is the last message"      # the acknowledgement is the last message now, and the question is not
     w.monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)
     w.held = [t for t in list(w.b.bridge.threads) if t.is_alive()]
 

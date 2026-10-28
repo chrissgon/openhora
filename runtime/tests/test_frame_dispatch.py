@@ -430,3 +430,29 @@ def test_a_job_that_ends_late_does_not_change_the_world_the_line_meets(sid, tmp_
     scenario = next(s for s in rp.corpus() if s["id"] == sid)
     found = rp.replay(scenario, tmp_path)
     assert not rp.differences(recorded[sid], found), sid
+
+
+@pytest.mark.parametrize("sid", ["card-word.take.27", "guard.research_brake.22", "guard.research_brake.24"])
+def test_an_acknowledgement_that_is_slow_to_send_does_not_change_the_search_prestate(sid, tmp_path, monkeypatch):
+    """FLAKY-RESEARCH-PRESTATE-2. The search's pre-state set the acknowledgement delay to 0.2 s before the owner asked. On a loaded machine the line that asks the question took longer than that: its
+    acknowledgement timer fired, the send began, and the job ended and sent the question (the timer is stopped before the question, but a send that had begun is not undone) before the acknowledgement
+    reached the chat: it came AFTER the question, which was then no longer the last message, so the owner's yes was told "to confirm, reply yes to the question" and no search began. Here the call that
+    answers the line takes 0.3 s and an acknowledgement takes 0.5 s to send, which is that order on any machine; the pre-state must give the question's line no acknowledgement (the delay is
+    set for the owner's yes only), and the outcome is the golden's. (The same loaded machine let the held search time out at the kit's 10 s bound and answer before the line: the search is held
+    for `HELD_SECONDS`.)"""
+    real_run, real_ack = messaging_bridge.Bridge.run_op, messaging_bridge.Bridge.acknowledge
+
+    def run_op(self, project, op, *args, **kwargs):
+        if op == "say":
+            time.sleep(0.3)
+        return real_run(self, project, op, *args, **kwargs)
+
+    def acknowledge(self, project, chat, stage):
+        time.sleep(0.5)
+        return real_ack(self, project, chat, stage)
+    monkeypatch.setattr(messaging_bridge.Bridge, "run_op", run_op)
+    monkeypatch.setattr(messaging_bridge.Bridge, "acknowledge", acknowledge)
+    _, recorded = rp.golden()
+    scenario = next(s for s in rp.corpus() if s["id"] == sid)
+    found = rp.replay(scenario, tmp_path)
+    assert not rp.differences(recorded[sid], found), sid
