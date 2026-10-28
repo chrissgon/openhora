@@ -273,25 +273,40 @@ def test_every_claimer_takes_at_least_one_scenario():
     assert set(ek.CLAIMER_NAMES) - seen == set(), "every claimer of the kit is the first to take a line in at least one scenario of the golden"
 
 
-@pytest.mark.skipif(RECORDING, reason="recording")
-def test_every_authored_take_is_taken_and_every_near_miss_is_not():
-    """The corpus says, for every claimer, five lines it takes and five that must go elsewhere (entry_corpus_build.CLAIMERS): the golden agrees. A claimer that takes none of its own lines is
-    the finding (the line, the state or the claimer was misread), not a failure to hide."""
-    _, recorded = golden()
-    _, expectations = build.generate(False)
-    taken = {name: 0 for name in build.CLAIMERS}
+def authored_wrong(recorded: dict, expectations: list, moved=frozenset()) -> list:
+    """The scenarios whose trace is not as authored. A near-miss that a reviewed `--re-record` moved (its id is in `moved`, the ids of the header's `changes`) may now be taken by its claimer:
+    the decision named in the header's cause is the reason (LP-2: "o primeiro" after a list of files was authored as a near-miss of `file-list-number`)."""
     wrong = []
     for claimer, role, scenario_id in expectations:
         names = recorded[scenario_id]["trace"]
-        if role == "take":
-            taken[claimer] += claimer in names
-            if claimer not in names:
-                wrong.append(f"{scenario_id}: authored as taken by {claimer}, the trace is {names}")
-        elif claimer in names:
+        if role == "take" and claimer not in names:
+            wrong.append(f"{scenario_id}: authored as taken by {claimer}, the trace is {names}")
+        elif role != "take" and claimer in names and scenario_id not in moved:
             wrong.append(f"{scenario_id}: authored as a near-miss of {claimer}, the trace is {names}")
+    return wrong
+
+
+@pytest.mark.skipif(RECORDING, reason="recording")
+def test_every_authored_take_is_taken_and_every_near_miss_is_not():
+    """The corpus says, for every claimer, five lines it takes and five that must go elsewhere (entry_corpus_build.CLAIMERS): the golden agrees. A claimer that takes none of its own lines is
+    the finding (the line, the state or the claimer was misread), not a failure to hide. A near-miss that a reviewed re-record moved (the header's `changes`) is the one allowed exception."""
+    header, recorded = golden()
+    _, expectations = build.generate(False)
+    taken = {name: 0 for name in build.CLAIMERS}
+    for claimer, role, scenario_id in expectations:
+        taken[claimer] += role == "take" and claimer in recorded[scenario_id]["trace"]
+    wrong = authored_wrong(recorded, expectations, {i for change in header.get("changes", []) for i in change["ids"]})
     short = {name: count for name, count in taken.items() if count < 5}
     assert not short, f"claimers with fewer than five lines they take: {short}"
     assert not wrong, f"{len(wrong)} authored scenarios whose trace is not as authored:\n" + "\n".join(wrong[:MAX_SHOWN * 3])
+
+
+def test_vacuity_a_near_miss_is_excused_only_when_a_reviewed_re_record_moved_it():
+    recorded = {"x.near.01": {"trace": ["say", "file-list-number"]}, "x.take.01": {"trace": ["say"]}}
+    expectations = [("file-list-number", "near", "x.near.01")]
+    assert authored_wrong(recorded, expectations) and authored_wrong(recorded, expectations, {"x.take.01"}), "a near-miss that is taken fails unless it is named"
+    assert authored_wrong(recorded, expectations, {"x.near.01"}) == [], "named by a re-record, it may be taken"
+    assert authored_wrong(recorded, [("file-list-number", "take", "x.take.01")], {"x.take.01"}), "a take that is not taken fails, named or not"
 
 
 COMPOSITES = ("expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held")

@@ -1,0 +1,4 @@
+{"id": "lp-2.file.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_list_shown", "text": "o segundo", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "lp-2.file.02", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_list_shown", "text": "o último", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "lp-2.file.03", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_list_shown", "text": "lê o primeiro", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "lp-2.file.04", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_list_shown", "text": "o das 15h", "reply_to": null, "forwarded": false, "kind": "text", "action": null}

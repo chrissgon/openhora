@@ -338,6 +338,27 @@ def test_o_1_opens_the_card_of_the_other_file_and_the_list_lasts_one_line(desk):
     assert not pk.said(say(desk, "o 2")["reply"], "ACCT_CARD_SENT", PT, pending=0) and len(open_cards(desk)) == 1, "a pick after another line opens nothing"
 
 
+def test_a_ultima_opens_the_card_of_the_second_file_of_a_trash_list_that_printed_every_file(desk):   # validate: allow english-only -- the Portuguese line under test
+    two_matches(desk)
+    say(desk, "Remova o arquivo openhora-mark.png")
+    (record,) = ops_file_read._LISTS.values()
+    assert record["purpose"] == "trash" and record["whole"] is True
+    started = started_of(desk, say(desk, "a última"))   # validate: allow english-only -- the Portuguese line under test
+    assert effect_doc(desk, started)["target"]["id"] == fdw.FILE_ID and effect_doc(desk, started)["account"] == "google", "the last row printed is the second file, as 'o 2' is"
+
+
+def test_a_ultima_of_a_trash_list_that_printed_fewer_files_than_fit_opens_no_card_but_o_primeiro_does(desk, monkeypatch):   # validate: allow english-only -- the Portuguese line under test
+    two_matches(desk)
+    real = ops_file_trash._outcome
+    monkeypatch.setattr(ops_file_trash, "_outcome", lambda *a, **k: dict(real(*a, **k), count=10))      # the list says 10 files fit and prints 2
+    say(desk, "Remova o arquivo openhora-mark.png")
+    (record,) = ops_file_read._LISTS.values()
+    assert record["whole"] is False
+    assert not pk.said(say(desk, "a última")["reply"], "ACCT_CARD_SENT", PT, pending=0) and open_cards(desk) == []   # validate: allow english-only -- the Portuguese line under test
+    say(desk, "Remova o arquivo openhora-mark.png")
+    assert effect_doc(desk, started_of(desk, say(desk, "o primeiro")))["target"]["id"] == f"{fod.DRIVE}/{fod.FILE_ID}"
+
+
 def test_a_pick_asks_the_right_and_the_grant_again(desk):
     two_matches(desk)
     say(desk, "Remova o arquivo openhora-mark.png")

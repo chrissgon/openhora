@@ -459,7 +459,7 @@ def _ask(project: str, ctx: dict, wanted: str, account, question: str, said, cha
         return _read_and_ask(project, ctx, got["match"], question, channel, sender, skill, notes)
     if got["status"] == "several":
         if channel == "messaging" and remember:
-            reader._remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), purpose="ask", extra={"question": question})
+            reader._remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), purpose="ask", extra={"question": question}, whole=got["count"] <= len(got["refs"]))
         return _out(reader._render(cfg, got, channel == "messaging"), "several", count=got["count"])
     return _out(reader._render(cfg, got, channel == "messaging"), got["status"])
 

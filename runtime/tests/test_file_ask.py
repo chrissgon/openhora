@@ -354,6 +354,23 @@ def listed(desk, sender="asker"):
     return ctx
 
 
+def test_a_ultima_runs_the_question_on_the_second_file_of_a_list_that_printed_every_file_and_on_none_when_it_printed_fewer(desk, monkeypatch):   # validate: allow english-only -- the Portuguese line under test
+    left = Leftovers(monkeypatch)
+    answer(desk, OLD_FOUND)
+    listed(desk)
+    (record,) = ops_file_read._LISTS.values()
+    assert record["purpose"] == "ask" and record["whole"] is True
+    assert found(pick(desk, "a última"), prose="The total is 250.00 [file].", quote=OLD_QUOTE, name="orcamento-teste-antigo")   # validate: allow english-only -- the Portuguese line under test
+    assert desk["drives"].reads() == [("google", "gfile0000000002")] and len(left.seen) == 1 and ops_file_ask._made_today(desk["ctx"]) == 1, "the last row printed is the second file, as 'o 2' is"
+    real = ops_file_ask._outcome
+    monkeypatch.setattr(ops_file_ask, "_outcome", lambda *a, **k: dict(real(*a, **k), count=10))      # the list says 10 files fit and prints 2
+    listed(desk)
+    (record,) = ops_file_read._LISTS.values()
+    assert record["whole"] is False
+    assert not found(pick(desk, "a última"), prose="The total is 250.00 [file].", quote=OLD_QUOTE, name="orcamento-teste-antigo")   # validate: allow english-only -- the Portuguese line under test
+    assert desk["drives"].reads() == [("google", "gfile0000000002")] and ops_file_ask._made_today(desk["ctx"]) == 1, "a last of a list that printed fewer files than fit runs nothing"
+
+
 @pytest.mark.parametrize("said", ["o 3", "lê o 2", "2 e meio", "o dois arquivos"])
 def test_a_number_that_was_not_shown_or_a_verb_with_it_is_not_a_pick_and_runs_nothing(desk, said):
     ctx = listed(desk)
