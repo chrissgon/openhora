@@ -464,3 +464,13 @@ def test_the_command_line_helps_and_lists():
     assert len(lines) == 104 and lines[0].split("\t")[:2] == ["status", "R"] and all(len(line.split("\t")) == 6 for line in lines)
     plain = subprocess.run([sys.executable, str(RUNTIME / "registry.py")], capture_output=True, text=True, timeout=60)
     assert plain.returncode == 0 and "usage" in plain.stdout.lower()
+
+
+def test_the_catalog_of_the_first_measurement_is_retired_and_the_served_one_is_the_epoch_that_serves():
+    """CB-9 served `interpreter_catalog_cb9_round1` for its first measurement (2026-10-28), then re-worded five rows after it: that catalog is history, the epoch file says so, and no entry pins it."""
+    epochs = json.loads((REPO / "evals" / "interpreter" / "epochs.json").read_text(encoding="utf-8"))
+    by_hash = {e["catalog_sha256"]: e["state"] for e in epochs["epochs"]}
+    assert by_hash[PINNED_HASHES["interpreter_catalog_cb9_round1"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_cb9"]] == "served"
+    assert PINNED_HASHES["interpreter_catalog_cb9_round1"] != PINNED_HASHES["interpreter_catalog_cb9"] == epochs["served"]
+    entries = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
+    assert PINNED_HASHES["interpreter_catalog_cb9_round1"] not in {e["catalog_sha256"] for e in entries}

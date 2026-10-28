@@ -287,7 +287,12 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         said_no = ops_items.unreadable_filter(spans, _clock())      # a day or a state the person stated and code cannot read is a sentence: never a list that looks filtered
         if said_no:
             return phrases.text(said_no, cfg)
-        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans))
+        box = ops_items.mailbox_target(ctx, spans)      # CB-9: a target that names a mailbox is that source, or a question: never a word filter that looks like one
+        if box and box[0] == "ask":
+            return phrases.text("NW_ITEMS_MAILBOX", cfg, names=box[1])
+        if box:
+            spans = {key: value for key, value in spans.items() if key != "target"}
+        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here

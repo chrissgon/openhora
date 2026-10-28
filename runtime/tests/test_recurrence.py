@@ -32,6 +32,7 @@ ops_natural = st.load("ops_natural")
 interpreter = st.load("interpreter")
 interpreter_catalog = st.load("interpreter_catalog")
 natural = st.load("natural")
+operations = st.load("operations")
 recurrence = st.load("recurrence")
 registry_data = st.load("registry_data")
 calendar_document = st.load("calendar_document")
@@ -494,6 +495,7 @@ CLOSED = ["marca academia semanal amanhã às 7h no google", "marca academia qui
 
 @pytest.mark.parametrize("line", CLOSED)
 def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence_and_no_card(world, monkeypatch, line):
+    monkeypatch.setattr(operations, "LINE_CATALOG", 1)      # CB-9: since version 2 the closed forms do not claim a repeating line (test_repeat_goes_on.py, the test below)
     configure(world)
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
@@ -501,6 +503,15 @@ def test_a_repetition_the_closed_forms_would_make_one_event_of_gets_the_sentence
     assert got["reply"] in (text_of("RECUR_NOT_READ"), text_of("NW_RECURRING_EVENT")), (line, got["reply"])
     assert nothing_started(world) and "resend" not in got, line
     assert expected  # the tier-1 reading of "toda segunda" has its own sentence, older than this package: either is an honest one
+
+
+@pytest.mark.parametrize("line", CLOSED)
+def test_since_catalog_version_2_the_closed_forms_do_not_claim_a_repeating_line(world, monkeypatch, line):
+    monkeypatch.setattr(operations, "LINE_CATALOG", 2)
+    configure(world)
+    clock_and_snapshots(world, monkeypatch)
+    got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)
+    assert got["reply"] is None and nothing_started(world) and "resend" not in got, (line, got)
 
 
 def test_vacuity_with_the_guard_out_of_the_closed_path_a_weekly_line_opens_one_event(world, monkeypatch):
@@ -520,6 +531,7 @@ def test_a_plain_event_on_the_closed_path_is_untouched(world, monkeypatch):
 
 @pytest.mark.parametrize("line", ["add to my calendar gym every other day tomorrow at 7am on google", "add to my calendar gym weekly tomorrow at 7am on google", "add to my calendar gym biweekly tomorrow at 7am on google"])
 def test_an_english_project_gets_the_sentence_too(world, monkeypatch, line):
+    monkeypatch.setattr(operations, "LINE_CATALOG", 1)      # CB-9: at version 2 the line goes on to the interpreter
     configure(world, language="en")
     clock_and_snapshots(world, monkeypatch)
     got = ops.natural_write(world["path"], line, channel="messaging", sender=OWNER)

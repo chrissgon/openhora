@@ -203,7 +203,26 @@ def _verb_noun(norm: str, tables: list):
     return best
 
 
+def repeat_goes_on(line) -> bool:
+    """CB-9: whether a line that holds a repetition phrase (`recurrence.mentions`) goes on to the interpreter instead of being claimed by a closed form. At catalog version 2 the interpreter
+    reads `repeat` (CB-7: a daily or weekly series, or the honest sentence for a repetition code cannot read), so a closed form that answers "an event that repeats is not available yet"
+    (NW_RECURRING_EVENT) or asks "an event, or something else?" must not take the line first. At version 1 nothing changes. Pure."""
+    if operations.LINE_CATALOG < 2 or not isinstance(line, str):
+        return False
+    import recurrence
+    return bool(recurrence.mentions(line))
+
+
 def candidate(line, languages=None):
+    """What the line is, with no clock (see `_candidate_reading`), or None; a line that asks for an event and holds a repetition phrase is none of the closed forms since catalog version 2
+    (`repeat_goes_on`): the interpreter reads it."""
+    got = _candidate_reading(line, languages)
+    if got is not None and got["op"] == "calendar-event-create" and repeat_goes_on(line):
+        return None
+    return got
+
+
+def _candidate_reading(line, languages=None):
     """What the line is, with no clock (see the module's text), or None. Pure, and never wider than `understand`: the bridge sends a line here to one place."""
     tables = _tables(languages)
     text = line if isinstance(line, str) else ""

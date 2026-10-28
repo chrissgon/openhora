@@ -164,6 +164,39 @@ def span_args_of(args) -> dict:
     return {slot: args[param] for slot, param in SPAN_PARAMS.items() if isinstance(args, dict) and isinstance(args.get(param), str) and args[param].strip()}
 
 
+MAILBOX_NOUNS = frozenset(("caixa", "caixas", "mailbox", "mailboxes", "inbox", "box", "caja", "cajas", "buzon", "buzones", "boite", "boites", "postfach", "posteingang", "casella", "caselle"))      # folded; pt-BR, en, es, fr, de, it
+LEAD_WORDS = frozenset(("o", "a", "os", "as", "do", "da", "dos", "das", "de", "no", "na", "nos", "nas", "the", "my", "of", "in", "your", "minha", "meu", "seu", "sua", "el", "la", "los", "las", "del",
+                        "mi", "tu", "le", "les", "du", "mon", "ma", "der", "die", "das", "dem", "mein", "dein", "il", "lo", "gli", "della", "dello", "um", "uma", "e", "and"))      # folded articles and small words
+
+
+def mailbox_target(ctx, spans):
+    """CB-9: what a `target` span that names a mailbox or a source is: ("source", the source id) when it names exactly one mail source, ("ask", the plain names of the mail sources) when it holds a mailbox
+    noun ("caixa", "mailbox") and names none or several, else None (the span is words of a sender or a subject, a word filter, as before). A mailbox is never a word filter: "na caixa do trabalho" would
+    keep the messages that hold "caixa" and "trabalho" and show a list that looks filtered while it is not. The words that name a source are those of its id, its plain name and its service words;
+    a span with no mailbox noun is the source only when every content word is one of them. Reads the catalog of sources, nothing else."""
+    target = spans.get("target") if isinstance(spans, dict) else None
+    if not isinstance(target, str) or not target.strip():
+        return None
+    tokens = natural.normal(target).split()
+    noun = bool(MAILBOX_NOUNS & set(tokens))
+    content = [t for t in tokens if t not in MAILBOX_NOUNS and t not in LEAD_WORDS and len(t) > 1]
+    table = source_names.catalog(ctx)
+    mail = {i: e for i, e in table.items() if e["type"] == "mail"}
+    if not mail or (not noun and not content):
+        return None
+    named = {}
+    for ident, entry in mail.items():
+        pieces = list(natural.normal(ident.replace("-", " ").replace("_", " ").replace(".", " ")).split()) + natural.normal(entry["name"]).split() + [w for w in natural.normal(" ".join(source_names.words(entry))).split()]
+        named[ident] = {w for w in pieces if len(w) > 2}
+    hits = [i for i, words in named.items() if content and any(w in words for w in content)]
+    if not noun:
+        whole = [i for i in hits if all(w in named[i] for w in content)]
+        return ("source", whole[0]) if len(whole) == 1 else None
+    if len(hits) == 1:
+        return ("source", hits[0])
+    return ("ask", ", ".join(e["name"] for e in mail.values()))
+
+
 def _tables():
     return natural._tables(None)
 

@@ -89,8 +89,8 @@ def test_the_catalog_is_rendered_one_line_per_op_then_the_refused_block():
             "slots: text:span, when:when") in rendered
     assert ("- mail-archive [E] Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes "
             "their numbers.; slots: messages:ints, target:span, day:span") in rendered
-    assert ("- ask [work] Choose this to answer a question from the text of the project's sources; the question is the person's whole line. Not a web search (research) and not the person's mail, "
-            "calendar or tasks.; slots: none") in rendered
+    assert ("- ask [work] Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of "
+            "the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.; slots: none") in rendered
     at = rendered.index("refused:")
     assert at == 70 and len(rendered) == 70 + 1 + 21
     assert rendered[at + 1] == "- approve [refused D] Approve a plan or an acceptance from its card; id is the card's number."

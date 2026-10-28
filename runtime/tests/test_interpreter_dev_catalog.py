@@ -216,3 +216,19 @@ def test_the_checks_are_not_vacuous():
     unreadable["gold"]["slots"]["target"] = ["Livraria Lua Nova"]          # an echo that answers this gold names a span that is not in the line: the validator refuses it
     assert echo_run(unreadable)[0] != "correct"
     assert Echo(unreadable, [])("system", "user")["ok"] is True
+
+
+def test_the_summary_of_the_second_blind_set_has_its_shape_its_groups_and_the_keys_the_harness_reads():
+    """The second blind set (written by a fresh author for the round-2 measurement; the set is never in the repository): its summary carries the harness's own keys, the counts, and `group_of_id`."""
+    summary = json.loads((FOLDER / "cb9-blind-v2-split.json").read_text(encoding="utf-8"))
+    assert set(summary) == {"v", "file", "sha256", "items", "counts", "frozen", "group_of_id"} and summary["v"] == 1
+    assert summary["file"] == "cb9-blind-v2.jsonl" and summary["items"] == 50 and summary["frozen"] == "2026-10-28"
+    assert summary["sha256"] == "e62cbff0588df2a99a2dc6b91bb6d75dd7c6f015cf3f2ec7401720322ca8aa77"      # the hash the measurement script (ix-cb9.sh) holds as WANT_SET
+    counts = summary["counts"]
+    assert sum(counts["group"].values()) == sum(counts["lang"].values()) == sum(counts["outcome"].values()) == 50 and len(summary["group_of_id"]) == 50
+    assert counts["group"]["mail-write-numbered"] == 6 and counts["group"]["mail-reply-sender"] == 6, "the 12 follow-up lines of BL7-4 and BL7-5, reported apart"
+    assert counts["group"]["event-create-repeat"] == 4 and counts["group"]["series-cancel"] == 2 and counts["group"]["occurrence-cancel"] == 2 and counts["group"]["file-ask"] == 5
+    assert dict(collections.Counter(summary["group_of_id"].values())) == counts["group"], "the group of each id and the counts of the groups say the same"
+    assert all(re.fullmatch(r"test-(pt-br|en|es|fr|de|it)-[0-9]{5}", item_id) for item_id in summary["group_of_id"])
+    harness = interpreter_measure.thresholds()      # the loader the harness runs reads `sha256` and `items` and no other key
+    assert harness["runs"] == 2 and isinstance(summary["sha256"], str) and isinstance(summary["items"], int)

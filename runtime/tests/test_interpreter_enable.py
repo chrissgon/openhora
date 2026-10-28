@@ -50,7 +50,7 @@ BL1_STATUS_LINE = R2A_STATUS_LINE + "; target and day slots added to the catalog
 BL5B_STATUS_LINE = BL1_STATUS_LINE + "; the prompt revised 2026-10-25 (BL5B: a correction after \"Posso?\" states a new plan), served before its measurement"      # the entry of package BL5B
 BL73_STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: described replies, subject kept in target, inherit and correction rules), measured on this PR's head before merge"      # the entry of package BL7-3
 STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
-               "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions), measured on this PR's head before merge")      # the newest entry (package CB-9); the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
+               "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge")      # the newest entry (package CB-9); the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
 assert len(STATUS_LINE) <= 600
 
 

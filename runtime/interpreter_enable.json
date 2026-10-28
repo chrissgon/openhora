@@ -155,11 +155,11 @@
    "route": "or-deepseek-v4.1-flash",
    "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
    "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
-   "catalog_sha256": "98e7913c702a82e6e8eb81fa9ab863998b19ea0142ca7e7374092212f655d366",
+   "catalog_sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
    "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
    "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
-   "reason": "The served catalog moves to version 2 (CB-9): the rows and slots of CB-1, CB-3, CB-5, CB-7, CB-8 and FA-1 (a filtered items read, mail-read, todo-list, todo-add, todo-done, a repeat slot on event-create, reminder-forget by words, file-ask) and every row worded with its model-facing description. Prompt, protocol, route and e-mail prompts unchanged. Measured on this PR's head before merge (SPEC-CATALOG-BATCH section 7, with the CB-9 addendum); the PR merges only after the maintainer's decision on that measurement.",
-   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions), measured on this PR's head before merge",
+   "reason": "The served catalog moves to version 2 (CB-9): the rows and slots of CB-1, CB-3, CB-5, CB-7, CB-8 and FA-1 (a filtered items read, mail-read, todo-list, todo-add, todo-done, a repeat slot on event-create, reminder-forget by words, file-ask) and every row worded with its model-facing description; after the first measurement the texts of file-ask, file-read, ask, routine-create and event-create say what each is for and is not. Prompt, protocol, route and e-mail prompts unchanged. Measured on this PR's head before merge; the PR merges only after the maintainer's decision on that measurement.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge",
    "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
    "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
   }

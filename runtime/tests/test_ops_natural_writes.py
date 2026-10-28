@@ -251,10 +251,18 @@ def test_an_all_day_event_with_no_day_asks_the_day_and_with_one_has_no_hour(worl
     assert "Sat 24/10/2026" in body(world, direct)
 
 
-def test_a_line_that_repeats_is_refused_in_words_and_opens_nothing(world, clock, spy):
+def test_a_line_that_repeats_is_refused_in_words_and_opens_nothing_at_catalog_version_1(world, clock, spy, monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 1)      # CB-9: since version 2 the closed form does not claim it (the next test)
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
     assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None) and spy == [] and not drafts.count()
+
+
+def test_since_catalog_version_2_a_line_that_repeats_is_no_write_form_and_opens_nothing_here(world, clock, spy, monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
+    policy(world)
+    out = phone(world, "marca yoga toda segunda às 7h no google")
+    assert out["reply"] is None and spy == [] and not drafts.count(), "the caller handles it as any plain line: the interpreter reads it"
 
 
 def test_a_reading_the_engine_is_unsure_of_opens_the_card_with_a_line_that_says_which_part_to_check(world, clock):

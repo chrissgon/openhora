@@ -446,6 +446,14 @@ def read(line, now=None, languages=None, op=None):
             return None
         got = family_module(name).read(text, tables, now, op=op) if _takes_op(name) else family_module(name).read(text, tables, now)
         return _finish(got, name, shaped, tables, op)
+    found = _read_closed(text, tables, now, shaped)
+    if found is not None and found["op"] == "event-create" and natural.repeat_goes_on(text):
+        return None      # CB-9: since catalog version 2 a line that holds a repetition phrase goes on to the interpreter: an event form does not claim it, so NW_RECURRING_EVENT never answers it
+    return found
+
+
+def _read_closed(text, tables, now, shaped):
+    """The closed forms of the families, in order, with no operation fixed."""
     for name in FAMILIES:
         module = family_module(name)
         if module.HEADS(tables) and shaped.lead(module.HEADS(tables), tables) is None:

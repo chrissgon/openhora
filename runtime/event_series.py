@@ -206,6 +206,8 @@ def reply(project: str, ctx: dict, op: str, found: list, kind: str, value, spans
     title, clock = first_row["title"], str(first_row["time"])[:5]
     shown = _day_text(first_row["day"])
     rest = recurrence.without(said, spans.get("target"), title)      # the event's own name is not the person's words for the series or the occurrence ("cancela a daily")
+    own = recurrence.markers(spans.get("target"), title)      # CB-9: the series or occurrence words a model put inside the target are the person's, unless they stand in the event's name
+    rest = (rest + " " + own).strip() if own else rest
     choice = recurrence.which(rest, specific_day(rest))
     if choice == "ask":
         return _text(ctx, "RECUR_WHICH", title=title, rule=_rule_text(ctx, rule, clock), example=shown)

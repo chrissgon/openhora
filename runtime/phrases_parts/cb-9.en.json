@@ -1,0 +1,6 @@
+{
+  "package": "cb-9",
+  "table": {
+    "NW_ITEMS_MAILBOX": "I could not tell which mailbox you mean by that. Your mail sources: {names}. Say the name of one of them."
+  }
+}

@@ -365,3 +365,40 @@ def test_the_row_of_the_registry_carries_the_three_slots_of_version_2():
         "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}
     assert {r["op"]: r for r in st.load("registry").rows(1)}["items"]["slots"] == {}
     assert operations.LINE_CATALOG == 2, "CB-9 raised it"
+
+
+# --- a target that names a mailbox is a source or a question, never a word filter (CB-9, round 2) --------------------------------------------------------------------------------------
+# DeepSeek answered "liste os e-mails que chegaram hoje na caixa do trabalho" with the target "caixa do trabalho": as a word filter it keeps the messages that hold both words and shows a list that
+# looks filtered while it is not. A span with a mailbox noun is the one source it names, or a question that lists the mail sources; a span of one source's words alone is that source.
+
+
+def mailbox_reply(world, target, source_id="inbox"):
+    return run_items(world, "liste os e-mails que chegaram hoje na caixa do trabalho", {"match": target})      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_a_target_with_a_mailbox_noun_that_names_no_source_is_a_question_and_no_list(world, snaps, clock):
+    inbox(world, snaps, mails())
+    names = ", ".join(e["name"] for e in st.load("source_names").catalog(ops_core.context(world["path"])).values() if e["type"] == "mail")
+    reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
+    assert names and reply == phrases.text("NW_ITEMS_MAILBOX", cfg_of(world), names=names), reply
+    assert "Extrato de outubro" not in reply and "Consulta confirmada" not in reply
+
+
+def test_a_target_that_names_a_source_is_that_source_and_filters_no_word(world, snaps, clock):
+    inbox(world, snaps, mails(), source="trabalho")
+    for target in ("caixa do trabalho", "trabalho"):      # validate: allow english-only -- the Portuguese words under test
+        reply = mailbox_reply(world, target)
+        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and "with “" not in reply and "No e-mail" not in reply, (target, reply)
+
+
+def test_a_span_of_a_sender_or_a_subject_is_still_a_word_filter(world, snaps, clock):
+    inbox(world, snaps, mails(), source="trabalho")
+    reply = run_items(world, "tem algum email do banco essa semana?", {"match": "do banco"})      # validate: allow english-only -- the Portuguese line under test
+    assert "with “banco”" in reply and "Extrato de outubro" in reply and "Consulta confirmada" not in reply, reply
+
+
+def test_vacuity_without_the_mailbox_rule_the_box_becomes_a_word_filter(world, snaps, clock, monkeypatch):
+    inbox(world, snaps, mails())
+    monkeypatch.setattr(ops_items, "mailbox_target", lambda ctx, spans: None)
+    reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
+    assert "with “caixa trabalho”" in reply and "No e-mail with “caixa trabalho”" in reply, "a filter on `caixa` and `trabalho`, which no message holds: an empty list that looks filtered"
