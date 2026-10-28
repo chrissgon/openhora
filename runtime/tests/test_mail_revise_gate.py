@@ -25,9 +25,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_mail_compose_flow import ADDRESS, SENDER, card_lines, clock, forget, op, text_of  # noqa: F401
-from test_mail_revise_flow import CLOSED, SUBJECT, GROUPS, Model, check, hostile, nothing_sent, open_cards, opened, revise, setup, status  # noqa: F401
+from test_mail_revise_flow import CLOSED, SUBJECT, GROUPS, Model, check, hostile, nothing_sent, open_cards, opened, reply_is, revise, says, setup, status  # noqa: F401
 from test_messaging import FIXTURE, wait_for
 from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
 
@@ -44,7 +45,7 @@ NAMED = CLOSED + "\nRenato Bragança"      # validate: allow english-only -- the
 LIVE_LINE = "Escreva ao final do email:\n\nAtenciosamente,\nRenato Bragança"      # validate: allow english-only -- the live line, Portuguese
 BLOCK = "Atenciosamente,\nRenato Bragança"      # validate: allow english-only -- the text block the live line asks for
 PLAIN = "Olá,\n\nGostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?"      # validate: allow english-only -- a Portuguese card text
-ALREADY = "O e-mail já está assim."      # validate: allow english-only -- the Portuguese sentence under test
+ALREADY = "RV_ALREADY"      # the phrase key of the sentence a revision that changes nothing answers (pt-BR)
 UNCLEAR = "Não entendi o ajuste."      # validate: allow english-only -- the sentence that no longer exists: it must never be said
 OWNER = "4242"
 EXACT_GROUPS = GROUPS + ("approve-effect-send-own", "ask-mail")      # ask-mail: the card shows the text of the e-mail on the phone, which is what makes it a card a word can approve
@@ -128,14 +129,14 @@ def test_the_live_line_is_a_line_for_the_card_and_on_a_card_that_already_ends_so
     model, old, sha = card_with(world, monkeypatch, NAMED, revise_answer=hostile(NAMED))
     assert check(world, old, sha, LIVE_LINE) == "mail"
     got = revise(world, old, sha, LIVE_LINE)
-    assert got == {"say": ALREADY, "resend": old}
+    assert reply_is(got, ALREADY, old), got
     assert status(world, old) == "open" and open_cards(world) == [old] and len(model.of("revise")) == 1
     nothing_sent(world)
 
 
 def test_a_model_that_writes_the_block_twice_is_read_as_the_same_card(world, clock, monkeypatch):
     _, old, sha = card_with(world, monkeypatch, NAMED, revise_answer=hostile(NAMED + "\n" + BLOCK))
-    assert revise(world, old, sha, LIVE_LINE) == {"say": ALREADY, "resend": old} and open_cards(world) == [old]
+    assert reply_is(revise(world, old, sha, LIVE_LINE), ALREADY, old) and open_cards(world) == [old]
 
 
 def test_the_same_line_on_a_card_that_does_not_end_so_opens_a_new_card_whose_text_ends_with_it(world, clock, monkeypatch):
@@ -231,7 +232,7 @@ def test_the_live_line_through_the_bridge_says_it_is_already_so_shows_the_card_a
     first = len(day.sent())
     assert first >= 1 and "Renato Bragança" in day.texts()[-1]      # validate: allow english-only -- the card
     day.say(LIVE_LINE)
-    assert day.texts()[first] == ALREADY and day.texts()[first + 1] == day.texts()[first - 1], "the sentence, then the card again"
+    assert says(day.texts()[first], ALREADY) and day.texts()[first + 1] == day.texts()[first - 1], "the sentence, then the card again"
     assert len(day.sent()) == first + 2 and len(day.model.of("revise")) == 1
     assert [c for c in day.model.calls if c["kind"] == "interpret"] != [] and len([c for c in day.model.calls if c["kind"] == "interpret"]) == 1, "the line was not read by the interpreter: it never reached the conversation"
     day.say("sim")
@@ -287,13 +288,13 @@ def test_the_same_verbs_beside_a_locator_or_an_object_open_the_gate(world, clock
 
 def test_rv_already_only_when_the_text_is_at_the_place_asked(world, clock, monkeypatch):
     _, old, sha = card_with(world, monkeypatch, NAMED, revise_answer=hostile(NAMED))
-    assert revise(world, old, sha, LIVE_LINE) == {"say": ALREADY, "resend": old}, "the card ends with the block and the line says the end"
+    assert reply_is(revise(world, old, sha, LIVE_LINE), ALREADY, old), "the card ends with the block and the line says the end"
     at_start = "Escreva no início do email:\n\nAtenciosamente,\nRenato Bragança"      # validate: allow english-only -- the Portuguese line under test
     got = revise(world, old, sha, at_start)
-    assert got["say"] != ALREADY and got["resend"] == old, "the card holds the block, but at the end, and the line asks for the start"
+    assert not says(got["say"], ALREADY) and got["resend"] == old, "the card holds the block, but at the end, and the line asks for the start"
     _, old2, sha2 = card_with(world, monkeypatch, BLOCK + "\n\n" + PLAIN, revise_answer=hostile(BLOCK + "\n\n" + PLAIN))
-    assert revise(world, old2, sha2, at_start) == {"say": ALREADY, "resend": old2}
-    assert revise(world, old2, sha2, LIVE_LINE)["say"] != ALREADY, "and now it is the end that is not so"
+    assert reply_is(revise(world, old2, sha2, at_start), ALREADY, old2)
+    assert not says(revise(world, old2, sha2, LIVE_LINE)["say"], ALREADY), "and now it is the end that is not so"
 
 
 def test_a_quoted_text_is_looked_for_as_written_and_only_a_block_is_compared_with_its_white_space_flattened():

@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from sources_fixture import make_pdf
 from test_attachments import IDENT, PDF, accept, case  # noqa: F401  (the project the attachment tests use)
@@ -32,6 +33,8 @@ intake = st.load("intake")
 step_files = st.load("step_files")
 
 OTHER = "5151515151"
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00synthetic"
 JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00synthetic pixels"
 GIF = b"GIF89a\x01\x00\x01\x00synthetic"
@@ -64,6 +67,14 @@ def teardown(w):
 
 def labels(w):
     return [a["label"] for a in w.sent()[-1]["message"]["actions"]]
+
+
+def assert_labels(w, cfg, *keys):
+    """The buttons of the newest message are exactly the labels of `keys`, in order, in the language of `cfg`."""
+    got = labels(w)
+    assert len(got) == len(keys), got
+    for label, key in zip(got, keys):
+        pk.assert_said(label, key, cfg)
 
 
 def action(w, op):
@@ -146,7 +157,7 @@ def test_an_image_is_never_a_source_the_add_says_so_and_the_file_stays_held(case
     case.hold(PNG, name="holiday.png", declared="image/png")
     with pytest.raises(ops.OpsError) as refused:
         ops.attachment_add(case.path, 1, channel="messaging", sender=f"telegram:{IDENT}")
-    assert str(refused.value) == "Images are not added to the project; I can save them to Drive or OneDrive."
+    pk.assert_said(str(refused.value), "ATT_IMAGE_NOT_SOURCE")
     with pytest.raises(ops.OpsError) as terminal:
         ops.attachment_add(case.path, 1)
     assert str(terminal.value) == str(refused.value)
@@ -178,7 +189,7 @@ def test_a_save_of_an_image_writes_the_exact_bytes_with_its_media_type_after_the
     doc = effect_doc(files_world, started)
     assert doc["name"] == name and doc["content"]["media_type"] == mime and doc["content"]["kind"] == "held"
     assert [m for m in files_world["gd"].files.values() if m["name"] == name] == [], "the card writes nothing"
-    assert f"Saves the file you sent: {name}" in item_of(files_world, started)["body"]
+    assert pk.said(item_of(files_world, started)["body"], "CARD_FILE_SAVE", name=name)
     approve(files_world, started)
     saved = [m for m in files_world["gd"].files.values() if m["name"] == name]
     assert len(saved) == 1 and saved[0]["content"] == data and saved[0]["mimeType"] == mime
@@ -328,7 +339,7 @@ def test_when_the_save_card_cannot_open_the_files_card_is_sent_so_that_nothing_i
     monkeypatch.setattr(w.bridge, "resend", lambda project, chat, pending: False)
     w.put("r1", PDF)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))], text="salva no drive")
-    assert len(cards_sent(w)) == 1 and "Recebi Q3 plan.pdf" in cards_sent(w)[0]["message"]["text"]
+    assert len(cards_sent(w)) == 1 and pk.said(cards_sent(w)[0]["message"]["text"], "ATTACH_WHAT", PT, name="Q3 plan.pdf")
     teardown(w)
 
 
@@ -360,9 +371,9 @@ def test_an_image_gets_one_card_that_saves_to_each_account_and_discards_and_neve
     w.put("p1", JPEG)
     w.send([w.file("p1", None, len(JPEG), "photo")])
     [card] = cards_sent(w)
-    assert labels(w) == ["Salvar no Google Drive", "Salvar no OneDrive", "Descartar"]
+    assert_labels(w, PT, "LABEL_SAVE_GOOGLE", "LABEL_SAVE_MICROSOFT", "LABEL_DISCARD")
     text = card["message"]["text"]
-    assert "Recebi photo-" in text and "JPEG). O que faço?" in text and "Adicionar ao projeto" not in text and "fonte" not in text
+    assert pk.said(text, "ATTACH_WHAT", PT, kind="JPEG") and "photo-" in text and not pk.said(text, "ATTACH_WHAT_ADD", PT) and "fonte" not in text
     assert w.seen == [] and len(w.sent()) == 1, "one message for the file"
     teardown(w)
 
@@ -371,9 +382,9 @@ def test_a_pdf_gets_one_card_with_both_saves_add_to_the_project_and_discard(case
     w = setup(case, monkeypatch)
     w.put("r1", PDF)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert labels(w) == ["Salvar no Google Drive", "Salvar no OneDrive", "Adicionar ao projeto", "Descartar"]
+    assert_labels(w, PT, "LABEL_SAVE_GOOGLE", "LABEL_SAVE_MICROSOFT", "LABEL_ADD", "LABEL_DISCARD")
     text = w.sent()[-1]["message"]["text"]
-    assert "Recebi Q3 plan.pdf" in text and "documento que o assistente pode ler" in text and "Google" not in text.split("\n", 2)[2] and "@" not in text
+    assert pk.said(text, "ATTACH_WHAT", PT, name="Q3 plan.pdf") and pk.said(text, "ATTACH_WHAT_ADD", PT) and "Google" not in text.split("\n", 2)[2] and "@" not in text
     teardown(w)
 
 
@@ -381,8 +392,8 @@ def test_the_card_in_english_says_the_same(case, monkeypatch):  # noqa: F811
     w = setup(case, monkeypatch, language="en")
     w.put("r1", PDF)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert labels(w) == ["Save to Google Drive", "Save to OneDrive", "Add to project", "Discard"]
-    assert "I received Q3 plan.pdf" in w.sent()[-1]["message"]["text"] and "What should I do?" in w.sent()[-1]["message"]["text"]
+    assert_labels(w, EN, "LABEL_SAVE_GOOGLE", "LABEL_SAVE_MICROSOFT", "LABEL_ADD", "LABEL_DISCARD")
+    assert pk.said(w.sent()[-1]["message"]["text"], "ATTACH_WHAT", EN, name="Q3 plan.pdf")
     teardown(w)
 
 
@@ -391,7 +402,7 @@ def test_a_sender_without_files_write_sees_no_save_and_the_files_group_alone_doe
     w = setup(case, monkeypatch, senders=senders)
     w.put("r1", PDF)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert labels(w) == ["Adicionar ao projeto", "Descartar"]
+    assert_labels(w, PT, "LABEL_ADD", "LABEL_DISCARD")
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))], text="salva no drive")
     assert w.seen == [], "a caption cannot open a save the profile does not permit"
     w.reset()
@@ -413,7 +424,7 @@ def test_a_project_that_lists_one_account_draws_one_save_button(case, monkeypatc
     w = setup(case, monkeypatch, accounts={"microsoft": ACCOUNTS["microsoft"]})
     w.put("p1", PNG)
     w.send([w.file("p1", "scan.png", len(PNG), "image/png")])
-    assert labels(w) == ["Salvar no OneDrive", "Descartar"]
+    assert_labels(w, PT, "LABEL_SAVE_MICROSOFT", "LABEL_DISCARD")
     teardown(w)
 
 
@@ -423,7 +434,7 @@ def test_a_platform_with_no_buttons_gets_the_words_that_save_and_the_typed_add_a
     w.put("r1", PDF)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
     text = w.texts()[-1]
-    assert 'write "save to Google Drive"' in text and 'write "save to OneDrive"' in text and "Send /add 1" in text and "Send /discard 1" in text
+    assert pk.said(text, "ATTACH_TYPED_SAVE_GOOGLE", EN) and pk.said(text, "ATTACH_TYPED_SAVE_MICROSOFT", EN) and "Send /add 1" in text and "Send /discard 1" in text
     teardown(w)
 
 
@@ -450,7 +461,7 @@ def test_a_tap_checks_the_senders_profile_again_and_the_file_as_it_is_now(case, 
     chosen, discard = action(w, "save-google"), action(w, "discard")
     accept(case.path, policies=dict(PROFILES, owner=["read", "add-sources"]))
     w.say(action=chosen)
-    assert w.seen == [] and w.texts()[-1] == "Salvar arquivos no Drive ou no OneDrive não está ligado para você neste projeto."
+    assert w.seen == [] and pk.said(w.texts()[-1], "ATT_SAVE_OFF", PT) and "\n" not in w.texts()[-1]
     accept(case.path, policies=PROFILES)
     w.say(action=discard)
     assert case.rows()[0]["status"] == "discarded"
@@ -469,7 +480,7 @@ def test_the_add_and_discard_buttons_work_for_a_pdf_and_the_add_is_not_offered_f
     w.send([w.file("p1", "pic.png", len(PNG), "image/png")])
     assert not any(a["id"].endswith(":add") for a in w.sent()[-1]["message"]["actions"])
     w.say("/add 2")
-    assert w.texts()[-1] == "Imagens não viram fonte; posso salvar no Drive ou no OneDrive."
+    assert pk.said(w.texts()[-1], "ATT_IMAGE_NOT_SOURCE", PT) and "\n" not in w.texts()[-1]
     assert case.rows()[1]["status"] == "held"
     teardown(w)
 
@@ -495,7 +506,7 @@ def test_a_save_line_with_no_service_and_both_accounts_brings_the_files_card_bac
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
     w.say("pode salvar")
     assert w.seen == [] and w.texts()[-2] == phrases.text("NW_PICK_ON_CARD", {"language": "pt-BR"}) and len(cards_sent(w)) == 2
-    assert labels(w) == ["Salvar no Google Drive", "Salvar no OneDrive", "Adicionar ao projeto", "Descartar"]
+    assert_labels(w, PT, "LABEL_SAVE_GOOGLE", "LABEL_SAVE_MICROSOFT", "LABEL_ADD", "LABEL_DISCARD")
     teardown(w)
 
 
@@ -511,7 +522,7 @@ def test_with_one_account_the_line_pode_salvar_opens_that_save(case, monkeypatch
 def test_with_two_held_files_the_line_asks_which_by_their_cards_and_with_none_it_says_so(case, monkeypatch):  # noqa: F811
     w = setup(case, monkeypatch)
     w.say("Salvar no drive")
-    assert w.texts()[-1] == "Não tenho nenhum arquivo seu aguardando. Envie o arquivo e diga onde salvar." and w.seen == []
+    assert pk.said(w.texts()[-1], "NW_NO_HELD", PT) and "\n" not in w.texts()[-1] and w.seen == []
     w.put("r1", PDF)
     w.put("p1", JPEG)
     w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
@@ -756,7 +767,7 @@ def test_the_bare_forms_act_on_a_recent_file_and_are_ordinary_lines_without_one(
     w.say("drop it")
     assert len(called) == 5 and w.seen == [], "drop it saves nothing"
     w.say("save it")
-    assert w.seen == [] and w.texts()[-2] == phrases.text("NW_PICK_ON_CARD", {"language": "en"}) and "I received photo-" in w.texts()[-1], "both services: the card again"
+    assert w.seen == [] and w.texts()[-2] == phrases.text("NW_PICK_ON_CARD", {"language": "en"}) and pk.said(w.texts()[-1], "ATTACH_WHAT", EN) and "photo-" in w.texts()[-1], "both services: the card again"
     teardown(w)
 
 
@@ -797,8 +808,8 @@ def test_a_caption_that_names_a_service_the_project_does_not_list_is_one_message
     w.send([w.file("p1", None, len(JPEG), "photo")], text="salva no onedrive")
     assert len(w.sent()) == 1 and w.seen == []
     text = w.texts()[0]
-    assert "Recebi photo-" in text and "O OneDrive não está configurado neste projeto." in text and "error" not in text and "/file" not in text
-    assert labels(w) == ["Salvar no Google Drive", "Descartar"]
+    assert "photo-" in text and pk.said(text, "ATTACH_WHAT", PT) and pk.said(text, "ATT_ACCOUNT_MISSING", PT, service="OneDrive") and "error" not in text and "/file" not in text
+    assert_labels(w, PT, "LABEL_SAVE_GOOGLE", "LABEL_DISCARD")
     teardown(w)
 
 
@@ -810,7 +821,8 @@ def test_a_tap_on_a_save_for_an_account_removed_since_is_the_files_card_with_a_l
     accept(case.path, accounts={"google": ACCOUNTS["google"]})
     w.reset()
     w.say(action=chosen)
-    assert w.seen == [] and len(w.sent()) == 1 and "O OneDrive não está configurado neste projeto." in w.texts()[0] and labels(w) == ["Salvar no Google Drive", "Descartar"]
+    assert w.seen == [] and len(w.sent()) == 1 and pk.said(w.texts()[0], "ATT_ACCOUNT_MISSING", PT, service="OneDrive")
+    assert_labels(w, PT, "LABEL_SAVE_GOOGLE", "LABEL_DISCARD")
     teardown(w)
 
 
@@ -819,7 +831,7 @@ def test_a_folder_list_with_no_default_never_opens_a_question_from_a_caption_and
     w = setup(case, monkeypatch, accounts=accounts)
     w.put("p1", JPEG)
     w.send([w.file("p1", None, len(JPEG), "photo")], text="salva no drive")
-    assert len(w.sent()) == 1 and w.seen == [] and "Recebi photo-" in w.texts()[0], "the file's card, one message, no question about the folder"
+    assert len(w.sent()) == 1 and w.seen == [] and pk.said(w.texts()[0], "ATTACH_WHAT", PT) and "photo-" in w.texts()[0], "the file's card, one message, no question about the folder"
     w.say(action=action(w, "save-google"))
     assert [s[1] for s in w.seen] == [{"account": "google", "attachment": 1, "folder": "fotos"}], "the first folder the project lists; the card of the save names it"
     teardown(w)
@@ -858,5 +870,5 @@ def test_a_card_sent_again_keeps_the_version_it_would_make(case, monkeypatch):  
     w.send([w.file("r2", "Plan v2.pdf")], text="@q3-plan")
     assert "versão 2" in w.texts()[-1]
     w.say("pode salvar")
-    assert "versão 2 do documento `q3-plan`" in w.texts()[-1], w.texts()[-1]
+    assert pk.said(w.texts()[-1], "ATTACH_WHAT_VERSION", PT, n=2, id="q3-plan"), w.texts()[-1]
     teardown(w)

@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_blite_event_target import Spies, Writes, phrase, row  # noqa: F401  (the stand-ins of the target path)
 
@@ -101,13 +102,13 @@ def test_a_weekday_is_written_with_its_next_date_in_the_form_of_a_date():
 
 def test_row_5_the_question_is_in_english_for_an_english_project(monkeypatch):
     reply, _, writes, _ = said("event-cancel", "remove the dentist for tomorrow, on 30/10", {"target": "dentist", "day": "tomorrow"}, rows=ENGLISH, monkeypatch=monkeypatch, cfg={"language": "en"})
-    assert reply == "You wrote two days for this event: Mon 26/10/2026 and Fri 30/10/2026. Say the event and the day again." and writes.calls == []
+    assert len(reply.splitlines()) == 1 and pk.said(reply, "EV_ASK_WHICH_DAY", {"language": "en"}, a="Mon 26/10/2026", b="Fri 30/10/2026") and writes.calls == [], reply
 
 
 @pytest.mark.parametrize("language", ["es", "fr", "de", "it"])
 def test_row_5_the_other_languages_fall_back_to_english(monkeypatch, language):
     reply, _, writes, _ = said("event-cancel", "remove the dentist for tomorrow, on 30/10", {"target": "dentist", "day": "tomorrow"}, monkeypatch=monkeypatch, cfg={"language": language})
-    assert reply.startswith("You wrote two days for this event:") and writes.calls == []
+    assert pk.said(reply, "EV_ASK_WHICH_DAY", {"language": language}) and writes.calls == [], reply      # a language with no table of its own says the English sentence
 
 
 def test_row_6_no_day_span_the_rest_of_the_line_is_never_read_for_a_day_the_window_search_as_before(monkeypatch):

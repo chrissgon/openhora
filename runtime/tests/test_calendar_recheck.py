@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import (SEEDED, approve, effect_doc, fgw, install_item_refs, item_of, made_event, ops, ops_core, ops_steps, operations, phrases, rows, seed_google,  # noqa: F401
                                  snapshot_event, steps, world)
@@ -24,6 +25,7 @@ SENDER = "telegram:830461975213"
 OTHER = "telegram:9999"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 SECRET_TITLE = "Therapy with Dr Example"
+CFG = {"language": "en"}
 
 
 def card_for(world, pending, groups, sender=SENDER):
@@ -40,10 +42,10 @@ def test_the_time_and_the_id_of_the_event_are_not_private_but_its_title_is_and_i
     started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}", channel="terminal")
     other = card_for(world, started["pending"], ["read", "approve-effect-calendar"], sender=OTHER)["message"]["text"]
     holder = card_for(world, started["pending"], ["read", "approve-effect-calendar", "ask-mail"], sender=OTHER)["message"]["text"]
-    assert "Event: ev0001" not in other, "a phone is not shown the event's id (S16c): the terminal and the page are"
-    assert "The event now is at: Mon 19/10/2026 13:00-14:00" in other
-    assert SECRET_TITLE not in other and "The event now:" not in other
-    assert f"The event now: {SECRET_TITLE}" in holder, "the reader who holds ask-mail sees it, whoever created the card"
+    assert not pk.said(other, "CARD_CAL_EVENT", CFG, event_id="ev0001"), "a phone is not shown the event's id (S16c): the terminal and the page are"
+    pk.assert_said(other, "CARD_CAL_NOW_WHEN", CFG, when="Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)")
+    assert SECRET_TITLE not in other and not pk.said(other, "CARD_CAL_NOW_TITLE", CFG)
+    pk.assert_said(holder, "CARD_CAL_NOW_TITLE", CFG, title=SECRET_TITLE)  # the reader who holds ask-mail sees it, whoever created the card
 
 
 # --- MAJOR-1 (c): the MCP mode never gets the private lines --------------------------------------------------------------------------------
@@ -53,11 +55,11 @@ def test_the_mcp_channel_gets_no_private_line_of_a_calendar_card_from_pending_or
     made = made_event(world, title=SECRET_TITLE)
     started = ops.event_change(world["path"], "google", f"created:{made['pending']}", title="X")
     terminal = ops.pending(world["path"], started["pending"])["body"]
-    assert f"The event now: {SECRET_TITLE}" in terminal and "Before: Title: " + SECRET_TITLE in terminal, "the terminal and the page read all of it"
+    assert pk.said(terminal, "CARD_CAL_NOW_TITLE", CFG, title=SECRET_TITLE) and pk.said(terminal, "CARD_CAL_BEFORE_TITLE", CFG, title=SECRET_TITLE)  # the terminal and the page read all of it
     for channel in ("mcp",):
         shown = ops.pending(world["path"], started["pending"], channel=channel)
         assert SECRET_TITLE not in json.dumps(shown), channel
-        assert "The event now is at:" in shown["body"], "the id and the time stay"
+        assert pk.said(shown["body"], "CARD_CAL_NOW_WHEN", CFG)  # the id and the time stay
         listed = ops.pending(world["path"], channel=channel)
         assert SECRET_TITLE not in json.dumps(listed), channel
         assert SECRET_TITLE not in json.dumps(ops.task(world["path"], started["task"], channel=channel)), channel
@@ -260,7 +262,7 @@ def test_the_private_lines_of_a_calendar_card_show_and_approve_for_the_sender_wh
     full = ops.pending(world["path"], started["pending"])
     holder = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender=SENDER)
     other = cards.build("office", full, CAPS, channels, "text", None, operations=operations, sender=OTHER)
-    assert f"The event now: {SECRET_TITLE}" in holder["message"]["text"] and holder["approvable"] is True
+    assert pk.said(holder["message"]["text"], "CARD_CAL_NOW_TITLE", CFG, title=SECRET_TITLE) and holder["approvable"] is True
     assert SECRET_TITLE not in other["message"]["text"] and other["approvable"] is False, "the same channel, another sender: a partial card, not approved from here"
 
 

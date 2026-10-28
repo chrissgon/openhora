@@ -21,9 +21,10 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_reminders import Clock
-from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
+from test_send_own_account import ACCOUNTS, CFG, PT, assert_lines, world  # noqa: F401  (the own-account mail world)
 # Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
@@ -120,6 +121,11 @@ def card_lines(world, out):
     return card(world, out).splitlines()
 
 
+def has(lines, key, cfg=CFG, **fields):
+    """True when a line of the card says the sentence of phrase key `key` with `fields`."""
+    return pk.said("\n".join(lines), key, cfg, **fields)
+
+
 def text_of(lines):
     """The person's text on a card: the lines behind the gutter mark between the two frame rules (the only lines that start with five hyphens)."""
     start, end = [i for i, line in enumerate(lines) if line.startswith("-----")]
@@ -138,7 +144,7 @@ def test_the_line_of_the_live_bug_opens_a_send_card_with_the_typed_address_and_t
     out = phone(world, LIVE)
     assert out["resend"], out["reply"]
     lines = card_lines(world, out)
-    assert lines[1:4] == ["From your own account: pat@example.com (google)", f"To: {ADDRESS}", f"Subject: {COMPOSED_SUBJECT}"]
+    assert_lines(lines[1:4], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS}), ("CARD_MAIL_SUBJECT", {"subject": COMPOSED_SUBJECT})])
     assert text_of(lines) == ["Olá,", "", "Gostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?", "", "Obrigado."]      # validate: allow english-only -- the stand-in model's answer
     assert [c["kind"] for c in model.calls] == ["interpret", "compose"]
     assert model.of("compose")[0]["user"] == f"date: 2026-10-21 Wed\nlanguage: en\nto: {ADDRESS}\nsubject: \ndescription: {SPAN}"
@@ -276,7 +282,7 @@ def test_a_subject_the_person_gave_is_kept_as_written_and_only_the_body_is_worde
     line = "Envie um email para joana.silva@clinica.example, Reuniao de amanha. " + SPAN      # validate: allow english-only -- a Portuguese line is the input under test
     out = phone(world, line)
     lines = card_lines(world, out)
-    assert out["resend"] and "Subject: Reuniao de amanha" in lines and "Subject: " + COMPOSED_SUBJECT not in lines      # validate: allow english-only -- a Portuguese line is the input under test
+    assert out["resend"] and has(lines, "CARD_MAIL_SUBJECT", subject="Reuniao de amanha") and not has(lines, "CARD_MAIL_SUBJECT", subject=COMPOSED_SUBJECT)
     assert text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
     assert model.of("compose")[0]["user"].splitlines()[3] == "subject: Reuniao de amanha"      # validate: allow english-only -- a Portuguese line is the input under test
 
@@ -297,7 +303,7 @@ def test_the_model_may_fix_the_spelling_of_the_typed_subject_and_the_card_shows_
     model = with_subject_typed(world, monkeypatch, "Reunião sobre o Openhora")      # validate: allow english-only -- the stand-in model's Portuguese answer
     out = phone(world, TYPED_LINE)
     lines = card_lines(world, out)
-    assert out["resend"] and lines[3] == "Subject: Reunião sobre o Openhora"      # validate: allow english-only -- the stand-in model's Portuguese answer
+    assert out["resend"] and pk.said(lines[3], "CARD_MAIL_SUBJECT", CFG, subject="Reunião sobre o Openhora")      # validate: allow english-only -- the stand-in model's Portuguese answer
     assert model.of("compose")[0]["user"].splitlines()[3] == "subject: " + TYPED_SUBJECT
     nothing_sent(world)
 
@@ -307,14 +313,14 @@ def test_a_model_subject_that_is_not_the_same_subject_with_its_spelling_fixed_le
     with_subject_typed(world, monkeypatch, composed)
     out = phone(world, TYPED_LINE)
     lines = card_lines(world, out)
-    assert out["resend"] and lines[3] == "Subject: " + TYPED_SUBJECT and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+    assert out["resend"] and pk.said(lines[3], "CARD_MAIL_SUBJECT", CFG, subject=TYPED_SUBJECT) and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
 
 
 def test_a_model_subject_with_one_word_that_fails_the_rule_still_fixes_the_accents_of_the_others_on_the_card(world, clock, monkeypatch):
     with_subject_typed(world, monkeypatch, "Reunião sobre o OpenHora")      # validate: allow english-only -- the stand-in model's Portuguese answer
     out = phone(world, TYPED_LINE)
     lines = card_lines(world, out)
-    assert out["resend"] and lines[3] == "Subject: Reunião sobre o Openhora" and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
+    assert out["resend"] and pk.said(lines[3], "CARD_MAIL_SUBJECT", CFG, subject="Reunião sobre o Openhora") and text_of(lines)[0] == "Olá,"      # validate: allow english-only -- the stand-in model's Portuguese answer
 
 
 def test_a_composed_body_that_ends_with_a_closing_formula_alone_is_shown_without_it(world, clock, monkeypatch):
@@ -342,7 +348,7 @@ def test_a_stand_in_that_accents_what_was_typed_without_accents_reaches_the_card
 def guided(world, monkeypatch, compose=COMPOSED):
     model = setup(world, monkeypatch, interpret='{"v":1,"kind":"none"}', compose=compose, language="pt-BR")
     first = phone(world, "Envie um email para joana.silva@clinica.example")
-    assert not first.get("resend") and first["reply"] == "Qual o assunto do e-mail para joana.silva@clinica.example?"      # validate: allow english-only -- the Portuguese question under test
+    assert not first.get("resend") and "\n" not in first["reply"] and pk.said(first["reply"], "NW_MAIL_ASK_SUBJECT", PT, to="joana.silva@clinica.example"), first["reply"]
     return model
 
 
@@ -354,7 +360,7 @@ def test_the_guided_dialogue_words_the_answer_to_the_body_question_and_the_card_
     description = "Perguntar a disponibilidade de uma call amanha as 16hrs, para falarmos sobre o openhora"      # validate: allow english-only -- a Portuguese answer under test
     out = phone(world, description)
     lines = card_lines(world, out)
-    assert out["resend"] and "Subject: Reunião sobre Openhora" in lines      # validate: allow english-only -- a Portuguese answer under test
+    assert out["resend"] and has(lines, "CARD_MAIL_SUBJECT", subject="Reunião sobre Openhora")      # validate: allow english-only -- a Portuguese answer under test
     assert text_of(lines) == ["Olá,", "", "Gostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?", "", "Obrigado."]      # validate: allow english-only -- the stand-in model's answer
     assert model.of("compose")[0]["user"].splitlines()[-2:] == ["subject: Reunião sobre Openhora", "description: " + description]      # validate: allow english-only -- a Portuguese answer under test
     nothing_sent(world)
@@ -399,8 +405,8 @@ def test_the_card_a_pt_br_project_shows_has_the_typed_address_the_subject_and_th
     out = phone(world, LIVE)
     item = ops.pending(world["path"], out["resend"])
     shown = phrases.card_text(item["payload"]["card"], ops_core.context(world["path"])["cfg"]).splitlines()
-    assert out["reply"] == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese sentence under test
-    assert shown[1:4] == ["Da sua própria conta: pat@example.com (google)", f"Para: {ADDRESS}", f"Assunto: {COMPOSED_SUBJECT}"]      # validate: allow english-only -- the Portuguese card under test
+    assert "\n" not in out["reply"] and pk.said(out["reply"], "ACCT_CARD_SENT", PT, pending=1), out["reply"]
+    assert_lines(shown[1:4], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS}), ("CARD_MAIL_SUBJECT", {"subject": COMPOSED_SUBJECT})], PT)
     assert text_of(shown)[0] == "Olá," and "Gostaria de marcar uma reunião amanhã às 16h. Você teria disponibilidade?" in text_of(shown)      # validate: allow english-only -- the Portuguese card under test
 
 
@@ -416,7 +422,7 @@ def test_a_closed_form_with_its_own_subject_and_body_is_sent_as_the_person_wrote
     model = setup(world, monkeypatch)
     out = phone(world, "Envie um email para joana.silva@clinica.example assunto Teste dizendo Oi tudo bem")      # validate: allow english-only -- a Portuguese line is the input under test
     lines = card_lines(world, out)
-    assert out["resend"] and "Subject: Teste" in lines and text_of(lines) == ["Oi tudo bem"] and model.calls == []      # validate: allow english-only -- a Portuguese line is the input under test
+    assert out["resend"] and has(lines, "CARD_MAIL_SUBJECT", subject="Teste") and text_of(lines) == ["Oi tudo bem"] and model.calls == []
 
 
 def test_a_sender_without_the_group_interpret_gets_the_guided_dialogue_with_the_persons_words_and_no_model_call(world, clock, monkeypatch):

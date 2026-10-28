@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from sources_fixture import make_docx, make_pdf
 from test_attachments import IDENT, PDF, POLICIES, accept, case, fake_key  # noqa: F401  (the project the attachment tests use)
@@ -133,6 +134,20 @@ def card_action(w, op="add"):
     return next(a["id"] for a in message["actions"] if a["id"].endswith(":" + op))
 
 
+def fields_of(text, key):
+    """The fields of a message that says the sentence of `key` (and nothing else: the key the kit finds for it is `key`)."""
+    found = pk.which(text)
+    assert found is not None and found[0] == key, (key, found)
+    return found[1]
+
+
+def told(texts, count, key, **fields):
+    """`count` messages were told, each exactly the one sentence of `key` (one line, so nothing else is said) with `fields`."""
+    assert len(texts) == count and all("\n" not in text for text in texts), texts
+    for text in texts:
+        pk.assert_said(text, key, **fields)
+
+
 # --- the update ------------------------------------------------------------------------------------------------------------------------
 
 
@@ -144,7 +159,10 @@ def test_an_update_with_files_is_an_intent_with_the_caption_and_a_command_is_a_c
     assert parse({"text": "/pending", "attachments": []}) == {"kind": "pending"} and parse({"text": None, "attachments": []}) == {"kind": "ignore"}
     assert parse({"action": "1:add", "attachments": files}) == {"kind": "action", "action": "1:add"}
     assert parse({"text": "/add 3"}) == {"kind": "add", "id": 3} and parse({"text": "/discard 12"}) == {"kind": "discard", "id": 12}
-    assert parse({"text": "/add"}) == {"kind": "usage", "text": "Usage: /add <n>"} and parse({"text": "/discard x"}) == {"kind": "usage", "text": "Usage: /discard <n>"}
+    usage_add, usage_discard = parse({"text": "/add"}), parse({"text": "/discard x"})
+    assert set(usage_add) == set(usage_discard) == {"kind", "text"} and usage_add["kind"] == usage_discard["kind"] == "usage"
+    told([usage_add["text"]], 1, "USAGE_ADD")
+    told([usage_discard["text"]], 1, "USAGE_DISCARD")
     assert "/add <n>" in inbound.HELP and "/discard <n>" in inbound.HELP
 
 
@@ -171,7 +189,8 @@ def test_the_capabilities_name_files_and_a_provider_that_says_nothing_takes_none
 def test_a_provider_that_does_not_take_files_gets_the_sentence_and_nothing_else(case, monkeypatch):
     w = make_world(case, monkeypatch, caps={"attachments": False})
     w.send([w.file()])
-    assert w.texts() == ["This app's connection does not take files yet."] and w.fetches() == [] and case.rows() == []
+    told(w.texts(), 1, "ATT_NO_FILES")
+    assert w.fetches() == [] and case.rows() == []
 
 
 # --- the policy comes first -----------------------------------------------------------------------------------------------------------
@@ -180,21 +199,21 @@ def test_a_provider_that_does_not_take_files_gets_the_sentence_and_nothing_else(
 def test_a_channel_without_the_group_takes_no_file_and_nothing_is_fetched(world):
     accept(world.case.path, channels={"messaging": ["read", "talk"]}, policies=None)
     world.send([world.file()])
-    assert world.texts() == ["Files are not taken from this app for this project. Add it on the platform's page."]
+    told(world.texts(), 1, "ATT_OFF")
     assert world.fetches() == [] and world.case.rows() == [] and world.incoming() == []
     assert [x for x in world.log if IDENT in x or "r1" in x or "Q3" in x] == [], "one log line, no id"
     assert any("takes none" in x for x in world.log)
     accept(world.case.path, channels=None)
     world.reset()
     world.send([world.file()])
-    assert "Files are not taken" in world.texts()[-1] and world.fetches() == [], "the default policy of messaging takes none"
+    assert pk.said(world.texts()[-1], "ATT_OFF") and world.fetches() == [], "the default policy of messaging takes none"
 
 
 def test_a_sender_whose_profile_lacks_the_group_is_refused_though_the_channel_has_it(world):
     other = "5151515151"
     accept(world.case.path, messaging={"senders": {"telegram": [IDENT, {"id": other, "policy": "reader"}]}})
     world.send([world.file()], sender=other)
-    assert world.sent()[0]["chat"] == other and "Files are not taken" in world.texts()[0] and world.fetches() == []
+    assert world.sent()[0]["chat"] == other and pk.said(world.texts()[0], "ATT_OFF") and world.fetches() == []
     world.send([world.file()])
     assert len(world.fetches()) == 1, "the sender with the profile that has it is served"
 
@@ -206,7 +225,7 @@ def test_a_photo_and_a_file_declared_too_large_are_refused_before_any_fetch(worl
     world.send([world.file("p1", "pic.webp", 5000, "sticker")])
     assert world.texts() == [attachments.MEDIA]
     world.send([world.file("v1", "talk.mp4", 5000, "video/mp4"), world.file("big", "Big.pdf", 30 * 1024 * 1024)])
-    assert world.texts()[1].count(attachments.MEDIA) == 1 and "Big.pdf is 30.0 MiB; a file from this app is at most 20.0 MiB." in world.texts()[1]
+    assert world.texts()[1].count(attachments.MEDIA) == 1 and pk.said(world.texts()[1], "ATT_TOO_LARGE", name="Big.pdf", size="30.0 MiB", cap="20.0 MiB")
     assert world.fetches() == [] and world.case.rows() == []
 
 
@@ -214,7 +233,7 @@ def test_at_most_five_files_of_a_message_are_taken_and_the_rest_are_said_not(wor
     for n in range(7):
         world.put(f"f{n}", make_pdf(f"File number {n}"))
     world.send([world.file(f"f{n}", f"File {n}.pdf") for n in range(7)])
-    assert len(world.fetches()) == 5 and "At most 5 files are taken from one message; the rest were not." in world.texts()[0]
+    assert len(world.fetches()) == 5 and pk.said(world.texts()[0], "ATT_OVER_MESSAGE", n=5)
     assert len([r for r in world.case.rows("held")]) == 5 and len(world.case.rows()) == 5
 
 
@@ -222,7 +241,8 @@ def test_a_file_already_held_is_answered_with_its_id_and_fetched_once(world):
     world.send([world.file()])
     world.reset()
     world.send([world.file()])
-    assert world.texts() == ["Q3 plan.pdf already waits for your answer (file 1)."] and world.fetches() == [] and len(world.case.rows()) == 1
+    told(world.texts(), 1, "ATT_DUPLICATE", name="Q3 plan.pdf", id=1)
+    assert world.fetches() == [] and len(world.case.rows()) == 1
     world.reset()
     world.put("r2", make_pdf("Another"))
     world.send([world.file("r1"), world.file("r2", "B.pdf")])
@@ -234,12 +254,13 @@ def test_the_day_and_the_held_ceiling_stop_the_fetch(world, monkeypatch):
     for n in range(3):
         world.put(f"d{n}", make_pdf(f"Day {n}"))
     world.send([world.file(f"d{n}", f"D{n}.pdf") for n in range(3)])
-    assert len(world.fetches()) == 2 and "took 2 files" in world.texts()[0] and "from messaging apps today, its limit" in world.texts()[0]
+    assert len(world.fetches()) == 2 and pk.said(world.texts()[0], "ATT_DAY", n=2)
     monkeypatch.setattr(attachments, "DAY_FILES", 20)
     monkeypatch.setattr(attachments, "HELD_MAX", 2)
     world.reset()
     world.send([world.file("r1")])
-    assert world.texts() == ["2 files wait for your answer already. Answer them first (/pending)."] and world.fetches() == []
+    told(world.texts(), 1, "ATT_HELD_FULL", n=2)
+    assert world.fetches() == []
 
 
 # --- the fetch --------------------------------------------------------------------------------------------------------------------------
@@ -265,7 +286,8 @@ def test_limit_47_a_file_is_fetched_only_by_the_reference_the_provider_gave_into
     world.reset()
     world.send([world.file("lie", "lie.pdf")])
     world.send([world.file("out", "out.pdf")])
-    assert world.texts() == ["The file could not be fetched. Send it again."] * 2 and world.incoming() == []
+    told(world.texts(), 2, "ATT_FETCH_FAILED")
+    assert world.incoming() == []
     assert [(r["status"], r["code"]) for r in world.case.rows()] == [("held", None), ("refused", "fetch"), ("refused", "fetch")], "the failed attempts count"
 
 
@@ -277,7 +299,7 @@ def test_the_day_s_bytes_left_bound_the_fetch(world, monkeypatch):
     world.send([world.file("r2", "B.txt", None, "text/plain")])
     [call] = world.fetches()
     assert call["max_bytes"] == 500, "what is left of the day's bytes, not the file's own cap"
-    assert world.texts() == ["The file could not be fetched. Send it again."], "the provider refused to write a file over the cap it was given"
+    told(world.texts(), 1, "ATT_FETCH_FAILED")      # the provider refused to write a file over the cap it was given
     assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()][1:] == [("refused", "size", 0)], "only what was written counts for bytes (nothing, here): the file counts for one"
     assert world.incoming() == []
 
@@ -285,12 +307,14 @@ def test_the_day_s_bytes_left_bound_the_fetch(world, monkeypatch):
 def test_a_reference_the_platform_no_longer_serves_and_a_failed_download_are_told_and_leave_nothing(world):
     world.flag("gone.json", ["r1"])
     world.send([world.file()])
-    assert world.texts() == ["That file can no longer be fetched from telegram. Send it again."] and world.incoming() == []
+    told(world.texts(), 1, "ATT_GONE", platform="telegram")
+    assert world.incoming() == []
     assert [(r["status"], r["code"], r["bytes"]) for r in world.case.rows()] == [("refused", "gone", 0)]
     world.put("r2", PDF)
     world.flag("fail.json", ["r2"])
     world.send([world.file("r2")])
-    assert world.texts()[-1] == "The file could not be fetched. Send it again." and world.incoming() == []
+    told(world.texts()[-1:], 1, "ATT_FETCH_FAILED")
+    assert world.incoming() == []
     assert [r["code"] for r in world.case.rows()] == ["gone", "fetch"] and not world.case.rows("held")
     assert not any("r1" in x or "r2" in x for x in world.log), "a log line names a class, never a reference"
 
@@ -301,7 +325,8 @@ def test_a_second_message_while_a_file_is_being_fetched_is_asked_to_wait_and_not
         world.send([world.file()])
     finally:
         lock.release()
-    assert world.texts() == ["Another file is being fetched. Send this one again in a moment."] and world.fetches() == [] and world.incoming() == []
+    told(world.texts(), 1, "ATT_BUSY")
+    assert world.fetches() == [] and world.incoming() == []
     world.send([world.file()])
     assert len(world.fetches()) == 1
 
@@ -314,9 +339,14 @@ def test_a_file_is_fetched_held_and_shown_on_a_card_bound_to_the_file_and_nothin
     [row] = world.case.rows()
     assert (row["status"], row["kind"], row["target"], row["label"], row["profile"]) == ("held", "pdf", "q3-plan", "import", "staff")
     [message] = [s["message"] for s in world.sent()]
-    assert message["text"] == (f"northwind-shop · file #1\n\nI received Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf). What should I do?\n"
-                               "\"Add to project\" makes it a document the assistant can read in northwind-shop, as `q3-plan`.")
-    assert [(a["label"], a["id"].split(":")[1]) for a in message["actions"]] == [("Add to project", "add"), ("Discard", "discard")]
+    head, blank, what, offer = message["text"].split("\n")
+    assert blank == ""
+    pk.assert_said(head, "HEADER_FILE", project="northwind-shop", id=1)
+    pk.assert_said(what, "ATTACH_WHAT", name="Q3 plan.pdf", size=attachments.size_text(len(PDF)), kind="pdf")
+    pk.assert_said(offer, "ATTACH_WHAT_ADD", project="northwind-shop", id="q3-plan")
+    assert [a["id"].split(":")[1] for a in message["actions"]] == ["add", "discard"]
+    pk.assert_said(message["actions"][0]["label"], "LABEL_ADD")
+    pk.assert_said(message["actions"][1]["label"], "LABEL_DISCARD")
     card = world.bridge.ledger.attachment_card(world.project["id"], 1, IDENT)
     assert card["kind"] == "attachment" and card["pending_id"] is None and card["attachment_id"] == 1
     assert card["content_sha256"] == attachments.card_sha256(row["sha256"], "q3-plan", "import")
@@ -328,7 +358,7 @@ def test_a_tap_on_add_makes_version_1_with_its_provenance_and_the_held_file_is_g
     world.send([world.file()])
     action = card_action(world, "add")
     world.say(action=action)
-    assert world.texts()[-1].splitlines()[0] == "Added Q3 plan.pdf as `q3-plan`, version 1."
+    pk.assert_said(world.texts()[-1].splitlines()[0], "ATT_ADDED", name="Q3 plan.pdf", id="q3-plan", n=1)
     store, conn = world.case.ctx["store"], world.case.ctx["conn"]
     version = store.source_latest(conn, "q3-plan")
     assert version["provenance"] == {"channel": "messaging", "platform": "telegram", "profile": "staff", "attachment": 1}
@@ -336,23 +366,24 @@ def test_a_tap_on_add_makes_version_1_with_its_provenance_and_the_held_file_is_g
     manifest = (world.case.folder / "q3-plan" / "1" / "manifest.json").read_text()
     assert IDENT not in manifest and "sent on telegram, profile staff" in json.dumps(store.source_latest(conn, "q3-plan")["catalog"])
     world.say(action=action)
-    assert world.texts()[-1] == "That file is added, not waiting for your answer.", "the same button again"
+    told(world.texts()[-1:], 1, "ATT_NOT_HELD", status="added")      # the same button again
 
 
 def test_a_typed_add_binds_to_the_newest_card_and_a_typed_discard_deletes_the_file(world):
     world.put("r2", make_pdf("A second one"))
     world.send([world.file("r1"), world.file("r2", "Second.pdf")])
     world.say("/discard 2")
-    assert world.texts()[-1] == "Discarded Second.pdf." and world.case.rows()[1]["status"] == "discarded"
+    told(world.texts()[-1:], 1, "ATT_DISCARDED", name="Second.pdf")
+    assert world.case.rows()[1]["status"] == "discarded"
     assert not (world.case.data / "attachments" / "held" / "2").exists()
     world.say("/add 1")
-    assert world.texts()[-1].startswith("Added Q3 plan.pdf as `q3-plan`, version 1.")
+    pk.assert_said(world.texts()[-1].splitlines()[0], "ATT_ADDED", name="Q3 plan.pdf", id="q3-plan", n=1)
     world.say("/add 1")
-    assert world.texts()[-1] == "That file is added, not waiting for your answer."
+    told(world.texts()[-1:], 1, "ATT_NOT_HELD", status="added")
     world.say("/add 77")
-    assert world.texts()[-1] == "Act on the card sent to you (send /pending)."
+    told(world.texts()[-1:], 1, "NO_CARD")
     world.say("/add")
-    assert world.texts()[-1] == "Usage: /add <n>"
+    told(world.texts()[-1:], 1, "USAGE_ADD")
 
 
 def test_a_card_whose_file_changed_is_refused_with_the_changed_sentence(world):
@@ -363,7 +394,8 @@ def test_a_card_whose_file_changed_is_refused_with_the_changed_sentence(world):
     Path(path).write_text(json.dumps(data))
     world.bridge.ledger.data = world.bridge.ledger._read()
     world.say(action=card_action(world, "add"))
-    assert world.texts()[-1] == "This decision changed since you saw it." and world.case.rows()[0]["status"] == "held"
+    told(world.texts()[-1:], 1, "CHANGED")
+    assert world.case.rows()[0]["status"] == "held"
 
 
 def test_a_card_is_acted_on_only_by_the_sender_it_was_sent_to_and_only_while_the_profile_allows(world):
@@ -372,7 +404,7 @@ def test_a_card_is_acted_on_only_by_the_sender_it_was_sent_to_and_only_while_the
     world.send([world.file()])
     action = card_action(world, "add")
     world.say(action=action, sender=other)
-    assert world.sent()[-1]["chat"] == other and "no longer valid" in world.texts()[-1], "another chat's button is stale"
+    assert world.sent()[-1]["chat"] == other and pk.said(world.texts()[-1], "STALE"), "another chat's button is stale"
     assert world.case.rows()[0]["status"] == "held"
     accept(world.case.path, channels={"messaging": ["read"]}, policies=None)       # the policy narrowed after the card was sent
     world.say(action=action)
@@ -383,7 +415,9 @@ def test_a_credential_in_the_file_refuses_the_add_with_the_fixed_sentence_and_th
     world.put("k", make_pdf(f"The key is {fake_key()} and must not travel."))
     world.send([world.file("k", "keys.pdf")])
     world.say(action=card_action(world, "add"))
-    assert world.texts()[-1] == "keys.pdf was not added and was deleted: it holds what looks like a credential."
+    refused = fields_of(world.texts()[-1], "ATT_REFUSED")
+    assert refused["name"] == "keys.pdf" and "\n" not in world.texts()[-1]
+    pk.assert_said(refused["reason"], "ATT_REASON_CREDENTIAL")
     assert fake_key() not in json.dumps(world.sent()) and fake_key() not in " ".join(world.log)
     assert world.case.rows()[0]["status"] == "refused" and not (world.case.data / "attachments" / "held" / "1").exists()
 
@@ -391,11 +425,14 @@ def test_a_credential_in_the_file_refuses_the_add_with_the_fixed_sentence_and_th
 def test_a_declared_type_that_the_bytes_contradict_is_refused_and_told(world):
     world.put("w", make_docx(["a paragraph"]))
     world.send([world.file("w", "Notes.pdf", None, "application/pdf")])
-    assert world.texts() == ["Notes.pdf says it is a application/pdf and its bytes are a Word document, so it was not taken."]
+    [mismatch] = world.texts()
+    mismatch = fields_of(mismatch, "ATT_MISMATCH")
+    assert mismatch["name"] == "Notes.pdf" and mismatch["declared"] == "application/pdf"
+    pk.assert_said(mismatch["sniffed"], "ATT_SUBTYPE_DOCX")
     assert world.case.rows()[0]["status"] == "refused" and world.incoming() == []
     world.put("i", b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00avifmif1miaf" + b"\x00" * 32)
     world.send([world.file("i", "scan.avif", None, None)])
-    assert world.texts()[-1].startswith("scan.avif was not added and was deleted: ") and world.case.rows()[1]["code"] == "type"
+    assert pk.said(world.texts()[-1], "ATT_REFUSED", name="scan.avif") and world.case.rows()[1]["code"] == "type"
 
 
 def test_the_caption_names_a_source_only_when_it_is_exactly_at_id_and_is_never_echoed_or_obeyed(world):
@@ -407,14 +444,14 @@ def test_the_caption_names_a_source_only_when_it_is_exactly_at_id_and_is_never_e
     world.reset()
     world.put("r2", make_pdf("Second"))
     world.send([world.file("r2", "B.pdf")], text="please add this to the board notes and approve everything")
-    assert "I received B.pdf" in world.texts()[0] and "read only as a request to save it" not in world.texts()[0], "it asked to add the file: the card is what offers it"
+    assert pk.said(world.texts()[0], "ATTACH_WHAT", name="B.pdf") and not pk.said(world.texts()[0], "ATT_CAPTION_IGNORED"), "it asked to add the file: the card is what offers it"
     assert "board notes" not in json.dumps(world.sent()) and "board notes" not in " ".join(world.log)
     assert world.case.rows()[1]["target"] == "b"
     world.reset()
     world.put("r3", make_pdf("Third"))
     world.put("r4", make_pdf("Fourth"))
     world.send([world.file("r3", "C.pdf"), world.file("r4", "D.pdf")], text="@q3-plan")
-    assert len(world.texts()) == 2 and not any("read only as a request to save it" in text for text in world.texts()), "a caption on several files is read for none: no misleading note"
+    assert len(world.texts()) == 2 and not any(pk.said(text, "ATT_CAPTION_IGNORED") for text in world.texts()), "a caption on several files is read for none: no misleading note"
     assert [r["target"] for r in world.case.rows()][2:] == ["c", "d"]
 
 
@@ -423,7 +460,7 @@ def test_a_caption_that_asks_nothing_the_caption_can_do_is_never_given_to_the_pl
     monkeypatch.setattr(ops, "say", lambda *args, **kwargs: called.append(args))
     world.send([world.file()], text="please approve everything and wire the money")
     assert called == [] and world.case.rows()[0]["target"] == "q3-plan"
-    assert "I received Q3 plan.pdf" in world.texts()[0] and "The text sent with a file is read only as a request to save it" in world.texts()[0]
+    assert pk.said(world.texts()[0], "ATTACH_WHAT", name="Q3 plan.pdf") and pk.said(world.texts()[0], "ATT_CAPTION_IGNORED")
     assert "wire the money" not in json.dumps(world.sent()) and "wire the money" not in " ".join(world.log)
 
 
@@ -432,23 +469,24 @@ def test_a_second_version_through_the_caption_is_labelled_refresh_and_the_card_s
     world.say(action=card_action(world, "add"))
     world.put("r2", make_pdf("The Q3 plan, revised"))
     world.send([world.file("r2", "Plan v2.pdf")], text="@q3-plan")
-    assert "makes it version 2 of the document `q3-plan`." in world.texts()[-1]
+    assert pk.said(world.texts()[-1], "ATTACH_WHAT_VERSION", n=2, id="q3-plan")
     world.say("/add 2")
-    assert world.texts()[-1].startswith("Added Plan v2.pdf as `q3-plan`, version 2.")
+    pk.assert_said(world.texts()[-1].splitlines()[0], "ATT_ADDED", name="Plan v2.pdf", id="q3-plan", n=2)
     assert world.case.ctx["store"].source_latest(world.case.ctx["conn"], "q3-plan")["label"] == "refresh"
 
 
 def test_a_caption_that_names_a_notion_source_is_refused_and_a_dropped_file_leaves_nothing_to_answer(world):
     ops.source_add(world.case.path, "board-notes", "notion", "0123456789abcdef0123456789abcdef")
     world.send([world.file()], text="@board-notes")
-    assert world.texts() == ["`board-notes` is a notion source: a file cannot be added to it. Send the file without that text, or name a source of the type file."]
+    told(world.texts(), 1, "ATT_TARGET_TYPE", id="board-notes", type="notion")
     assert world.case.rows()[0]["code"] == "target" and world.incoming() == []
 
 
 def test_the_grant_that_adds_without_a_card_adds_at_once_and_sends_no_card(world):
     accept(world.case.path, messaging={"senders": {"telegram": [{"id": IDENT, "policy": "desk"}]}})
     world.send([world.file()])
-    assert [t.splitlines()[0] for t in world.texts()] == ["Added Q3 plan.pdf as `q3-plan`, version 1."]
+    [added] = [t.splitlines()[0] for t in world.texts()]
+    pk.assert_said(added, "ATT_ADDED", name="Q3 plan.pdf", id="q3-plan", n=1)
     assert all(not s["message"]["actions"] for s in world.sent()) and world.case.rows()[0]["direct"] is True and world.case.rows()[0]["status"] == "added"
     assert world.bridge.ledger.attachment_card(world.project["id"], 1, IDENT) is None
 
@@ -468,8 +506,12 @@ def test_pending_lists_the_files_that_wait_after_the_decisions(world):
     world.send([world.file()])
     world.reset()
     world.say("/pending")
-    assert world.texts() == ["northwind-shop: nothing waits for you.",
-                             "northwind-shop: files waiting for your answer\nfile #1 Q3 plan.pdf: /add 1 or /discard 1"]
+    nothing, waiting = world.texts()
+    pk.assert_said(nothing, "NOTHING_WAITS", name="northwind-shop")
+    head, line = waiting.split("\n")
+    pk.assert_said(head, "ATT_WAITING_HEAD", project="northwind-shop")
+    pk.assert_said(line, "ATT_WAITING_LINE", id=1, name="Q3 plan.pdf")
+    assert "\n" not in nothing
 
 
 def test_the_card_of_a_platform_with_no_buttons_carries_typed_lines_and_the_count_card_carries_nothing(world):
@@ -480,9 +522,12 @@ def test_the_card_of_a_platform_with_no_buttons_carries_typed_lines_and_the_coun
     bare = cards.attachment_card("northwind-shop", row, 1, {"buttons": False, "max_buttons": 0, "max_text": 4096}, policy, "text", operations, sender)
     assert bare["message"]["actions"] == [] and bare["message"]["text"].endswith("Send /add 3\nSend /discard 3") and bare["actionable"] is True
     count = cards.attachment_card("northwind-shop", row, 1, {"buttons": True, "max_buttons": 6, "max_text": 4096}, policy, "count", operations, sender)
-    assert count["message"]["text"] == "northwind-shop · file #3\n\nA file from you waits for your answer." and "Q3" not in count["message"]["text"]
+    head, blank, body = count["message"]["text"].split("\n")
+    assert blank == "" and "Q3" not in count["message"]["text"]
+    pk.assert_said(head, "HEADER_FILE", project="northwind-shop", id=3)
+    pk.assert_said(body, "ATTACH_COUNT")
     narrow = cards.attachment_card("northwind-shop", row, 1, {"buttons": True, "max_buttons": 6, "max_text": 4096}, {"messaging": ["read"]}, "text", operations, sender)
-    assert narrow["message"]["actions"] == [] and narrow["actionable"] is False and narrow["message"]["text"].endswith("Act on it on the platform's page.")
+    assert narrow["message"]["actions"] == [] and narrow["actionable"] is False and pk.said(narrow["message"]["text"].split("\n")[-1], "PAGE_LINE")
     cut = cards.attachment_card("northwind-shop", dict(row, name="n" * 100), 1, {"buttons": True, "max_buttons": 6, "max_text": 120}, policy, "text", operations, sender)
     assert len(cut["message"]["text"]) <= 120
 
@@ -498,22 +543,23 @@ def test_through_a_provider_that_stays_connected_the_fetch_is_an_op_of_its_sessi
     assert set(request) == {"id", "op", "ref", "out", "max_bytes"}
     assert [(r["status"], r["platform"]) for r in chirp.case.rows()] == [("held", "chirp")]
     chirp.say(action=card_action(chirp, "add"))
-    assert chirp.texts()[-1].splitlines()[0] == "Added Q3 plan.pdf as `q3-plan`, version 1."
+    pk.assert_said(chirp.texts()[-1].splitlines()[0], "ATT_ADDED", name="Q3 plan.pdf", id="q3-plan", n=1)
     assert chirp.incoming() == []
 
 
 def test_through_a_provider_that_stays_connected_a_gone_reference_a_failure_and_a_cap_are_told(chirp):
     chirp.flag("gone.json", ["r1"])
     chirp.send([chirp.file()])
-    assert chirp.texts() == ["That file can no longer be fetched from chirp. Send it again."]
+    told(chirp.texts(), 1, "ATT_GONE", platform="chirp")
     chirp.put("r2", PDF)
     chirp.flag("fail.json", ["r2"])
     chirp.send([chirp.file("r2")])
-    assert chirp.texts()[-1] == "The file could not be fetched. Send it again."
+    told(chirp.texts()[-1:], 1, "ATT_FETCH_FAILED")
     chirp.put("r3", make_pdf("x" * 3000))
     chirp.flag("lie.json", ["r3"])
     chirp.send([chirp.file("r3")])
-    assert chirp.texts()[-1] == "The file could not be fetched. Send it again." and chirp.incoming() == []
+    told(chirp.texts()[-1:], 1, "ATT_FETCH_FAILED")
+    assert chirp.incoming() == []
     assert [r["code"] for r in chirp.case.rows()] == ["gone", "fetch", "fetch"] and not chirp.case.rows("held")
 
 
@@ -545,10 +591,11 @@ def test_pending_lists_only_the_files_this_sender_sent_and_the_other_sender_cann
     world.reset()
     world.say("/add 1", sender=OTHER)
     world.say("/discard 1", sender=OTHER)
-    assert world.texts() == ["Act on the card sent to you (send /pending)."] * 2 and world.case.rows()[0]["status"] == "held"
+    told(world.texts(), 2, "NO_CARD")
+    assert world.case.rows()[0]["status"] == "held"
     world.reset()
     world.say("/pending")
-    assert any("file #1 Secret merger memo.pdf" in t for t in world.texts()), "the sender who sent it sees it"
+    assert any(pk.said(t, "ATT_WAITING_LINE", id=1, name="Secret merger memo.pdf") for t in world.texts()), "the sender who sent it sees it"
     ledger = world.bridge.ledger
     assert ledger.attachment_card(world.project["id"], 1, OTHER) is None and ledger.attachment_card(world.project["id"], 1, IDENT) is not None
     # a file of one's own with no card in this chat (its card never went out) is not listed either
@@ -566,7 +613,7 @@ def test_twenty_five_attempts_to_fetch_a_file_over_the_cap_stop_at_the_day_s_lim
     for _ in range(25):
         world.send([world.file("big", "Big.txt", None, "text/plain")])
     assert len(world.fetches()) == attachments.DAY_FILES, "the 21st attempt is refused before a byte is fetched"
-    assert "took 20 files" in world.texts()[-1]
+    assert pk.said(world.texts()[-1], "ATT_DAY", n=20)
     rows = world.case.rows()
     assert len(rows) == 20 and {(r["status"], r["code"], r["bytes"]) for r in rows} == {("refused", "size", 0)}
     assert ops.attachments(world.case.path)["today"] == {"files": 20, "bytes": 0}, "the flood stops at the file count, and costs no bytes it never wrote"
@@ -596,12 +643,12 @@ def test_a_machine_problem_reaches_a_phone_as_a_fixed_sentence_and_the_path_stay
         m.setattr(attachments, "keep_held", lambda *a, **k: (_ for _ in ()).throw(attachments.FolderError(f"no room in {data_dir}")))
         world.reset()
         world.send([world.file("r2", "Two.pdf")])
-    assert world.texts() == ["Two.pdf could not be kept on this machine. Send it again in a while."]
+    told(world.texts(), 1, "ATT_KEPT_FAILED", name="Two.pdf")
     with monkeypatch.context() as m:
         m.setattr(ops_sources, "import_bytes", lambda *a, **k: (_ for _ in ()).throw(ops.OpsError(f"the sources folder {data_dir}/sources cannot be opened: no", 3)))
         world.reset()
         world.say(action=action)
-    assert world.texts() == ["This could not be done now. Try again later, or use the platform's page."]
+    told(world.texts(), 1, "ATT_MACHINE")
     for text in world.texts() + world.log:
         assert data_dir not in text and "/private/" not in text and "/var/" not in text, text
     assert any("a machine problem was told to a phone (MachineProblem)" in x for x in world.log) or any("(OpsError)" in x for x in world.log)
@@ -610,6 +657,7 @@ def test_a_machine_problem_reaches_a_phone_as_a_fixed_sentence_and_the_path_stay
     assert phone(ops.OpsError("see /Users/someone/projects/x/ for it")) == attachments.MACHINE
     assert phone(ops.OpsError("see ~/projects/x for it")) == attachments.MACHINE
     assert phone(ops.OpsError("C:\\Users\\x\\file")) == attachments.MACHINE
+    # literal: a sentence of the operations layer is told as it is, so the message given is the message expected
     assert phone(ops.OpsError("Send /add 3 or /discard 3.")) == "Send /add 3 or /discard 3." and phone(ops.OpsError("No file 3 waits for you.")) == "No file 3 waits for you."
 
 
@@ -625,16 +673,16 @@ def test_gone_is_the_last_line_of_stderr_and_nothing_else_is_read_as_gone(world)
     world.put("r2", PDF)
     world.flag("notgone.json", ["r2"])
     world.send([world.file("r2")])
-    assert world.texts() == ["The file could not be fetched. Send it again."], "a message that begins with the word is an ordinary failure"
+    told(world.texts(), 1, "ATT_FETCH_FAILED")      # a message that begins with the word is an ordinary failure
     world.flag("gone.json", ["r1"])
     world.send([world.file("r1")])
-    assert world.texts()[-1] == "That file can no longer be fetched from telegram. Send it again."
+    told(world.texts()[-1:], 1, "ATT_GONE", platform="telegram")
 
 
 def test_the_same_reference_twice_in_one_message_is_fetched_once_and_a_busy_lock_stops_the_rest_of_the_message(world):
     world.send([world.file("r1"), world.file("r1")])
     assert len(world.fetches()) == 1 and world.texts().count(world.texts()[0]) == 1 and len(world.case.rows()) == 1
-    assert not any("already waits" in t for t in world.texts()), "nothing is said of the second copy"
+    assert not any(pk.said(t, "ATT_DUPLICATE") for t in world.texts()), "nothing is said of the second copy"
     world.reset()
     for n in (2, 3, 4):
         world.put(f"b{n}", make_pdf(f"File {n}"))
@@ -643,7 +691,7 @@ def test_the_same_reference_twice_in_one_message_is_fetched_once_and_a_busy_lock
         world.send([world.file(f"b{n}", f"B{n}.pdf") for n in (2, 3, 4)])
     finally:
         lock.release()
-    assert world.texts() == ["Another file is being fetched. Send this one again in a moment."], "told once, not three times"
+    told(world.texts(), 1, "ATT_BUSY")      # told once, not three times
     assert world.fetches() == [] and world.incoming() == []
 
 
@@ -674,8 +722,9 @@ def test_a_file_one_sender_holds_never_blocks_or_names_itself_to_another_sender_
     world.reset()
     world.send([world.file("r1", "Memo.pdf")], sender=OTHER)
     assert len(world.fetches()) == 1, "the other sender's file is fetched"
-    assert all("already waits" not in t and "file 1" not in t for t in world.texts()), "and they are not told the number of the first sender's file"
+    assert all(not pk.said(t, "ATT_DUPLICATE") and "file 1" not in t for t in world.texts()), "and they are not told the number of the first sender's file"
     assert [(r["sender"], r["status"]) for r in world.case.rows()] == [(IDENT, "held"), (OTHER, "held")]
     world.reset()
     world.send([world.file("r1", "Memo.pdf")], sender=OTHER)
-    assert world.texts() == ["Memo.pdf already waits for your answer (file 2)."] and world.fetches() == [], "the same sender is told, with their own number"
+    told(world.texts(), 1, "ATT_DUPLICATE", name="Memo.pdf", id=2)      # the same sender is told, with their own number
+    assert world.fetches() == []

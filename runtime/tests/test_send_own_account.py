@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from sources_fixture import standin_convert
@@ -61,6 +62,7 @@ steps = st.load("steps")
 ACCOUNTS = {"google": {"address": fgs.ACCOUNT}, "microsoft": {"address": fgg.ADDRESS}}
 SENDER = "telegram:830461975213"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
+CFG, PT = {"language": "en"}, {"language": "pt-BR"}      # the cards are English; the phone texts of some tests are pt-BR
 SUBJECT = "Haircut on Monday"
 BODY = "Hello Ana,\n\nSee you on Monday at one.\n\nPat\n"
 TO = "ana@client.example"
@@ -162,6 +164,13 @@ def nothing_made(world):
     assert world["gmail"].requests == [] and world["graph"].requests == []
 
 
+def assert_lines(lines, expected, cfg=CFG):
+    """Each line says the sentence of its `(phrase key, fields)`, in order, and there are no other lines."""
+    assert len(lines) == len(expected), lines
+    for line, (key, fields) in zip(lines, expected):
+        pk.assert_said(line, key, cfg, **fields)
+
+
 def sent_message(fake, index=-1):
     return email.message_from_bytes(fake.sent[index]["raw"], policy=email.policy.default)
 
@@ -176,16 +185,19 @@ def test_a_send_prepares_a_card_of_the_whole_email_and_reads_no_credential_and_o
     dry = [c for c in world["calls"] if "--dry-run" in c["args"]]
     assert len(dry) == 1 and dry[0]["implementation"] == "gmail" and not [k for k in dry[0]["env"] if k.endswith("_TOKEN")], "the dry run is started without the token"
     item = item_of(world, started)
-    assert item["kind"] == "effect" and item["title"] == "Mail: send from your account" and SUBJECT not in item["title"]
+    assert item["kind"] == "effect" and pk.said(item["title"], "TITLE_MAIL_SEND", CFG) and SUBJECT not in item["title"]
     assert item["payload"]["step"] == {"kind": "send-email", "step": "send"} and phrases.card_valid(item["payload"]["card"])
     assert item["body"] == phrases.card_text(item["payload"]["card"])
     lines = item["body"].splitlines()
-    assert lines[0] == "Code sends this e-mail from your own account after your approval, to exactly these recipients and no one else, and nothing else."
-    assert lines[1:5] == [f"From your own account: {fgs.ACCOUNT} (google)", f"To: {TO}", "Cc: lee@client.example", f"Subject: {SUBJECT}"]
-    assert "Recipients in all: 2" in lines and lines[lines.index("Recipients in all: 2") + 1].startswith("----- the message, exactly as it will be sent")
-    start = lines.index("Recipients in all: 2") + 1
-    assert lines[start + 1:start + 6] == ["\u2502 Hello Ana,", "\u2502", "\u2502 See you on Monday at one.", "\u2502", "\u2502 Pat"]
-    assert lines[start + 6] == "----- end of the message -----" and lines[-3].startswith("Hash of this effect") and lines[-2].startswith("Approve exactly this: ")
+    pk.assert_said(lines[0], "CARD_MAIL_SEND", CFG)
+    assert_lines(lines[1:5], [("CARD_MAIL_FROM_ACCOUNT", {"address": fgs.ACCOUNT, "account": "google"}), ("CARD_MAIL_TO", {"addresses": TO}), ("CARD_MAIL_CC", {"addresses": "lee@client.example"}),
+                              ("CARD_MAIL_SUBJECT", {"subject": SUBJECT})])
+    count = [i for i, line in enumerate(lines) if pk.said(line, "CARD_MAIL_COUNT", CFG, count=2)]
+    assert len(count) == 1
+    start = count[0] + 1
+    # the message is what a person typed, the text of the e-mail with its marker; the lines around it are the table's
+    pk.assert_said("\n".join(lines[start:start + 7]), "CARD_MAIL_MESSAGE", CFG, body="\u2502 Hello Ana,\n\u2502\n\u2502 See you on Monday at one.\n\u2502\n\u2502 Pat")
+    assert pk.said(lines[-3], "CARD_MAIL_HASH", CFG) and pk.said(lines[-2], "CARD_MAIL_APPROVE", CFG)
     doc = effect_doc(world, started)
     assert doc["account"] == "google" and doc["provider"] == "gmail" and doc["from"] == fgs.ACCOUNT and doc["reply"] is None and doc["thread_id"] is None
     assert doc["to"] == [TO] and doc["cc"] == ["lee@client.example"] and doc["bcc"] == [] and doc["references"] == []
@@ -262,9 +274,9 @@ def test_an_account_the_accounts_do_not_name_or_a_changed_address_is_refused_at_
     ops.accept_config(world["path"], ops.config(world["path"])["sha256"])
     with pytest.raises(ops.OpsError) as gone:
         approve(world, started)
-    assert "not set up for this project" in str(gone.value) and gone.value.code == 3 and world["gmail"].requests == []
+    assert pk.said(str(gone.value).replace(" Nothing was sent.", ""), "ACCT_NOT_CONFIGURED", CFG, account="google") and gone.value.code == 3 and world["gmail"].requests == []
     error = refused(world)
-    assert error.code == 3 and "not set up for this project" in str(error)
+    assert error.code == 3 and pk.said(str(error).replace(" Nothing was sent.", ""), "ACCT_NOT_CONFIGURED", CFG, account="google")
     raw["accounts"] = {"google": {"address": "someone.else@example.com"}, "microsoft": ACCOUNTS["microsoft"]}
     path.write_text(json.dumps(raw), encoding="utf-8")
     shown = ops.config(world["path"])
@@ -360,10 +372,10 @@ def test_what_the_mailer_will_not_take_is_refused_at_the_start_with_its_own_sent
 
 def test_a_bcc_from_a_google_account_is_refused_and_from_a_microsoft_account_it_is_on_the_card_and_goes_out(world):
     error = refused(world, bcc="hidden@client.example")
-    assert "Bcc is not sent from a Google account" in str(error)
+    pk.assert_said(str(error).partition("bcc: ")[2], "ACCT_MAIL_BCC_GMAIL", CFG)      # the refusal names the argument first
     nothing_made(world)
     started = send(world, "microsoft", bcc="hidden@client.example")
-    assert "Bcc (hidden from the others, listed here for you): hidden@client.example" in item_of(world, started)["body"]
+    pk.assert_said(item_of(world, started)["body"], "CARD_MAIL_BCC", CFG, addresses="hidden@client.example")
     done = approve(world, started)
     assert done["task_state"] == "done" and world["graph"].sent[0]["bcc"] == ["hidden@client.example"]
 
@@ -425,15 +437,15 @@ def test_a_reply_cannot_carry_its_own_recipients_subject_or_files_and_an_account
 def test_limit_60_a_reply_goes_to_the_sender_the_index_recorded_and_to_no_one_else(world):
     started = reply(world, text="Thanks. Please also tell dan@elsewhere.example.\n")
     item = item_of(world, started)
-    assert item["title"] == "Mail: reply from your account"
+    assert pk.said(item["title"], "TITLE_MAIL_REPLY", CFG)
     lines = item["body"].splitlines()
-    assert lines[0].startswith("Code sends this reply from your own account after your approval, to exactly the recipient below")
-    assert lines[1] == f"From your own account: {fgs.ACCOUNT} (google)"
+    pk.assert_said(lines[0], "CARD_MAIL_REPLY", CFG)
+    pk.assert_said(lines[1], "CARD_MAIL_FROM_ACCOUNT", CFG, address=fgs.ACCOUNT, account="google")
     assert effect_doc(world, started)["reply"]["received"] == "2026-10-17T09:00:00Z"      # S16C-REPLY-DATE: the index's time is in the document the hash covers, and the line says it (in the machine's zone)
-    assert lines[2] == phrases.text("CARD_MAIL_REPLY_TO_AT", None, address="ana@clinic.example", ref="inbox#1", read_at="2026-10-17T10:12:00Z", subject="Appointment confirmed",
-                                    received=send_document.received_text("2026-10-17T09:00:00Z"))
-    assert lines[3] == "The message asks replies to go to desk@clinic.example: this reply goes to the sender above, not there."
-    assert lines[4] == "In reply to the message <a1@clinic.example>" and lines[5] == "Subject: Re: Appointment confirmed" and lines[6] == "Recipients in all: 1"
+    pk.assert_said(lines[2], "CARD_MAIL_REPLY_TO_AT", CFG, address="ana@clinic.example", ref="inbox#1", read_at="2026-10-17T10:12:00Z", subject="Appointment confirmed",
+                   received=send_document.received_text("2026-10-17T09:00:00Z"))
+    pk.assert_said(lines[3], "CARD_MAIL_REPLY_TO_DIFFERS", CFG, other="desk@clinic.example")
+    assert_lines(lines[4:7], [("CARD_MAIL_IN_REPLY", {"message_id": "<a1@clinic.example>"}), ("CARD_MAIL_SUBJECT_REPLY", {"subject": "Re: Appointment confirmed"}), ("CARD_MAIL_COUNT", {"count": 1})])
     doc = effect_doc(world, started)
     assert doc["to"] == ["ana@clinic.example"] and doc["cc"] == [] and doc["bcc"] == [] and doc["in_reply_to"] == "<a1@clinic.example>"
     assert doc["references"] == ["<a1@clinic.example>"] and doc["thread_id"] == "t1" and doc["reply"]["reply_to"] == "desk@clinic.example"
@@ -490,24 +502,24 @@ def test_each_way_a_reference_can_fail_has_its_sentence_and_nothing_is_made(worl
     (Path(world["tmp"]) / "notes.txt").write_text("a\n", encoding="utf-8")
     sources.import_version(desk.ctx, sources.register(desk.ctx, "notes", "file", "notes.txt"), str(Path(world["tmp"]) / "notes.txt"), convert=standin_convert)
     sources.register(desk.ctx, "later", "mail", "gmail:box=starred;days=3;max=10")
-    cases = [("inbox", "is not a reference to a message"), ("inbox#0", "start at 1"), ("inbox#9", "past the end"), ("nothing#1", "no mail source"),
-             ("created:3", "not a message of a mail snapshot"), ("notes#1", "is not a mail source"), ("later#1", "has no snapshot yet")]
-    for message, sentence in cases:
+    cases = [("inbox", "ACCT_MAIL_REF_MALFORMED"), ("inbox#0", "ACCT_MAIL_REF_ZERO"), ("inbox#9", "ACCT_MAIL_REF_PAST_END"), ("nothing#1", "ACCT_MAIL_REF_NO_SOURCE"),
+             ("created:3", "ACCT_MAIL_REF_WRONG_KIND"), ("notes#1", "ACCT_MAIL_REF_NOT_SNAPSHOT"), ("later#1", "ACCT_MAIL_REF_NO_VERSION")]
+    for message, key in cases:
         error = refused(world, reply, message)
-        assert sentence in str(error) and error.code == 1, (message, str(error))
+        assert pk.said(str(error), key, CFG, ref=message) and error.code == 1, (message, str(error))
         nothing_made(world)
     desk.now = desk.now + datetime.timedelta(hours=30)
     stale = refused(world, reply, "inbox#1")
-    assert "more than 26 hours old" in str(stale)
+    pk.assert_said(str(stale), "ACCT_MAIL_REF_STALE", CFG, ref="inbox#1")
     nothing_made(world)
-    assert "{" not in str(stale) and str(stale).startswith("The newest snapshot of inbox#1 ")
+    assert "{" not in str(stale)
 
 
 def test_a_message_of_another_account_or_without_a_sender_or_a_message_id_cannot_be_answered(world):
     error = refused(world, reply, "work#1", "google")
-    assert "another account than google" in str(error)
+    pk.assert_said(str(error).partition(" -- ")[2], "ACCT_MAIL_OTHER_ACCOUNT", CFG, ref="work#1", account="google")      # the refusal names the step first
     error = refused(world, reply, "inbox#3")      # no Message-ID header in the snapshot
-    assert "cannot be answered from here" in str(error)
+    pk.assert_said(str(error).partition(" -- ")[2], "ACCT_MAIL_NOT_REPLIABLE", CFG)
     desk = world["desk"]
     desk.providers.mail["gmail"] = [tsm.message(7, "2026-10-17T09:00:00Z", sender="undisclosed", subject="List", thread_id="t7", headers={"Message-ID": "<l7@list.example>"},
                                                 from_address=None)]
@@ -555,10 +567,11 @@ def test_a_messaging_sender_prepares_with_the_group_and_names_a_snapshot_only_wi
     accepted = accept(world["path"], {"messaging": ["read", "mail-send"]})
     assert [w["group"] for w in accepted["widened"]] == ["mail-send"]
     started = send(world, channel="messaging", sender=SENDER)
-    assert started["word"] == "send" and account_start.reply_text({}, started) == f"Card #{started['pending']} waits for your approval."
+    said_back = account_start.reply_text({}, started)
+    assert started["word"] == "send" and "\n" not in said_back and pk.said(said_back, "ACCT_CARD_SENT", CFG, pending=started["pending"]), said_back
     assert world["gmail"].requests == []
     error = refused(world, reply, "inbox#1", channel="messaging", sender=SENDER)
-    assert "may not read it" in str(error) and "ask-mail" in str(error), "no profile can list the group ask-mail before NR-2 builds it: a messaging sender cannot name a snapshot"
+    assert pk.said(str(error), "ACCT_MAIL_REF_NOT_READABLE", CFG, ref="inbox#1"), "no profile can list the group ask-mail before NR-2 builds it: a messaging sender cannot name a snapshot"
     with pytest.raises(ops.OpsError) as not_granted:
         approve(world, started, "messaging")
     assert "approve-effect-send-own" in str(not_granted.value) and world["gmail"].requests == []
@@ -571,7 +584,7 @@ def test_a_messaging_sender_prepares_with_the_group_and_names_a_snapshot_only_wi
     accept(world["path"], {"messaging": ["read", "mail-send", "approve-effect-send-own"]})
     reader_of_mail = {"messaging": [*ops.config(world["path"])["channels"]["messaging"], "ask-mail"]}      # the card is whole only for a reader of the mail
     card = cards.build("office", full, CAPS, reader_of_mail, "text", None, operations=operations, sender=SENDER)
-    assert card["approvable"] is True and card["whole"] is True and "Approve this exact content" in [a["label"] for a in card["message"]["actions"]]
+    assert card["approvable"] is True and card["whole"] is True and any(pk.said(a["label"], "EFFECT_LABEL", CFG) for a in card["message"]["actions"])
     for line in (f"To: {TO}", f"Subject: {SUBJECT}", "\u2502 Hello Ana,"):
         assert line in card["message"]["text"], line
     with pytest.raises(ops.OpsError):
@@ -641,7 +654,7 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_with_the_same_ha
     pt = cards.build("northwind", full, CAPS, policy, "text", None, operations=operations, cfg={"language": "pt-BR"})
     en = cards.build("northwind", full, CAPS, policy, "text", None, operations=operations, cfg={})
     assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"]      # the hash binds the button; a phone does not print it (LIVE-2)
-    assert phrases.heading(item["title"], {"language": "pt-BR"}) == "E-mail: responder da sua conta"
+    assert pk.said(phrases.heading(item["title"], PT), "TITLE_MAIL_REPLY", PT)
 
 
 def test_every_key_of_the_family_is_in_both_columns_with_the_same_fields_and_the_card_of_every_kind_equals_its_stored_body(world):
@@ -835,8 +848,8 @@ def test_a_reply_card_shows_what_the_message_says_only_to_a_messaging_reader_who
     text = other["message"]["text"]
     for hidden in ("Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "<a1@clinic.example>"):
         assert hidden not in text, hidden
-    assert "Some of the addresses, subjects and text of the e-mail are not shown here" in text and "Recipients in all: 1" in text
-    assert other["approvable"] is False and "Approve this exact content" not in [a["label"] for a in other["message"]["actions"]]
+    assert pk.said(text, "CARD_HIDDEN_NOTE_MAIL", CFG) and pk.said(text, "CARD_MAIL_COUNT", CFG, count=1)
+    assert other["approvable"] is False and not any(pk.said(a["label"], "EFFECT_LABEL", CFG) for a in other["message"]["actions"])
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
 
 
@@ -878,11 +891,11 @@ def test_a_preparation_never_resolves_a_reference_without_saying_who_asked(world
     for channel in (None, "mcp", "chat"):
         with pytest.raises(st.load("ops_step_seams").StepServiceError) as why:
             seam.reply_facts("inbox#1", "google", channel, None)
-        assert why.value.code == "refused" and "may not read it" in why.value.reason
+        assert why.value.code == "refused" and pk.said(why.value.reason, "ACCT_MAIL_REF_NOT_READABLE", CFG, ref="inbox#1"), why.value.reason
     assert seam.reply_facts("inbox#1", "google", "terminal", None)["address"] == "ana@clinic.example"
     with pytest.raises(st.load("ops_step_seams").StepServiceError) as no:
         seam.reply_facts("inbox#1", "google", "messaging", SENDER)
-    assert "may not read it" in no.value.reason, "a messaging sender without ask-mail cannot be read for, even in a preparation"
+    assert pk.said(no.value.reason, "ACCT_MAIL_REF_NOT_READABLE", CFG, ref="inbox#1"), "a messaging sender without ask-mail cannot be read for, even in a preparation"
 
 
 # --- the task row, the result and the records of an e-mail from an own account, as a reader who may not read the person's mail sees them -------------------------
@@ -995,7 +1008,7 @@ def test_the_card_of_a_new_email_is_read_whole_by_the_terminal_the_page_and_a_re
         for word in words:
             assert word not in text, (channel, sender, word)
         shown = views[0]
-        assert "not shown here" in shown["body"] and "Recipients in all: 2" in shown["body"] and sha in shown["body"], "the count, the hash and the way to approve stay"
+        assert pk.said(shown["body"], "CARD_HIDDEN_NOTE_MAIL", CFG) and pk.said(shown["body"], "CARD_MAIL_COUNT", CFG, count=2) and pk.said(shown["body"], "CARD_MAIL_HASH", CFG, sha=sha), "the count, the hash and the way to approve stay"
         assert all(key not in phrases.CARD_PRIVATE for key, _ in shown["payload"]["card"]) and shown["payload_sha256"] == sha
     monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel == "messaging" and sender == SENDER)      # a sender whose profile lists `ask-mail` (NR-2 adds the group)
     held = ops.pending(world["path"], started["pending"], channel="messaging", sender=SENDER)
@@ -1025,7 +1038,7 @@ def test_a_card_with_private_lines_is_approved_from_messaging_only_by_a_reader_o
     assert ops_grants.has_private_lines(item) and not ops_grants.has_private_lines({"payload": {}}) and not ops_grants.has_private_lines({"payload": {"card": [["CARD_MAIL_ONCE", {}]]}})
     channels = ops.config(world["path"])["channels"]
     plain = cards.build("office", ops.pending(world["path"], started["pending"]), CAPS, channels, "text", None, operations=operations, sender=SENDER)
-    assert plain["approvable"] is False and "Approve this exact content" not in [a["label"] for a in plain["message"]["actions"]], "the bridge says the same"
+    assert plain["approvable"] is False and not any(pk.said(a["label"], "EFFECT_LABEL", CFG) for a in plain["message"]["actions"]), "the bridge says the same"
     monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel == "messaging")      # a sender who holds `ask-mail`
     assert ops_grants.effect_refusal(ctx, item, "messaging", facts, SENDER) is None
     reader = {"messaging": [*channels["messaging"], "ask-mail"]}
@@ -1063,7 +1076,7 @@ def test_the_private_card_a_holder_of_ask_mail_reads_is_not_kept_in_the_conversa
     typed = ops.say(world["path"], f"/pending {started['pending']}", channel="messaging", sender=SENDER)
     assert TO in typed["reply"] and SUBJECT in typed["reply"], "the holder reads the whole card"
     words = ops.say(world["path"], f"task {started['task']}", channel="messaging", sender=SENDER)
-    assert "Mail: send from your account" in words["reply"]
+    assert any(pk.said(m.group(1), "TITLE_MAIL_SEND", CFG) for m in re.finditer(r"title (.*)$", words["reply"], re.M)), words["reply"]      # the title ends a line of the task read-out
     messages = ops.conversation(world["path"], channel="mcp")["messages"]
     assert [m["text"] for m in messages if m["role"] == "assistant"] == [neutral, neutral]
     assert not any(TO in m["text"] or SUBJECT in m["text"] for m in messages)

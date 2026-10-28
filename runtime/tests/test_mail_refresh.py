@@ -24,6 +24,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_mailbox_write import world as mailbox_world  # noqa: F401  (the mailbox world: a fixture of its own name here)
@@ -46,6 +47,7 @@ drafts = st.load("drafts")
 
 LINE = "apague o e-mail da Ana"      # the words of the retest of 2026-10-25, over the stand-in mailbox whose first message is from Ana
 PLANTED = "PLANTED-PROVIDER-TEXT-7731"
+CFG = {"language": "en"}
 ANA = "ana@clinic.example"
 
 
@@ -162,8 +164,8 @@ def test_limit_52_a_stale_gmail_is_read_once_by_the_platform_and_the_line_ends_i
     assert "--own-words" in call["args"] and not [a for a in call["args"] if "ana" in a.lower()], "the origin's arguments: nothing of the line reaches the provider"
     assert "resend" in done and done["resend"], "the card is opened"
     body = cards(world)[0]["body"]
-    assert "Account: google" in body and ANA in body and "bob@shop.example" not in body and "ACCT_MAIL_REF_STALE" not in done["reply"]
-    assert newest(world, "inbox") != old and f"Chosen from a snapshot read at {newest(world, 'inbox')}." in body, "the card is made from the snapshot the platform just read"
+    assert pk.said(body, "CARD_ACCOUNT", CFG, account="google") and ANA in body and "bob@shop.example" not in body and "ACCT_MAIL_REF_STALE" not in done["reply"]
+    assert newest(world, "inbox") != old and pk.said(body, "CARD_BOX_SNAPSHOT", CFG, snapshot_at=newest(world, "inbox")), "the card is made from the snapshot the platform just read"
     assert len(cards(world)) == 1
     # vacuity: the snapshot is fresh now, so the same line reads nothing and opens the same card (the count sees reads only when they happen)
     again = phone(world, LINE, words_seed(op="mail-trash"))
@@ -178,7 +180,7 @@ def test_the_line_reads_the_outlook_source_when_it_is_the_one_the_person_chose_a
     done = phone(world, "2")
     assert len(reads(world, "outlook")) == 1 and reads(world, "gmail") == [], "(h) only the source the line needs"
     body = cards(world)[0]["body"]
-    assert "resend" in done and "Account: microsoft" in body and ANA in body
+    assert "resend" in done and pk.said(body, "CARD_ACCOUNT", CFG, account="microsoft") and ANA in body
 
 
 def test_the_oracle_that_counts_reads_sees_a_read_when_there_is_one(world):
@@ -398,7 +400,7 @@ def test_a_failing_provider_gives_one_plain_sentence_in_portuguese_with_nothing_
     phone(world, LINE, words_seed())
     out = phone(world, "1")
     expected = phrases.text("NW_MAIL_REFRESH_FAILED", {"language": "pt-BR"}, source="Gmail")
-    assert out["reply"] == expected and expected.startswith("Não consegui atualizar o Gmail agora") and "inbox" not in out["reply"], "the plain name on a phone, never the id"      # validate: allow english-only -- the Portuguese sentence under test
+    assert out["reply"] == expected and pk.said(out["reply"], "NW_MAIL_REFRESH_FAILED", {"language": "pt-BR"}, source="Gmail") and "inbox" not in out["reply"], "the plain name on a phone, never the id"
     assert PLANTED not in out["reply"] and phone_problems(out["reply"]) == []
     err = capsys.readouterr().err
     assert err.splitlines() == ["mail: refresh of inbox failed (mail)"] and PLANTED not in err and "secret" not in err

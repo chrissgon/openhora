@@ -26,10 +26,11 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_mail_compose_flow import BARE, SENDER, ZEBRA, Model, card, card_lines, clock, forget, nothing_sent, op, phone, text_of  # noqa: F401  (the stand-in route and the card readers)
-from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
+from test_send_own_account import ACCOUNTS, CFG, world  # noqa: F401  (the own-account mail world)
 
 account_start = st.load("account_start")
 drafts = st.load("drafts")
@@ -124,8 +125,8 @@ def test_the_blind_shape_opens_a_reply_card_to_the_from_of_the_matching_message_
     out = phone(world, LINE)
     assert out["resend"], out["reply"]
     lines = card_lines(world, out)
-    assert lines[2].startswith(f"Reply to: {MARLENE}, the sender of inbox#1"), lines[2]
-    assert f"Subject: Re: {SUBJECT}" in lines and not any("Convite de aniversário" in line for line in lines), "the subject is the message's own: the model's is dropped"      # validate: allow english-only -- the stand-in model's Portuguese subject
+    assert pk.said(lines[2], "CARD_MAIL_REPLY_TO", CFG, address=MARLENE, ref="inbox#1") or pk.said(lines[2], "CARD_MAIL_REPLY_TO_AT", CFG, address=MARLENE, ref="inbox#1"), lines[2]
+    assert pk.said("\n".join(lines), "CARD_MAIL_SUBJECT", CFG, subject=f"Re: {SUBJECT}") and not any("Convite de aniversário" in line for line in lines), "the subject is the message's own: the model's is dropped"      # validate: allow english-only -- the stand-in model's Portuguese subject
     assert text_of(lines) == COMPOSED_BODY.split("\n"), "the card shows the whole text the stand-in wrote"
     assert [c["kind"] for c in model.calls] == ["interpret", "compose"]
     assert phrases.text("MC_REPLY_NOT_WORDED", ops_core.context(world["path"])["cfg"]) not in out["reply"], "a worded reply carries no notice"
@@ -272,9 +273,10 @@ def assert_persons_words_on_a_card(world, model, out, calls):
     assert len(model.of("compose")) == calls
     cfg = ops_core.context(world["path"])["cfg"]
     notice = phrases.text("MC_REPLY_NOT_WORDED", cfg)
-    assert notice.startswith("Não consegui redigir esta resposta") and out["reply"].count(notice) == 1, "one line says the text could not be worded and the card shows the person's own words"      # validate: allow english-only -- the pt-BR notice under test
+    assert pk.said(notice, "MC_REPLY_NOT_WORDED", cfg) and sum(pk.said(line, "MC_REPLY_NOT_WORDED", cfg) for line in out["reply"].splitlines()) == 1, "one line says the text could not be worded and the card shows the person's own words"
     assert out["reply"].splitlines()[0] == notice
-    assert phrases.text("MC_REPLY_NOT_WORDED", {"language": "en"}).startswith("I could not word this reply")
+    in_english = phrases.text("MC_REPLY_NOT_WORDED", {"language": "en"})
+    assert pk.said(in_english, "MC_REPLY_NOT_WORDED", {"language": "en"}) and not pk.said(in_english, "MC_REPLY_NOT_WORDED", cfg)      # the other language is another sentence
     nothing_sent(world)
 
 

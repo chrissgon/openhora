@@ -25,9 +25,10 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
-from test_mail_compose_flow import ADDRESS, SENDER, ZONE, card_lines, clock, forget, op, phone, text_of  # noqa: F401
-from test_send_own_account import ACCOUNTS, world  # noqa: F401  (the own-account mail world)
+from test_mail_compose_flow import ADDRESS, SENDER, ZONE, card_lines, clock, forget, has, op, phone, text_of  # noqa: F401
+from test_send_own_account import ACCOUNTS, CFG, PT, assert_lines, world  # noqa: F401  (the own-account mail world)
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -49,10 +50,21 @@ COMPOSE = json.dumps({"subject": "Reunião amanhã às 16h", "body": CLOSED}, en
 INSTRUCTION = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live line, Portuguese
 REVISED_BODY = CLOSED + "\nRenato Bragança"      # validate: allow english-only -- the stand-in model's Portuguese answer
 REVISED = json.dumps({"subject": "Reunião amanhã às 16h", "body": REVISED_BODY}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's Portuguese answer
-FAILED = "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card."      # validate: allow english-only -- the Portuguese sentence under test
-RECIPIENTS = ("Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.")      # validate: allow english-only -- the Portuguese sentence under test
+RECIPIENTS = "RV_RECIPIENTS"      # the sentences of a refused revision are phrase keys (pt-BR replies): `says`, `reply_is`
+FAILED_KEY = "RV_FAILED"
+FAILED = "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card."      # literal: imported as a string by test_turn_gate_admit.py (not this package's file); this file asserts FAILED_KEY  # validate: allow english-only -- the Portuguese sentence under test
 ZEBRA = "ZEBRA-INSTRUCTION-5521"
 GROUPS = ("read", "talk", "interpret", "mail-send", "mail-organize", "reject-cancel")
+
+
+def says(text, key):
+    """The whole of `text` is the one pt-BR sentence of phrase key `key`."""
+    return isinstance(text, str) and "\n" not in text and pk.said(text, key, PT)
+
+
+def reply_is(got, key, resend):
+    """`got` is `{"say": <the sentence of key>, "resend": resend}` and nothing else."""
+    return set(got) == {"say", "resend"} and got["resend"] == resend and says(got["say"], key)
 
 
 class Model:
@@ -136,9 +148,9 @@ def test_the_live_instruction_replaces_the_card_with_one_whose_text_ends_with_th
     got = revise(world, old, sha, INSTRUCTION)
     new = got["resend"]
     assert isinstance(new, int) and new != old
-    assert got["say"] == "Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este."      # validate: allow english-only -- the Portuguese sentence under test
+    assert says(got["say"], "RV_DONE_MAIL"), got["say"]
     lines = card_lines(world, got)
-    assert lines[1:4] == ["From your own account: pat@example.com (google)", f"To: {ADDRESS}", "Subject: Reunião amanhã às 16h"]      # validate: allow english-only -- the stand-in model's answer
+    assert_lines(lines[1:4], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS}), ("CARD_MAIL_SUBJECT", {"subject": "Reunião amanhã às 16h"})])      # validate: allow english-only -- the stand-in model's answer
     assert before[1:3] == lines[1:3], "the same From and the same To"
     assert text_of(lines)[-2:] == ["Atenciosamente,", "Renato Bragança"]      # validate: allow english-only -- the stand-in model's answer
     assert text_of(lines)[-1] == "Renato Bragança" and text_of(lines)[:-1] == text_of(before)      # validate: allow english-only -- the stand-in model's answer
@@ -189,7 +201,7 @@ def test_an_answer_that_is_not_the_change_leaves_the_old_card_open_and_says_one_
     model, old, sha = live_card(world, monkeypatch, revise=answer)
     caplog.set_level(logging.DEBUG)
     got = revise(world, old, sha, INSTRUCTION)
-    assert got == {"say": FAILED, "resend": old}, "the sentence, and the old card sent once more so that a word still decides it"
+    assert reply_is(got, FAILED_KEY, old), "the sentence, and the old card sent once more so that a word still decides it"
     assert status(world, old) == "open" and open_cards(world) == [old]
     assert ZEBRA not in got["say"] and ZEBRA not in caplog.text
     assert len(model.of("revise")) == 1
@@ -198,7 +210,7 @@ def test_an_answer_that_is_not_the_change_leaves_the_old_card_open_and_says_one_
 
 def test_a_quoted_text_the_answer_does_not_hold_is_refused_even_when_the_rest_is_fine(world, clock, monkeypatch):
     model, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nRenato Braganca"))      # the name without the cedilla: not the text the line quoted
-    assert revise(world, old, sha, INSTRUCTION)["say"] == FAILED and open_cards(world) == [old]
+    assert says(revise(world, old, sha, INSTRUCTION)["say"], FAILED_KEY) and open_cards(world) == [old]
 
 
 def test_vacuity_the_same_answer_with_the_quoted_text_is_accepted(world, clock, monkeypatch):
@@ -208,7 +220,7 @@ def test_vacuity_the_same_answer_with_the_quoted_text_is_accepted(world, clock, 
 
 def test_a_valid_answer_that_changes_nothing_is_not_a_change(world, clock, monkeypatch):
     _, old, sha = live_card(world, monkeypatch, revise=COMPOSE)
-    assert revise(world, old, sha, INSTRUCTION)["say"] == FAILED and open_cards(world) == [old]
+    assert says(revise(world, old, sha, INSTRUCTION)["say"], FAILED_KEY) and open_cards(world) == [old]
 
 
 def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_never_comes(world, clock, monkeypatch):
@@ -221,7 +233,7 @@ def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_neve
     new = revise(world, old, sha, INSTRUCTION)["resend"]
     assert new is not None
     model.answers["revise"] = hostile(typed.replace("pat@example.com", "outra@elsewhere.example") + "\nRenato Bragança")      # validate: allow english-only -- the stand-in model's answer
-    assert revise(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION)["say"] == FAILED
+    assert says(revise(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION)["say"], FAILED_KEY)
 
 
 def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_words_and_goes_on(world, clock, monkeypatch):
@@ -238,7 +250,7 @@ def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_w
 def test_a_line_that_asks_to_change_who_receives_the_e_mail_gets_one_sentence_and_no_model_call_and_no_card(world, clock, monkeypatch, line):
     model, old, sha = live_card(world, monkeypatch)
     got = revise(world, old, sha, line)
-    assert got == {"say": RECIPIENTS, "resend": old}
+    assert reply_is(got, RECIPIENTS, old), got
     assert model.of("revise") == [] and open_cards(world) == [old] and status(world, old) == "open"
     nothing_sent(world)
 
@@ -252,10 +264,10 @@ def test_vacuity_a_quoted_word_that_looks_like_a_recipient_word_is_not_a_request
 def test_the_new_card_keeps_the_recipients_and_the_account_even_when_the_model_names_others(world, clock, monkeypatch):
     model, old, sha = live_card(world, monkeypatch)
     model.answers["revise"] = json.dumps({"subject": "Reunião amanhã às 16h", "body": REVISED_BODY, "to": "outra@elsewhere.example"}, ensure_ascii=False)      # validate: allow english-only -- the stand-in model's answer
-    assert revise(world, old, sha, INSTRUCTION)["say"] == FAILED
+    assert says(revise(world, old, sha, INSTRUCTION)["say"], FAILED_KEY)
     model.answers["revise"] = REVISED
     new = revise(world, old, sha, INSTRUCTION)["resend"]
-    assert card_lines(world, {"resend": new})[1:3] == ["From your own account: pat@example.com (google)", f"To: {ADDRESS}"]
+    assert_lines(card_lines(world, {"resend": new})[1:3], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS})])
     assert "elsewhere.example" not in ops.pending(world["path"], new)["body"]
 
 
@@ -300,7 +312,7 @@ def test_a_card_that_changed_or_is_another_card_is_not_changed_and_a_replaced_ca
     new = revise(world, old, sha, INSTRUCTION)["resend"]
     assert check(world, old, sha, INSTRUCTION) == "replaced" and check(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION) == "mail"
     assert check(world, old, sha, "obrigado") is None, "a line that asks for no change is not told anything"
-    assert revise(world, old, sha, INSTRUCTION) == {"say": "Esse card foi substituído por um mais novo. Ajuste o card mais novo ou peça de novo.", "resend": None}      # validate: allow english-only -- the Portuguese sentence under test
+    assert reply_is(revise(world, old, sha, INSTRUCTION), "RV_REPLACED", None)
     ops.reject(world["path"], new, channel="terminal")
     assert check(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION) is None, "a card that was rejected by the person is not a replaced one"
 
@@ -317,7 +329,7 @@ def test_a_card_that_cannot_be_ended_stops_the_change_before_anything_is_opened(
     monkeypatch.setattr(ops, "reject", refuse)
     got = revise(world, old, sha, INSTRUCTION)
     monkeypatch.setattr(ops, "reject", real)
-    assert got == {"say": FAILED, "resend": old} and open_cards(world) == [old] and status(world, old) == "open"
+    assert reply_is(got, FAILED_KEY, old) and open_cards(world) == [old] and status(world, old) == "open"
     assert ops_core.context(world["path"])["store"].pending_list(ops_core.context(world["path"])["conn"], "open")[0]["id"] == old
 
 
@@ -328,7 +340,7 @@ def test_the_gate_checks_the_revised_cards_arguments_before_the_old_card_is_ende
     seen, real = [], gate.provenance
     monkeypatch.setattr(gate, "provenance", lambda op, args, origins: seen.append((op, sorted(args), dict(origins))) or ["to: origin grounded not allowed"])
     got = revise(world, old, sha, INSTRUCTION)
-    assert got == {"say": FAILED, "resend": old} and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
+    assert reply_is(got, FAILED_KEY, old) and open_cards(world) == [old] and status(world, old) == "open", "nothing was ended and nothing opened: the card is as it was"
     assert seen[0][0] in ("mail-send", "mail-draft") and {"account", "to", "subject"} <= set(seen[0][1]) and seen[0][2]["to"] == "card-copy", seen
     assert capsys.readouterr().err == f"gate: provenance refused {seen[0][0]} (to)\n"
     seen.clear()
@@ -345,7 +357,7 @@ def test_a_new_card_that_cannot_be_opened_leaves_no_open_card_and_says_to_ask_ag
         raise ops.OpsError("no card", 1)
     monkeypatch.setattr(ops, "natural_write", cannot)
     got = revise(world, old, sha, INSTRUCTION)
-    assert got == {"say": "Não consegui preparar o card ajustado e o anterior foi encerrado. Peça de novo.", "resend": None}      # validate: allow english-only -- the Portuguese sentence under test
+    assert reply_is(got, "RV_LOST", None)
     assert open_cards(world) == [] and status(world, old) != "open"
     nothing_sent(world)
 
@@ -359,7 +371,7 @@ def test_a_new_card_that_is_not_what_was_asked_is_ended_and_no_card_stays_open(w
         return real(project, line, **dict(kw, seed=seed))
     monkeypatch.setattr(ops, "natural_write", other)
     got = revise(world, old, sha, INSTRUCTION)
-    assert got["resend"] is None and got["say"].endswith("Peça de novo.") and open_cards(world) == []      # validate: allow english-only -- the Portuguese sentence under test
+    assert got["resend"] is None and says(got["say"], "RV_LOST") and open_cards(world) == []
     nothing_sent(world)
 
 
@@ -373,7 +385,7 @@ def test_a_card_approved_while_the_model_answered_is_told_so_and_nothing_else_is
         return real(route_id, system, user, **kw)
     monkeypatch.setattr(interpreter_route, "complete", approving)
     got = revise(world, old, sha, INSTRUCTION)
-    assert got == {"say": "Esse card já foi decidido antes de eu conseguir ajustá-lo, então nada foi alterado.", "resend": None}      # validate: allow english-only -- the Portuguese sentence under test
+    assert reply_is(got, "RV_DECIDED", None)
     assert open_cards(world) == [] and len([r for r in world["gmail"].requests if r["method"] == "POST" and "send" in r["path"]]) == 1, "the old card was sent as approved, once"
 
 
@@ -411,7 +423,7 @@ def test_a_draft_card_is_changed_the_same_way_and_a_reply_card_gets_the_sentence
     number = reply["pending"]
     cs = ops.pending(world["path"], number)["payload_sha256"]
     assert check(world, number, cs, "Ajuste o texto para dizer até sexta") == "sentence" and check(world, number, cs, "e a reunião de quinta?") is None      # validate: allow english-only -- the Portuguese lines under test
-    assert revise(world, number, cs, "Ajuste o texto para dizer até sexta")["say"] == "Para mudar este card, rejeite e peça de novo."      # validate: allow english-only -- the Portuguese sentence under test
+    assert says(revise(world, number, cs, "Ajuste o texto para dizer até sexta")["say"], "RV_NOT_REVISABLE")      # validate: allow english-only -- the Portuguese line under test
     assert status(world, number) == "open"
 
 

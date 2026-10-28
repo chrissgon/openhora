@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_channel_grants import accept
 
@@ -46,6 +47,7 @@ attachments = st.load("attachments")
 cards = st.load("messaging_cards")
 operations = st.load("operations")
 
+PT = {"language": "pt-BR"}
 TEXT = "# CV 2026\n\nPat Example, engineer.\n"
 NEW = "# CV 2026\n\nPat Example, senior engineer.\n"
 GOOGLE = {"address": "pat@example.com", "folders": {"default": fdw.FOLDER_ID, "cv": "Cv_Folder_0001"}}
@@ -174,7 +176,7 @@ def test_a_create_is_a_card_first_and_a_write_only_after_the_approval_of_the_has
     assert [f for f in gd.files if f != fdw.FOLDER_ID and f != "Cv_Folder_0001"] == []
     item = item_of(world, started)
     doc = effect_doc(world, started)
-    assert item["kind"] == "effect" and item["title"] == "Files: new file" and item["payload"]["card"] and not item["payload"]["effect"].get("content")
+    assert item["kind"] == "effect" and pk.said(item["title"], "TITLE_FILE_CREATE") and item["payload"]["card"] and not item["payload"]["effect"].get("content")
     assert item["body"] == phrases.card_text(item["payload"]["card"]) and files_document.guttered(TEXT) in item["body"] and "Pat Example" in item["body"]
     assert doc["effect"] == "files" and doc["operation"] == "create" and doc["content"]["text"] == TEXT and doc["content"]["sha256"] == sha(TEXT)
     assert doc["target"] == {"kind": "folder", "label": "default", "id": fdw.FOLDER_ID} and doc["name"] == "CV 2026.md" and doc["account"] == "google"
@@ -314,7 +316,7 @@ def test_a_file_of_the_project_is_the_content_only_from_docs_and_a_binary_one_is
             ops.file_create(world["path"], "google", "Other.md", from_path=bad)
     binary = ops.file_create(world["path"], "google", "Report.docx", from_path="docs/outputs/cv.docx")
     assert binary["on_cards"] is False and effect_doc(world, binary)["content"]["kind"] == "file" and effect_doc(world, binary)["content"]["text"] is None
-    assert "Its content is not on this card" in item_of(world, binary)["body"]
+    assert pk.said(item_of(world, binary)["body"], "CARD_FILE_PROJECT", path="docs/outputs/cv.docx")
     accept(world["path"], {"messaging": ["read", "approve-effect-files"]})
     with pytest.raises(ops.OpsError) as card:
         approve(world, binary, "messaging", SENDER)
@@ -384,8 +386,8 @@ def test_a_replace_on_drive_keeps_the_replaced_revision_before_it_writes_and_lan
     assert doc["base"] == {"version": "3", "modified": "2026-10-10T09:00:00.000Z", "mime": "text/markdown", "md5": fdw.md5(b"old text\n"), "head_revision": head,
                            "source_version": DRIVE_VERSION}
     body = item_of(world, started)["body"]
-    assert "only if it is still the file as read at" in body and "Replaces revision 3" in body and "belongs to this account: pat@example.com" in body
-    assert "Drive keeps the replaced revision for ever (a file keeps at most 200 revisions for ever)" in body and files_document.guttered(NEW) in body
+    assert pk.said(body, "CARD_FILE_CODE_REPLACE") and pk.said(body, "CARD_FILE_BASE", revision=3) and pk.said(body, "CARD_FILE_OWNED", address="pat@example.com")
+    assert pk.said(body, "CARD_FILE_KEPT_DRIVE") and files_document.guttered(NEW) in body
     done = approve(world, started)
     assert done["result"]["written"] is True
     assert reads(gd.requests)[1:] == [("GET", f"/drive/v3/files/{fdw.FILE_ID}"), ("GET", f"/drive/v3/files/{fdw.FILE_ID}"),
@@ -414,13 +416,13 @@ def test_a_replace_is_refused_when_the_source_is_behind_the_file_and_when_it_is_
     meta["version"] = "4"
     with pytest.raises(ops.OpsError) as behind:
         ops.file_replace(world["path"], "google", "cv", content=NEW)
-    assert "was read at version" in str(behind.value) and "refresh the source" in str(behind.value) and open_decisions(world) == []
+    assert refused_with(behind.value, "ACCT_FILE_BEHIND", source="cv") and open_decisions(world) == []
     with pytest.raises(ops.OpsError) as wrong:
         ops.file_replace(world["path"], "microsoft", "cv", content=NEW)
-    assert "not a file of your OneDrive account" in str(wrong.value)
+    assert refused_with(wrong.value, "ACCT_FILE_SOURCE", source="cv", service="OneDrive")
     with pytest.raises(ops.OpsError) as none:
         ops.file_replace(world["path"], "google", "no-such-source", content=NEW)
-    assert "not a file of your Google Drive account" in str(none.value)
+    assert refused_with(none.value, "ACCT_FILE_SOURCE", source="no-such-source", service="Google Drive")
     assert [m for m, _ in reads(world["gd"].requests) if m != "GET"] == [] and world["ms"].requests == []
 
 
@@ -436,7 +438,7 @@ def test_a_replace_of_a_google_native_doc_has_no_binary_revision_to_keep_and_a_t
     register(world, "report", "drive", "Word_ID_00001", f"{word['version']}@{word['modifiedTime']}")
     with pytest.raises(ops.OpsError) as mismatch:
         ops.file_replace(world["path"], "google", "report", content=NEW)
-    assert "cannot replace a docx" in str(mismatch.value)
+    assert refused_with(mismatch.value, "ACCT_FILE_TYPE", wanted="docx")
     sheet = gd.add_file("Sheet_ID_0001", "Budget", b"", native=True)
     sheet["mimeType"] = "application/vnd.google-apps.spreadsheet"
     register(world, "budget", "drive", "Sheet_ID_0001", f"{sheet['version']}@{sheet['modifiedTime']}")
@@ -490,7 +492,7 @@ def test_a_replace_with_a_file_of_the_same_type_from_the_project(world):
     (project / "docs" / "outputs" / "report.md").write_text("text\n", encoding="utf-8")
     with pytest.raises(ops.OpsError) as mismatch:
         ops.file_replace(world["path"], "microsoft", "report-od", from_path="docs/outputs/report.md")
-    assert "cannot replace a docx" in str(mismatch.value)
+    assert refused_with(mismatch.value, "ACCT_FILE_TYPE", wanted="docx")
     started = ops.file_replace(world["path"], "microsoft", "report-od", from_path="docs/outputs/report.docx")
     assert started["on_cards"] is False and effect_doc(world, started)["content"]["kind"] == "file"
     approve(world, started)
@@ -509,7 +511,7 @@ def test_a_save_writes_exactly_the_held_bytes_and_leaves_the_hold_as_it_was(worl
     assert doc["operation"] == "save" and doc["name"] == "Contract.pdf" and doc["content"]["kind"] == "held" and doc["content"]["attachment"] == number
     assert doc["content"]["sha256"] == sha(PDF) and doc["content"]["text"] is None and "sender" not in json.dumps(doc) and "830461975213" not in json.dumps(doc)
     body = item_of(world, started)["body"]
-    assert "Saves the file you sent: Contract.pdf, 28 B, sha256 " + sha(PDF)[:12] in body and PDF.decode() not in body
+    assert pk.said(body, "CARD_FILE_SAVE", name="Contract.pdf", size="28 B", sha_short=sha(PDF)[:12]) and PDF.decode() not in body
     done = approve(world, started)
     assert done["result"]["written"] is True
     saved = [m for m in gd.files.values() if m["name"] == "Contract.pdf"]
@@ -604,9 +606,9 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_and_the_hash_is_
     en = cards.effect_card_text(item, None)
     pt = cards.effect_card_text(item, {"language": "pt-BR"})
     assert en == phrases.card_text(item["payload"]["card"]) and en.strip() == item["body"].strip()
-    assert pt != en and "O código cria este arquivo depois da sua aprovação" in pt and "Pasta: default" in pt and files_document.guttered(TEXT) in pt  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert pt != en and pk.said(pt, "CARD_FILE_CODE_NEW", PT) and pk.said(pt, "CARD_FILE_FOLDER", PT, folder="default") and files_document.guttered(TEXT) in pt
     assert all(key.startswith("CARD_") for key, _ in item["payload"]["card"]) and phrases.card_valid(item["payload"]["card"])
-    assert phrases.heading(item["title"], {"language": "pt-BR"}) == "Arquivos: novo arquivo"
+    assert pk.said(phrases.heading(item["title"], PT), "TITLE_FILE_CREATE", PT)
     assert item["payload_sha256"] in en and item["payload_sha256"] in pt
 
 
@@ -614,11 +616,12 @@ def test_a_card_for_a_replace_and_a_save_has_a_portuguese_form_too(world):
     seed_drive(world)
     replace = ops.pending(world["path"], ops.file_replace(world["path"], "google", "cv", content=NEW)["pending"])
     save = ops.pending(world["path"], ops.file_save(world["path"], "google", hold(world))["pending"])
-    for item, words in ((replace, ("Fonte: @cv", "Substitui a revisão 3")), (save, ("Salva o arquivo que você enviou: Contract.pdf",))):  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-        pt = cards.effect_card_text(item, {"language": "pt-BR"})
-        assert pt and all(word in pt for word in words), pt
-    assert phrases.heading(replace["title"], {"language": "pt-BR"}) == "Arquivos: nova revisão"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert phrases.heading(save["title"], {"language": "pt-BR"}) == "Arquivos: salvar o arquivo que você enviou"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pt = cards.effect_card_text(replace, PT)
+    assert pt and pk.said(pt, "CARD_FILE_SOURCE", PT, source="cv") and pk.said(pt, "CARD_FILE_BASE", PT, revision=3), pt
+    pt = cards.effect_card_text(save, PT)
+    assert pt and pk.said(pt, "CARD_FILE_SAVE", PT, name="Contract.pdf"), pt
+    assert pk.said(phrases.heading(replace["title"], PT), "TITLE_FILE_REPLACE", PT)
+    assert pk.said(phrases.heading(save["title"], PT), "TITLE_FILE_SAVE", PT)
 
 
 def test_the_decision_payload_holds_a_summary_and_never_the_text(world):
@@ -665,6 +668,13 @@ def test_the_effect_module_starts_only_a_writer_that_declares_it_serves_the_clas
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
 
 
+def refused_with(error, key, cfg=None, **fields):
+    """True when the sentence an OpsError of a prepare carries (after its `prepare: <code> <argument> -- ` head) says `key` with `fields`."""
+    head, sep, sentence = str(error).partition(" -- ")
+    assert sep and head.startswith("prepare: "), str(error)
+    return pk.said(sentence, key, cfg, **fields)
+
+
 def card_of(world, started, caps=None, cfg=None):
     item = ops.pending(world["path"], started["pending"])
     return cards.build("office", item, caps or CAPS, ops.config(world["path"])["channels"], "text", None, operations=operations, sender=SENDER, cfg=cfg)
@@ -674,7 +684,7 @@ def test_a_new_file_asked_for_and_approved_on_a_phone_needs_the_group_the_grant_
     accept(world["path"], {"messaging": ["read", "files-write"]})
     started = ops.file_create(world["path"], "google", "CV 2026.md", content=TEXT, channel="messaging", sender=SENDER)
     card = card_of(world, started)
-    assert card["approvable"] is False and "Approve this exact content" not in [a["label"] for a in card["message"]["actions"]]
+    assert card["approvable"] is False and not any(pk.said(a["label"], "EFFECT_LABEL") for a in card["message"]["actions"])
     with pytest.raises(ops.OpsError) as no:
         approve(world, started, "messaging", SENDER)
     assert "terminal" in str(no.value) and [m for m, _ in reads(world["gd"].requests) if m == "POST"] == []
@@ -686,7 +696,7 @@ def test_a_new_file_asked_for_and_approved_on_a_phone_needs_the_group_the_grant_
     assert done["result"]["written"] is True and [m for m, _ in reads(world["gd"].requests)].count("POST") == 1
     other = ops.file_create(world["path"], "google", "Other.md", content=TEXT, channel="messaging", sender=SENDER)
     portuguese = card_of(world, other, cfg={"language": "pt-BR"})["message"]["text"]
-    assert "O código cria este arquivo" in portuguese and "Arquivos: novo arquivo" in portuguese  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert pk.said(portuguese, "CARD_FILE_CODE_NEW", PT) and pk.said(portuguese, "TITLE_FILE_CREATE", PT)
 
 
 def test_a_text_too_long_for_a_card_is_not_approvable_from_a_phone_unless_the_whole_text_arrives_as_a_document(world):
@@ -727,7 +737,7 @@ def test_every_line_of_the_text_is_behind_the_gutter_on_the_card_so_that_no_rend
     start, end = body.index("-----\n") + 6, body.index("\n----- end of the new text -----")
     shown = body[start:end].split("\n")
     assert shown == [("│ " + line if line else "│") for line in text.split("\n")[:-1]], "every line behind the mark, empty ones too, whitespace-only ones kept"
-    assert body.count("----- end of the new text -----") == 1
+    assert body.count("----- end of the new text -----") == 1      # literal: the end mark is where the text is cut at, and the number of times it stands is the limit
     visible = telegram.visible_text(telegram.render_html(body)).split("\n")
     inside = visible[visible.index(next(line for line in visible if line.startswith("----- the new text"))) + 1:visible.index("----- end of the new text -----")]
     assert inside and all(line.startswith("│") for line in inside), "what a phone draws of the text: every line still behind the mark"
@@ -787,7 +797,7 @@ def test_a_replace_is_refused_for_a_file_the_account_does_not_own_and_the_card_n
     register(world, "shared", "drive", fdw.FILE_ID, f"{shared['version']}@{shared['modifiedTime']}")
     with pytest.raises(ops.OpsError) as refused:
         ops.file_replace(world["path"], "google", "shared", content=NEW)
-    assert "is not owned by your Google Drive account" in str(refused.value)
+    assert refused_with(refused.value, "ACCT_FILE_NOT_OWNED", service="Google Drive")
     viewer = gd.add_file("Viewer_ID_001", "Viewer.md", b"x\n", can_edit=False)
     register(world, "viewer", "drive", "Viewer_ID_001", f"{viewer['version']}@{viewer['modifiedTime']}")
     with pytest.raises(ops.OpsError):
@@ -815,10 +825,10 @@ def test_the_card_says_what_becomes_of_the_replaced_revision_for_each_service_an
     native = gd.add_file(fdw.NATIVE_ID, "CV 2026", b"doc\n", native=True)
     register(world, "cv-doc", "drive", fdw.NATIVE_ID, f"{native['version']}@{native['modifiedTime']}")
     doc = item_of(world, ops.file_replace(world["path"], "google", "cv-doc", content=NEW))["body"]
-    assert "A Google Doc keeps its own revision history" in doc and "not kept for ever" in doc and "Drive keeps the replaced revision" not in doc
+    assert pk.said(doc, "CARD_FILE_KEPT_DOC") and not pk.said(doc, "CARD_FILE_KEPT_DRIVE")
     seed_onedrive(world)
     one = item_of(world, ops.file_replace(world["path"], "microsoft", "cv-od", content=NEW))["body"]
-    assert "OneDrive keeps earlier versions by its own retention settings, not for ever" in one and "Drive keeps" not in one.replace("OneDrive keeps", "")
+    assert pk.said(one, "CARD_FILE_KEPT_ONEDRIVE") and not pk.said(one, "CARD_FILE_KEPT_DRIVE") and "Drive keeps" not in one.replace("OneDrive keeps", "")
 
 
 # --- a name taken at the write answers the decision; a token of another account writes nothing --------------------------------------------------
@@ -1011,7 +1021,7 @@ def test_a_decision_never_returns_the_senders_account_and_the_card_of_a_save_is_
     assert built(SENDER)["approvable"] is True
     for other in (OTHER, "telegram:830461975213 ", "Telegram:830461975213"):
         card = built(other)
-        assert card["approvable"] is False and "Approve this exact content" not in [a["label"] for a in card["message"]["actions"]], other
+        assert card["approvable"] is False and not any(pk.said(a["label"], "EFFECT_LABEL") for a in card["message"]["actions"]), other
     assert built(OTHER)["message"]["text"].count("Private contract.pdf") >= 1, "a reader of mail and calendar still reads the card"
     assert built(OTHER, reader_sent_file=False)["approvable"] is False and built(None)["approvable"] is False
 
