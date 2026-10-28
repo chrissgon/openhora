@@ -1,5 +1,7 @@
 # Decisions log
 
+> **Closed on 2026-10-27.** New entries live in `docs/decisions/`, one file each (`docs/decisions/README.md`). This file stays as the record up to that date and is not edited.
+
 One entry per structural decision. Newest last. Each entry: date, decision, alternatives rejected, why.
 
 ## 2026-09-22: Harness-agnostic core with adapters, Claude Code first

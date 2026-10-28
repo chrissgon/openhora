@@ -118,6 +118,7 @@ FIXTURE = {
     "interface/index.html": "<html></html>\n",
     "interface/js/x.js": "x\n",
     "docs/decisions.md": "d\n",
+    "docs/decisions/2030-01-01-pkg-a-rule.md": "## 2030-01-01: A rule\n",
     "docs/architecture/plan.md": "p\n",
 }
 for guard in GUARDS:
@@ -274,6 +275,16 @@ def test_a_folder_that_tests_name_selects_them_when_a_file_in_it_changes(tree):
 def test_a_data_file_nothing_names_selects_the_whole_test_folder_and_a_document_nothing_names_selects_nothing(tree):
     assert pick(tree, "runtime/orphan.json")[0] == expect("runtime/tests")
     assert pick(tree, "docs/architecture/plan.md")[0] == expect()
+    assert pick(tree, "docs/decisions.md")[0] == expect()
+    assert pick(tree, "docs/decisions/2030-01-01-pkg-a-rule.md")[0] == expect()  # one file per entry: the same as the closed log
+
+
+def test_vacuity_a_decision_file_selects_nothing_because_it_is_a_document_not_because_the_selector_never_looks_at_documents(tmp_path):
+    """A test that names a document of a named area is selected for it; the same test naming a decision file is not (docs/decisions/ is read
+    by the validator's decision-files check and by the guards, as docs/decisions.md was)."""
+    tree = build(tmp_path, {"runtime/tests/test_names_docs.py": "A = 'docs/architecture/plan.md'\nB = 'docs/decisions/2030-01-01-pkg-a-rule.md'\nC = 'docs/decisions.md'\n"})
+    assert pick(tree, "docs/architecture/plan.md")[0] == expect("runtime/tests/test_names_docs.py")
+    assert pick(tree, "docs/decisions/2030-01-01-pkg-a-rule.md")[0] == expect()
     assert pick(tree, "docs/decisions.md")[0] == expect()
 
 
@@ -612,6 +623,7 @@ def test_a_change_to_the_interpreter_catalog_selects_its_interface_test(real):
 
 def test_documents_and_skill_text_select_only_the_guards(real):
     assert real_pick(real, "docs/decisions.md", "docs/backlog.md", "AGENTS.md", "skills/mkt-publish/SKILL.md") == expect()
+    assert real_pick(real, "docs/decisions/README.md", "docs/decisions/2026-10-27-decisions-files-one-file-per-entry.md") == expect()
 
 
 def test_the_wiring_and_the_test_configuration_of_this_repository_select_folders(real):
@@ -642,6 +654,7 @@ def test_vacuity_a_change_of_a_document_or_of_runtime_code_does_not_run_the_slow
     and the scan test through the references the selector follows (the oracle names runtime/natural_time.py in a string), which is the
     selector working: it is never the whole folder scripts/tests."""
     assert not set(SLOW_META) & set(real_pick(real, "docs/decisions.md", "AGENTS.md", "skills/mkt-publish/SKILL.md"))
+    assert not set(SLOW_META) & set(real_pick(real, "docs/decisions/2026-10-27-decisions-files-one-file-per-entry.md"))
     assert "scripts/tests" not in real_pick(real, "runtime/natural_time.py")
 
 
@@ -728,7 +741,7 @@ def test_direct_selects_the_guards_the_changed_test_and_the_tests_named_for_a_ch
 
 def test_direct_adds_nothing_for_data_documents_test_kits_conftest_files_the_wiring_and_skills_and_never_prints_a_folder(tmp_path):
     root = build(tmp_path, {**IMPORTER_FIXTURE, **DIRECT_FIXTURE})
-    for changed in ("runtime/data.json", "runtime/notes.json", "docs/decisions.md", "docs/architecture/plan.md", "runtime/tests/kit.py",
+    for changed in ("runtime/data.json", "runtime/notes.json", "docs/decisions.md", "docs/decisions/2030-01-01-pkg-a-rule.md", "docs/architecture/plan.md", "runtime/tests/kit.py",
                     "runtime/tests/conftest.py", "conftest.py", "pytest.ini", ".githooks/pre-commit", ".github/workflows/checks.yml",
                     "skills/demo/SKILL.md", "skills/demo/evals/evals.json", "interface/index.html", "runtime/__init__.py"):
         got = pick_direct(root, changed)[0]

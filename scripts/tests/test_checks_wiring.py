@@ -529,6 +529,12 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
         (["evals/container/Dockerfile"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "BASE_REF": "main"}, {"container": "false", "converter": "false", "go": "false"}),
         (["docs/decisions.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "ACTION": "labeled", "FULL_LABEL": "true"}, {"container": "false", "converter": "false", "go": "false"}),
         (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"container": "false", "converter": "false", "go": "true"}),  # marked ready: read as any push
+        # one file per decision entry (docs/decisions/): the same as the closed log, docs/decisions.md
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "go": "false"}),
     ]):
         case = tmp_path / ("case%d" % i)
         case.mkdir()
