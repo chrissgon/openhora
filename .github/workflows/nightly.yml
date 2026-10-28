@@ -60,7 +60,7 @@ jobs:
         run: >-
           uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 --with pytest-rerunfailures==16.7
           python scripts/shard_tests.py --shard "$SHARD/3" --
-          -q -n auto -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
           $(python3 scripts/test_dirs.py) 2>&1 | tee "$RUNNER_TEMP/pytest.log"
       - name: Report
         if: always()
@@ -96,7 +96,7 @@ jobs:
         shell: bash
         run: >-
           uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 --with pytest-rerunfailures==16.0.1
-          pytest -q -n auto -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
+          pytest -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=20 --reruns 3 --reruns-delay 2 -rfER
           $(grep -v '^#' scripts/python39_tests.txt)
           2>&1 | tee "$RUNNER_TEMP/pytest.log"
       - name: Report

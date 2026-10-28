@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import functools
+import importlib.util
 import os
 import re
 import sys
@@ -342,24 +344,28 @@ def violations(edges):
 
 # --- the tests --------------------------------------------------------------------------------------------
 
-EDGES = edge_set()
+@functools.lru_cache(maxsize=None)
+def real_edges():
+    """The edges of this repository, scanned on the first call and once per process: a scan of the whole tree at import ran in
+    every worker at collection (about 3 s each), also for a run that deselects these tests."""
+    return frozenset(edge_set())
 
 
 def test_every_edge_of_the_code_is_allowed_or_tolerated():
-    bad = violations(EDGES)
+    bad = violations(real_edges())
     assert not bad, "an arrow the layer diagram does not have (add a row to ALLOWED only if the diagram says so):\n" + \
         "\n".join(f"  {file} -> {target}" for file, target in bad)
 
 
 def test_a_fixed_row_is_removed_from_the_tolerated_list():
-    stale = sorted(e for e in TOLERATED if e not in EDGES)
+    stale = sorted(e for e in TOLERATED if e not in real_edges())
     assert not stale, f"tolerated rows the scan no longer finds, remove them: {stale}"
     now_allowed = sorted(e for e in TOLERATED if allowed(*e))
     assert not now_allowed, f"tolerated rows that ALLOWED now accepts, remove them: {now_allowed}"
 
 
 def test_a_path_named_as_not_a_dependency_is_still_found():
-    stale = sorted(e for e in NOT_A_DEPENDENCY if e not in EDGES)
+    stale = sorted(e for e in NOT_A_DEPENDENCY if e not in real_edges())
     assert not stale, f"rows the scan no longer finds, remove them: {stale}"
     assert not sorted(e for e in NOT_A_DEPENDENCY if allowed(*e)), "a row that ALLOWED already accepts"
     assert all(why for why in NOT_A_DEPENDENCY.values())
@@ -376,7 +382,7 @@ def test_every_source_file_has_a_row_in_the_map():
 
 def test_the_rules_the_diagram_states_hold_for_the_code_as_it_is():
     """The same rules, read straight off the edges, so a wrong row of ALLOWED cannot hide an arrow."""
-    for file, target in EDGES:
+    for file, target in real_edges():
         if (file, target) in NOT_A_DEPENDENCY:
             continue
         if file.startswith(("providers/", "shared/", "contracts/", "agents/", "templates/", "packs/")):
@@ -452,6 +458,42 @@ def test_a_planted_violation_fails_the_map(tmp_path):
     assert ("runtime/handlers/h.py", "runtime/ops.py") in bad
     assert ("evals/other.py", "runtime/ops.py") in bad
     assert not [e for e in bad if e[0] == "runtime/cli.py"]
+
+
+def _load_without_scanning(monkeypatch, tmp_path, extra=""):
+    """This file's own text, written to a new file and imported as a fresh module under a new name, with the tree walk made to raise: a
+    scan at import fails here. `extra` is appended to the text (the vacuity case plants a scan at import there). The copy's ROOT is this
+    repository's, so that a scan it does later reads the real tree."""
+    def no_walk(self, pattern):
+        raise AssertionError("the tree was scanned while the module was imported")
+
+    own = Path(__file__).read_text(encoding="utf-8")
+    line = "ROOT = Path(__file__).resolve().parents[2]"
+    assert line in own
+    copy = tmp_path / "test_layer_map_fresh_copy.py"
+    copy.write_text(own.replace(line, "ROOT = Path(%r)" % str(ROOT), 1) + extra, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("test_layer_map_fresh_copy", copy)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setattr(Path, "rglob", no_walk)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_importing_the_module_scans_no_tree_and_the_scan_runs_once_on_the_first_use(monkeypatch, tmp_path):
+    fresh = _load_without_scanning(monkeypatch, tmp_path)
+    assert fresh.real_edges.cache_info().currsize == 0  # nothing was read at import
+    monkeypatch.undo()
+    first = fresh.real_edges()
+    assert first and fresh.real_edges() is first  # the second call is the cached set, not a second scan
+    assert fresh.real_edges.cache_info().misses == 1 and fresh.real_edges.cache_info().hits >= 1
+    assert first == real_edges()  # the same edges as this module's own, so the cache holds the real scan
+
+
+def test_vacuity_a_scan_at_import_is_caught(monkeypatch, tmp_path):
+    import pytest  # here and not at the top: `python3 scripts/tests/test_layer_map.py` prints the edges without pytest
+
+    with pytest.raises(AssertionError, match="scanned while the module was imported"):
+        _load_without_scanning(monkeypatch, tmp_path, extra="\nEDGES = edge_set()\n")
 
 
 def test_the_allowed_rules_say_what_the_diagram_says():

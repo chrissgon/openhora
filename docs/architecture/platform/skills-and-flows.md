@@ -224,6 +224,7 @@ The roles the runtime is wired to, from `runtime/roles.json`:
 | `subtask` | `eng-implement` |
 | `code_areas` | `engineering`, `delivery` |
 | `packs_in_use` | `business`, `brand`, `design`, `planning`, `code`, `content` |
+| `answer` | `asst-answer` |
 <!-- /generated -->
 
 **Who reads it.** A harness, through an adapter's installer, which copies or links the skills of one pack (and `shared/references/` beside them); the lab, which stages one skill into a run folder without its `evals/` and `scripts/tests/` and grades the run; the runtime, through its lab facade for a run and directly for the frontmatter (`runtime/skill_meta.py`), the roles file (`runtime/roles.py`), the runtime manifests (`runtime/manifest.py`, which imports `scripts/select_skills.py` to resolve a pack), the packs (`runtime/plan.py` runs `scripts/select_skills.py` as a subprocess), the flow files and a few sentences of a skill's text that its classifier and merge read, each bound by a test (`runtime/tests/test_skill_text_binding.py`); the router, which reads the frontmatter of the skill it routes to and its own copies of the class and owner tables.

@@ -1,0 +1,9 @@
+{
+  "package": "cb-1",
+  "add": {
+    "operations_table.NOT_OPERATIONS": [
+      "span_args_of",
+      "unreadable_filter"
+    ]
+  }
+}

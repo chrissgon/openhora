@@ -3,5 +3,6 @@
   "brief": "core-clarify",
   "subtask": "eng-implement",
   "code_areas": ["engineering", "delivery"],
-  "packs_in_use": ["business", "brand", "design", "planning", "code", "content"]
+  "packs_in_use": ["business", "brand", "design", "planning", "code", "content"],
+  "answer": "asst-answer"
 }

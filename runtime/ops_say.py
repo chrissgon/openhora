@@ -149,6 +149,15 @@ def chat_memory(messages: list, settled: set, quiet=frozenset()) -> str:
     return "\n".join([MEMORY_HEAD, *lines]) if lines else ""
 
 
+def _sentences(ctx: dict, channel: str):
+    """The scope (phrases.scope, TT-2) of the language of the fixed sentences for one line: for a line of the page or the MCP mode, the `sentence_language` of the profile of that channel, if the
+    accepted configuration sets one (phrases.sentence_override), else the project's language. Any other shell keeps the scope it is in: the messaging bridge opens its own for the sender of the
+    line (Bridge.sentences_for), and the terminal and the conversation's own shell are never narrowed. The scope ends with the block, on every path."""
+    if channel in ("page", "mcp"):
+        return phrases.scope(phrases.sentence_override(ctx["cfg"], channel))
+    return phrases.scope(phrases.current_scope())
+
+
 def say(project: str, text: str, channel: str | None = None, sender: str | None = None, can_send: dict | None = None, plan_ok: dict | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
     line is stored (for a messaging sender whom the interpreter reads, AFTER the decision and as a neutral word unless it went to the planning agent: runtime/ops_interpret.py, limit L63); a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
@@ -184,7 +193,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     said = core._text(text, "the line")
     store = ctx["store"]
     turns = _turns()      # the order of who takes the line is the table of runtime/turn_order.py, stage `ops`; its dispatcher is runtime/ops_turn.py (S41-3)
-    with turns.turn():      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply
+    with turns.turn(), _sentences(ctx, channel):      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
         importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
         importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
         if plan_ok is not None:

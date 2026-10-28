@@ -592,3 +592,116 @@ def test_the_ledger_folder_is_private_and_holds_no_words_of_the_persons(fake, tm
     assert oct(folder.stat().st_mode & 0o777) == "0o700" and oct((folder / "ledger.json").stat().st_mode & 0o777) == "0o600"
     ledger = json.loads((folder / "ledger.json").read_text(encoding="utf-8"))
     assert ledger["keys"][KEY]["status"] == "done" and "Haircut" not in json.dumps(ledger)
+
+
+# --- the zone the event is written in (--time-zone; the runtime passes the host's zone) ----------------------------------------------------------------
+
+
+def zone_spec(start_at, end_at):
+    return {**CREATE_SPEC, "start_at": start_at, "end_at": end_at}
+
+
+def dry_body(fake, tmp_path, state, start_at, end_at, *zone):
+    """The `start` and `end` of the request a create would send (dry run: no credential, no connection)."""
+    shown = out(run(fake, tmp_path, state, *create_args(tmp_path, spec=zone_spec(start_at, end_at), mode="--dry-run"), *zone))
+    assert fake.requests == []
+    return shown["would"]["body"]["start"], shown["would"]["body"]["end"], shown
+
+
+def test_a_timed_create_with_a_zone_sends_the_same_instants_as_wall_times_of_that_zone(fake, tmp_path, state):
+    out(run(fake, tmp_path, state, *create_args(tmp_path, spec=zone_spec("2026-11-05T13:00:00Z", "2026-11-05T14:30:00Z")), "--time-zone", "America/Sao_Paulo"))
+    [(method, path, _, body)] = calls(fake)
+    assert (method, path) == ("POST", EVENTS)
+    assert body["start"] == {"dateTime": "2026-11-05T10:00:00", "timeZone": "America/Sao_Paulo"}
+    assert body["end"] == {"dateTime": "2026-11-05T11:30:00", "timeZone": "America/Sao_Paulo"}
+    assert body["singleValueExtendedProperties"] == [{"id": fgc.KEY_PROPERTY, "value": KEY}] and "attendees" not in body and fake.unexpected() == []
+
+
+@pytest.mark.parametrize("start_at, end_at, wall_start, wall_end", [
+    ("2026-07-10T12:00:00Z", "2026-07-10T13:00:00Z", "2026-07-10T13:00:00", "2026-07-10T14:00:00"),     # summer time: one hour ahead of UTC
+    ("2026-01-15T12:00:00Z", "2026-01-15T13:00:00Z", "2026-01-15T12:00:00", "2026-01-15T13:00:00"),     # winter: the same as UTC
+    ("2026-07-10T09:00:00-03:00", "2026-07-10T10:00:00-03:00", "2026-07-10T13:00:00", "2026-07-10T14:00:00"),     # an offset in the instant is read, not copied
+], ids=["july", "january", "offset-instant"])
+def test_the_wall_time_follows_the_zones_offset_on_that_day(fake, tmp_path, state, start_at, end_at, wall_start, wall_end):
+    start, end, _ = dry_body(fake, tmp_path, state, start_at, end_at, "--time-zone", "Europe/Lisbon")
+    assert start == {"dateTime": wall_start, "timeZone": "Europe/Lisbon"} and end == {"dateTime": wall_end, "timeZone": "Europe/Lisbon"}
+
+
+def test_a_wall_time_that_is_ambiguous_in_the_zone_is_sent_in_utc_like_a_run_without_the_flag(fake, tmp_path, state):
+    # Europe/Lisbon went back an hour on 2026-10-25 at 02:00 summer time: 01:00-02:00 on the wall happened twice (00:00Z-02:00Z).
+    start, end, _ = dry_body(fake, tmp_path, state, "2026-10-25T00:30:00Z", "2026-10-25T01:30:00Z", "--time-zone", "Europe/Lisbon")
+    assert start == {"dateTime": "2026-10-25T00:30:00", "timeZone": "UTC"} and end == {"dateTime": "2026-10-25T01:30:00", "timeZone": "UTC"}
+    # only the moment that is ambiguous falls back; the one before the repeated hour keeps the zone
+    start, end, _ = dry_body(fake, tmp_path, state, "2026-10-24T22:00:00Z", "2026-10-25T00:30:00Z", "--time-zone", "Europe/Lisbon")
+    assert start == {"dateTime": "2026-10-24T23:00:00", "timeZone": "Europe/Lisbon"} and end == {"dateTime": "2026-10-25T00:30:00", "timeZone": "UTC"}
+    # after the repeated hour the zone is back
+    start, _, _ = dry_body(fake, tmp_path, state, "2026-10-25T02:00:00Z", "2026-10-25T03:00:00Z", "--time-zone", "Europe/Lisbon")
+    assert start == {"dateTime": "2026-10-25T02:00:00", "timeZone": "Europe/Lisbon"}
+
+
+@pytest.mark.parametrize("name", ["Mars/Olympus_Mons", "UTC", "America/Sao_Paulo; DROP", "../etc/passwd", "America//Sao_Paulo", "Brasilia Standard Time", "A/B/C/D", ""],
+                         ids=["unknown", "no-area", "injection", "dotdot", "double-slash", "windows-name", "too-deep", "empty"])
+def test_an_unknown_or_malformed_zone_name_is_a_usage_error_and_no_request_is_sent(fake, tmp_path, state, name):
+    for mode in ("--dry-run", "--confirmed"):
+        proc = run(fake, tmp_path, state, *create_args(tmp_path, mode=mode), "--time-zone", name)
+        assert proc.returncode == 2 and "--time-zone" in proc.stderr
+    assert fake.requests == [] and fake.token_forms == []
+
+
+def test_without_the_flag_the_request_is_in_utc_and_the_flag_changes_the_dry_run_hash(fake, tmp_path, state):
+    plain_start, plain_end, plain = dry_body(fake, tmp_path, state, "2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z")
+    assert plain_start == {"dateTime": "2026-11-05T13:00:00", "timeZone": "UTC"} and plain_end == {"dateTime": "2026-11-05T14:00:00", "timeZone": "UTC"}
+    zoned_start, _, zoned = dry_body(fake, tmp_path, state, "2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z", "--time-zone", "America/Sao_Paulo")
+    assert zoned_start["timeZone"] == "America/Sao_Paulo" and zoned["would_sha256"] != plain["would_sha256"]
+    assert {k: v for k, v in zoned["would"].items() if k != "body"} == {k: v for k, v in plain["would"].items() if k != "body"}
+    again = dry_body(fake, tmp_path, state, "2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z")[2]
+    assert again["would_sha256"] == plain["would_sha256"], "no flag, the same request as before the flag existed"
+
+
+def test_an_all_day_event_ignores_the_zone(fake, tmp_path, state):
+    spec = {"title": "Trip", "all_day": True, "start_at": "2026-10-20", "end_at": "2026-10-22", "location": "", "reminder_minutes": None, "notes": ""}
+    plain = out(run(fake, tmp_path, state, *create_args(tmp_path, spec=spec, mode="--dry-run")))
+    zoned = out(run(fake, tmp_path, state, *create_args(tmp_path, spec=spec, mode="--dry-run"), "--time-zone", "America/Sao_Paulo"))
+    assert zoned["would"] == plain["would"] and zoned["would_sha256"] == plain["would_sha256"]
+    assert zoned["would"]["body"]["start"] == {"dateTime": "2026-10-20T00:00:00", "timeZone": "UTC"}
+
+
+def test_a_patch_with_times_carries_the_zone_and_one_without_times_carries_none(fake, tmp_path, state):
+    base = an_event(fake)["changeKey"]
+    times = {"all_day": False, "start_at": "2026-11-05T13:00:00Z", "end_at": "2026-11-05T14:00:00Z"}
+    out(run(fake, tmp_path, state, *patch_args(tmp_path, times, base), "--time-zone", "America/Sao_Paulo"))
+    patch = [c for c in calls(fake) if c[0] == "PATCH"]
+    assert len(patch) == 1
+    assert patch[0][3]["start"] == {"dateTime": "2026-11-05T10:00:00", "timeZone": "America/Sao_Paulo"}
+    assert patch[0][3]["end"] == {"dateTime": "2026-11-05T11:00:00", "timeZone": "America/Sao_Paulo"}
+    shown = out(run(fake, tmp_path, state, *patch_args(tmp_path, {"title": "Dentist (moved)"}, base, key="cal-0123456789abcdef0123456789abcdef", mode="--dry-run"),
+                    "--time-zone", "America/Sao_Paulo"))
+    assert "start" not in shown["would"]["body"] and "end" not in shown["would"]["body"] and shown["would"]["body"]["subject"] == "Dentist (moved)"
+
+
+def test_the_flag_is_refused_by_the_verbs_that_do_not_write_times(fake, tmp_path, state):
+    item = an_event(fake)
+    gone = ["event-delete", "--calendar", "default", "--event", "AAMkEvent9999=", "--base-etag", item["changeKey"], "--idempotency-key", KEY, "--dry-run", "--time-zone", "America/Sao_Paulo"]
+    got = ["event-get", "--calendar", "default", "--event", "AAMkEvent9999=", "--time-zone", "America/Sao_Paulo"]
+    for argv in (gone, got):
+        proc = run(fake, tmp_path, state, *argv)
+        assert proc.returncode == 2 and "--time-zone" in proc.stderr
+    assert fake.requests == []
+
+
+def test_an_event_written_in_a_zone_is_read_back_as_the_same_instant_in_utc(fake, tmp_path, state):
+    done = out(run(fake, tmp_path, state, *create_args(tmp_path, spec=zone_spec("2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z")), "--time-zone", "America/Sao_Paulo"))
+    assert fake.events[done["event_id"]]["start"]["timeZone"] == "America/Sao_Paulo"      # the stand-in holds it as written ...
+    fake.requests.clear()
+    shown = out(run(fake, tmp_path, state, "event-get", "--calendar", "default", "--event", done["event_id"]))["event"]
+    assert shown["start"] == "2026-11-05T13:00:00Z" and shown["end"] == "2026-11-05T14:00:00Z"      # ... and answers in UTC when asked in UTC, as Graph does
+    [(method, _, _, _)] = [c for c in calls(fake)][:1]
+    assert method == "GET" and all(r["prefer"] and 'outlook.timezone="UTC"' in r["prefer"] for r in fake.graph_requests() if r["method"] == "GET")
+
+
+def test_vacuity_the_read_back_oracle_fails_on_a_planted_wrong_wall_time(fake, tmp_path, state):
+    """A create that wrote the UTC wall time under the zone's name (a wrong result) is read back as another instant: the comparison above would fail on it."""
+    fake.add_event("AAMkEvent9999=", "Planted", "2026-11-05T13:00:00", "2026-11-05T14:00:00",
+                   start={"dateTime": "2026-11-05T13:00:00.0000000", "timeZone": "America/Sao_Paulo"}, end={"dateTime": "2026-11-05T14:00:00.0000000", "timeZone": "America/Sao_Paulo"})
+    shown = out(run(fake, tmp_path, state, "event-get", "--calendar", "default", "--event", "AAMkEvent9999="))["event"]
+    assert shown["start"] == "2026-11-05T16:00:00Z" and shown["start"] != "2026-11-05T13:00:00Z"
