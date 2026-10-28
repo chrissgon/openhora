@@ -23,7 +23,19 @@ def load(name, rel):
 es = load("eval_status_evidence_lines_test", "evals/eval_status.py")
 el = es.EVIDENCE_LINES
 
-COMMITTED = sorted(REPO.glob("skills/*/evals/evidence/lab-*.jsonl"))
+ALL_COMMITTED = sorted(REPO.glob("skills/*/evals/evidence/lab-*.jsonl"))
+
+
+def _header_models(path):
+    return json.loads(Path(path).read_text().splitlines()[0])["models"]
+
+
+# The fixtures below start from a committed file and read its header as the OLD shape (`models` is {tier: id}, one gate): the files of that
+# shape. A file with the list header (a new skill's first full test, such as asst-answer's) is a source for the tests of the list shape and for
+# the two tests that read every committed file (ALL_COMMITTED). Taking the first file of the whole glob made the fixtures depend on which skill
+# sorts first: on 2026-10-28 a new `asst-answer` file with the list header broke 33 tests of this file and of test_local_model_event.py.
+COMMITTED = [p for p in ALL_COMMITTED if isinstance(_header_models(p), dict)]
+LIST_COMMITTED = [p for p in ALL_COMMITTED if isinstance(_header_models(p), list)]
 H = {c: c * 64 for c in "abcdef"}
 
 
@@ -40,6 +52,8 @@ def write(path, lines):
 def as_list_shape(lines):
     """The same file with the new header: a list of model ids and adapters keyed by model id."""
     event = copy.deepcopy(lines[0])
+    if isinstance(event["models"], list):  # already the list header
+        return [event] + lines[1:]
     event["adapters"] = {event["models"][tier]: event["adapters"][tier] for tier in event["models"]}
     if "gate" in event:  # the list header carries a gate for each model: the single gate was the strong tier's
         event["gate"] = {event["models"]["strong"]: event["gate"]}
@@ -75,7 +89,7 @@ def tree(tmp_path, source, gate):
 # --- T24 -------------------------------------------------------------------------------------------------
 
 def test_the_repository_has_committed_evidence_to_test_against():
-    assert COMMITTED and all(read(p)[0]["record"] == "test" for p in COMMITTED)
+    assert COMMITTED and all(read(p)[0]["record"] == "test" for p in ALL_COMMITTED)
 
 
 def test_a_committed_file_stays_valid_when_the_gate_file_changes_runs_and_drops_a_model(tmp_path):
@@ -95,7 +109,7 @@ def test_a_committed_file_stays_valid_when_the_gate_file_changes_runs_and_drops_
 
 
 def test_every_committed_file_is_valid_by_its_own_event_line_with_no_gate_file(tmp_path):
-    for source in COMMITTED:
+    for source in ALL_COMMITTED:
         assert el.evidence_file_problems(str(source)) == [], source
     assert el.evidence_problems(str(REPO))[0] == {}
 
@@ -533,3 +547,32 @@ def test_an_old_evidence_file_stays_valid_against_a_changed_gate_file_and_a_line
     lines[1] = {**lines[1], "usage": USAGE}  # one run line with usage, among lines without
     write(old, lines)
     assert es.evidence_file_problems(str(old), str(root)) == []
+
+
+# --- the fixtures follow the shape of the file, whatever sorts first -------------------------------------------------------------------------------
+
+def test_the_two_shapes_partition_the_committed_files_and_each_fixture_source_has_its_shape():
+    assert COMMITTED and sorted(COMMITTED + LIST_COMMITTED) == ALL_COMMITTED and not (set(COMMITTED) & set(LIST_COMMITTED))
+    assert all(isinstance(read(p)[0]["models"], dict) for p in COMMITTED) and all(isinstance(read(p)[0]["models"], list) for p in LIST_COMMITTED)
+
+
+def test_a_committed_file_of_either_shape_gives_a_valid_list_header_fixture():
+    """A new committed file may carry either header; the fixture builder must not depend on which one a source has."""
+    for source in (COMMITTED[:1] + LIST_COMMITTED[:1]):
+        event = as_list_shape([read(source)[0]])[0]
+        assert isinstance(event["models"], list) and set(event["adapters"]) == set(event["models"]), source
+        assert len(event["models"]) == len(read(source)[0]["models"]) and all(a for a in event["adapters"].values()), source
+
+
+def test_vacuity_a_builder_that_reads_every_header_as_the_old_shape_fails_on_a_list_header_file(monkeypatch):
+    assert LIST_COMMITTED, "the repository holds a file with the list header (asst-answer's first full test)"
+    event = copy.deepcopy(read(LIST_COMMITTED[0])[0])
+
+    def old_builder(lines):  # the builder as it was: it indexes `models` by tier
+        out = copy.deepcopy(lines[0])
+        out["adapters"] = {out["models"][tier]: out["adapters"][tier] for tier in out["models"]}
+        return out
+
+    with pytest.raises(TypeError):
+        old_builder([event])
+    assert as_list_shape([event])[0]["models"] == event["models"]
