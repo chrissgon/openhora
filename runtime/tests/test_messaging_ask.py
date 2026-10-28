@@ -7,8 +7,6 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_ask.py
 """
 from __future__ import annotations
 
-from phone_literals import PLAIN_REFUSAL  # noqa: E402
-
 import json
 import os
 import shutil
@@ -17,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import (ANSWER, LEASE, OWNER, OWNER_KEY, PROFILES, STAFF, STAFF_KEY, accept, add_source, requests, runs, tree,  # noqa: F401
                       two, write_config)
@@ -88,21 +88,23 @@ def test_a_telegram_slash_ask_is_answered_with_the_quote_and_the_footer_in_the_c
     [sent] = world.sent()
     assert sent["chat"] == OWNER
     text = sent["message"]["text"]
-    assert text == ("The contract answers it [lease-contract].\n\n"
-                    'Checked quote [lease-contract]: "Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco."\n\n'
-                    "Read: lease-contract (version 1), meeting-notes (version 1)")
+    blocks = text.split("\n\n")
+    assert len(blocks) == 3 and blocks[0] == "The contract answers it [lease-contract]."
+    pk.assert_said(blocks[1], "QUOTE_CHECKED", id="lease-contract", text="Clausula 3. O prazo do contrato e de 12 meses, a contar de 1 de marco.")
+    pk.assert_said(blocks[2], "READ", read="lease-contract (version 1), meeting-notes (version 1)")
     assert sent["message"]["actions"] == [] and sent["message"].get("document") is None
     state = world.tree
     assert len(runs(state)) == 1 and requests(state)[0]["title"] == f"Question {requests(state)[0]['id']}"
     assert requests(state)[0]["state"] == "done" and ops.pending(world.project["path"])["pending"] == []     # no plan, no card
     messages = ops.conversation(world.project["path"])["messages"]
     assert [m["role"] for m in messages] == ["user", "assistant"] and messages[0]["text"] == "/ask qual o prazo do contrato?"
-    assert messages[1]["text"] == f"(answered from the sources: request {requests(state)[0]['id']})"       # the answer is not kept (limit L50)
+    pk.assert_said(messages[1]["text"], "ANSWERED_AS", request=requests(state)[0]["id"])       # the answer is not kept (limit L50)
 
 
 def test_the_help_of_the_bridge_lists_ask(world):
     world.bridge.handle(world.update(OWNER, "/help"))
-    assert "/ask <question> — answer a question from the project's sources" in world.sent()[0]["message"]["text"]
+    pk.assert_said(world.sent()[0]["message"]["text"], "HELP")
+    assert "/ask <question>" in world.sent()[0]["message"]["text"]      # the command is the same in every language
     assert inbound.parse(world.update(OWNER, "/ask what?")) == {"kind": "text", "text": "/ask what?"}          # the bridge passes it on: the layer decides
 
 
@@ -111,7 +113,7 @@ def test_a_sender_whose_profile_lacks_ask_is_told_it_is_not_enabled_and_nothing_
            messaging={"senders": {"telegram": [{"id": OWNER, "policy": "asker"}, {"id": STAFF, "policy": "plain"}]}})
     world.bridge.handle(world.update(STAFF, "/ask qual o prazo do contrato?"))
     assert wait_for(lambda: len(world.sent()) == 1)
-    assert world.sent()[0]["chat"] == STAFF and world.sent()[0]["message"]["text"] == PLAIN_REFUSAL
+    assert world.sent()[0]["chat"] == STAFF and ps.refused(world.sent()[0]["message"]["text"])
     assert runs(world.tree) == [] and st.calls(world.tree["adapter"]) == []
 
 
@@ -186,10 +188,10 @@ def test_a_profile_with_ask_and_no_talk_can_ask_and_cannot_talk(world):
            messaging={"senders": {"telegram": [{"id": OWNER, "policy": "asker"}, {"id": STAFF, "policy": "plain"}]}})
     world.bridge.handle(world.update(OWNER, "/ask qual o prazo do contrato?"))
     assert wait_for(lambda: len(world.sent()) == 1 and all(not t.is_alive() for t in world.bridge.threads))
-    assert "Checked quote [lease-contract]" in world.sent()[0]["message"]["text"] and len(runs(world.tree)) == 1
+    assert pk.said(world.sent()[0]["message"]["text"], "QUOTE_CHECKED", id="lease-contract") and len(runs(world.tree)) == 1
     world.bridge.handle(world.update(OWNER, "hello there"))                                      # a plain line needs talk, which this profile lacks
     assert wait_for(lambda: len(world.sent()) == 2 and all(not t.is_alive() for t in world.bridge.threads))
-    assert world.sent()[1]["message"]["text"] == PLAIN_REFUSAL and len(runs(world.tree)) == 1
+    assert ps.refused(world.sent()[1]["message"]["text"]) and len(runs(world.tree)) == 1
     world.bridge.handle(world.update(STAFF, "/ask qual o prazo do contrato?"))                   # talk without ask cannot ask
     assert wait_for(lambda: len(world.sent()) == 3 and all(not t.is_alive() for t in world.bridge.threads))
-    assert world.sent()[2]["message"]["text"] == PLAIN_REFUSAL and len(runs(world.tree)) == 1
+    assert ps.refused(world.sent()[2]["message"]["text"]) and len(runs(world.tree)) == 1

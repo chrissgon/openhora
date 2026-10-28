@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_mailbox_write import NEW_DRAFT, approve, archive, effect_doc, item_of, ops, ops_core, operations, phrases, rows, world  # noqa: F401  (the mailbox world: `world` is a fixture the tests below use)
 from test_channel_grants import accept as accept_channels
@@ -51,7 +52,7 @@ account_start = st.load("account_start")
 SENDER = "telegram:830461975213"
 OTHER = "telegram:777"
 CAPS = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
-EXPENSIVE = "Approve this exact content"
+PT = {"language": "pt-BR"}
 
 
 @pytest.fixture
@@ -62,6 +63,10 @@ def desk(world, monkeypatch):
 
 def labels(card):
     return [a["label"] for a in card["message"]["actions"]]
+
+
+def has_label(card, key="EFFECT_LABEL", cfg=None):
+    return any(pk.said(label, key, cfg) for label in labels(card))
 
 
 def card_for(world, started, groups, sender=SENDER, cfg=None, notices="text"):
@@ -88,8 +93,9 @@ def test_a_messaging_sender_prepares_a_card_only_with_the_group_and_may_name_a_m
     assert "this channel may not read it" in str(unreadable.value) and "ask-mail" in str(unreadable.value) and rows(desk) == ([], []) and desk["google"].requests == []
     accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail"]})
     started = prepare(desk)
-    assert started["word"] == "mailbox" and started["on_cards"] is True and account_start.reply_text({}, started) == f"Card #{started['pending']} waits for your approval."
-    assert account_start.reply_text({"language": "pt-BR"}, started) == f"O card #{started['pending']} espera a sua aprova\u00e7\u00e3o."
+    assert started["word"] == "mailbox" and started["on_cards"] is True
+    pk.assert_said(account_start.reply_text({}, started), "ACCT_CARD_SENT", {}, pending=started["pending"])
+    pk.assert_said(account_start.reply_text(PT, started), "ACCT_CARD_SENT", PT, pending=started["pending"])
     assert desk["google"].writes() == []
     item = item_of(desk, started)
     assert item["kind"] == "effect" and "Appointment confirmed for Monday" in item["body"] and item["payload_sha256"]
@@ -103,7 +109,7 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
     with pytest.raises(ops.OpsError) as no:
         approve(desk, started, "messaging")
     assert "an effect is approved in the terminal, with its hash" in str(no.value) and "approve-effect-mailbox" in str(no.value) and desk["google"].writes() == []
-    assert EXPENSIVE not in labels(card_for(desk, started, ["read", "ask-mail", "mail-organize"]))
+    assert not has_label(card_for(desk, started, ["read", "ask-mail", "mail-organize"]))
     accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail", "approve-effect-write", "approve-effect-send"]})      # another word's grant covers nothing here
     with pytest.raises(ops.OpsError):
         approve(desk, started, "messaging")
@@ -111,10 +117,11 @@ def test_a_sender_who_may_ask_may_not_approve_without_the_grant_and_the_grant_ne
     accepted = accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail", "approve-effect-mailbox"]})
     assert {w["group"] for w in accepted["widened"]} == {"approve-effect-mailbox"} and "mailbox" in accepted["widened"][0]["means"]      # the channel's list and the holder's profile both widen
     card = card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])
-    assert EXPENSIVE in labels(card) and card["whole"] is True and card["approvable"] is True
-    for line in ("Archive: 2 message(s)", "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday", "Nothing is changed unless every message is still as listed."):
-        assert line in card["message"]["text"], line
-    assert "Read from your mailbox at" not in card["message"]["text"], "a phone is not told the time the mailbox was read (S16c)"
+    assert has_label(card) and card["whole"] is True and card["approvable"] is True
+    pk.assert_said(card["message"]["text"], "CARD_BOX_ARCHIVE", n=2)
+    pk.assert_said(card["message"]["text"], "PHONE_BOX_READ_AT")
+    assert "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday" in card["message"]["text"]
+    assert not pk.said(card["message"]["text"], "CARD_BOX_READ_AT"), "a phone is not told the time the mailbox was read (S16c)"
     with pytest.raises(ops.OpsError) as wrong:
         ops.approve(desk["path"], started["pending"], "0" * 64, channel="messaging", sender=SENDER)
     assert "nothing was approved" in str(wrong.value) and desk["google"].writes() == []
@@ -131,36 +138,37 @@ def test_a_sender_who_does_not_hold_ask_mail_is_shown_no_subject_and_no_sender_a
     assert "Appointment confirmed for Monday" in body and "ana@clinic.example" in body, "the terminal and the page show all of it"
     holder = card_for(desk, started, ["read", "approve-effect-mailbox", "ask-mail"])
     other = card_for(desk, started, ["read", "approve-effect-mailbox"], sender=OTHER)
-    assert "Appointment confirmed for Monday" in holder["message"]["text"] and holder["approvable"] is True and EXPENSIVE in labels(holder)
+    assert "Appointment confirmed for Monday" in holder["message"]["text"] and holder["approvable"] is True and has_label(holder)
     text = other["message"]["text"]
     for hidden in ("Appointment confirmed", "Your order", "ana@clinic.example", "bob@shop.example"):
         assert hidden not in text, hidden
-    for shown in ("Archive: 2 message(s)", "Account: google", "Nothing is changed unless every message is still as listed.", "Some of the addresses, subjects and text of the e-mail are not shown here"):
-        assert shown in text, shown
-    assert other["approvable"] is False and EXPENSIVE not in labels(other), "a card that leaves a line out is not approved where it is partial"
+    for key, fields in (("CARD_BOX_ARCHIVE", {"n": 2}), ("CARD_ACCOUNT", {"account": "google"}), ("PHONE_BOX_READ_AT", {}), ("CARD_HIDDEN_NOTE_MAIL", {})):
+        pk.assert_said(text, key, **fields)
+    assert other["approvable"] is False and not has_label(other), "a card that leaves a line out is not approved where it is partial"
     assert other["content_sha256"] == holder["content_sha256"], "the hash is the effect's, whatever is drawn"
     assert cards.build("office", ops.pending(desk["path"], started["pending"]), CAPS, {"messaging": ["read", "approve-effect-mailbox", "ask-mail"]}, "text", None,
                        operations=operations, sender=None)["approvable"] is False, "no sender, no private text"
     portuguese = card_for(desk, started, ["read"], sender=OTHER, cfg={"language": "pt-BR"})["message"]["text"]
-    assert "Parte dos endere\u00e7os, dos assuntos e do texto do e-mail n\u00e3o aparece aqui" in portuguese and "Arquivar: 2 mensagem(ns)" in portuguese and "Appointment" not in portuguese
+    assert pk.said(portuguese, "CARD_HIDDEN_NOTE_MAIL", PT) and pk.said(portuguese, "CARD_BOX_ARCHIVE", PT, n=2) and "Appointment" not in portuguese
 
 
 def test_a_draft_card_hides_the_message_it_answers_from_a_sender_without_ask_mail_but_not_the_drafts_own_words(desk):
     started = ops.mail_draft(desk["path"], "google", message="inbox#1", body="Thanks, Monday works.\n")
     other = card_for(desk, started, ["read", "approve-effect-mailbox"], sender=OTHER)["message"]["text"]
-    for hidden in ("Reply to:", "Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "The message asks replies to go to", "To:", "Subject:"):
+    for hidden in ("Reply to:", "Appointment confirmed", "ana@clinic.example", "desk@clinic.example", "To:", "Subject:"):
         assert hidden not in other, hidden
-    assert "Thanks, Monday works." not in other and "Some of the addresses, subjects and text of the e-mail are not shown here" in other, "the draft's words are the mail's: not shown, and the card says so"
-    assert "Approve exactly" not in other and "not shown here" in other
+    assert not pk.said(other, "CARD_BOX_DRAFT_REPLY_DIFFERS")
+    assert "Thanks, Monday works." not in other and pk.said(other, "CARD_HIDDEN_NOTE_MAIL"), "the draft's words are the mail's: not shown, and the card says so"
+    assert not pk.said(other, "CARD_MAIL_APPROVE") and not pk.said(other, "CARD_FILE_APPROVE") and pk.said(other, "CARD_HIDDEN_NOTE_MAIL")
     assert card_for(desk, started, ["read", "approve-effect-mailbox"], sender=OTHER)["approvable"] is False
     holder_card = card_for(desk, started, ["read", "approve-effect-mailbox", "ask-mail"])
     holder = holder_card["message"]["text"]
     assert holder_card["approvable"] is True and "To: ana@clinic.example" in holder and "Subject: Re: Appointment confirmed for Monday" in holder
-    assert "Reply to: ana@clinic.example, the sender of the message (" in holder and "inbox#1" not in holder and "The message asks replies to go to desk@clinic.example" in holder
+    assert pk.said(holder, "PHONE_BOX_DRAFT_REPLY", address="ana@clinic.example") and "inbox#1" not in holder and pk.said(holder, "CARD_BOX_DRAFT_REPLY_DIFFERS", other="desk@clinic.example")
     own = ops.mail_draft(desk["path"], "google", **NEW_DRAFT)
     plain = card_for(desk, own, ["read", "approve-effect-mailbox"], sender=OTHER)
     assert plain["approvable"] is False and "Hello Joe," not in plain["message"]["text"] and "joe@shop.example" not in plain["message"]["text"] and "Haircut" not in plain["message"]["text"]
-    assert "not shown here" in plain["message"]["text"], "a new draft's addresses, subject and text are private too: shown, and approved from messaging, only to a reader of the mail"
+    assert pk.said(plain["message"]["text"], "CARD_HIDDEN_NOTE_MAIL"), "a new draft's addresses, subject and text are private too: shown, and approved from messaging, only to a reader of the mail"
     holder_plain = card_for(desk, own, ["read", "approve-effect-mailbox", "ask-mail"])
     assert holder_plain["approvable"] is True and "Hello Joe," in holder_plain["message"]["text"] and "joe@shop.example" in holder_plain["message"]["text"]
 
@@ -168,7 +176,7 @@ def test_a_draft_card_hides_the_message_it_answers_from_a_sender_without_ask_mai
 def test_the_notices_of_count_draw_no_approve_action_and_no_subject_for_a_mailbox_card(desk):
     started = ops.mail_archive(desk["path"], "google", "inbox#1")
     counted = card_for(desk, started, ["read", "approve-effect-mailbox", "ask-mail"], notices="count")
-    assert EXPENSIVE not in labels(counted) and "Appointment" not in counted["message"]["text"]
+    assert not has_label(counted) and "Appointment" not in counted["message"]["text"]
 
 
 def test_the_mcp_mode_and_the_conversation_never_prepare_or_approve_a_mailbox_change(desk):
@@ -239,11 +247,14 @@ def test_every_card_of_every_action_is_said_line_by_line_in_portuguese_with_the_
         en = cards.build("northwind", full, CAPS, {"messaging": ["read", "ask-mail", "approve-effect-mailbox"]}, "text", None, operations=operations, sender=SENDER, cfg={})
         assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"] and pt["approvable"] is True and pt["whole"] is True
     portuguese = cards.effect_card_text(item_of(desk, made[0]), {"language": "pt-BR"})
-    for needle in ("Conta: google (pat@example.com)", "Arquivar: 2 mensagem(ns)", "1. 2026-10-17 06:00 · de ana@clinic.example · Appointment confirmed for Monday", "Lidas na sua caixa de e-mail em"):
-        assert needle in portuguese, needle
+    for key, fields in (("CARD_ACCOUNT", {"account": "google", "address": "pat@example.com"}), ("CARD_BOX_ARCHIVE", {"n": 2}), ("CARD_BOX_READ_AT", {})):
+        pk.assert_said(portuguese, key, PT, **fields)
+    assert "1. 2026-10-17 06:00 · de ana@clinic.example · Appointment confirmed for Monday" in portuguese
     draft = cards.effect_card_text(item_of(desk, made[7]), {"language": "pt-BR"})
-    for needle in ("Para: joe@shop.example", "C\u00f3pia: amy@shop.example", "Cco: boss@shop.example", "Assunto: Haircut on Monday", "O texto do rascunho, exatamente como ser\u00e1 salvo (cada linha come\u00e7a com \u2502):\n\u2502 Hello Joe,"):
-        assert needle in draft, needle
+    for key, fields in (("CARD_BOX_DRAFT_TO", {"to": "joe@shop.example"}), ("CARD_BOX_DRAFT_CC", {"cc": "amy@shop.example"}), ("CARD_BOX_DRAFT_BCC", {"bcc": "boss@shop.example"}), ("CARD_BOX_DRAFT_SUBJECT", {"subject": "Haircut on Monday"})):
+        pk.assert_said(draft, key, PT, **fields)
+    # literal: the draft's text is a multi-line field of one sentence, which the kit cannot match inside a longer card; its first line is the key's own
+    assert "O texto do rascunho, exatamente como ser\u00e1 salvo (cada linha come\u00e7a com \u2502):\n\u2502 Hello Joe," in draft
 
 
 # --- the mechanism W1 established, held for the mailbox as well ------------------------------------------------------------------------------------------------
@@ -258,7 +269,7 @@ def test_the_mcp_mode_and_a_messaging_reader_without_ask_mail_are_shown_a_mailbo
         text = view["body"] + json.dumps(view["payload"])
         for hidden in ("Appointment confirmed", "Your order", "ana@clinic.example", "bob@shop.example"):
             assert hidden not in text, (channel, hidden)
-        assert "Archive: 2 message(s)" in view["body"] and "not shown here" in view["body"] and view["payload_sha256"] == full["payload_sha256"]
+        assert pk.said(view["body"], "CARD_BOX_ARCHIVE", n=2) and pk.said(view["body"], "CARD_HIDDEN_NOTE_MAIL") and view["payload_sha256"] == full["payload_sha256"]
     reply = ops.mail_draft(desk["path"], "google", message="inbox#1", body="Yes.\n")
     seen = ops.pending(desk["path"], reply["pending"], channel="mcp")["body"]
     assert "Yes." not in seen and "ana@clinic.example" not in seen and "Appointment" not in seen and "desk@clinic.example" not in seen
@@ -396,19 +407,22 @@ def test_a_reader_who_cannot_approve_is_not_shown_the_line_that_says_how(desk):
     item = tamper_card(desk, started, ["CARD_MAIL_APPROVE", {"command": "approve --sha256 x"}])
     assert phrases.card_valid(item["payload"]["card"])
     stored = item
-    with_line = "Approve exactly this: approve --sha256 x"
+    command = "approve --sha256 x"
+
+    def shows(text):
+        return pk.said(text, "CARD_MAIL_APPROVE", command=command)
 
     def view(channel, sender):
         return ops_grants.private_view(ops_core.context(desk["path"]), stored, channel, sender)
 
-    assert with_line not in view("mcp", None)["body"] and with_line not in json.dumps(view("mcp", None)["payload"]["card"]), "the MCP mode never approves"
+    assert not shows(view("mcp", None)["body"]) and command not in json.dumps(view("mcp", None)["payload"]["card"]), "the MCP mode never approves"
     accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail"]})
-    assert with_line not in view("messaging", SENDER)["body"], "a reader of the mail without the grant of the word is not offered an approval"
-    assert with_line in view(None, None)["body"] and with_line in view("page", None)["body"], "the terminal and the page read it"
+    assert not shows(view("messaging", SENDER)["body"]), "a reader of the mail without the grant of the word is not offered an approval"
+    assert shows(view(None, None)["body"]) and shows(view("page", None)["body"]), "the terminal and the page read it"
     accept(desk["path"], {"messaging": ["read", "mail-organize", "ask-mail", "approve-effect-mailbox"]})
-    assert with_line in view("messaging", SENDER)["body"], "a reader who may approve reads it"
-    assert with_line not in card_for(desk, started, ["read", "ask-mail"])["message"]["text"], "the messaging card of a reader without the grant leaves it out"
-    assert with_line not in card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"], "a phone is never given the command, granted or not (limit L62)"
+    assert shows(view("messaging", SENDER)["body"]), "a reader who may approve reads it"
+    assert not shows(card_for(desk, started, ["read", "ask-mail"])["message"]["text"]), "the messaging card of a reader without the grant leaves it out"
+    assert not shows(card_for(desk, started, ["read", "ask-mail", "approve-effect-mailbox"])["message"]["text"]), "a phone is never given the command, granted or not (limit L62)"
 
 
 def test_the_private_card_of_a_mailbox_change_a_holder_reads_is_not_kept_in_the_conversation_the_mcp_mode_reads(desk):

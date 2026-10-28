@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging_natural_writes import OWNER, day, forget  # noqa: F401  (the day fixture and its project)
 from test_calendar_write import world  # noqa: F401  (the calendar world `day` is built on)
@@ -33,7 +34,7 @@ def writes(day):
 def test_a_typed_aprovo_writes_the_event_of_the_card_that_is_the_last_message(day):
     grant_the_calendar(day)
     day.say(OWNER, LINE)
-    assert writes(day) == [] and any("Calendar: new event" in t for t in day.texts(OWNER))
+    assert writes(day) == [] and any(pk.said(t, "TITLE_CAL_CREATE") for t in day.texts(OWNER))
     day.say(OWNER, "Aprovo")
     assert len(writes(day)) == 1 and len(day.world["google"].events) == 1
     assert day.texts(OWNER)[-1] != "Aprovo" and "{" not in day.texts(OWNER)[-1]
@@ -58,6 +59,6 @@ def test_a_rolled_day_said_with_the_card_in_the_same_turn_does_not_end_the_word(
     grant_the_calendar(day)
     day.say(OWNER, "marca dentista \u00e0s 8h no google")      # 08:00 has passed on the test's clock (09:00): the day rolls, and the bridge says so after the card
     texts = day.texts(OWNER)
-    assert "Calendar: new event" in texts[0] and len(texts) == 2 and "has passed" in texts[1]
+    assert pk.said(texts[0], "TITLE_CAL_CREATE") and len(texts) == 2 and pk.said(texts[1], "NT_ROLLED", time="08:00")
     day.say(OWNER, "Aprovo")
     assert len(writes(day)) == 1

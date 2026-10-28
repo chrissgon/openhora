@@ -14,13 +14,13 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import SENDER, WAIT, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 from test_messaging_card_words import GRANTED, HASH, OTHER, approvals, effect, message_ids, nothing_decided, went_to_say
 
 KEY = "telegram:" + SENDER
 LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live line, Portuguese
-NOT_REVISABLE = "To change this card, reject it and ask again."
 
 
 def settle(world, seconds=WAIT):
@@ -132,7 +132,7 @@ def test_a_card_that_cannot_be_changed_by_words_gets_one_sentence_and_stays_the_
     mail_card(world)
     revise = Revise(world, found="sentence")
     world.say("Muda o texto para dizer outra coisa")      # validate: allow english-only -- the Portuguese line under test
-    assert world.texts()[-1] == NOT_REVISABLE and revise.changes == [] and world.calls("say") == []
+    assert pk.said(world.texts()[-1], "RV_NOT_REVISABLE") and revise.changes == [] and world.calls("say") == []
     world.say("sim")
     assert settle(world)
     assert approvals(world) == [(7, HASH)], "the card is still the last message the person was shown"
@@ -200,7 +200,7 @@ def test_a_failure_of_the_layer_is_one_plain_sentence_and_the_card_is_left_alone
     revise = Revise(world)
     world.fake.card_revise = lambda *a, **k: (_ for _ in ()).throw(world.fake.OpsError("boom"))
     world.say(LINE)
-    assert wait_for(lambda: world.texts()[-1].startswith("I could not make that change")) and nothing_decided(world)
+    assert wait_for(lambda: pk.said(world.texts()[-1], "RV_FAILED")) and nothing_decided(world)
 
 
 def test_a_sentence_that_leaves_the_old_card_open_sends_the_card_again_so_a_word_still_decides_it(world):
@@ -222,7 +222,7 @@ def test_a_reply_to_a_card_that_a_change_replaced_is_told_so_in_one_sentence_and
     revise = Revise(world, found="replaced")
     world.items[7]["status"] = "resolved"
     world.say(LINE, reply_to=message_ids(world)[0])
-    assert revise.checks == [(7, HASH, LINE, "messaging", KEY)] and world.texts()[-1] == "That card was replaced by a newer one. Change the newer card, or ask again."
+    assert revise.checks == [(7, HASH, LINE, "messaging", KEY)] and pk.said(world.texts()[-1], "RV_REPLACED")
     assert revise.changes == [] and world.calls("say") == []
     revise.found = None
     world.say(LINE, reply_to=message_ids(world)[0])      # the layer says it is nothing: it goes on as it always did

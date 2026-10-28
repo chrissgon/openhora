@@ -12,10 +12,10 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_card_words.
 """
 from __future__ import annotations
 
-from phone_literals import PLAIN_REFUSAL  # noqa: E402
-
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, PLAN_HASH, SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
@@ -24,11 +24,18 @@ bridge = st.load("messaging_bridge")
 HASH = "e" * 64
 OTHER = "5151"
 GRANTED = [*OPEN_POLICY, "approve-effect-write"]
-APPROVED, REJECTED = "Approved #{}.", "Rejected #{}."
-CHANGED_SENTENCE = "This decision changed since you saw it."
-END_LINE = "Reply yes to approve or no to decline."
-HEAD = 'More than one decision waits. Say which one by its number, for example "approve 2":'
-ONE_AT_A_TIME = 'I approve one decision at a time. Say which one, for example "approve 2".'
+
+
+def last_line(text):
+    return text.split("\n")[-1]
+
+
+def first_line(text):
+    return text.split("\n")[0]
+
+
+def says_changed(texts):
+    return any(pk.said(t, "CHANGED") for t in texts)
 
 
 def plan(number, title=None):
@@ -74,7 +81,7 @@ def test_an_approve_word_approves_the_only_card_that_is_the_last_message_exactly
     world.bridge.tick()
     world.say(word)
     assert approvals(world) == [(1, "a" * 64)] and rejections(world) == []      # the hash of the card the person saw, the plan's own
-    assert world.texts()[-1] == APPROVED.format(1) and world.calls("say") == []
+    assert pk.said(world.texts()[-1], "APPROVED", id=1) and world.calls("say") == []
 
 
 @pytest.mark.parametrize("word", ["n\u00e3o", "Nao", "rejeito", "rejeita", "cancela", "deixa", "no", "reject", "cancel"])
@@ -82,7 +89,7 @@ def test_a_reject_word_rejects_the_only_card_that_is_the_last_message(world, wor
     world.items[1] = plan(1)
     world.bridge.tick()
     world.say(word)
-    assert decided(world) == ([], [1]) and world.texts()[-1] == REJECTED.format(1) and world.calls("say") == []
+    assert decided(world) == ([], [1]) and pk.said(world.texts()[-1], "REJECTED", id=1) and world.calls("say") == []
 
 
 def test_the_button_and_the_word_make_the_same_call(world):
@@ -148,7 +155,8 @@ def test_two_cards_send_the_numbered_list_and_decide_nothing(world):
     world.bridge.tick()
     world.say("sim")
     assert nothing_decided(world) and world.calls("say") == []
-    assert world.texts()[-1] == HEAD + "\n1. plan: Launch page\n2. plan: Pricing page"
+    head, *listed = world.texts()[-1].split("\n")
+    assert pk.said(head, "WORD_LIST_HEAD") and listed == ["1. plan: Launch page", "2. plan: Pricing page"]
     assert "#" not in world.texts()[-1]
 
 
@@ -157,7 +165,7 @@ def test_a_position_on_the_list_decides_that_card_and_only_that_card(world):
     world.bridge.tick()
     world.say("pode marcar")
     world.say("aprovo o 2")
-    assert approvals(world) == [(2, "b" * 64)] and rejections(world) == [] and world.texts()[-1] == APPROVED.format(2)
+    assert approvals(world) == [(2, "b" * 64)] and rejections(world) == [] and pk.said(world.texts()[-1], "APPROVED", id=2)
 
 
 def test_a_position_that_is_not_on_the_list_or_a_word_with_no_position_sends_the_list_again(world):
@@ -167,7 +175,7 @@ def test_a_position_that_is_not_on_the_list_or_a_word_with_no_position_sends_the
     for line in ("aprovo o 3", "sim", "aprovo o 11"):
         before = len(world.texts())
         world.say(line)
-        assert nothing_decided(world) and len(world.texts()) == before + 1 and world.texts()[-1].startswith(HEAD), line
+        assert nothing_decided(world) and len(world.texts()) == before + 1 and pk.said(first_line(world.texts()[-1]), "WORD_LIST_HEAD"), line
 
 
 def test_a_position_on_a_list_that_is_no_longer_the_last_message_decides_nothing(world):
@@ -196,9 +204,9 @@ def test_approve_all_is_never_done_and_reject_all_rejects_each_card_of_the_list(
     world.bridge.tick()
     world.say("sim")
     world.say("aprova todos")
-    assert nothing_decided(world) and world.texts()[-1] == ONE_AT_A_TIME and world.calls("say") == []
+    assert nothing_decided(world) and pk.said(world.texts()[-1], "WORD_ONE_AT_A_TIME") and world.calls("say") == []
     world.say("approve all")      # again: the list is still what the person was shown
-    assert nothing_decided(world) and world.texts()[-1] == ONE_AT_A_TIME
+    assert nothing_decided(world) and pk.said(world.texts()[-1], "WORD_ONE_AT_A_TIME")
     world.say("todos n\u00e3o")
     assert approvals(world) == [] and sorted(rejections(world)) == [1, 2]
 
@@ -216,7 +224,7 @@ def test_a_decision_that_changed_since_the_card_approves_nothing_says_so_and_sen
     world.bridge.tick()
     world.items[1] = decision("plan", 1, title="Plan 1", plan_sha256="z" * 64)
     world.say("sim")
-    assert nothing_decided(world) and world.texts()[-2] == CHANGED_SENTENCE
+    assert nothing_decided(world) and pk.said(world.texts()[-2], "CHANGED")
     assert len(world.sent()) == 3 and world.sent()[-1]["message"]["text"].startswith("northwind-shop · plan #1")      # the card, the sentence, the new card
     world.say("sim")
     assert approvals(world) == [(1, "z" * 64)]      # the new card is the last message and carries the new hash
@@ -244,7 +252,7 @@ def test_a_forwarded_word_decides_nothing_and_a_fail_closed_mark_counts(world):
     world.bridge.tick()
     for mark in (True, "yes", 1):
         world.say("sim", forwarded=mark)
-    assert nothing_decided(world) and world.calls("say") == [] and world.texts()[-1].startswith("I don't act on forwarded messages")
+    assert nothing_decided(world) and world.calls("say") == [] and pk.said(world.texts()[-1], "FWD_NOT_A_REQUEST")
 
 
 def test_the_policy_that_lacks_the_grant_draws_no_approve_and_the_word_goes_on_to_say(world):
@@ -260,7 +268,7 @@ def test_a_grant_taken_away_after_the_card_was_drawn_refuses_the_word_as_it_refu
     world.bridge.tick()
     world.config["channels"] = {"messaging": ["read", "talk", "reject-cancel"]}
     world.say("sim")
-    assert nothing_decided(world) and world.calls("say") == [] and world.texts()[-1] == PLAIN_REFUSAL
+    assert nothing_decided(world) and world.calls("say") == [] and ps.refused(world.texts()[-1])
 
 
 def test_a_card_that_was_not_sent_whole_decides_nothing(world):
@@ -301,7 +309,7 @@ def test_a_reply_to_a_card_with_a_position_or_with_all_decides_no_card(world):
     assert nothing_decided(world)
     assert wait_for(lambda: world.texts().count("Noted.") == 2)      # both went on to say, as ever
     world.say("aprova todos", reply_to=first)
-    assert nothing_decided(world) and world.texts()[-1] == ONE_AT_A_TIME
+    assert nothing_decided(world) and pk.said(world.texts()[-1], "WORD_ONE_AT_A_TIME")
 
 
 def test_a_reply_to_a_card_whose_decision_changed_approves_nothing(world):
@@ -310,7 +318,7 @@ def test_a_reply_to_a_card_whose_decision_changed_approves_nothing(world):
     [first] = message_ids(world)
     world.items[1] = decision("plan", 1, title="Plan 1", plan_sha256="z" * 64)
     world.say("sim", reply_to=first)
-    assert nothing_decided(world) and CHANGED_SENTENCE in world.texts()
+    assert nothing_decided(world) and says_changed(world.texts())
 
 
 def test_a_reply_to_anything_that_is_not_a_decision_card_is_not_a_word(world):
@@ -345,7 +353,7 @@ def test_an_effect_whose_hash_changed_is_not_approved_by_a_word(world):
     world.bridge.tick()
     world.items[7] = effect(sha="f" * 64)
     world.say("sim")
-    assert nothing_decided(world) and CHANGED_SENTENCE in world.texts()
+    assert nothing_decided(world) and says_changed(world.texts())
 
 
 def test_an_effect_of_a_policy_without_its_word_is_never_approved_by_a_word_the_word_goes_on_as_a_line(world):
@@ -367,7 +375,7 @@ def test_a_platform_with_no_buttons_ends_the_card_with_the_words_and_the_word_ap
     world.items[1] = plan(1)
     world.bridge.tick()
     [card] = world.sent()
-    assert card["message"]["text"].endswith(END_LINE) and "/approve" not in card["message"]["text"] and "/reject" not in card["message"]["text"]
+    assert pk.said(last_line(card["message"]["text"]), "REPLY_WORDS_LINE") and "/approve" not in card["message"]["text"] and "/reject" not in card["message"]["text"]
     assert world.bridge.ledger.data["cards"][0]["offers"] == ["approve", "reject"]
     world.say("sim")
     assert approvals(world) == [(1, "a" * 64)]
@@ -379,7 +387,7 @@ def test_a_card_that_is_not_whole_on_a_platform_with_no_buttons_keeps_the_typed_
     world.items[1] = plan(1)
     world.bridge.tick()
     text = world.sent()[0]["message"]["text"]
-    assert "Send /approve 1" in text and "Send /reject 1" in text and END_LINE not in text
+    assert "Send /approve 1" in text and "Send /reject 1" in text and not pk.said(text, "REPLY_WORDS_LINE")
     assert world.bridge.ledger.data["cards"][0]["whole"] is False
     world.say("sim")
     assert nothing_decided(world)
@@ -390,18 +398,18 @@ def test_a_cut_card_on_a_platform_with_no_buttons_keeps_the_typed_lines_and_a_wh
     world.items[1] = decision("plan", 1, body="x" * 2000, plan_sha256="a" * 64)
     world.bridge.tick()
     cut = world.sent()[0]["message"]["text"]
-    assert len(cut) <= 300 and "Send /approve 1" in cut and "Send /reject 1" in cut and END_LINE not in cut
+    assert len(cut) <= 300 and "Send /approve 1" in cut and "Send /reject 1" in cut and not pk.said(cut, "REPLY_WORDS_LINE")
     assert world.bridge.ledger.data["cards"][0]["whole"] is False
     world.items[2] = decision("plan", 2, body="short", plan_sha256="b" * 64)
     world.bridge.tick()
     whole = world.sent()[1]["message"]["text"]
-    assert whole.endswith(END_LINE) and "/approve" not in whole and world.bridge.ledger.data["cards"][1]["whole"] is True
+    assert pk.said(last_line(whole), "REPLY_WORDS_LINE") and "/approve" not in whole and world.bridge.ledger.data["cards"][1]["whole"] is True
 
 
 def test_a_platform_with_buttons_does_not_end_the_card_with_the_words(world):
     world.items[1] = plan(1)
     world.bridge.tick()
-    assert END_LINE not in world.sent()[0]["message"]["text"] and [a["label"] for a in world.sent()[0]["message"]["actions"]] == ["Approve", "Reject"]
+    assert not pk.said(world.sent()[0]["message"]["text"], "REPLY_WORDS_LINE") and [a["label"] for a in world.sent()[0]["message"]["actions"]] == ["Approve", "Reject"]
 
 
 def test_an_email_shaped_platform_decides_only_by_a_reply_to_the_card(world):
@@ -409,7 +417,7 @@ def test_an_email_shaped_platform_decides_only_by_a_reply_to_the_card(world):
     world.items[1] = plan(1)
     world.bridge.tick()
     [card] = world.sent()
-    assert card["message"]["text"].endswith(END_LINE) and card["message"]["footer"][-1] == END_LINE
+    assert pk.said(last_line(card["message"]["text"]), "REPLY_WORDS_LINE") and pk.said(card["message"]["footer"][-1], "REPLY_WORDS_LINE")
     world.say("sim")      # a plain line is not a reply to the card
     assert nothing_decided(world) and went_to_say(world)
     world.say("sim", reply_to=message_ids(world)[0])

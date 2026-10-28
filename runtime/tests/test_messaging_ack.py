@@ -1,6 +1,6 @@
 """One short acknowledgement when a reply takes time (slice S19; runtime/messaging_ack.py, runtime/line_stage.py, `Bridge.line`, `Bridge.write_now`, `Bridge.acknowledge`), over the
 stand-in operations object and the stand-in messenger of test_messaging.py (its verb `send` records each message in sent.jsonl). Offline, no model, no network; every name is
-invented, every expected sentence is a literal of this file (never read from the phrase table, so a wrong table fails here).
+invented, every expected sentence is a key of the phrase table named by this file (runtime/tests/phrase_kit.py): its wording is pinned once, by the phrase snapshot (T8).
 
 THE ORACLE counts and orders the messages of sent.jsonl, which the stand-in writes (the test's own count, never the bridge's). The vacuity cases plant what the rest reads: a slow
 line over a short delay does get one acknowledgement before its reply (so a count of zero elsewhere means something), the order oracle flags a planted list that has the
@@ -15,6 +15,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import SENDER, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 
@@ -23,30 +24,23 @@ line_stage = st.load("line_stage")
 providers = st.load("messaging_provider")
 
 REPLY = "Noted."
-# the stage -> the sentence in pt-BR and in English, literal (the test's own list)
-PT_BR = {
-    "think": "Deixa eu ver...",
-    "mail": "Vou ver seus e-mails...",
-    "calendar": "Vou ver sua agenda...",
-    "file": "Procurando o arquivo...",
-    "compose": "Redigindo o e-mail...",
-    "card": "Preparando o card...",
-    "research": "Pesquisando... Digite 'Pare' para cancelar.",
-    "plan": "Vou trabalhar nisso...",
-    None: "Um momento, estou vendo isso...",      # validate: allow english-only -- the pt-BR sentence under test
-}
-EN = {
-    "think": "Let me see...",
-    "mail": "Let me check your e-mails...",
-    "calendar": "Let me check your calendar...",
-    "file": "Looking for the file...",
-    "compose": "Writing the e-mail...",
-    "card": "Preparing the card...",
-    "research": "Searching... Send 'Stop' to cancel.",
-    "plan": "I will work on that...",
-    None: "One moment, I am looking into it...",
-}
-EVERY_ACK = set(PT_BR.values()) | set(EN.values())
+# the stage -> the key of its acknowledgement (the test's own list; the sentences are the table's, pinned by the phrase snapshot)
+ACK = {"think": "ACK_THINK", "mail": "ACK_MAIL", "calendar": "ACK_CALENDAR", "file": "ACK_FILE", "compose": "ACK_COMPOSE", "card": "ACK_CARD",
+       "research": "ACK_RESEARCH", "plan": "ACK_PLAN", None: "ACK_GENERIC"}
+PT = {"language": "pt-BR"}
+
+
+def is_ack(text):
+    """True when `text` is the sentence of any key of ACK, in either language."""
+    found = pk.which(text)
+    return found is not None and found[0] in set(ACK.values())
+
+
+def acked(texts, stage, cfg=None, *after, before=()):
+    """True when `texts` is `before`, then the acknowledgement of `stage` in the language of `cfg`, then `after`, and nothing else."""
+    before = list(before)
+    n = len(before)
+    return len(texts) == n + 1 + len(after) and list(texts[:n]) == before and pk.said(texts[n], ACK[stage], cfg) and list(texts[n + 1:]) == list(after)
 
 
 def quick(monkeypatch, delay=0.3):
@@ -67,12 +61,12 @@ def slow_say(world, seconds, stage=None, then=None):
 
 
 def acks_in(texts):
-    return [t for t in texts if t in EVERY_ACK]
+    return [t for t in texts if is_ack(t)]
 
 
 def ack_after_reply(texts):
     """The order oracle: True when an acknowledgement is listed after the reply."""
-    return REPLY in texts and any(t in EVERY_ACK for t in texts[texts.index(REPLY):])
+    return REPLY in texts and any(is_ack(t) for t in texts[texts.index(REPLY):])
 
 
 # --- the bridge: a slow line -----------------------------------------------------------------------------------------------------------------------------
@@ -85,9 +79,9 @@ def test_a_slow_line_gets_exactly_one_acknowledgement_of_its_stage_before_the_re
     slow_say(world, 1.0, stage)
     world.say("tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
-    assert world.texts() == [PT_BR[stage], REPLY]
+    assert acked(world.texts(), stage, PT, REPLY), world.texts()
     time.sleep(0.4)
-    assert world.texts() == [PT_BR[stage], REPLY]      # nothing else follows
+    assert acked(world.texts(), stage, PT, REPLY), world.texts()      # nothing else follows
 
 
 def test_the_same_stages_are_said_in_english_when_the_project_speaks_english(world, monkeypatch):
@@ -95,17 +89,21 @@ def test_the_same_stages_are_said_in_english_when_the_project_speaks_english(wor
     slow_say(world, 0.9, "mail")
     world.say("tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
-    assert world.texts() == [EN["mail"], REPLY]
+    assert acked(world.texts(), "mail", None, REPLY), world.texts()
 
 
 def test_every_stage_of_the_closed_list_has_a_sentence_in_both_languages_and_the_list_is_the_one_the_test_knows(world):
-    assert set(line_stage.STAGES) == {s for s in PT_BR if s is not None} == {s for s in EN if s is not None}      # a stage added without a sentence here fails
+    assert set(line_stage.STAGES) == {s for s in ACK if s is not None}      # a stage added without a key here fails
     phrases = st.load("phrases")
     for stage in line_stage.STAGES:
-        assert phrases.text(ack.key(stage), {"language": "pt-BR"}) == PT_BR[stage] and phrases.text(ack.key(stage), {}) == EN[stage]
+        assert ack.key(stage) == ACK[stage]
+        pk.assert_said(phrases.text(ack.key(stage), PT), ack.key(stage), PT)
+        pk.assert_said(phrases.text(ack.key(stage), {}), ack.key(stage), {})
+        assert phrases.text(ack.key(stage), PT) != phrases.text(ack.key(stage), {}), "the two languages say it differently"
     assert ack.key(None) == "ACK_GENERIC" and ack.key("unknown") == "ACK_GENERIC" and ack.key("mail") == "ACK_MAIL"
-    assert phrases.text("ACK_GENERIC", {"language": "pt-BR"}) == PT_BR[None] and phrases.text("ACK_GENERIC", {}) == EN[None]
-    assert phrases.text("ACK_GENERIC", {"language": "de"}) == EN[None]      # a language with no table falls back to English as every phrase does
+    pk.assert_said(phrases.text("ACK_GENERIC", PT), "ACK_GENERIC", PT)
+    pk.assert_said(phrases.text("ACK_GENERIC", {}), "ACK_GENERIC", {})
+    pk.assert_said(phrases.text("ACK_GENERIC", {"language": "de"}), "ACK_GENERIC", {})      # a language with no table falls back to English as every phrase does
 
 
 def test_the_stage_current_when_the_time_runs_out_is_the_one_said_and_a_later_stage_adds_nothing(world, monkeypatch):
@@ -123,7 +121,7 @@ def test_the_stage_current_when_the_time_runs_out_is_the_one_said_and_a_later_st
     world.fake.answers["say"] = answer
     world.say("tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
-    assert world.texts() == [PT_BR["mail"], REPLY]
+    assert acked(world.texts(), "mail", PT, REPLY), world.texts()
 
 
 def test_a_very_slow_line_still_gets_one_acknowledgement_only(world, monkeypatch):
@@ -131,7 +129,7 @@ def test_a_very_slow_line_still_gets_one_acknowledgement_only(world, monkeypatch
     slow_say(world, 1.6, "plan")
     world.say("tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
-    assert world.texts() == [EN["plan"], REPLY]
+    assert acked(world.texts(), "plan", None, REPLY), world.texts()
 
 
 # --- the bridge: what gets none --------------------------------------------------------------------------------------------------------------------------
@@ -169,12 +167,13 @@ def test_the_acknowledgement_never_comes_after_the_reply(world, monkeypatch):
     assert wait_for(lambda: world.texts().count(REPLY) == 2, 10)
     time.sleep(0.5)
     texts = world.texts()
-    assert texts == [REPLY, EN["mail"], REPLY] and not ack_after_reply(texts[1:])
+    assert acked(texts, "mail", None, REPLY, before=[REPLY]) and not ack_after_reply(texts[1:]), texts
 
 
 def test_the_order_oracle_flags_an_acknowledgement_after_the_reply():      # vacuity
-    assert ack_after_reply([REPLY, EN["mail"]]) is True
-    assert ack_after_reply([EN["mail"], REPLY]) is False
+    said = st.load("phrases").text("ACK_MAIL", {})      # a planted list holds the sentence the table says
+    assert ack_after_reply([REPLY, said]) is True
+    assert ack_after_reply([said, REPLY]) is False
     assert ack_after_reply([REPLY]) is False
 
 
@@ -185,14 +184,14 @@ def test_a_failing_acknowledgement_send_changes_nothing_of_the_reply(world, monk
     tried = []
 
     def send(chat, message):
-        if message.get("text") in EVERY_ACK:
+        if is_ack(message.get("text")):
             tried.append(message["text"])
             raise providers.MessengerError("refused", "the platform said no")
         return real(chat, message)
     monkeypatch.setattr(world.bridge.messenger, "send", send)
     world.say("tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
-    assert tried == [EN["mail"]] and world.texts() == [REPLY] and world.log == []      # it was tried, the reply went out, nothing was logged
+    assert len(tried) == 1 and pk.said(tried[0], "ACK_MAIL") and world.texts() == [REPLY] and world.log == []      # it was tried, the reply went out, nothing was logged
 
 
 def test_the_reply_does_not_wait_for_an_acknowledgement_send_that_is_in_flight(world, monkeypatch):
@@ -202,7 +201,7 @@ def test_the_reply_does_not_wait_for_an_acknowledgement_send_that_is_in_flight(w
     release, started = threading.Event(), threading.Event()
 
     def send(chat, message):
-        if message.get("text") in EVERY_ACK:
+        if is_ack(message.get("text")):
             started.set()
             release.wait(5)
         return real(chat, message)
@@ -229,7 +228,7 @@ def test_a_slow_write_gets_one_acknowledgement_of_its_stage_before_its_card_sent
         return {"reply": "Card ready.", "resend": None}
     world.fake.natural_write = natural_write
     world.bridge.write_now(world.projects[0], SENDER, "write to the clinic")      # the stand-in has no card to send: the sentence only
-    assert world.texts() == [PT_BR["compose"], "Card ready."]
+    assert acked(world.texts(), "compose", PT, "Card ready."), world.texts()
 
 
 def test_a_write_that_turns_out_to_be_a_plain_line_is_acknowledged_once(world, monkeypatch):
@@ -243,7 +242,7 @@ def test_a_write_that_turns_out_to_be_a_plain_line_is_acknowledged_once(world, m
     world.bridge.write_now(world.projects[0], SENDER, "tell me about the shop")
     assert wait_for(lambda: REPLY in world.texts(), 10)
     time.sleep(0.4)
-    assert world.texts() == [EN[None], REPLY]
+    assert acked(world.texts(), None, None, REPLY), world.texts()
 
 
 def test_a_write_answered_within_the_delay_gets_none(world, monkeypatch):

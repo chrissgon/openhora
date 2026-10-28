@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging_natural_writes import OWNER, READER, PLAIN, day, forget  # noqa: F401  (the calendar world, the stand-in messenger and their senders)
 from test_calendar_write import world  # noqa: F401
@@ -17,10 +18,19 @@ from test_calendar_write import world  # noqa: F401
 ops = st.load("ops")
 
 SILENT = "7171"
-HEAD = "Hello! Here is what I can do for you now:"
-OWNER_REPLY = "\n".join([HEAD, "- set reminders", "- create, change or cancel events on your calendar, after you approve", "- save files to your Drive or OneDrive, after you approve"])
-READER_REPLY = "\n".join([HEAD, "- read and summarise your e-mails", "- create, change or cancel events on your calendar, after you approve"])
-PLAIN_REPLY = "\n".join([HEAD, "- send me a request in a sentence and I will pass it to the planning agent"])
+OWNER_REPLY = ("GREET_REMIND", "GREET_CALENDAR", "GREET_FILES")      # the lines of each sender's summary, by key
+READER_REPLY = ("GREET_MAIL", "GREET_CALENDAR")
+PLAIN_REPLY = ("GREET_ASK_WORK",)
+
+
+def is_summary(text, keys):
+    """True when `text` is the head of the greeting and then one line for each key of `keys`, in order, and nothing else."""
+    lines = text.split("\n")
+    return len(lines) == 1 + len(keys) and pk.said(lines[0], "GREET_HEAD") and all(pk.said(line, key) for line, key in zip(lines[1:], keys))
+
+
+def said_head(texts):
+    return any(pk.said(t, "GREET_HEAD") for t in texts)
 
 
 def with_silent_sender(day):
@@ -36,26 +46,26 @@ def with_silent_sender(day):
 def test_a_greeting_or_a_help_line_from_a_sender_who_talks_gets_the_summary_of_that_senders_policy(day):
     for line in ("oi", "Ajuda", "what can you do?", "Bom dia, tudo bem?"):      # validate: allow english-only -- the lines under test
         day.say(OWNER, line)
-        assert day.texts(OWNER)[-1] == OWNER_REPLY, line
+        assert is_summary(day.texts(OWNER)[-1], OWNER_REPLY), line
     day.say(READER, "hello")
     day.say(PLAIN, "help")
-    assert day.texts(READER)[-1] == READER_REPLY and day.texts(PLAIN)[-1] == PLAIN_REPLY
+    assert is_summary(day.texts(READER)[-1], READER_REPLY) and is_summary(day.texts(PLAIN)[-1], PLAIN_REPLY)
 
 
 def test_no_help_line_of_the_summary_carries_a_slash_command(day):
     day.say(OWNER, "help")
-    assert "/" not in day.texts(OWNER)[-1] and "Commands:" not in day.texts(OWNER)[-1]
+    assert "/" not in day.texts(OWNER)[-1] and not pk.said(day.texts(OWNER)[-1], "HELP")
 
 
 def test_a_sender_who_may_not_talk_keeps_the_fixed_help_and_gets_no_reply_to_a_greeting(day):
     with_silent_sender(day)
     day.say(SILENT, "ajuda")      # validate: allow english-only -- the line under test
-    assert day.texts(SILENT)[-1].startswith("Commands:\n\nRequests\n/pending")
+    pk.assert_said(day.texts(SILENT)[-1], "HELP")
     count = len(day.texts(SILENT))
     day.say(SILENT, "oi")      # validate: allow english-only -- the line under test
-    assert HEAD not in "".join(day.texts(SILENT)[count:]), "the summary is for a sender who may talk"
+    assert not said_head(day.texts(SILENT)[count:]), "the summary is for a sender who may talk"
 
 
 def test_vacuity_a_request_after_the_greeting_is_not_answered_with_the_summary(day):
     day.say(OWNER, "oi, me lembra amanha as 9 de regar as plantas")      # validate: allow english-only -- the line under test: a reminder
-    assert HEAD not in "".join(day.texts(OWNER))
+    assert not said_head(day.texts(OWNER))

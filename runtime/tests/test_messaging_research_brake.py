@@ -313,6 +313,7 @@ def test_the_word_the_research_acknowledgement_names_is_in_the_stop_list_of_its_
 
 
 def test_the_acknowledgements_literal_words_are_pare_and_stop_and_the_sentences_are_the_makers_wording():
+    # literal: the stop word the acknowledgement shows is in the closed list of stop words (the text is the limit)
     assert phrases.text("ACK_RESEARCH", {"language": "en"}) == "Searching... Send 'Stop' to cancel."
     assert phrases.text("ACK_RESEARCH", {"language": "pt-BR"}) == "Pesquisando... Digite 'Pare' para cancelar."
 

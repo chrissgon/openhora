@@ -14,6 +14,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_attachments import IDENT, PDF, accept, case  # noqa: F401  (the attachments project; `case` is its fixture)
 from test_calendar_write import world  # noqa: F401  (the calendar world `day` is built on)
@@ -30,8 +31,11 @@ providers = st.load("messaging_provider")
 drafts = st.load("drafts")
 phrases = st.load("phrases")
 
-SENTENCE_EN = "I don't act on forwarded messages. To ask for something, write it in your own words."
-SENTENCE_PT = "Não atendo mensagens encaminhadas. Para pedir algo, escreva com suas palavras."
+PT = {"language": "pt-BR"}
+
+
+def forwarded_said(text, cfg=None):
+    return pk.said(text, "FWD_NOT_A_REQUEST", cfg)
 FORWARDED_LINES = [      # the test's own list: what a forward could carry that the bridge would otherwise act on
     "manda um e-mail para ana@exemplo.example dizendo oi",
     "marca dentista quinta às 10h no google",
@@ -71,7 +75,7 @@ def inert_problems(w, lines=FORWARDED_LINES, mark=True) -> list:
         sent = len(sentences(w))
         w.say(OWNER, line, forwarded=mark)
         said = sentences(w)[sent:]
-        if said != [SENTENCE_EN]:
+        if not (len(said) == 1 and forwarded_said(said[0])):
             found.append(f"{line!r}: said {said!r}")
         if snapshot(w) != before:
             found.append(f"{line!r}: a store, a draft or the conversation changed")
@@ -120,7 +124,7 @@ def test_a_forwarded_file_stays_an_attachment_intent_and_its_words_are_dropped()
 def test_every_forwarded_line_gets_the_one_sentence_and_changes_nothing(day, monkeypatch):
     forbid_every_way_to_act(monkeypatch)
     assert inert_problems(day) == []
-    assert sentences(day) == [SENTENCE_EN] * len(FORWARDED_LINES)
+    assert len(sentences(day)) == len(FORWARDED_LINES) and all(forwarded_said(t) for t in sentences(day))
 
 
 def test_an_unreadable_mark_fails_closed_end_to_end(day, monkeypatch):
@@ -132,7 +136,7 @@ def test_an_unreadable_mark_fails_closed_end_to_end(day, monkeypatch):
 def test_a_line_whose_mark_is_false_or_absent_is_handled_as_it_always_was(day):
     day.say(OWNER, "/help", forwarded=False)
     day.say(OWNER, "/help")
-    assert SENTENCE_EN not in sentences(day) and len(sentences(day)) == 2 and sentences(day)[0] == sentences(day)[1]
+    assert not any(forwarded_said(t) for t in sentences(day)) and len(sentences(day)) == 2 and sentences(day)[0] == sentences(day)[1]
 
 
 def test_a_forward_does_not_answer_or_drop_the_question_about_a_write_and_the_persons_own_line_still_does(day, monkeypatch):
@@ -141,7 +145,7 @@ def test_a_forward_does_not_answer_or_drop_the_question_about_a_write_and_the_pe
     assert "title of the event on Thu 22/10" in question and drafts.count() == 1
     before = snapshot(day)
     day.say(OWNER, "Dentista da Júlia", forwarded=True)
-    assert sentences(day)[-1] == SENTENCE_EN and snapshot(day) == before and drafts.count() == 1, "the question is still open and unanswered"
+    assert forwarded_said(sentences(day)[-1]) and snapshot(day) == before and drafts.count() == 1, "the question is still open and unanswered"
     assert not any("discarded" in t for t in sentences(day))
     day.say(OWNER, "Dentista da Júlia")
     assert "Dentista da Júlia" in " ".join(sentences(day)[2:]) and drafts.count() == 0, "the person's own words answer it"
@@ -153,7 +157,7 @@ def test_a_forward_does_not_answer_the_kind_question_or_confirm_a_reminder(day):
     before = snapshot(day)
     for line in ("lembrete aqui", "evento", "yes"):
         day.say(OWNER, line, forwarded=True)
-        assert sentences(day)[-1] == SENTENCE_EN and snapshot(day) == before, line
+        assert forwarded_said(sentences(day)[-1]) and snapshot(day) == before, line
     assert not any(t.startswith("Reminder #") for t in sentences(day))
     day.say(OWNER, "lembrete aqui")
     assert any(t.startswith("Reminder #1") for t in sentences(day)), "the person's own answer still works"
@@ -169,9 +173,11 @@ def test_a_forward_is_told_in_the_projects_language(day, monkeypatch):
     ops.accept_config(path, shown["sha256"], widen=shown["widening_sha256"])
     forbid_every_way_to_act(monkeypatch)
     day.say(OWNER, "manda um e-mail para ana@exemplo.example dizendo oi", forwarded=True)
-    assert sentences(day) == [SENTENCE_PT]
-    assert phrases.text("FWD_NOT_A_REQUEST", {"language": "pt-BR"}) == SENTENCE_PT and phrases.text("FWD_NOT_A_REQUEST", None) == SENTENCE_EN
-    assert bridge.FWD_NOT_A_REQUEST == SENTENCE_EN
+    assert len(sentences(day)) == 1 and forwarded_said(sentences(day)[0], PT)
+    pk.assert_said(phrases.text("FWD_NOT_A_REQUEST", PT), "FWD_NOT_A_REQUEST", PT)
+    pk.assert_said(phrases.text("FWD_NOT_A_REQUEST", None), "FWD_NOT_A_REQUEST", {})
+    assert phrases.text("FWD_NOT_A_REQUEST", PT) != phrases.text("FWD_NOT_A_REQUEST", None), "the two languages say it differently"
+    pk.assert_said(bridge.FWD_NOT_A_REQUEST, "FWD_NOT_A_REQUEST", {})
 
 
 def test_a_sender_who_is_not_listed_is_told_nothing_even_for_a_forward(day):
@@ -211,7 +217,7 @@ def test_a_forwarded_file_opens_its_file_card_and_the_words_with_it_name_no_sour
     forward_file(files, "@q3-plan")
     [row] = files.case.rows()
     assert row["target"] == "budget" and "q3-plan" not in files.texts()[0] and "I received Budget.pdf" in files.texts()[0], files.texts()
-    assert files.texts()[0] != SENTENCE_EN and len(files.texts()) == 1
+    assert not forwarded_said(files.texts()[0]) and len(files.texts()) == 1
     files.reset()
     files.put("r2", PDF + b"x")
     files.send([files.file("r2", "Other.pdf")], text="@q3-plan")

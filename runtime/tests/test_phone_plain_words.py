@@ -1,8 +1,8 @@
 """No English and no internal words on a Portuguese phone (slice S14, limit L62): the lines `/pending` writes, the sentences of `/reject` and `/discard`, the net under the bridge's send
 point for the operations layer's own errors, and a sweep of the phrase keys the messaging code uses.
 
-THE ORACLE reads the phone's texts with this file's own literals: the sentences it expects, the words it must not hold, and the English function words of the layer's own errors. It never
-calls the code under test to decide what is right and never reads the language tables for a sentence (the key sweep reads the tables as data and the sources as text). The vacuity
+THE ORACLE reads the phone's texts with phrase keys and their fields (runtime/tests/phrase_kit.py: the wording is pinned once by the phrase snapshot), this file's own literals for the words it must not
+hold and the English function words of the layer's own errors. It never calls the code under test to decide what is right (the key sweep reads the tables as data and the sources as text). The vacuity
 cases plant the live lines of the maintainer's screen and a Portuguese column that repeats the English, and show the same oracle flags them. Over the stand-in operations object and the
 stand-in messenger of test_messaging.py; invented names.
 
@@ -15,6 +15,8 @@ import re
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from expected_kit import extend
 from test_messaging import SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
@@ -49,7 +51,27 @@ def pt(world):
 ROUTER_BODY = ("Route: none (capability, pending)\nWhy: w\nNext: Q1: Which market first? Recommended: the home market, because it is closest.\n"
                "Q2: Which price? Recommended: the low one, because it is a start.\nInstructions found in external content: none\n")
 LONG = "Which of the three launch dates in the plan would you like me to keep, given that the shop opens late and the printer is not ready?"
-PT_ASKED = "#14 pergunta do assistente: Which market first?"  # validate: allow english-only -- the Portuguese label under test
+PT_CFG = {"language": "pt-BR"}
+
+
+def listing(text):
+    """A `/pending` reply as (project, the first row, the other lines): the first line is `<project>: <row>`."""
+    first, *rest = text.split("\n")
+    project, _, row = first.partition(": ")
+    return project, row, rest
+
+
+def is_row(row, number, kind_key, title, cfg=None):
+    """True when `row` is `#<number> <kind word>: <title>`, the kind word being the key's sentence in the language of `cfg`."""
+    head, _, said_title = row.partition(": ")
+    mark, _, kind = head.partition(" ")
+    return mark == f"#{number}" and pk.said(kind, kind_key, cfg) and said_title == title
+
+
+def lines_said(text, expected, cfg=None):
+    """True when the lines of `text` are, in order, the sentences of `expected` ((key, fields) pairs)."""
+    lines = text.split("\n")
+    return len(lines) == len(expected) and all(pk.said(line, key, cfg, **fields) for line, (key, fields) in zip(lines, expected))
 
 
 # --- /pending -----------------------------------------------------------------------------------------------------------------------------------
@@ -63,20 +85,23 @@ def test_pending_says_what_is_asked_and_what_was_not_understood_and_how_to_dismi
     world.items[28] = question(28, LONG + "\nA second line.", title="demo-asks: question")
     world.say("/pending")
     assert len(world.texts()[0].split("\n")[3].split(": ", 1)[1]) <= 80, "the question is cut at about 80 characters"
-    assert world.texts()[0] == ("northwind-shop: #1 plano: Plan one\n" + PT_ASKED + "\n"  # validate: allow english-only -- the Portuguese sentences under test
-                                "#25 pedido não entendido\n"  # validate: allow english-only -- the Portuguese sentence under test
-                                "#28 pergunta do assistente: Which of the three launch dates in the plan would you like me to keep, given…\n"  # validate: allow english-only -- the Portuguese label under test
-                                "Para dispensar, responda: /reject <número>.")  # validate: allow english-only -- the Portuguese sentence under test
+    project, row, rest = listing(world.texts()[0])
+    assert project == "northwind-shop" and is_row(row, 1, "KIND_PLAN", "Plan one", PT_CFG)
+    assert lines_said("\n".join(rest), [("PEND_QUESTION", {"id": 14, "text": "Which market first?"}), ("PEND_NOT_UNDERSTOOD", {"id": 25}),
+                                        ("PEND_QUESTION", {"id": 28, "text": "Which of the three launch dates in the plan would you like me to keep, given…"}), ("PEND_DISMISS_TYPED", {})], PT_CFG)
 
 
 def test_the_english_list_says_the_same_in_english_and_a_list_with_no_question_has_no_dismiss_line(world):
     world.items[1] = decision("plan", 1, title="Plan one")
     world.items[14] = question(14, ROUTER_BODY)
     world.say("/pending")
-    assert world.texts()[0] == "northwind-shop: #1 plan: Plan one\n#14 question from the assistant: Which market first?\nTo dismiss one, reply: /reject <number>."
+    project, row, rest = listing(world.texts()[0])
+    assert project == "northwind-shop" and is_row(row, 1, "KIND_PLAN", "Plan one")
+    assert lines_said("\n".join(rest), [("PEND_QUESTION", {"id": 14, "text": "Which market first?"}), ("PEND_DISMISS_TYPED", {})])
     del world.items[14]
     world.say("/pending")
-    assert world.texts()[-1] == "northwind-shop: #1 plan: Plan one"
+    project, row, rest = listing(world.texts()[-1])
+    assert project == "northwind-shop" and is_row(row, 1, "KIND_PLAN", "Plan one") and rest == []
 
 
 def test_a_project_whose_notices_carry_none_of_its_text_lists_a_question_as_it_always_did(world):
@@ -84,13 +109,16 @@ def test_a_project_whose_notices_carry_none_of_its_text_lists_a_question_as_it_a
     world.config["messaging"]["notices"] = "count"
     world.items[14] = question(14, ROUTER_BODY)
     world.say("/pending")
-    assert world.texts()[0] == "northwind-shop: #14 pergunta: O roteador pergunta\nPara dispensar, responda: /reject <número>."  # validate: allow english-only -- the Portuguese sentence under test
+    project, row, rest = listing(world.texts()[0])
+    head, _, said_title = row.partition(": ")
+    assert project == "northwind-shop" and head.startswith("#14 ") and pk.said(head[4:], "KIND_QUESTION", PT_CFG) and pk.said(said_title, "TITLE_ROUTER_ASKS", PT_CFG)
+    assert lines_said("\n".join(rest), [("PEND_DISMISS_TYPED", {})], PT_CFG)
 
 
 def test_the_dismiss_line_of_a_platform_whose_acts_are_replies_says_to_reply_to_the_message():
     listed = [{"kind": "question", "id": 1}]
-    assert messaging_pending.footer(listed, {"actions_need_reply": True}, {"language": "en"}) == "To dismiss one, reply to its message with: /reject <number>."
-    assert messaging_pending.footer(listed, {"actions_need_reply": False}, {"language": "en"}) == "To dismiss one, reply: /reject <number>."
+    assert ps.alone(messaging_pending.footer(listed, {"actions_need_reply": True}, {"language": "en"}), "PEND_DISMISS_REPLY", {"language": "en"})
+    assert ps.alone(messaging_pending.footer(listed, {"actions_need_reply": False}, {"language": "en"}), "PEND_DISMISS_TYPED", {"language": "en"})
     assert messaging_pending.footer([{"kind": "plan", "id": 1}], {}, {"language": "en"}) == ""
 
 
@@ -101,14 +129,14 @@ def rejected(world):
     return [c[2]["pending_id"] for c in world.calls("reject")]
 
 
-@pytest.mark.parametrize("language,sentence", [("pt-BR", "Pergunta #14 dispensada."), (None, "Question #14 dismissed.")])  # validate: allow english-only -- the Portuguese sentence under test
-def test_reject_on_a_question_calls_reject_once_and_says_it_was_dismissed(world, language, sentence):
+@pytest.mark.parametrize("language", ["pt-BR", None])
+def test_reject_on_a_question_calls_reject_once_and_says_it_was_dismissed(world, language):
     if language:
         world.config["language"] = language
     world.items[14] = question(14, ROUTER_BODY)
     world.bridge.tick()
     world.say("/reject 14")
-    assert rejected(world) == [14] and world.texts()[-1] == sentence
+    assert rejected(world) == [14] and ps.alone(world.texts()[-1], "QUESTION_DISMISSED", {"language": language}, id=14)
 
 
 def test_reject_on_an_effect_is_as_before(world):
@@ -116,7 +144,7 @@ def test_reject_on_an_effect_is_as_before(world):
     world.items[7] = decision("effect", 7, title="Write to the plan page", body="Replace the page with:\n\nOpen at nine.", payload_sha256="e" * 64, effect_word="write", effect_on_cards=True)
     world.bridge.tick()
     world.say("/reject 7")
-    assert rejected(world) == [7] and world.texts()[-1] == "#7 rejeitada."
+    assert rejected(world) == [7] and ps.alone(world.texts()[-1], "REJECTED", PT_CFG, id=7)
 
 
 def test_discard_on_a_number_that_is_a_question_and_no_file_rejects_it_and_on_nothing_points_to_the_card(world):
@@ -125,10 +153,10 @@ def test_discard_on_a_number_that_is_a_question_and_no_file_rejects_it_and_on_no
     world.items[28] = question(28, ROUTER_BODY)
     world.bridge.tick()
     world.say("/discard 28")
-    assert rejected(world) == [28] and world.texts()[-1] == "Pergunta #28 dispensada."  # validate: allow english-only -- the Portuguese sentence under test
+    assert rejected(world) == [28] and ps.alone(world.texts()[-1], "QUESTION_DISMISSED", PT_CFG, id=28)
     world.fake.answers["pending"] = lambda project, pending_id=None, **k: (_ for _ in ()).throw(ops.OpsError(f"no pending decision {pending_id}", 1))
     world.say("/discard 99")
-    assert rejected(world) == [28] and world.texts()[-1] == "Use o card que foi enviado a você (envie /pending)."  # validate: allow english-only -- the Portuguese sentence under test
+    assert rejected(world) == [28] and ps.alone(world.texts()[-1], "NO_CARD", PT_CFG)
 
 
 def test_reject_on_a_kind_it_does_not_take_is_said_in_portuguese(world):
@@ -137,51 +165,61 @@ def test_reject_on_a_kind_it_does_not_take_is_said_in_portuguese(world):
     world.bridge.tick()
     world.fake.answers["reject"] = ops.OpsError("pending decision 3 is a review: reject takes a plan, an acceptance, an effect or a question", 2)
     world.say("/reject 3")
-    assert world.texts()[-1] == "A decisão pendente 3 é do tipo revisão: rejeitar vale só para um plano, um aceite, uma ação ou uma pergunta."  # validate: allow english-only -- the Portuguese sentence under test
+    assert ps.alone(world.texts()[-1], "NOT_REJECTABLE", PT_CFG, number=3, kind=phrases.text("KIND_REVIEW", PT_CFG))
 
 
 # --- the net under the send point ----------------------------------------------------------------------------------------------------------------
 
-# The operations layer's own errors that reach a messaging app, as literals: the text, the Portuguese sentence a phone is told.
+# The operations layer's own errors that reach a messaging app: the text, and the sentence a phone is told as a phrase key and its fields. A field that is a tuple is a word of
+# the table said in the language of the phone: ("kind", "KIND_QUESTION") is the key's sentence, ("status", "approved") a status word.
 ERRORS = [
-    ("error: pending decision 14 is a question: reject takes a plan, an acceptance or an effect",
-     "A decisão pendente 14 é do tipo pergunta: rejeitar vale só para um plano, um aceite, uma ação ou uma pergunta."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: no pending decision 77", "Não encontrei a decisão 77."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: pending decision 5 is approved, not open", "O pedido #5 já foi aprovado."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: pending decision 6 is pending-execution, not open", "A decisão pendente 6 tem o status aguardando execução: não está aberta."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: use the card's button, or /approve <id> as the whole line", "Use o botão do card, ou envie /approve <id> como a mensagem inteira."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: pending decision 4 is a plan: it is approved or rejected, not answered or released",
-     "A decisão pendente 4 é do tipo plano: ela se aprova ou se rejeita, não se responde."),  # validate: allow english-only -- the Portuguese sentence under test
-    ("error: something the layer did not expect", "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu na página da plataforma."),  # validate: allow english-only -- the Portuguese sentence under test
+    ("error: pending decision 14 is a question: reject takes a plan, an acceptance or an effect", "NOT_REJECTABLE", {"number": 14, "kind": ("kind", "KIND_QUESTION")}),
+    ("error: no pending decision 77", "NO_SUCH_DECISION", {"number": 77}),
+    ("error: pending decision 5 is approved, not open", "NOT_OPEN_DONE", {"number": 5, "status": ("status", "approved")}),
+    ("error: pending decision 6 is pending-execution, not open", "NOT_OPEN", {"number": 6, "status": ("status", "pending-execution")}),
+    ("error: use the card's button, or /approve <id> as the whole line", "PHONE_USE_CARD", {}),
+    ("error: pending decision 4 is a plan: it is approved or rejected, not answered or released", "NOT_ANSWERABLE", {"number": 4, "kind": ("kind", "KIND_PLAN")}),
+    ("error: something the layer did not expect", "PHONE_FAILED", {}),
 ]
 
 
-@pytest.mark.parametrize("raw,expected", ERRORS)
-def test_an_error_of_the_operations_layer_is_one_sentence_in_the_language_on_a_portuguese_phone(world, raw, expected):
+def told(text, key, fields, cfg):
+    """True when `text` is the sentence of `key` with `fields` in the language of `cfg` (a place at the end is the page)."""
+    fields = {name: (phrases.status(value[1], cfg) if value[0] == "status" else phrases.text(value[1], cfg)) if isinstance(value, tuple) else value for name, value in fields.items()}
+    return ps.placed(text, key, cfg, **fields) if key == "PHONE_FAILED" else ps.alone(text, key, cfg, **fields)
+
+
+@pytest.mark.parametrize("raw,key,fields", ERRORS)
+def test_an_error_of_the_operations_layer_is_one_sentence_in_the_language_on_a_portuguese_phone(world, raw, key, fields):
     pt(world)
     world.bridge.reply(SENDER, raw, world.projects[0])
-    assert world.texts()[-1] == expected
+    assert told(world.texts()[-1], key, fields, PT_CFG), world.texts()[-1]
     assert world.texts()[-1] != raw and problems(world.texts()[-1]) == [], world.texts()[-1]
 
 
-ENGLISH_SETTLED = {"error: pending decision 5 is approved, not open": "Request #5 was already approved."}
+ENGLISH_SETTLED = {"error: pending decision 5 is approved, not open": ("NOT_OPEN_DONE", {"number": 5, "status": "approved"})}
 
 
-@pytest.mark.parametrize("raw,expected", ERRORS)
-def test_an_english_phone_is_told_the_precise_text_as_before_except_for_a_decision_that_is_already_settled(world, raw, expected):
+@pytest.mark.parametrize("raw,key,fields", ERRORS)
+def test_an_english_phone_is_told_the_precise_text_as_before_except_for_a_decision_that_is_already_settled(world, raw, key, fields):
     world.bridge.reply(SENDER, raw, world.projects[0])
-    assert world.texts()[-1] == ENGLISH_SETTLED.get(raw, raw)
+    if raw in ENGLISH_SETTLED:
+        settled_key, settled_fields = ENGLISH_SETTLED[raw]
+        assert ps.alone(world.texts()[-1], settled_key, {}, **settled_fields), world.texts()[-1]
+    else:
+        assert world.texts()[-1] == raw      # literal: the precise text of the operations layer, which an English phone is told as it is
 
 
-@pytest.mark.parametrize("language,sentence", [("pt-BR", "O pedido #17 já foi resolvido."), (None, "Request #17 was already resolved.")])  # validate: allow english-only -- the Portuguese sentence under test
-def test_reject_on_a_decision_that_is_already_resolved_is_told_plainly(world, language, sentence):
+@pytest.mark.parametrize("language", ["pt-BR", None])
+def test_reject_on_a_decision_that_is_already_resolved_is_told_plainly(world, language):
     if language:
         world.config["language"] = language
     world.items[17] = decision("plan", 17, title="Plan seventeen")
     world.bridge.tick()
     world.fake.answers["reject"] = ops.OpsError("pending decision 17 is resolved, not open", 1)
     world.say("/reject 17")
-    assert world.texts()[-1] == sentence
+    cfg = {"language": language} if language else {}
+    assert ps.alone(world.texts()[-1], "NOT_OPEN_DONE", cfg, number=17, status=phrases.status("resolved", cfg))
 
 
 def test_a_text_that_is_not_an_error_is_never_touched(world):
@@ -197,7 +235,7 @@ def test_a_failure_the_bridge_reports_is_said_in_the_language(world):
     world.items[1] = decision("plan", 1, title="Plan one")
     world.bridge.tick()
     world.say("/reject 1")
-    assert world.texts()[-1] == ERRORS[-1][1]
+    assert told(world.texts()[-1], ERRORS[-1][1], ERRORS[-1][2], PT_CFG)
 
 
 # --- the sweep of the phrase keys ------------------------------------------------------------------------------------------------------------------
@@ -256,17 +294,6 @@ def test_vacuity_a_column_that_repeats_the_english_or_says_the_router_is_noticed
 
 # --- /help ---------------------------------------------------------------------------------------------------------------------------------------
 
-HELP_PT = (  # validate: allow english-only -- the Portuguese help under test
-    "Comandos:\n\nPedidos\n/pending \u2014 o que espera por você\n/approve <id> \u2014 aprova o que o último card de <id> mostrou\n"  # validate: allow english-only -- the Portuguese text under test
-    "/reject <id> [nota] \u2014 rejeita, ou dispensa uma pergunta\n/release <id> \u2014 libera uma entrega\n/answer <id> <texto> \u2014 responde a uma pergunta\n"
-    "/ask <pergunta> \u2014 responde a uma pergunta com as fontes do projeto\n\n"
-    "Arquivos\n/add <n> \u2014 adiciona como fonte um arquivo que você enviou\n/discard <n> \u2014 apaga um arquivo que você enviou\n\n"  # validate: allow english-only -- the Portuguese text under test
-    "Lembretes\n/remind <hora> <texto> \u2014 um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders \u2014 os lembretes que esperam\n"  # validate: allow english-only -- the Portuguese text under test
-    "/forget <n> \u2014 cancela um lembrete\n\n"
-    "Projeto\n/project [nome] \u2014 escolhe o projeto para onde vão suas mensagens\n/help \u2014 esta lista\n\n"  # validate: allow english-only -- the Portuguese text under test
-    "Todo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões.")  # validate: allow english-only -- the Portuguese text under test
-HELP_EN_LAST = "Every command above can also be asked for in your own words. Which of these are active depends on your permissions."
-
 
 def padded(text: str) -> list:
     """The lines of a help text that are laid out in columns: a run of two spaces between words, which a proportional font does not align."""
@@ -276,7 +303,8 @@ def padded(text: str) -> list:
 def test_the_phones_help_is_one_command_per_line_with_no_padding_and_the_placeholders_in_the_language(world):
     pt(world)
     world.say("/help")
-    assert world.texts()[-1] == HELP_PT and padded(world.texts()[-1]) == []
+    pk.assert_said(world.texts()[-1], "HELP", PT_CFG)
+    assert padded(world.texts()[-1]) == []
     assert "agente de planejamento" not in world.texts()[-1], "the old last line (every other message goes to the planning agent) is gone"
     for english in ("<text>", "<question>", "[note]", "[name]", "<time>"):
         assert english not in world.texts()[-1], english
@@ -284,7 +312,8 @@ def test_the_phones_help_is_one_command_per_line_with_no_padding_and_the_placeho
 
 def test_the_english_help_is_laid_out_the_same_way_and_ends_with_the_same_two_sentences(world):
     world.say("/help")
-    assert padded(world.texts()[-1]) == [] and world.texts()[-1].endswith(HELP_EN_LAST) and "/pending \u2014 what waits for you" in world.texts()[-1]
+    pk.assert_said(world.texts()[-1], "HELP", {})
+    assert padded(world.texts()[-1]) == []
     assert "<text>" in world.texts()[-1] and "planning agent" not in world.texts()[-1]
 
 
@@ -295,7 +324,7 @@ def test_the_page_and_the_terminal_keep_their_padded_list():
 
 def test_vacuity_the_old_padded_help_is_noticed():
     old = "Comandos:\n/pending            o que espera por você\n/approve <id>       aprova o que o último card de <id> mostrou\n"  # validate: allow english-only -- the old help of the maintainer's screen
-    assert len(padded(old)) == 2 and padded(HELP_PT) == []
+    assert len(padded(old)) == 2 and padded(phrases.text("HELP", PT_CFG)) == []
 
 
 # --- the sweep of every refusal the calendar, mail, files and sources operations can return (S14b) ----------------------------------------------------------
@@ -396,12 +425,11 @@ def test_a_refusal_a_result_carries_is_told_in_the_language_on_a_phone_and_kept_
     ops_natural = st.load("ops_natural")
     out = {"refused": "the file is too large for this account", "status": "held"}
     phone = ops_natural._render("task", out, PT, "messaging")
-    assert phone.splitlines()[0] == "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu na página da plataforma." and phone.splitlines()[1] == "status: held"  # validate: allow english-only -- the Portuguese sentence under test
+    assert ps.placed(phone.splitlines()[0], "PHONE_FAILED", PT) and phone.splitlines()[1] == "status: held"
     assert ops_natural._render("task", out, PT, "page").splitlines()[0] == "refused: the file is too large for this account"
     assert ops_natural._render("task", out, {}, "messaging").splitlines()[0] == "refused: the file is too large for this account", "an English phone keeps the precise text"
 
 
-FILE_SENTENCES = {"pt-BR": "Ainda não consigo apagar arquivos por mensagem. Você pode apagar pelo Drive ou OneDrive.", None: "I cannot delete files from a message yet. You can delete it in Google Drive or OneDrive."}  # validate: allow english-only -- the Portuguese sentence under test
 
 
 @pytest.mark.parametrize("language", ["pt-BR", None])
@@ -410,7 +438,7 @@ def test_the_bridge_answers_a_delete_a_file_line_at_once_before_any_queue_or_mod
         world.config["language"] = language
     for line in ("Remova o arquivo openhora-mark.png do drive", "Remova o arquivo openhora-mark do drive em /openhora"):  # validate: allow english-only -- the live lines under test
         world.say(line)
-        assert world.texts()[-1] == FILE_SENTENCES[language], line
+        assert ps.alone(world.texts()[-1], "PHONE_NO_FILE_DELETE", {"language": language}), line
     assert world.calls("say") == [], "no operation of the conversation was called"
     world.say("Remova o evento de amanhã")  # validate: allow english-only -- the line under test
     assert wait_for(lambda: world.calls("say")), "an event line goes on to the conversation as before"

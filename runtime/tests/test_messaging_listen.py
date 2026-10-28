@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, PLAN_HASH, SECRET_TEXT, decision, Fake, wait_for
 from test_service import WAIT
@@ -710,8 +711,9 @@ def test_the_line_about_more_waiting_is_not_lost_when_its_chat_is_deferred_and_g
     for number in range(1, 13):
         r.items[number] = decision("question", number, title=f"Q{number}")
     r.run(notice_every=600)
-    more = "And 2 more waiting. Send /pending to list them."
-    assert wait_for(lambda: more in r.texts()), r.log
-    assert r.texts().count(more) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
+    def more(text):
+        return pk.said(text, "MORE_LINE", n=2)
+    assert wait_for(lambda: any(more(t) for t in r.texts())), r.log
+    assert sum(1 for t in r.texts() if more(t)) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
     assert not any("could not be sent" in line for line in r.log), "a deferral is not logged as a failure"
     r.finish()

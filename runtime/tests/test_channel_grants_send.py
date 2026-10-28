@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_channel_grants import accept
 from test_send_email import ARGS, PATH, approve, effect_doc, opened, sent, world  # noqa: F401  (the e-mail world of test_send_email.py)
@@ -20,6 +21,10 @@ from test_send_email import ARGS, PATH, approve, effect_doc, opened, sent, world
 ops = st.load("ops")
 operations = st.load("operations")
 cards = st.load("messaging_cards")
+
+
+def has_label(card, key="EFFECT_LABEL", cfg=None):
+    return any(pk.said(a["label"], key, cfg) for a in card["message"]["actions"])
 
 
 def card_of(world, item, notices="text"):
@@ -41,7 +46,7 @@ def test_a_plain_e_mail_is_approved_on_messaging_after_the_grant_with_its_hash_a
     with pytest.raises(ops.OpsError) as no:
         approve(world, item, "messaging")
     assert "an effect is approved in the terminal, with its hash" in str(no.value) and sent(world) == []
-    assert "Approve this exact content" not in labels(card_of(world, item)) and cards.EFFECT_LINE in card_of(world, item)["message"]["text"]
+    assert not has_label(card_of(world, item)) and cards.EFFECT_LINE in card_of(world, item)["message"]["text"]
     accept(world["path"], {"messaging": ["read", "approve-effect-write"]})         # another word: nothing for an e-mail
     with pytest.raises(ops.OpsError):
         approve(world, item, "messaging")
@@ -49,7 +54,7 @@ def test_a_plain_e_mail_is_approved_on_messaging_after_the_grant_with_its_hash_a
     accepted = accept(world["path"], {"messaging": ["read", "approve-effect-send"]})
     assert [w["group"] for w in accepted["widened"]] == ["approve-effect-send"] and "e-mail" in accepted["widened"][0]["means"]
     card = card_of(world, item)
-    assert "Approve this exact content" in labels(card) and card["whole"] is True and card["approvable"] is True
+    assert has_label(card) and card["whole"] is True and card["approvable"] is True
     with pytest.raises(ops.OpsError) as wrong:
         ops.approve(world["path"], item["id"], "0" * 64, channel="messaging", sender="telegram:830461975213")
     assert "nothing was approved" in str(wrong.value) and sent(world) == []
@@ -70,7 +75,7 @@ def test_an_e_mail_with_an_attachment_is_not_approvable_on_messaging_even_with_t
     assert ops.config(world["path"])["accepted"] is True
     # the card: no approve action, the command and the page are the way
     card = card_of(world, item)
-    assert "Approve this exact content" not in labels(card) and card["approvable"] is False and cards.EFFECT_LINE in card["message"]["text"]
+    assert not has_label(card) and card["approvable"] is False and cards.EFFECT_LINE in card["message"]["text"]
     # the operations layer: refused before anything is sent, with the hash right and the group granted
     with pytest.raises(ops.OpsError) as no:
         approve(world, item, "messaging")
@@ -94,5 +99,5 @@ def test_an_e_mail_with_an_attachment_is_not_approvable_on_messaging_even_with_t
 def test_the_same_grant_with_the_notices_of_count_draws_no_approve_action_for_a_plain_e_mail(world):  # noqa: F811
     task, item = opened(world)
     accept(world["path"], {"messaging": ["read", "approve-effect-send"]})
-    assert "Approve this exact content" in labels(card_of(world, item))
-    assert "Approve this exact content" not in labels(card_of(world, item, "count")) and ARGS["subject"] not in card_of(world, item, "count")["message"]["text"]
+    assert has_label(card_of(world, item))
+    assert not has_label(card_of(world, item, "count")) and ARGS["subject"] not in card_of(world, item, "count")["message"]["text"]

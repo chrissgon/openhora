@@ -14,9 +14,10 @@ import threading
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import SENDER, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
-from test_messaging_card_words import APPROVED, REJECTED, approvals, nothing_decided, plan, rejections
+from test_messaging_card_words import approvals, nothing_decided, plan, rejections
 from test_service import WAIT
 
 messaging_bridge = st.load("messaging_bridge")
@@ -59,7 +60,7 @@ def test_a_message_sent_between_the_reading_of_the_last_message_and_the_act_deci
     assert len(world.cards()) == cards_before + 1 and world.sent()[-1]["message"]["actions"], "the card was sent once more and is the last message"
     world.say(word)      # the card is the last message again: the same word decides it
     assert (approvals(world), rejections(world)) == (([(1, "a" * 64)], []) if word == "sim" else ([], [1]))
-    assert world.texts()[-1] == (APPROVED if word == "sim" else REJECTED).format(1)
+    assert pk.said(world.texts()[-1], "APPROVED" if word == "sim" else "REJECTED", id=1)
 
 
 def test_vacuity_with_the_last_message_not_read_again_the_same_word_approves(world, monkeypatch):
@@ -77,7 +78,7 @@ def two_cards_and_the_list(world):
     world.items[1], world.items[2] = plan(1, "Launch page"), plan(2, "Pricing page")
     world.bridge.tick()
     world.say("sim")      # two cards: the list is sent and is the last message
-    assert nothing_decided(world) and world.texts()[-1].startswith("More than one decision waits")
+    assert nothing_decided(world) and pk.said(world.texts()[-1].split("\n")[0], "WORD_LIST_HEAD")
 
 
 def test_a_position_on_the_list_decides_nothing_when_a_message_is_sent_after_the_line_was_read(world, monkeypatch):
@@ -87,9 +88,9 @@ def test_a_position_on_the_list_decides_nothing_when_a_message_is_sent_after_the
     assert nothing_decided(world), "the reminder ended the list's place as the last message"
     assert len(world.sent()) == sent + 2 and world.sent()[-1]["message"]["actions"] and "Pricing page" in world.sent()[-1]["message"]["text"], "the reminder, then card 2 once more"
     world.say("aprovo o 2")      # card 2 is the last message again, and two cards wait: the list is sent (as it always was), and a position on the list decides
-    assert nothing_decided(world) and world.texts()[-1].startswith("More than one decision waits")
+    assert nothing_decided(world) and pk.said(world.texts()[-1].split("\n")[0], "WORD_LIST_HEAD")
     world.say("aprovo o 2")
-    assert approvals(world) == [(2, "b" * 64)] and rejections(world) == [] and world.texts()[-1] == APPROVED.format(2)
+    assert approvals(world) == [(2, "b" * 64)] and rejections(world) == [] and pk.said(world.texts()[-1], "APPROVED", id=2)
 
 
 def test_todos_nao_rejects_nothing_when_a_message_is_sent_after_the_line_was_read_and_sends_the_list_again(world, monkeypatch):
@@ -97,7 +98,7 @@ def test_todos_nao_rejects_nothing_when_a_message_is_sent_after_the_line_was_rea
     sent = len(world.sent())
     deliver_in_the_window(world, monkeypatch, "word_cards", "todos n\u00e3o")
     assert nothing_decided(world)
-    assert len(world.sent()) == sent + 2 and world.texts()[-1].startswith("More than one decision waits"), "the reminder, then the list once more"
+    assert len(world.sent()) == sent + 2 and pk.said(world.texts()[-1].split("\n")[0], "WORD_LIST_HEAD"), "the reminder, then the list once more"
 
 
 def test_todos_nao_with_nothing_in_between_rejects_both_cards_the_loop_is_not_stopped_by_its_own_replies(world):

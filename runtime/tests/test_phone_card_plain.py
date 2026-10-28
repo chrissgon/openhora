@@ -5,8 +5,8 @@ The live case (2026-10-23, a pt-BR project): "Remova o evento corte de cabelo da
 agenda-outlook#1, do instantaneo lido em ...", "Baseado na versao ... do evento" and "Removendo, titulo: corte de cabelo"; and a separate message "Encontrei: corte de cabelo, sab
 24/10/2026 14:00-15:00. E este?" arrived AFTER the card, with the time of the snapshot (14:00) when the event, read live for the card, was at 10:00-11:00. Here the real calendar snapshots
 (test_calendar_write.py's world, the stand-in Google and Graph services), the real family path and the real card, a stand-in clock (Wednesday 2026-10-21 15:00 at -03:00) and a model that
-is stood in. The phone text is what `messaging_cards.build` draws for a sender; the terminal text is the stored body. Every expectation is a literal of this file; each oracle reads
-the lines of the card or the messages sent, never the code under test, and each test has a vacuity case. Offline; every name is invented.
+is stood in. The phone text is what `messaging_cards.build` draws for a sender; the terminal text is the stored body. Every sentence expected is a phrase key and its fields (runtime/tests/phrase_kit.py), whose wording the
+phrase snapshot pins; a literal stays where the text itself is the limit (a phone card shows no raw event id, snapshot name or version); each oracle reads the lines of the card or the messages sent, never the code under test, and each test has a vacuity case. Offline; every name is invented.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_phone_card_plain.py
 """
@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import fgw, rows, world  # noqa: F401  (the calendar world and its stand-in providers)
@@ -34,6 +35,7 @@ POLICY = {"messaging": ["read", "ask-mail", "approve-effect-calendar"]}
 PT = {"language": "pt-BR"}
 OUTLOOK_LINE = "remova o evento corte de cabelos da agenda"
 # the lines a phone must not show of the live card, as the page and the terminal show them (fragments that cannot be in a plain card)
+# literal: a phone card shows no raw event id, snapshot name or version, and the text itself is the limit
 TECHNICAL = ("Evento: AAMk", "Nomeado como", "instantâneo lido", "Baseado na versão", "Removendo, título:", "Event: AAMk", "Named as", "snapshot read at", "Based on version")      # validate: allow english-only -- the Portuguese fragments under test
 
 
@@ -67,20 +69,26 @@ def lines_of(text):
     return text.splitlines()
 
 
+def said_in(text, key, cfg=None, **fields):
+    """True when a line of `text` is the sentence of `key` with `fields`."""
+    return any(pk.said(line, key, cfg, **fields) for line in lines_of(text))
+
+
 def test_the_outlook_removal_card_on_a_phone_has_none_of_the_technical_lines_and_keeps_the_plain_ones(world, monkeypatch):
     snapshot_world(world, monkeypatch)
     got, model = asked(world, monkeypatch, OUTLOOK_LINE, op_text("event-cancel"))
-    assert got["reply"].endswith("O card #1 espera a sua aprovação.") and model.calls == 1      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert pk.said(lines_of(got["reply"])[-1], "ACCT_CARD_SENT", PT, pending=1) and model.calls == 1
     item, built = phone(world, got)
     text = built["message"]["text"]
     for fragment in TECHNICAL:
         assert fragment not in text, (fragment, text)
     assert "AAMkEv24=" not in text and "agenda-outlook" not in text and "2026-10-21T17:00:00Z" not in text
-    wanted = ["Conta: microsoft (", "Agenda: personal", "O evento agora é em: Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)", "O evento agora: corte de cabelo"]      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert [w for w in wanted if not any(l.startswith(w) for l in lines_of(text))] == [], text
-    assert "Outlook pode não guardar uma cópia" in text, "the line about where a removed event goes stays"      # validate: allow english-only -- the Portuguese line or sentence under test
+    wanted = [("CARD_ACCOUNT", {"account": "microsoft"}), ("CARD_CAL_CALENDAR", {"calendar": "personal"}), ("CARD_CAL_NOW_WHEN", {"when": "Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)"}),
+              ("CARD_CAL_NOW_TITLE", {"title": "corte de cabelo"})]
+    assert [key for key, fields in wanted if not said_in(text, key, PT, **fields)] == [], text
+    assert said_in(text, "CARD_CAL_CANCEL_OUTLOOK", PT), "the line about where a removed event goes stays"
     assert text.count("corte de cabelo") == 1, "the event is said once, not twice"
-    assert "Quando:" not in text, "the removal says the time once"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert not said_in(text, "CARD_CAL_WHEN", PT), "the removal says the time once"
     assert item["status"] == "open" and cards_hash(item) == built["content_sha256"] == item["payload_sha256"]
 
 
@@ -94,11 +102,11 @@ def test_the_terminal_and_the_page_keep_every_line_and_the_hash_is_the_effects_o
     item, built_pt = phone(world, got)
     english = cards.effect_card_text(item, {})
     assert english == item["body"], "the stored body is the English lines, unchanged"
-    for needle in ("Event: AAMkEv24=", "Named as agenda-outlook#1, from the snapshot read at ", "Based on version ", "Removing, title: corte de cabelo"):
-        assert needle in item["body"], needle
+    for key, fields in (("CARD_CAL_EVENT", {"event_id": "AAMkEv24="}), ("CARD_CAL_SNAPSHOT", {"reference": "agenda-outlook#1"}), ("CARD_CAL_BASE", {}), ("CARD_CAL_DROP_TITLE", {"title": "corte de cabelo"})):
+        assert said_in(item["body"], key, **fields), key
     whole = cards.effect_card_text(item, PT, True, False, True)          # approvable: what the terminal and the page are told in the language
-    for needle in ("Evento: AAMkEv24=", "Nomeado como agenda-outlook#1", "Baseado na versão ", "Removendo, título: corte de cabelo"):      # validate: allow english-only -- the Portuguese line or sentence under test
-        assert needle in whole, needle
+    for key, fields in (("CARD_CAL_EVENT", {"event_id": "AAMkEv24="}), ("CARD_CAL_SNAPSHOT", {"reference": "agenda-outlook#1"}), ("CARD_CAL_BASE", {}), ("CARD_CAL_DROP_TITLE", {"title": "corte de cabelo"})):
+        assert said_in(whole, key, PT, **fields), key
     built_en = cards.build("northwind", item, CAPS, POLICY, "text", None, operations=operations, cfg={}, sender=OWNER)
     assert built_pt["content_sha256"] == built_en["content_sha256"] == item["payload_sha256"], "the phone's wording is a rendering: the hash is the effect document's"
     doc = json.loads(open(effect_path(world, item), encoding="ascii").read())
@@ -123,22 +131,22 @@ def test_the_oracle_of_the_technical_lines_sees_them_in_the_page_text(world, mon
 def test_encontrei_names_the_event_as_the_card_has_it_not_as_the_snapshot_had_it(world, monkeypatch):
     snapshot_world(world, monkeypatch)
     got, _ = asked(world, monkeypatch, OUTLOOK_LINE, op_text("event-cancel"))
-    assert got["lead"] == "Encontrei: corte de cabelo, Sat 24/10/2026 10:00-11:00. É este?", got["lead"]      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert got["reply"] == got["lead"] + "\n" + "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+    pk.assert_said(got["lead"], "EV_FOUND", PT, title="corte de cabelo", when="Sat 24/10/2026 10:00-11:00")
+    assert lines_of(got["reply"])[0] == got["lead"] and len(lines_of(got["reply"])) == 2 and pk.said(lines_of(got["reply"])[1], "ACCT_CARD_SENT", PT, pending=1)
     assert "14:00" not in got["lead"], "vacuity: the snapshot's time (14:00) is not the one said"
     item, built = phone(world, got)
-    assert "O evento agora é em: Sat 24/10/2026 10:00-11:00" in built["message"]["text"], "the card and the line say the same time"      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert said_in(built["message"]["text"], "CARD_CAL_NOW_WHEN", PT, when="Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)"), "the card and the line say the same time"
 
 
 def test_google_has_the_same_plain_card_and_the_live_time_in_the_line(world, monkeypatch):
     google_world(world, monkeypatch)
     got, _ = asked(world, monkeypatch, "remova o evento corte de cabelos da agenda", op_text("event-cancel"))
-    assert got["lead"] == "Encontrei: corte de cabelo, Sat 24/10/2026 10:00-11:00. É este?"      # validate: allow english-only -- the Portuguese line or sentence under test
+    pk.assert_said(got["lead"], "EV_FOUND", PT, title="corte de cabelo", when="Sat 24/10/2026 10:00-11:00")
     item, built = phone(world, got)
     text = built["message"]["text"]
     for fragment in TECHNICAL + ("evmoved",):
         assert fragment not in text, (fragment, text)
-    assert "Agenda: personal" in text and "O Google deve movê-lo para a lixeira" in text      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert said_in(text, "CARD_CAL_CALENDAR", PT, calendar="personal") and said_in(text, "CARD_CAL_CANCEL", PT)
     assert "Event: evmoved" in item["body"] and "Event: evmoved" not in cards.effect_card_text(item, {}, True, False, False)
 
 
@@ -149,17 +157,17 @@ def test_a_change_card_on_a_phone_says_the_time_now_and_the_time_after_and_no_re
     text = built["message"]["text"]
     for fragment in TECHNICAL + ("2026-10-21T17:00:00Z", "AAMkEv24="):
         assert fragment not in text, (fragment, text)
-    assert "O código altera este evento depois da sua aprovação, só se ele ainda estiver como está agora." in text      # validate: allow english-only -- the Portuguese line or sentence under test
-    for needle in ("Antes: Quando: Sat 24/10/2026 10:00-11:00", "Depois: Quando: Sat 24/10/2026 15:00-16:00"):      # validate: allow english-only -- the Portuguese line or sentence under test
-        assert needle in text, (needle, text)
-    assert "como foi lido em" not in text, "the phone does not say the time the event was read"      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert "only if it is still as read at" in item["body"], "the terminal keeps the read time"
+    assert said_in(text, "PHONE_CAL_CHANGE", PT)
+    for key, fields in (("CARD_CAL_BEFORE_WHEN", {"when": "Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)"}), ("CARD_CAL_AFTER_WHEN", {"when": "Sat 24/10/2026 15:00-16:00 (America/Sao_Paulo)"})):
+        assert said_in(text, key, PT, **fields), (key, text)
+    assert not said_in(text, "CARD_CAL_CHANGE", PT), "the phone does not say the time the event was read"
+    assert said_in(item["body"], "CARD_CAL_CHANGE"), "the terminal keeps the read time"
 
 
 def test_an_exact_name_gets_no_encontrei_line_and_the_plain_card_alone(world, monkeypatch):
     google_world(world, monkeypatch)
     got, _ = asked(world, monkeypatch, "remova o evento corte de cabelo da agenda", op_text("event-cancel"))
-    assert "lead" not in got and got["reply"] == "O card #1 espera a sua aprovação."      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert "lead" not in got and len(lines_of(got["reply"])) == 1 and pk.said(got["reply"], "ACCT_CARD_SENT", PT, pending=1)
     nope = asked(world, monkeypatch, "remova o evento corte de cabelos da agenda", op_text("event-cancel"))[0]
     assert "lead" in nope, "vacuity: a near name does"
 
@@ -180,7 +188,7 @@ def test_a_mail_reply_card_on_a_phone_leaves_off_the_snapshot_the_message_id_and
     phone_text = cards.effect_card_text(item, PT, True, False, False)
     for fragment in ("2026-10-21T17:00:00Z", "abc123", "/srv/project", "b" * 64, "a" * 64):
         assert fragment not in phone_text, (fragment, phone_text)
-    assert "Resposta para: ana@example.com, quem enviou a mensagem inbox#3: Budget" in phone_text and "Anexo: plan.pdf, 120 bytes" in phone_text      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert said_in(phone_text, "PHONE_MAIL_REPLY_TO", PT, address="ana@example.com", ref="inbox#3", subject="Budget") and said_in(phone_text, "PHONE_MAIL_ATTACHMENT", PT, name="plan.pdf", bytes=120)
     terminal = cards.effect_card_text(item, {}, True, False, True)
     for fragment in ("inbox#3", "2026-10-21T17:00:00Z", "abc123", "/srv/project", "b" * 64, "a" * 64):
         assert fragment in terminal, ("vacuity: the terminal keeps", fragment)
@@ -195,9 +203,9 @@ def test_a_file_card_on_a_phone_leaves_off_the_read_time_the_revision_and_the_so
     phone_text = cards.effect_card_text(item, PT, True, False, False)
     for fragment in ("2026-10-21T17:00:00Z", "r17", "/srv/project", "cafe0123"):
         assert fragment not in phone_text, (fragment, phone_text)
-    assert "Fonte: @drive-main" in phone_text, "the source of the file to replace is the person's own label of it: it stays"      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert "Substitui a versão de 2026-10-20T10:00:00Z." in phone_text, "the version it replaces is said by its date, not by the revision id"      # validate: allow english-only -- the Portuguese line or sentence under test
-    assert "File: plan.docx" in phone_text or "Arquivo: plan.docx" in phone_text      # validate: allow english-only -- the Portuguese line or sentence under test
+    assert said_in(phone_text, "CARD_FILE_SOURCE", PT, source="drive-main"), "the source of the file to replace is the person's own label of it: it stays"
+    assert said_in(phone_text, "PHONE_FILE_BASE", PT, modified="2026-10-20T10:00:00Z"), "the version it replaces is said by its date, not by the revision id"
+    assert said_in(phone_text, "CARD_FILE_NAME", PT, name="plan.docx") or said_in(phone_text, "CARD_FILE_NAME", {}, name="plan.docx")
     terminal = cards.effect_card_text(item, {}, True, False, True)
     assert all(f in terminal for f in ("2026-10-21T17:00:00Z", "r17", "drive-main", "/srv/project", "cafe0123")), "vacuity: the terminal keeps every line"
 

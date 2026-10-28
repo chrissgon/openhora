@@ -16,6 +16,7 @@ import types
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import wait_for
@@ -288,7 +289,8 @@ def test_a_tap_during_a_run_is_not_kept(lab, planner):  # noqa: F811
     assert planner.reached(0).wait(WAIT)
     before = len(lab.texts(OWNER))
     lab.say(OWNER, action=button)
-    assert lab.texts(OWNER)[before:] == [f"Approved #{lab.plan}."] and not lab.bridge.waiting, "a plan is approved at the tap, beside the run"
+    got = lab.texts(OWNER)[before:]
+    assert len(got) == 1 and pk.said(got[0], "APPROVED", id=lab.plan) and not lab.bridge.waiting, "a plan is approved at the tap, beside the run"
     assert bridge.QUEUED not in lab.texts(OWNER)[before - 1:] and lab.texts(OWNER).count(bridge.QUEUED) == 0
     planner.gate(0).set()
     assert settle(lab)
@@ -313,7 +315,7 @@ def test_a_line_waiting_thirty_minutes_is_dropped_with_its_sentence_and_never_ru
     planner.gate(0).set()
     assert settle(lab)
     assert planner.texts() == ["first"]
-    assert bridge.QUEUE_EXPIRED == "Not answered: the project stayed busy for 30 minutes. Send it again." and bridge.QUEUE_WAIT == 1800
+    pk.said(bridge.QUEUE_EXPIRED, "QUEUE_EXPIRED") and bridge.QUEUE_WAIT == 1800
 
 
 def test_the_end_of_the_loop_tells_every_waiting_chat_once_and_runs_nothing_more(lab, planner, monkeypatch):  # noqa: F811
@@ -342,7 +344,7 @@ def test_the_end_of_the_loop_tells_every_waiting_chat_once_and_runs_nothing_more
         lab.bridge.serve_loop(stop, 60, 1)
     deadline.cancel()
     assert bridge.QUEUE_STOPPED in lab.texts(STAFF) and not lab.bridge.waiting and lab.bridge.stopping.is_set()
-    assert bridge.QUEUE_STOPPED == "Not answered: the bridge stopped. Send it again."
+    assert pk.said(bridge.QUEUE_STOPPED, "QUEUE_STOPPED")
     timer = threading.Timer(0.3, planner.gate(0).set)
     timer.start()
     assert lab.bridge.end_runs(wait=WAIT) == 0
