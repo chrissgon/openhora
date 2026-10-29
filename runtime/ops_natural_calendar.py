@@ -15,19 +15,15 @@ Sibling of runtime/ops_natural_writes.py. Standard library only. Runs on Python 
 """
 from __future__ import annotations
 
-import importlib
 import sys
 
 import item_refs
+import ops_natural_writes
 import sources
 import sources_mail
 import turn_gate
 
 CAL_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation named in a calendar source's origin -> the account it belongs to
-
-
-def _w():
-    return importlib.import_module("ops_natural_writes")
 
 
 def calendar_sources(ctx: dict) -> list:
@@ -47,7 +43,7 @@ def calendar_sources(ctx: dict) -> list:
 def _reference(ctx: dict, slots: dict, channel, sender):
     """("ok", "<source>#<n>", the source's account) or ("spec", the question or sentence). The right to read comes first: a caller who may not read a snapshot learns
     nothing of the calendar's sources."""
-    w = _w()
+    w = ops_natural_writes
     if "event" not in slots and slots.get("created") is None:
         return "spec", w.ask_spec("event", "NW_ASK_EVENT"), None
     if not item_refs.may_read(ctx, w.carrier(channel), sender):
@@ -66,7 +62,7 @@ def _reference(ctx: dict, slots: dict, channel, sender):
 
 
 def _create(ctx: dict, slots: dict):
-    w = _w()
+    w = ops_natural_writes
     state, account = w.pick_account(ctx, slots.get("account"), "calendars")
     if state == "spec":
         return account
@@ -95,7 +91,7 @@ def _create(ctx: dict, slots: dict):
 
 
 def _change(ctx: dict, op: str, slots: dict, channel, sender):
-    w = _w()
+    w = ops_natural_writes
     state, ref, source_account = _reference(ctx, slots, channel, sender)
     if state == "spec":
         return ref

@@ -40,10 +40,15 @@ RUNTIME = REPO / "runtime"
 # event_series, ops_items -> event_lookup, ops_natural -> event_lookup, ops_natural_writes -> event_lookup and -> ops_interpret, policy_widening ->
 # interpreter_enable): 207 lazy calls, 152 edges, 111 debt. event_series -> event_lookup is the direction converted (event_series reads event_lookup
 # 3 times, event_lookup reads event_series once); a mutual pair can only have one direction at the top.
+# 44-B cluster 2 (the ops_* siblings, but not ops_natural.py, ops_natural_writes.py, natural.py and turn_gate.py as importers, and not the edges to `ops`):
+# 70 debt edges became top-level imports and 9 more became cycle edges, whose target now reaches the importer through them (ops_interpret -> ops_card_revise,
+# ops_natural -> ops_file_read, ops_mail_read, ops_research and ops_todo, ops_natural_writes -> ops, ops_say -> ops_turn, ops_step_seams -> ops_file_read,
+# source_names -> ops_natural_calendar): 101 lazy calls, 82 edges, 32 debt. What is left as debt is cluster 3 (the rest), the edges of ops_natural and
+# ops_natural_writes, the edges of turn_gate, and the one edge to `ops` that 44-C moves.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 207
-LAZY_EDGES_BUDGET = 152
-PLAIN_DEBT_BUDGET = 111
+LAZY_CALLS_BUDGET = 101
+LAZY_EDGES_BUDGET = 82
+PLAIN_DEBT_BUDGET = 32
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
@@ -69,61 +74,40 @@ ROWS = (
     ("natural", DEBT, "recurrence"),
     ("natural_writes", CYCLE, "turn_gate"),
     ("ops_ask", CYCLE_OPS, "ops"),
-    ("ops_ask", DEBT, "ops_runs"),
     ("ops_cancel", CYCLE, "board"),
     ("ops_cancel", CYCLE_OPS, "ops"),
-    ("ops_cancel", DEBT, "lab"),
     ("ops_card_revise", CYCLE, "ops_event_revise"),
     ("ops_card_revise", CYCLE_OPS, "ops"),
-    ("ops_card_revise", DEBT, "interpreter_enable natural natural_writes ops_grants ops_interpret ops_natural ops_say turn_gate"),
-    ("ops_config", DEBT, "ops_google_folders ops_steps"),
     ("ops_contained", CYCLE_OPS, "ops"),
-    ("ops_event_revise", DEBT, "event_lookup interpreter line_stage natural_time ops_grants ops_interpret ops_natural turn_gate"),
     ("ops_event_revise", DEBT_OPS, "ops"),
     ("ops_file_ask", CYCLE_OPS, "ops"),
-    ("ops_file_ask", DEBT, "ops_natural ops_runs"),
     ("ops_file_read", CYCLE, "ops_file_ask ops_file_trash"),
-    ("ops_file_read", DEBT, "event_lookup list_pick natural_writes ops_natural"),
-    ("ops_file_trash", DEBT, "ops_natural ops_natural_writes"),
     ("ops_instructions", CYCLE, "ops_routines"),
     ("ops_instructions", CYCLE_OPS, "ops"),
-    ("ops_interpret", DEBT, "ops_card_revise ops_core ops_file_trash ops_items ops_natural_mail ops_natural_writes ops_todo"),
+    ("ops_interpret", CYCLE, "ops_card_revise"),
     ("ops_items", CYCLE, "event_lookup"),
-    ("ops_items", DEBT, "natural_writes natural_writes_mail ops_sources"),
-    ("ops_mail_read", DEBT, "event_lookup ops_interpret ops_items ops_natural ops_natural_mail"),
     ("ops_models", CYCLE, "ops_routines"),
-    ("ops_models", DEBT, "skill_meta"),
-    ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_natural_writes ops_say"),
+    ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural", CYCLE_OPS, "ops"),
-    ("ops_natural", DEBT,
-     "item_refs natural_writes ops_file_read ops_items ops_mail_read ops_reminders "
-     "ops_research ops_todo reminders"),
-    ("ops_natural_calendar", DEBT, "ops_natural_writes"),
-    ("ops_natural_files", DEBT, "ops_natural_writes"),
+    ("ops_natural", DEBT, "item_refs natural_writes ops_items ops_reminders reminders"),
     ("ops_natural_writes", CYCLE, "event_lookup ops_interpret"),
+    ("ops_natural_writes", CYCLE_OPS, "ops"),
     ("ops_natural_writes", DEBT, "account_start natural_writes_calendar"),
-    ("ops_natural_writes", DEBT_OPS, "ops"),
     ("ops_reads", CYCLE_OPS, "ops"),
-    ("ops_reads", DEBT, "ops_ask ops_natural ops_runs"),
     ("ops_research", CYCLE_OPS, "ops"),
-    ("ops_research", DEBT, "ops_natural ops_runs"),
     ("ops_runs", CYCLE, "ops_file_ask ops_routines ops_steps"),
     ("ops_runs", CYCLE_OPS, "ops"),
-    ("ops_runs", DEBT, "router"),
-    ("ops_say", CYCLE, "ops_ask"),
+    ("ops_say", CYCLE, "ops_ask ops_turn"),
     ("ops_say", CYCLE_OPS, "ops"),
-    ("ops_say", DEBT, "event_lookup ops_cancel ops_file_read ops_interpret ops_natural_writes ops_todo ops_turn"),
-    ("ops_step_effects", DEBT, "ops_items"),
-    ("ops_step_seams", DEBT, "attachments ops_file_read"),
-    ("ops_todo", DEBT, "event_lookup ops_natural ops_natural_writes"),
-    ("ops_turn", DEBT, "event_lookup ops_file_read ops_file_trash ops_instructions ops_interpret ops_say route_pass turn_gate"),
+    ("ops_step_seams", CYCLE, "ops_file_read"),
     ("phrases", CYCLE, "phone_questions"),
     ("plan_confirm", CYCLE, "ops_natural"),
     ("plan_confirm", DEBT, "natural_writes ops_items"),
     ("policy_widening", CYCLE, "interpreter_enable"),
     ("registry", DEBT, "turn_gate"),
     ("run_stop", DEBT, "lab"),
-    ("source_names", DEBT, "mail_refs natural natural_writes ops_core ops_natural_calendar"),
+    ("source_names", CYCLE, "ops_natural_calendar"),
+    ("source_names", DEBT, "mail_refs natural natural_writes ops_core"),
     ("sources", CYCLE, "sources_mail sources_onedrive workcopy"),
     ("turn_gate", CYCLE, "ops_natural"),
     ("turn_gate", DEBT, "interpreter_route operations policy_widening"),

@@ -44,6 +44,9 @@ import proof as proof_rules  # the operation `proof` would hide the module
 import router
 import secret_state
 import skill_meta
+import ops_ask
+import ops_natural
+import ops_runs
 
 SERVICE_TEXT = 300  # characters of one verdict of service_check: an exception's text is bounded
 
@@ -115,7 +118,7 @@ def stop_runs(project: str | None = None, every: bool = False) -> dict:
     (`set-mode ... stopped`) is how to keep the dispatcher from starting more, and `set-mode --agent runtime --mode stopped` how to keep
     it from starting step tasks. Returns what lab.stop_runs returns, with
     "tasks" (the ids of the task runs signalled) when `every` is given."""
-    return importlib.import_module("ops_runs").stop(project, every)
+    return ops_runs.stop(project, every)
 
 
 # --- stage 9: the reads of the local interface ---------------------------------------------------------------------
@@ -351,8 +354,8 @@ def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, 
     rows = core._stored(ctx, ctx["store"].messages_list, conversation, limit=MESSAGES_PAGE, after_id=after)
     keys = ("id", "role", "text", "task_id", "run_id", "created_at")
     queued = ops_say.queued_ids(ctx) if conversation == ops_say.CONVERSATION else set()
-    asker = importlib.import_module("ops_ask").asked_by
-    private = importlib.import_module("ops_natural").private_ids(rows) if channel not in ("terminal", "page", "chat") else {}      # the person's own shells see their line; no other reader sees a reminder's words (limit L51)
+    asker = ops_ask.asked_by
+    private = ops_natural.private_ids(rows) if channel not in ("terminal", "page", "chat") else {}      # the person's own shells see their line; no other reader sees a reminder's words (limit L51)
     return {"conversation": conversation,
             "messages": [{**{key: row[key] for key in keys}, "text": phrases.text(private[row["id"]], ctx["cfg"]) if row["id"] in private else _shown_text(ctx, row, asker, channel, sender),
                           "queued": row["id"] in queued}
@@ -483,7 +486,7 @@ def costs(project: str, since: str | None = None) -> dict:
         used = None
     folder = os.path.realpath(os.path.join(cfg["data_dir"], core.RUNS_DIR)) + os.sep
     runs = []
-    owners = importlib.import_module("ops_ask").run_owners(ctx)    # the agent a run whose task is a request counts against
+    owners = ops_ask.run_owners(ctx)    # the agent a run whose task is a request counts against
     for task in core._stored(ctx, store.tasks_list):
         for run in core._stored(ctx, store.task_runs_list, task["id"]):
             agent = task.get("agent")

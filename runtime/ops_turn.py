@@ -25,13 +25,12 @@ THE STATE is what the rows share, the locals of `_turn`: `talks` (whether the se
 of a question the interpreter tells from a new line), `took` (the name the trace gives the taking row when it is not the row's own) and the line's id. The flag of a dropped draft is
 `extras["discarded"]`, as it was.
 
-THE CYCLE. `ops_say.py` and `ops_natural.py` reach `ops.py` and each other at call time. This module imports at module level only `turn_order` (pure data), modules that `ops_say` or `ops_natural`
-already import at module level (`natural`, `operations`, `ops_natural`, `phone_refusal`, `phrases`, `plan_confirm`) and three pure leaves of the standard library alone (`drafts`, `greeting`,
-`phone_delete`); none of them imports `ops_say` or this module. It reaches `ops_say`, the interpreter, the lookups and the trash through `importlib` at call time, and `ops_say` reaches it at call time too.
+THE CYCLE. `ops_say.py` and `ops_natural.py` reach `ops.py` and each other at call time. This module imports at module level `ops_say`, `ops_natural`, the interpreter's `ops_interpret`, the lookups
+(`event_lookup`, `ops_file_read`), the trash (`ops_file_trash`), `ops_instructions`, `route_pass` and `turn_gate`, with `turn_order` (pure data), `drafts`, `greeting`, `phone_delete`, `phone_refusal`,
+`phrases`, `plan_confirm`, `natural` and `operations`; `ops_say` reaches this module at call time, the one edge that stays lazy (runtime/tests/test_import_breakers.py, `ALLOWED_LAZY`).
 
 THE LINE'S REFRESH BUDGET (S41-6). `turn()` opens the budget of one line, `turn_gate.turn` (section 3 of runtime/turn_gate.py: one read of a source for the person's line, never more than once for a source,
-none outside a turn; limits L52 and L53), and `ops_say.say` holds it open from the begin-turn hooks to the stored reply, so that the dispatch, whichever row takes the line, runs inside it. It is reached by `importlib`
-at call time, like the rest of the gate, so that this module's module-level imports stay what they were.
+none outside a turn; limits L52 and L53), and `ops_say.say` holds it open from the begin-turn hooks to the stored reply, so that the dispatch, whichever row takes the line, runs inside it. It is reached through the module-level import of `turn_gate`.
 
 `dispatch_rows(names, ...)` runs only the named rows, in the table's order, and answers None when none takes the line: a helper for tests (the five rows that were `ops_natural.take`), never called by
 production. TRACE is None; a test may set it to a function that receives `(name, state)` for the row that took a line. Production never sets it.
@@ -40,18 +39,25 @@ Standard library only. Runs on Python 3.9: python3 runtime/ops_turn.py --help
 """
 from __future__ import annotations
 
-import importlib
 import sys
 
 import drafts
+import event_lookup
 import greeting
 import natural
 import operations
+import ops_file_read
+import ops_file_trash
+import ops_instructions
+import ops_interpret
 import ops_natural
+import ops_say
 import phone_delete
 import phone_refusal
 import phrases
 import plan_confirm
+import route_pass
+import turn_gate
 import turn_order
 
 TRACE = None      # None, or a function that a test sets to receive `(name, state)` of the row that took a line
@@ -59,14 +65,9 @@ EARLY = "confirmed-plan"      # the row `confirmed` runs; `dispatch` does not
 TAKE_ROWS = ("draft-answer", "event-list-number", "file-list-number", "tier-1-form")      # what `ops_natural.take` was: for `dispatch_rows`, in tests
 
 
-def _say():
-    """runtime/ops_say.py, found at call time (it imports this module at call time too)."""
-    return importlib.import_module("ops_say")
-
-
 def turn():
     """The refresh budget of one line (a context manager; see the module's text): the outermost `with` on a thread opens it, an inner one reuses it, the outermost exit clears it."""
-    return importlib.import_module("turn_gate").turn()
+    return turn_gate.turn()
 
 
 class State:
@@ -74,7 +75,7 @@ class State:
 
     def __init__(self, project: str, ctx: dict, said: str, channel: str, line_id, sender, extras: dict, can_send=None, plan_ok=None):
         self.project, self.ctx, self.said, self.channel, self.line_id, self.sender, self.extras = project, ctx, said, channel, line_id, sender, extras
-        self.natural_channel = _say()._natural_channel(channel)      # the channel a natural request is checked under: the queue's drain acts as the page
+        self.natural_channel = ops_say._natural_channel(channel)      # the channel a natural request is checked under: the queue's drain acts as the page
         self.can_send, self.plan_ok = can_send, plan_ok
         self.talks = None
         self.asked, self.framed, self.took = None, False, None
@@ -83,7 +84,7 @@ class State:
 def _talks(state: State) -> bool:
     """Whether the sender may talk to the planning agent, read once, by the first row that needs it (`_turn` read it after the command row)."""
     if state.talks is None:
-        state.talks = _say().may_talk(state.ctx, state.channel, state.sender)
+        state.talks = ops_say.may_talk(state.ctx, state.channel, state.sender)
     return state.talks
 
 
@@ -102,13 +103,13 @@ def _plain(reply) -> tuple:
 def confirmed_plan(project, ctx, said, channel, sender, extras, state):
     if state.plan_ok is None:
         return None
-    return _say()._say_confirmed(project, ctx, said, sender, state.can_send, state.plan_ok)      # a dict, `say`'s own return: the one row that ends the turn before the line is stored
+    return ops_say._say_confirmed(project, ctx, said, sender, state.can_send, state.plan_ok)      # a dict, `say`'s own return: the one row that ends the turn before the line is stored
 
 
 def command(project, ctx, said, channel, sender, extras, state):
     if not said.startswith("/"):
         return None
-    out = _say()._say_command(project, ctx, said, channel, state.line_id, sender)
+    out = ops_say._say_command(project, ctx, said, channel, state.line_id, sender)
     parsed = operations.parse_chat(said)
     if parsed is not None and ops_natural.keeps_private(ctx, parsed[0], channel, sender):      # the card's private lines were drawn for this sender: the conversation keeps a word
         extras["stored"] = phrases.text("NAT_READ_REPLY", ctx["cfg"])
@@ -117,7 +118,7 @@ def command(project, ctx, said, channel, sender, extras, state):
 
 def greeting_row(project, ctx, said, channel, sender, extras, state):
     if _talks(state) and greeting.is_greeting(said, helps=channel == "messaging"):      # S5: a greeting, or a plain request for help, is answered by code before any open question and any model: never the answer to the router's question
-        return _plain(_say()._greeting_reply(ctx, channel, sender))
+        return _plain(ops_say._greeting_reply(ctx, channel, sender))
     return None
 
 
@@ -135,17 +136,16 @@ def plan_bare_word(project, ctx, said, channel, sender, extras, state):
 
 def delete_file(project, ctx, said, channel, sender, extras, state):
     if _talks(state) and channel == "messaging" and phone_delete.asks(said):      # a file is not deleted from a message (S14, S14b): one plain sentence, no card, no request, no model, before an open question (a request to delete is never its answer), the lists of code and the interpreter
-        trash = importlib.import_module("ops_file_trash")
-        if not trash.permitted(ctx, channel, sender):
+        if not ops_file_trash.permitted(ctx, channel, sender):
             return _plain(phrases.text("PHONE_NO_FILE_DELETE", ctx["cfg"]))
-        moved = trash.line(project, ctx, said, channel, sender, extras)      # R2-A: a sender who may move a file to the trash gets the card of the file (or the list, or one sentence); never a delete for good
+        moved = ops_file_trash.line(project, ctx, said, channel, sender, extras)      # R2-A: a sender who may move a file to the trash gets the card of the file (or the list, or one sentence); never a delete for good
         if moved is not None:
             return _plain(moved)
     return None
 
 
 def router_question(project, ctx, said, channel, sender, extras, state):
-    state.asked = _say()._open_question(ctx, channel, sender) if _talks(state) else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
+    state.asked = ops_say._open_question(ctx, channel, sender) if _talks(state) else None      # a sender who may not talk never answers the router's question; on a phone it is the question bound to this sender (S4)
     if state.asked is not None and ops_natural.recognises(ctx, said, state.natural_channel, sender):      # a request code recognises is a new line, never the answer (LIVE-2), for the interpreter's senders too
         state.asked = None
     state.framed = state.asked is not None and bool(extras.get("deferred"))      # S4: of the lines no list of code claims, the interpreter tells the answer from a new line, by a typed frame (decision 229 (1))
@@ -153,7 +153,6 @@ def router_question(project, ctx, said, channel, sender, extras, state):
 
 
 def state_question(project, ctx, said, channel, sender, extras, state):
-    ops_say = _say()
     if state.asked is None and ops_say.state_question(said):
         if channel == "messaging" and not operations.permitted("status", channel, ctx["cfg"]["channels"], None, sender):
             return _plain(phone_refusal.said(operations.not_enabled('status', channel), channel, ctx["cfg"]))      # the state is read, so a profile that reads nothing is not told it
@@ -189,14 +188,14 @@ def draft_answer(project, ctx, said, channel, sender, extras, state):
 def event_list_number(project, ctx, said, channel, sender, extras, state):
     if state.asked is not None or state.natural_channel != "messaging":
         return None
-    listed = importlib.import_module("event_lookup").take(project, ctx, said, sender, extras, ops_natural._writes(), ops_natural._clock())      # S11: a number after a list of events ("cancela o 2", "o 2") means that entry, as "cancela o evento 2" does
+    listed = event_lookup.take(project, ctx, said, sender, extras, ops_natural._writes(), ops_natural._clock())      # S11: a number after a list of events ("cancela o 2", "o 2") means that entry, as "cancela o evento 2" does
     return None if listed is None else _out(extras, listed)
 
 
 def file_list_number(project, ctx, said, channel, sender, extras, state):
     if state.asked is not None or state.natural_channel != "messaging":
         return None
-    picked = importlib.import_module("ops_file_read").take(project, ctx, said, state.natural_channel, sender, extras)      # S17: a number after a list of files ("o 2") picks that file
+    picked = ops_file_read.take(project, ctx, said, state.natural_channel, sender, extras)      # S17: a number after a list of files ("o 2") picks that file
     return None if picked is None else _out(extras, picked)
 
 
@@ -235,8 +234,8 @@ def interpreter(project, ctx, said, channel, sender, extras, state):
         if live_plan is not None:
             extras["plan_frame"] = live_plan
     if state.framed:
-        extras["frame_age"] = _say()._question_age(ctx, sender)      # the typed frame's one item is built from this age alone (runtime/ops_interpret.py `router_frame`)
-    read = importlib.import_module("ops_interpret").turn(project, ctx, said, sender, extras)
+        extras["frame_age"] = ops_say._question_age(ctx, sender)      # the typed frame's one item is built from this age alone (runtime/ops_interpret.py `router_frame`)
+    read = ops_interpret.turn(project, ctx, said, sender, extras)
     if read is not None:
         return (*read, None)
     if state.framed and extras.get("frame") == "new":
@@ -245,7 +244,7 @@ def interpreter(project, ctx, said, channel, sender, extras, state):
 
 
 def ops_interpret_take_pass(project, sender, said, extras) -> bool:
-    return importlib.import_module("ops_interpret").take_pass(project, sender, said, extras)
+    return ops_interpret.take_pass(project, sender, said, extras)
 
 
 def brake_hint(ctx: dict, said: str, sender, reads: bool = True):
@@ -258,7 +257,7 @@ def brake_hint(ctx: dict, said: str, sender, reads: bool = True):
     typed = ops_natural.TYPED.get(found["op"])
     if typed is None:
         return ops_natural.phone_sentence(ctx, found["op"])
-    number = importlib.import_module("turn_gate").the_number(said)
+    number = turn_gate.the_number(said)
     return phrases.text("IX_OUTAGE_BRAKE" if reads else "IX_TYPE_BRAKE", ctx["cfg"], command=typed[0].replace("{n}", str(number) if number is not None else "<n>"))      # L2: a sender the interpreter never reads is not told it "cannot read words right now"
 
 
@@ -269,7 +268,7 @@ def route_pass_row(project, ctx, said, channel, sender, extras, state):
     if not extras.get("decide"):
         return None
     if extras.get("no_decision") or not extras.get("deferred"):
-        hint = brake_hint(ctx, said, sender, reads=importlib.import_module("ops_say").reads_words(project, sender))
+        hint = brake_hint(ctx, said, sender, reads=ops_say.reads_words(project, sender))
         if hint is not None:
             return _plain(hint)
     if not extras.get("deferred"):      # H1 (review of 2026-10-29): a holder of `interpret` whose entry is off says a reminder or a write in words: the typed command, slot-free, and nothing of the line is handed on
@@ -277,12 +276,12 @@ def route_pass_row(project, ctx, said, channel, sender, extras, state):
         if typed is not None:
             extras["stored"] = typed
             return _plain(typed)
-    raise importlib.import_module("ops_say").ToAgent(importlib.import_module("route_pass").issue(project, sender, said, extras.get("frame") or "new"))
+    raise ops_say.ToAgent(route_pass.issue(project, sender, said, extras.get("frame") or "new"))
 
 
 def typed_sentence(ctx: dict, said: str, sender):
     """The sentence of a sender whom the interpreter does not read and who says a reminder or a write in words (the decision of 2026-10-28, C1-c): the typed command, and nothing leaves the host: the line goes to no model. None for any other line."""
-    kind = importlib.import_module("turn_gate").private_kind(said)
+    kind = turn_gate.private_kind(said)
     if kind is None:
         return None
     if kind == "reminder":
@@ -304,10 +303,10 @@ def typed_private_line(project, ctx, said, channel, sender, extras, state):
 
 def planning_agent(project, ctx, said, channel, sender, extras, state):
     asked = state.asked
-    out = _say()._say_route(project, ctx, said, state.line_id, channel, answer_to=asked, sender=sender, extras=extras)
+    out = ops_say._say_route(project, ctx, said, state.line_id, channel, answer_to=asked, sender=sender, extras=extras)
     if asked is not None and channel == "messaging":      # the person is told what their line was taken for
         out = (phrases.text("ANSWER_TAKEN", ctx["cfg"], id=asked) + "\n\n" + out[0], *out[1:])
-    offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
+    offered = ops_instructions.proposal(ctx, out[1], said, channel) if asked is not None else None
     state.took = "router-question" if asked is not None else "planning-agent"
     return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
@@ -369,17 +368,15 @@ def dispatch_rows(names, project: str, ctx: dict, said: str, channel: str, line_
 
 
 def _form_or_draft(ctx, said, channel, sender, plan_before) -> bool:
-    ops_say = _say()
     return ops_say.asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, ops_say._natural_channel(channel), sender)      # a tier-1 form, a write form or the answer to the sender's draft, unless it completes a draft that calls a model
 
 
 def _greets(ctx, said, channel, sender, plan_before) -> bool:
-    return _say()._greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
+    return ops_say._greets(ctx, said, channel, sender)      # S5: a greeting is answered by code too, never queued
 
 
 def _deletes_a_file(ctx, said, channel, sender, plan_before) -> bool:
-    ops_say = _say()
-    return channel == "messaging" and ops_say.may_talk(ctx, channel, sender) and importlib.import_module("ops_file_trash").catches(ctx, said, channel, sender)      # S14b: a request to delete a file is answered by code, so it waits for no run and no queue (R2-A: for a sender who may move a file to the trash, when the name can be read by code)
+    return channel == "messaging" and ops_say.may_talk(ctx, channel, sender) and ops_file_trash.catches(ctx, said, channel, sender)      # S14b: a request to delete a file is answered by code, so it waits for no run and no queue (R2-A: for a sender who may move a file to the trash, when the name can be read by code)
 
 
 def _bare_plan_word(ctx, said, channel, sender, plan_before) -> bool:

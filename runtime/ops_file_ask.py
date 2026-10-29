@@ -63,6 +63,8 @@ import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_file_read as reader  # noqa: E402
 import ops_instructions  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_runs  # noqa: E402
 import ops_sources  # noqa: E402
 import phone_refusal  # noqa: E402
 import phrases  # noqa: E402
@@ -93,10 +95,6 @@ DATA_LINE = "Converted text of the file {name} ({service}, folder {folder}), rea
 def _ops():
     """runtime/ops.py, found at call time."""
     return importlib.import_module("ops")
-
-
-def _natural():
-    return importlib.import_module("ops_natural")
 
 
 def _out(reply: str, status: str, **more) -> dict:
@@ -377,7 +375,7 @@ def _read_and_ask(project: str, ctx: dict, match: dict, question: str, channel, 
         return _out(t("FA_FAILED"), "failed")
     store = ctx["store"]
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
-        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
+        ops_runs._recover(ctx, holding_route=True)
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:

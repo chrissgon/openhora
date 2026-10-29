@@ -474,7 +474,7 @@ def test_vacuity_the_day_filter_is_load_bearing(world, snaps, clock, monkeypatch
     boxes(world, snaps)
     right, _ = ask(world, {"match": "banco", "day": "tomorrow"}, "read the bank e-mail from tomorrow")
     assert right == phrases.text("MR_NONE", ops_core.context(world["path"])["cfg"])
-    monkeypatch.setattr(ops_mail_read._natural_mail(), "_on_day", lambda found, read: found)
+    monkeypatch.setattr(ops_mail_read.ops_natural_mail, "_on_day", lambda found, read: found)
     wrong, _ = ask(world, {"match": "banco", "day": "tomorrow"}, "read the bank e-mail from tomorrow")
     assert wrong != right, "without the day filter the three messages of the bank are listed"
 

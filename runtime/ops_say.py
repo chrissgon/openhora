@@ -50,6 +50,12 @@ import plan_confirm
 import router
 import skill_meta
 import turn_gate
+import event_lookup
+import ops_cancel
+import ops_file_read
+import ops_interpret
+import ops_natural_writes
+import ops_todo
 
 
 def _ops():
@@ -217,10 +223,10 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     said = core._text(text, "the line")
     store = ctx["store"]
     turns = _turns()      # the order of who takes the line is the table of runtime/turn_order.py, stage `ops`; its dispatcher is runtime/ops_turn.py (S41-3)
-    with turns.turn(), _sentences(ctx, channel), importlib.import_module("ops_interpret").repeat_scope(ctx, channel, sender):      # CB-9: and a repeating line goes to the interpreter only when it is on for this sender; S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
-        importlib.import_module("event_lookup").begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
-        importlib.import_module("ops_file_read").begin_turn(ctx, channel, sender)      # S17: so is a list of files
-        importlib.import_module("ops_todo").begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
+    with turns.turn(), _sentences(ctx, channel), ops_interpret.repeat_scope(ctx, channel, sender):      # CB-9: and a repeating line goes to the interpreter only when it is on for this sender; S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
+        event_lookup.begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
+        ops_file_read.begin_turn(ctx, channel, sender)      # S17: so is a list of files
+        ops_todo.begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
         if plan_ok is not None:
             confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
             if confirmed is not None:
@@ -241,7 +247,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
         kept = ops_natural.stored_line(ctx, said, _natural_channel(channel), sender)
         # A plain line of a sender whom the interpreter reads (S1, limit L63) is stored AFTER the decision: as a neutral word unless the interpreter sent it to the planning agent
         # (`extras["interpreted"]`), so that a line the model service read is never kept in the store. Every other line is stored first, as it always was.
-        deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
+        deferred = not said.startswith("/") and ops_interpret.enabled(ctx, channel, sender)
         late = deferred or decide      # the decide leg stores nothing before the decision, whether or not an entry is in force: a line handed back is stored by the route leg alone (P3)
         stored = None if late else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
         extras = {"deferred": True} if deferred else {}
@@ -363,30 +369,30 @@ def natural_write(project: str, line: str, channel: str = "messaging", sender=No
     """A line that asks for a write to the person's own accounts, for the messaging bridge (package NR-5): the sender's live question is answered, or the line is read as a
     write, or the seed (a reminder question answered "event", the loose verb's question, the caption of a file) is. It OPENS the card of the exact content and executes
     nothing (limit L61). Returns {"reply", "resend", "asked"}; `reply` is None when the line is no write and answers no question. Not an operation of the table."""
-    return importlib.import_module("ops_natural_writes").natural_write(project, line, channel=channel, sender=sender, seed=seed)
+    return ops_natural_writes.natural_write(project, line, channel=channel, sender=sender, seed=seed)
 
 
 def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
     """Whether this sender has a live question about a write (the bridge asks it before it reads a line as new). Not an operation of the table."""
-    return importlib.import_module("ops_natural_writes").has_live(project, channel, sender)
+    return ops_natural_writes.has_live(project, channel, sender)
 
 
 def natural_forget(project: str, sender, channel: str = "messaging") -> None:
     """Drop the sender's open question about a write (a line that answers nothing drops it). Not an operation of the table."""
-    importlib.import_module("ops_natural_writes").forget(channel, sender)
+    ops_natural_writes.forget(channel, sender)
 
 
 def natural_file_accounts(project: str) -> list:
     """The accounts ("google", "microsoft") the project lists with folders, in that order: the places a file a sender sent can be saved to (package ATT-3; the card of a
     file draws one button for each). Not an operation of the table."""
     ctx = core.context(project)
-    return importlib.import_module("ops_natural_writes").accounts_with(ctx, "folders")
+    return ops_natural_writes.accounts_with(ctx, "folders")
 
 
 def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):
     """The operation whose group a sender must hold for a plain line to be handled by code (ops_natural.needs), or None: the bridge asks it before it asks
     `talk`. Not an operation of the table."""
-    with importlib.import_module("ops_interpret").repeat_scope(project, channel, sender):      # CB-9: a repeating line needs the group `talk` (the interpreter reads it) only when the interpreter is on for this sender
+    with ops_interpret.repeat_scope(project, channel, sender):      # CB-9: a repeating line needs the group `talk` (the interpreter reads it) only when the interpreter is on for this sender
         return ops_natural.needs(core.context(project), text, channel, sender)
 
 
@@ -394,7 +400,7 @@ def interpreter_on(project: str, sender=None, channel: str = "messaging") -> boo
     """CB-9: whether the interpreter reads this sender's plain lines in the project's language (ops_interpret.enabled), for the messaging bridge: it opens the scope of a repeating line
     (natural.repeat_scope) around its first reading of the line. False when the configuration cannot be read. Read-only; not an operation of the table."""
     try:
-        return bool(importlib.import_module("ops_interpret").enabled(core.context(project), channel, sender))
+        return bool(ops_interpret.enabled(core.context(project), channel, sender))
     except core.OpsError:
         return False
 
@@ -419,7 +425,7 @@ def _greeting_reply(ctx: dict, channel: str, sender=None) -> str:
     lines = [phrases.text(key, cfg) for key, forms in GREETING_FAMILIES if any(operations.permitted(op, channel, policy, kind, sender) for op, kind in forms)]
     if channel == "messaging" and any(operations.permitted("approve", channel, policy, kind, sender) for kind in GREETING_APPROVALS):
         lines.append(phrases.text("GREET_APPROVE", cfg))
-    if importlib.import_module("ops_interpret").enabled(ctx, channel, sender):
+    if ops_interpret.enabled(ctx, channel, sender):
         lines.append(phrases.text("GREET_OWN_WORDS", cfg))
     return "\n".join([phrases.text("GREET_HEAD", cfg)] + (lines or [phrases.text("GREET_ASK_WORK", cfg)]))
 
@@ -775,7 +781,6 @@ def _close_by_code(ctx: dict, request_id: int, by: str) -> None:
 
 def _close_request(ctx: dict, request_id: int, by: str) -> dict:
     """The cancel of `_close_by_code` for any label (the person who dismissed a question is `by`, S14): the store's answer, {"request", "cancelled", "pending", ...}."""
-    import ops_cancel      # at call time, like the other operations this sibling reaches
     done = core._stored(ctx, ops_cancel.request_cancel, request_id, by=by, context=ctx)
     core._stored(ctx, ctx["store"].cursor_set, CODE_CLOSED.format(id=request_id), "1")
     return done

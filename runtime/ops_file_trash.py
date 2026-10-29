@@ -31,7 +31,6 @@ python3 runtime/ops_file_trash.py --help
 """
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 
@@ -44,6 +43,8 @@ import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_file_read as reader  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_natural_writes  # noqa: E402
 import phone_delete  # noqa: E402
 import phone_refusal  # noqa: E402
 import phrases  # noqa: E402
@@ -52,14 +53,6 @@ import turn_gate  # noqa: E402
 
 OP = "file-trash"
 KIND = "file-write"
-
-
-def _natural():
-    return importlib.import_module("ops_natural")
-
-
-def _writes():
-    return importlib.import_module("ops_natural_writes")
 
 
 def _alias(cfg: dict, service: str, root: str):
@@ -142,21 +135,21 @@ def _card(project: str, ctx: dict, match: dict, exact: bool, channel, sender, ex
     is `grounded`, found by the search with the words of the line, or `picked`, chosen among those listed; the account and the folder are the configuration's), the card is prepared, and the
     bridge sends it (`extras["resend"]`); the terminal's own shell also gets the lines and the command with the hash."""
     cfg = ctx["cfg"]
-    refused = _writes()._admit(ctx, OP, channel, sender)
+    refused = ops_natural_writes._admit(ctx, OP, channel, sender)
     if refused:
         return refused
     alias = _alias(cfg, match["service"], match["root"])
     problems = turn_gate.provenance(OP, {"account": match["service"], "file": match["id"], **({"folder": alias} if alias else {})}, {"account": "config", "file": origin, "folder": "config"})
     if problems:
-        return _writes().refused_sentence(ctx, OP, problems, channel, extras)
-    car = _writes().carrier(channel)
+        return ops_natural_writes.refused_sentence(ctx, OP, problems, channel, extras)
+    car = ops_natural_writes.carrier(channel)
     try:
         with ops_actor.carried_by(car):
             started = start_card(project, cfg, match, exact, car, sender if car == "messaging" else None)
     except core.OpsError as e:
-        return _natural()._error(cfg, e, channel)
+        return ops_natural._error(cfg, e, channel)
     extras["resend"] = started["pending"]
-    return account_start.reply_text(cfg, started) + _writes()._card_lines(ctx, project, started, channel)
+    return account_start.reply_text(cfg, started) + ops_natural_writes._card_lines(ctx, project, started, channel)
 
 
 def _render(cfg: dict, got: dict, pick: bool) -> str:
