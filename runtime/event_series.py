@@ -30,11 +30,13 @@ Standard library only. Runs on Python 3.9: python3 runtime/event_series.py --hel
 from __future__ import annotations
 
 import datetime
-import importlib
 import sys
 
+import calendar_document
 import event_created
+import event_lookup
 import natural_time as nt
+import ops_step_seams
 import phrases
 import recurrence
 import turn_gate
@@ -51,21 +53,9 @@ def _text(ctx: dict, key: str, **fields) -> str:
     return phrases.text(key, ctx["cfg"], **fields)
 
 
-def _seams():
-    return importlib.import_module("ops_step_seams")
-
-
-def _document():
-    return importlib.import_module("calendar_document")
-
-
-def _lookup():
-    return importlib.import_module("event_lookup")
-
-
 def specific_day(said: str) -> bool:
     """Whether the line names one date: a date with slashes, today, tomorrow, "dia 16", "16 de novembro", or "this Monday" / "next Monday" ("da proxima segunda"); not a bare weekday name."""
-    if _lookup().SLASH.search(said):
+    if event_lookup.SLASH.search(said):
         return True
     for hit in nt.find(said)["hits"]:
         spec = hit.get("spec") if isinstance(hit.get("spec"), dict) else {}
@@ -78,7 +68,7 @@ def bare_weekday(text):
     """The weekday number (0 = Monday) of a text that names a weekday and no date, and does not say "next" ("segunda", "de segunda", "dessa segunda", "this Monday"), else None. A bare weekday is
     the first such day from TODAY on: today when today is that day (the one occurrence of today may not have started yet)."""
     hits = [h for h in nt.find(text)["hits"] if h["kind"] in ("date", "slash")]
-    if _lookup().SLASH.search(text) or len(hits) != 1 or hits[0]["kind"] != "date":
+    if event_lookup.SLASH.search(text) or len(hits) != 1 or hits[0]["kind"] != "date":
         return None
     spec = hits[0].get("spec") if isinstance(hits[0].get("spec"), dict) else {}
     index = spec.get("i")
@@ -93,7 +83,7 @@ def _day_text(day: datetime.date) -> str:
 
 def _local_day(start: str) -> datetime.date:
     """The local day (the machine's zone, the one every wall time of a document is written in) of an instant the writer printed."""
-    return _document().parse_instant(start).astimezone().date()
+    return calendar_document.parse_instant(start).astimezone().date()
 
 
 def _rule_text(ctx: dict, rule: str, clock: str) -> str:
@@ -112,7 +102,7 @@ def _target(reader, row: dict, sender) -> tuple:
 
 def _read(ctx: dict, rows: list, sender):
     """([(row, the event the writer printed)], the seam, (account, calendar id)) for the rows, or None when a read fails, a row is gone or the rows are not on one account and one calendar."""
-    reader = _seams().CalendarReader(ctx)
+    reader = ops_step_seams.CalendarReader(ctx)
     out, where = [], set()
     for row in rows[:LISTED_MAX]:
         account, calendar_id, event_id = _target(reader, row, sender)
@@ -127,7 +117,7 @@ def _read(ctx: dict, rows: list, sender):
 
 def _instances(reader, account: str, calendar_id: str, series: str, days: list) -> list:
     """The live instances of the series on the local days `days` (consecutive), read from the provider in windows of at most two days: [{"id", "start" (as the provider printed it), "day"}]."""
-    document, out, at = _document(), [], 0
+    document, out, at = calendar_document, [], 0
     while at < len(days):
         chunk = days[at:at + WINDOW_DAYS]
         first, last = document.day_window(chunk[0], len(chunk))
@@ -154,7 +144,7 @@ def _days_asked(said: str, spans: dict, kind: str, value, now) -> tuple:
         if index is not None:
             ahead = (index - today.weekday()) % 7
             return [today + datetime.timedelta(days=ahead)], ahead == 0
-    lookup = _lookup()
+    lookup = event_lookup
     readings = []
     if spans.get("day"):
         readings.append(lookup._day_named(spans["day"], now))
@@ -227,7 +217,7 @@ def reply(project: str, ctx: dict, op: str, found: list, kind: str, value, spans
     span = _day_text(days[0]) if len(days) == 1 else f"{_day_text(days[0])} - {_day_text(days[-1])}"
     if not listed:
         return _text(ctx, "RECUR_NO_OCCURRENCE", title=title, day=span)
-    later = [i for i in listed if _document().parse_instant(i["start"]) > now.astimezone()]      # an instance that has started is no choice: it is not cancelled
+    later = [i for i in listed if calendar_document.parse_instant(i["start"]) > now.astimezone()]      # an instance that has started is no choice: it is not cancelled
     if not later and bare_today:
         return _text(ctx, "RECUR_ASK_DATE", title=title, example=shown)      # "segunda" on a Monday whose instance has started: today's is past and next Monday is not what was said
     if not later:
@@ -235,7 +225,7 @@ def reply(project: str, ctx: dict, op: str, found: list, kind: str, value, spans
     if len(later) > 1:
         return _text(ctx, "RECUR_WHICH_DAY", title=title, days=", ".join(_day_text(i["day"]) for i in later), example=_day_text(later[0]["day"]))
     one = later[0]
-    when = f"{_day_text(one['day'])} {_document().parse_instant(one['start']).astimezone().strftime('%H:%M')}"
+    when = f"{_day_text(one['day'])} {calendar_document.parse_instant(one['start']).astimezone().strftime('%H:%M')}"
     return _open(project, ctx, said, sender, extras, writes, first_row, account, {"occurrence": one["day"].isoformat()}, "RECUR_FOUND_OCCURRENCE",
                  {"title": title, "when": when, "rule": _rule_text(ctx, rule, clock)})
 

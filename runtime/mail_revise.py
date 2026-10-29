@@ -29,17 +29,18 @@ or any third-party text. The recipients and the account of the new card are the 
 Privacy (limit L63, D2): the card's text and the instruction go to the model provider under the retention terms the group `interpret` was widened with, exactly as the
 interpreter's line and the compose call do. Nothing is logged, printed or written by this file: no instruction, no subject, no body, no exception message.
 
-Standard library only (the other modules are imported when a function needs them). Runs on Python 3.9: python3 runtime/mail_revise.py --help
+Standard library only, and the other modules of runtime/ it needs (imported at the top). Runs on Python 3.9: python3 runtime/mail_revise.py --help
 """
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 import os
 import re
 import sys
 import unicodedata
+
+import mail_compose
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMPT_FILE = os.path.join(HERE, "mail_revise_prompt.txt")
@@ -250,9 +251,8 @@ def _flat(text: str) -> str:
 
 def _model_field(text, name: str):
     """A text field the model's answer holds, or None (the answer is parsed again here only to compare its subject and its body with the card's)."""
-    compose = importlib.import_module("mail_compose")
     body = text.strip()
-    found = compose.FENCE.fullmatch(body)
+    found = mail_compose.FENCE.fullmatch(body)
     try:
         obj = json.loads(found.group(1) if found else body)
     except (ValueError, RecursionError):
@@ -263,21 +263,19 @@ def _model_field(text, name: str):
 def _kept_close(got_body: str, text, old: str) -> str:
     """The validator drops a closing formula that ends a body with nothing after it (S12). A card whose own text ended with such a closing (a text sent as written) keeps it when the model
     kept it too and the line did not ask for more: the body the model wrote, if the part the validator dropped is the very one the card ended with; else the validated body."""
-    compose = importlib.import_module("mail_compose")
     raw = (_model_field(text, "body") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    core = compose.without_dangling_close(old)
+    core = mail_compose.without_dangling_close(old)
     tail = old[len(core):] if old.startswith(core) else ""
     return raw if tail.strip() and raw == got_body + tail and raw.endswith(tail) else got_body
 
 
 def accept(text, to, subject: str, body: str, line: str):
     """{"subject", "body"} for the model's text, or None (see the module's text)."""
-    compose = importlib.import_module("mail_compose")
     allowed = list(to) + [a for a in _own_addresses(subject, body) if a not in to]
-    got = compose.validate(text, allowed)
+    got = mail_compose.validate(text, allowed)
     if got is None:      # a card whose own subject the validator would not accept as a model-written one (it starts like a reply, say) may keep it unchanged
         shown = _model_field(text, "subject") if isinstance(text, str) else None
-        got = compose.validate(text, allowed, subject) if shown is not None and shown.strip() == subject else None
+        got = mail_compose.validate(text, allowed, subject) if shown is not None and shown.strip() == subject else None
     if got is None:
         return None
     old = body.replace("\r\n", "\n").replace("\r", "\n").strip()

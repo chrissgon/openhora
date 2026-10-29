@@ -35,10 +35,15 @@ RUNTIME = REPO / "runtime"
 # them point at `ops`) and 137 close no cycle on their own (2 of them point at `ops`). The plan's figures at 3afee52b were 160 + 32 calls,
 # 140 edges, about 97 convertible and 43 not, 12 to `ops`; the code has grown since and the spec's greedy count is order-dependent, so
 # the numbers here are the real ones on this tip and use the independent test above.
+# 44-B cluster 1 (mail and calendar modules): 20 debt edges became top-level imports (mail_compose, mail_refresh, mail_revise, event_created,
+# event_series, event_lookup, messaging_cards) and 6 more edges, whose target now reaches the importer through them, are cycle edges (event_lookup ->
+# event_series, ops_items -> event_lookup, ops_natural -> event_lookup, ops_natural_writes -> event_lookup and -> ops_interpret, policy_widening ->
+# interpreter_enable): 207 lazy calls, 152 edges, 111 debt. event_series -> event_lookup is the direction converted (event_series reads event_lookup
+# 3 times, event_lookup reads event_series once); a mutual pair can only have one direction at the top.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 236
-LAZY_EDGES_BUDGET = 172
-PLAIN_DEBT_BUDGET = 137
+LAZY_CALLS_BUDGET = 207
+LAZY_EDGES_BUDGET = 152
+PLAIN_DEBT_BUDGET = 111
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
@@ -57,16 +62,10 @@ ROWS = (
     ("dispatcher", DEBT, "lab"),
     ("effect_files", DEBT, "attachments ops_file_read"),
     ("endings", DEBT, "manifest"),
-    ("event_created", DEBT, "calendar_document ops_step_seams"),
-    ("event_lookup", DEBT, "event_series interpreter ops_items ops_natural ops_natural_calendar ops_natural_writes ops_sources"),
-    ("event_series", DEBT, "calendar_document event_lookup ops_step_seams"),
+    ("event_lookup", CYCLE, "event_series"),
     ("interpreter", DEBT, "natural_writes natural_writes_mail"),
     ("interpreter_route", DEBT, "lab"),
     ("mail_compose", CYCLE, "interpreter_enable ops_interpret"),
-    ("mail_compose", DEBT, "line_stage natural_writes_mail ops_natural send_document turn_gate"),
-    ("mail_refresh", DEBT, "ops_items ops_sources"),
-    ("mail_revise", DEBT, "mail_compose"),
-    ("messaging_cards", DEBT, "attachments"),
     ("natural", DEBT, "recurrence"),
     ("natural_writes", CYCLE, "turn_gate"),
     ("ops_ask", CYCLE_OPS, "ops"),
@@ -89,18 +88,20 @@ ROWS = (
     ("ops_instructions", CYCLE, "ops_routines"),
     ("ops_instructions", CYCLE_OPS, "ops"),
     ("ops_interpret", DEBT, "ops_card_revise ops_core ops_file_trash ops_items ops_natural_mail ops_natural_writes ops_todo"),
-    ("ops_items", DEBT, "event_lookup natural_writes natural_writes_mail ops_sources"),
+    ("ops_items", CYCLE, "event_lookup"),
+    ("ops_items", DEBT, "natural_writes natural_writes_mail ops_sources"),
     ("ops_mail_read", DEBT, "event_lookup ops_interpret ops_items ops_natural ops_natural_mail"),
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_models", DEBT, "skill_meta"),
-    ("ops_natural", CYCLE, "ops_file_ask ops_natural_writes ops_say"),
+    ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_natural_writes ops_say"),
     ("ops_natural", CYCLE_OPS, "ops"),
     ("ops_natural", DEBT,
-     "event_lookup item_refs natural_writes ops_file_read ops_items ops_mail_read ops_reminders "
+     "item_refs natural_writes ops_file_read ops_items ops_mail_read ops_reminders "
      "ops_research ops_todo reminders"),
     ("ops_natural_calendar", DEBT, "ops_natural_writes"),
     ("ops_natural_files", DEBT, "ops_natural_writes"),
-    ("ops_natural_writes", DEBT, "account_start event_lookup natural_writes_calendar ops_interpret"),
+    ("ops_natural_writes", CYCLE, "event_lookup ops_interpret"),
+    ("ops_natural_writes", DEBT, "account_start natural_writes_calendar"),
     ("ops_natural_writes", DEBT_OPS, "ops"),
     ("ops_reads", CYCLE_OPS, "ops"),
     ("ops_reads", DEBT, "ops_ask ops_natural ops_runs"),
@@ -119,7 +120,7 @@ ROWS = (
     ("phrases", CYCLE, "phone_questions"),
     ("plan_confirm", CYCLE, "ops_natural"),
     ("plan_confirm", DEBT, "natural_writes ops_items"),
-    ("policy_widening", DEBT, "interpreter_enable"),
+    ("policy_widening", CYCLE, "interpreter_enable"),
     ("registry", DEBT, "turn_gate"),
     ("run_stop", DEBT, "lab"),
     ("source_names", DEBT, "mail_refs natural natural_writes ops_core ops_natural_calendar"),

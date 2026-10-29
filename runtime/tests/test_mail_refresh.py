@@ -675,11 +675,11 @@ def test_the_module_names_no_provider_class_no_provider_path_and_no_model_and_th
             imported.add((node.module or "").split(".")[0])
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             strings.append(node.value)
-    assert imported <= {"__future__", "importlib", "os", "sys", "threading", "time", "item_refs", "line_stage", "sources", "turn_gate"}, imported
+    assert imported <= {"__future__", "os", "sys", "threading", "time", "item_refs", "line_stage", "ops_items", "ops_sources", "sources", "turn_gate"}, imported
     code_strings = [t for t in strings if len(t) < 200]      # the module's text is longer than any literal of the code
     for forbidden in ("reader:email", "integration:calendar", "providers", "resolve.py", "subprocess", "provider_call"):
         assert not [t for t in code_strings if forbidden in t], forbidden
-    assert "ops_sources" in code_strings and "ops_items" in code_strings, "the two modules reached by name, lazily: the one source operation and the closed words"
+    assert {"ops_sources", "ops_items"} <= imported, "the two modules reached at the top: the one source operation and the closed words"
     assert "import mail_refresh" in (st.RUNTIME / "ops_natural_mail.py").read_text(encoding="utf-8")
     assert list(mail_refresh.TRIGGERS) == ["stale", "no_version", "no_index"] and mail_refresh.TURN_TIMEOUT_S == 60 and mail_refresh.FAIL_COOLDOWN_S == 120
 

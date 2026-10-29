@@ -45,6 +45,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import attachments  # noqa: E402  (the held file a card is drawn for)
 import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
 import messaging_pending as pending_view  # noqa: E402  (what a question says in a list and on a card)
 
@@ -369,9 +370,8 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `extra` is lines (already said) added under the question: the note that
     the text sent with the file is read only as a request to save it, or that the service the text named is not set up. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",
     "actionable", "words"}; the bridge records it in the ledger with the file's number in place of a decision's."""
-    import attachments as att
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    save_only = bool(row.get("save_only")) or att.is_save_only(row.get("kind"))
+    save_only = bool(row.get("save_only")) or attachments.is_save_only(row.get("kind"))
     wanted = [f"save-{a}" for a in accounts if f"save-{a}" in SAVE_WORDS] + ([] if save_only else ["add"]) + ["discard"]
     words = [w for w in wanted if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
@@ -384,8 +384,8 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     if notices == "count":
         body = t("ATTACH_COUNT")
     else:
-        kind = att.IMAGE_WORDS.get(row.get("kind"), row.get("kind") or t("FILE_WORD")) if save_only else (row.get("kind") or t("FILE_WORD"))
-        body = t("ATTACH_WHAT", name=row["name"], size=att.size_text(row["bytes"], cfg), kind=kind)
+        kind = attachments.IMAGE_WORDS.get(row.get("kind"), row.get("kind") or t("FILE_WORD")) if save_only else (row.get("kind") or t("FILE_WORD"))
+        body = t("ATTACH_WHAT", name=row["name"], size=attachments.size_text(row["bytes"], cfg), kind=kind)
         if "add" in words:
             body += "\n" + (t("ATTACH_WHAT_VERSION", id=row["target"], n=next_version) if row.get("label") == "refresh" and next_version else t("ATTACH_WHAT_ADD", project=project_name, id=row["target"]))
         for line in extra:
@@ -395,5 +395,5 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper().replace("-", "_"))} for w in shown], "link": None, "document": None}
     if footer and caps.get("actions_need_reply"):
         message["footer"] = list(footer)
-    return {"message": message, "content_sha256": att.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
+    return {"message": message, "content_sha256": attachments.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
             "actionable": bool(words), "words": words}

@@ -48,7 +48,7 @@ Privacy (limit L63, D2): the person's words go to the model provider under the s
 does. Nothing is logged, printed or written by this file: no span, no composed text, no exception message. The composed text exists in memory until the family opens the card,
 which stores it as it stores every card (the card is the one record of an e-mail, runtime/send_document.py); the draft that waits for a question is the family's, in memory only.
 
-Standard library only (the other modules are imported when a function needs them). Runs on Python 3.9: python3 runtime/mail_compose.py --help
+Standard library only, and the other modules of runtime/ it needs (imported at the top, except ops_interpret and interpreter_enable, which reach this file through their own imports: see ALLOWED_LAZY in runtime/tests/test_import_breakers.py). Runs on Python 3.9: python3 runtime/mail_compose.py --help
 """
 from __future__ import annotations
 
@@ -59,6 +59,12 @@ import os
 import re
 import sys
 import unicodedata
+
+import line_stage
+import natural_writes_mail
+import ops_natural
+import send_document
+import turn_gate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMPT_FILE = os.path.join(HERE, "mail_compose_prompt.txt")
@@ -258,8 +264,7 @@ def _plain(text: str) -> str:
 
 def _typed_address(span: str, line: str):
     """The address as the sender typed it (capitals kept) when `span` is a whole address token of the line, compared without regard to case, else None."""
-    nwm = importlib.import_module("natural_writes_mail")
-    for tok in nwm.tokenize(line) or []:
+    for tok in natural_writes_mail.tokenize(line) or []:
         typed = line[tok.start:tok.end]
         if tok.kind == "addr" and tok.value.lower() == span.lower() and typed.lower() == span.lower():
             return typed
@@ -288,7 +293,7 @@ def seed(op: str, decision: dict, line: str):
     if not subject:
         slots["_ai_subject"] = True
     # S41-7: the address was typed whole in the line (`_typed_address`), the subject and the body are spans of the line the interpreter's check verified: the person's words
-    return importlib.import_module("turn_gate").Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("to", "subject", "body") if key in slots})
+    return turn_gate.Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("to", "subject", "body") if key in slots})
 
 
 # --- the call ------------------------------------------------------------------------------------------------------------------------------------
@@ -315,7 +320,6 @@ def _pairs(pairs) -> dict:
 
 def _problem(text: str, multiline: bool) -> bool:
     """Whether a text cannot be on the card as it is (the card's own check, runtime/send_document.py)."""
-    send_document = importlib.import_module("send_document")
     return bool(send_document.text_problem(text, multiline))
 
 
@@ -367,25 +371,24 @@ def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool =
     if exact or not described or len(described) > DESCRIPTION_MAX or not available(ctx, channel, sender):
         return out
     interpret = importlib.import_module("ops_interpret")
-    gate = importlib.import_module("turn_gate")
-    admission = gate.admit(ctx, sender)
+    admission = turn_gate.admit(ctx, sender)
     if admission is None:
         return out
     proposal, ok = None, False
     try:
         enable = importlib.import_module("interpreter_enable")
         entry = enable.compose_active(interpret._tag(ctx["cfg"]))["entry"]
-        now = importlib.import_module("ops_natural")._clock()
+        now = ops_natural._clock()
         user = "\n".join([f"date: {now.strftime('%Y-%m-%d')} {DAY_NAMES[now.weekday()]}", f"language: {interpret._tag(ctx['cfg'])}", "to: " + ", ".join(to),
                           "subject: " + (subject or ""), "description: " + described])
-        importlib.import_module("line_stage").publish("compose")      # S19: the model words the e-mail
-        got = gate.call(admission, entry, prompt_template(), user, deadline_ms=DEADLINE_MS, params=PARAMS)      # the route check and the call are the gate's
+        line_stage.publish("compose")      # S19: the model words the e-mail
+        got = turn_gate.call(admission, entry, prompt_template(), user, deadline_ms=DEADLINE_MS, params=PARAMS)      # the route check and the call are the gate's
         ok = bool(got.get("ok"))
         if ok:
             proposal = validate(got.get("text"), to, subject or None, **({"body_only": True} if reply else {}))
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, proposal = False, None
-    gate.record(ok)
+    turn_gate.record(ok)
     if proposal is None:
         return out
     return {"subject": proposal["subject"] or out["subject"], "body": proposal["body"], "composed": True}
