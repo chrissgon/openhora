@@ -19,6 +19,9 @@ from sources_fixture import make_pdf
 from test_attachments import IDENT, PDF, accept, case  # noqa: F401  (the project the attachment tests use)
 from test_files_write import hold as hold_row, world as files_world  # noqa: F401  (the W4a world, a fake Drive and OneDrive)
 from test_messaging_attach import make_world
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 sources = st.load("sources")
@@ -488,18 +491,6 @@ def test_the_add_and_discard_buttons_work_for_a_pdf_and_the_add_is_not_offered_f
 # --- a later line about the last file --------------------------------------------------------------------------------------------------------
 
 
-def test_a_pdf_without_a_caption_is_saved_by_the_line_salvar_no_drive_sent_after(case, monkeypatch):  # noqa: F811
-    w = setup(case, monkeypatch)
-    w.put("r1", PDF)
-    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert w.seen == []
-    w.say("Salvar no drive")
-    assert [s[1] for s in w.seen] == [{"account": "google", "attachment": 1}] and w.save_cards == [9]
-    w.say("manda pro onedrive")
-    assert w.seen[-1][1] == {"account": "microsoft", "attachment": 1}
-    teardown(w)
-
-
 def test_a_save_line_with_no_service_and_both_accounts_brings_the_files_card_back(case, monkeypatch):  # noqa: F811
     w = setup(case, monkeypatch)
     w.put("r1", PDF)
@@ -519,20 +510,6 @@ def test_with_one_account_the_line_pode_salvar_opens_that_save(case, monkeypatch
     teardown(w)
 
 
-def test_with_two_held_files_the_line_asks_which_by_their_cards_and_with_none_it_says_so(case, monkeypatch):  # noqa: F811
-    w = setup(case, monkeypatch)
-    w.say("Salvar no drive")
-    assert pk.said(w.texts()[-1], "NW_NO_HELD", PT) and "\n" not in w.texts()[-1] and w.seen == []
-    w.put("r1", PDF)
-    w.put("p1", JPEG)
-    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    w.send([w.file("p1", None, len(JPEG), "photo")])
-    w.say("Salvar no drive")
-    assert w.seen == [] and phrases.text("NW_WHICH_FILE", {"language": "pt-BR"}) in w.texts()
-    assert "Q3 plan.pdf" in w.sent()[-2]["message"]["text"] and "photo-" in w.sent()[-1]["message"]["text"], "each file by its name, with its own buttons"
-    teardown(w)
-
-
 def test_the_line_descarta_discards_the_last_file_and_adiciona_ao_projeto_adds_it(case, monkeypatch):  # noqa: F811
     w = setup(case, monkeypatch)
     w.put("r1", PDF)
@@ -545,20 +522,6 @@ def test_the_line_descarta_discards_the_last_file_and_adiciona_ao_projeto_adds_i
     assert case.rows()[1]["status"] == "added"
     w.say("descarta")
     assert "descarta" not in " ".join(w.texts()[-1:]) and case.rows()[1]["status"] == "added", "no file waits: the line is an ordinary line"
-    teardown(w)
-
-
-def test_a_line_about_a_file_never_reaches_the_router_and_a_file_of_another_sender_is_never_named(case, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not routed")))
-    w = setup(case, monkeypatch)
-    w.put("r1", PDF)
-    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    w.say("descarta", sender=OTHER)
-    assert case.rows()[0]["status"] == "held"
-    w.say("Salvar no drive", sender=OTHER)
-    assert w.seen == []
-    w.say("Salvar no drive")
-    assert len(w.seen) == 1
     teardown(w)
 
 
@@ -598,20 +561,6 @@ def test_the_day_and_held_limits_hold_for_images_from_a_phone(case, monkeypatch)
 
 
 # --- privacy -------------------------------------------------------------------------------------------------------------------------------
-
-
-def test_the_name_of_a_file_and_the_save_line_are_not_in_the_conversation_the_mcp_mode_reads(case, monkeypatch):  # noqa: F811
-    w = setup(case, monkeypatch)
-    w.put("p1", JPEG)
-    w.put("d1", PNG)
-    w.send([w.file("p1", None, len(JPEG), "photo")], text="Salva no drive")
-    w.send([w.file("d1", "Passport scan.png", len(PNG), "image/png")])
-    w.say("Salvar no onedrive")
-    ctx = ops_core.context(case.path)
-    stored = json.dumps(ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500))
-    assert stored == "[]" and "Passport" not in stored and "photo-" not in stored
-    assert "Passport" not in " ".join(w.log)
-    teardown(w)
 
 
 def test_an_image_is_never_given_to_a_model_a_converter_or_the_sources_folder(case, monkeypatch):  # noqa: F811
@@ -777,18 +726,6 @@ def test_a_bare_save_line_with_one_account_opens_that_save(case, monkeypatch):  
     w.send([w.file("p1", None, len(JPEG), "photo")])
     w.say("salvar")
     assert [s[1]["account"] for s in w.seen] == ["google"]
-    teardown(w)
-
-
-def test_a_sender_without_files_write_gets_a_plain_refusal_for_every_way_to_ask_a_save(case, monkeypatch):  # noqa: F811
-    w = setup(case, monkeypatch, senders=[{"id": IDENT, "policy": "staff"}])
-    w.put("r1", PDF)
-    w.send([w.file("r1", "Q3 plan.pdf", len(PDF))])
-    w.say("Salvar no drive")
-    refusal = phrases.text("ATT_SAVE_OFF", {"language": "pt-BR"})
-    assert w.texts()[-1] == refusal and w.seen == []
-    for text in w.texts():
-        assert "/file-save" not in text and "error:" not in text
     teardown(w)
 
 

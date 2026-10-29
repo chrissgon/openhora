@@ -18,6 +18,9 @@ import standin_tree as st
 from test_calendar_write import (SEEDED, approve, effect_doc, fgw, install_item_refs, item_of, made_event, ops, ops_core, ops_steps, operations, phrases, rows, seed_google,  # noqa: F401
                                  snapshot_event, steps, world)
 from test_channel_grants import accept
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 cards = st.load("messaging_cards")
 ops_grants = st.load("ops_grants")

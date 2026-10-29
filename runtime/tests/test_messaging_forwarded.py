@@ -21,6 +21,9 @@ from test_calendar_write import world  # noqa: F401  (the calendar world `day` i
 from test_messaging_attach import make_world as attach_world
 from test_messaging_natural_writes import OWNER, conversation, day, forget  # noqa: F401  (the day fixture and its project)
 from test_service import WAIT
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -137,30 +140,6 @@ def test_a_line_whose_mark_is_false_or_absent_is_handled_as_it_always_was(day):
     day.say(OWNER, "/help", forwarded=False)
     day.say(OWNER, "/help")
     assert not any(forwarded_said(t) for t in sentences(day)) and len(sentences(day)) == 2 and sentences(day)[0] == sentences(day)[1]
-
-
-def test_a_forward_does_not_answer_or_drop_the_question_about_a_write_and_the_persons_own_line_still_does(day, monkeypatch):
-    day.say(OWNER, "marca quinta às 10h no google")
-    question = sentences(day)[-1]
-    assert "title of the event on Thu 22/10" in question and drafts.count() == 1
-    before = snapshot(day)
-    day.say(OWNER, "Dentista da Júlia", forwarded=True)
-    assert forwarded_said(sentences(day)[-1]) and snapshot(day) == before and drafts.count() == 1, "the question is still open and unanswered"
-    assert not any("discarded" in t for t in sentences(day))
-    day.say(OWNER, "Dentista da Júlia")
-    assert "Dentista da Júlia" in " ".join(sentences(day)[2:]) and drafts.count() == 0, "the person's own words answer it"
-
-
-def test_a_forward_does_not_answer_the_kind_question_or_confirm_a_reminder(day):
-    day.say(OWNER, "dentista quinta às 10h")
-    assert "a reminder here in the chat, or an event in your calendar?" in sentences(day)[-1].lower() and drafts.count() == 1
-    before = snapshot(day)
-    for line in ("lembrete aqui", "evento", "yes"):
-        day.say(OWNER, line, forwarded=True)
-        assert forwarded_said(sentences(day)[-1]) and snapshot(day) == before, line
-    assert not any(t.startswith("Reminder #") for t in sentences(day))
-    day.say(OWNER, "lembrete aqui")
-    assert any(t.startswith("Reminder #1") for t in sentences(day)), "the person's own answer still works"
 
 
 def test_a_forward_is_told_in_the_projects_language(day, monkeypatch):

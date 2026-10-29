@@ -285,17 +285,19 @@ def test_a_line_longer_than_a_form_is_a_request_not_a_form():
     assert natural.match("aprova o pedido 21 " + "e " * natural.LINE_WORDS) is None
 
 
-def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_tier_1_line():
-    assert natural.needs("quais arquivos voce tem?") == "sources"
-    assert natural.needs("pendencias") == "pending"
+def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_decision_said_in_words_and_no_other_line():
+    """S41-11: the one closed reading code keeps is a decision said in words (`natural.decision`, the D operations); a read, a notice or an act said in words is the interpreter's and needs `talk`."""
     assert natural.needs("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
-    for line in ("cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
+    assert natural.needs("rejeite a pergunta 25") == "pending" and natural.needs("approve request 7") == "pending"
+    for line in ("quais arquivos voce tem?", "pendencias", "cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
         assert natural.needs(line) is None, line
+    assert natural.decision("aprova o 12")["op"] == "approve" and natural.decision("cancela o pedido 8") is None and natural.decision("pendencias") is None, "match still knows the forms; `decision` keeps the D class"
 
 
 def test_private_and_the_confirmation_words_are_the_reminders_and_the_tables():
-    assert natural.private("me lembra amanha as 15h de buscar a encomenda") and natural.private("remind me tomorrow at 2pm to water the plants")
-    assert not natural.private("what files do you have?") and not natural.private("quais sao os meus lembretes?")
+    turn_gate = st.load("turn_gate")      # S41-11: `natural.private` is gone; the detector is the one of S41-9
+    assert turn_gate.private_line("me lembra amanha as 15h de buscar a encomenda") and turn_gate.private_line("remind me tomorrow at 2pm to water the plants")
+    assert not turn_gate.private_line("what files do you have?") and not turn_gate.private_line("quais sao os meus lembretes?")
     for yes in ("yes", "sim", "Sim.", "ok", "はい", "si", "oui", "да"):
         assert natural.confirm_kind(yes) == "yes", yes
     for no in ("no", "nao", "cancel", "cancela", "いいえ", "nein"):

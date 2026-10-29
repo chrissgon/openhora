@@ -422,6 +422,7 @@ IX_CANNOT_WRITE: I understood that you want to change something in your accounts
 IX_LONG_LINE: That message is too long for me to read here. Send it in shorter parts.
 IX_NONE: I did not see a request in that message.
 IX_OUTAGE: I could not understand that right now. Try again in a few minutes.
+IX_OUTAGE_BRAKE: I cannot read words right now. To do it now, type /pending.
 IX_PRIVATE_LINE: (a message)
 IX_WRITE_LANGUAGE: For now, ask for that in Portuguese or in English.
 KIND_ACCEPTANCE: acceptance

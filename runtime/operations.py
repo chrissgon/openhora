@@ -1135,6 +1135,9 @@ GROUPS = {
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
 }
+# S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
+# command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
+LINE_BRAKES = tuple(op for group in ("brakes", "retry", "routine-brakes") for op in GROUPS[group]["operations"])      # not `BRAKES` below: that is the page's own list (cancel, set-mode)
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
 # line to the planning agent and an answer is turned on explicitly.

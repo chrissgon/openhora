@@ -36,6 +36,9 @@ import natural_writes as nw  # noqa: E402
 import registry_build  # noqa: E402
 import registry_data  # noqa: E402
 import turn_gate  # noqa: E402
+from closed_heads import old_private, closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 FOLDER = REPO / "runtime" / "registry"
 CORPORA = {
@@ -190,7 +193,7 @@ def test_event_lookup_names_no_table_key_for_its_stop_words():
 # --- the private detector ---------------------------------------------------------------------------------------------------------------------------------
 
 def superset_failures(lines) -> list:
-    return [(i, x) for i, x in lines if natural.private(x) and not turn_gate.private_line(x)]
+    return [(i, x) for i, x in lines if old_private(x) and not turn_gate.private_line(x)]
 
 
 @pytest.mark.parametrize("name", sorted(CORPORA))
@@ -200,12 +203,12 @@ def test_private_words_flag_a_superset(name):
     assert len(lines) >= 40
     assert superset_failures(lines) == []
     if name in NO_NEW:
-        assert [(i, x) for i, x in lines if turn_gate.private_line(x) and not natural.private(x)] == []
+        assert [(i, x) for i, x in lines if turn_gate.private_line(x) and not old_private(x)] == []
 
 
 def test_the_corpora_have_private_lines_in_them():
     """Not vacuous: the oracle flags many lines of the corpora the superset is asked over."""
-    flagged = {name: sum(1 for _, x in corpus_lines(name) if natural.private(x)) for name in CORPORA}
+    flagged = {name: sum(1 for _, x in corpus_lines(name) if old_private(x)) for name in CORPORA}
     assert flagged["natural_corpus"] > 100 and flagged["natural_writes_corpus"] > 100 and flagged["natural_writes_mail_corpus"] > 100
     assert flagged["interpreter_ix_test_v1"] > 20 and flagged["entry_corpus"] > 100
 
@@ -300,7 +303,7 @@ ARABIC = dict(zip("0123456789", "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u066
 
 
 def oracle_flagged_corpus_lines() -> list:
-    return [x for name in ("natural_writes_corpus", "natural_writes_mail_corpus", "natural_corpus", "interpreter_ix_test_v1", "entry_corpus") for _, x in corpus_lines(name) if natural.private(x)]
+    return [x for name in ("natural_writes_corpus", "natural_writes_mail_corpus", "natural_corpus", "interpreter_ix_test_v1", "entry_corpus") for _, x in corpus_lines(name) if old_private(x)]
 
 
 def surface_mutated(rng: random.Random, n: int, source: list) -> list:
@@ -340,7 +343,7 @@ def test_private_words_flag_a_superset_of_surface_mutated_lines(seed):
     """The seeded differential fuzz of the surface: every line the oracle flags stays flagged. Small by default, WB_FULL_FUZZ=1 for the large run; a shape change cannot reopen a gap unseen."""
     rng = random.Random(seed)
     lines = surface_mutated(rng, 60000 if FULL else 3000, oracle_flagged_corpus_lines())
-    flagged = [x for x in lines if natural.private(x)]
+    flagged = [x for x in lines if old_private(x)]
     assert len(flagged) > (20000 if FULL else 1000)
     assert [x for x in flagged if not turn_gate.private_line(x)][:10] == []
 
@@ -352,7 +355,7 @@ def test_private_words_flag_a_superset_of_generated_and_mutated_lines(seed):
     rng = random.Random(seed)
     lines, pools, times = generated(rng, 80000 if FULL else 4000)
     lines += mutated(rng, 80000 if FULL else 4000, pools, times)
-    flagged = [x for x in lines if natural.private(x)]
+    flagged = [x for x in lines if old_private(x)]
     assert len(flagged) > (30000 if FULL else 1500)
     assert [x for x in flagged if not turn_gate.private_line(x)] == []
 
@@ -360,7 +363,7 @@ def test_private_words_flag_a_superset_of_generated_and_mutated_lines(seed):
 def test_a_typed_command_and_a_blank_or_odd_line_are_not_private():
     for line in ("/remind 15:00 call Maria", "/reminder", "   ", "", None, 5, ["remind me"]):
         assert turn_gate.private_line(line) is False
-        assert natural.private(line) is False
+        assert old_private(line) is False
 
 
 def test_private_lines_in_both_languages():
@@ -371,7 +374,7 @@ def test_private_lines_in_both_languages():
              "list my reminders", "quais lembretes eu tenho", "cancel the deploy", "send me the file", "oi tudo bem"]
     for line in private:
         assert turn_gate.private_line(line), line
-        assert natural.private(line), line
+        assert old_private(line), line
     for line in plain:
         assert not turn_gate.private_line(line), line
 
@@ -384,7 +387,7 @@ def test_the_gate_reads_the_data_and_not_the_tables(data_copy):
     data["languages"]["en"]["lead"] = sorted(data["languages"]["en"]["lead"] + ["zzzremind me"])
     write(data_copy, "private_words", data)
     assert turn_gate.private_line(line)
-    assert not natural.private(line)
+    assert not old_private(line)
     source = (REPO / "runtime/turn_gate.py").read_text(encoding="utf-8")
     assert "natural.private" not in source.replace("`natural.private`", "")
 
@@ -490,7 +493,7 @@ GAPS = {
 @pytest.mark.parametrize("gap", sorted(GAPS))
 def test_the_gaps_of_the_review_are_closed(gap):
     for line in GAPS[gap]:
-        assert natural.private(line), f"the oracle no longer flags {line!r}: the probe is stale"
+        assert old_private(line), f"the oracle no longer flags {line!r}: the probe is stale"
         assert turn_gate.private_line(line), line
 
 

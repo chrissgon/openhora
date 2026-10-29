@@ -37,6 +37,7 @@ natural = st.load("natural")
 ops_instructions = st.load("ops_instructions")
 real_interpreter = ops_turn.ROWS["interpreter"]
 real_talk_refusal = ops_turn.ROWS["talk-refusal"]
+real_talk_refusal_after = ops_turn.ROWS["talk-refusal-after-interpreter"]
 
 RUNTIME = Path(__file__).resolve().parents[1]
 REPO = RUNTIME.parent
@@ -54,14 +55,14 @@ def test_every_row_of_the_stage_has_code_and_every_code_a_row_in_the_kits_order(
     assert set(ops_turn.ROWS) == set(OPS), "every row of the stage has its code, and no code is without a row"
     assert OPS == ek.OPS_NAMES, "the names are the ones the entry kit's trace uses, in the same order"
     assert OPS == tuple(n for n in ek.CLAIMER_NAMES if n in OPS)
-    assert len(OPS) == 15 and OPS[-1] == FINAL, "the last row of the stage is the one that always takes the line"
+    assert len(OPS) == 17 and OPS[-1] == FINAL, "the last row of the stage is the one that always takes the line"
     assert OPS[0] == ops_turn.EARLY == "confirmed-plan", "the OK of a plan is the first row, and runs out of the dispatch of the turn"
     assert set(ops_turn.TAKE_ROWS) <= set(OPS) and ops_turn.TAKE_ROWS == tuple(n for n in OPS if n in ops_turn.TAKE_ROWS), "the five rows that were `ops_natural.take`, in the table's order"
 
 
 def test_the_channels_of_the_rows_are_the_shells_the_code_reads():
     expected = {"confirmed-plan": {"messaging"}, "plan-bare-word": {"messaging"}, "delete-file": {"messaging"}, "event-list-number": {"messaging"}, "file-list-number": {"messaging"},
-                "interpreter": {"messaging"}, "write-form-ops": set(turn_order.SHELLS) - {"mcp"}}
+                "interpreter": {"messaging"}, "talk-refusal-after-interpreter": {"messaging"}, "route-pass": {"messaging"}, "typed-private-line": {"messaging"}}
     for name in OPS:
         assert set(turn_order.channels(name)) == expected.get(name, set(turn_order.SHELLS)), name
     assert set(turn_order.SHELLS) == {"messaging", "page", "terminal", "mcp", "chat", "queue"}
@@ -212,7 +213,7 @@ def test_dispatch_rows_runs_the_named_rows_in_the_tables_order_and_answers_none_
     assert ops_turn.dispatch_rows(("tier-1-form", "draft-answer"), "p", {}, "line", "messaging") is None
     assert called == ["draft-answer", "tier-1-form"], "the table's order, not the order of the names given"
     called.clear()
-    assert ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, "p", {}, "line", "page") is None and called == ["draft-answer", "write-form-ops", "tier-1-form"], "the rows of the messaging shell are skipped on the page"
+    assert ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, "p", {}, "line", "page") is None and called == ["draft-answer", "tier-1-form"], "the rows of the messaging shell are skipped on the page"
     with pytest.raises(ValueError):
         ops_turn.dispatch_rows(("no-such-row",), "p", {}, "line", "page")
 
@@ -325,7 +326,7 @@ def missing_retired(row: str, retired) -> list:
 def test_l63_lists_the_order_of_the_table(path):
     """L63(3) says the order of the claimers; this is the test that reads it against the table. Every stage, in the order of `ORDER`."""
     assert listed_names(l63_row(path)) == order_names()
-    assert len(order_names()) == 25 + 3 + 15, "S41-8: the stage `bridge` is 25 rows, the seven claimers of the frame being the one row `frame`"
+    assert len(order_names()) == 23 + 4 + 17, "S41-8: the stage `bridge` is 25 rows, the seven claimers of the frame being the one row `frame`; S41-11 retired `write-form` and `say-natural` (23) and `write-form-ops`, and added `talk-refusal-after-interpreter` (the stage `ops` stays 15)"
 
 
 @pytest.mark.parametrize("path", [CONTRACT, MIRROR], ids=["contract", "mirror"])
@@ -403,13 +404,13 @@ def swapped(first, second):
     return hook
 
 
-SWAPS = [("draft-answer", "tier-1-form"), ("router-question", "state-question"), ("tier-1-form", "interpreter"), ("talk-refusal", "interpreter")]
+SWAPS = [("draft-answer", "tier-1-form"), ("router-question", "state-question"), ("tier-1-form", "interpreter"), ("interpreter", "talk-refusal-after-interpreter")]
 
 
 @pytest.mark.parametrize("first, second", SWAPS)
 def test_the_order_matters_two_rows_that_swap_change_a_scenario(first, second, tmp_path):
     """L63(3): a reminder question or a write question is answered, or dropped, before a form is read; the router's question is bound before the state question is looked at; the forms of code come
-    before the interpreter; the refusal of a sender who may not talk comes before the interpreter (the scenarios of `reader_interpret`: `interpret` and a read group, no `talk`). Swapped, a line the golden
+    before the interpreter; the refusal of a sender the interpreter reads and who may not talk comes after the interpreter (S41-11, the scenarios of `reader_interpret`: `interpret` and a read group, no `talk`). Swapped, a line the golden
     has taken by one of the two is taken by the other, and the outcome differs from the golden's."""
     _, recorded = rp.golden()
     scenarios = [s for s in rp.corpus() if {first, second} & set(recorded[s["id"]]["trace"])]
@@ -418,12 +419,13 @@ def test_the_order_matters_two_rows_that_swap_change_a_scenario(first, second, t
 
 
 def test_the_corpus_holds_a_sender_with_interpret_and_no_talk():
-    assert [s["id"] for s in rp.corpus() if s["sender"] == "reader_interpret"], "the scenarios the swap of `talk-refusal` and `interpreter` is seen on"
+    assert [s["id"] for s in rp.corpus() if s["sender"] == "reader_interpret"], "the scenarios the swap of `interpreter` and `talk-refusal-after-interpreter` is seen on"
 
 
-def test_the_order_matters_the_talk_refusal_comes_before_the_interpreter_for_a_sender_who_holds_interpret_and_may_not_talk(monkeypatch):
-    """Lines of our own (no sender of the entry kit holds `interpret` and a read group without `talk`): in the table's order the refusal answers and no model reads the line; with the two rows
-    swapped the interpreter, a daily-route call, reads the line of a sender who may not talk. (OPEN-41-15, decided: S41-11 moves the refusal after the interpreter, for such a sender only.)"""
+def test_the_order_matters_the_talk_refusal_comes_after_the_interpreter_for_a_sender_who_holds_interpret_and_may_not_talk(monkeypatch):
+    """Lines of our own (no sender of the entry kit holds `interpret` and a read group without `talk` but `reader_interpret`): in the table's order the interpreter reads the line of a sender the
+    interpreter reads (`extras["deferred"]`), a read it chooses asks "Posso?" as any read does, and a `route` decision meets the refusal: no router. A sender the interpreter does not read is refused
+    first, and no model reads the line. With the two rows swapped back, the interpreter never reads the line of a sender who may not talk. (OPEN-41-15, decided 2026-10-25 and built by S41-11.)"""
     reached = []
     line = "quais os meus eventos amanha, por favor"
     monkeypatch.setattr(ops_interpret, "turn", lambda project, ctx, said, sender, extras: reached.append(said) or None)
@@ -431,13 +433,17 @@ def test_the_order_matters_the_talk_refusal_comes_before_the_interpreter_for_a_s
     monkeypatch.setattr(ops_turn.phone_refusal, "said", lambda *a, **k: "refused")
     monkeypatch.setattr(ops_turn.operations, "refusal", lambda *a, **k: "refused")
     stub_rows(monkeypatch, {FINAL: ("planner", None, None, False, None, None)})
-    monkeypatch.setitem(ops_turn.ROWS, "talk-refusal", real_talk_refusal)
-    monkeypatch.setitem(ops_turn.ROWS, "interpreter", real_interpreter)
+    for name, real in (("talk-refusal", real_talk_refusal), ("talk-refusal-after-interpreter", real_talk_refusal_after), ("interpreter", real_interpreter)):
+        monkeypatch.setitem(ops_turn.ROWS, name, real)
     out = ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {"deferred": True})
-    assert out[0] == "refused" and reached == [], "the table's order: refused, and no model reads the line"
-    monkeypatch.setattr(turn_order, "names", lambda stage, real=turn_order.names: tuple("interpreter" if n == "talk-refusal" else "talk-refusal" if n == "interpreter" else n for n in OPS) if stage == "ops" else real(stage))
-    ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {"deferred": True})
-    assert reached == [line], "swapped, the interpreter reads the line of a sender who may not talk"
+    assert out[0] == "refused" and reached == [line], "the interpreter read the line, said route (None), and the refusal after it answered: no router"
+    reached.clear()
+    out = ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {})
+    assert out[0] == "refused" and reached == [], "a sender the interpreter does not read is refused first: no model reads the line"
+    monkeypatch.setattr(turn_order, "names", lambda stage, real=turn_order.names: tuple("talk-refusal-after-interpreter" if n == "interpreter" else "interpreter" if n == "talk-refusal-after-interpreter" else n for n in OPS) if stage == "ops" else real(stage))
+    reached.clear()
+    out = ops_turn.dispatch("p", {"cfg": {"channels": {}}}, line, "messaging", 1, "telegram:1", {"deferred": True})
+    assert out[0] == "refused" and reached == [], "swapped, the refusal comes first and the interpreter never reads the line of a sender who may not talk"
 
 
 # --- page and terminal -------------------------------------------------------------------------------------------------------------------------------
@@ -489,7 +495,7 @@ def test_the_interpreter_row_stays_out_of_reach_of_a_page_line_even_when_enabled
 
 # The two rows that the bridge's own rows reach without a dispatch of the turn: the kind `write-draft` of the row `frame` and the row `write-form` call `ops.natural_write`, whose family functions `ops_natural_writes.answer` and
 # `open_line` are what the kit's wrappers name `draft-answer` and `write-form-ops`. The table's trace is empty for those lines (no turn was dispatched) and the kit's names one of the two.
-FAMILY_CALLS = {"draft-answer", "write-form-ops"}
+FAMILY_CALLS = {"draft-answer"}
 
 
 def ops_trace_hook(got, lock):

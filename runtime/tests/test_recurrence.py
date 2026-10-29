@@ -23,6 +23,9 @@ import pytest
 import standin_tree as st
 from test_calendar_write import approve, rows, world  # noqa: F401  (the calendar world)
 from test_series_cancel import EVENTS, GRAPH_EVENTS, OWNER, ZONE, clock_and_snapshots, configure, nothing_started, op_text, text_of  # noqa: F401
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 REPO = Path(__file__).resolve().parents[2]
 ops = st.load("ops")

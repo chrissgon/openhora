@@ -16,6 +16,9 @@ import pytest
 import standin_tree as st
 from plan_bridge_kit import OWNER_ID, OWNER_KEY, brig, bridge, ops, phrases, rig, wait_for, world  # noqa: F401
 from test_service import WAIT  # noqa: F401  (named here as test_messaging_plan_confirm.py does: the selector follows the importers of a changed test file, and the kit between them hides this file)
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 QUESTIONS = ["oi, tudo bem?", "tudo bem?", "beleza?", "oi tudo bem? \U0001f642", "tudo bem\uff1f"]
 YES_WORDS = ["tudo bem", "beleza", "ok, beleza", "oi, tudo bem", "tudo bem? sim"]

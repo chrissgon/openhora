@@ -37,6 +37,7 @@ import standin_tree as st
 import test_entry_replay as rp
 import test_turn_order as to
 
+
 messaging_turn = st.load("messaging_turn")
 turn_order = st.load("turn_order")
 messaging_ledger = st.load("messaging_ledger")
@@ -243,7 +244,7 @@ GREETINGS_THAT_ARE_YES = YES_GREETINGS + GREETING_QUESTIONS
 
 def test_a_greeting_that_is_a_yes_oks_a_plan_that_is_last_and_a_greeting_question_never_does(tmp_path):
     """With the plan's question as the last message the yes greetings are its OK (the confirmed call runs: a read of the items) and a greeting in question form is the greeting (the maintainer's decision
-    of 2026-10-26, L64H): trace `say`, `say-queue`, `greeting`, no read, each equal to its golden row, and field by field the outcome of its `plan_not_last` twin (the same id suffix). With another message
+    of 2026-10-26, L64H): trace `say`, `decide-without-slot` (S41-11: the sender is read by the interpreter), `greeting`, no read, each equal to its golden row, and field by field the outcome of its `plan_not_last` twin (the same id suffix). With another message
     after the question all five are as recorded."""
     _, recorded = rp.golden()
     last = {s["text"]: s for s in rp.corpus() if s["id"].startswith("opscomp.plan_last_and_a_greeting_that_is_a_yes.") and s["channel"] == "messaging" and s["text"] in GREETINGS_THAT_ARE_YES}
@@ -255,7 +256,7 @@ def test_a_greeting_that_is_a_yes_oks_a_plan_that_is_last_and_a_greeting_questio
         assert not rp.differences(recorded[last[text]["id"]], found)
     for text in GREETING_QUESTIONS:
         found = rp.replay(last[text], tmp_path)
-        assert found["trace"] == ["say", "say-queue", "greeting"] and "read:items" not in [call[0] for call in found["ops_calls"]], text
+        assert found["trace"] == ["say", "decide-without-slot", "greeting"] and "read:items" not in [call[0] for call in found["ops_calls"]], text
         assert not rp.differences(recorded[last[text]["id"]], found)
         twin = rp.replay(not_last[text], tmp_path)
         assert not rp.differences(twin, found), f"{text}: the same outcome as the plan that is not last"

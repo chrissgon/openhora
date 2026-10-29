@@ -11,6 +11,7 @@ import re
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 
 natural = st.load("natural")
 nw = st.load("natural_writes")

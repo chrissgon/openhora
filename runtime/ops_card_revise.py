@@ -99,17 +99,19 @@ def _ops():
 
 def _recognised(ctx: dict, line: str, sender) -> bool:
     """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card."""
-    natural_writes = importlib.import_module("natural_writes")
     ops_natural = importlib.import_module("ops_natural")
     ops_say = importlib.import_module("ops_say")
-    return (card_words.card_word(line) is not None or natural_writes.candidate(line, claim=False) is not None or ops_natural.recognises(ctx, line, CHANNEL, sender)
+    natural = importlib.import_module("natural")
+    # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
+    # the card that waits, and `ops_natural.recognises` now holds those private words. The reminders' own claim (`natural.candidate`: a reminder, the loose scheduling verb) is what is left to ask here;
+    # S41-11's second part deletes it and this line then reads the interpreter's own word for a new request.
+    return (card_words.card_word(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or natural.candidate(line) is not None
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
 
 
 def _is_event_change(line: str) -> bool:
     """Whether code reads the line as the write form of a change of an event ("muda para as 10h"): for an event card that form is the change itself."""
-    found = importlib.import_module("natural_writes").candidate(line)
-    return bool(found) and found.get("op") == "event-change"
+    return bool(importlib.import_module("natural_writes").read(line, None, op="event-change"))      # S41-11: the family reads it with the operation fixed (the claimer that said so is gone)
 
 
 def entry_of(ctx: dict, channel, sender, revise: bool):

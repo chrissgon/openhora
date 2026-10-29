@@ -16,7 +16,6 @@ Usage: python3 scripts/interpreter_corpus.py <verb> [options]   (each verb takes
   sample       a Markdown table of N items of one language for the maintainer's review
   hashes       the sha256 of every frozen file, the catalog and the three interface files
   widen-golds  the span golds of a corpus widened by rule W1 (SPEC-BLITE-5A), as a new corpus on stdout
-  tier1-cover  the lines today's code claimers take, as items (the lines no corpus holds) and a gap list (S41-11; one-time, deleted with the claimers)
   check        every item of the files against the item format and the catalog
 
 Items are one canonical JSON object per line, sorted by id (canonical = json.dumps(ensure_ascii=False,
@@ -489,15 +488,6 @@ def cmd_hashes(args):
     return 1 if missing else 0
 
 
-def cmd_tier1_cover(args):
-    """The tier-1 cover set (S41-11): the builder is scripts/interpreter_corpus_tier1.py, loaded here only when the verb runs (it reads runtime/natural*.py by path)."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("interpreter_corpus_tier1", Path(__file__).resolve().parent / "interpreter_corpus_tier1.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.run(args.out, args.gaps, root=ROOT, catalog=args.catalog, relabelled=args.relabelled, check=args.check)
-
-
 def cmd_check(args):
     cat = load_catalog(args.catalog)
     items = read_many(args.in_)
@@ -706,14 +696,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--in", dest="in_", required=True, help="the corpus file (for example evals/interpreter/dev-long-v1.jsonl)")
     catalog(p)
     p.set_defaults(run=cmd_widen_golds)
-
-    p = verb("tier1-cover", "The items of the lines today's claimers take that no corpus holds, and the gap list (S41-11); --check compares and writes nothing.")
-    p.add_argument("--out", default=str(FOLDER / "tier1-cover-v1.jsonl"))
-    p.add_argument("--gaps", default=str(FOLDER / "tier1-cover-gaps.json"))
-    p.add_argument("--relabelled", default=str(FOLDER / "dev-relabelled.jsonl"), help="the corpus whose lines are covered already")
-    p.add_argument("--check", action="store_true", help="write nothing; exit 1 when a committed file differs from what the claimers give")
-    catalog(p)
-    p.set_defaults(run=cmd_tier1_cover)
 
     p = verb("check", "Every item against the item format and the catalog: `<id> <problem>` per problem, exit 1 when any.")
     p.add_argument("--in", dest="in_", required=True, nargs="+")

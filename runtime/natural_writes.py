@@ -8,7 +8,7 @@ passed in, nothing is stored, logged or sent, and no project is read. A line nev
 operation's own function (runtime/ops_natural_writes.py), and the card is the approval (limit L61, contracts/runtime.md).
 
 The words are not here: they are the language tables (`runtime/natural_lang_<tag>.py`, the key `requests.writes`, lists of PHRASES in plain words, never a regular
-expression), and the table of EVERY language is tried on EVERY line. A write line is a CLOSED HEAD (a verb and the object it acts on, at the start of the line, after
+expression), and the table of EVERY language is tried on EVERY line. A write line (read with its operation fixed: S41-11) is a CLOSED HEAD (a verb and the object it acts on, at the start of the line, after
 polite words) followed by slots whose markers are closed word lists; an open question in the line is never a marker. A text slot (a title, a subject, a body, a content)
 is the person's own words between two markers, cut of the connectives at its edge and never rewritten.
 
@@ -26,7 +26,7 @@ The family interface:
         person's own words (for the provenance check); `ranges` {slot: (start, end)} of those spans in the folded line (the reminder-trigger test reads them); `need`
         the required slots the line did not give, in the order they are asked; `engine` the draft of the time engine (runtime/natural.py, `how` "write") when the time
         is not one settled reading, else None; `doubt` true when the engine understood a time but is not sure of it. `now` may be None (the clock-free test that
-        `candidate` makes): no time is worked out then. None when the line is not a form of the family: the line goes on as before
+        a test makes): no time is worked out then. None when the line is not a form of the family: the line goes on as before
   ops_natural_<family>.resolve(ctx, op, slots, channel, sender, said) -> one of
         {"args": {...}}                                          every slot is final: the arguments of the operation's own function (`account` included)
         {"ask": {"need", "options", "sentence_key", "fields"}}   one question about the first thing still open, in the fixed order of runtime/ops_natural_writes.py
@@ -41,10 +41,8 @@ The family interface:
 The shape of a draft, the order of the questions and the answers to them are runtime/ops_natural_writes.py's. The helpers below (`Line`, `numbers`, `service`,
 `reminder_outside`) are for the families.
 
-  candidate(line, languages=None)   what the line is, with no clock: {"family", "op"} | None; the order of recognition is the families' heads in the order of `FAMILIES`
-                                    (the mail, the files, the calendar), then the calendar event of runtime/natural.py `candidate` (how "trigger"), then nothing
-  read(line, now=None, languages=None, op=None)   the family's reading plus {"family"}; with `op` the family of that operation reads the line with the operation fixed
-                                    (the seed of a question answered "event", and the router's hint)
+  read(line, now=None, languages=None, op=None)   the family's reading plus {"family"}, with the operation FIXED (the interpreter's decision, the seed of a question answered "event", a number
+                                    said after a list, the router's hint). S41-11: a line is never read without an operation (`op=None` is None) and there is no `candidate`: no closed head claims a line
   check_writes(table)               ValueError(sentence) when `requests.writes` of a language table is not of the shape of SECTIONS
   problems(op, args, said, accounts, offered, now)   a delegate to `turn_gate.value_problems` (S41-7): why the arguments of a write about to be opened are not all from the person's lines (the fuzz's oracle)
 
@@ -434,40 +432,20 @@ def _claim(text: str) -> bool:
 
 
 def read(line, now=None, languages=None, op=None, *, claim=True):
-    """The reading of a write line (see the module's text), or None when it is not one. With `op` the family of that operation reads the line with the operation fixed. With `claim` (the
-    default) a line that holds a repetition phrase is no event form when the interpreter is on for the sender (`natural.repeat_goes_on`, CB-9); a site that only recognises a request of its own
-    passes `claim=False`."""
+    """The reading of a write line with the operation FIXED (see the module's text), or None when the family of that operation does not read it. S41-11: there is no reading without an operation
+    any more: no closed head claims a line (a write said in words is read by the interpreter, which names the operation: L63); `op=None` is None. `claim` is kept for the callers that pass it."""
+    if op is None:
+        return None
     tables = _tables(languages)
     text = line if isinstance(line, str) else ""
     if not _claim(text):
         return None
     shaped = Line(text)
-    if op is not None:
-        name = OP_FAMILY.get(op)
-        if name not in FAMILIES:
-            return None
-        got = family_module(name).read(text, tables, now, op=op) if _takes_op(name) else family_module(name).read(text, tables, now)
-        return _finish(got, name, shaped, tables, op)
-    found = _read_closed(text, tables, now, shaped)
-    if found is not None and found["op"] == "event-create" and claim and natural.repeat_goes_on(text):
-        return None      # CB-9: since catalog version 2 a line that holds a repetition phrase goes on to the interpreter: an event form does not claim it, so NW_RECURRING_EVENT never answers it
-    return found
-
-
-def _read_closed(text, tables, now, shaped):
-    """The closed forms of the families, in order, with no operation fixed."""
-    for name in FAMILIES:
-        module = family_module(name)
-        if module.HEADS(tables) and shaped.lead(module.HEADS(tables), tables) is None:
-            continue
-        got = module.read(text, tables, now)
-        if got:
-            return _finish(got, name, shaped, tables, None)
-    named = natural.candidate(text, tables)
-    if named and named["op"] == "calendar-event-create" and named["how"] == "trigger" and "calendar" in FAMILIES:
-        got = family_module("calendar").read(text, tables, now, op="event-create")
-        return _finish(got, "calendar", shaped, tables, None)
-    return None
+    name = OP_FAMILY.get(op)
+    if name not in FAMILIES:
+        return None
+    got = family_module(name).read(text, tables, now, op=op) if _takes_op(name) else family_module(name).read(text, tables, now)
+    return _finish(got, name, shaped, tables, op)
 
 
 def _takes_op(name: str) -> bool:
@@ -500,12 +478,6 @@ def file_line(text, languages=None):
         if files.whole(text, tables, key):
             return word
     return None
-
-
-def candidate(line, languages=None, *, claim=True):
-    """What the line is, with no clock: {"family", "op"} | None. The same test as `read`, without the time engine. `claim=False`: read without the repeat scope (a recogniser, CB-9)."""
-    got = read(line, None, languages, claim=claim)
-    return {"family": got["family"], "op": got["op"]} if got else None
 
 
 if __name__ == "__main__":

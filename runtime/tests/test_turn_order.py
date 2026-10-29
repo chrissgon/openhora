@@ -52,7 +52,7 @@ def test_the_table_is_a_tuple_of_rows_with_unique_names_and_every_row_has_code_a
     for stage in turn_order.STAGES:
         found = turn_order.names(stage)
         assert isinstance(found, tuple) and found and found[-1] == FINAL[stage], f"the last row of {stage} is the one that always takes the line"
-    assert {row["name"] for row in turn_order.RETIRED} == {"s20-verb-lists"} | set(FRAME_TRACE), "one claimer left before the table existed (S41-3), the seven of the frame left in S41-8; S41-11 adds its own, each with its replacement"
+    assert {row["name"] for row in turn_order.RETIRED} == {"s20-verb-lists", "write-form", "write-form-ops", "say-natural"} | set(FRAME_TRACE), "one claimer left before the table existed (S41-3), the seven of the frame left in S41-8; S41-11 adds its own, each with its replacement"
 
 
 def read_as_claimers(names) -> tuple:
@@ -64,7 +64,7 @@ def test_the_bridge_names_are_the_ones_of_the_entry_kit_in_the_same_order():
     assert read_as_claimers(turn_order.names("bridge")) == ek.BRIDGE_NAMES
     assert turn_order.names("bridge-say") == ek.BRIDGE_SAY_NAMES
     assert read_as_claimers(turn_order.names("bridge")) + turn_order.names("bridge-say") == tuple(n for n in ek.CLAIMER_NAMES if n in ek.BRIDGE_NAMES + ek.BRIDGE_SAY_NAMES)
-    assert len(turn_order.names("bridge")) == 25 and len(turn_order.names("bridge-say")) == 3, "31 rows before S41-8, the seven of the frame replaced by one"
+    assert len(turn_order.names("bridge")) == 23 and len(turn_order.names("bridge-say")) == 4, "31 rows before S41-8, the seven of the frame replaced by one, and S41-11 took `write-form` and `say-natural` out"
     assert turn_order.names("bridge").count(FRAME_ROW) == 1 and len(FRAME_TRACE) == 7
 
 
@@ -254,7 +254,7 @@ def lines_of(name, limit=60) -> list:
 
 # A row whose effect is the effect of a later row: the original chain had two branches that both call `say` with the line's text (`elif kind == "natural"` ... `else`), so with the row disabled
 # the later one does the same and no outcome field differs: the corpus can see that the row took the line only in the table's own trace (the test below).
-SAME_EFFECT_AS_A_LATER_ROW = {"say-natural": "say"}
+SAME_EFFECT_AS_A_LATER_ROW = {}      # S41-11 retired `say-natural`, the one row of this kind: its work is the row `say`'s
 
 
 @pytest.mark.parametrize("name", [n for n in turn_order.names("bridge") + turn_order.names("bridge-say") if n not in FINAL.values() and n not in SAME_EFFECT_AS_A_LATER_ROW and n != FRAME_ROW])
@@ -271,27 +271,6 @@ def test_the_row_frame_is_load_bearing_and_each_of_its_kinds_is_too(tmp_path):
         scenarios = lines_of(claimer, 8)
         assert scenarios, f"the corpus holds lines {claimer} takes"
         assert changed(disabling(FRAME_ROW), scenarios, tmp_path), f"no scenario of {claimer} needs the row {FRAME_ROW}"
-
-
-@pytest.mark.parametrize("name, later", sorted(SAME_EFFECT_AS_A_LATER_ROW.items()))
-def test_a_row_with_the_effect_of_a_later_row_changes_the_trace_of_the_table_only(name, later, tmp_path):
-    """`say-natural` and `say` call `Bridge.say` with the same text: disabled, the later row takes the line and the outcome is the golden's; the table's trace names the later row (and the kit, which
-    names a claimer from the kind of the line, still says `say-natural`: it is not a trace of the table). If a scenario's outcome ever differs, the two have stopped being the same and this test says so."""
-    _, recorded = rp.golden()
-    scenarios = lines_of(name, 6)
-    assert scenarios, f"the corpus holds lines the row {name} takes"
-    taken = []
-    for scenario in scenarios:
-        got = []
-        mine = threading.current_thread()
-
-        def hook(mp, got=got, mine=mine):
-            mp.setitem(messaging_turn.ROWS, name, lambda b, t: False)
-            mp.setattr(messaging_turn, "TRACE", lambda n, t: got.append(n) if threading.current_thread() is mine else None)
-        found = rp.replay(scenario, tmp_path, hook)
-        assert not rp.differences(recorded[scenario["id"]], found), f"{scenario['id']}: {name} and {later} no longer have the same effect"
-        taken.append(next(n for n in got if n in turn_order.names("bridge")))
-    assert set(taken) == {later}, f"with {name} disabled the line is taken by {later}"
 
 
 @pytest.mark.parametrize("stage", ["bridge", "bridge-say"])

@@ -159,11 +159,34 @@ class Reminders:
             bridge.reply(chat, sentence, project)
         self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
 
+    def shared(self, chat: str):
+        """The question the interpreter's carry-out left for this chat in the store of drafts (S41-11), or None. Its owner is `remind`; the bridge holds no copy."""
+        return drafts.get("messaging", self.bridge.key(chat), "remind")
+
+    def ask_yes_shared(self, project: dict, chat: str, sentence: str) -> bool:
+        """Send the question of the shared draft with the one-tap Yes button and bind the message to it (review C2-d). False when the platform has no buttons or the send failed: the plain question goes."""
+        bridge = self.bridge
+        draft = self.shared(chat)
+        if draft is None or draft.get("need") not in ("confirm", "forget"):
+            return False
+        bridge.last_message.pop(chat, None)
+        if not bridge.ask_yes(project, chat, sentence):
+            return False
+        draft["message_id"] = bridge.last_message.get(chat)
+        return True
+
     def tapped(self, project: dict, chat: str, card: dict) -> None:
         """A tap on the "Yes" button of a question about a reminder: the same as the typed "yes", for the question the button belongs to. A button of a question that is
         no longer the open one (answered, replaced, expired, lost on a restart) is told so."""
         bridge = self.bridge
         draft = self.drafts.get(chat)
+        if draft is None and (kept := self.shared(chat)) is not None:      # the question is the interpreter's: a tap says "yes" as the typed word does, through the line
+            asked, pressed = str(kept.get("message_id") or ""), str(card.get("message_id") or "")
+            if not asked or not pressed or asked != pressed:
+                bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)
+                return
+            bridge.handle({"update_id": 0, "sender": chat, "chat": chat, "private": True, "text": "yes", "action": None, "action_ref": None, "reply_to": None})
+            return
         asked, pressed = str(draft.get("message_id") or "") if draft else "", str(card.get("message_id") or "")
         if draft is None or draft["project"] != project["id"] or not asked or not pressed or asked != pressed:          # a button is the answer to ITS question, and a question with no id cannot be told from another
             bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)

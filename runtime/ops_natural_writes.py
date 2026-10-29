@@ -310,7 +310,7 @@ def advance(project: str, ctx: dict, state: dict, channel, sender, extras: dict)
     if state.get("recurring"):
         drafts.drop(*slot)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
-        return _t(ctx, "NW_RECURRING_EVENT")
+        return _t(ctx, "RECUR_NOT_READ")      # S41-11 (A11-6): "an event that repeats is not available yet" is false since CB-7; the one sentence for a repetition code cannot read
     if state["op"] == "event-create" and not state.get("seeded") and any(recurrence.mentions(line) for line in state["said"]):      # CB-7: the closed forms read "marca academia semanal amanha as 7h" as one event; a repetition phrase that no seed carried (the interpreter's `_repeat` seeds the only one code reads) opens no event card
         drafts.drop(*slot)
         extras["stored"] = _t(ctx, "NW_PRIVATE_REPLY")
@@ -448,7 +448,7 @@ def _read(ctx: dict, said: str, seed, hint):
             got["origins"] = _origins_of(seed, own)
             return got
         return nw.read(said, now, op=op)
-    return nw.read(said, now, op=hint)
+    return nw.read(said, now, op=hint)      # S41-11: `nw.read` reads nothing without an operation (no closed head claims a line any more): a decision of the interpreter, a number said after a list, a seed
 
 
 def open_line(project: str, ctx: dict, said: str, channel, sender, extras: dict, *, seed=None, hint=None):
@@ -488,10 +488,9 @@ def _classify(ctx: dict, state: dict, said: str):
         return None
     if natural.confirm_kind(said) == "no":
         return {"kind": "cancel"}
-    named = natural.candidate(said)
-    if nw.candidate(said, claim=False) is not None or natural.match(said) is not None or (named is not None and named["how"] == "trigger"):
-        return None
     need, tables, now = state["need"], natural._tables(None), _now()
+    if turn_gate.lead_kind(said) is not None or natural.match(said) is not None or _starts_with_head(said, tables):      # S41-11: a line that starts as a new request (a reminder or an event lead of the private words, a closed form of the tables, the head of a write family) is not an answer. `match` is only a recogniser here, no claimer: a read said while a title is asked ("mostra minha agenda") is still not the title
+        return None
     module = importlib.import_module(nw.FAMILIES[state["family"]])
     if need in getattr(module, "NEEDS", ()):          # a need the family answers itself (the answer may be a number it showed, not a place in the list)
         got = module.answer(need, said, state["slots"], tables, now, options=state["options"])

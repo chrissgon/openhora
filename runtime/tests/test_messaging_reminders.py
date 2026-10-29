@@ -23,6 +23,9 @@ from test_messaging_queue import WAIT, planner, settle  # noqa: F401  (the plann
 from test_reminders import BRT, Clock
 from test_sender_profiles import OWNER, OWNER_KEY, POLICIES, STAFF, STAFF_KEY
 from test_sender_profiles_bridge import NOT_ENABLED, OTHER, POLICIES_ALL, configure, lab  # noqa: F401  (the lab fixture)
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_reminders = st.load("ops_reminders")
@@ -87,7 +90,7 @@ def test_the_three_commands_are_read_from_a_line_with_no_clock_and_no_model():
     for line in ("/forget", "/forget x", "/forget -1", "/forget 3x"):
         got = parse(update(line))
         assert set(got) == {"kind", "text"} and got["kind"] == "usage" and pk.said(got["text"], "USAGE_FORGET"), line
-    assert parse(update("remind me at 15:00")) == {"kind": "natural", "op": "remind", "how": "trigger", "text": "remind me at 15:00"}, "NR-1: a remind word starts a reminder"
+    assert parse(update("remind me at 15:00")) == {"kind": "text", "text": "remind me at 15:00"}, "S41-11: a remind word starts no reminder here any more: a plain line, read by the interpreter (L63)"
     assert parse(update("when does the shop open")) == {"kind": "text", "text": "when does the shop open"}, "free text still goes to the planning agent"
     for blank in ("\n", "\u00a0", "\t", "\u2003", "  ", "\r\n"):         # the command word ends at any blank: the line is a command, never a line for a model
         assert parse(update(f"/remind{blank}15:00 Call")) == {"kind": "remind", "when": "15:00", "text": "Call"}, repr(blank)

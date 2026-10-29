@@ -159,16 +159,14 @@ def _live(slot: tuple):
 
 
 def peek(ctx: dict, said: str, channel, sender, claim: bool = True) -> bool:
-    """Whether a plain line is handled here: a tier-1 form, or the answer to this sender's live draft. Reads, changes nothing. `claim=False` (a recogniser) reads a write form without the
-    repeat scope (CB-9): a repeating line that the interpreter will read is still a request of its own."""
-    if natural.match(said) is not None:
+    """Whether a plain line is handled here: a decision said in words (S41-11: the one closed form code keeps), or the answer to this sender's live draft. Reads, changes nothing. `claim`
+    is kept for the callers that pass it: no write form is read here any more (a write said in words is read by the interpreter, L63)."""
+    if natural.decision(said) is not None:
         return True
     slot = _slot(channel, sender)
     draft = _live(slot)
     if draft is not None and _owner(draft) == "write":
         return channel != "mcp" and _writes().answers(ctx, draft, said)
-    if channel != "mcp" and natural_writes().candidate(said, claim=claim) is not None:      # a write form (package NR-5): code, no model, no route lock
-        return True
     if draft is None:
         return False
     owner = _owner(draft)
@@ -176,10 +174,10 @@ def peek(ctx: dict, said: str, channel, sender, claim: bool = True) -> bool:
 
 
 def recognises(ctx: dict, said: str, channel, sender) -> bool:
-    """Whether a plain line is a request of its own that code recognises: any tier-1 form (a list or any other read included, S4b), a reminder, a write to the person's accounts (a
-    save of a file included), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package LIVE-2, slice S4b);
-    only a question about the state ("progress"), a plain sentence and a reply to the question's own message may be the answer. Reads, changes nothing."""
-    return peek(ctx, said, channel, sender, claim=False) or natural.candidate(said) is not None
+    """Whether a plain line is a request of its own that code recognises: a decision said in words, a reminder or a write to the person's accounts (the private words of
+    `turn_gate.private_kind`: S41-9's data, no table of lines), or the answer to this sender's live draft. Such a line is NEW, never the answer to a question the router left open (package
+    LIVE-2); only a question about the state ("progress"), a plain sentence and a reply to the question's own message may be the answer. Reads, changes nothing."""
+    return peek(ctx, said, channel, sender, claim=False) or turn_gate.private_kind(said) is not None
 
 
 def peek_model(ctx: dict, said: str, channel, sender) -> bool:
@@ -200,9 +198,6 @@ def needs(ctx: dict, said: str, channel, sender):
             return draft["op"] if _writes().answers(ctx, draft, said) else None
         if _answers(ctx, draft, said, owner) is not None:
             return "ask" if owner == "ops" else "remind"
-    written = natural_writes().candidate(said) if channel != "mcp" else None
-    if written is not None:      # a write form needs the group of its operation, never `talk` (package NR-5)
-        return written["op"] if channel in operations.by_name(written["op"])["channels"] else None
     group = natural.needs(said)
     if group is not None and channel in operations.by_name(group)["channels"]:
         return group
@@ -216,8 +211,6 @@ def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:
         draft = drafts.get(*_slot(channel, sender), "write")
         if draft is not None:
             return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
-    if natural_writes().candidate(said, claim=False) is not None:      # a private line is private whatever reads it (CB-9)
-        return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
     kind = turn_gate.private_kind(said)
     if kind == "write":      # a line the gate reads as a write to the person's accounts that no family read whole: stored as a request to the accounts, never as "a reminder"
         return phrases.text("NW_PRIVATE_LINE", ctx["cfg"])
@@ -505,12 +498,13 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         # The router chose it, and no code can check the choice against the line: the reading is SHOWN and the reminder is made only after the person's yes (the
         # reminders' own rules, runtime/natural.py: the words are the person's span, the time is the one the router wrote, parsed by the same engine and checked by
         # `reminders.resolve`; a pick is never a yes; the moment shown is the moment made). The words reach the engine as a line of the `/remind` kind.
-        line = f"{args.get('text', '')} {when or ''}".strip()
+        words = "" if natural.only_trigger(args.get("text", "")) else args.get("text", "")      # review C2-g: a text span made only of the trigger words ("me lembra") is no text: the words are asked
+        line = f"{when or ''} {words}".strip()      # review C2-f: the moment first, as the typed /remind is written (BL7-4's deadline rule reads the moment before the words)
         try:
             asked = _call(project, row, {"said": line, "how": "command"}, channel, sender)
         except core.OpsError as e:
             return _error(cfg, e, channel)
-        return _ask_draft(ctx, asked, channel, sender, "command")
+        return _ask_draft(ctx, asked, channel, sender, "command", extras)
     if name == "reminder-forget" and isinstance(args.get("matching"), str):      # CB-8 (catalog version 2): the reminder is named by words, found by code among the sender's own waiting ones
         return _forget_by_words(project, ctx, row, args["matching"], channel, sender, extras)
     if _missing(row, args):
@@ -528,10 +522,14 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
     try:
         shown = _call(project, row, dict(args, preview=True), channel, sender)
     except core.OpsError as e:
+        if channel == "messaging" and not getattr(e, "phone", None) and not (PATH.search(str(e)) or guard.find(str(e))):
+            return phrases.localize(str(e), cfg)      # review C2-e: "no reminder N waits for you" is told to a person as the plain sentence it is, never behind "error:"
         return _error(cfg, e, channel)
     sentence, draft = natural.forget_question([shown], cfg, channel != "messaging" or _notices_text(cfg))
     extras["stored"] = t("NAT_PRIVATE_REPLY")      # the question shows the reminder's words: the conversation keeps a neutral word (limit L51)
     drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
+    if channel == "messaging":
+        extras["ask_yes"] = True      # review C2-d: a forget question has the Yes button too
     return sentence
 
 
@@ -566,7 +564,7 @@ def _notices_text(cfg: dict) -> bool:
     return importlib.import_module("ops_reminders")._notices_text(cfg)
 
 
-def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str) -> str:
+def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str, extras=None) -> str:
     """The reply to what the engine gave back for a router-chosen reminder: a question (kept for the sender's next line) or a refusal sentence."""
     cfg = ctx["cfg"]
     if "ask" not in asked:
@@ -575,6 +573,8 @@ def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str) -> str:
     sentence, keep = natural.question(draft, cfg, channel != "messaging" or _notices_text(cfg), how)
     if keep:
         drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
+        if extras is not None and channel == "messaging" and draft.get("need") in ("confirm", "forget"):
+            extras["ask_yes"] = True      # review C2-d: the bridge sends this question with the one-tap Yes button and binds it in the ledger, as it does for a typed /remind
     return sentence
 
 

@@ -131,13 +131,13 @@ def test_the_pipeline_observes_a_card_exactly_when_the_product_opens_one(name, l
         assert sentence in reply, (name, reply)
 
 
-def test_a_closed_numbered_archive_is_a_card_for_the_product_and_for_the_pipeline(world, clock, monkeypatch):
-    """"arquiva os e-mails 1 e 2" is claimed by the closed forms before the interpreter, so the product never asks the model; the pipeline sends it to the model and the stand-in names the
-    operation: the closed forms read the numbers there too, and both show a card."""
+def test_a_numbered_archive_is_read_by_the_interpreter_and_the_pipeline_observes_what_the_product_does(world, clock, monkeypatch):
+    """"arquiva os e-mails 1 e 2" was claimed by the closed forms before the interpreter, so the product never asked the model (S41-11 took that claim out): the product asks the model now, and the
+    pipeline, which mirrors the product, observes exactly what the product's own turn gives for the same line and answer."""
     line, answer = "arquiva os e-mails 1 e 2", op("mail-archive", {"messages": "1,2"})
     got, reply, asked = product(world, monkeypatch, "pt-BR", line, answer)
-    assert got == "card" and not asked, (got, reply)
-    assert measured("pt-BR", line, answer)["observed"] == "card"
+    assert asked, (got, reply, "the product sends the line to the interpreter")
+    assert measured("pt-BR", line, answer)["observed"] == got, (got, reply)
 
 
 def test_a_clarify_of_the_mail_step_has_the_slot_the_product_asks_first(world, clock, monkeypatch):

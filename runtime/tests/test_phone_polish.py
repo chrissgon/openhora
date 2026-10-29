@@ -23,6 +23,9 @@ import standin_tree as st
 from test_calendar_write import world  # noqa: F401  (the calendar world)
 from test_messaging import decision, wait_for, world as fake_world  # noqa: F401  (the stand-in world: a fake operations object)
 from test_messaging_natural_writes import OWNER, day, forget  # noqa: F401  (the real-operations bridge over the calendar world)
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 bridge = st.load("messaging_bridge")
@@ -146,16 +149,6 @@ def test_the_button_still_binds_to_the_stored_hash_and_a_card_that_changed_is_re
 
 
 # --- 4. the card says it waits, once ------------------------------------------------------------------------------------------------
-
-
-def test_the_line_that_says_a_card_waits_is_not_sent_when_the_card_was_sent_and_is_when_none_was_shown(day, monkeypatch):
-    day.say(OWNER, LINE)
-    texts = day.texts(OWNER)
-    assert any(pk.said(t, "TITLE_CAL_CREATE") for t in texts) and not any(pk.said(t, "ACCT_CARD_SENT") for t in texts)
-    day.bridge.resent.clear()
-    monkeypatch.setattr(day.bridge, "resend", lambda *a, **k: False)      # the card could not be sent to this chat
-    day.say(OWNER, "marca dentista sexta às 10h no google")
-    assert pk.said(day.texts(OWNER)[-1], "NW_CARD_NOT_SENT"), "no card was shown: the sentence that says so is"
 
 
 def test_a_doubt_about_the_date_is_still_told_beside_the_card(day):

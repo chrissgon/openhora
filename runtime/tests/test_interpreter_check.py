@@ -19,6 +19,7 @@ import pytest
 
 import interpreter_kit as kit
 import standin_tree as st
+from closed_heads import old_private  # noqa: F401  (S41-11: the S41-9 oracle of the private-line detector, kept by the tests until 2b)
 # Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
@@ -267,7 +268,7 @@ def test_route_and_none_pass_and_a_route_for_a_private_line_becomes_a_question()
     assert run({"v": 1, "kind": "none"}, "thanks") == {"kind": "none", "error": None}
     assert run({"v": 1, "kind": "route"}, "plan a three-day workshop for the new hires") == {"kind": "route", "error": None}
     private = "remind me to call Dana Thursday at 3pm"
-    assert natural.private(private)
+    assert old_private(private)
     got = run({"v": 1, "kind": "route"}, private)
     assert got["kind"] == "clarify" and got["why"] == "private-route"
 
@@ -275,7 +276,7 @@ def test_route_and_none_pass_and_a_route_for_a_private_line_becomes_a_question()
 def test_a_line_longer_than_the_limit_is_not_sent():
     long_plain = "plan the offsite " * 80
     long_private = "remind me to call Dana tomorrow at 3pm " * 40
-    assert len(long_plain) > 1000 and len(long_private) > 1000 and not natural.private(long_plain) and natural.private(long_private)
+    assert len(long_plain) > 1000 and len(long_private) > 1000 and not old_private(long_plain) and old_private(long_private)
     assert interp.precheck(long_plain) == {"kind": "route", "error": None}
     got = interp.precheck(long_private)
     assert got["kind"] == "clarify" and got["why"] == "long-line"

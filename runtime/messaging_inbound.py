@@ -14,13 +14,9 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
   {"kind": "attachment", "attachments": [...], "text": "..."|None}   files sent (ATT-1), the caption in "text"; checked by messaging_provider.valid_attachments
   {"kind": "remind", "when": "15:00", "text": "..."}  /remind <time> <text> (RM-1): the time as typed (HH:MM, YYYY-MM-DD HH:MM or in <n>m|h|d) and the words;
                                                       the moment is worked out by the operation, with the clock
-  {"kind": "natural", "op": ..., "how": ..., "text": "..."}   a line in the person's own words that code matched to an operation, with no model (NR-1,
-                                                      runtime/natural.py): op "remind" (how "trigger" | "bare" | "note" | "command"), "reminders", "reminder-forget"
-                                                      (with "id": n, or "words": what was said of it, or "many") or "calendar-event-create" (planned; how "trigger" or "ask"); `/remind <rest>` that the strict grammar above
-                                                      does not claim is one too (how "command"). The time is worked out by the operation, with the clock. A line that asks for a
-                                                      write to the person's own accounts (NR-5, runtime/natural_writes.py: an event, a file; a family module reads each form) is
-                                                      {"kind": "natural", "op": "write", "write": <the operation>, "text"}: it is read and asked back by code, never by a model,
-                                                      and only OPENS the card of its exact content
+  {"kind": "natural", "op": "remind", "how": "command", "text": "..."}   `/remind <rest>` that the strict grammar above does not claim: the person's own words, worked out by code with the
+                                                      clock (NR-1, runtime/natural.py). S41-11: it is the one natural intent left. A reminder or a write to the person's accounts said in words
+                                                      with no slash is no intent of this module any more: it is a plain `text` line, and the interpreter reads it (L63)
   {"kind": "reminders"} {"kind": "forget", "id": 3}   /reminders, /forget <n>
   {"kind": "pending"} {"kind": "project", "name": ""} {"kind": "help"}
   {"kind": "reply", "reply_to": "<message id>", "text": "..."}   a reply to a message, not a command
@@ -35,9 +31,8 @@ provider (providers/messenger/README.md) in, one dict out, nothing called.
 The sentences it names (HELP, the usage lines) are the phrase table's English text (runtime/phrases.py); the bridge says them in the project's language, and `usage_key`
 maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
 
-The two claims `parse` makes before the reply gesture are rows of the table of the order (runtime/turn_order.py `ORDER`, stage `bridge`): a write to the person's accounts (the intent `natural` with
-`op` "write") is the row `write-form`, and any other natural line (a reminder, its listing or its removal) is taken by the row `reminder-form` and, when that row takes nothing, by `say-natural`;
-the write form is read before the reminders' intents, as the table lists it. `parse` itself is unchanged (S41-2).
+S41-11: `parse` makes no claim of a line of words before the reply gesture. The intent `natural` is taken by the row `reminder-form` (narrowed to `/remind <free words>`) and, when that row
+takes nothing, by `say-natural` (runtime/turn_order.py `ORDER`, stage `bridge`); the row `write-form` is retired (a write said in words is read by the interpreter, L63).
 
 Standard library only. Runs on Python 3.9.
 """
@@ -49,7 +44,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural  # noqa: E402  (the same folder: a line in the person's own words, matched by code to an operation; package NR-1)
-import natural_writes  # noqa: E402  (the same folder: a line that asks for a write to the person's accounts; package NR-5)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language; the bridge says them, this module only names them)
 import reminders  # noqa: E402  (the same folder: the pure part of a reminder, which reads the words after /remind)
 
@@ -134,12 +128,8 @@ def parse(update: dict) -> dict:
         if name in ("help", "start"):
             return {"kind": "help"}
         return {"kind": "text", "text": text}
-    written = natural_writes.candidate(text)          # a write to the person's accounts (NR-5): before the reminders' intents, so that "marca o e-mail 3 como lido" is a mail form
-    if written:
-        return {"kind": "natural", "op": "write", "write": written["op"], "how": "trigger", "text": text}
-    named = natural.claim(text)          # before the reply gesture: a reminder asked as a reply to a message is still a reminder (NR-1)
-    if named:
-        return {"kind": "natural", "text": text, **named}
+    # S41-11: no line of words is claimed here any more: a reminder or a write said in words is read by the interpreter (L63), and a decision said in words by `natural.decision`, both further on.
+    # The one natural kind left is `/remind <free words>`, above (how "command").
     if update.get("reply_to"):
         return {"kind": "reply", "reply_to": update["reply_to"], "text": text}
     return {"kind": "text", "text": text}

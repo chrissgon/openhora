@@ -17,6 +17,7 @@ import pytest
 
 import interpreter_kit as kit
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the family readers read a line with no operation fixed again, for the tests of what they read)
 
 nt = st.load("natural_time")
 natural = st.load("natural")

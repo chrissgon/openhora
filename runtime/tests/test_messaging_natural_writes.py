@@ -23,6 +23,9 @@ from test_messaging import FIXTURE
 from test_reminders import Clock
 from test_messaging_attach import make_world as attach_world  # noqa: F401
 from test_attachments import IDENT, PDF, POLICIES, accept as accept_keys, case  # noqa: F401  (the attachments project)
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -99,58 +102,10 @@ def conversation(day):
     return ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)
 
 
-def test_a_write_line_is_handled_by_code_before_say_with_no_route_lock_no_model_slot_and_nothing_in_the_conversation(day, monkeypatch):
-    def forbidden(*a, **k):
-        raise AssertionError("a write line reaches no model and not `say`")
-    monkeypatch.setattr(ops, "say", forbidden)
-    day.say(OWNER, "marca dentista quinta às 10h no google")
-    assert day.bridge.waiting == [] and not day.bridge.exclusive and conversation(day) == []
-    assert any("Calendar: new event" in t for t in day.texts(OWNER)) and not any("waits for your approval" in t for t in day.texts(OWNER)), "the card says it waits: the line that says so again is not sent (LIVE-2)"
-
-
 def test_the_card_of_the_exact_content_is_sent_to_the_asking_chat_at_once(day):
     day.say(OWNER, "marca dentista quinta às 10h no google")
     cards = [t for t in day.texts(OWNER) if "dentista" in t]
     assert cards and "Thu 22/10/2026 10:00-11:00" in cards[-1] and day.world["google"].requests == []
-
-
-def test_a_question_asked_in_the_chat_is_answered_by_the_next_line_and_any_other_line_drops_it(day):
-    day.say(OWNER, "marca quinta às 10h no google")
-    assert "title of the event on Thu 22/10" in day.texts(OWNER)[-1]
-    day.say(OWNER, "Dentista da Júlia")
-    assert "Dentista da Júlia" in " ".join(day.texts(OWNER)) and drafts.count() == 0
-    day.say(OWNER, "marca quinta às 11h no google")
-    day.say(OWNER, "me lembra amanhã às 9 de regar as plantas")
-    assert "The previous question was discarded." in day.texts(OWNER)[-1] and drafts.count() == 1, "a reminder's question replaced it, and says so"
-    day.say(OWNER, "marca sexta às 11h no google")
-    assert day.texts(OWNER)[-1].startswith("The previous question was discarded."), "and the other way round"
-
-
-def test_a_new_write_question_replaces_the_one_before_and_says_so(day):
-    day.say(OWNER, "marca quinta às 10h no google")
-    day.say(OWNER, "marca sexta às 15h no google")
-    assert day.texts(OWNER)[-1].startswith("The previous question was discarded.")
-    assert drafts.count() == 1
-
-
-def test_the_kind_question_answered_event_opens_the_event_with_the_reading_it_showed_and_its_words(day):
-    day.say(OWNER, "dentista quinta às 10h")
-    assert "reminder here in the chat, or an event" in day.texts(OWNER)[-1]
-    day.say(OWNER, "evento")
-    last = day.texts(OWNER)[-1]
-    assert "Title: dentista" in " ".join(day.texts(OWNER)) or "waits for your approval" in last
-    shown = [t for t in day.texts(OWNER) if "Thu 22/10/2026 10:00" in t]
-    assert shown, day.texts(OWNER)
-    assert day.world["google"].requests == []
-
-
-def test_the_loose_verb_question_answered_event_opens_the_event_and_something_else_goes_to_the_planning_agent(day):
-    day.say(OWNER, "agende dentista quinta 10h")
-    assert day.texts(OWNER)[-1].startswith("An event in your calendar, or something else?")
-    day.say(OWNER, "agenda")
-    assert "Calendar: new event" in day.texts(OWNER)[-1] and not any("waits for your approval" in t for t in day.texts(OWNER))
-    cards = [t for t in day.texts(OWNER) if "Title: dentista" in t]
-    assert cards and "Thu 22/10/2026 10:00-11:00" in cards[-1]
 
 
 def test_a_profile_without_calendar_write_is_told_what_the_typed_command_says_and_a_profile_that_cannot_read_pending_is_told_it_gets_no_cards(day):
@@ -214,65 +169,6 @@ def test_a_caption_that_is_not_a_closed_save_form_is_still_ignored_with_its_sent
 
 
 # --- the kind question answered in a phrase (the live bug of 2026-10-19) -----------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("answer", ["evento no calendário", "quero como evento", "na agenda", "no calendário", "um evento", "as an event please", "event"])
-def test_the_kind_question_answered_in_a_phrase_for_the_event_opens_the_w1_card_with_the_reading_shown(day, monkeypatch, answer):
-    def forbidden(*a, **k):
-        raise AssertionError("an answer to the kind question reaches no model and not `say`")
-    monkeypatch.setattr(ops, "say", forbidden)
-    day.say(OWNER, "dentista quinta às 10h")
-    assert "a reminder here in the chat, or an event in your calendar?" in day.texts(OWNER)[-1].lower() and "Thu 22/10" in day.texts(OWNER)[-1]
-    day.say(OWNER, answer)
-    cards = [t for t in day.texts(OWNER) if "Title: dentista" in t]
-    assert cards and "Thu 22/10/2026 10:00-11:00" in cards[-1], day.texts(OWNER)
-    assert day.world["google"].requests == [] and drafts.count() == 0, "a card writes nothing, and the question is closed"
-
-
-@pytest.mark.parametrize("answer", ["lembrete aqui", "quero como lembrete", "um lembrete", "a reminder please"])
-def test_the_kind_question_answered_in_a_phrase_for_the_reminder_makes_the_reminder_shown(day, answer):
-    day.say(OWNER, "dentista quinta às 10h")
-    day.say(OWNER, answer)
-    assert any(t.startswith("Reminder #1") for t in day.texts(OWNER)), day.texts(OWNER)
-
-
-def test_an_answer_that_is_not_one_asks_the_same_question_once_more_and_creates_and_routes_nothing(day, monkeypatch):
-    def forbidden(*a, **k):
-        raise AssertionError("a reply to an open question is not sent to the router")
-    monkeypatch.setattr(ops, "say", forbidden)
-    day.say(OWNER, "dentista quinta às 10h")
-    first = day.texts(OWNER)[-1]
-    day.say(OWNER, "talvez mais tarde, ainda não sei")
-    assert day.texts(OWNER)[-1] == first and len(day.texts(OWNER)) == 2, "the same question again, with its options"
-    assert conversation(day) == [] and day.bridge.waiting == []
-    day.say(OWNER, "marca almoço sexta às 12h no google")
-    assert "The previous question was discarded." in " ".join(day.texts(OWNER)) or any("Title: almoço" in t for t in day.texts(OWNER)), "a clear new request replaces the question"
-    assert any("Title: almoço" in t for t in day.texts(OWNER))
-
-
-def test_the_loose_verb_question_is_asked_once_more_for_a_phrase_that_is_not_an_answer(day, monkeypatch):
-    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not routed")))
-    day.say(OWNER, "agende dentista quinta 10h")
-    first = day.texts(OWNER)[-1]
-    day.say(OWNER, "ainda não decidi bem isso")
-    assert day.texts(OWNER)[-1] == first
-    day.say(OWNER, "na agenda")
-    assert any("Title: dentista" in t for t in day.texts(OWNER))
-
-
-def test_a_long_line_that_is_no_answer_drops_the_question_and_is_a_new_line_never_a_retry(day):
-    day.say(OWNER, "marca quinta às 10h no google")
-    day.say(OWNER, "marca almoço sexta às 12h no google")
-    assert any("Title: almoço" in t for t in day.texts(OWNER)) and drafts.count() == 0
-
-
-def test_the_kind_question_answered_with_the_kind_and_a_time_applies_the_time_as_a_correction_of_the_reading_it_showed(day, monkeypatch):
-    monkeypatch.setattr(ops, "say", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not routed")))
-    day.say(OWNER, "dentista quinta às 10h")
-    day.say(OWNER, "evento às 15h")
-    texts = day.texts(OWNER)
-    assert any("Title: dentista" in t and "Thu 22/10/2026 15:00" in t for t in texts), texts
-    assert not any("Title: evento" in t for t in texts) and day.world["google"].requests == []
 
 
 def test_a_caption_that_names_a_kind_the_file_is_not_is_no_save_line(case, monkeypatch):  # noqa: F811

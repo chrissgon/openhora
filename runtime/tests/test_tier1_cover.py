@@ -3,12 +3,10 @@
 What is checked, with this test's own literals and its own readers of the raw files: every item is well formed (the corpus tool's `check` against the served catalog and the pipeline's `item_problems`);
 every gold slot value is a substring of its line (digits written as digits), so the rule cannot invent a span; the ids are the tier-1 range of the relabelled author and the lines add nothing
 `dev-relabelled.jsonl` already covers; a fixed table of lines lands where the rule says (an item with its gold, or a gap with its class); the gaps file is internally consistent (every taken line is a
-gap, covered or an added item; the counts equal a recount of the items; every gap operation is in the served `refused` list and none in its `ops`); the builder is deterministic and the committed files
-equal its output byte for byte; and, at 0 calls, the pipeline decides 133 of the added items before any model unless its stage 3 is switched off, which is how M41-5 must run (README of
+gap, covered or an added item; the counts equal a recount of the items; every gap operation is in the served `refused` list and none in its `ops`); the files are pinned by hash (their builder is deleted); and, at 0 calls, the pipeline decides 7 of the added items before any model unless its stage 3 is switched off, which is how M41-5 must run (README of
 evals/interpreter/, "The tier-1 cover set"). Every guard has a vacuity case that fails on a planted wrong result. Offline, no model, no network.
 
-PR 2a of S41-11 deletes the builder with the claimers it runs: from then on the two files are frozen data, and `test_the_committed_files_are_what_the_claimers_give_byte_for_byte` and the planted-claimer
-cases go with it; the other checks stay.
+PR 2a of S41-11 deleted the builder with the claimers it ran: the two files are frozen data (pinned by hash below), and the byte-for-byte test and the planted-claimer cases went with it; the other checks stay.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_tier1_cover.py
 """
@@ -58,12 +56,6 @@ def items():
 @pytest.fixture(scope="module")
 def gaps():
     return json.loads(GAPS.read_text(encoding="utf-8"))
-
-
-@pytest.fixture(scope="module")
-def built():
-    """What the builder gives now: (cover bytes, gaps bytes), once for the module."""
-    return tool("interpreter_corpus_tier1").outputs(ROOT)
 
 
 def span_problems(item: dict) -> list:
@@ -222,77 +214,35 @@ def test_the_private_share_is_counted_per_set_for_the_two_files_m41_5_measures(i
         assert 0 < row["private"] <= row["items"] and sum(row["by_lang"].values()) == row["private"]
 
 
-# --- the builder ----------------------------------------------------------------------------------------------------------------------------
+# --- the frozen files ---------------------------------------------------------------------------------------------------------------------------
 
-def test_the_committed_files_are_what_the_claimers_give_byte_for_byte(built):
-    assert COVER.read_bytes() == built[0]
-    assert GAPS.read_bytes() == built[1]
+PINNED_HASHES = json.loads((ROOT / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 
-def test_the_builder_is_deterministic_and_the_check_verb_compares(built, tmp_path):
-    module = tool("interpreter_corpus")
-    out, gap_out = tmp_path / "cover.jsonl", tmp_path / "gaps.json"
-    assert module.main(["tier1-cover", "--out", str(out), "--gaps", str(gap_out)]) == 0
-    assert (out.read_bytes(), gap_out.read_bytes()) == built
-    assert module.main(["tier1-cover", "--out", str(out), "--gaps", str(gap_out), "--check"]) == 0
-    # vacuity: a changed byte is a difference the check reports, and it writes nothing
-    out.write_bytes(out.read_bytes().replace(b"cancel", b"cancle", 1))
-    before = out.read_bytes()
-    assert module.main(["tier1-cover", "--out", str(out), "--gaps", str(gap_out), "--check"]) == 1
-    assert out.read_bytes() == before
+def test_the_two_files_are_frozen_data_their_builder_deleted_with_the_claimers():
+    """S41-11 PR 2a deleted the builder with the claimers it ran: the two files are data now, pinned by hash (a change is a reviewed new version of the file, never an edit), and the verb is gone."""
+    import hashlib
+    assert hashlib.sha256(COVER.read_bytes()).hexdigest() == PINNED_HASHES["interpreter_tier1_cover_v1"]
+    assert hashlib.sha256(GAPS.read_bytes()).hexdigest() == PINNED_HASHES["interpreter_tier1_cover_gaps"]
+    assert not (ROOT / "scripts" / "interpreter_corpus_tier1.py").exists(), "the builder is deleted"
+    assert "tier1-cover" not in (ROOT / "scripts" / "interpreter_corpus.py").read_text(encoding="utf-8").split("Items are one canonical JSON object", 1)[0], "the verb is not listed any more"
 
 
-class PlantedClaimers:
-    """A claimer that takes every line as one named operation, to plant a wrong result: the rule, not the claimers, is under test."""
-
-    class natural:
-        @staticmethod
-        def class_of(op):
-            return None
-
-    def __init__(self, op, row="tier-1-form"):
-        self.op, self.row = op, row
-        self.tables = []
-
-    def taken(self, line, tables=None):
-        if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
-            return None
-        return {"row": self.row, "op": self.op, "args": {}}
-
-    def language(self, line, found):
-        return "en", ["en"]
-
-    def slots_of(self, found):
-        return {}
+def test_vacuity_a_changed_byte_is_not_the_pinned_file():
+    import hashlib
+    assert hashlib.sha256(COVER.read_bytes().replace(b"cancel", b"cancle", 1)).hexdigest() != PINNED_HASHES["interpreter_tier1_cover_v1"]
 
 
-def test_vacuity_an_operation_the_catalog_refuses_or_lacks_is_a_gap_never_an_item():
-    module = tool("interpreter_corpus_tier1")
-    items_, doc = module.build(ROOT, claimers=PlantedClaimers("approve"))
-    assert items_ == [] and doc["gaps"]["by_kind"] == {"refused": doc["universe"]["total"]["taken"]} and list(doc["gaps"]["by_op"]) == ["approve"]
-    items_, doc = module.build(ROOT, claimers=PlantedClaimers("no-such-operation"))
-    assert items_ == [] and doc["gaps"]["by_kind"] == {"absent": doc["universe"]["total"]["taken"]}
-    items_, doc = module.build(ROOT, claimers=PlantedClaimers("status"))
-    assert doc["gaps"]["lines"] == 0 and len(items_) == doc["universe"]["total"]["added"] and accounting_problems(doc) == []
-    assert {i["gold"]["op"] for i in items_} == {"status"}, "an operation of the served catalog is an item"
+# --- M41-5 ran with stage 3 off ----------------------------------------------------------------------------------------------------------------
+
+STAGE_3_DECIDES = 7      # after S41-11 PR 2a stage 3 reads only the decisions said in words (the D operations) and the help form: 7 of the added items, none of the relabelled ones
 
 
-def test_vacuity_a_value_the_line_does_not_write_is_never_a_gold_span():
-    module = tool("interpreter_corpus_tier1")
-    found = {"row": "tier-1-form", "op": "cancel", "args": {"request_id": 7}}
-    assert module.gold_of(found, {"id": 7}, {"id": "int"}, "cancela o pedido 3") == {"outcome": "op", "op": "cancel", "scope": "op"}
-    assert module.gold_of(found, {"id": 7}, {"id": "int"}, "cancela o pedido 7") == {"outcome": "op", "op": "cancel", "slots": {"id": ["7"]}}
-    assert module.gold_of(found, {"id": 7}, {"id": "int", "target": "span"}, "cancela o pedido 7") == {"outcome": "op", "op": "cancel", "scope": "op"}, "not the whole slot set of the row"
-    assert module.gold_of(found, {"id": 7}, {"id": "int"}, "cancela o pedido 77") == {"outcome": "op", "op": "cancel", "scope": "op"}, "7 is inside 77"
-
-
-# --- M41-5 runs with stage 3 off ------------------------------------------------------------------------------------------------------------
-
-def test_stage_3_of_the_pipeline_decides_the_tier_1_lines_before_the_model_unless_it_is_switched_off(items, monkeypatch):
+def test_stage_3_of_the_pipeline_decides_only_the_closed_decisions_before_the_model_and_nothing_when_it_is_switched_off(items, monkeypatch):
     pipeline = st.load("interpreter_pipeline")
     relabelled = rows(RELABELLED)
     assert [i["id"] for i in relabelled if pipeline.pre_model(i) is not None] == [], "no relabelled item is decided before the model"
     decided = [i["id"] for i in items if (pipeline.pre_model(i) or {}).get("stage") == "tier1"]
-    assert len(decided) == STAGE_3_DECIDES and {(pipeline.pre_model(i) or {}).get("stage") for i in items} == {"tier1", None}
-    monkeypatch.setattr(pipeline, "_tier1", lambda line: None)          # the one switch the maintainer's M41-5 script sets, in its own process
+    assert len(decided) == STAGE_3_DECIDES, decided
+    monkeypatch.setattr(pipeline, "_tier1", lambda line: None)          # the one switch the maintainer's M41-5 script set, in its own process
     assert [i["id"] for i in items + relabelled if pipeline.pre_model(i) is not None] == [], "with stage 3 off every item reaches the model"

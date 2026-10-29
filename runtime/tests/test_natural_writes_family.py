@@ -13,6 +13,7 @@ import types
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (a real project to read the configuration of)
 from test_ops_natural_writes import SENDER, forget, phone, policy  # noqa: F401
 from test_reminders import Clock
@@ -112,12 +113,12 @@ def test_a_final_sentence_of_the_resolver_is_the_reply_and_stores_no_draft(world
 def test_every_question_and_answer_of_a_family_is_stored_as_a_neutral_word_in_the_conversation(world, clock, stand_in):
     policy(world)
     policy(world, page=("read", "calendar-write", "mail-organize"))
-    ops.say(world["path"], "arquiva o e-mail 3", channel="page")
-    ops.say(world["path"], "inbox", channel="page")
+    ops.natural_write(world["path"], "arquiva o e-mail 3", channel="page")      # S41-11: no plain line is claimed on a shell by `say` any more (it is the interpreter's on a phone, the agent's on the page): the questions and answers go through the writes' own entry
+    ops.natural_write(world["path"], "inbox", channel="page")
     ctx = ops_core.context(world["path"])
     rows = [(m["role"], m["text"]) for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=100)]
-    assert rows[:2] == [("user", "(a request to your accounts)"), ("assistant", "(request to your accounts)")]
-    assert "Bia" not in str(rows) and "Bank" not in str(rows)
+    assert "Bia" not in str(rows) and "Bank" not in str(rows), "nothing of the family's questions or answers is in the conversation"
+    assert ops_natural.stored_line(ctx, "arquiva o e-mail 3") == "(a request to your accounts)", "the neutral word the store keeps for such a line"
 
 
 def test_a_comma_after_a_polite_word_does_not_hide_the_head():

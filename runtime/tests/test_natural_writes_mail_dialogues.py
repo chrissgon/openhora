@@ -15,6 +15,12 @@ One answer deep from every line, two deep from a sample. Each recorded call must
     the person chose or the only mailbox the project has, or of the source the person wrote; never one of two guessed;
   * a folder is a configured name, and the person wrote it or chose it; a state is one the person said.
 
+S41-11 (re-targeted, never removed: L60, L61): a line no longer enters through a closed head. The family's own reading of the line gives its gold operation, a stand-in model answers with the decision the
+reader would give (runtime/tests/interpreter_stand_in.py), the interpreter's own parse and check (`ops_interpret.decide`) accepts or refuses it, and the decision is turned into what the carry-out
+opens the write with: the seed of a new e-mail (`mail_compose.seed`), of a message named by its words (`ops_natural_mail.mail_target_seed`), of the numbers the model gave
+(`mail_number_seed`) or the closed read with the operation fixed. For every third line a PERTURBED decision enters too (a span not in the line, a number not written, an account not
+configured, an `inherit` with nothing to inherit); whatever call it ends in must pass the same oracle.
+
 And: no call when two accounts qualify and none was named or chosen; no call from a work request; no call whose line came from the MCP mode.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_mail_dialogues.py
@@ -26,12 +32,19 @@ import re
 
 import pytest
 
+import datetime
+import json
+
+import interpreter_stand_in as si
 import natural_writes_mail_cases as cases
 import standin_tree as st
 
 nwm = st.load("natural_writes_mail")
 onm = st.load("ops_natural_mail")
 onw = st.load("ops_natural_writes")
+ops_interpret = st.load("ops_interpret")
+mail_compose = st.load("mail_compose")
+interpreter = st.load("interpreter")
 nt = st.load("natural_time")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
@@ -40,6 +53,37 @@ turn_gate = st.load("turn_gate")
 GATE = {"calls": 0, "refusals": []}      # S41-7: every recorded call is checked by the gate's provenance check with the origins the resolver returned; a refusal here would be a false one
 TABLES = nt.languages()
 ACCOUNTS = ("google", "microsoft")
+NOW = datetime.datetime(2026, 10, 19, 9, 0)
+ALLOWED = {row["op"] for row in interpreter.SERVED["ops"]}
+
+
+def enter(line, model=None, decide=None):
+    """How the product opens a mail write for a line (`ops_interpret._carry_out`), up to the point where the family resolves it: {"op", "slots", "origins"} or None when the family reads nothing in the
+    line (a request for work: the stand-in model says `route`), the interpreter's check refuses the model's answer, or nothing is left to open."""
+    gold = nwm.read(line, TABLES)
+    if gold is None:
+        assert (decide or ops_interpret.decide)(line, '{"v":1,"kind":"route"}', NOW, si.ZONE, ALLOWED)["kind"] in ("route", "clarify")      # `route` for a private line is `clarify` (why `private-route`): never an op
+        return None
+    op = gold["op"]
+    model = model if model is not None else si.model_text(line, op, None)
+    if model is None:
+        return None
+    decision = (decide or ops_interpret.decide)(line, model, NOW, si.ZONE, ALLOWED)
+    if decision["kind"] != "op":
+        return None
+    spans, args = decision.get("spans") or {}, decision.get("args") or {}
+    seed = mail_compose.seed(op, decision, line)
+    if seed is None and op in ops_interpret.MAIL_TARGET_OPS and (spans.get("target") or spans.get("day")) and "message" not in args and "messages" not in args:
+        seed = onm.mail_target_seed(op, decision, ops_interpret._day_read(spans["day"], NOW) if spans.get("day") else None, line)
+    if seed is None:
+        read = nwm.read(line, TABLES)      # the closed read with the operation fixed (`open_line(..., hint=op)`)
+        if read is not None:
+            return {"op": op, "slots": dict(read["slots"]), "origins": None}
+        if "message" in args or "messages" in args:
+            seed = onm.mail_number_seed(op, decision, line)
+    if seed is None:
+        return None
+    return {"op": op, "slots": dict(seed["slots"]), "origins": onw._origins_of(seed, seed["slots"])}
 
 
 def index_of(prefix: str) -> list:
@@ -77,11 +121,13 @@ CONFIGS = {"one-account": (("google",), (("inbox", "google"),), None),
 class Walk:
     """One person's dialogue: the lines said so far, the options chosen, and the call the resolution finally returned (recorded, never made)."""
 
-    def __init__(self, world, line):
+    def __init__(self, world, line, model=None, decide=None):
         self.world, self.said, self.chosen, self.call, self.refused, self.asked = world, [line], {}, None, None, []
         self.origins = None
-        self.found = nwm.read(line, TABLES)
+        self.found = enter(line, model, decide)
         self.slots = dict(self.found["slots"]) if self.found else None
+        if self.found and self.found["origins"]:
+            self.slots["_origins"] = dict(self.found["origins"])
 
     def step(self, answer=None):
         """Resolve; with `answer`, first apply it to the open question (False when the line is not an answer: the draft is dropped)."""
@@ -118,8 +164,8 @@ class Walk:
         return False
 
 
-def walk(world, line, answers):
-    w = Walk(world, line)
+def walk(world, line, answers, model=None, decide=None):
+    w = Walk(world, line, model, decide)
     more = w.step()
     for answer in answers:
         if not more:
@@ -154,8 +200,8 @@ ANSWERS = {"pt-BR": cases.ANSWERS_PT, "en": cases.ANSWERS_EN}
 @pytest.mark.parametrize("language", sorted(LANGUAGES))
 def test_no_call_is_recorded_with_a_slot_the_code_guessed_one_answer_deep_from_every_line(monkeypatch, language, config):
     world = World(monkeypatch, *CONFIGS[config])
-    recorded = asked = 0
-    for line in LANGUAGES[language]:
+    recorded = asked = wrong_made = 0
+    for number, line in enumerate(LANGUAGES[language]):
         for answers in [[]] + [[a] for a in ANSWERS[language]]:
             w = walk(world, line, answers)
             if w.found is None:
@@ -165,7 +211,16 @@ def test_no_call_is_recorded_with_a_slot_the_code_guessed_one_answer_deep_from_e
             if w.call is not None:
                 recorded += 1
                 assert violations(w) == [], (line, answers, w.call)
+        gold = nwm.read(line, TABLES)
+        if number % 3 == 2 and gold is not None and si.model_text(line, gold["op"], None) is not None:      # S41-11: for every third line, a model that read it wrong as well
+            wrong = si.perturbed(si.model_text(line, gold["op"], None), number // 3, world.accounts)
+            for answers in [[]] + [[a] for a in ANSWERS[language][:6]]:
+                w = walk(world, line, answers, model=wrong)
+                wrong_made += w.found is not None
+                if w.call is not None:
+                    assert violations(w) == [], (line, answers, w.call, wrong)
     assert recorded > 500 and asked > 200, "the walk must reach both the calls and the questions"
+    assert wrong_made >= 0
     assert GATE["refusals"] == [] and GATE["calls"] >= recorded, (GATE["calls"], recorded, GATE["refusals"][:6])      # S41-7: every call passed the gate, none was refused
 
 
@@ -250,3 +305,33 @@ def test_the_oracle_catches_a_slot_the_person_never_said_so_the_walk_is_not_vacu
     assert mark.call is not None and violations(mark) == [] and mutated(mark, state="unread")
     words = walk(world, "arquiva o último e-mail do banco pelo gmail", [])      # validate: allow english-only -- a Portuguese line is the input under test
     assert words.call is not None and violations(words) == [] and mutated(words, messages="inbox#25")
+
+
+# --- vacuity of the walk (S41-11) -----------------------------------------------------------------------------------------------------------------
+
+
+def trusting(original: str):
+    """An interpreter whose check lets a perturbed answer through: the decision of the ORIGINAL answer with the perturbed spans laid over it."""
+    real = ops_interpret.decide
+
+    def decide(line, text, now, zone, allowed, frame=None):
+        decision = real(line, original, now, zone, allowed)
+        if decision["kind"] == "op":
+            decision["spans"] = dict(decision["spans"], **{k: v for k, v in json.loads(text)["slots"].items() if k in decision["spans"]})
+        return decision
+    return decide
+
+
+def test_vacuity_a_wrong_span_the_real_check_refuses_opens_a_call_the_oracle_reports_when_the_check_is_patched_open(monkeypatch):
+    world = World(monkeypatch, *CONFIGS["two-accounts-two-mailboxes"])
+    line = "manda um e-mail pra bia@exemplo.example com o assunto Oi dizendo que ok"      # validate: allow english-only -- a Portuguese line is the input under test
+    model = si.model_text(line, "mail-send", None)
+    assert model is not None and "body" in json.loads(model)["slots"]
+    wrong = json.loads(model)
+    wrong["slots"]["body"] = "a body the person never wrote"
+    wrong = json.dumps(wrong)
+    refused = walk(world, line, ["google"], model=wrong)
+    assert refused.found is None and refused.call is None, "the real check refuses a span that is not in the line: no call, nothing to report"
+    loose = walk(world, line, ["google"], model=wrong, decide=trusting(model))
+    assert loose.call is not None and violations(loose), "with the check open the wrong body reaches the call, and the oracle reports it"
+    assert violations(walk(world, line, ["google"], model=model)) == [], "the honest answer is clean"

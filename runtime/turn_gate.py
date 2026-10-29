@@ -40,8 +40,7 @@ Three checks of code over the person's own line. Each had one home and callers e
                                     Accents, case and punctuation do not matter. Callers: `ops_research._research`.
   private_line(line)               True for a reminder asked in words or a write to the person's mail, calendar or files: the conversation stores a neutral word for it and its words
                                     never leave the host (limits L51, L61, L63). Its words and numbers are the data of runtime/registry/private_words.json (S41-9; the rule is the file's `rule` line
-                                    and the docstring of the function); the detector flags every line `natural.private` flags, which stays in runtime/natural.py as the oracle of the tests until
-                                    S41-11. Callers: `ops_interpret._no_decision`, `ops_natural.stored_line`, `interpreter.precheck` and `interpreter.check`.
+                                    and the docstring of the function); the old `natural.private` is gone (S41-11). Callers: `ops_interpret._no_decision`, `ops_natural.stored_line`, `interpreter.precheck` and `interpreter.check`.
   the_number(line)                  the one whole number a line writes (`natural.decision_numbers`), None for none or for two or more; a number glued to a mark, followed by a unit or beside a
                                     currency, and every number of a line that says a date or a time, is not a number of a decision. Caller: `ops_interpret._decided`.
   number_believed(line, number)     a decision or an act that a MODEL or the router chose is believed for `number` only when `number` is a whole number (not a bool) and is the one number the line
@@ -399,8 +398,23 @@ def private_line(line) -> bool:
     `anywhere_with_time` phrase and a time; or starts with a `verb_noun` verb, at most `verb_noun_gap_max` words and a noun; or starts with the head of a write shape and holds every need
     of that shape; or has no question mark, a clock or a relative time, a first word that is not a work starter and at most `bare_words_max` words once the time is taken out. A start is
     read after blanks, marks (an "@" too) and polite words. A time is what the time engine (runtime/natural_time.py) finds. Every step is wider than the matching step of
-    `natural.private`, which stays as the oracle of the tests until S41-11."""
+    the old `natural.private`, deleted by S41-11."""
     return private_kind(line) is not None
+
+
+def lead_kind(line):
+    """"write" when the line starts with a `lead_write` phrase (a new event), "reminder" when it starts with a `lead` phrase, None otherwise: only the two heads of the rule (S41-9's data), never its
+    time, noun or bare steps, so that a bare answer to a question ("amanha as 10h") is not a new request. Read after blanks, marks and polite words, as the rule reads a start. S41-11: what `ops_natural_writes`
+    asks to tell an answer from a new request, in place of the claimers of the tables."""
+    if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
+        return None
+    steps, _writes, _bare = _compiled_rule()
+    norm, _origin = nt.normalise(line)
+    if any(step["lead_write"] and step["lead_write"].match(norm) for step in steps):
+        return "write"
+    if any(step["lead"] and step["lead"].match(norm) for step in steps):
+        return "reminder"
+    return None
 
 
 def private_kind(line):

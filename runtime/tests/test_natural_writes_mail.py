@@ -26,6 +26,7 @@ import pytest
 
 import natural_writes_mail_cases as cases
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_channel_grants_mailbox import SENDER, accept
 from test_mailbox_write import ACCOUNTS, calls, effect_doc, item_of, rows, world  # noqa: F401  (`world` is the fixture the end-to-end tests use)
 

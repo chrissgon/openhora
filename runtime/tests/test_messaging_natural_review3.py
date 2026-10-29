@@ -16,21 +16,14 @@ from test_messaging_queue import WAIT, clocked, planner, settle  # noqa: F401  (
 from test_messaging_reminders import WITH, day, listed  # noqa: F401  (the day fixture: a clock and a lab with a reminders profile)
 from test_sender_profiles import OWNER
 from test_sender_profiles_bridge import OTHER, lab  # noqa: F401  (the lab fixture)
+import pytest
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 
 def open_ids(day):  # noqa: F811
     return sorted(r["id"] for r in day.all()["open"])
-
-
-def test_a_yes_with_courtesies_makes_the_confirmed_reminder_and_never_reaches_the_planning_agent(day, planner):  # noqa: F811
-    portuguese(day)
-    for number, answer in enumerate(pt.YES_ANSWERS, 1):
-        day.say(OWNER, pt.CONFIRM_OLEO)
-        assert day.texts(OWNER)[-1] == pt.CONFIRM_OLEO_ASK, answer
-        day.say(OWNER, answer)
-        assert day.texts(OWNER)[-1].startswith(f"Lembrete #{number}: amanhã, seg 19/10, às 13:00 (BRT): troca de óleo."), answer      # validate: allow english-only -- the expected Portuguese sentence
-    assert len(day.all()["open"]) == len(pt.YES_ANSWERS) and day.bridge.remind.drafts == {}
-    no_model(planner)
 
 
 def test_another_time_asks_for_when_and_keeps_the_words(day, planner):  # noqa: F811
@@ -80,107 +73,3 @@ def test_a_yes_after_the_question_expired_is_told_so_once_and_any_other_line_is_
     assert day.texts(OWNER)[-1] != pt.EXPIRED
 
 
-def test_a_question_that_replaces_an_open_one_says_so_and_a_made_reminder_does_not(day, planner):  # noqa: F811
-    portuguese(day)
-    day.say(OWNER, pt.CONFIRM_OLEO)
-    day.say(OWNER, pt.LINE_WEEK)
-    assert day.texts(OWNER)[-1] == pt.DISCARDED + " " + pt.ASK_WEEKDAY
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    assert day.texts(OWNER)[-1].startswith("Lembrete #1:") and pt.DISCARDED not in day.texts(OWNER)[-1]
-    day.say(OWNER, pt.LINE_WEEK)
-    assert day.texts(OWNER)[-1] == pt.ASK_WEEKDAY, "nothing was open: nothing was discarded"
-    no_model(planner)
-
-
-def test_a_week_with_no_day_asks_the_day_and_the_weekday_answered_is_the_one_of_that_week(day, planner):  # noqa: F811
-    portuguese(day)
-    day.say(OWNER, pt.LINE_WEEK)
-    assert day.texts(OWNER)[-1] == pt.ASK_WEEKDAY and day.all()["open"] == []
-    day.say(OWNER, "terça")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == "Entendi: ter 27/10 às 10:00: pagar o aluguel. Confirma? (sim / outra hora)" and day.all()["open"] == [], "the day it resolved to is always shown first"      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, "sim")
-    assert day.texts(OWNER)[-1] == "Lembrete #1: ter 27/10 às 10:00 (BRT): pagar o aluguel. Para desfazer: /forget 1."      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, pt.LINE_WEEK_NO_TIME)
-    day.say(OWNER, "sexta")
-    assert day.texts(OWNER)[-1] == "Sex 30/10: a que horas? Responda com uma hora, por exemplo 13h."
-    day.say(OWNER, "9")
-    assert day.texts(OWNER)[-1].startswith("Qual horário você quer: sex 30/10 às 09:00 ou sex 30/10 às 21:00?")      # validate: allow english-only -- the expected Portuguese sentence
-    say_yes(day, OWNER, "9h")
-    assert day.texts(OWNER)[-1] == "Lembrete #2: sex 30/10 às 09:00 (BRT): pagar o aluguel. Para desfazer: /forget 2."      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
-
-
-def test_a_scheduling_verb_with_the_word_reminder_makes_a_reminder_at_once(day, planner):  # noqa: F811
-    portuguese(day)
-    for number, line in enumerate((pt.LINE_MARCA_LEMBRETE, pt.LINE_AGENDE_LEMBRETE), 1):
-        say_yes(day, OWNER, line)
-        assert day.texts(OWNER)[-1] == f"Lembrete #{number}: amanhã, seg 19/10, às 09:00 (BRT): pagar o boleto. Para desfazer: /forget {number}."      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
-
-
-def test_a_number_after_another_word_is_shown_and_confirmed_before_it_cancels_anything(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    day.say(OWNER, "apaga o lembrete do 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.ASK_FORGET_ONE and open_ids(day) == [1]
-    day.say(OWNER, "não")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.KEPT and open_ids(day) == [1] and day.bridge.remind.drafts == {}, "nothing was cancelled, and it says so"
-    day.say(OWNER, "esquece o lembrete de 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    day.say(OWNER, "sim, pode")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.FORGOT_ONE and open_ids(day) == [] and day.bridge.remind.drafts == {}
-    day.say(OWNER, "desfaz")
-    assert day.texts(OWNER)[-1] == pt.RESTORED and open_ids(day) == [2]
-    day.say(OWNER, "cancela o lembrete 2")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Lembrete #2 cancelado:"), "an explicit number acts at once"      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
-
-
-def test_a_forget_by_the_hour_is_matched_against_the_moment_and_confirmed(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    say_yes(day, OWNER, pt.LINE_TWO_BOLETOS)
-    day.say(OWNER, "cancela o lembrete das 15h")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1] == "Cancelar o lembrete #2: amanhã, seg 19/10, às 15:00 (BRT): pagar 2 boletos? (sim / não)"      # validate: allow english-only -- the expected Portuguese sentence
-    assert open_ids(day) == [1, 2]
-    day.say(OWNER, "sim")
-    assert open_ids(day) == [1] and day.texts(OWNER)[-1].startswith("Lembrete #2 cancelado:")      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, pt.LINE_FORGET_NINE)
-    assert day.texts(OWNER)[-1] == pt.NO_MATCH and open_ids(day) == [1]
-    no_model(planner)
-
-
-def test_several_numbers_are_shown_together_and_all_are_cancelled_on_a_yes(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    say_yes(day, OWNER, pt.LINE_TWO_BOLETOS)
-    day.say(OWNER, "cancela o lembrete 1 e 2")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    question = day.texts(OWNER)[-1]
-    assert question.startswith("Cancelar estes lembretes? (sim / não)") and "#1 amanhã" in question and "#2 amanhã" in question      # validate: allow english-only -- the expected Portuguese sentence
-    assert open_ids(day) == [1, 2]
-    day.say(OWNER, "sim")
-    assert open_ids(day) == [] and day.bridge.remind.drafts == {}
-    day.say(OWNER, "cancela o lembrete 7 e 8")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert open_ids(day) == [] and day.texts(OWNER)[-1] == "Não há lembrete 7 esperando por você." and day.bridge.remind.drafts == {}      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
-
-
-def test_a_number_that_is_another_senders_is_answered_as_one_that_does_not_exist_even_to_be_confirmed(day, planner):  # noqa: F811
-    say_yes(day, OTHER, "remind me tomorrow at 1 pm to take the bread out")
-    day.say(OWNER, "cancel the reminder of 1")
-    assert day.bridge.remind.drafts == {} and "No reminder 1 waits for you." in day.texts(OWNER)[-1]
-    assert open_ids(day) == [1]
-
-
-def test_the_undo_brings_the_reminders_back_one_after_the_other_the_most_recent_first(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    say_yes(day, OWNER, pt.LINE_TWO_BOLETOS)
-    day.say(OWNER, "cancela o lembrete 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    day.say(OWNER, "cancela o lembrete 2")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    day.say(OWNER, pt.LINE_UNDO)
-    assert day.texts(OWNER)[-1].startswith("O lembrete #2 está de volta como #3")      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, pt.LINE_UNDO)
-    assert day.texts(OWNER)[-1].startswith("O lembrete #1 está de volta como #4")      # validate: allow english-only -- the expected Portuguese sentence
-    assert open_ids(day) == [3, 4]
-    day.say(OWNER, "desfaz o commit")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert settle(day) and planner.texts() == ["desfaz o commit"], "anything but the bare word goes on to the planning agent"      # validate: allow english-only -- the line above

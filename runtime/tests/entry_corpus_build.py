@@ -568,8 +568,9 @@ def replace_rows(lines: list, new_rows: list) -> list:
 
 def re_record(workers: int, commit: str, ids: list, cause: str) -> int:
     """Change the golden's rows named by `ids` (L64H; a reviewed decision, never an executor's own): refuses unless WB_ENTRY_RECORD_AGAIN is the guard phrase of `record`, a cause is given and every id
-    is a row of the golden; only those scenarios are run, each named row is replaced in place, every other line is byte for byte as it was, and the header keeps its hashes and its count and gains
-    one entry of `changes`: {"commit", "ids", "cause"}."""
+    is a row of the golden; only those scenarios are run, each named row is replaced in place, every other line is byte for byte as it was, and the header keeps its corpus hash and its count and gains
+    one entry of `changes`: {"commit", "ids", "cause"} (S41-11, A11-5: and, when the stand-in's table of answers is not the one the header names, the header's `answers_sha256` becomes the new one and
+    the entry says `{"answers_sha256": {"from", "to"}}`)."""
     import tempfile
     if os.environ.get("WB_ENTRY_RECORD_AGAIN") != "yes, a reviewed decision":
         print("a row of the golden is changed only as a reviewed decision: set WB_ENTRY_RECORD_AGAIN (runtime/README.md, 'The entry replay')", file=sys.stderr)
@@ -605,7 +606,16 @@ def re_record(workers: int, commit: str, ids: list, cause: str) -> int:
     if any(a != b for a, b in zip(rows, replaced) if json.loads(a)["id"] not in named) or len(rows) != len(replaced):
         print("a row that was not named changed: nothing written", file=sys.stderr)
         return 1
-    header["changes"] = list(header.get("changes", [])) + [{"commit": commit, "ids": list(ids), "cause": cause}]
+    change = {"commit": commit, "ids": list(ids), "cause": cause}
+    stood_in = {json.loads(path.read_text(encoding="utf-8"))["answers_sha256"] for path in Path(folder).glob("meta-*.json")}      # S41-11 (A11-5): the table of answers the stand-in read in this recording
+    if len(stood_in) != 1:
+        print("the recording did not name one table of answers: nothing written", file=sys.stderr)
+        return 1
+    answers_now = stood_in.pop()
+    if header.get("answers_sha256") != answers_now:      # a reviewed answers source (entry_kit.COVER_ANSWER_FILES, the cover set's golds) changed the table: the header names the new hash, and the entry says from which
+        change["answers_sha256"] = {"from": header.get("answers_sha256"), "to": answers_now}
+        header["answers_sha256"] = answers_now
+    header["changes"] = list(header.get("changes", [])) + [change]
     GOLDEN_FILE.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "\n".join(replaced) + "\n", encoding="utf-8")
     print(f"{len(ids)} rows of the golden replaced, recorded at {commit[:9]}", file=sys.stderr)
     return 0

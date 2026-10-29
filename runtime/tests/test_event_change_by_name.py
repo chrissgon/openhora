@@ -24,6 +24,9 @@ from test_event_lookup import CFG, OWNER, PT, alone, says
 from test_event_lookup import build as build_with_source, op_text
 from test_event_lookup_own_events import ASK_AGAIN, CARD_2, NO_SOURCE, Model, build, cards, fresh, made, pending, say, writes  # noqa: F401
 from test_ops_natural_writes import forget  # noqa: F401
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 event_lookup = st.load("event_lookup")
 ops = st.load("ops")
@@ -59,29 +62,6 @@ def problems(lines, wanted):
     return [w for w in wanted if not pk.said(body, w[0], CFG, **w[1])]
 
 
-def test_the_live_line_opens_the_change_card_of_that_event_at_ten_on_its_own_day_and_asks_no_model(world, monkeypatch):
-    the_event(world, monkeypatch)
-    model = Model(monkeypatch)
-    reply = say(world, LIVE)
-    assert says(reply, CARD_2) and not says(reply, HINT) and model.calls == 0, reply
-    lines = card_lines(world)
-    assert problems(lines, [OUTLOOK_ID, BEFORE, AFTER, ("CARD_CAL_KEPT_TITLE", {"title": "corte de cabelo"})]) == [], lines
-    assert pending(world, 2)["status"] == "open" and cards(world) == [1, 2], "the card waits for its approval"
-    assert writes(world) == [], "nothing was written to a calendar"
-    wrong = problems(lines, [("CARD_CAL_AFTER_WHEN", {"when": "Thu 22/10/2026 10:00-11:00 (America/Sao_Paulo)"})])
-    assert wrong != [], "vacuity: the next 10h (Thursday) is not the event's day"
-
-
-@pytest.mark.parametrize("line", ["mude o corte de cabelos para as 10h", "mude o corte cabelo para as 10h", "Muda o CORTE de cabelo pra as 10h"])      # validate: allow english-only -- the Portuguese line or sentence under test
-def test_a_typo_or_a_missing_word_still_finds_the_event_and_shows_which_one_it_found(world, monkeypatch, line):
-    the_event(world, monkeypatch)
-    reply = say(world, line)
-    exact = line == "Muda o CORTE de cabelo pra as 10h"          # every word of the title is in the line as typed; the others are near or lack a word      # validate: allow english-only -- the Portuguese line or sentence under test
-    lines = reply.splitlines()
-    assert says(lines[-1], CARD_2) and (len(lines) == 1 if exact else len(lines) == 2 and says(lines[0], FOUND)), reply
-    assert problems(card_lines(world), [OUTLOOK_ID, AFTER]) == []
-
-
 def test_the_ranking_rule_on_the_names(world):
     """Vacuity of the test above: the whole-word rule of S6 would have found nothing for the typo; the ranked rule finds it and says it is not exact."""
     import datetime
@@ -95,43 +75,10 @@ def test_the_ranking_rule_on_the_names(world):
     assert event_lookup.ranked([row], "mude o corte de cabelo para as 10h", "none", None, datetime.date(2026, 12, 1)) == [], "the window is thirty days"
 
 
-def test_two_close_names_are_listed_and_a_number_picks_with_the_clock_of_the_line_on_that_events_day(world, monkeypatch):
-    build(world, monkeypatch)
-    made(world, start="2026-10-23T14:00")
-    made(world, title="corte de barba", start="2026-10-24T09:00")
-    model = Model(monkeypatch)
-    reply = say(world, "mude o corte para as 10h")
-    lines = reply.splitlines()
-    assert len(lines) == 4 and alone(lines[0], "EV_MANY_CHANGE", PT) and alone(lines[3], "EV_MANY_CHANGE_HOW", PT, n=1), reply
-    # literal: a list row is data (number, day, time, title), not a sentence of the table
-    assert lines[1:3] == ["1. Fri 23/10/2026 14:00-15:00 · corte de cabelo", "2. Sat 24/10/2026 09:00-10:00 · corte de barba"], reply
-    assert cards(world) == [1, 2] and model.calls == 0
-    assert alone(say(world, "o 2"), "ACCT_CARD_SENT", PT, pending=3)
-    lines = card_lines(world, 3)
-    assert problems(lines, [("CARD_CAL_BEFORE_WHEN", {"when": "Sat 24/10/2026 09:00-10:00 (America/Sao_Paulo)"}), ("CARD_CAL_AFTER_WHEN", {"when": "Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)"})]) == [], lines
-    assert not pk.said("\n".join(lines), "CARD_CAL_AFTER_WHEN", CFG, when="Fri 23/10/2026 10:00-11:00 (America/Sao_Paulo)"), "vacuity: the first event's day is not the second's"
-
-
-def test_an_unrelated_name_says_that_no_event_with_a_similar_name_was_found_and_offers_the_agenda(world, monkeypatch):
-    build_with_source(world, monkeypatch)
-    model = Model(monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))          # a line the code does not claim goes to the model
-    reply = say(world, "mude o passeio com o cachorro para as 10h")
-    assert says(reply, NONE) and model.calls == 1 and rows(world) == ([], []), reply
-    assert "/" not in reply and "--" not in reply, "no command on a phone"
-    assert pk.said(say(world, "mude o corte de cabelo para as 10h").splitlines()[0], "EV_MANY_CHANGE", PT), "control: a name the calendar has is found there (two haircuts: listed)"
-
-
 def test_with_no_calendar_at_all_an_unrelated_name_says_what_is_searched(world, monkeypatch):
     the_event(world, monkeypatch)
     assert says(say(world, "mude o dentista para as 10h"), NO_SOURCE)
     assert cards(world) == [1]
-
-
-@pytest.mark.parametrize("line", ["remarca o evento 0 para as 10h", "remarca o evento para as 10h", "mude o evento dois para as 10h"])
-def test_a_typed_number_form_with_a_bad_number_still_gets_the_hint(world, monkeypatch, line):
-    the_event(world, monkeypatch)
-    model = Model(monkeypatch)
-    assert says(say(world, line), HINT) and model.calls == 0 and cards(world) == [1], line
 
 
 def test_cancel_by_name_works_the_same_through_the_model_and_without_it(world, monkeypatch):
@@ -145,17 +92,6 @@ def test_cancel_by_name_works_the_same_through_the_model_and_without_it(world, m
     reply = say(world, "cancela o corte de cabelo")          # a slot the removal does not have
     assert alone(reply, "ACCT_CARD_SENT", PT, pending=4) and model.calls == 3
     assert pending(world, 4)["status"] == "open" and writes(world) == []
-
-
-def test_nothing_is_approved_or_written_by_any_of_these_paths(world, monkeypatch):
-    the_event(world, monkeypatch)
-    Model(monkeypatch, op_text("event-cancel"))
-    for line in (LIVE, "mude o corte de cabelos para as 10h", "cancela o corte de cabelo", "mude o dentista para as 10h"):
-        say(world, line)
-    assert writes(world) == []
-    assert [pending(world, n)["status"] for n in cards(world)[1:]] == ["open"] * (len(cards(world)) - 1)
-    stored = json.dumps([pending(world, n) for n in cards(world)], ensure_ascii=False)
-    assert "mude o" not in stored.lower() and "cancela o" not in stored.lower(), "no word of the lines is stored"
 
 
 # --- the review round: the object of the line, two verbs, the clock on the event's day, all-day events -----------------------------------------------------------
@@ -227,15 +163,6 @@ def test_a_question_or_a_trailing_condition_asks_again(world, monkeypatch, line)
     assert alone(say(world, "cancela o corte de cabelo"), "ACCT_CARD_SENT", PT, pending=2), "vacuity: the same line without the question or the condition opens"
 
 
-def test_a_clock_that_has_passed_on_the_events_own_day_is_asked_never_opened(world, monkeypatch):
-    build(world, monkeypatch)
-    made(world, start="2026-10-21T16:00", account="microsoft")          # today, an hour after the clock of the test (15:00)
-    Model(monkeypatch)
-    assert says(say(world, "mude o corte de cabelo para as 10h"), PAST) and cards(world) == [1]
-    assert says(say(world, "mude o corte de cabelo para as 18h"), CARD_2), "vacuity: a clock still ahead on the same day opens"
-    assert problems(card_lines(world), [("CARD_CAL_AFTER_WHEN", {"when": "Wed 21/10/2026 18:00-19:00 (America/Sao_Paulo)"})]) == []
-
-
 def test_the_model_path_does_not_replace_a_time_the_check_accepted_with_a_past_one(world, monkeypatch):
     build(world, monkeypatch)
     made(world, start="2026-10-21T16:00", account="microsoft")
@@ -247,25 +174,6 @@ def test_the_model_path_does_not_replace_a_time_the_check_accepted_with_a_past_o
     assert says(event_lookup.open_event(world["path"], ctx, decision, "mude o corte de cabelo as 10h", OWNER, {}, writes_module, now), PAST) and cards(world) == [1]
     decision["time"]["local"], decision["spans"]["time"] = "2026-10-22T18:00", "as 18h"
     assert says(event_lookup.open_event(world["path"], ctx, decision, "mude o corte de cabelo as 18h", OWNER, {}, writes_module, now), CARD_2), "vacuity: a clock still ahead opens"
-
-
-def test_after_a_list_the_clock_on_the_picked_entrys_day_is_checked_too(world, monkeypatch):
-    build(world, monkeypatch)
-    made(world, start="2026-10-21T16:00")
-    made(world, start="2026-10-23T14:00")
-    Model(monkeypatch)
-    assert pk.said(say(world, "mude o corte de cabelo para as 10h").splitlines()[0], "EV_MANY_CHANGE", PT)
-    assert says(say(world, "o 1"), PAST) and cards(world) == [1, 2]
-    assert pk.said(say(world, "mude o corte de cabelo para as 10h").splitlines()[0], "EV_MANY_CHANGE", PT)
-    assert alone(say(world, "o 2"), "ACCT_CARD_SENT", PT, pending=3)
-
-
-def test_a_clock_change_of_an_all_day_event_is_refused_in_a_sentence_and_a_cancel_is_not(world, monkeypatch):
-    build(world, monkeypatch)
-    made(world, start="2026-10-23", account="google")
-    Model(monkeypatch, op_text("event-cancel"))
-    assert says(say(world, "mude o corte de cabelo para as 10h"), ALL_DAY) and cards(world) == [1]
-    assert says(say(world, "cancela o corte de cabelo"), CARD_2), "vacuity: the all-day event is found, only the clock is refused"
 
 
 def test_exact_means_the_title_is_the_line_title_span_and_an_exact_name_wins_a_tie():
