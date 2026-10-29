@@ -11,6 +11,7 @@ from phone_literals import PLAIN_REFUSAL  # noqa: E402
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask_mail import ASK_ONLY, MAILER, PROFILES as MAIL_PROFILES
 from test_ask import tree, two, write_config  # noqa: F401
@@ -25,7 +26,6 @@ ops_natural = st.load("ops_natural")
 ops_turn = st.load("ops_turn")
 drafts = st.load("drafts")
 natural = st.load("natural")
-phrases = st.load("phrases")
 project_config = st.load("project_config")
 
 
@@ -51,7 +51,7 @@ def test_a_reminder_to_bring_back_that_the_router_chose_is_not_brought_back_at_o
     router_says(world, OPERATION.format(name="reminder-restore") + f"Argument id: {rid}\n")
     out = phone(world, "owner", f"what about number {rid} then")
     assert [(r["id"], r["status"]) for r in reminders(world)] == before, "nothing was restored from a choice no code can check"
-    assert out["reply"] == phrases.phone("PHONE_RESTORE", None) and drafts.count() == 0, out["reply"]      # a phone is told where, never the command (LIVE-2)
+    assert pk.said(out["reply"], "PHONE_RESTORE", None, where="on the platform's page.") and drafts.count() == 0, out["reply"]      # a phone is told where, never the command (LIVE-2)
     ops.reminder_restore(world["path"], channel="messaging", sender=KEY["owner"])      # the typed command is as it was
     assert len(reminders(world)) == len(before) + 1
 
@@ -116,7 +116,7 @@ def test_help_in_words_is_answered_with_the_messaging_help_for_a_sender_who_may_
     assert rig.bridge.needs(line, rig.project, READER) is None, "it needs no group of its own"
     rig.bridge.handle(rig.update(READER, line))
     assert wait_for(lambda: len(rig.sent()) == 1), line
-    assert rig.sent()[0]["message"]["text"] == phrases.text("HELP", None) and st.calls(rig.world["adapter"]) == []
+    assert pk.said(rig.sent()[0]["message"]["text"], "HELP", None) and st.calls(rig.world["adapter"]) == []
     rig.bridge.handle(rig.update(READER, "Which market first?"))
     assert wait_for(lambda: len(rig.sent()) == 2) and rig.sent()[1]["message"]["text"] == PLAIN_REFUSAL, "a plain line still needs talk"
 
@@ -145,7 +145,7 @@ def test_a_reminder_to_forget_that_the_router_chose_is_confirmed_in_the_conversa
     rid = one_open_reminder(world)
     router_says(world, OPERATION.format(name="reminder-forget") + f"Argument id: {rid}\n")
     asked = ops.say(world["path"], f"esse lembrete {rid} pode sair", channel="chat")      # validate: allow english-only -- a Portuguese line is the input under test
-    assert "Cancel reminder #" in asked["reply"] and reminders(world, "open"), asked["reply"]
+    assert pk.said(asked["reply"], "NT_ASK_FORGET_TEXT", None, id=rid, text="dentist") and reminders(world, "open"), asked["reply"]
     done = ops.say(world["path"], "yes", channel="chat")
     assert "cancel" in done["reply"].lower() or "forgot" in done["reply"].lower() or str(rid) in done["reply"], done["reply"]
     assert reminders(world, "open") == [] and drafts.count() == 0
@@ -186,7 +186,7 @@ def test_the_question_of_a_routed_forget_shows_the_words_to_the_chat_and_the_con
     router_says(rig.world, OPERATION.format(name="reminder-forget") + f"Argument id: {rid}\n")
     rig.bridge.handle(rig.update(OWNER, f"esse lembrete {rid} pode sair"))      # validate: allow english-only -- a Portuguese line is the input under test
     assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive)
-    assert SECRET in rig.sent()[0]["message"]["text"] and rig.sent()[0]["message"]["text"].startswith("Cancel reminder #"), "the chat that asked reads the words"
+    assert pk.said(rig.sent()[0]["message"]["text"], "NT_ASK_FORGET_TEXT", None, id=rid, text=SECRET), "the chat that asked reads the words"
     assert not any(SECRET in t for t in seen_by_mcp(rig)), seen_by_mcp(rig)
     rig.bridge.handle(rig.update(OWNER, "yes"))
     assert wait_for(lambda: len(rig.sent()) == 2)
@@ -206,7 +206,7 @@ def test_a_reminder_in_a_language_no_table_ships_is_shown_to_no_reader_but_the_p
     for channel in ("mcp", "messaging", None):
         texts = [m["text"] for m in ops.conversation(rig.project["path"], channel=channel, sender=KEY["owner"])["messages"]]
         assert not any(SPANISH_WORDS in t or "paquete" in t for t in texts), (channel, texts)
-        assert phrases.text("NAT_PRIVATE_LINE", None) in texts, channel
+        assert any(pk.said(t, "NAT_PRIVATE_LINE", None) for t in texts), channel
     page = [m["text"] for m in ops.conversation(rig.project["path"], channel="page")["messages"]]
     assert SPANISH_LINE in page, "the person's own shell shows their line"
     ctx = ops_core.context(rig.project["path"])

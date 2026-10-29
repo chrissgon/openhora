@@ -14,6 +14,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import GRAPH_SEEDED, SEEDED, install_item_refs, rows, seed_google, seed_graph, world  # noqa: F401  (the calendar world)
@@ -35,7 +36,7 @@ BLIND = "telegram:7171"
 GROUPS = ["read", "talk", "calendar-write"]
 PROFILES = {"owner": GROUPS + ["mail-organize"], "reader": GROUPS + ["ask-mail", "mail-organize"], "plain": ["read", "talk"], "blind": ["talk", "calendar-write"]}      # mail-organize: for the stand-in family of test_natural_writes_family.py
 IDS = {"owner": "830461975213", "reader": "5151", "plain": "6161", "blind": "7171"}
-OPEN = "waits for your approval"
+OPEN = "waits for your approval"      # literal: other test files import this name; no assert in this file reads it any more (the card sentence is the key ACCT_CARD_SENT)
 
 
 @pytest.fixture
@@ -95,9 +96,10 @@ def body(world, out):
 def test_a_plain_line_opens_the_card_of_the_event_on_a_phone_and_writes_nothing(world, clock, spy):
     policy(world)
     out = phone(world, "marca dentista quinta às 10h no google")
-    assert out["asked"] is False and out["resend"] and OPEN in out["reply"]
-    lines = body(world, out).splitlines()
-    assert "Title: dentista" in lines and "When: Thu 22/10/2026 10:00-11:00 (America/Sao_Paulo)" in lines and "Account: google (pat@example.com)" in lines
+    assert out["asked"] is False and out["resend"] and pk.said(out["reply"], "ACCT_CARD_SENT", None, pending=out["resend"])
+    card = body(world, out)
+    assert pk.said(card, "CARD_CAL_TITLE", None, title="dentista") and pk.said(card, "CARD_CAL_WHEN", None, when="Thu 22/10/2026 10:00-11:00 (America/Sao_Paulo)")
+    assert pk.said(card, "CARD_ACCOUNT", None, account="google", address="pat@example.com")
     assert world["google"].requests == [] and world["graph"].requests == [], "a line opens a card: the approval writes"
     assert [kind for kind, _, _ in spy] == ["calendar-event"]
 
@@ -107,9 +109,9 @@ def test_the_terminal_shell_gets_the_cards_lines_and_the_approve_command_with_th
     terminal = say(world, "marca dentista quinta às 10h no google")["reply"]
     number = int(terminal.split("#")[1].split()[0])
     item = ops.pending(world["path"], number)
-    assert "Title: dentista" in terminal and item["payload_sha256"] in terminal and "cli.py approve" in terminal
+    assert pk.said(terminal, "CARD_CAL_TITLE", None, title="dentista") and item["payload_sha256"] in terminal and "cli.py approve" in terminal
     on_page = say(world, "marca dentista sexta às 10h no google", channel="page")["reply"]
-    assert OPEN in on_page and "cli.py approve" not in on_page, "the pending card is the page's"
+    assert pk.said(on_page, "ACCT_CARD_SENT", None) and "cli.py approve" not in on_page, "the pending card is the page's"
 
 
 def test_the_open_calls_the_operations_own_function_with_the_carrying_channel_and_sender_as_the_typed_command_does(world, clock, spy):
@@ -125,7 +127,7 @@ def test_the_open_calls_the_operations_own_function_with_the_carrying_channel_an
 def test_the_card_opens_from_every_channel_that_carries_the_line(world, clock, spy, channel, sender, carried):
     policy(world)
     reply = say(world, "marca dentista quinta às 10h no google", channel=channel, sender=sender)["reply"]
-    assert OPEN in reply and spy and spy[-1][2]["channel"] == carried, "the conversation's shell is the terminal's equal"
+    assert pk.said(reply, "ACCT_CARD_SENT", None) and spy and spy[-1][2]["channel"] == carried, "the conversation's shell is the terminal's equal"
 
 
 @pytest.mark.parametrize("line", ["marca dentista quinta às 10h no google", "remarca o evento 2 para sexta às 15h", "cancela o evento 4",
@@ -166,12 +168,12 @@ def test_a_refusal_of_the_start_is_the_reply_and_leaves_no_request_behind(world,
 def test_two_accounts_and_no_default_are_asked_and_the_answer_is_a_number_or_a_word(world, clock, spy):
     policy(world)
     first = phone(world, "marca dentista quinta às 10h")
-    assert first["asked"] is True and first["reply"].startswith("Which account?\n1. Google (pat@example.com)\n2. Microsoft") and spy == []
+    assert first["asked"] is True and pk.said(first["reply"].split("\n")[0], "NW_ASK_ACCOUNT", None) and first["reply"].startswith("Which account?\n1. Google (pat@example.com)\n2. Microsoft") and spy == []      # literal: the option lines (the accounts offered) are not a table sentence
     second = phone(world, "2")
-    assert second["resend"] and "Account: microsoft (casey.rivera@mail.example)" in body(world, second)
+    assert second["resend"] and pk.said(body(world, second), "CARD_ACCOUNT", None, account="microsoft", address="casey.rivera@mail.example")
     phone(world, "marca dentista sexta às 10h")
     third = phone(world, "google")
-    assert "Account: google (pat@example.com)" in body(world, third)
+    assert pk.said(body(world, third), "CARD_ACCOUNT", None, account="google", address="pat@example.com")
 
 
 def test_a_default_account_in_the_configuration_settles_it_and_is_a_widening_of_the_terminal(world, clock, spy):
@@ -185,9 +187,9 @@ def test_a_default_account_in_the_configuration_settles_it_and_is_a_widening_of_
     assert project_config.account_default(ops_core.context(world["path"])["cfg"]) == "microsoft"
     policy(world)
     out = phone(world, "marca dentista quinta às 10h")
-    assert out["asked"] is False and "Account: microsoft" in body(world, out)
+    assert out["asked"] is False and pk.said(body(world, out), "CARD_ACCOUNT", None, account="microsoft")
     named = phone(world, "marca dentista sexta às 10h no google")
-    assert "Account: google" in body(world, named), "a service word in the line beats the default"
+    assert pk.said(body(world, named), "CARD_ACCOUNT", None, account="google"), "a service word in the line beats the default"
 
 
 def test_a_default_that_names_an_account_the_file_does_not_list_is_refused():
@@ -201,19 +203,19 @@ def test_a_default_that_names_an_account_the_file_does_not_list_is_refused():
 def test_a_calendar_the_account_does_not_list_is_answered_with_the_ones_it_lists_never_a_near_match(world, clock, spy):
     policy(world)
     out = phone(world, "marca dentista quinta às 10h na agenda traballho no google")
-    assert out["asked"] and "I do not have the calendar 'traballho'" in out["reply"] and "personal, side" in out["reply"] and spy == []
+    assert out["asked"] and pk.said(out["reply"], "NW_ASK_CALENDAR", None, name="traballho", names="personal, side") and spy == []
     done = phone(world, "side")
-    assert "Calendar: side" in body(world, done)
+    assert pk.said(body(world, done), "CARD_CAL_CALENDAR", None, calendar="side")
     named = phone(world, "marca dentista sexta às 10h na agenda side no google")
-    assert "Calendar: side" in body(world, named)
+    assert pk.said(body(world, named), "CARD_CAL_CALENDAR", None, calendar="side")
 
 
 def test_a_missing_time_is_asked_and_the_answer_fills_the_start(world, clock, spy):
     policy(world)
     first = phone(world, "cria um evento viagem sexta no google")
-    assert first["asked"] and first["reply"].startswith("Fri 23/10: at what time?") and spy == []
+    assert first["asked"] and pk.said(first["reply"], "NT_ASK_TIME_DAY", None, day="Fri 23/10") and spy == []
     done = phone(world, "8h")
-    assert "When: Fri 23/10/2026 08:00-09:00" in body(world, done) and "Title: viagem" in body(world, done)
+    assert pk.said(body(world, done), "CARD_CAL_WHEN", None, when="Fri 23/10/2026 08:00-09:00 (America/Sao_Paulo)") and pk.said(body(world, done), "CARD_CAL_TITLE", None, title="viagem")
 
 
 def test_a_missing_title_is_asked_with_the_day_and_the_answer_is_the_title_verbatim(world, clock, spy):
@@ -221,7 +223,7 @@ def test_a_missing_title_is_asked_with_the_day_and_the_answer_is_the_title_verba
     first = phone(world, "marca quinta às 10h no google")
     assert first["asked"] and "Thu 22/10" in first["reply"] and spy == []
     done = phone(world, "Dentista da Júlia, às pressas")
-    assert "Title: Dentista da Júlia, às pressas" in body(world, done)
+    assert pk.said(body(world, done), "CARD_CAL_TITLE", None, title="Dentista da Júlia, às pressas")
 
 
 def test_a_time_the_engine_can_read_two_ways_is_asked_and_the_pick_opens_the_card(world, clock, spy):
@@ -237,7 +239,7 @@ def test_a_range_gives_the_end_and_an_end_before_the_start_is_asked_not_swapped(
     ranged = phone(world, "marca yoga amanhã das 7h às 8h30 no google")
     assert "Tue 20/10/2026 07:00-08:30" in body(world, ranged)
     first = phone(world, "marca yoga amanhã das 8h às 7h no google")
-    assert first["asked"] and "after the start" in first["reply"]
+    assert first["asked"] and pk.said(first["reply"], "NW_ASK_END", None)
     late = phone(world, "6h")
     assert late["asked"] is True, "an end before the start is asked again"
     done = phone(world, "9h")
@@ -298,13 +300,13 @@ def test_vacuity_the_scope_left_out_the_interpreter_on_gives_the_sentence_back(w
 def test_a_reading_the_engine_is_unsure_of_opens_the_card_with_a_line_that_says_which_part_to_check(world, clock):
     policy(world)
     out = phone(world, "marca festa de natal quinta às 10h no google")
-    assert out["reply"].startswith("Check the date: I understood Thu 22/10 at 10:00.") and OPEN in out["reply"]
+    assert pk.said(out["reply"], "NW_CHECK_DATE", None, when="Thu 22/10 at 10:00") and pk.said(out["reply"], "ACCT_CARD_SENT", None)
 
 
 def test_a_time_of_day_that_has_passed_says_so_before_the_card(world, clock):
     policy(world)
     out = phone(world, "marca dentista às 8h no google")
-    assert out["reply"].startswith("08:00 today has passed: tomorrow, Tue 20/10, at 08:00") and "Tue 20/10/2026 08:00" in body(world, out)
+    assert pk.said(out["reply"], "NT_ROLLED", None, time="08:00", when="tomorrow, Tue 20/10, at 08:00") and "Tue 20/10/2026 08:00" in body(world, out)
 
 
 def test_a_moment_is_pinned_when_the_slots_are_filled_not_when_the_card_is_approved(world, clock):
@@ -325,9 +327,9 @@ def test_a_change_names_the_event_by_the_number_in_the_line_and_the_card_shows_i
     install_item_refs(world, monkeypatch, {"agenda#2": {"id": SEEDED, "calendar": "pat@example.com", "account": "google"}})
     out = phone(world, "remarca o evento 2 para sexta às 15h", READER)
     lines = body(world, out).splitlines()
-    assert any(line.startswith("After: When: Fri 23/10/2026 15:00") for line in lines)
+    assert any(pk.said(line, "CARD_CAL_AFTER_WHEN", None) and "Fri 23/10/2026 15:00" in line for line in lines)
     removal = phone(world, "cancela o evento 2", READER)
-    assert "Removing, title: Dentist" in body(world, removal)
+    assert pk.said(body(world, removal), "CARD_CAL_DROP_TITLE", None, title="Dentist")
     assert world["google"].events and not [r for r in world["google"].requests if r["method"] in ("PATCH", "DELETE")], "a card writes nothing"
 
 
@@ -338,7 +340,7 @@ def test_a_removal_with_no_number_asks_which_event_and_the_answer_is_a_number(wo
     first = phone(world, "cancela a reunião", READER)
     assert first["asked"] and "Which event?" in first["reply"]
     done = phone(world, "3", READER)
-    assert "Removing, title: Dentist" in body(world, done)
+    assert pk.said(body(world, done), "CARD_CAL_DROP_TITLE", None, title="Dentist")
 
 
 def test_two_calendar_sources_are_listed_and_asked_and_none_is_said(world, clock, monkeypatch):
@@ -358,7 +360,7 @@ def test_a_sender_who_may_not_read_a_snapshot_is_told_so_and_nothing_of_the_cale
     install_item_refs(world, monkeypatch, {"agenda-privada#2": {"id": SEEDED, "calendar": "pat@example.com", "account": "google"}})
     out = phone(world, "cancela o evento 2")
     assert out["reply"] == phrases.text("NW_REF_NOT_READABLE", None) and "agenda-privada" not in out["reply"] and spy == []
-    assert OPEN in phone(world, "cancela o evento 2", READER)["reply"]
+    assert pk.said(phone(world, "cancela o evento 2", READER)["reply"], "ACCT_CARD_SENT", None)
 
 
 # --- the limit --------------------------------------------------------------------------------------------------------------------------------------
@@ -389,15 +391,15 @@ def test_a_write_the_router_named_is_read_again_by_code_and_its_when_is_never_us
     ctx = ops_core.context(world["path"])
     extras = {}
     out = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": None}, "cria um evento viagem no google", "messaging", SENDER, extras)
-    assert spy == [] and "When is the event" in out, "a time the line's words do not give is asked, never the router's"
+    assert spy == [] and pk.said(out, "NW_ASK_TIME", None, title="viagem"), "a time the line's words do not give is asked, never the router's"
     refused = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": "2026-10-23 08:00"}, "cria um evento viagem no google", "messaging", SENDER, {})
-    assert spy == [] and "could not match" in refused, "a router time the line does not hold is not believed at all"
+    assert spy == [] and pk.said(refused, "NAT_NOT_BELIEVED", None), "a router time the line does not hold is not believed at all"
     again = ops_natural_writes.open_line(world["path"], ctx, "marca dentista quinta às 10h no google", "messaging", SENDER, {}, hint="event-create")
-    assert spy[-1][1]["start"] == "2026-10-22T10:00" and OPEN in again
+    assert spy[-1][1]["start"] == "2026-10-22T10:00" and pk.said(again, "ACCT_CARD_SENT", None)
     assert ops_natural_writes.open_line(world["path"], ctx, "marca dentista quinta às 10h no google", "messaging", SENDER, {}, hint="file-save") is None
     spy.clear()
     via_router = ops_natural.run_routed(world["path"], ctx, {"name": "event-create", "args": {}, "when": None}, "marca dentista quinta às 10h no google", "messaging", SENDER, {})
-    assert OPEN in via_router and spy[-1][1]["title"] == "dentista"
+    assert pk.said(via_router, "ACCT_CARD_SENT", None) and spy[-1][1]["title"] == "dentista"
 
 
 def test_a_line_in_words_never_uses_a_standing_approval_and_never_approves(world, clock, monkeypatch):
@@ -421,28 +423,28 @@ def test_a_line_in_words_never_uses_a_standing_approval_and_never_approves(world
 def test_a_range_written_with_bare_numbers_is_read_as_a_range_and_the_card_shows_both_ends(world, clock, spy, line, title, start, end):
     policy(world)
     out = phone(world, line)
-    assert OPEN in out["reply"] and spy[-1][1]["title"] == title and spy[-1][1]["start"] == start and spy[-1][1]["end"] == end
+    assert pk.said(out["reply"], "ACCT_CARD_SENT", None) and spy[-1][1]["title"] == title and spy[-1][1]["start"] == start and spy[-1][1]["end"] == end
 
 
 def test_a_number_left_in_the_title_is_checked_before_the_card_and_the_title_is_never_cut_silently(world, clock, spy):
     policy(world)
     out = phone(world, "marca prova 20 às 14h no google")
-    assert out["reply"].startswith("Check the date: I understood") and spy[-1][1]["title"] == "prova 20"
+    assert pk.said(out["reply"], "NW_CHECK_DATE", None) and spy[-1][1]["title"] == "prova 20"
 
 
 def test_a_time_that_has_passed_today_is_checked_before_the_card(world, clock, spy):
     policy(world)
     out = phone(world, "marca dentista hoje às 8h no google")
-    assert out["reply"].startswith("Check the date: I understood") and spy[-1][1]["start"] == "2026-10-19T08:00"
+    assert pk.said(out["reply"], "NW_CHECK_DATE", None) and spy[-1][1]["start"] == "2026-10-19T08:00"
 
 
 def test_a_date_that_does_not_exist_is_asked_again_with_a_plain_sentence_and_the_time_is_kept(world, clock, spy):
     policy(world)
     for line in ("marca dentista 31/02 às 10h no google", "marca dentista 10/20 às 10h no google"):
         out = phone(world, line)
-        assert out["asked"] and out["reply"] == "That date does not exist. Which day is the event?" and spy == [] and "error" not in out["reply"]
+        assert out["asked"] and pk.said(out["reply"], "NW_ASK_DAY_INVALID", None) and out["reply"].count("\n") == 0 and spy == [] and "error" not in out["reply"]
         done = phone(world, "sexta")
-        assert OPEN in done["reply"] and spy[-1][1]["start"] == "2026-10-23T10:00" and spy[-1][1]["title"] == "dentista"
+        assert pk.said(done["reply"], "ACCT_CARD_SENT", None) and spy[-1][1]["start"] == "2026-10-23T10:00" and spy[-1][1]["title"] == "dentista"
         spy.clear()
 
 
@@ -472,10 +474,10 @@ def test_a_zone_with_a_clock_change_the_hour_that_does_not_exist_is_refused_in_a
         Clock(monkeypatch, wall="2026-10-19 09:00", zone=zoneinfo.ZoneInfo("Europe/Lisbon"))
         policy(world)
         twice = phone(world, "marca dentista 25/10 às 01:30 no google")
-        assert OPEN in twice["reply"] and spy[-1][1]["start"] == "2026-10-25T01:30" and "Europe/Lisbon" in body(world, twice)
+        assert pk.said(twice["reply"], "ACCT_CARD_SENT", None) and spy[-1][1]["start"] == "2026-10-25T01:30" and "Europe/Lisbon" in body(world, twice)
         spy.clear()
         missing = phone(world, "marca dentista 28/03 às 01:30 no google")
-        assert OPEN not in missing["reply"] and "does not exist" in missing["reply"] and "Traceback" not in missing["reply"]
+        assert not pk.said(missing["reply"], "ACCT_CARD_SENT", None) and "does not exist" in missing["reply"] and "Traceback" not in missing["reply"]
     finally:
         monkeypatch.undo()          # the zone of the process is put back by this test itself
         time.tzset()

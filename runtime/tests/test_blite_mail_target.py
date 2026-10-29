@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_send_own_account import world  # noqa: F401  (the mail desk, the stand-in mailers and the accepted configuration)
@@ -169,7 +170,7 @@ def test_the_words_of_the_line_choose_one_message_and_the_card_is_the_reply_to_i
     reply, extras, called, started = open_card(world, monkeypatch, "mail-reply", spans, LINE)
     assert [(name, args["message"], args["text"]) for name, args in called] == [("mail-reply", "inbox#1", BODY)], "only Carla's message about the contract has all four words"
     lines = pending(world, extras["resend"])["body"].splitlines()
-    assert lines[2].startswith(f"Reply to: {CARLA}, the sender of inbox#1") and "Subject: Re: Contrato de locação" in lines, "the card names the sender the index recorded"      # validate: allow english-only -- an invented Portuguese subject
+    assert pk.said(lines[2], "CARD_MAIL_REPLY_TO_AT", None, address=CARLA, ref="inbox#1") and any(pk.said(line, "CARD_MAIL_SUBJECT_REPLY", None, subject="Re: Contrato de locação") for line in lines), "the card names the sender the index recorded"      # validate: allow english-only -- an invented Portuguese subject
     assert extras["resend"] and started and started[0]["args"].get("reply") == "inbox#1"
 
 

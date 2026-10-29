@@ -12,6 +12,7 @@ import types
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (a real project to read the configuration of)
@@ -96,7 +97,8 @@ def test_a_need_the_family_declares_is_answered_by_the_family_with_the_options_t
     monkeypatch.setattr(ops_natural_writes, "_call_operation", lambda project, op, args, channel, sender: (calls.append((op, args, channel, sender)),
                         {"request": 1, "task": 1, "pending": 7, "word": "mailbox", "on_cards": True})[1])
     asked = ops.natural_write(world["path"], "arquiva o e-mail 3", channel="messaging", sender=SENDER)
-    assert asked["asked"] and asked["reply"].endswith("1. Bia · Appointment\n2. Bank · Statement") and calls == []
+    rows_shown = asked["reply"].split("\n")[-2:]
+    assert asked["asked"] and pk.said(rows_shown[0], "MR_ROW", None, n=1, box="Bia", line="Appointment") and pk.said(rows_shown[1], "MR_ROW", None, n=2, box="Bank", line="Statement") and calls == []
     wrong = ops.natural_write(world["path"], "1", channel="messaging", sender=SENDER)
     assert wrong["asked"] is True, "the family answers with what the person was shown (the values), not with the place in the list"
     done = ops.natural_write(world["path"], "bills", channel="messaging", sender=SENDER)
@@ -118,7 +120,7 @@ def test_every_question_and_answer_of_a_family_is_stored_as_a_neutral_word_in_th
     ctx = ops_core.context(world["path"])
     rows = [(m["role"], m["text"]) for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=100)]
     assert "Bia" not in str(rows) and "Bank" not in str(rows), "nothing of the family's questions or answers is in the conversation"
-    assert ops_natural.stored_line(ctx, "arquiva o e-mail 3") == "(a request to your accounts)", "the neutral word the store keeps for such a line"
+    pk.assert_said(ops_natural.stored_line(ctx, "arquiva o e-mail 3"), "NW_PRIVATE_LINE", None)      # the neutral word the store keeps for such a line
 
 
 def test_a_comma_after_a_polite_word_does_not_hide_the_head():

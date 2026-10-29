@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_tasks_ops import (GOOGLE, MICROSOFT, OTHER, SENDER, approve, calls_of, configure, effect_doc, fg, fm, item_of, open_decisions, world, writes)  # noqa: F401  (the fixture and its helpers)
 
@@ -101,7 +102,7 @@ def test_a_line_that_adds_a_task_opens_the_card_and_writes_nothing_before_the_ap
     started = {"pending": said.get("resend"), "task": item_of(ready, {"pending": said.get("resend")})["task_id"]}
     doc = effect_doc(ready, started)
     assert doc["operation"] == "add" and doc["title"] == "comprar café" and doc["list"] == "tarefas" and doc["asker"] == SENDER and doc["account"] == "google"
-    assert item_of(ready, started)["title"] == "Tasks: add a task"
+    pk.assert_said(item_of(ready, started)["title"], "TITLE_TODO_ADD")
     assert writes(ready["google"]) == [] and writes(ready["microsoft"]) == []
     done = approve(ready, started, channel="messaging", sender=SENDER)
     assert done["result"]["done"] is True
@@ -197,7 +198,7 @@ def test_the_list_asks_first_and_then_numbers_the_tasks_and_a_number_completes_t
     asked = say(ready, "o que tem na minha lista de tarefas?")
     assert asked["plan_confirm"] and phrases.text("UNDERSTOOD_TODO_LIST", PT["cfg"]) in asked["reply"] and calls_of(google) == [], "nothing is read before the person's yes"
     listed = say(ready, "sim", plan_ok=asked["plan_confirm"])
-    assert "1. comprar café" in listed["reply"] and "2. ligar para o dentista" in listed["reply"] and "3. comprar pão" in listed["reply"] and "1. enviar o relatório" in listed["reply"]  # validate: allow english-only -- a Portuguese line is the input under test
+    assert all(pk.said(listed["reply"], "TODO_ITEM", PT["cfg"], n=n, title=title) for n, title in ((1, "comprar café"), (2, "ligar para o dentista"), (3, "comprar pão"), (1, "enviar o relatório")))      # validate: allow english-only -- the expected Portuguese words of the reply
     assert phrases.text("TODO_HEAD", PT["cfg"], service="Google Tasks", list="tarefas") in listed["reply"] and fg.DEFAULT_LIST not in listed["reply"] and "t1" not in listed["reply"]
     assert writes(google) == []
     answer_op(ready, "todo-done", item="2", service="google")
@@ -344,7 +345,7 @@ def test_a_sender_without_tasks_read_is_never_shown_a_title_and_cannot_approve_a
     item = item_of(ready, done)
     for held in (False, set(), {"ask-mail"}):
         shown = cards.effect_card_text(item, ctx["cfg"], held, False, False)
-        assert "ligar para o dentista" not in shown and phrases.text("CARD_HIDDEN_NOTE_TODO", ctx["cfg"]) in shown and "Lista: tarefas (Google Tasks)" in shown, held
+        assert "ligar para o dentista" not in shown and phrases.text("CARD_HIDDEN_NOTE_TODO", ctx["cfg"]) in shown and pk.said(shown, "CARD_TODO_LIST", ctx["cfg"], list="tarefas", service="Google Tasks"), held
     assert approve(ready, done)["result"]["done"] is True      # the terminal shows the whole card
 
 

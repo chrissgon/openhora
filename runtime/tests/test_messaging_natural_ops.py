@@ -14,6 +14,7 @@ import shutil
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_messaging_ask import FIXTURE, wait_for
@@ -28,7 +29,6 @@ bridge = st.load("messaging_bridge")
 ledgers = st.load("messaging_ledger")
 providers = st.load("messaging_provider")
 shell_kit = st.load("shell_kit")
-phrases = st.load("phrases")
 drafts = st.load("drafts")
 ops_natural = st.load("ops_natural")
 
@@ -92,7 +92,7 @@ def test_a_decision_named_in_words_is_answered_and_its_card_goes_out_again_and_n
     assert any(s["message"].get("actions") for s in rig.sent())
     cards = len([s for s in rig.sent() if s["message"].get("actions")])
     rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
-    assert wait_for(lambda: phrases.text("NAT_DECISION_CARD", None, id=1) in [s["message"]["text"] for s in rig.sent()])
+    assert wait_for(lambda: any(pk.said(s["message"]["text"], "NAT_DECISION_CARD", None, id=1) for s in rig.sent()))
     assert len([s for s in rig.sent() if s["message"].get("actions")]) == cards + 1
     assert ops.pending(rig.project["path"], 1)["status"] == "open"
     assert ops.status(rig.project["path"])["requests"][0]["state"] == "requested", "nothing was approved: the tasks were not made"
@@ -105,12 +105,12 @@ def test_a_reminder_the_router_chose_waits_in_the_one_store_and_the_bridges_own_
     router_says(rig.world, "Route: none (operation)\nOperation: remind\nArgument text: recoger el paquete en la porteria\nWhen: 2026-10-23 17:00\n")
     rig.bridge.handle(rig.update(OWNER, "recuerdame el viernes a las 17 recoger el paquete en la porteria"))
     assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive)
-    assert rig.sent()[0]["message"]["text"] == "I understood: Fri 23/10 at 17:00: recoger el paquete en la porteria. Confirm? (yes / another time)"
+    pk.assert_said(rig.sent()[0]["message"]["text"], "NT_CONFIRM_TEXT", None, when="Fri 23/10 at 17:00", text="recoger el paquete en la porteria")
     assert set(rig.bridge.remind.drafts) == {OWNER} and drafts.count() == 1, "the bridge sees the question in its own view of the one store"
     assert ops.reminders_read(rig.project["path"], channel="terminal")["open"] == []
     rig.bridge.handle(rig.update(OWNER, "yes"))
     assert wait_for(lambda: len(rig.sent()) == 2)
-    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: Fri 23/10 at 17:00 (BRT): recoger el paquete en la porteria")
+    pk.assert_said(rig.sent()[1]["message"]["text"], "NT_SET_TEXT", None, id=1, when="Fri 23/10 at 17:00 (BRT)", text="recoger el paquete en la porteria")
     assert drafts.count() == 0 and [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == ["recoger el paquete en la porteria"]
     assert st.calls(rig.world["adapter"]) == ["core-orchestrator 1"], "the yes ran no model"
 
@@ -139,6 +139,6 @@ def test_a_foreign_language_yes_confirms_a_routed_reminder_through_the_real_brid
     router_says(rig.world, "Route: none (direct)\nNext: nothing\n")
     rig.bridge.handle(rig.update(OWNER, yes))
     assert wait_for(lambda: len(rig.sent()) == 2), language
-    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: ") and text in rig.sent()[1]["message"]["text"], rig.sent()[1]["message"]["text"]
+    assert pk.said(rig.sent()[1]["message"]["text"], "NT_SET_TEXT", None, id=1, text=text), rig.sent()[1]["message"]["text"]
     assert [r["text"] for r in ops.reminders_read(rig.project["path"], channel="terminal")["open"]] == [text]
     assert drafts.count() == 0

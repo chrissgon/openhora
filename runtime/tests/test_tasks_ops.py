@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 
@@ -139,8 +140,9 @@ def test_a_typed_add_is_one_card_and_a_write_only_after_the_approval_of_the_hash
     assert started["status"] == "card" and started["word"] == "tasks" and started["on_cards"] is True
     assert writes(google) == [], "the preparation only reads and previews: nothing is written before the approval"
     item, doc = item_of(world, started), effect_doc(world, started)
-    assert item["kind"] == "effect" and item["title"] == "Tasks: add a task" and item["payload"]["card"]
-    assert item["body"] == phrases.card_text(item["payload"]["card"]) and "Task: comprar leite" in item["body"] and "List: tarefas (Google Tasks)" in item["body"]
+    assert item["kind"] == "effect" and pk.said(item["title"], "TITLE_TODO_ADD") and item["payload"]["card"]
+    assert item["body"] == phrases.card_text(item["payload"]["card"]) and pk.said(item["body"], "CARD_TODO_TITLE", title="comprar leite")
+    assert pk.said(item["body"], "CARD_TODO_LIST", list="tarefas", service="Google Tasks")
     assert doc["effect"] == "tasks" and doc["operation"] == "add" and doc["title"] == "comprar leite" and doc["list"] == "tarefas" and doc["list_id"] == "default"
     assert doc["address"] == fg.ACCOUNT and doc["asker"] == "terminal" and item["payload_sha256"] == tasks_document.sha(effects._text(doc))
     done = approve(world, started)
@@ -237,7 +239,7 @@ def test_a_completion_by_the_words_of_the_title_is_one_card_and_one_patch_after_
     assert started["status"] == "card" and started["origin"] == "grounded" and started["word"] == "tasks"
     assert writes(google) == []
     item, doc = item_of(world, started), effect_doc(world, started)
-    assert item["title"] == "Tasks: complete a task" and "Task: ligar para o dentista" in item["body"] and doc["task_id"] == "t2" and doc["operation"] == "complete"
+    assert pk.said(item["title"], "TITLE_TODO_DONE") and pk.said(item["body"], "CARD_TODO_NOW_TITLE", title="ligar para o dentista") and doc["task_id"] == "t2" and doc["operation"] == "complete"
     assert doc["base_etag"] == google.tasks[fg.DEFAULT_LIST]["t2"]["etag"] and doc["title"] == "ligar para o dentista" and doc["list"] == "tarefas"
     assert "t2" not in item["body"] and doc["base_etag"].strip('"') not in item["body"], "no id and no version is on the card (limit L62)"
     done = approve(world, started)

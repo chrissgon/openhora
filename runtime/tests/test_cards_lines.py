@@ -12,6 +12,7 @@ import string
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 phrases = st.load("phrases")
@@ -104,13 +105,17 @@ def test_a_placeholder_with_another_format_spec_in_the_other_column_is_found_by_
 def test_the_card_is_said_line_by_line_in_portuguese_and_the_persons_words_are_not_changed(table):
     item = effect(lines())
     said = build(item, PT)["message"]["text"]
-    assert "Conta: google (ana@mail.example)" in said and "Título: " + TITLE_WORDS in said and "Ninguém é convidado: nenhum e-mail é enviado." in said
-    assert "Account: google" not in said and "\nTitle: " not in said and "No one is invited" not in said
+    assert pk.said(said, "CARD_ACCOUNT", PT, account="google", address="ana@mail.example") and pk.said(said, "CARD_TEST_TITLE", PT, title=TITLE_WORDS) and pk.said(said, "CARD_TEST_NOBODY", PT)
+    assert not pk.said(said, "CARD_ACCOUNT", None) and not pk.said(said, "CARD_TEST_TITLE", None) and not pk.said(said, "CARD_TEST_NOBODY", None)
 
 
 def test_the_english_lines_are_the_stored_body_and_an_english_project_shows_it_unchanged(table):
     card = lines()
-    assert phrases.card_text(card) == "\n".join(["Account: google (ana@mail.example)", "Title: " + TITLE_WORDS, "No one is invited: no e-mail is sent."])
+    body = phrases.card_text(card).split("\n")
+    assert len(body) == 3
+    pk.assert_said(body[0], "CARD_ACCOUNT", None, account="google", address="ana@mail.example")
+    pk.assert_said(body[1], "CARD_TEST_TITLE", None, title=TITLE_WORDS)
+    pk.assert_said(body[2], "CARD_TEST_NOBODY", None)
     item = effect(card)
     for cfg in (None, {}, {"language": "en"}, {"language": "fr"}):         # a tag with no table says English
         said = build(item, cfg)["message"]["text"]
@@ -136,7 +141,7 @@ def test_a_long_card_goes_as_a_document_with_the_translated_text(table):
     long_title = "x" * 5000
     item = effect(lines(long_title))
     card = cards.build("northwind", item, {**CAPS, "documents": True}, POLICY, "text", None, operations=operations, cfg=PT)
-    assert card["message"]["document"] is not None and "Título: " + long_title in card["message"]["document"]["text"] and card["whole"] is True
+    assert card["message"]["document"] is not None and pk.said(card["message"]["document"]["text"], "CARD_TEST_TITLE", PT, title=long_title) and card["whole"] is True
 
 
 def test_the_count_notice_carries_nothing_of_the_card(table):
@@ -158,26 +163,26 @@ def test_the_count_notice_carries_nothing_of_the_card(table):
 def test_a_card_that_is_not_well_formed_falls_back_to_the_stored_body(table, card):
     item = effect(card, body="Account: g (a)\nthe stored body")
     said = build(item, PT)["message"]["text"]
-    assert "the stored body" in said and "Conta:" not in said
+    assert "the stored body" in said and not pk.said(said, "CARD_ACCOUNT", PT)
 
 
 def test_a_card_whose_english_lines_are_not_the_stored_body_falls_back_too(table):
     """A card that says one thing while the decision's body says another is never shown: the stored body is."""
     item = effect(lines(), body="Account: google (ana@mail.example)\nTitle: something else\nNo one is invited: no e-mail is sent.")
     said = build(item, PT)["message"]["text"]
-    assert "something else" in said and "Conta:" not in said and "Título:" not in said
+    assert "something else" in said and not pk.said(said, "CARD_ACCOUNT", PT) and not pk.said(said, "CARD_TEST_TITLE", PT)
 
 
 def test_a_card_on_a_decision_that_is_not_an_effect_is_ignored(table):
     other = {**effect(lines()), "kind": "question", "actions": ["answered"], "payload": {"card": lines()}}
     said = build(other, PT)["message"]["text"]
-    assert "Conta:" not in said
+    assert not pk.said(said, "CARD_ACCOUNT", PT)
 
 
 def test_the_values_of_the_fields_are_never_parsed_as_sentences(table):
     """Braces in a person's words are text: the table's format is applied to the template, never to a value."""
     card = [["CARD_TEST_TITLE", {"title": "{title} {0} {account!r} %s {{}}"}]]
-    assert phrases.card_text(card, PT) == "Título: {title} {0} {account!r} %s {{}}"
+    pk.assert_said(phrases.card_text(card, PT), "CARD_TEST_TITLE", PT, title="{title} {0} {account!r} %s {{}}")
     assert "{title} {0}" in build(effect(card), PT)["message"]["text"]
 
 
@@ -212,4 +217,4 @@ def test_a_field_declared_multi_line_may_hold_line_ends_and_tabs_but_nothing_hid
 def test_a_hidden_character_card_is_not_said_in_the_other_language_the_stored_body_is_shown(table):
     item = effect([["CARD_TEST_TITLE", {"title": "Dentist \u202e"}]], body="Title: Dentist \u202e")
     said = build(item, PT)["message"]["text"]
-    assert "Título:" not in said and "Title: Dentist" in said
+    assert not pk.said(said, "CARD_TEST_TITLE", PT) and pk.said(said, "CARD_TEST_TITLE", None, title="Dentist \u202e")

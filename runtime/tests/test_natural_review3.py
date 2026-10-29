@@ -14,6 +14,7 @@ import datetime
 import pytest
 
 import natural_cases_pt_br as pt
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import made, said_yes
@@ -298,7 +299,7 @@ def test_the_undo_brings_back_the_most_recent_cancelled_reminder_that_is_not_alr
     assert (first["restored"], second["restored"]) == (2, 1), "the last one cancelled first, then the one before it: each has its own ten minutes"
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 2 is already back."
+    pk.assert_said(str(e.value), "RM_ALREADY_BACK", None, n=2)
     assert sorted(r["text"] for r in world.rows("open")) == ["call number 1", "call number 2"]
 
 

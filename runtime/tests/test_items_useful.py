@@ -13,12 +13,16 @@ import logging
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, world  # noqa: F401  (the calendar world and its real snapshots)
 from test_items_fresh import ask, mail_reads, project  # noqa: F401
 from test_ops_natural_writes import READER  # noqa: F401
 from test_reminders import Clock
+
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
 
 ops = st.load("ops")
 ops_sources = st.load("ops_sources")
@@ -65,9 +69,10 @@ def test_a_refresh_that_finds_the_listing_unchanged_says_it_was_checked_now_and_
     reply = ask(world, "list my emails")
     assert len(mail_reads(snaps)) == 1, "the provider was asked once"
     assert ops.items(world["path"], kind="mail", channel="terminal")["sources"][0]["read_at"] == before, "the listing did not change: no new version"
-    assert reply.splitlines()[0] == "Gmail (checked at 16:59):" and "read at" not in reply
+    pk.assert_said(reply.splitlines()[0], "NW_ITEMS_HEAD_CHECKED", EN, name="Gmail", when="at 16:59")
+    assert not pk.said(reply, "NW_ITEMS_HEAD_PHONE", EN), "the heading says checked, never read"
     snaps.later(minutes=3)
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail (checked at 16:59):"
+    pk.assert_said(ask(world, "list my emails").splitlines()[0], "NW_ITEMS_HEAD_CHECKED", EN, name="Gmail", when="at 16:59")
     assert len(mail_reads(snaps)) == 1, "the check counts as fresh: a list asked three minutes later reads nothing"
 
 
@@ -76,13 +81,13 @@ def test_a_refresh_that_finds_a_new_message_says_it_was_read_now(world, snaps, c
     snaps.providers.mail["gmail"].append(tsm.message(2, sender="Cora Dias <cora@clinic.example>", subject="New invoice"))
     snaps.later(**LATE)
     reply = ask(world, "list my emails")
-    assert reply.splitlines()[0] == "Gmail (read at 16:59):" and "New invoice" in reply
+    assert pk.said(reply.splitlines()[0], "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="at 16:59") and "New invoice" in reply
 
 
 def test_the_heading_is_the_old_reading_when_no_check_was_made_so_the_oracle_can_fail(world, snaps, clock):
     inbox(world, snaps, [bia()])
     snaps.later(minutes=5)          # fresh: no read, no check
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail (read at 07:12):"
+    pk.assert_said(ask(world, "list my emails").splitlines()[0], "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="at 07:12")
 
 
 def test_a_failed_refresh_keeps_the_old_time_adds_the_note_and_writes_one_closed_line_to_stderr(world, snaps, clock, capfd):
@@ -92,7 +97,10 @@ def test_a_failed_refresh_keeps_the_old_time_adds_the_note_and_writes_one_closed
     capfd.readouterr()
     reply = ask(world, "list my emails")
     seen = capfd.readouterr()
-    assert reply.splitlines() == ["Gmail (read at 07:12):", "1. " + "Bia Costa · Appointment confirmed · today 06:00", "(list from 07:12)"]
+    head, item, note = reply.splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="at 07:12")
+    assert item == "1. " + "Bia Costa · Appointment confirmed · today 06:00"      # literal: the table's word for today sits inside an item line the kit does not match
+    pk.assert_said(note, "NW_ITEMS_OLD", EN, time="07:12")
     assert seen.err == "items: refresh of inbox failed (mail)\n" and "ZEBRA" not in reply + seen.out + seen.err
 
 
@@ -102,13 +110,13 @@ def test_a_failure_after_a_check_names_the_time_of_the_check(world, snaps, clock
     ask(world, "list my emails")          # checked at 16:59
     snaps.later(hours=1)
     snaps.providers.fail = tsm.Failure()
-    assert ask(world, "list my emails").splitlines()[-1] == "(list from 16:59)"
+    pk.assert_said(ask(world, "list my emails").splitlines()[-1], "NW_ITEMS_OLD", EN, time="16:59")
 
 
 def test_the_freshness_in_portuguese(world, snaps, clock):
     inbox(world, snaps, [bia()], "pt-BR")
     snaps.later(**LATE)
-    assert ask(world, "lista os emails").splitlines()[0] == "Gmail (verificado às 16:59):"      # validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(ask(world, "lista os emails").splitlines()[0], "NW_ITEMS_HEAD_CHECKED", PT, name="Gmail", when="às 16:59")      # validate: allow english-only -- the Portuguese words under test
 
 
 # --- one line a person can use ---------------------------------------------------------------------------------------------------------------------
@@ -116,7 +124,7 @@ def test_the_freshness_in_portuguese(world, snaps, clock):
 
 def test_the_sender_is_the_display_name_and_the_address_is_not_shown(world, snaps, clock):
     inbox(world, snaps, [bia()])
-    assert ask(world, "list my emails").splitlines()[1] == "1. Bia Costa · Appointment confirmed · today 06:00"
+    assert ask(world, "list my emails").splitlines()[1] == "1. Bia Costa · Appointment confirmed · today 06:00"      # literal: the table's word for today sits inside an item line the kit does not match
 
 
 def test_with_no_display_name_the_address_is_shown_without_its_random_token(world, snaps, clock):
@@ -124,7 +132,8 @@ def test_with_no_display_name_the_address_is_shown_without_its_random_token(worl
                          tsm.message(2, sender="<7fa93bc2e1d4@news.vendor.example>", subject="This week"),
                          tsm.message(3, sender="\"ana@clinic.example\" <ana@clinic.example>", subject="Hello")])
     lines = ask(world, "list my emails").splitlines()[1:]
-    assert lines == ["1. no-reply@mail.vendor.example · Your receipt · today 06:00", "2. news.vendor.example · This week · today 06:00",
+    assert lines == [      # literal: the table's word for today sits inside item lines the kit does not match
+                     "1. no-reply@mail.vendor.example · Your receipt · today 06:00", "2. news.vendor.example · This week · today 06:00",
                      "3. ana@clinic.example · Hello · today 06:00"]
 
 
@@ -149,19 +158,21 @@ def test_the_date_is_today_yesterday_or_the_weekday_and_the_day_in_the_project_l
     inbox(world, snaps, [tsm.message(1, "2026-10-17T09:00:00Z", sender="Ana <ana@clinic.example>", subject="Today one"),
                          tsm.message(2, "2026-10-16T12:00:00Z", sender="Ana <ana@clinic.example>", subject="Yesterday one"),
                          tsm.message(3, "2026-10-12T21:10:00Z", sender="Ana <ana@clinic.example>", subject="Monday one")])
-    assert ask(world, "list my emails").splitlines()[1:] == ["1. Ana · Today one · today 06:00", "2. Ana · Yesterday one · yesterday 09:00", "3. Ana · Monday one · Mon 12/10 18:10"]
+    assert ask(world, "list my emails").splitlines()[1:] == [      # literal: the table's date words sit inside item lines the kit does not match
+        "1. Ana · Today one · today 06:00", "2. Ana · Yesterday one · yesterday 09:00", "3. Ana · Monday one · Mon 12/10 18:10"]
 
 
 def test_the_date_in_portuguese(world, snaps, clock):
     inbox(world, snaps, [tsm.message(1, "2026-10-17T09:00:00Z", sender="Ana <ana@clinic.example>", subject="Today one"),
                          tsm.message(2, "2026-10-16T12:00:00Z", sender="Ana <ana@clinic.example>", subject="Yesterday one"),
                          tsm.message(3, "2026-10-12T21:10:00Z", sender="Ana <ana@clinic.example>", subject="Monday one")], "pt-BR")
-    assert ask(world, "lista os emails").splitlines()[1:] == ["1. Ana · Today one · hoje 06:00", "2. Ana · Yesterday one · ontem 09:00", "3. Ana · Monday one · seg 12/10 18:10"]      # validate: allow english-only -- the Portuguese sentence under test
+    assert ask(world, "lista os emails").splitlines()[1:] == [      # literal: the table's date words sit inside item lines the kit does not match
+        "1. Ana · Today one · hoje 06:00", "2. Ana · Yesterday one · ontem 09:00", "3. Ana · Monday one · seg 12/10 18:10"]      # validate: allow english-only -- the Portuguese sentence under test
 
 
 def test_the_subject_is_the_emails_own_words_in_any_language(world, snaps, clock):
     inbox(world, snaps, [tsm.message(1, sender="Ana <ana@clinic.example>", subject="Confirmação da consulta")], "pt-BR")      # validate: allow english-only -- the Portuguese subject under test
-    assert ask(world, "lista os emails").splitlines()[1] == "1. Ana · Confirmação da consulta · hoje 06:00"      # validate: allow english-only -- the Portuguese sentence under test
+    assert ask(world, "lista os emails").splitlines()[1] == "1. Ana · Confirmação da consulta · hoje 06:00"      # literal: the table's word for today sits inside an item line the kit does not match; validate: allow english-only -- the Portuguese sentence under test
 
 
 # --- "the last e-mail" and "the 3 last" ---------------------------------------------------------------------------------------------------------------
@@ -169,10 +180,10 @@ def test_the_subject_is_the_emails_own_words_in_any_language(world, snaps, clock
 
 def test_the_last_email_is_one_item_with_the_start_of_its_text(world, snaps, clock):
     inbox(world, snaps, [bia(text=BODY), tsm.message(2, "2026-10-16T12:00:00Z", sender="Cora <cora@clinic.example>", subject="Older one")])
-    assert ask(world, "show me the last email").splitlines() == [
-        "Gmail (read at 07:12):",
-        "1. Bia Costa · Appointment confirmed · today 06:00",
-        "Start of the text: Hello Bia. Please confirm your visit at before Friday, and write to ana@clinic.example if you cannot come. an old quoted line Thank you, The clinic"]
+    head, item, preview = ask(world, "show me the last email").splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="at 07:12")
+    assert item == "1. Bia Costa · Appointment confirmed · today 06:00"      # literal: the table's word for today sits inside an item line the kit does not match
+    pk.assert_said(preview, "NW_ITEMS_PREVIEW", EN, text="Hello Bia. Please confirm your visit at before Friday, and write to ana@clinic.example if you cannot come. an old quoted line Thank you, The clinic")
 
 
 def test_the_live_line_in_portuguese_gives_the_last_message_of_that_account(world, snaps, clock):
@@ -181,10 +192,10 @@ def test_the_live_line_in_portuguese_gives_the_last_message_of_that_account(worl
     snaps.providers.mail["outlook"] = [tsm.message(1, "2026-10-17T08:00:00Z", sender="Dan Reis <dan@work.example>", subject="Weekly report", text="Numbers are in.", source="outlook")]
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
     ops_sources.source_mail(world["path"], "work", "outlook:box=inbox;days=7;max=50")
-    assert ask(world, "Liste o ultimo email do meu Outlook").splitlines() == [
-        "Outlook (lido às 07:12):",      # validate: allow english-only -- the Portuguese sentence under test
-        "1. Dan Reis · Weekly report · hoje 05:00",      # validate: allow english-only -- the Portuguese sentence under test
-        "Início do texto: Numbers are in."]      # validate: allow english-only -- the Portuguese sentence under test
+    head, item, preview = ask(world, "Liste o ultimo email do meu Outlook").splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", PT, name="Outlook", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    assert item == "1. Dan Reis · Weekly report · hoje 05:00"      # literal: the table's word for today sits inside an item line the kit does not match; validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(preview, "NW_ITEMS_PREVIEW", PT, text="Numbers are in.")
 
 
 def test_the_last_email_of_two_mailboxes_is_the_newest_of_both(world, snaps, clock):
@@ -194,14 +205,14 @@ def test_the_last_email_of_two_mailboxes_is_the_newest_of_both(world, snaps, clo
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
     ops_sources.source_mail(world["path"], "work", "outlook:box=inbox;days=7;max=50")
     reply = ask(world, "the last email")
-    assert "Outlook one" in reply and "Gmail one" not in reply and "Gmail (" not in reply
+    assert "Outlook one" in reply and "Gmail one" not in reply and not pk.said(reply, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail")
 
 
 def test_the_three_last_emails_are_three_lines_newest_first_and_no_preview(world, snaps, clock):
     inbox(world, snaps, [tsm.message(n, f"2026-10-17T{8 + n:02d}:00:00Z", sender="Pat <pat@clinic.example>", subject=f"Subject {n}", text="Some text.") for n in (1, 2, 3, 4)])
     reply = ask(world, "show the last 3 emails")
-    assert reply.splitlines()[1:] == ["1. Pat · Subject 4 · today 09:00", "2. Pat · Subject 3 · today 08:00", "3. Pat · Subject 2 · today 07:00"], "the snapshot's own numbers, newest first"
-    assert "Start of the text" not in reply and "Subject 1" not in reply
+    assert reply.splitlines()[1:] == ["1. Pat · Subject 4 · today 09:00", "2. Pat · Subject 3 · today 08:00", "3. Pat · Subject 2 · today 07:00"], "the snapshot's own numbers, newest first"      # literal: the table's word for today sits inside item lines the kit does not match
+    assert not pk.said(reply, "NW_ITEMS_PREVIEW", EN) and "Subject 1" not in reply
 
 
 PLAIN_COUNTS = [

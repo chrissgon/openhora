@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 import natural_cases_pt_br as pt
+import phrase_kit as pk
 import standin_tree as st
 from natural_kit import say_yes
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
@@ -32,8 +33,8 @@ pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # 
 bridge = st.load("messaging_bridge")
 ledgers = st.load("messaging_ledger")
 ops = st.load("ops")
-phrases = st.load("phrases")
 
+PT = {"language": "pt-BR"}
 ENGLISH = "remind me tomorrow at 1 pm to call the florist"
 EN_REPLY = "Reminder #1: tomorrow, Mon 19/10, at 13:00 (BRT): call the florist. To undo: /forget 1."
 
@@ -71,7 +72,7 @@ def last_id(day):  # noqa: F811
 def test_a_slash_command_in_words_makes_the_reminder_and_answers_in_the_language_with_the_weekday_the_date_the_zone_and_the_undo(day, planner):  # noqa: F811
     portuguese(day)
     say_yes(day, OWNER, pt.LINE_SLASH)
-    assert day.texts(OWNER)[-1] == pt.REPLY_CLASS and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="amanhã, seg 19/10, às 13:00 (BRT)", text="aula de violão") and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"      # validate: allow english-only -- the expected Portuguese date and words of the reply
     row = day.all()["open"][0]
     assert row["due"] == "2026-10-19 13:00" and row["text"] == "aula de violão" and row["zone"] == "BRT"      # validate: allow english-only -- the words of the line above
     no_model(planner)
@@ -81,9 +82,9 @@ def test_a_slash_command_in_words_makes_the_reminder_and_answers_in_the_language
 def test_a_line_with_a_remind_word_makes_the_same_reminder_in_any_word_order(day, planner):  # noqa: F811
     portuguese(day)
     say_yes(day, OWNER, pt.LINE_CLASS)
-    assert day.texts(OWNER)[-1] == pt.REPLY_CLASS and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="amanhã, seg 19/10, às 13:00 (BRT)", text="aula de violão") and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"      # validate: allow english-only -- the expected Portuguese date and words of the reply
     say_yes(day, OWNER, pt.LINE_CLASS_REORDER)
-    assert day.texts(OWNER)[-1] == pt.REPLY_CLASS.replace("#1", "#2").replace("/forget 1", "/forget 2")
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=2, when="amanhã, seg 19/10, às 13:00 (BRT)", text="aula de violão")      # validate: allow english-only -- the expected Portuguese date and words of the reply
     assert [r["text"] for r in day.all()["open"]] == ["aula de violão", "aula de violão"]      # validate: allow english-only -- the words of the lines above
     no_model(planner)
 
@@ -91,7 +92,7 @@ def test_a_line_with_a_remind_word_makes_the_same_reminder_in_any_word_order(day
 def test_a_remind_word_in_the_middle_of_the_line_counts_and_the_trigger_words_are_not_in_the_text(day, planner):  # noqa: F811
     portuguese(day)
     say_yes(day, OWNER, pt.LINE_FORTY)
-    assert day.texts(OWNER)[-1] == pt.REPLY_FORTY and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="hoje, dom 18/10, às 14:25 (BRT)", text="desligar o fogão") and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"      # validate: allow english-only -- the expected Portuguese words of the reply
     assert day.all()["open"][0]["text"] == "desligar o fogão"      # validate: allow english-only -- the words of the line above
     no_model(planner)
 
@@ -99,9 +100,9 @@ def test_a_remind_word_in_the_middle_of_the_line_counts_and_the_trigger_words_ar
 def test_the_hour_with_no_marker_is_one_question_and_the_remind_word_settles_the_kind(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_NINE_FIRST)
-    assert day.texts(OWNER) == [pt.ASK_NINE_FIRST]
+    assert len(day.texts(OWNER)) == 1 and pk.said(day.texts(OWNER)[0], "NT_ASK_READINGS", PT, options="amanhã, seg 19/10, às 09:00 ou hoje, dom 18/10, às 21:00")      # validate: allow english-only -- the expected Portuguese options of the question
     say_yes(day, OWNER, "9")
-    assert day.texts(OWNER)[-1] == pt.REPLY_PLANTS and len(day.texts(OWNER)) == 3, "one question, the reading shown, then the reminder on the yes: never reminder-or-event"
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="amanhã, seg 19/10, às 09:00 (BRT)", text="regar as plantas") and len(day.texts(OWNER)) == 3, "one question, the reading shown, then the reminder on the yes: never reminder-or-event"      # validate: allow english-only -- the expected Portuguese words of the reply
     assert day.all()["open"][0]["text"] == "regar as plantas"
     no_model(planner)
 
@@ -111,7 +112,7 @@ def test_the_words_are_echoed_only_in_text_mode(day, planner):  # noqa: F811
     listed(day, notices="count")
     accept(day.path, language="pt-BR")
     say_yes(day, OWNER, pt.LINE_CLASS)
-    assert day.texts(OWNER)[-1] == pt.REPLY_CLASS_COUNT and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes" and "violão" not in " ".join(day.texts(OWNER))      # validate: allow english-only -- a word of the lines above
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_COUNT", PT, id=1, when="amanhã, seg 19/10, às 13:00 (BRT)") and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes" and "violão" not in " ".join(day.texts(OWNER))      # validate: allow english-only -- a word of the lines above
     assert day.all()["open"][0]["text"] == "aula de violão", "the words are in the store, which the owner reads in the terminal"      # validate: allow english-only -- the words of the line above
     no_model(planner)
 
@@ -119,16 +120,16 @@ def test_the_words_are_echoed_only_in_text_mode(day, planner):  # noqa: F811
 def test_a_date_that_has_passed_this_year_is_confirmed_with_its_year_and_the_year_stays_in_the_reply(day, planner):  # noqa: F811
     portuguese(day)
     day.say(OWNER, pt.LINE_YEAR)
-    assert day.texts(OWNER) == [pt.CONFIRM_YEAR] and day.all()["open"] == []
+    assert len(day.texts(OWNER)) == 1 and pk.said(day.texts(OWNER)[0], "NT_CONFIRM_TEXT", PT, when="ter 05/01/2027 às 09:00", text="renovar o seguro") and day.all()["open"] == []      # validate: allow english-only -- the expected Portuguese date and words of the question
     day.say(OWNER, "sim")
-    assert day.texts(OWNER)[-1] == pt.REPLY_YEAR and day.all()["open"][0]["due"] == "2027-01-05 09:00"
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="ter 05/01/2027 às 09:00 (BRT)", text="renovar o seguro") and day.all()["open"][0]["due"] == "2027-01-05 09:00"
     no_model(planner)
 
 
 def test_a_line_in_the_other_language_is_understood_too(day, planner):  # noqa: F811
     portuguese(day)
     say_yes(day, OWNER, ENGLISH)
-    assert day.texts(OWNER)[-1] == "Lembrete #1: amanhã, seg 19/10, às 13:00 (BRT): call the florist. Para desfazer: /forget 1." and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"      # validate: allow english-only -- the expected Portuguese sentence
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="amanhã, seg 19/10, às 13:00 (BRT)", text="call the florist") and len(day.texts(OWNER)) == 2, "the reading is shown, then made on the yes"      # validate: allow english-only -- the expected Portuguese date of the reply
     no_model(planner)
 
 

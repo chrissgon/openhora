@@ -11,6 +11,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from expected_kit import extend
 
@@ -316,15 +317,15 @@ def test_the_aliases_the_cues_and_the_function_words_are_the_tables_data():
 def test_the_questions_and_replies_of_a_reminder_are_said_in_one_place_in_the_projects_language():
     draft = {"need": "confirm", "text": "pay the rent", "readings": [{"date": "2026-10-19", "time": "09:00", "rel": 1, "far": False, "rolled": False}]}
     sentence, keep = natural.question(draft, None, True)
-    assert sentence == "I understood: tomorrow, Mon 19/10, at 09:00: pay the rent. Confirm? (yes / another time)" and keep is True
-    assert natural.question(draft, None, False)[0] == "I understood: tomorrow, Mon 19/10, at 09:00. Confirm? (yes / another time)"
+    assert pk.said(sentence, "NT_CONFIRM_TEXT", None, when="tomorrow, Mon 19/10, at 09:00", text="pay the rent") and keep is True
+    assert pk.said(natural.question(draft, None, False)[0], "NT_CONFIRM_COUNT", None, when="tomorrow, Mon 19/10, at 09:00")
     assert natural.question({"need": "recurring"}, None)[1] is False
     done = {"reminder": {"id": 4, "text": "pay the rent"}, "human": {"date": "2026-10-19", "time": "09:00", "rel": 1, "far": False, "zone": "BRT", "rolled": False}}
-    assert natural.made_sentence(done, None, True) == "Reminder #4: tomorrow, Mon 19/10, at 09:00 (BRT): pay the rent. To undo: /forget 4."
-    assert natural.made_sentence(done, None, False) == "Reminder #4: tomorrow, Mon 19/10, at 09:00 (BRT). To undo: /forget 4."
-    assert natural.forgot_sentence(done, None, True).startswith("Reminder #4 cancelled: tomorrow, Mon 19/10, at 09:00 (BRT): pay the rent")
+    assert pk.said(natural.made_sentence(done, None, True), "NT_SET_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent")
+    assert pk.said(natural.made_sentence(done, None, False), "NT_SET_COUNT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)")
+    assert pk.said(natural.forgot_sentence(done, None, True), "NT_FORGOT_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent")
     sentence, forget = natural.forget_question([{"preview": {"id": 4, "text": "pay the rent"}, "human": done["human"]}], None, True)
-    assert sentence.startswith("Cancel reminder #4: ") and forget["need"] == "forget" and forget["ids"] == [4]
+    assert pk.said(sentence, "NT_ASK_FORGET_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent") and forget["need"] == "forget" and forget["ids"] == [4]
 
 
 # --- believing what a router named ----------------------------------------------------------------------------------------------------------------

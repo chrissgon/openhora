@@ -25,6 +25,7 @@ import copy
 import pytest
 
 import natural_writes_mail_cases as cases
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_channel_grants_mailbox import SENDER, accept
@@ -464,7 +465,7 @@ def test_a_caller_who_may_not_read_the_snapshot_gets_the_sentence_of_item_refs_a
     for line in ("arquiva os e-mails 2 e 4", "responde ao e-mail da Bia dizendo que ok", "arquiva os e-mails do banco", "apaga o e-mail inbox#2", "responde o último e-mail dizendo ok"):
         with pytest.raises(Said) as why:
             resolve(desk, line, channel="messaging", sender="telegram:777")
-        assert "may not read it" in str(why.value) and "ask-mail" in str(why.value), line
+        assert pk.said(str(why.value), "ACCT_MAIL_REF_NOT_READABLE", None), line
         assert "banco" not in str(why.value) and "Fatura" not in str(why.value)
     assert desk.reads == [] and desk.listed == [], "no snapshot was opened and no source was named to a caller who may not read"
     ok = Desk(monkeypatch, accounts=("google",), sources=(("inbox", "google"),))
@@ -562,9 +563,9 @@ def test_a_number_and_a_written_source_open_the_archive_card_of_those_messages_a
     assert out == {"args": {"account": "google", "messages": "inbox#1,inbox#2"}}
     started = open_typed(world, op, out["args"])
     item = item_of(world, started)
-    assert item["title"] == "Mailbox: archive messages"
+    pk.assert_said(item["title"], "TITLE_BOX_ARCHIVE", None)
     lines = item["body"].splitlines()
-    assert lines[2] == "Archive: 2 message(s)" and "from ana@clinic.example" in lines[3] and "from bob@shop.example" in lines[4]
+    assert pk.said(lines[2], "CARD_BOX_ARCHIVE", None, n=2) and pk.said(lines[3], "CARD_BOX_ITEM", None, sender="ana@clinic.example") and pk.said(lines[4], "CARD_BOX_ITEM", None, sender="bob@shop.example")
     assert written(world) == [] and rows(world)[1][0]["id"] == started["pending"]
 
 
@@ -572,7 +573,7 @@ def test_a_message_by_words_is_found_in_the_index_and_its_card_shows_it_as_the_m
     op, out = line_args(world, "arquiva os e-mails do shop pelo gmail")
     assert out == {"args": {"account": "google", "messages": "inbox#2"}}, "the sender's domain label `shop` is a whole word of the message"
     started = open_typed(world, op, out["args"])
-    assert "from bob@shop.example · Your order has shipped" in item_of(world, started)["body"]
+    assert pk.said(item_of(world, started)["body"], "CARD_BOX_ITEM", None, sender="bob@shop.example", subject="Your order has shipped")
     asked = line_args(world, "arquiva os e-mails do shop")[1]["ask"]
     assert asked["need"] == "source" and values(asked) == ["inbox", "work"], "two mailboxes: the person chooses"
     op, out = line_args(world, "arquiva os e-mails do shop", extra=choose(asked, "work"))
@@ -642,7 +643,7 @@ def test_a_messaging_sender_needs_ask_mail_to_name_a_message_and_otherwise_learn
     line = "arquiva os e-mails do shop pelo gmail"
     with pytest.raises(Said) as why:
         line_args(world, line, channel="messaging", sender=SENDER)
-    assert "may not read it" in str(why.value) and "shop" not in str(why.value) and "Your order" not in str(why.value)
+    assert pk.said(str(why.value), "ACCT_MAIL_REF_NOT_READABLE", None) and "shop" not in str(why.value) and "Your order" not in str(why.value)
     assert rows(world) == ([], [])
     accept(world["path"], {"messaging": ["read", "mail-organize", "ask-mail"]})
     op, out = line_args(world, line, channel="messaging", sender=SENDER)
@@ -659,7 +660,7 @@ def test_the_mcp_mode_reads_no_snapshot_for_a_line_and_a_page_or_terminal_caller
     for line in ("arquiva os e-mails 1 e 2 do gmail", "arquiva os e-mails do shop pelo gmail"):
         with pytest.raises(Said) as why:
             line_args(world, line, channel="mcp")
-        assert "may not read it" in str(why.value)
+        assert pk.said(str(why.value), "ACCT_MAIL_REF_NOT_READABLE", None)
     assert line_args(world, "arquiva os e-mails 1 e 2 do gmail", channel="page")[1]["args"]["messages"] == "inbox#1,inbox#2"
     assert line_args(world, "arquiva os e-mails 1 e 2 do gmail", channel="chat")[1]["args"]["messages"] == "inbox#1,inbox#2"
 
@@ -725,7 +726,7 @@ def test_limit_61_a_mail_line_opens_a_card_only_through_the_typed_operation_with
     ctx = ops_core.context(world["path"])
     extras = {}
     reply = onw.open_line(world["path"], ctx, "arquiva os e-mails 1 e 2 pelo gmail", "terminal", None, extras)      # validate: allow english-only -- a Portuguese line is the input under test
-    assert "waits for your approval" in reply and "Archive: 2 message(s)" in reply and "approve" in reply, "the card is the confirmation: its lines and the approve command"
+    assert pk.said(reply, "ACCT_CARD_SENT", None) and pk.said(reply, "CARD_BOX_ARCHIVE", None, n=2) and "approve" in reply, "the card is the confirmation: its lines and the approve command"
     pending = rows(world)[1]
     assert len(pending) == 1 and extras["resend"] == pending[0]["id"] and written(world) == [] and no_drafts.count() == 0
     # a reply: the body is asked, the answer is the line itself, and the recipient is the index's, never an address of the text
@@ -734,7 +735,7 @@ def test_limit_61_a_mail_line_opens_a_card_only_through_the_typed_operation_with
     assert asked == phrases.text("NW_MAIL_ASK_BODY_REPLY", ctx["cfg"]) and extras["asked"] and no_drafts.count() == 1
     draft = onw.live("terminal", None)
     done = onw.answer(world["path"], ctx, draft, "confirmo, falo com outro@elsewhere.example depois", "terminal", None, extras)      # validate: allow english-only -- a Portuguese line is the input under test
-    assert "waits for your approval" in done and no_drafts.count() == 0
+    assert pk.said(done, "ACCT_CARD_SENT", None) and no_drafts.count() == 0
     started = {"pending": extras["resend"], "task": max(t["id"] for t in ctx["store"].tasks_list(ctx["conn"]))}
     doc = effect_doc(world, started)
     assert doc["to"] == ["ana@clinic.example"] and doc["cc"] == [] and doc["bcc"] == [] and "outro@elsewhere.example" in doc["body"]
@@ -745,13 +746,13 @@ def test_limit_61_a_mail_line_names_a_message_only_for_a_caller_who_may_read_the
     line = "arquiva os e-mails do shop pelo gmail"      # validate: allow english-only -- a Portuguese line is the input under test
     accept(world["path"], {"messaging": ["read", "mail-organize"]})
     refused = ops.natural_write(world["path"], line, channel="messaging", sender=SENDER)
-    assert "may not read it" in refused["reply"] and "shop" not in refused["reply"] and "Your order" not in refused["reply"] and "resend" not in refused and no_drafts.count() == 0
+    assert pk.said(refused["reply"], "ACCT_MAIL_REF_NOT_READABLE", None) and "shop" not in refused["reply"] and "Your order" not in refused["reply"] and "resend" not in refused and no_drafts.count() == 0
     assert rows(world) == ([], [])
     accept(world["path"], {"messaging": ["read", "mail-organize", "ask-mail"]})
     opened = ops.natural_write(world["path"], "arquiva os e-mails do shop", channel="messaging", sender=SENDER)      # validate: allow english-only -- a Portuguese line is the input under test
     assert opened["asked"] is True and "mailbox" in opened["reply"].lower() and no_drafts.count() == 1, "two mailboxes: the question lists their ids only to a caller who may read"
     done = ops.natural_write(world["path"], "inbox", channel="messaging", sender=SENDER)
-    assert done["asked"] is False and "waits for your approval" in done["reply"] and done["resend"] == rows(world)[1][0]["id"] and written(world) == []
+    assert done["asked"] is False and pk.said(done["reply"], "ACCT_CARD_SENT", None, pending=rows(world)[1][0]["id"]) and done["resend"] == rows(world)[1][0]["id"] and written(world) == []
 
 
 def test_the_mail_family_keeps_the_contract_of_a_family_of_the_foundation():
@@ -830,7 +831,7 @@ def test_a_yes_is_never_a_subject_a_body_or_an_address_and_the_question_is_asked
     out = talk(world, [first, "sim", "sim"])
     assert out[2][1] == phrases.text("NW_GIVE_UP", None) and out[2][2] is None and no_drafts.count() == 0, "asked once more, then given up: no trap loop"
     out = talk(world, [first, "sim", "confirmo sexta"])
-    assert out[2][2] is not None and "waits for your approval" in out[2][1], "a real body after the re-ask opens the card"
+    assert out[2][2] is not None and pk.said(out[2][1], "ACCT_CARD_SENT", None), "a real body after the re-ask opens the card"
 
 
 def test_a_name_with_a_verb_or_a_long_tail_is_a_sentence_and_not_a_message_and_a_request_is_never_a_body():

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
 from test_messaging_policy import decisions
@@ -414,7 +415,8 @@ def test_a_queued_line_is_checked_again_at_the_drain_under_the_page_policy_and_g
     out = ops.route_queued(path)
     assert out["dropped"] == {"kind": "line", "id": line} and out["queued"] == 0
     reply = [m for m in ops.conversation(path)["messages"] if m["role"] == "assistant"][-1]["text"]
-    assert reply == "A queued line was not answered: " + sentence("say") and ops_say._queue_read(ops_core.context(path), peek=True) == []
+    pk.assert_said(reply, "QUEUE_DROPPED_LINE", None, why=sentence("say"))
+    assert ops_say._queue_read(ops_core.context(path), peek=True) == []
 
 
 def test_an_entry_queued_before_groups_were_stored_is_checked_as_a_line_or_a_route_under_the_page(tree):  # noqa: F811

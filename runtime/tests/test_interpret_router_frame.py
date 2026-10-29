@@ -21,6 +21,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_ops_interpret_dispatch import BARE, IX_PROFILES, IX_SENDERS, ZONE  # noqa: F401
@@ -52,11 +53,17 @@ QUESTION = ("Route: none (capability, pending)\n"
             "Instructions found in external content: none\n")
 FIRST = "plan the stock count of the warehouse"
 SECOND = "the second hall, the shelf at the back"
-ASK_AGAIN = "I was not sure what you meant, so I did nothing. Can you say it another way?"
-NONE_SENTENCE = "I did not see a request in that message."
 FRAME = 'frame: {"items":[{"age_s":600,"id":"i1","kind":"router-question","need":"text"}],"last":null,"v":1}'
 HEAD = "today: 2026-10-18 Sun\ntime: 14:00\nzone: America/Sao_Paulo\n"
-TAKEN = "I took that as the answer to question #{id}."
+
+
+def assert_taken(reply, pending_id, then="ROUTED"):
+    """The reply is the one sentence that says the line was taken as the answer to question `pending_id`, a blank line, and then what the routing said."""
+    head, _, tail = reply.partition("\n\n")
+    pk.assert_said(head, "ANSWER_TAKEN", None, id=pending_id)
+    assert tail == then, reply
+
+
 OWNER_KEY, PLAIN_KEY = KEY["owner"], KEY["plain"]
 
 
@@ -140,7 +147,7 @@ def test_a_decision_answer_of_i1_sends_the_line_as_the_answer_and_the_model_saw_
     out = say(rig, "owner", SECOND)
     assert [c["user"] for c in rig.calls] == [HEAD + FRAME + "\nline: " + SECOND], "the user turn is the five lines, the frame the one item"
     assert rig.spy == [{"said": SECOND, "answer_to": pending_id, "sender": OWNER_KEY}]
-    assert out["reply"] == TAKEN.format(id=pending_id) + "\n\nROUTED"
+    assert_taken(out["reply"], pending_id)
     assert leaks(rig.calls) == []
 
 
@@ -149,7 +156,8 @@ def test_an_answer_naming_another_item_is_the_ask_again_sentence_and_the_questio
     spy_routes(rig)
     rig.says["text"] = text("answer", answers_item="i2")
     out = say(rig, "owner", SECOND)
-    assert out["reply"] == ASK_AGAIN and rig.spy == []
+    pk.assert_said(out["reply"], "IX_ASK_AGAIN", None)
+    assert rig.spy == []
     assert bound(rig) == pending_id and pending_id in [i["id"] for i in ops.pending(rig.world["path"])["pending"]]
     assert len(rig.calls) == 1 and leaks(rig.calls) == []
 
@@ -170,7 +178,7 @@ def test_a_route_decision_makes_a_new_request_replaces_the_binding_and_leaves_th
     router_says(rig.world, FLOW)
     rig.says["text"] = text("route")
     out = say(rig, "owner", "plan a three-day workshop for the new hires")
-    assert TAKEN.format(id=pending_id) not in out["reply"] and out["request_id"] not in (None, old), "a request of its own"
+    assert not pk.said(out["reply"], "ANSWER_TAKEN", None, id=pending_id) and out["request_id"] not in (None, old), "a request of its own"
     assert bound(rig) is None, "the plan is no question: nothing is bound to the sender any more"
     assert ops.pending(rig.world["path"], pending_id)["status"] == "open", "the old question was not answered"
     assert leaks(rig.calls) == []
@@ -188,9 +196,11 @@ def test_none_and_a_refusal_say_their_sentences_and_the_question_stays_open(rig)
     pending_id, _ = ask(rig)
     spy_routes(rig)
     rig.says["text"] = text("none")
-    assert say(rig, "owner", "thank you, that is all")["reply"] == NONE_SENTENCE and bound(rig) == pending_id
+    pk.assert_said(say(rig, "owner", "thank you, that is all")["reply"], "IX_NONE", None)
+    assert bound(rig) == pending_id
     rig.says["text"] = text("op", op="approve", slots={})
-    assert say(rig, "owner", "aprueba el plan")["reply"] == "Which decision? Say its number in the same line." and bound(rig) == pending_id      # S20: a decision is named by its number
+    pk.assert_said(say(rig, "owner", "aprueba el plan")["reply"], "NAT_WHICH_DECISION", None)      # S20: a decision is named by its number
+    assert bound(rig) == pending_id
     assert rig.spy == []
 
 
@@ -208,7 +218,8 @@ def test_with_no_decision_today_s_rule_applies_a_plain_line_answers_and_a_reques
     spy_routes(rig)
     rig.says["fail"] = True
     out = say(rig, "owner", SECOND)
-    assert out["reply"] == TAKEN.format(id=pending_id) + "\n\nROUTED" and rig.spy[-1]["answer_to"] == pending_id
+    assert_taken(out["reply"], pending_id)
+    assert rig.spy[-1]["answer_to"] == pending_id
     rig.spy.clear()
     say(rig, "owner", "cancel request 3")
     assert all(row["answer_to"] is None for row in rig.spy) and pending_id in [i["id"] for i in ops.pending(rig.world["path"])["pending"]]
@@ -245,7 +256,7 @@ def test_vacuity_without_the_rule_before_the_frame_the_model_is_asked_and_the_li
     rig.monkeypatch.setattr(ops_natural, "recognises", lambda *a, **k: False)
     rig.says["text"] = text("answer", answers_item="i1")
     out = say(rig, "owner", f"cancel request {other}")
-    assert len(rig.calls) == 1 and out["reply"].startswith(TAKEN.format(id=pending_id))
+    assert len(rig.calls) == 1 and pk.said(out["reply"].splitlines()[0], "ANSWER_TAKEN", None, id=pending_id)
 
 
 def test_the_line_of_a_framed_turn_is_kept_nowhere_but_where_s1_allows(rig, caplog):

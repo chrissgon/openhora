@@ -16,6 +16,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from natural_cases_pt_br import PARSER_CASES, PARSER_CLOCK
 
@@ -206,10 +207,10 @@ def test_a_time_that_has_passed_today_means_tomorrow_and_a_day_that_has_passed_i
     assert resolve(nt.parse("13h", now)["when"], now, BRT)["wall"] == "2026-10-23T13:00"
     with pytest.raises(ValueError) as e:
         resolve(nt.parse("today at 1pm", now)["when"], now, BRT)
-    assert str(e.value) == "That time has passed. Now it is 2026-10-22 14:00."
+    pk.assert_said(str(e.value), "RM_PAST", None, now="2026-10-22 14:00")
     with pytest.raises(ValueError) as e:
         resolve(nt.parse("30/02 10h", now)["when"], now, BRT)
-    assert str(e.value) == "2027-02-30 is not a day of the calendar."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_DATE", None, given="2027-02-30")
     with pytest.raises(ValueError):
         resolve(nt.parse("in 2000 days", now)["when"], now, BRT)
 
@@ -241,7 +242,7 @@ def test_across_the_march_clock_change_a_wall_time_the_clock_skips_is_refused_by
     assert skipped["when"] == "2027-03-28 01:30"
     with pytest.raises(ValueError) as e:
         resolve(skipped["when"], now, zone)
-    assert str(e.value) == "2027-03-28 01:30 does not exist on that day (the clock skips it). Pick another time."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_TIME", None, given="2027-03-28 01:30")
     assert resolve(nt.parse("tomorrow at 02:30", now)["when"], now, zone)["wall"] == "2027-03-28T02:30"
 
 

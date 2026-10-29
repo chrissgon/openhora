@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_service import Standin, WAIT
 
@@ -139,7 +140,8 @@ def test_a_new_plan_gets_one_card_with_approve_and_reject_and_the_same_plan_gets
     world.bridge.tick()
     [card] = world.sent()
     message = card["message"]
-    assert card["chat"] == SENDER and message["text"].startswith("northwind-shop · plan #1\n\n")
+    assert card["chat"] == SENDER and message["text"].count("\n\n") >= 1
+    pk.assert_said(message["text"].split("\n\n")[0], "HEADER", None, project="northwind-shop", kind="plan", id=1)
     assert SECRET_TEXT in message["text"]
     assert [a["label"] for a in message["actions"]] == ["Approve", "Reject"]
     assert all(len(a["id"].encode()) <= 64 for a in message["actions"])
@@ -155,8 +157,9 @@ def test_twelve_new_decisions_make_ten_cards_and_the_line_about_the_two_waiting(
         world.items[number] = decision("question", number, title=f"Q{number}")
     world.bridge.tick()
     sent = world.sent()
-    assert len(sent) == 11 and sent[-1]["message"]["text"] == "And 2 more waiting. Send /pending to list them."
-    assert all("· question #" in s["message"]["text"] for s in sent[:10])
+    assert len(sent) == 11 and "\n" not in sent[-1]["message"]["text"]
+    pk.assert_said(sent[-1]["message"]["text"], "MORE_LINE", None, n=2)
+    assert all(pk.said(s["message"]["text"].splitlines()[0], "HEADER", None, kind="question") for s in sent[:10])
     world.bridge.tick()  # the two left come now, one line is not repeated for the same number
     assert len(world.sent()) == 13
 
@@ -168,7 +171,8 @@ def test_notices_in_count_mode_carry_none_of_the_projects_text(world):
     world.bridge.tick()
     blob = json.dumps(world.sent())
     assert "Secret" not in blob and "secret" not in blob and "body" not in blob and SECRET_TEXT not in blob
-    assert "A plan waits for you." in blob and "A question waits for you." in blob
+    notices = [s["message"]["text"] for s in world.sent()]
+    assert any(pk.said(t, "WAITS_COUNT", None, kind="plan") for t in notices) and any(pk.said(t, "WAITS_COUNT", None, kind="question") for t in notices)
 
 
 def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
@@ -178,10 +182,10 @@ def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and "/approve" not in plan["text"] and "Act on it on the platform's page." in plan["text"]
+    assert plan["actions"] == [] and "/approve" not in plan["text"] and pk.said(plan["text"], "PAGE_LINE", None)
     assert plan["link"] == {"label": "Open the page", "url": "https://page.example/open"}
-    assert question["actions"] == [] and "Reply to this message to answer." in question["text"]
-    assert "Act on it on the page" not in question["text"] and question["link"] is None
+    assert question["actions"] == [] and pk.said(question["text"], "REPLY_LINE", None)
+    assert not pk.said(question["text"], "PAGE_LINE", None) and question["link"] is None
 
 
 def test_without_buttons_the_card_ends_with_the_words_that_decide_it_and_with_one_button_the_second_is_a_line(world):
@@ -191,7 +195,7 @@ def test_without_buttons_the_card_ends_with_the_words_that_decide_it_and_with_on
     world.bridge.tick()
     [first] = world.sent()
     assert first["message"]["actions"] == []
-    assert first["message"]["text"].endswith("Reply yes to approve or no to decline.")
+    assert first["message"]["text"].endswith("Reply yes to approve or no to decline.")      # literal: the approval words on the last card are the text itself
     assert "/approve" not in first["message"]["text"] and "/reject" not in first["message"]["text"]
     world.caps(buttons=True, max_buttons=1)
     world.items[2] = decision("plan", 2, plan_sha256="r" * 64)
@@ -206,7 +210,7 @@ def test_a_long_text_is_cut_with_a_line_about_the_page_or_sent_as_a_document(wor
     world.items[1] = decision("plan", 1, body="x" * 2000)
     world.bridge.tick()
     [cut] = world.sent()
-    assert len(cut["message"]["text"]) <= 300 and cut["message"]["text"].rstrip().endswith("(continues on the page)")
+    assert len(cut["message"]["text"]) <= 300 and pk.said(cut["message"]["text"].rstrip().splitlines()[-1], "CUT", None)
     assert cut["message"]["document"] is None
     world.caps(max_text=300, documents=True)
     world.items[2] = decision("plan", 2, body="y" * 2000, plan_sha256="s" * 64)
@@ -222,7 +226,7 @@ def test_an_effect_card_has_no_approve_names_the_page_and_carries_no_command_and
     [card] = world.sent()
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"]
-    assert "Approve it on the platform's page." in message["text"]
+    assert pk.said(message["text"], "EFFECT_LINE", None)
     assert "cli.py" not in message["text"] and "uv run" not in message["text"] and "--sha256" not in message["text"] and "e" * 64 not in message["text"]      # a phone is never given the command or the hash (LIVE-2)
     assert message["link"]["url"] == "https://page.example/open"
     world.say("/approve 7")  # typed: no operation, and the page is named, with its link
@@ -279,7 +283,7 @@ def test_a_tapped_approve_runs_approve_with_the_ledger_hash_as_the_channel_messa
 
 def test_a_stale_button_is_answered_and_a_changed_plan_is_refused_with_a_new_card(world):
     world.say(None, action="99:approve")
-    assert world.texts() == ["This button is no longer valid. Send /pending."] and world.calls("approve") == []
+    assert len(world.texts()) == 1 and pk.said(world.texts()[0], "STALE", None) and world.calls("approve") == []
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     action = world.sent()[-1]["message"]["actions"][0]["id"]
@@ -301,7 +305,7 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
     world.say(None, action=action)
     assert world.calls("approve") == []
     texts = world.texts()
-    assert "This decision changed since you saw it." in texts and "Accept 5 deliveries." in texts[-1]
+    assert any(pk.said(t, "CHANGED", None) for t in texts) and "Accept 5 deliveries." in texts[-1]
     fresh = world.sent()[-1]["message"]["actions"][0]["id"]
     world.fake.answers["approve"] = {"accepted": True}
     world.say(None, action=fresh)
@@ -312,7 +316,7 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
 def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     world.items[1] = decision("plan", 1)
     world.say("/approve 1")
-    assert world.texts() == ["Act on the card sent to you (send /pending)."] and world.calls("approve") == []
+    assert len(world.texts()) == 1 and pk.said(world.texts()[0], "NO_CARD", None) and world.calls("approve") == []
     world.bridge.tick()
     world.fake.answers["approve"] = {"approved": True}
     world.say("/approve 1")
@@ -327,7 +331,7 @@ def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2, "channel": "messaging"}
     assert wait_for(lambda: world.texts()[-1] == "Released #2.")
     world.say("/approve")
-    assert world.texts()[-1] == "Usage: /approve <id>"
+    pk.assert_said(world.texts()[-1], "USAGE_APPROVE", None)
 
 
 def test_the_closed_default_refuses_every_acting_command_in_the_bridge_and_calls_nothing(world):
@@ -352,7 +356,8 @@ def test_pending_lists_and_sends_the_cards_the_person_lacks(world):
     assert texts[0] == "northwind-shop: #1 plan: Plan one" and "plan #1" in texts[1]
     world.items.clear()
     world.say("/pending")
-    assert world.texts()[-1] == "northwind-shop: nothing waits for you."
+    assert "\n" not in world.texts()[-1]
+    pk.assert_said(world.texts()[-1], "NOTHING_WAITS", None, name="northwind-shop")
 
 
 # --- answers and free text --------------------------------------------------------------------------------------------
@@ -362,7 +367,7 @@ def test_a_reply_to_a_questions_card_answers_that_decision_and_free_text_goes_to
     world.items[5] = decision("question", 5, title="Which market first?")
     world.bridge.tick()
     card_id = "101"
-    assert world.sent()[0]["message"]["text"].endswith("Reply to this message to answer.")
+    assert pk.said(world.sent()[0]["message"]["text"].splitlines()[-1], "REPLY_LINE", None)
     world.fake.answers["answer_proposing"] = {"answered": True}
     world.say("The home market.", reply_to=card_id)
     assert world.calls("answer_proposing")[0][2] == {"pending_id": 5, "text": "The home market.", "channel": "messaging"}
@@ -388,7 +393,7 @@ def test_a_second_model_call_during_the_first_is_queued_and_a_command_gets_still
     world.say("second")
     assert world.texts() == [bridge.QUEUED]
     world.say("/progress")
-    assert world.texts() == [bridge.QUEUED, "Still working on the last message."]
+    assert len(world.texts()) == 2 and world.texts()[0] == bridge.QUEUED and pk.said(world.texts()[1], "STILL_WORKING", None)
     release.set()
     assert wait_for(lambda: world.texts()[-2:] == ["Done thinking.", "Done thinking."])
     assert [c[2]["text"] for c in world.calls("say")] == ["first", "second"]

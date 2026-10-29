@@ -17,6 +17,7 @@ import shutil
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_chat import FLOW, reply
 from test_chat import tree as chat_tree  # noqa: F401  (the chat tree fixture: a stand-in router)
@@ -51,6 +52,7 @@ Q1 = "Q1: Is this a reminder or an event of your calendar? Recommended: an event
 Q2 = "Q2: Which place should it show? Recommended: the invented Linden clinic, because the line names it."
 LINE = "preciso organizar a visita da Maria na clinica Linden"
 FRAME = {"en": "Questions:", "pt-BR": "Perguntas:"}
+PT = {"language": "pt-BR"}
 # What a phone shows of TEMPLATE (slice S9): the questions numbered, each recommendation on the line below, one blank line between the items. Literal, not built by the code.
 VIEW = {"en": "Questions:\n\n1. Is this a reminder or an event of your calendar?\n   Recommended: an event, because it has a place and a time.\n\n"
               "2. Which place should it show?\n   Recommended: the invented Linden clinic, because the line names it.",
@@ -123,11 +125,12 @@ def test_the_reply_on_a_messaging_app_is_the_questions_under_the_projects_framin
     phone.say(OWNER, LINE)
     [first] = phone.texts(OWNER)[:1]
     asked(first)
-    closing = {"en": "Answer in a plain message.", "pt-BR": "Responda numa mensagem simples."}[language]  # validate: allow english-only -- the Portuguese sentence under test
-    assert first == VIEW[language] + "\n\n" + closing, "the questions, one blank line, and one short plain sentence (S9)"
+    shown, _, closing = first.rpartition("\n\n")
+    assert shown == VIEW[language], "the questions, one blank line, and one short plain sentence (S9)"  # literal: the whole view is the oracle (the frame, the numbered questions and the labels in one text)
+    pk.assert_said(closing, "ASK_NEXT_PHONE", {"language": language})
     assert first.endswith(phrases.text("ASK_NEXT_PHONE", {"language": language})), "the footer is the phrase table's, in the language, with no /new hint (LIVE-2)"
     assert "/new" not in first
-    assert "Instructions found" not in first and "Route" not in first
+    assert "Instructions found" not in first and "Route" not in first  # literal: an absence of a label fragment anywhere in the text, which the kit does not express
 
 
 def test_the_maintainers_question_reaches_the_phone_numbered_with_no_fence_label_or_identifier_while_the_page_keeps_it_whole(phone):
@@ -139,8 +142,11 @@ def test_the_maintainers_question_reaches_the_phone_numbered_with_no_fence_label
     reply(phone.tree, raw)
     phone.say(OWNER, LINE)
     [first] = phone.texts(OWNER)[:1]
-    assert first == ("Perguntas:\n\n1. Você quer a marca completa ou só o perfil?\n   Recomendado: marca completa com o fluxo de marca, porque você pediu a brand do zero.\n\n"  # validate: allow english-only -- Portuguese under test
-                     "2. Qual fonte descreve você?\n   Recomendado: importar um currículo antes de começar.\n\nResponda numa mensagem simples.")  # validate: allow english-only -- Portuguese under test
+    shown, _, closing = first.rpartition("\n\n")
+    pk.assert_said(closing, "ASK_NEXT_PHONE", PT)
+    # literal: the sentence of the flow's name sits inside a longer line the kit does not match
+    assert shown == ("Perguntas:\n\n1. Você quer a marca completa ou só o perfil?\n   Recomendado: marca completa com o fluxo de marca, porque você pediu a brand do zero.\n\n"  # validate: allow english-only -- Portuguese under test
+                     "2. Qual fonte descreve você?\n   Recomendado: importar um currículo antes de começar.")  # validate: allow english-only -- Portuguese under test
     out = ops.say(phone.path, LINE)
     assert out["reply"].startswith(raw.rstrip("\n")) and "flow-brand" in out["reply"] and "```" in out["reply"], "the page and the terminal keep the reply whole"
     assert "flow-brand" in ops.pending(phone.path, out["pending_id"])["body"], "the stored decision is the router's reply, untouched"
@@ -163,8 +169,7 @@ def test_the_notice_card_of_the_question_holds_only_the_questions_under_the_fram
     phone.bridge.tick()
     card = phone.texts(STAFF)[0]
     asked(card)
-    title = {"pt-BR": "Pergunta do assistente", "en": "Question from the assistant"}[language]      # S14: a phone is not told "the router asks"
-    assert title in card and VIEW[language] in card
+    assert pk.said(card, "PEND_CARD_TITLE", {"language": language}) and VIEW[language] in card      # S14: a phone is not told "the router asks"
     item = ops.pending(phone.path, out["pending_id"])
     assert cards.content_sha256(item) == cards.sha256_text(cards.decision_text(item)), "the card is bound to the stored text, not to the shown one"
 
@@ -186,7 +191,7 @@ def test_a_question_keeps_the_lines_that_follow_it_until_the_next_question_a_fie
     lines = phrases.question_lines(floor)
     assert [q.split("\n")[0].split(":")[0] for q in lines] == ["Q1", "Q2", "Q3", "Q4"] and all("\nRecommended: " in q for q in lines)
     view = phrases.asked_view(floor)
-    assert "Netlify" in view and "No credential was pasted" not in view and "Note: with no lockfile" not in view and "Instructions found" not in view
+    assert "Netlify" in view and "No credential was pasted" not in view and "Note: with no lockfile" not in view and "Instructions found" not in view  # literal: an absence of a label fragment anywhere in the text, which the kit does not express
     assert "ROUTER_QUOTED_NOTE" not in view and phrases.text("ROUTER_QUOTED_NOTE") not in view, "a section that is none adds no note"
 
 
@@ -212,7 +217,8 @@ def test_the_closing_questions_after_the_external_content_section_are_the_questi
     questions = phrases.question_lines(floor)
     assert [q.split(":")[0] for q in questions] == ["Q1", "Q2", "Q3", "Q4"] and all("Recommended: " in q for q in questions)
     view = phrases.asked_view(floor, {"language": "pt-BR"})
-    assert view.startswith(FRAME["pt-BR"] + "\n\n1. ") and "Q1" not in view and "Instructions found" not in view and phrases.read_question(floor)["quoted"] is False
+    frame, gap, first_item = view.split("\n", 2)
+    assert pk.said(frame, "ROUTER_ASKS_FRAME", PT) and gap == "" and first_item.startswith("1. ") and "Q1" not in view and "Instructions found" not in view and phrases.read_question(floor)["quoted"] is False  # literal: the absence of "Instructions found" anywhere in the text is not expressed by the kit
     assert "Netlify" in view and "Build output" not in view
 
 
@@ -279,9 +285,9 @@ def test_a_recommended_line_belongs_to_the_last_question_but_not_after_a_field_l
 
 def test_a_question_that_is_not_the_routers_is_shown_whole_and_a_reply_with_no_question_line_comes_back_as_it_was():
     task_question = {"kind": "question", "title": "demo-asks: question", "body": TEMPLATE, "payload": {"ending": "question"}}
-    unrecognised = {"kind": "question", "title": "The route was not recognised", "body": "A sentence.", "payload": {"ending": "unclassified"}}
+    unrecognised = {"kind": "question", "title": phrases.text("TITLE_ROUTE_UNRECOGNISED"), "body": "A sentence.", "payload": {"ending": "unclassified"}}
     assert not cards.router_asks(task_question) and not cards.router_asks(unrecognised)
-    assert cards.router_asks({"kind": "question", "title": "The router asks", "body": TEMPLATE, "payload": {"ending": "question"}})
+    assert cards.router_asks({"kind": "question", "title": phrases.text("TITLE_ROUTER_ASKS"), "body": TEMPLATE, "payload": {"ending": "question"}})
     assert phrases.asked_view("Route: x (flow, ready)\nWhy: y\n", {"language": "en"}) == "Route: x (flow, ready)\nWhy: y\n"
     assert phrases.asked_view("Route: x (flow, ready)\nWhy: y\n", {"language": "pt-BR"}) == "Rota: x (flow, ready)\nPor quê: y\n", "no question: the reply cleaned, its fixed labels said in the language (S9)"  # validate: allow english-only -- the Portuguese labels under test
     assert phrases.question_lines(TEMPLATE) == [Q1, Q2] and phrases.question_lines("Next: " + Q1 + "\n" + Q1) == [Q1], "the Next label goes, a question twice is one"
@@ -301,7 +307,7 @@ def test_the_asking_sender_gets_the_question_once_and_another_listed_sender_gets
     assert len(phone.texts(OWNER)) == 1, "the notice of the decision the reply already carried is not sent: not now and not on the next period"
     [card] = phone.texts(STAFF)
     asked(card)
-    assert "Pergunta do assistente" in card and "pergunta #" in card and "roteador" not in card, "the other sender still gets the notice, in the language"
+    assert pk.said(card, "PEND_CARD_TITLE", PT) and "pergunta #" in card and "roteador" not in card, "the other sender still gets the notice, in the language"
 
 
 def test_the_notice_still_goes_when_the_reply_did_not_reach_the_chat(phone, monkeypatch):
@@ -311,7 +317,7 @@ def test_the_notice_still_goes_when_the_reply_did_not_reach_the_chat(phone, monk
     phone.say(OWNER, LINE)
     assert phone.texts(OWNER) == []
     phone.bridge.tick()
-    assert wait_for(lambda: len(phone.texts(OWNER)) == 1) and "Pergunta do assistente" in phone.texts(OWNER)[0]
+    assert wait_for(lambda: len(phone.texts(OWNER)) == 1) and pk.said(phone.texts(OWNER)[0], "PEND_CARD_TITLE", PT)
 
 
 def test_only_the_routers_question_is_marked_a_plan_keeps_its_card(phone):
@@ -358,16 +364,27 @@ def test_an_answer_typed_on_a_messaging_app_is_never_proposed_and_the_one_propos
     assert shown is not None and shown["line"] == PROPOSED, "a turn on a channel that keeps it can still propose it"
 
 
+def assert_proposal(text, where_key, cfg, command):
+    """The proposal is three lines: the question and the proposed line, the command, and where else to accept it."""
+    ask, _, rest = text.partition("\n")
+    middle, _, where = rest.rpartition("\n")
+    quoted = f' "{PROPOSED}"'
+    assert ask.endswith(quoted) and middle == command, text
+    pk.assert_said(ask[:-len(quoted)], "INSTR_PROPOSAL_ASK", cfg)
+    pk.assert_said(where, where_key, cfg)
+
+
 def test_the_proposal_on_the_channels_that_keep_it_is_said_in_the_projects_language(phone):
     phone.configure("pt-BR")
     ctx = ops_core.context(phone.path)
     said = {c: ops_instructions.proposal(ctx, 500 + n, PROPOSED, c)["text"] for n, c in enumerate(("terminal", "page", "chat", "mcp"))}
     command = ops_instructions.core._command("instructions-add", phone.path, line=PROPOSED, base_sha256="none")
-    head = f'Adicionar esta linha às instruções do projeto? "{PROPOSED}"\n{command}\n'  # validate: allow english-only -- the Portuguese sentence under test
-    assert said["terminal"] == head + "ou na página: Building > Instructions" and said["page"] == said["terminal"]
-    assert said["chat"] == head + "aceite na página (Building > Instructions) ou no terminal" and said["mcp"] == said["chat"]
+    assert_proposal(said["terminal"], "INSTR_WHERE_SAYS", PT, command)
+    assert said["page"] == said["terminal"]
+    assert_proposal(said["chat"], "INSTR_WHERE_ELSEWHERE", PT, command)
+    assert said["mcp"] == said["chat"]
     for text in said.values():
-        assert "Add this line" not in text and "accept it on" not in text and "or on the page" not in text
+        assert "Add this line" not in text and "accept it on" not in text and "or on the page" not in text  # literal: an absence of an English fragment anywhere in a Portuguese text, which the kit does not express
     assert ops_instructions.proposal(ctx, 600, PROPOSED, "messaging") is None, "never on a messaging app"
     assert ctx["store"].cursor_get(ctx["conn"], ops_instructions.PROPOSED + "600") is None
 
@@ -376,5 +393,5 @@ def test_a_project_in_english_or_with_no_language_gets_the_english_sentences_byt
     ctx = ops_core.context(phone.path)
     text = ops_instructions.proposal(ctx, 700, PROPOSED, "terminal")["text"]
     assert text.startswith(f'{ops_instructions.PROPOSAL_ASK} "{PROPOSED}"\n') and text.endswith(ops_instructions.WHERE_SAYS)
-    assert ops_instructions.PROPOSAL_ASK == "Add this line to the project's instructions?"
-    assert ops_instructions.WHERE_ELSEWHERE == "accept it on the page (Building > Instructions) or in the terminal"
+    pk.assert_said(ops_instructions.PROPOSAL_ASK, "INSTR_PROPOSAL_ASK")
+    pk.assert_said(ops_instructions.WHERE_ELSEWHERE, "INSTR_WHERE_ELSEWHERE")

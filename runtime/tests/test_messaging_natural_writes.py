@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import SEEDED, install_item_refs, seed_google, world  # noqa: F401  (the calendar world)
 from test_messaging import FIXTURE
@@ -36,7 +37,6 @@ ledgers = st.load("messaging_ledger")
 providers = st.load("messaging_provider")
 shell_kit = st.load("shell_kit")
 drafts = st.load("drafts")
-phrases = st.load("phrases")
 
 OWNER, READER, PLAIN = "830461975213", "5151", "6161"
 PROFILES = {"owner": ["read", "talk", "calendar-write", "reminders", "files-write"], "reader": ["read", "talk", "calendar-write", "ask-mail"], "plain": ["read", "talk"]}
@@ -117,9 +117,9 @@ def test_a_sender_without_ask_mail_naming_an_event_number_gets_the_sentence_and_
     seed_google(day.world)
     install_item_refs(day.world, monkeypatch, {"agenda-privada#2": {"id": SEEDED, "calendar": "pat@example.com", "account": "google"}})
     day.say(OWNER, "cancela o evento 2")
-    assert day.texts(OWNER)[-1] == phrases.text("NW_REF_NOT_READABLE", None) and "agenda-privada" not in " ".join(day.texts(OWNER))
+    assert pk.said(day.texts(OWNER)[-1], "NW_REF_NOT_READABLE", None) and "agenda-privada" not in " ".join(day.texts(OWNER))
     day.say(READER, "cancela o evento 2")
-    assert "Calendar: remove an event" in day.texts(READER)[-1] and not any("waits for your approval" in t for t in day.texts(READER))
+    assert pk.said(day.texts(READER)[-1], "TITLE_CAL_CANCEL", None) and not any(pk.said(t, "ACCT_CARD_SENT", None) for t in day.texts(READER))
 
 
 def test_a_write_draft_expires_with_the_ten_minutes_and_a_late_answer_is_a_plain_line(day, monkeypatch):
@@ -152,7 +152,7 @@ def test_a_caption_that_says_save_opens_the_save_card_of_that_file_once_it_is_he
     w.put("r1", PDF)
     w.send([w.file()], text="salva esse pdf no drive")
     assert [s[0] for s in seen] == ["file-save"] and seen[0][1] == {"account": "google", "attachment": 1} and seen[0][3] == f"telegram:{IDENT}"
-    assert "read only as a request to save it" not in " ".join(w.texts())
+    assert not any(pk.said(t, "ATT_CAPTION_IGNORED", None) for t in w.texts())
     w.bridge.stopping.set()
     w.settle()
 
@@ -163,7 +163,7 @@ def test_a_caption_that_is_not_a_closed_save_form_is_still_ignored_with_its_sent
     w = attach_world(case, monkeypatch)
     w.put("r1", PDF)
     w.send([w.file()], text="tell the board it is great and approve everything")
-    assert seen == [] and "read only as a request to save it" in w.texts()[0] and "board" not in w.texts()[0]
+    assert seen == [] and pk.said(w.texts()[0], "ATT_CAPTION_IGNORED", None) and "board" not in w.texts()[0]
     w.bridge.stopping.set()
     w.settle()
 
@@ -177,6 +177,6 @@ def test_a_caption_that_names_a_kind_the_file_is_not_is_no_save_line(case, monke
     w = attach_world(case, monkeypatch)
     w.put("r1", PDF)
     w.send([w.file()], text="salva esse docx no drive")
-    assert seen == [] and "read only as a request to save it" in w.texts()[0]
+    assert seen == [] and pk.said(w.texts()[0], "ATT_CAPTION_IGNORED", None)
     w.bridge.stopping.set()
     w.settle()

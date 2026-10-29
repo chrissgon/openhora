@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_natural import KEY, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
@@ -38,6 +39,8 @@ IX_SENDERS = {"telegram": [*SENDERS["telegram"], {"id": "55119000000007", "polic
 BARE = "telegram:55119000000007"
 PLAIN = KEY["plain"]
 ROUTED = ("ROUTED", None, None, True, None)
+PT = {"language": "pt-BR"}
+ES = {"language": "es"}      # a language with no table: the sentences are the English ones
 
 
 def op(name, slots=None, **more):
@@ -198,17 +201,15 @@ def test_a_write_that_cannot_be_prepared_says_what_was_understood_and_only_a_lan
     calls = []
     prepare(world, monkeypatch, calls, {"text": op("mail-archive", {"messages": "3,7"}), "card": None})
     line = "archiva los mensajes 3 y 7"
-    assert phone(world, line)["reply"] == ("I understood that you want to change something in your accounts, but I could not prepare it, so I did nothing. "
-                                           "Tell me what it is, which item and when.")      # an en project: never "ask in Portuguese or in English"
+    pk.assert_said(phone(world, line)["reply"], "IX_CANNOT_WRITE", None)      # an en project: never "ask in Portuguese or in English"
     write_config(world["path"], language="pt-BR")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, line)["reply"] == ("Entendi que você quer mudar algo nas suas contas, mas não consegui montar o cartão, então não fiz nada. "  # validate: allow english-only -- the Portuguese line or sentence under test
-                                           "Diga o que é, qual item e quando.")      # validate: allow english-only -- the Portuguese line or sentence under test
+    pk.assert_said(phone(world, line)["reply"], "IX_CANNOT_WRITE", PT)
     write_config(world["path"], language="es")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, line)["reply"] == "For now, ask for that in Portuguese or in English."      # es has no write forms: the sentence is true there (and has no table, so English)
+    pk.assert_said(phone(world, line)["reply"], "IX_WRITE_LANGUAGE", ES)      # es has no write forms: the sentence is true there (and has no table, so English)
     prepare(world, monkeypatch, [], {"text": '{"v":1,"kind":"none"}'})
-    assert phone(world, "gracias, nada mas")["reply"] == "I did not see a request in that message."
+    pk.assert_said(phone(world, "gracias, nada mas")["reply"], "IX_NONE", ES)
 
 
 def test_an_event_with_no_time_goes_to_its_family_with_the_name_only(world, monkeypatch):
@@ -232,9 +233,10 @@ def test_the_live_lines_of_the_maintainer_reach_a_read_and_the_yes_question(worl
     calls = []
     prepare(world, monkeypatch, calls, {"text": op("items")}, spies=False)
     out = phone(world, "liste o ultimo email do meu Outlook", who="mailer")
-    assert out["reply"] == "Your Outlook mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page." and len(calls) == 1 and calls[0]["user"].endswith("line: liste o ultimo email do meu Outlook")
+    pk.assert_said(out["reply"], "NW_ITEMS_ADD_MAIL_ACCOUNT", None, service="Outlook", where="on the platform's page.")
+    assert len(calls) == 1 and calls[0]["user"].endswith("line: liste o ultimo email do meu Outlook")
     prepare(world, monkeypatch, calls, {"text": op("remind", {"text": "llamar a Dana", "when": "manana a las 10:00"}, time_iso="2026-10-19T10:00", weekday="mon")}, spies=False)
     asked = phone(world, "recuerdame llamar a Dana manana a las 10:00")
-    assert asked["reply"] == "I understood: tomorrow, Mon 19/10, at 10:00: llamar a Dana. Confirm? (yes / another time)"
+    pk.assert_said(asked["reply"], "NT_CONFIRM_TEXT", None, when="tomorrow, Mon 19/10, at 10:00", text="llamar a Dana")
     made = phone(world, "yes")
-    assert made["reply"] == "Reminder #1: tomorrow, Mon 19/10, at 10:00 (BRT): llamar a Dana. To undo: /forget 1."
+    pk.assert_said(made["reply"], "NT_SET_TEXT", None, id=1, when="tomorrow, Mon 19/10, at 10:00 (BRT)", text="llamar a Dana")

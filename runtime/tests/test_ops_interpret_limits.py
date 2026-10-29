@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_interpret_dispatch import BARE, IX_PROFILES, IX_SENDERS, KEY, PLAIN, ROUTED, TODAY, ZONE, op, phone, prepare  # noqa: F401
@@ -33,6 +34,8 @@ ops = st.load("ops")
 
 RUNTIME = Path(__file__).resolve().parents[1]
 NONE = '{"v":1,"kind":"none"}'
+PT = {"language": "pt-BR"}
+ES = {"language": "es"}      # a language with no table: the sentences are the English ones
 PLAIN_LINE = "tell me something about the unicorns"
 HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
           "catalog_sha256": PINNED_HASHES["interpreter_catalog_before_s8"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}
@@ -81,7 +84,7 @@ def flipped(text):
 def test_the_committed_entry_is_in_force_here_and_a_line_of_the_listed_sender_makes_one_call(world, monkeypatch):
     calls = []
     prepare(world, monkeypatch, calls, {"text": NONE})
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message."
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
     assert len(models(calls)) == 1 and routed(calls) == []
 
 
@@ -136,7 +139,8 @@ def test_vacuity_the_control_of_the_entry_tests_calls_when_nothing_is_changed(wo
     calls = []
     prepare(world, monkeypatch, calls, {"text": NONE})
     entry_file(tmp_path, monkeypatch)
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 1
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 1
 
 
 def test_limit_63_an_entry_that_names_the_account_route_is_not_in_force_and_no_account_call_is_made(world, monkeypatch, tmp_path):
@@ -251,7 +255,7 @@ def test_the_rate_is_per_sender(world, monkeypatch):
     for n in range(10):
         phone(world, PLAIN_LINE)
     assert phone(world, PLAIN_LINE)["reply"] == "ROUTED"
-    assert phone(world, PLAIN_LINE, who="plain")["reply"] == "I did not see a request in that message."
+    pk.assert_said(phone(world, PLAIN_LINE, who="plain")["reply"], "IX_NONE", None)
 
 
 def test_three_hundred_calls_per_project_per_local_day_and_the_next_day_calls_again(world, monkeypatch):
@@ -259,14 +263,15 @@ def test_three_hundred_calls_per_project_per_local_day_and_the_next_day_calls_ag
     prepare(world, monkeypatch, calls, {"text": NONE})
     clock = Clock(monkeypatch)
     for n in range(300):
-        assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message."
+        pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
         clock.now += 7.0
     assert len(models(calls)) == 300
     assert phone(world, PLAIN_LINE)["reply"] == "ROUTED" and len(models(calls)) == 300
     ops_core.context(world["path"])
     day = ops_natural._clock()
     monkeypatch.setattr(ops_natural, "_clock", lambda: day.replace(day=day.day + 1))
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 301
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 301
 
 
 def failing(calls, code="E_NETWORK"):
@@ -292,7 +297,8 @@ def test_three_failed_calls_open_the_breaker_for_five_minutes(world, monkeypatch
     clock.now += 2.0      # 1303 s
     monkeypatch.setattr(interpreter_route, "complete", lambda route_id, system, user, **kw: calls.append({"route": route_id, "user": user}) or
                         {"ok": True, "text": NONE, "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"})
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 4
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 4
 
 
 def test_a_success_between_failures_keeps_the_breaker_closed(world, monkeypatch):
@@ -319,7 +325,7 @@ def test_a_failed_call_on_a_private_line_gets_the_outage_sentence_and_never_the_
     monkeypatch.setattr(interpreter_route, "complete", failing(calls))
     write_config(world["path"], language="pt-BR")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, PRIVATE_PT)["reply"] == "Não consegui entender agora. Tente de novo em alguns minutos."      # validate: allow english-only -- the Portuguese line or sentence under test
+    pk.assert_said(phone(world, PRIVATE_PT)["reply"], "IX_OUTAGE", PT)
     assert routed(calls) == []
 
 
@@ -340,7 +346,7 @@ def test_a_failed_call_in_a_project_of_another_language_gets_the_outage_sentence
     monkeypatch.setattr(interpreter_route, "complete", failing(calls))
     write_config(world["path"], language="es")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, "cuentame algo sobre los unicornios")["reply"] == "I could not understand that right now. Try again in a few minutes."
+    pk.assert_said(phone(world, "cuentame algo sobre los unicornios")["reply"], "IX_OUTAGE", ES)
     assert routed(calls) == []
 
 
