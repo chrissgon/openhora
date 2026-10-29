@@ -605,6 +605,8 @@ def short_answer(said, languages=None, wide: bool = False, new=None) -> bool:
 
 def _retry(draft: dict, said: str, tables: list, new=None):
     """The same question once more for a short reply that does not answer it; None the second time (the line is then handled as a new one)."""
+    if draft.get("need") == "kind" and new == "form":
+        new = None          # the kind question is answered in the words of a request ("so lembrete"): a reminder noun in a short line (the guard's `form`) is no reason to drop it, as `candidate` named none
     if draft.get("retries", 0) >= 1 or not short_answer(said, tables, wide=draft.get("need") == "kind", new=new):
         return None
     return {"ask": {**draft, "retries": draft.get("retries", 0) + 1}}

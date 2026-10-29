@@ -102,7 +102,6 @@ def test_vacuity_a_changed_label_or_line_no_longer_hashes_to_the_frozen_file():
 
 # --- 2. the bars and the agreement -----------------------------------------------------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="B1 NOT MET on the frozen set: 3 test pairs (answers to the kind question) are dropped; the maintainer decides (docs/decisions/2026-10-29-candidate-out-reply-guard.md); strict, so a fix turns this red until the mark is removed")
 def test_b1_no_answer_the_old_engine_kept_becomes_a_new_request(figures):
     assert figures["b1"]["pairs_at_risk"] > 100, "the bar must have pairs to measure"
     assert figures["b1"]["violations"] == 0, figures["b1"]["ids"]
@@ -225,6 +224,14 @@ def test_the_words_of_the_kind_question_are_answers_to_it_and_new_lines_to_any_o
 def test_the_kind_question_still_retries_a_short_reply_that_is_neither():
     got = complete("kind_bare:0", "talvez")
     assert got is not None and got["ask"]["need"] == "kind" and got["ask"]["retries"] == 1
+
+
+def test_a_short_kind_answer_with_the_noun_is_asked_once_more_not_dropped():
+    for line, lang in (("um lembrete mesmo", "pt-BR"), ("só lembrete", "pt-BR"), ("a reminder is fine", "en")):   # validate: allow english-only -- Portuguese lines, invented
+        assert turn_gate.new_request(line) == "form"
+        got = complete("kind_bare:0", line, lang)
+        assert got is not None and got["ask"]["need"] == "kind" and got["ask"]["retries"] == 1, line
+        assert complete("time_day:0", line, lang) is None, "the twin: after any other question the same line starts a request"
 
 
 def test_a_yes_with_an_amendment_changes_the_reading_shown_and_is_not_made_at_once():
