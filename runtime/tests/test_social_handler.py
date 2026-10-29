@@ -191,6 +191,7 @@ def env(tmp_path, monkeypatch):
         shutil.copy(REPO / rel, wb / (rel if rel != "runtime/cli.py" else "runtime/cli_real.py"))
     for name in REAL_RUNTIME:  # the real operations layer, behind the stand-in cli.py
         shutil.copy(REPO / "runtime" / name, wb / "runtime" / name)
+    shutil.copytree(REPO / "runtime" / "registry", wb / "runtime" / "registry")  # the word lists the registry reads when `ops` imports its siblings (44-B: `event_lookup` is imported at the top)
     roles = json.loads((REPO / "runtime" / "roles.json").read_text())  # which it checks against the skills and packs it names
     for skill in (roles["router"], roles["brief"], roles["subtask"], *([roles["answer"]] if "answer" in roles else [])):
         (wb / "skills" / skill).mkdir(parents=True, exist_ok=True)
