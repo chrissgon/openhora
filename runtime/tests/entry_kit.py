@@ -410,7 +410,7 @@ REPLAY_CLOCK = "2026-10-18T14:00"      # the clock of the world of every scenari
 
 
 def _cover_time_unstable(item: dict, obj: dict) -> bool:
-    """Whether the model's `time_iso` of this answer could be believed at the item's clock or at the replay's (wall) clock: the line's time slot is not read by code (nor asked) at both."""
+    """Whether the model's `time_iso` of this answer could be believed at the item's clock or at the replay's pinned clock (`REPLAY_CLOCK`; the table, and so `answers_sha256`, depends on the time engine through `interpreter._classify`: a change of the engine moves the hash and asks for a re-record, loudly): the line's time slot is not read by code (nor asked) at both."""
     import datetime
     from zoneinfo import ZoneInfo
     if "time_iso" not in obj:

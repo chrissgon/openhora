@@ -498,8 +498,7 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
         # The router chose it, and no code can check the choice against the line: the reading is SHOWN and the reminder is made only after the person's yes (the
         # reminders' own rules, runtime/natural.py: the words are the person's span, the time is the one the router wrote, parsed by the same engine and checked by
         # `reminders.resolve`; a pick is never a yes; the moment shown is the moment made). The words reach the engine as a line of the `/remind` kind.
-        words = "" if natural.only_trigger(args.get("text", "")) else args.get("text", "")      # review C2-g: a text span made only of the trigger words ("me lembra") is no text: the words are asked
-        line = f"{when or ''} {words}".strip()      # review C2-f: the moment first, as the typed /remind is written (BL7-4's deadline rule reads the moment before the words)
+        line = _reminder_line(args, when)
         try:
             asked = _call(project, row, {"said": line, "how": "command"}, channel, sender)
         except core.OpsError as e:
@@ -522,9 +521,7 @@ def _notice(project: str, ctx: dict, name: str, row: dict, args: dict, said: str
     try:
         shown = _call(project, row, dict(args, preview=True), channel, sender)
     except core.OpsError as e:
-        if channel == "messaging" and not getattr(e, "phone", None) and not (PATH.search(str(e)) or guard.find(str(e))):
-            return phrases.localize(str(e), cfg)      # review C2-e: "no reminder N waits for you" is told to a person as the plain sentence it is, never behind "error:"
-        return _error(cfg, e, channel)
+        return _plain_error(cfg, e, channel) or _error(cfg, e, channel)
     sentence, draft = natural.forget_question([shown], cfg, channel != "messaging" or _notices_text(cfg))
     extras["stored"] = t("NAT_PRIVATE_REPLY")      # the question shows the reminder's words: the conversation keeps a neutral word (limit L51)
     drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
@@ -562,6 +559,21 @@ def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sen
 
 def _notices_text(cfg: dict) -> bool:
     return importlib.import_module("ops_reminders")._notices_text(cfg)
+
+
+def _reminder_line(args: dict, when) -> str:
+    """The line the reminders' engine reads for a reminder the interpreter chose: the moment first, as the typed /remind is written (review C2-f: BL7-4's deadline rule reads the moment before the words),
+    and the words only when they are more than the trigger words ("me lembra" alone is no text: review C2-g, the words are asked)."""
+    words = "" if natural.only_trigger(args.get("text", "")) else args.get("text", "")
+    return f"{when or ''} {words}".strip()
+
+
+def _plain_error(cfg: dict, e, channel):
+    """The plain sentence of an error of the routed forget preview on a messaging app ("no reminder N waits for you"), or None: an error with a phone sentence of its own, a path or a problem of this
+    machine keeps `_error`'s rules (review C2-e: never behind "error:")."""
+    if channel == "messaging" and not getattr(e, "phone", None) and not (PATH.search(str(e)) or guard.find(str(e))):
+        return phrases.localize(str(e), cfg)
+    return None
 
 
 def _ask_draft(ctx: dict, asked: dict, channel, sender, how: str, extras=None) -> str:

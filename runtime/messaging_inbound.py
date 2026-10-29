@@ -32,7 +32,7 @@ The sentences it names (HELP, the usage lines) are the phrase table's English te
 maps the sentence of a `usage` intent to its key. The intents themselves are the same in every language.
 
 S41-11: `parse` makes no claim of a line of words before the reply gesture. The intent `natural` is taken by the row `reminder-form` (narrowed to `/remind <free words>`) and, when that row
-takes nothing, by `say-natural` (runtime/turn_order.py `ORDER`, stage `bridge`); the row `write-form` is retired (a write said in words is read by the interpreter, L63).
+takes nothing, by the row `say`; the rows `write-form` and `say-natural` are retired (a write said in words is read by the interpreter, L63).
 
 Standard library only. Runs on Python 3.9.
 """

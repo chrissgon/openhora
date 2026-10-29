@@ -371,9 +371,9 @@ it with the claimers it runs, after which the two files are frozen data like `de
 `give-consent`, `config`, `accept-config`, `deps`, `routine-approve`, `set-mode`, `set-model`, `source-add` and `source-import` (20 together); every one is in the served `refused` list, none is absent. A gap is a
 request that works today and would stop working: the maintainer accepts it, or the catalog gains the operation (a dated entry and its own measurement); PR 2 of S41-11 waits for that answer.
 
-**The pipeline decides 133 of the 199 added items before the model.** `interpreter_pipeline` stage 3 (`tier1`) calls `natural.match` as the product does today, so a tier-1 form never reaches a model in the
-measurement; none of the 1,344 relabelled items is decided there. M41-5 asks what the model does with those lines, so it runs with stage 3 off. The harness has no option for it and PR 2a deletes the stage; until then
-the maintainer's script switches it off in the process, with no edit of a repository file: it sets `pipeline._tier1 = lambda line: None` before `interpreter_measure.main([...])` is called in the same
+**The pipeline decided 133 of the 199 added items before the model (until S41-11 PR 2a).** `interpreter_pipeline` stage 3 (`tier1`) called `natural.match` as the product did, so a tier-1 form never reached a model in the
+measurement; none of the 1,344 relabelled items was decided there. M41-5 asked what the model does with those lines, so it ran with stage 3 off. The harness has no option for it; PR 2a narrows the stage to what the product still
+reads before the model (`natural.decision` and `greeting.help_form`: 7 of the added items), and a measurement after it needs no switch. For M41-5 the maintainer's script switched it off in the process, with no edit of a repository file: it sets `pipeline._tier1 = lambda line: None` before `interpreter_measure.main([...])` is called in the same
 process, once per route and corpus:
 
 ```

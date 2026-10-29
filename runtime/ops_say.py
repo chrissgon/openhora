@@ -231,6 +231,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
             # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
             # router is free again; a shell that drains nothing is refused while the router answers another request.
             if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
+                if turn_gate.private_kind(said) is not None:      # H2 (review of 2026-10-29, L51, L61): the queue keeps the line as written, so a reminder or a write in words is refused as busy, never queued
+                    raise core.RunBusy(RUN_BUSY, 1)
                 stored = _enqueue_line(ctx, said)
                 return {"reply": None, "request_id": None, "pending_id": None, "ran": False, "queued": True,
                         "message_id": stored["id"]}

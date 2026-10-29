@@ -180,13 +180,6 @@ class Reminders:
         no longer the open one (answered, replaced, expired, lost on a restart) is told so."""
         bridge = self.bridge
         draft = self.drafts.get(chat)
-        if draft is None and (kept := self.shared(chat)) is not None:      # the question is the interpreter's: a tap says "yes" as the typed word does, through the line
-            asked, pressed = str(kept.get("message_id") or ""), str(card.get("message_id") or "")
-            if not asked or not pressed or asked != pressed:
-                bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)
-                return
-            bridge.handle({"update_id": 0, "sender": chat, "chat": chat, "private": True, "text": "yes", "action": None, "action_ref": None, "reply_to": None})
-            return
         asked, pressed = str(draft.get("message_id") or "") if draft else "", str(card.get("message_id") or "")
         if draft is None or draft["project"] != project["id"] or not asked or not pressed or asked != pressed:          # a button is the answer to ITS question, and a question with no id cannot be told from another
             bridge.reply(chat, phrases.text("NT_EXPIRED", bridge.cfg(project)), project)

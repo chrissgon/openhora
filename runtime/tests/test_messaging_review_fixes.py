@@ -31,6 +31,7 @@ from test_messaging_brake_leg import BUSY_KEYS, busy_sentences, hold_agent
 from test_ops_natural import router_says
 
 ops = st.load("ops")
+ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 ops_turn = st.load("ops_turn")
 ops_interpret = st.load("ops_interpret")
@@ -60,8 +61,9 @@ def say(lab, who, text, model=None):
     assert wait_for(lambda: not lab.bridge.exclusive and all(not t.is_alive() for t in lab.bridge.threads)) or True
 
 
-def hint_for(lab, command):
-    return phrases.text("IX_OUTAGE_BRAKE", {"language": lab.language}, command=command)
+def hint_for(lab, command, reads=True):
+    """The typed hint: "cannot read words right now" for a sender the interpreter reads, "does not read words for you" for one it never reads."""
+    return phrases.text("IX_OUTAGE_BRAKE" if reads else "IX_TYPE_BRAKE", {"language": lab.language}, command=command)
 
 
 # --- C1-a ------------------------------------------------------------------------------------------------------------------------------------------
@@ -76,7 +78,7 @@ def test_c1_a_a_brake_in_words_of_a_sender_the_interpreter_does_not_read_gets_th
     try:
         say(lab, NOINT, brake_line(lab), ROUTE)
         assert wait_for(lambda: bool(lab.texts(NOINT)))
-        assert lab.texts(NOINT) == [hint_for(lab, "/stop-task 5")] and not set(lab.texts(NOINT)) & busy_sentences(), "the hint, not QUEUED or RUN_BUSY"
+        assert lab.texts(NOINT) == [hint_for(lab, "/stop-task 5", reads=False)] and not set(lab.texts(NOINT)) & busy_sentences(), "the hint, not QUEUED or RUN_BUSY"
         assert lab.asked == [], "no model was asked"
     finally:
         let_go()
@@ -88,7 +90,7 @@ def test_vacuity_c1_a_without_the_brake_form_check_the_line_waits_behind_the_run
     try:
         say(lab, NOINT, brake_line(lab), ROUTE)
         assert wait_for(lambda: bool(lab.texts(NOINT)))
-        assert lab.texts(NOINT) != [hint_for(lab, "/stop-task 5")] and set(lab.texts(NOINT)) & busy_sentences(), "queued behind the run, as it was"
+        assert lab.texts(NOINT) != [hint_for(lab, "/stop-task 5", reads=False)] and set(lab.texts(NOINT)) & busy_sentences(), "queued behind the run, as it was"
     finally:
         let_go()
 
@@ -157,6 +159,7 @@ def test_c2_d_the_reminder_question_goes_with_the_yes_button_bound_in_the_ledger
     assert wait_for(lambda: bool(lab.texts(OWNER)))
     cards = [c for c in lab.bridge.ledger.data["cards"] if c.get("kind") == "reminder" and c["chat"] == OWNER]
     assert len(cards) == 1 and list(cards[0]["actions"].values()) == ["yes"], "the one-tap Yes button, bound in the ledger"
+    assert "florist" not in json.dumps(lab.bridge.ledger.data, ensure_ascii=False), "the ledger holds no word of the reminder (L51)"
     action = next(iter(cards[0]["actions"]))
     before = len(lab.texts(OWNER))
     lab.bridge.handle({"update_id": 2, "sender": OWNER, "chat": OWNER, "private": True, "text": None, "action": action, "action_ref": "ref-1", "reply_to": None})
@@ -249,3 +252,109 @@ def test_b1_the_cover_answers_are_judged_at_the_pinned_replay_clock_and_never_at
     item = {"zone": "America/Sao_Paulo", "clock": "2026-10-15T10:00", "line": "remind me tomorrow at 9am to send the weekly report"}
     obj = {"op": "remind", "slots": {"text": "send the weekly report", "when": "tomorrow at 9am"}, "time_iso": "2026-10-19T09:00"}
     assert kit._cover_time_unstable(item, obj) in (True, False)
+
+
+# --- H1: an `interpret` holder whose entry is off ------------------------------------------------------------------------------------------------------------
+
+
+def entry_off(monkeypatch):
+    monkeypatch.setattr(st.load("interpreter_enable"), "active", lambda language, path=None: None)
+
+
+def reminder_line(lab):
+    return "me lembra de ligar amanhã 9h" if lab.language == "pt-BR" else "remind me to call tomorrow at 9am"      # validate: allow english-only -- the Portuguese line under test
+
+
+@pytest.mark.parametrize("held", [False, True], ids=["idle", "slot-held"])
+def test_h1_an_interpret_holder_whose_entry_is_off_gets_the_typed_command_for_a_private_line_and_no_raw_words_reach_the_agent(lab, monkeypatch, held):
+    entry_off(monkeypatch)
+    router_says(lab.world, "Route: none (capability, pending)\nWhy: a plain question\nNext: nothing.\n")
+    let_go = hold_agent(lab) if held else (lambda: None)
+    try:
+        say(lab, OWNER, reminder_line(lab), ROUTE)
+        assert wait_for(lambda: bool(lab.texts(OWNER)))
+        assert lab.texts(OWNER) == [phrases.text("IX_TYPE_REMIND", {"language": lab.language}, command="/remind <time> <text>")]
+        assert lab.asked == [] and not lab.bridge.waiting, "no model, nothing handed on to the agent"
+    finally:
+        let_go()
+
+
+def test_vacuity_h1_with_the_pass_clause_back_the_raw_line_is_routed(lab, monkeypatch):
+    entry_off(monkeypatch)
+    real = ops_turn.route_pass_row
+    monkeypatch.setattr(ops_turn, "typed_sentence", lambda ctx, said, sender: None)      # the first leg has no answer for the line: it is handed back, and the second leg's row must stand alone
+    router_says(lab.world, "Route: none (capability, pending)\nWhy: a plain question\nNext: nothing.\n")
+    say(lab, OWNER, reminder_line(lab), ROUTE)
+    assert wait_for(lambda: bool(lab.texts(OWNER)))
+    assert phrases.text("IX_TYPE_REMIND", {"language": lab.language}, command="/remind <time> <text>") not in lab.texts(OWNER)
+
+
+# --- H2: the page queue keeps no private line ----------------------------------------------------------------------------------------------------------------
+
+
+def stored_texts(lab):
+    ctx = ops_core.context(lab.world["path"])
+    return json.dumps(ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500), ensure_ascii=False)
+
+
+@pytest.mark.parametrize("line", ["marca dentista quinta às 10h no google", "me lembra de ligar amanhã 9h"], ids=["write", "reminder"])      # validate: allow english-only -- the Portuguese lines under test
+def test_h2_a_private_line_on_the_page_while_the_router_is_busy_is_refused_and_never_stored_as_written(lab, line):
+    let_go = hold_agent(lab)
+    try:
+        with pytest.raises(ops_core.RunBusy):
+            ops.say(lab.world["path"], line, channel="page")
+        assert line not in stored_texts(lab), "nothing of the person's words was stored"
+        out = ops.say(lab.world["path"], "tell me what you think of the sea", channel="page")
+        assert out["queued"] is True, "a plain line still waits in the queue"
+    finally:
+        let_go()
+
+
+def test_vacuity_h2_without_the_check_the_line_is_queued_as_written(lab, monkeypatch):
+    monkeypatch.setattr(st.load("ops_say").turn_gate, "private_kind", lambda line: None)
+    let_go = hold_agent(lab)
+    try:
+        line = "marca dentista quinta às 10h no google"      # validate: allow english-only -- the Portuguese line under test
+        out = ops.say(lab.world["path"], line, channel="page")
+        assert out["queued"] is True and line in stored_texts(lab), "queued and stored as written, as it was"
+    finally:
+        let_go()
+
+
+# --- twins of C2-e, C2-f, B1 and the outage brake ------------------------------------------------------------------------------------------------------------
+
+
+def test_vacuity_c2_e_without_the_plain_sentence_the_error_prefix_is_back(lab, monkeypatch):
+    if lab.language != "en":
+        pytest.skip("the prefix is the English table's")
+    monkeypatch.setattr(ops_natural, "_plain_error", lambda cfg, e, channel: None)
+    say(lab, OWNER, "cancela o lembrete 3" if lab.language == "pt-BR" else "forget reminder 3", json.dumps({"v": 1, "kind": "op", "op": "reminder-forget", "slots": {"id": "3"}}))
+    assert wait_for(lambda: bool(lab.texts(OWNER)))
+    sent = lab.texts(OWNER)[-1]
+    if lab.plan_cards(OWNER):
+        sent = lab.answer(OWNER, "sim" if lab.language == "pt-BR" else "yes")[-1]
+    assert sent.startswith("error:"), sent
+
+
+def test_vacuity_c2_f_with_the_words_first_the_moment_is_not_first(lab, monkeypatch):
+    seen = []
+    monkeypatch.setattr(ops_natural, "_reminder_line", lambda args, when: f"{args.get('text', '')} {when or ''}".strip())
+    real = ops_natural._call
+    monkeypatch.setattr(ops_natural, "_call", lambda project, row, args, channel, sender: seen.append(args) or real(project, row, args, channel, sender))
+    say(lab, OWNER, "remind me tomorrow at 1 pm to call the florist", reminder_model("tomorrow at 1 pm", time_iso="2026-10-19T13:00", weekday="mon"))
+    assert wait_for(lambda: bool(lab.texts(OWNER)))
+    said = [a["said"] for a in seen if isinstance(a, dict) and "said" in a]
+    assert said and all(x.startswith("call the florist") for x in said), said
+
+
+def test_vacuity_b1_a_clock_that_is_not_the_pinned_one_gives_another_table(monkeypatch):
+    import entry_kit as kit
+    base = kit.load_cover_answers()
+    monkeypatch.setattr(kit, "REPLAY_CLOCK", "2027-06-01T10:00")
+    assert kit.load_cover_answers() != base, "the pinned clock decides which answers are kept: a moving clock would move the table and its hash"
+
+
+def test_vacuity_the_outage_brake_asks_the_model_when_the_breaker_is_closed(lab):
+    say(lab, OWNER, brake_line(lab), ROUTE)
+    assert wait_for(lambda: bool(lab.texts(OWNER)) or bool(lab.asked))
+    assert len(lab.asked) == 1, "with the breaker closed the interpreter is called: the open breaker is what makes the call count 0"

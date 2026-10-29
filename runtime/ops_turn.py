@@ -248,7 +248,7 @@ def ops_interpret_take_pass(project, sender, said, extras) -> bool:
     return importlib.import_module("ops_interpret").take_pass(project, sender, said, extras)
 
 
-def brake_hint(ctx: dict, said: str, sender):
+def brake_hint(ctx: dict, said: str, sender, reads: bool = True):
     """The sentence of the outage hint for a line that is a brake form, or None (SPEC-S41-11-BRAKE section 2): `natural.match` reads the line, read only and never executed, and says the operation;
     only an operation of `operations.LINE_BRAKES` gets one. The typed command comes from `ops_natural.TYPED` with the one number the line writes (`<n>` when it writes none or several);
     a brake with no typed form on a phone (`routine-pause`, `routine-cancel`) gets the sentence that says where it is done."""
@@ -259,7 +259,7 @@ def brake_hint(ctx: dict, said: str, sender):
     if typed is None:
         return ops_natural.phone_sentence(ctx, found["op"])
     number = importlib.import_module("turn_gate").the_number(said)
-    return phrases.text("IX_OUTAGE_BRAKE", ctx["cfg"], command=typed[0].replace("{n}", str(number) if number is not None else "<n>"))
+    return phrases.text("IX_OUTAGE_BRAKE" if reads else "IX_TYPE_BRAKE", ctx["cfg"], command=typed[0].replace("{n}", str(number) if number is not None else "<n>"))      # L2: a sender the interpreter never reads is not told it "cannot read words right now"
 
 
 def route_pass_row(project, ctx, said, channel, sender, extras, state):
@@ -269,9 +269,14 @@ def route_pass_row(project, ctx, said, channel, sender, extras, state):
     if not extras.get("decide"):
         return None
     if extras.get("no_decision") or not extras.get("deferred"):
-        hint = brake_hint(ctx, said, sender)
+        hint = brake_hint(ctx, said, sender, reads=importlib.import_module("ops_say").reads_words(project, sender))
         if hint is not None:
             return _plain(hint)
+    if not extras.get("deferred"):      # H1 (review of 2026-10-29): a holder of `interpret` whose entry is off says a reminder or a write in words: the typed command, slot-free, and nothing of the line is handed on
+        typed = typed_sentence(ctx, said, sender)
+        if typed is not None:
+            extras["stored"] = typed
+            return _plain(typed)
     raise importlib.import_module("ops_say").ToAgent(importlib.import_module("route_pass").issue(project, sender, said, extras.get("frame") or "new"))
 
 
@@ -288,7 +293,7 @@ def typed_sentence(ctx: dict, said: str, sender):
 def typed_private_line(project, ctx, said, channel, sender, extras, state):
     """C1-c (the maintainer, 2026-10-28): a reminder or a write said in words by a sender whom the interpreter does not read is answered with the typed command, and the line goes to no model:
     it reaches the end of the order only here, so nothing of it is routed."""
-    if extras.get("deferred") or extras.get("route_pass") is not None:
+    if extras.get("deferred"):
         return None
     typed = typed_sentence(ctx, said, sender)
     if typed is None:

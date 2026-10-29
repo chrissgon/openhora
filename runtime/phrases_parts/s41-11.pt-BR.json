@@ -3,7 +3,8 @@
   "table": {
     "IX_OUTAGE_BRAKE": "Não consigo ler frases agora. Para fazer isso agora, digite {command}.",
     "IX_TYPE_REMIND": "Não leio frases para você. Para criar um lembrete, digite {command}.",
-    "IX_TYPE_WRITE": "Não leio frases para você. Escrever na sua agenda, no seu e-mail ou nos seus arquivos se faz digitando o comando, ou na página da plataforma."
+    "IX_TYPE_WRITE": "Não leio frases para você. Escrever na sua agenda, no seu e-mail ou nos seus arquivos se faz digitando o comando, ou na página da plataforma.",
+    "IX_TYPE_BRAKE": "Não leio frases para você. Para fazer isso agora, digite {command}."
   },
   "same_as_english": []
 }
