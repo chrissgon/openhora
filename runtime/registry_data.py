@@ -19,7 +19,7 @@ Standard library only; it reads four files and keeps nothing else.
                            whether a cancel is of one occurrence or of the whole series: read by runtime/recurrence.py (CB-7, limits L54, L61).
 
 Every file starts with the header {"v": 1, "made_from": "<commit>", "rule": "<one line>"}; `made_from` names the commit whose language tables the first version was written from by
-scripts/registry_build.py (a script that S41-11 deletes with the keys it reads). A word is folded: lower case, no accent, the characters a-z and 0-9 only; a list is sorted and has no
+a builder script (deleted by S41-11 PR 2b: the data is edited by hand under review from then on). A word is folded: lower case, no accent, the characters a-z and 0-9 only; a list is sorted and has no
 repeat (the brands, a list of phrases, keep their written order, and each is a list of folded words).
 
   private_words()        the private words as written in the file (a dict, read once)

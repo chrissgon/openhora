@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 import closed_heads
+import old_claim
 import standin_tree as st
 import test_calendar_write as tcw
 import test_sources_mail as tsm
@@ -1109,8 +1110,7 @@ def old_claims(w):
         read, candidate = closed_heads.make(natural_writes.read)
         mp.setattr(natural_writes, "read", read)
         mp.setattr(natural_writes, "candidate", candidate, raising=False)
-        mp.setattr(natural, "decision", natural.match)
-        mp.setattr(natural, "needs", closed_heads._old_needs)
+        closed_heads.claim_forms(mp)
         yield
 
 
@@ -1534,6 +1534,7 @@ def run_scenario(scenario, tmp_path, monkeypatch, line_hook=None) -> dict:
     """Build the world, put it in the scenario's pre-state, deliver the line, settle every thread and return the outcome. One scenario, one world, nothing shared. `line_hook(monkeypatch)`
     patches the code under test after the pre-state is built and before the line is delivered (the sensitivity checks of test_entry_replay.py: a claimer that takes nothing, two that swap places)."""
     w = open_world(scenario, tmp_path, monkeypatch)
+    w.monkeypatch.setattr(natural, "understand", old_claim.understand)      # S41-11 PR 2b: a draft a pre-state builds has the way `trigger`, which the product no longer makes; the old reading answers it (the same function for the other ways)
     try:
         if scenario["channel"] != "messaging" and scenario["prestate"] not in OPS_PRESTATES:
             raise ValueError(f"{scenario['id']}: no pre-state {scenario['prestate']} on a {scenario['channel']} line")

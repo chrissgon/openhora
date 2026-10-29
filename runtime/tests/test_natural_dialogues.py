@@ -16,8 +16,10 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from test_natural_corpus import clock, probe_lines
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 
 HERE = Path(__file__).resolve().parent

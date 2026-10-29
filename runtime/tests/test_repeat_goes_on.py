@@ -25,6 +25,7 @@ import contextlib
 import pytest
 
 import standin_tree as st
+import old_claim
 from closed_heads import old_private, closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 
 pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
@@ -67,7 +68,7 @@ def test_at_version_2_with_the_scope_on_no_closed_form_claims_a_repeating_line_a
     with natural.repeat_scope(True):
         for line in CLAIMED_AT_V1 + NEVER_CLAIMED + (ASKED_AT_V1,):
             assert natural_writes.candidate(line) is None, line
-            assert natural.claim(line) is None, line
+            assert old_claim.claim(line) is None, line      # S41-11 PR 2b: `claim` is the stand-in's (the product has no site that claims a line by the reminders' reading)
             assert parsed(line) == {"kind": "text", "text": line}, line
 
 

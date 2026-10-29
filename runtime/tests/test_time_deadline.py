@@ -17,9 +17,11 @@ import pytest
 
 import interpreter_kit as kit
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the family readers read a line with no operation fixed again, for the tests of what they read)
 
 nt = st.load("natural_time")
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 interp = st.load("interpreter")
 writes = st.load("natural_writes")

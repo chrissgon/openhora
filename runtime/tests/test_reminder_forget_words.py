@@ -14,6 +14,7 @@ import pytest
 
 import interpreter_kit as kit
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import said_yes
 from test_attachments import IDENT, OTHER, accept, case  # noqa: F401  (the project the reminders' tests build on)
 from test_reminders import PROFILES, SENDER, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
@@ -23,6 +24,7 @@ ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 ops_turn = st.load("ops_turn")
 phrases = st.load("phrases")
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 reminders = st.load("reminders")
 interpreter = st.load("interpreter")

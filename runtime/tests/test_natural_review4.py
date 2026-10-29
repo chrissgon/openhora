@@ -14,10 +14,12 @@ import pytest
 
 import natural_cases_pt_br as pt
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, OTHER, SENDER, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
 ops = st.load("ops")
