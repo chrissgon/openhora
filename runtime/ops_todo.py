@@ -28,7 +28,6 @@ Sibling of runtime/ops.py, which exposes the three operations under their names.
 """
 from __future__ import annotations
 
-import importlib
 import os
 import re
 import sys
@@ -37,10 +36,13 @@ import threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import account_start  # noqa: E402
+import event_lookup  # noqa: E402
 import natural  # noqa: E402
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_natural_writes  # noqa: E402
 import phrases  # noqa: E402
 import project_config  # noqa: E402
 import tasks_document  # noqa: E402
@@ -62,16 +64,8 @@ _LISTS = {}      # (project key, channel, sender) -> {"at", "items": {account: [
 _lock = threading.Lock()
 
 
-def _natural():
-    return importlib.import_module("ops_natural")
-
-
-def _writes():
-    return importlib.import_module("ops_natural_writes")
-
-
 def _clock():
-    return _natural()._clock()
+    return ops_natural._clock()
 
 
 def forget_lists() -> None:
@@ -86,11 +80,11 @@ def _channel(channel) -> str:
 
 
 def _slot(ctx: dict, channel, sender) -> tuple:
-    return (_natural().project_key(ctx["cfg"]["project"]), _channel(channel), sender or "")
+    return (ops_natural.project_key(ctx["cfg"]["project"]), _channel(channel), sender or "")
 
 
 def _last_pending(ctx: dict) -> int:
-    return importlib.import_module("event_lookup")._last_pending(ctx)
+    return event_lookup._last_pending(ctx)
 
 
 def _remember(ctx: dict, channel, sender, items: dict) -> None:
@@ -328,12 +322,12 @@ def reply_list(project: str, ctx: dict, args: dict, channel, sender, extras: dic
     account, bad = _service_arg(args)
     if bad:
         return phrases.text("IX_ASK_AGAIN", cfg)
-    car = _writes().carrier(channel)
+    car = ops_natural_writes.carrier(channel)
     try:
         with ops_actor.carried_by(car):
             got = todo_list(project, account, car, sender if car == "messaging" else None)
     except core.OpsError as e:
-        return _natural()._error(cfg, e, channel)
+        return ops_natural._error(cfg, e, channel)
     return _render_list(cfg, got)
 
 
@@ -361,15 +355,15 @@ def _card(project: str, ctx: dict, op: str, account: str, given: dict, origins: 
     cfg = ctx["cfg"]
     problems = turn_gate.provenance(op, dict(given, account=account), dict(origins))
     if problems:
-        return _writes().refused_sentence(ctx, op, problems, channel, extras)
-    car = _writes().carrier(channel)
+        return ops_natural_writes.refused_sentence(ctx, op, problems, channel, extras)
+    car = ops_natural_writes.carrier(channel)
     try:
         with ops_actor.carried_by(car):
             started = start(car, sender if car == "messaging" else None)
     except core.OpsError as e:
-        return _natural()._error(cfg, e, channel)
+        return ops_natural._error(cfg, e, channel)
     extras["resend"] = started["pending"]
-    return account_start.reply_text(cfg, started) + _writes()._card_lines(ctx, project, started, channel)
+    return account_start.reply_text(cfg, started) + ops_natural_writes._card_lines(ctx, project, started, channel)
 
 
 def reply(project: str, ctx: dict, op: str, args: dict, said: str, channel, sender, extras: dict) -> str:
@@ -381,7 +375,7 @@ def reply(project: str, ctx: dict, op: str, args: dict, said: str, channel, send
     _private(ctx, extras)
     if op not in natural.NATURAL:      # L54: a line reaches only what the served catalog holds; the natural writes' own parse never asks, so this is asked here (rows of a later catalog version are typed commands only)
         return phrases.text("IX_ASK_AGAIN", cfg)
-    refused = _writes()._admit(ctx, op, channel, sender)
+    refused = ops_natural_writes._admit(ctx, op, channel, sender)
     if refused:
         return refused
     wanted, bad = _service_arg(args)
@@ -411,7 +405,7 @@ def _reply_done(project: str, ctx: dict, args: dict, wanted, channel, sender, ex
     try:
         _may_read(ctx, channel, sender)
     except core.OpsError as e:
-        return _natural()._error(cfg, e, channel)
+        return ops_natural._error(cfg, e, channel)
     if number is not None and not (isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= NUMBER_MAX):
         return t("TODO_NONE")      # a number outside 1 to 9999 names no task: answered before anything is looked at
     if number is not None:

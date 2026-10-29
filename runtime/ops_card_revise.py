@@ -55,10 +55,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import card_words  # noqa: E402
 import greeting  # noqa: E402
+import interpreter_enable  # noqa: E402
 import mail_revise  # noqa: E402
+import natural  # noqa: E402
+import natural_writes  # noqa: E402
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_grants  # noqa: E402
+import ops_interpret  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_say  # noqa: E402
 import phrases  # noqa: E402
 import turn_gate  # noqa: E402
 
@@ -99,9 +106,6 @@ def _ops():
 
 def _recognised(ctx: dict, line: str, sender) -> bool:
     """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card."""
-    ops_natural = importlib.import_module("ops_natural")
-    ops_say = importlib.import_module("ops_say")
-    natural = importlib.import_module("natural")
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
     # the card that waits, and `ops_natural.recognises` now holds those private words. The reminders' own claim (`natural.candidate`: a reminder, the loose scheduling verb) is what is left to ask here;
     # S41-11's second part deletes it and this line then reads the interpreter's own word for a new request.
@@ -111,24 +115,21 @@ def _recognised(ctx: dict, line: str, sender) -> bool:
 
 def _is_event_change(line: str) -> bool:
     """Whether code reads the line as the write form of a change of an event ("muda para as 10h"): for an event card that form is the change itself."""
-    return bool(importlib.import_module("natural_writes").read(line, None, op="event-change"))      # S41-11: the family reads it with the operation fixed (the claimer that said so is gone)
+    return bool(natural_writes.read(line, None, op="event-change"))      # S41-11: the family reads it with the operation fixed (the claimer that said so is gone)
 
 
 def entry_of(ctx: dict, channel, sender, revise: bool):
     """The entry of interpreter_enable.json in force (that pins the revise prompt when `revise`), or None; None too unless the sender is read by the interpreter."""
-    interpret = importlib.import_module("ops_interpret")
-    enable = importlib.import_module("interpreter_enable")
-    if not interpret.enabled(ctx, channel, sender):
+    if not ops_interpret.enabled(ctx, channel, sender):
         return None
-    got = (enable.revise_active if revise else enable.active)(interpret._tag(ctx["cfg"]))
+    got = (interpreter_enable.revise_active if revise else interpreter_enable.active)(ops_interpret._tag(ctx["cfg"]))
     return got["entry"] if got else None
 
 
 def _shape(ctx: dict, item: dict) -> tuple:
     """(kind, document, mail shape): "mail" with the shape of a new e-mail this path can reproduce, "event" for the card of a new event or of a change of one found in a snapshot, else
     "sentence" for any other effect card of a write to the person's accounts."""
-    grants = importlib.import_module("ops_grants")
-    doc = grants.effect_document(ctx, item)
+    doc = ops_grants.effect_document(ctx, item)
     mail = mail_revise.shape(doc)
     if mail is not None:
         return "mail", doc, mail
@@ -143,7 +144,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     if channel != CHANNEL or not isinstance(text, str) or text.lstrip().startswith("/") or not isinstance(sha256, str):
         return None
     line = mail_revise.clean(text)
-    if line is None or card_words.card_word(line) is not None or importlib.import_module("ops_say").state_question(line) or greeting.is_greeting(line, helps=True):
+    if line is None or card_words.card_word(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
         return None
     try:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
@@ -234,21 +235,19 @@ def swap(project: str, ctx: dict, old_id, open_new, matches, done_key: str, chan
 def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sender) -> dict:
     if mail_revise.asks_recipients(line):
         return say(ctx, "RV_RECIPIENTS", pending_id)
-    interpret = importlib.import_module("ops_interpret")
-    gate = importlib.import_module("turn_gate")
-    admission = gate.admit(ctx, sender)
+    admission = turn_gate.admit(ctx, sender)
     if admission is None:
         return say(ctx, "RV_FAILED", pending_id)
     revised, ok = None, False
     try:
-        got = gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
+        got = turn_gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(ops_interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
                         deadline_ms=mail_revise.DEADLINE_MS, params=mail_revise.PARAMS)
         ok = bool(got.get("ok"))
         if ok:
             revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, revised = False, None
-    gate.record(ok)
+    turn_gate.record(ok)
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
@@ -256,11 +255,10 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}},
                           {"account": "card-copy", "to": "card-copy", "subject": "composed", "body": "composed"})      # S41-7: the account and the recipients are the card's own; the text is the reviser's wording (S13)
     arguments = {"account": mail["account"], "to": ",".join(mail["to"]), "subject": revised["subject"], ("text" if seed["op"] == "mail-send" else "body"): revised["body"]}
-    problems = gate.provenance(seed["op"], arguments, {**seed.origins, ("text" if seed["op"] == "mail-send" else "body"): seed.origins["body"]})      # S41-7: the revised card's arguments, checked before the old card is ended
+    problems = turn_gate.provenance(seed["op"], arguments, {**seed.origins, ("text" if seed["op"] == "mail-send" else "body"): seed.origins["body"]})      # S41-7: the revised card's arguments, checked before the old card is ended
     if problems:
-        print(gate.refusal_line(seed["op"], problems), file=sys.stderr)
+        print(turn_gate.refusal_line(seed["op"], problems), file=sys.stderr)
         return say(ctx, "RV_FAILED", pending_id)      # nothing was ended and nothing opened: the card stays as it was
-    grants = importlib.import_module("ops_grants")
 
     def open_new():
         opened = _ops().natural_write(project, "", channel=channel, sender=sender, seed=seed)
@@ -271,7 +269,7 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     def matches(new_id) -> bool:
         try:
             made = core._stored(ctx, ctx["store"].pending_get, new_id)
-            found = mail_revise.shape(grants.effect_document(ctx, made))
+            found = mail_revise.shape(ops_grants.effect_document(ctx, made))
         except core.OpsError:
             return False
         return (found is not None and made.get("kind") == "effect" and made.get("status", "open") == "open"

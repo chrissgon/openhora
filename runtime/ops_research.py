@@ -61,6 +61,8 @@ import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
 import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_runs  # noqa: E402
 import pending_items  # noqa: E402
 import phrases  # noqa: E402
 import research_reply  # noqa: E402
@@ -175,7 +177,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
     except lab.LabError:
         return _outcome(t("RS_FAILED"), "failed")
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
-        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
+        ops_runs._recover(ctx, holding_route=True)
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
@@ -258,7 +260,7 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
 
 def _binding(project: str, sender) -> tuple:
     """The key of a sender's running search in runtime/pending_items.py: (the project's id in the shells, "messaging", the sender)."""
-    return (importlib.import_module("ops_natural").project_key(project), "messaging", sender or "")
+    return (ops_natural.project_key(project), "messaging", sender or "")
 
 
 def stop(project: str, sender) -> bool:

@@ -37,9 +37,17 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import event_lookup  # noqa: E402
+import interpreter  # noqa: E402
+import line_stage  # noqa: E402
 import mail_revise  # noqa: E402
+import natural_time  # noqa: E402
 import ops_card_revise as base  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_grants  # noqa: E402
+import ops_interpret  # noqa: E402
+import ops_natural  # noqa: E402
+import turn_gate  # noqa: E402
 
 STAMP = "%Y-%m-%dT%H:%M"
 QUOTES = {'"': '"', "“": "”"}
@@ -85,19 +93,18 @@ def _refused(ctx: dict, doc: dict, name: str, args: dict, title, time_) -> bool:
     """Whether the gate refuses the new card (S41-7): every argument of it says where it came from, and a part the line did not name is the old card's own (`card-copy`); the title the line
     gave is its own words, the start and the end it moved are the time's reading (the engine's or the model's), and the account a line named for a card that creates an event is the person's word. One line on
     stderr names the operation and the arguments, never a value."""
-    gate = importlib.import_module("turn_gate")
     given = {k: v for k, v in args.items() if v is not None}
     origins = {key: "card-copy" for key in given}
     if title and "title" in given:
         origins["title"] = "line-span"
     if time_:
-        origins.update({key: gate.time_origin(time_) for key in ("start", "end") if key in given})      # the engine's reading (source "code") or the model's (source "model"), as the interpreter said
+        origins.update({key: turn_gate.time_origin(time_) for key in ("start", "end") if key in given})      # the engine's reading (source "code") or the model's (source "model"), as the interpreter said
     if given.get("account") != doc["account"]:
         origins["account"] = "line-span"
     op = "event-create" if name == "event_create" else "event-change"
-    problems = gate.provenance(op, given, origins)
+    problems = turn_gate.provenance(op, given, origins)
     if problems:
-        print(gate.refusal_line(op, problems), file=sys.stderr)
+        print(turn_gate.refusal_line(op, problems), file=sys.stderr)
     return bool(problems)
 
 
@@ -156,9 +163,8 @@ RELATIVE = re.compile(r"(?<![a-z])(?:daqui|dentro de|em|in|en|dans|fra|tra|binne
 def is_relative(line: str) -> bool:
     """Whether the line gives its time as a distance from now ("daqui 2 horas", "em 30 minutos", "in 2 hours", "dentro de uma hora", "dans 2 heures"...): the natural time engine says so,
     or one of the closed forms of the six languages does. Such a time is never put on the day of the card: it is a moment counted from the clock, and it is asked."""
-    nt = importlib.import_module("natural_time")
     collapsed = " ".join(line.split())
-    return any(hit.get("kind") == "relative" for hit in nt.find(collapsed)["hits"]) or bool(RELATIVE.search(mail_revise._fold(collapsed)))
+    return any(hit.get("kind") == "relative" for hit in natural_time.find(collapsed)["hits"]) or bool(RELATIVE.search(mail_revise._fold(collapsed)))
 
 
 def _from_code(line: str, now, zone: str, interpreter, lookup):
@@ -168,9 +174,8 @@ def _from_code(line: str, now, zone: str, interpreter, lookup):
         return None      # a question is no change; asked again
     if is_relative(line):
         return {"kind": "clarify", "error": None, "why": "time-ask", "slot": "time", "ops": None}      # a distance from now never takes the card's day: asked
-    nt = importlib.import_module("natural_time")
     local = interpreter._local_now(now, zone)
-    parsed = nt.parse(" ".join(line.split()), local)
+    parsed = natural_time.parse(" ".join(line.split()), local)
     if not parsed or not parsed.get("spans") or parsed.get("vague"):
         return None
     collapsed = " ".join(line.split())
@@ -188,64 +193,55 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admissio
     """The decision for a line sent after the card of an event, or None when no call could be made. The model is called once, as the interpreter calls it, but its answer is read FOR the
     card: the card names the event, so the slot `event` (a title, a day, a number the line does not hold), an answer `event-create`, extra slots and a clarify of `event` do not make the
     line a new request. What cannot be read from the model's answer is read by code from the line (`_from_code`). The same checks decide, as for any line."""
-    interpreter = importlib.import_module("interpreter")
-    interpret = importlib.import_module("ops_interpret")
-    gate = importlib.import_module("turn_gate")
-    lookup = importlib.import_module("event_lookup")
-    ops_natural = importlib.import_module("ops_natural")
-    importlib.import_module("line_stage").publish("think")
+    line_stage.publish("think")
     try:
         now = ops_natural._clock()
-        zone = interpret._zone(now)
+        zone = ops_interpret._zone(now)
         system, user = interpreter.build_messages(interpreter.SERVED, now, zone, None, line)
-        got = gate.call(admission, entry, system, user, deadline_ms=interpreter.PROTOCOL["deadline_ms"], params=interpreter.PROTOCOL["params"])
+        got = turn_gate.call(admission, entry, system, user, deadline_ms=interpreter.PROTOCOL["deadline_ms"], params=interpreter.PROTOCOL["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
     if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
-        gate.record(bool(got.get("ok")))
+        turn_gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
     try:
-        allowed = interpret._allowed(ctx, sender)
-        strict = interpret.decide(line, got.get("text"), now, zone, allowed)
+        allowed = ops_interpret._allowed(ctx, sender)
+        strict = ops_interpret.decide(line, got.get("text"), now, zone, allowed)
         if strict.get("kind") == "op" and strict.get("op") == "event-change":
             return strict
         if strict.get("kind") not in ("clarify",):
-            if strict.get("kind") == "op" and strict.get("op") == "event-create" and lookup.verb_op(line) == "event-change":
+            if strict.get("kind") == "op" and strict.get("op") == "event-create" and event_lookup.verb_op(line) == "event-change":
                 pass      # read below as a change
             else:
                 return strict      # a route, a none, a refusal, another operation: not for the card
         obj = interpreter.parse(got.get("text"))[0]
         if isinstance(obj, dict) and obj.get("kind") in ("route", "none", "answer"):
             return strict      # the model said the line is not for an operation (a private line it routes is a clarify here): the line is not read for the card by code either
-        cleaned = _cleaned(obj, line, lookup)
+        cleaned = _cleaned(obj, line, event_lookup)
         if cleaned is not None:
             again = interpreter.check(cleaned, line, None, interpreter.SERVED, now, zone, allowed)
             if again.get("kind") == "op" and (again.get("spans") or again.get("time")):
                 return again
             if again.get("kind") == "clarify" and str(again.get("why", "")).startswith("time"):
                 return again
-        coded = _from_code(line, now, zone, interpreter, lookup)
-        return coded if coded is not None else interpret.lenient(line, got.get("text"), strict, now, zone, allowed)      # what is not a change of the card is read as any line is (S16)
+        coded = _from_code(line, now, zone, interpreter, event_lookup)
+        return coded if coded is not None else ops_interpret.lenient(line, got.get("text"), strict, now, zone, allowed)      # what is not a change of the card is read as any line is (S16)
     except Exception:      # noqa: BLE001
         return {"kind": "clarify", "error": "E_SHAPE", "why": "invalid", "slot": None, "ops": None}
 
 
 def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, channel, sender) -> dict:
     """See the module's text."""
-    interpreter = importlib.import_module("interpreter")
-    interpret = importlib.import_module("ops_interpret")
-    lookup = importlib.import_module("event_lookup")
     ops = importlib.import_module("ops")
-    ops_natural = importlib.import_module("ops_natural")
-    admission = None if interpreter.precheck(line) is not None else importlib.import_module("turn_gate").admit(ctx, sender)
+    admission = None if interpreter.precheck(line) is not None else turn_gate.admit(ctx, sender)
     if admission is None:
         return {"pass": True}
     decision = card_decision(ctx, entry, line, sender, doc, admission)
     if decision is None:
         return {"pass": True}
     if decision.get("kind") == "clarify":
-        return base.say(ctx, interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
+        return base.say(ctx, ops_interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
     spans, time_ = decision.get("spans") or {}, decision.get("time")
     if decision.get("kind") != "op" or decision.get("op") != "event-change" or names_another(line, spans, doc):
         base.remember(project, channel, sender, line, decision)      # not a change of this card: the turn that follows reads the decision that was made
@@ -253,35 +249,34 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     title = _unquote(spans["title"]) if spans.get("title") else None
     if title is not None and (not title or title == doc["event"].get("title")):
         title = None
-    account = lookup.account_named(line, spans.get("title")) if doc["operation"] == "create" else None
+    account = event_lookup.account_named(line, spans.get("title")) if doc["operation"] == "create" else None
     account = None if account == doc["account"] else account
     if title is None and not time_ and account is None:
         return base.say(ctx, "EV_CHANGE_WHAT", pending_id)
     event = doc["event"]
     start, end = event.get("start"), event.get("end")
     if time_ and is_relative(line):
-        return base.say(ctx, interpret.WHY_SENTENCE["time-ask"], pending_id)      # "daqui 2 horas" is a moment counted from now, not an hour of the card's day: asked, whoever read it
+        return base.say(ctx, ops_interpret.WHY_SENTENCE["time-ask"], pending_id)      # "daqui 2 horas" is a moment counted from now, not an hour of the card's day: asked, whoever read it
     if time_:
-        named = lookup._day_named(spans.get("time") or "", ops_natural._clock())[0]
+        named = event_lookup._day_named(spans.get("time") or "", ops_natural._clock())[0]
         got = _times(event, time_["local"], named)
         if got is None:
             return base.say(ctx, "RV_FAILED", pending_id)
         start, end = got
         try:      # the moment the card will have goes through the same guard as the moment of a typed line: a time in the past, or too far, is asked
             now = ops_natural._clock()
-            zone = interpret._zone(now)
+            zone = ops_interpret._zone(now)
             why = interpreter._instant_problem(datetime.datetime.strptime(start, STAMP), importlib.import_module("zoneinfo").ZoneInfo(zone), interpreter._local_now(now, zone))
         except (ValueError, KeyError, OSError):
             return base.say(ctx, "RV_FAILED", pending_id)
         if why:
-            return base.say(ctx, interpret.WHY_SENTENCE.get(why) or "IX_ASK_AGAIN", pending_id)
+            return base.say(ctx, ops_interpret.WHY_SENTENCE.get(why) or "IX_ASK_AGAIN", pending_id)
     name, args = _arguments(doc, title, start, end, account)
     refused = _refused(ctx, doc, name, args, title, time_)
     if refused:
         return base.say(ctx, "RV_FAILED", pending_id)          # nothing was ended and nothing opened: the card stays as it was
     wanted = (args["account"], args["title"] if "title" in args else event["title"], args["start"] if "start" in args else event["start"],
               args["end"] if "end" in args else event["end"])
-    grants = importlib.import_module("ops_grants")
 
     def open_new():
         return getattr(ops, name)(project, **{k: v for k, v in args.items() if v is not None}, channel=channel, sender=sender).get("pending")
@@ -289,7 +284,7 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     def matches(new_id) -> bool:
         try:
             item = core._stored(ctx, ctx["store"].pending_get, new_id)
-            found = grants.effect_document(ctx, item) or {}
+            found = ops_grants.effect_document(ctx, item) or {}
         except core.OpsError:
             return False
         made = found.get("event") or {}

@@ -68,6 +68,7 @@ import source_resolve
 import sources
 import turn_gate
 import workcopy
+import ops_runs
 
 
 def _ops():
@@ -277,7 +278,7 @@ def _ask(project: str, text: str, channel: str | None = None, sender: str | None
     attended = actor in (None, "terminal", "chat")    # a version the person changed by hand goes only to an ask typed where the person is
     meta, keys, routing = ops_contained.routed(ctx, skill)
     with core._route_lock(cfg):                       # RunBusy: one conversation model call per project at a time
-        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)     # ends the run a dead ask left and cancels its question
+        ops_runs._recover(ctx, holding_route=True)     # ends the run a dead ask left and cancels its question
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:

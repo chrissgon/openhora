@@ -6,7 +6,7 @@
 """The natural-language interpreter on a messaging line (slice S1): what the conversation does with a plain line that no list of code took.
 
 A sibling of runtime/ops_say.py, which calls `enabled` and `turn` at its one seam (runtime/ops_turn.py, the row `interpreter` of the table of runtime/turn_order.py: after every row of code returned None and the sender may talk) and
-imports this file at call time. It reaches nothing of ops.py. Page, terminal and chat never get here; neither does a line that code claims (a typed command, a
+imports this file. It reaches nothing of ops.py. Page, terminal and chat never get here; neither does a line that code claims (a typed command, a
 question about the state, a tier-1 form, a reminder or a write in the words of the pt/en tables, the answer to a draft): the order is the hybrid the maintainer
 confirmed on 2026-10-21, so the interpreter reads only the rest.
 
@@ -71,7 +71,13 @@ import line_stage
 import mail_compose
 import natural
 import operations
+import ops_core
+import ops_file_trash
+import ops_items
 import ops_natural
+import ops_natural_mail
+import ops_natural_writes
+import ops_todo
 import phone_refusal
 import phrases
 import plan_confirm
@@ -109,7 +115,7 @@ def repeat_scope(where, channel, sender):
     such a line and answer it as before catalog version 2 (an event that repeats is not yet read). `where` is the project's context, or the project's path (its context is then read only if the
     question is asked). Used as `with repeat_scope(where, channel, sender):` by every entry that reads a plain line."""
     def on() -> bool:
-        ctx = importlib.import_module("ops_core").context(where) if isinstance(where, str) else where
+        ctx = ops_core.context(where) if isinstance(where, str) else where
         return enabled(ctx, channel, sender)
     return natural.repeat_scope(on)
 
@@ -382,7 +388,6 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
     words of the line, runtime/event_lookup.py), every other class goes through the dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
     op, time_ = decision["op"], decision.get("time")
     if natural.class_of(op) == "E":
-        writes = importlib.import_module("ops_natural_writes")
         repeat = None
         if op == "event-create":
             repeat, understood = _repeat(decision, said, time_)
@@ -396,25 +401,25 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
             sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
             if sentence:
                 return _said(sentence, extras)
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
         elif (mail := mail_compose.seed(op, decision, said)) is not None:          # a new e-mail: the card is opened from the verified spans, never from the closed forms (slice S7)
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
-            opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+            opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, ops_natural_writes, ops_natural._clock())
         elif op in ("todo-add", "todo-done"):          # CB-5: the person's own to-do list: the task is a span of the line, or a number of the list shown, or found by its words (runtime/ops_todo.py)
-            opened = importlib.import_module("ops_todo").reply(project, ctx, op, decision["args"], said, CHANNEL, sender, extras)
+            opened = ops_todo.reply(project, ctx, op, decision["args"], said, CHANNEL, sender, extras)
         elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
-            opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
+            opened = ops_file_trash.reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
         elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
               and "message" not in decision["args"] and "messages" not in decision["args"]):          # B''-lite: a message named by its words (target, day), found by code in the index (runtime/ops_natural_mail.py)
             spans = decision["spans"]
-            seed = importlib.import_module("ops_natural_mail").mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said)
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
+            seed = ops_natural_mail.mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
             if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
-                    and (numbers := importlib.import_module("ops_natural_mail").mail_number_seed(op, decision, said)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
-                opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
+                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)
@@ -442,7 +447,6 @@ def _unchanged(decision: dict, state: dict, said: str) -> bool:
     """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
     from the line with the old plan's), every other call by its arguments."""
     if decision["op"] == "items":
-        ops_items = importlib.import_module("ops_items")
         return ops_items.items_args(said, ops_natural._clock(), state["args"], ops_items.span_args_of(decision.get("args"))) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
     return dict(decision.get("args") or {}) == dict(state["args"])
 

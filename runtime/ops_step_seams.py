@@ -87,6 +87,7 @@ import send_document  # noqa: E402
 import sources  # noqa: E402
 import tasks_document  # noqa: E402
 import tasks_reader  # noqa: E402
+import attachments  # noqa: E402
 
 READ_VERBS = ("read", "stat", "table-read", "rows-state")      # the only verbs of the documents provider a step kind can reach
 OUTBOX_CLASS = "sender:email"
@@ -697,7 +698,6 @@ class HeldFiles:
         self._cfg = cfg
 
     def meta(self, attachment_id: int) -> dict:
-        import attachments  # noqa: PLC0415  (the hold: loaded when a held file is asked about)
         ctx = core.context(self._cfg["project"])
         try:
             row = ctx["store"].attachment_get(ctx["conn"], attachment_id)

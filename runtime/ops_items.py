@@ -69,6 +69,9 @@ import source_names
 import sources
 import sources_mail
 import turn_gate
+import natural_writes
+import natural_writes_mail
+import ops_sources
 
 LINE_MAX = 120          # characters of one line
 ITEMS_MAX = 100         # items of one snapshot (the sources keep at most this many)
@@ -216,7 +219,7 @@ def _tables():
 
 def _read_state(span):
     """"unread" or "read" when the `state` span is one of the closed words of the mail family (`natural_writes_mail.answer`), else None."""
-    got = importlib.import_module("natural_writes_mail").answer("state", span, {}, _tables())
+    got = natural_writes_mail.answer("state", span, {}, _tables())
     return got["slots"]["state"] if got else None
 
 
@@ -243,16 +246,16 @@ def items_args(said, now, previous=None, spans=None) -> dict:
         read = _range_args(spans["day"], now)
         if read:
             found = {**{k: v for k, v in found.items() if k not in ("first", "last")}, **read}
-    noun = importlib.import_module("natural_writes").items_noun(said)
+    noun = natural_writes.items_noun(said)
     old = previous if isinstance(previous, dict) else {}
-    kind = noun or old.get("kind") or importlib.import_module("natural_writes").items_kind(said)
+    kind = noun or old.get("kind") or natural_writes.items_kind(said)
     out = {"kind": kind, **found}
     if "account" not in out and old.get("account"):
         out["account"] = old["account"]
     if "first" not in out and old.get("first") and old.get("last"):
         out.update(first=old["first"], last=old["last"])
     if isinstance(spans.get("target"), str) and spans["target"].strip():
-        out["match"] = importlib.import_module("natural_writes_mail").target_words(spans["target"], _tables())
+        out["match"] = natural_writes_mail.target_words(spans["target"], _tables())
     elif isinstance(old.get("match"), list):
         out["match"] = list(old["match"])
     if isinstance(spans.get("state"), str) and _read_state(spans["state"]) == "unread":
@@ -307,7 +310,7 @@ def _refresh_failed(project: str, ctx: dict, source_id: str, force: bool = False
     if not turn_gate.may_refresh(source_id, "list-fresh"):      # L52: this line has read the source already, or no line is open: nothing was needed, the list is the snapshot as it is
         return turn_gate.failed_in_turn(source_id)      # ...but a read of this line that failed leaves the snapshot old: the second list of the line keeps its note
     try:
-        importlib.import_module("ops_sources").source_refresh(project, source_id)
+        ops_sources.source_refresh(project, source_id)
     except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words; the list is the old snapshot and a note
         why = getattr(e, "why", None)
         print(f"items: refresh of {source_id} failed ({why if why in CLOSED_WHY else 'error'})", file=sys.stderr)
@@ -321,12 +324,11 @@ def _refresh_failed(project: str, ctx: dict, source_id: str, force: bool = False
 def _words_given(match):
     """The folded words of a `match` argument: None for none; the words of a typed `--match` text (`natural_writes_mail.target_words`: the articles and the mail nouns left out, [] when none is left or when
     a sentence is given); a list code made (`items_args`) is checked as the words it must be. A list of no word is a filter that holds no content word: the reply says so."""
-    nwm = importlib.import_module("natural_writes_mail")
     if match is None:
         return None
     if isinstance(match, str):
-        return nwm.target_words(match, _tables())
-    if (isinstance(match, list) and len(match) <= nwm.TARGET_WORDS_MAX
+        return natural_writes_mail.target_words(match, _tables())
+    if (isinstance(match, list) and len(match) <= natural_writes_mail.TARGET_WORDS_MAX
             and all(isinstance(w, str) and re.fullmatch(r"[^\W_]+", w) and w == natural.normal(w) for w in match)):
         return list(match)
     raise core.OpsError("match is a few words", 2)
@@ -395,7 +397,7 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
                     entries = []
                 else:
                     if words:      # CB-1: the sender or subject words of the index, every one of them (a word of the person's, never a word of a message)
-                        entries = importlib.import_module("natural_writes_mail").match_words(entries, words)
+                        entries = natural_writes_mail.match_words(entries, words)
                     if span:      # CB-1: the day or week, by the local day a message came in; an entry with no time is left out and counted, never guessed
                         nodate = sum(1 for e in entries if _received_on(e) is None)
                         entries = [e for e in entries if _received_on(e) is not None and span[0] <= _received_on(e) <= span[1]]

@@ -15,7 +15,6 @@ Sibling of runtime/ops_natural_writes.py. Standard library only. Runs on Python 
 """
 from __future__ import annotations
 
-import importlib
 import sys
 
 import attachments as att
@@ -23,16 +22,13 @@ import files_document as fd
 import natural
 import ops_actor
 import ops_core as core
+import ops_natural_writes
 import source_resolve
 import sources
 import turn_gate
 
 CARDS_MAX = 5      # the most cards of held files one line brings back
 SOURCE_ACCOUNT = {"drive": "google", "onedrive": "microsoft"}      # the type of a file source -> the account it belongs to
-
-
-def _w():
-    return importlib.import_module("ops_natural_writes")
 
 
 def held_files(ctx: dict, channel, sender) -> list:
@@ -45,7 +41,7 @@ def held_files(ctx: dict, channel, sender) -> list:
 
 
 def _create(ctx: dict, slots: dict):
-    w = _w()
+    w = ops_natural_writes
     wanted = slots.get("account") or ("google" if slots.get("gdoc") else None)
     state, account = w.pick_account(ctx, wanted, "folders")
     if state == "spec":
@@ -67,7 +63,7 @@ def _create(ctx: dict, slots: dict):
 
 
 def _replace(ctx: dict, slots: dict):
-    w = _w()
+    w = ops_natural_writes
     rows = [r for r in sources.list_catalog(ctx, hashes=False) if r["type"] in SOURCE_ACCOUNT]
     if "file" in slots:
         chosen = [r for r in rows if r["id"] == slots["file"]]
@@ -88,7 +84,7 @@ def _replace(ctx: dict, slots: dict):
 
 
 def _save(ctx: dict, slots: dict, channel, sender):
-    w = _w()
+    w = ops_natural_writes
     if slots.get("attachment") is not None and slots["attachment"] not in [r["id"] for r in held_files(ctx, channel, sender)]:
         return w.say_spec("ATT_NO_SUCH", n=slots["attachment"])          # a file somebody else sent, or one no longer held, is a file that does not exist
     if slots.get("attachment") is None:

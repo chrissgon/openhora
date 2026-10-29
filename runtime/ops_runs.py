@@ -44,6 +44,7 @@ import lab
 import parallel
 import skill_meta
 import upkeep
+import router
 
 REFUSED_CURSOR = "dispatch:refused"    # the store's cursor: {task id: {"reason", "at"}}, the children that were refused or crashed
 REPORTED_CURSOR = "dispatch:reported"  # the store's cursor: {"low": run id, "seen": [run ids]}, the finished runs already reported
@@ -178,19 +179,19 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
             if fd is not None:
                 held.append(fd)
                 tasks.append(row["task"]["id"])
-        router = [r["id"] for r in core._stored(ctx, store.task_runs_running)
+        router_runs = [r["id"] for r in core._stored(ctx, store.task_runs_running)
                   if core._stored(ctx, store.task_get, r["task_id"])["parent_id"] is None]
-        if router:
+        if router_runs:
             if holding_route:
-                runs = router
+                runs = router_runs
             else:
                 fd = core._try_lock(cfg, "route.lock")
                 if fd is not None:
                     held.append(fd)
-                    runs = router
+                    runs = router_runs
         found = {"tasks": [], "runs": []} if not tasks and not runs else core._stored(ctx, store.task_fail_orphans, tasks, runs, ORPHAN_NOTE)
         # the questions an ask left when its process died (a request code titled "Question <n>", with no task, no run of the router's skill and no run running)
-        core._stored(ctx, store.answers_abandoned_cancel, importlib.import_module("router").ROUTER_SKILL)
+        core._stored(ctx, store.answers_abandoned_cancel, router.ROUTER_SKILL)
         importlib.import_module("ops_file_ask").sweep(ctx)      # FA-1: the run folders of a question about a file that a crash left, and a stale prepared folder (the text of a file); it never raises
         return ops_waits.settled(ctx, found)
     finally:

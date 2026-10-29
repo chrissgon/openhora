@@ -228,12 +228,12 @@ def test_ops_core_imports_no_other_file_of_the_operations_layer():
 
 def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
-    exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
+    exists. A sibling imports other siblings at module level only where no path leads back (runtime/tests/test_import_breakers.py proves that the top-level graph holds no cycle)."""
     # ops_actor is a leaf (operations and ops_core only): it can close no cycle
-    allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural.py": {"ops_core", "ops_actor"}, "ops_turn.py": {"ops_natural"},
-               "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_natural_calendar.py": {"ops_core", "ops_actor"}, "ops_natural_files.py": {"ops_core", "ops_actor"}, "ops_natural_mail.py": {"ops_core"},
-               "ops_items.py": {"ops_core", "ops_actor"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models"},
-               "ops_config.py": {"ops_core", "ops_models"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
+    allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural", "ops_cancel", "ops_file_read", "ops_interpret", "ops_natural_writes", "ops_todo"}, "ops_natural.py": {"ops_core", "ops_actor"}, "ops_turn.py": {"ops_natural", "ops_say", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret"},
+               "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural", "ops_file_trash", "ops_items", "ops_natural_mail", "ops_natural_writes", "ops_todo"}, "ops_natural_calendar.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_files.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_mail.py": {"ops_core"},
+               "ops_items.py": {"ops_core", "ops_actor", "ops_sources"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models", "ops_ask", "ops_natural", "ops_runs"},
+               "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()

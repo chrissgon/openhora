@@ -43,13 +43,13 @@ Sibling of runtime/ops.py, which exposes `mail_read` under its name. Standard li
 from __future__ import annotations
 
 import datetime
-import importlib
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
+import event_lookup  # noqa: E402
 import item_refs  # noqa: E402
 import items_mail as mailtext  # noqa: E402
 import line_stage  # noqa: E402
@@ -57,6 +57,10 @@ import natural  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_interpret  # noqa: E402
+import ops_items  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_natural_mail  # noqa: E402
 import phrases  # noqa: E402
 import snapshot_text  # noqa: E402
 import source_names  # noqa: E402
@@ -70,16 +74,8 @@ SEVERAL_MAX = 5            # matches listed to choose from; more asks for more w
 NUMBER_MAX = 9999          # the snapshot's numbers are 1 to 4 digits (item_refs.ITEM_REF)
 
 
-def _ops_items():
-    return importlib.import_module("ops_items")
-
-
-def _natural_mail():
-    return importlib.import_module("ops_natural_mail")
-
-
 def _now() -> datetime.datetime:
-    items = _ops_items()
+    items = ops_items
     return (items.SNAPSHOT_CLOCK() if items.SNAPSHOT_CLOCK else datetime.datetime.now(datetime.timezone.utc)).astimezone()
 
 
@@ -88,7 +84,6 @@ def _account_of(said, args: dict):
     (as `items` reads it). As `ops_file_read.line_target` does, the word must name exactly one account AND agree with the account the line itself names (a line that names both agrees with
     neither); a word no table reads, or one that does not agree, is "unreadable": the reply asks again, a stated filter is never dropped."""
     word = args.get("account")
-    event_lookup = importlib.import_module("event_lookup")
     line = said if isinstance(said, str) else ""
     named = event_lookup.account_named(line) if line else None
     if not word:
@@ -152,7 +147,7 @@ def _selectable(candidate: dict, boxes: list, counts: dict) -> bool:
 
 
 def _blocks(ctx: dict, source_id: str, version) -> dict:
-    text = _ops_items()._text_of(ctx, source_id, version)
+    text = ops_items._text_of(ctx, source_id, version)
     return mailtext.blocks(text) if text is not None else {}
 
 
@@ -183,7 +178,7 @@ def _show(ctx: dict, picked: dict, phone: bool) -> dict:
 def _read_index(ctx: dict, source_id: str, channel, sender):
     """(the index or None, the refusal code or None) of one mail source; a refusal of the right to read is raised (nothing of the mailbox, not even a source's name, is said)."""
     try:
-        return item_refs.read_index(ctx, source_id, channel=channel, sender=sender, kinds=("mail",), clock=_ops_items().SNAPSHOT_CLOCK), None
+        return item_refs.read_index(ctx, source_id, channel=channel, sender=sender, kinds=("mail",), clock=ops_items.SNAPSHOT_CLOCK), None
     except item_refs.ItemRefError as e:
         if e.code == "not_readable":
             raise core.OpsError(phrases.en("NW_REF_NOT_READABLE"), 1) from None
@@ -197,7 +192,7 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
     the reply does not choose among the boxes that could be read ("box-failed"), by words a single hit is listed and not shown, and a note names the box."""
     cfg = ctx["cfg"]
     phone = channel == ops_actor.MESSAGING
-    boxes = [s for s in _natural_mail()._mail_sources(ctx) if (account is None or s["account"] == account) and (spec["ref"] is None or s["id"] == spec["ref"][0])]
+    boxes = [s for s in ops_natural_mail._mail_sources(ctx) if (account is None or s["account"] == account) and (spec["ref"] is None or s["id"] == spec["ref"][0])]
     if not boxes:
         return {"status": "missing", "account": account}
     by_number = spec["number"] is not None
@@ -211,7 +206,7 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
     name_of = lambda source_id: (names.get(source_id) or {}).get("name") or source_id  # noqa: E731
     found, failed, old, counts = [], [], [], {}
     for source in boxes:
-        refresh_failed = not by_number and phone and _ops_items()._refresh_failed(project, ctx, source["id"])      # the old snapshot is read as it is; the failure was said on stderr with a closed word
+        refresh_failed = not by_number and phone and ops_items._refresh_failed(project, ctx, source["id"])      # the old snapshot is read as it is; the failure was said on stderr with a closed word
         snapshot, why = _read_index(ctx, source["id"], channel, sender)
         if snapshot is None:
             failed.append(name_of(source["id"]))
@@ -230,7 +225,7 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
             if words:
                 entries = nwm.match_words(entries, words)
             if spec["day"] and entries:
-                entries = _natural_mail()._on_day(entries, day_read)
+                entries = ops_natural_mail._on_day(entries, day_read)
         if not entries:
             continue
         parsed = _blocks(ctx, source["id"], snapshot["version"])
@@ -269,11 +264,11 @@ def _run(project: str, ctx: dict, args: dict, said, channel, sender) -> dict:
         raise core.OpsError(phrases.en("NW_REF_NOT_READABLE"), 1)
     day_read = None
     if spec["day"] and spec["number"] is None:
-        day_read = importlib.import_module("ops_interpret")._day_read(spec["day"], importlib.import_module("ops_natural")._clock())
+        day_read = ops_interpret._day_read(spec["day"], ops_natural._clock())
     with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an entry of its own when the operation is called directly
         try:
             return _find(ctx, project, spec, account, day_read, channel, sender)
-        except _natural_mail().Say as e:      # a day that cannot be read, or a candidate with no received time: told so, never guessed
+        except ops_natural_mail.Say as e:      # a day that cannot be read, or a candidate with no received time: told so, never guessed
             return {"status": "day-unread"} if e.key == "NW_MAIL_BY_DATE" else {"status": "say", "key": e.key, "fields": e.fields}
 
 
@@ -327,7 +322,7 @@ def _notes(outcome: dict, cfg: dict) -> str:
     if outcome.get("failed_boxes"):
         out += "\n" + t("MR_BOX_NOTE", boxes=", ".join(outcome["failed_boxes"]))
     if outcome.get("old_at"):
-        moment = _ops_items()._local(outcome["old_at"])
+        moment = ops_items._local(outcome["old_at"])
         if moment is not None:
             out += "\n" + t("NW_ITEMS_OLD", time=moment.strftime("%H:%M"))
     return out
@@ -372,7 +367,7 @@ def render(outcome: dict, cfg: dict, project: str = "", ctx: dict = None, channe
     if status == "say":
         return t(outcome["key"], **outcome["fields"])
     if status == "missing":
-        return _ops_items().reply(project, ctx, {"missing": {"kind": "mail", "account": outcome["account"]}}, channel)
+        return ops_items.reply(project, ctx, {"missing": {"kind": "mail", "account": outcome["account"]}}, channel)
     return t("MR_UNAVAILABLE")
 
 
@@ -384,7 +379,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     try:
         outcome = _run(project, ctx, {k: args.get(k) for k in ("message", "number", "match", "day", "account")}, said, channel, sender)
     except core.OpsError as e:
-        return importlib.import_module("ops_natural")._error(cfg, e, channel)
+        return ops_natural._error(cfg, e, channel)
     return render(outcome, cfg, project, ctx, channel)
 
 

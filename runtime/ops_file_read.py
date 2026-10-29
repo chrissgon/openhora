@@ -85,6 +85,10 @@ import project_config  # noqa: E402
 import send_scan  # noqa: E402
 import sources  # noqa: E402
 import sources_onedrive  # noqa: E402
+import event_lookup  # noqa: E402
+import list_pick  # noqa: E402
+import natural_writes  # noqa: E402
+import ops_natural  # noqa: E402
 
 MAX_DEPTH = 5            # levels of subfolders walked below a configured folder (S17)
 MAX_ITEMS = 2000         # items listed in all before the walk stops (S17)
@@ -275,8 +279,7 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
 
 
 def _phrases(tables, account: str) -> list:
-    from natural_writes import listed      # at call time: the closed lists of the language tables
-    return [tuple(natural.normal(p).split()) for p in listed(tables, "services", account)]
+    return [tuple(natural.normal(p).split()) for p in natural_writes.listed(tables, "services", account)]
 
 
 def _pieces(said: str, wanted: str) -> list:
@@ -290,7 +293,6 @@ def _accounts_of_line(said: str, wanted: str) -> set:
     """The accounts (`google`, `microsoft`) the line names outside the name span, by the closed lists of the language tables (`services`): a phrase of two words or more names an
     account alone ("google drive"), one word needs a word that introduces it ("no onedrive"). The bare word "drive" (GENERIC) names none: it is what a person calls their cloud
     folder, not a service ("do meu drive" is searched in both accounts)."""
-    from event_lookup import LEADS      # the words that introduce an account, as the calendar's reading uses them (S11)
     tables = natural._tables(None)
     found = set()
     for account in SERVICES:
@@ -300,7 +302,7 @@ def _accounts_of_line(said: str, wanted: str) -> set:
                 continue
             for words in _pieces(said, wanted):
                 for i in range(len(words) - n + 1):
-                    if tuple(words[i:i + n]) == phrase and (n >= 2 or (i and words[i - 1] in LEADS)):
+                    if tuple(words[i:i + n]) == phrase and (n >= 2 or (i and words[i - 1] in event_lookup.LEADS)):
                         found.add(account)
     return found
 
@@ -340,12 +342,11 @@ def _folder_of_line(said: str, wanted: str):
 
 def _embedded(wanted: str):
     """(name, folder) when the span itself ends with a folder phrase ("Plano da pasta coral"), else None: the model may have taken the whole tail as the name."""
-    from event_lookup import LEADS
     words = natural.normal(wanted).split()
     for i, word in enumerate(words):
         if i and word in FOLDER_WORDS and i + 1 < len(words):
             head = words[:i]
-            while head and head[-1] in LEADS:
+            while head and head[-1] in event_lookup.LEADS:
                 head.pop()
             folder = _folder_from(wanted, "")
             if head and folder is not None:
@@ -647,23 +648,19 @@ def forget_lists() -> None:
         _LISTS.clear()
 
 
-def _natural():
-    return importlib.import_module("ops_natural")
-
-
 def _slot(ctx: dict, channel, sender) -> tuple:
-    return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
+    return (ops_natural.project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
 def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read", extra=None, whole: bool = False) -> None:
     """Keep the list a pick answers, in process memory. `extra` (FA-1) is a small dict held beside the list for the pick that follows (for "ask": the person's question); it is never written, logged or sent, and it is dropped with the list.
     `whole` (LP-2): the list printed every file that fit; only then does "o último" mean the last row printed (a caller that does not say so is read as "not whole")."""
-    now = _natural()._clock()
+    now = ops_natural._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
         _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "extra": dict(extra) if isinstance(extra, dict) else None, "whole": whole is True, "seen": 0,
-                                               "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
+                                               "pending": event_lookup._last_pending(ctx)}
 
 
 def _drop(ctx: dict, channel, sender) -> None:
@@ -681,10 +678,10 @@ def begin_turn(ctx: dict, channel, sender) -> None:
 
 
 def _live(ctx: dict, channel, sender):
-    now = _natural()._clock()
+    now = ops_natural._clock()
     with _lock:
         found = _LISTS.get(_slot(ctx, channel, sender))
-    if found is not None and ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 1 or importlib.import_module("event_lookup")._last_pending(ctx) > found["pending"]):
+    if found is not None and ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 1 or event_lookup._last_pending(ctx) > found["pending"]):
         _drop(ctx, channel, sender)
         return None
     return found
@@ -727,13 +724,13 @@ def _place(said: str, record: dict):
     ordinal word or by the word for last (LP-2, runtime/list_pick.py: "o primeiro", "a última"), read against the rows as printed (1..k, so a position is the number printed). A value
     the list shows (a clock, a day, an account, a sender) is no pick of a file (OPEN-LP-7), a verb with a pick is none, and "a última" of a list that printed fewer files than fit is none."""
     count = len(record["items"])
-    form = importlib.import_module("event_lookup")._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
+    form = event_lookup._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
     if form is not None:
         return form["n"] if form["verb"] is None and 1 <= form["n"] <= count else None
-    pick = importlib.import_module("list_pick").read(said)
+    pick = list_pick.read(said)
     if pick is None or pick["verb"] is not None or pick["kind"] not in ("ordinal", "last"):
         return None
-    verdict = importlib.import_module("list_pick").choose(pick, [{"n": i, "position": i} for i in range(1, count + 1)], None, not record.get("whole"))
+    verdict = list_pick.choose(pick, [{"n": i, "position": i} for i in range(1, count + 1)], None, not record.get("whole"))
     return verdict[1] + 1 if verdict[0] == "one" else None
 
 
@@ -775,8 +772,7 @@ def _service_of(word):
     if word in SERVICES:
         return word
     folded = natural.ascii_normal(str(word))
-    from natural_writes import listed      # at call time: the closed lists of the language tables
-    hits = [s for s in SERVICES if folded in listed(natural._tables(None), "services", s)]
+    hits = [s for s in SERVICES if folded in natural_writes.listed(natural._tables(None), "services", s)]
     return hits[0] if len(hits) == 1 else None
 
 

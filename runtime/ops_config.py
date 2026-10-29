@@ -44,7 +44,6 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 import os
 import secrets
@@ -60,6 +59,8 @@ import policy_widening
 import project_config
 import sources
 import state_merge
+import ops_google_folders
+import ops_steps
 
 ACCEPTED_BY = "config:accepted-by"  # the store's cursor that says who accepted the hash in ACCEPTED: "person" or "code:narrowing"
 ACCEPT_CHANNELS = ("terminal",)     # the only channel that may pass `accept` to set_mode: the person, in the terminal
@@ -164,9 +165,8 @@ def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen:
         cfg = core._config_of(project)  # the file as it is now, under the lock
         if sha256 != cfg["sha256"]:
             raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
-        folders = importlib.import_module("ops_google_folders")
-        resolved = folders.resolve(cfg)      # S11: a Google folder given as a path becomes its id here; the widening below and the record are made with the ids
-        cfg = folders.with_ids(cfg, resolved)
+        resolved = ops_google_folders.resolve(cfg)      # S11: a Google folder given as a path becomes its id here; the widening below and the record are made with the ids
+        cfg = ops_google_folders.with_ids(cfg, resolved)
         listed = _widening_of(ctx, cfg)
         refused = policy_widening.fallback_refusal(listed)      # S41-10: no consent to a company that is not named
         if refused:
@@ -174,7 +174,7 @@ def accept_config(project: str, sha256: str, adopt_sources: bool = False, widen:
         digest = policy_widening.widening_sha256(listed)
         if listed and widen != digest:
             raise _widening_refusal(cfg, listed, digest)
-        folders.keep(cfg, resolved)
+        ops_google_folders.keep(cfg, resolved)
         done = _record_acceptance(ctx, cfg, sha256, "person", adopt=adopt_sources)
     out = {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"], "widened": listed}
     if cfg.get("google_folders"):
@@ -294,7 +294,7 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
         raise core.OpsError("the consent that a mode releasing reviews needs is given by the person, in the terminal "
                             "(set-mode --consent); on the page it is given with the model (give-consent)", 2)
     if agent == "runtime":   # the pseudo-agent that owns step tasks: two modes, a brake kept in the store, no configuration (ops_steps.py)
-        return importlib.import_module("ops_steps").set_steps_mode(project, mode, channel)
+        return ops_steps.set_steps_mode(project, mode, channel)
     ctx = core.context(project)
     cfg = ctx["cfg"]
     if mode not in autonomy.MODES:

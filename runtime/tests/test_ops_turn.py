@@ -89,18 +89,17 @@ def module_level_imports(path: Path) -> set:
 
 
 def test_ops_turn_adds_no_module_level_import_that_joins_the_import_cycle():
-    """Probe 5 of the review. `ops_say` and `ops_natural` reach `ops.py` and each other at call time; `ops_say` reaches this module at call time; this module imports only `turn_order`
-    (pure), three pure leaves of the standard library alone (`drafts`, `greeting`, `phone_delete`) and modules `ops_say` or `ops_natural` already import at module level, none of which imports `ops_say` or this module."""
+    """Probe 5 of the review, as 44-B left it. `ops_say` reaches this module at call time (the one lazy edge between them); this module imports at module level the siblings it calls
+    and the plain modules its rows use, never `ops` and never `ops_core`: that no path of these leads back to this module is `test_import_breakers.py` (no cycle at the top level)."""
     found = module_level_imports(RUNTIME / "ops_turn.py")
-    assert found == {"__future__", "importlib", "sys", "drafts", "greeting", "natural", "operations", "ops_natural", "phone_delete", "phone_refusal", "phrases", "plan_confirm", "turn_order"}, found
-    assert not {"ops", "ops_say", "ops_core", "ops_interpret", "messaging_bridge", "messaging_turn", "event_lookup", "ops_file_read"} & found
+    assert found == {"__future__", "sys", "drafts", "event_lookup", "greeting", "natural", "operations", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret", "ops_natural",
+                     "ops_say", "phone_delete", "phone_refusal", "phrases", "plan_confirm", "route_pass", "turn_gate", "turn_order"}, found
+    assert not {"ops", "ops_core", "messaging_bridge", "messaging_turn"} & found
     say_top = module_level_imports(RUNTIME / "ops_say.py")
     assert "ops_turn" not in say_top and "turn_order" not in say_top, "`ops_say` reaches the dispatcher at call time"
-    natural_top = module_level_imports(RUNTIME / "ops_natural.py")
     leaves = {"drafts", "greeting", "phone_delete"}      # pure modules of the standard library alone: no cycle can pass through them
     for name in leaves:
         assert module_level_imports(RUNTIME / f"{name}.py") <= {"__future__", "re", "sys", "unicodedata", "collections", "threading", "time"}, name
-    assert found - {"__future__", "importlib", "sys", "turn_order", "ops_natural"} - leaves <= say_top | natural_top, "every other module this one imports at module level is one `ops_say` or `ops_natural` imports at module level already"
     for name in ("ops_natural.py", "drafts.py", "greeting.py", "natural.py", "operations.py", "phone_delete.py", "phone_refusal.py", "phrases.py", "plan_confirm.py"):
         assert not {"ops_turn", "ops_say"} & module_level_imports(RUNTIME / name), f"{name} imports neither the dispatcher nor `ops_say` at module level"
 
