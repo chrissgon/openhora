@@ -72,12 +72,18 @@ import sys
 import threading
 
 import event_created
+import interpreter
 import item_refs
 import line_stage
 import list_pick
 import natural
 import natural_time as nt
 import natural_writes as nw
+import ops_items
+import ops_natural
+import ops_natural_calendar
+import ops_natural_writes
+import ops_sources
 import phrases
 import registry_data
 import snapshot_text
@@ -160,10 +166,10 @@ def events(ctx: dict, sender) -> tuple:
     none: "not-readable" (the sender may not read a snapshot), "no-source", "stale" (every snapshot was refused)."""
     if not item_refs.may_read(ctx, CHANNEL, sender):
         return [], "not-readable"
-    listed = importlib.import_module("ops_natural_calendar").calendar_sources(ctx)
+    listed = ops_natural_calendar.calendar_sources(ctx)
     if not listed:
         return [], "no-source"
-    clock = importlib.import_module("ops_items").SNAPSHOT_CLOCK
+    clock = ops_items.SNAPSHOT_CLOCK
     out, refused = [], 0
     for source in listed:
         try:
@@ -185,8 +191,8 @@ def refresh(project: str, ctx: dict) -> None:
     read is of the person's own calendar and writes nothing to it. A failure is dropped: nothing of it is kept or said. A source is read only when the line's refresh budget allows it
     (`turn_gate.may_refresh`, limit L52: never more than once for a source in one line, none outside a turn): a source already read for this line is left as it is."""
     line_stage.publish("calendar")      # S19
-    refresh_one = importlib.import_module("ops_sources").source_refresh
-    for source in importlib.import_module("ops_natural_calendar").calendar_sources(ctx):
+    refresh_one = ops_sources.source_refresh
+    for source in ops_natural_calendar.calendar_sources(ctx):
         if not turn_gate.may_refresh(source["id"], "calendar-miss"):
             continue
         try:
@@ -227,7 +233,7 @@ def account_named(said, title=None, hint=None):
 
 
 def _sources_of(ctx: dict, account: str) -> set:
-    return {s["id"] for s in importlib.import_module("ops_natural_calendar").calendar_sources(ctx) if s["account"] == account}
+    return {s["id"] for s in ops_natural_calendar.calendar_sources(ctx) if s["account"] == account}
 
 
 def _of_account(ctx: dict, rows: list, account) -> list:
@@ -243,7 +249,7 @@ def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict)
     named = account_named(said, (decision.get("spans") or {}).get("title"), (decision.get("args") or {}).get("account"))      # the slot `service` is the parameter `account`
     if named is None:
         return None
-    if named not in importlib.import_module("ops_natural_writes").accounts_with(ctx, "calendars"):
+    if named not in ops_natural_writes.accounts_with(ctx, "calendars"):
         extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
         return _text(ctx, "EV_ACCOUNT_NONE", service=SERVICE_NAME[named])
     seed["account"] = named
@@ -264,10 +270,6 @@ def forget_lists() -> None:
         _LISTS.clear()
 
 
-def _natural():
-    return importlib.import_module("ops_natural")
-
-
 def _last_pending(ctx: dict) -> int:
     """The number of the newest pending decision (0 when there is none): a card that appears after a list was shown ends the list."""
     try:
@@ -277,14 +279,14 @@ def _last_pending(ctx: dict) -> int:
 
 
 def _slot(ctx: dict, channel, sender) -> tuple:
-    return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
+    return (ops_natural.project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
 def _remember(ctx: dict, channel, sender, op, start, items: list, shown=None, more: bool = False) -> None:
     """Keep what the sender may point to next. `shown` (LP-1) is, for each item in the same order, the values the list printed for it ({"day": ISO date | None, "start": "HH:MM" | None,
     "account": "google" | "microsoft" | None, "position": 1.. | None}): clocks, days, accounts and positions only, never a title, a line or a word of the person's; `more` says the list printed
     fewer rows than it holds."""
-    now = _natural()._clock()
+    now = ops_natural._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
@@ -316,7 +318,7 @@ def remember_list(ctx: dict, sender, op: str, found: list, start, more: bool = F
     """The list of events `_list` shows: what the sender may now point to by number (`start` is the new time a change was asked with, "@HH:MM" when it is a clock with no day,
     or None) and, for a pick by an ordinal or by a value (runtime/list_pick.py), the values each printed row holds. `more`: the list also said how many more events fit."""
     try:
-        accounts = {s["id"]: s.get("account") for s in importlib.import_module("ops_natural_calendar").calendar_sources(ctx)}
+        accounts = {s["id"]: s.get("account") for s in ops_natural_calendar.calendar_sources(ctx)}
     except Exception:      # noqa: BLE001 - the account of a row is only for a pick by brand; a list that was made is never lost for it
         accounts = {}
     shown = found[:LIST_MAX]
@@ -403,7 +405,7 @@ def _number_form(said: str):
 def _fresh(ctx: dict, sender, source: str, read_at: str) -> bool:
     """Whether the newest snapshot of `source` is the one the list was made from."""
     try:
-        snapshot = item_refs.read_index(ctx, source, channel=CHANNEL, sender=sender, kinds=("calendar",), clock=importlib.import_module("ops_items").SNAPSHOT_CLOCK)
+        snapshot = item_refs.read_index(ctx, source, channel=CHANNEL, sender=sender, kinds=("calendar",), clock=ops_items.SNAPSHOT_CLOCK)
     except item_refs.ItemRefError:
         return False
     return snapshot["read_at"] == read_at
@@ -466,7 +468,7 @@ def _pick(ctx: dict, record: dict, form: dict, now) -> tuple:
     if len(shown) != len(record["items"]):
         return list_pick.SKIP
     rows = [dict(values, n=item[1]) for item, values in zip(record["items"], shown)]
-    when = now or _natural()._clock()
+    when = now or ops_natural._clock()
     return list_pick.choose(form, rows, lambda text: _pick_day(text, when), bool(record.get("more")))
 
 
@@ -554,7 +556,7 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
         if _is_all_day(entry):
             return _text(ctx, "EV_ALLDAY_CLOCK"), False
         slots["start"] = _start_on(record["start"], entry["day"])
-        problem = _past_problem(slots["start"], _natural()._clock())
+        problem = _past_problem(slots["start"], ops_natural._clock())
         if problem:
             return _text(ctx, problem), False
     if "start" in slots:
@@ -903,7 +905,7 @@ def _is_all_day(row: dict) -> bool:
 def _past_problem(start: str, now):
     """The sentence key when the new start (`YYYY-MM-DDTHH:MM`) cannot be used as it is, by the same check the model's times pass (interpreter._instant_problem: past, far, a
     clock that skips or repeats the hour), else None. A start the line fixed on the event's own day is checked here too: it is never taken for a time the check accepted."""
-    why = importlib.import_module("interpreter")._instant_problem(datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M"), now.tzinfo, now)
+    why = interpreter._instant_problem(datetime.datetime.strptime(start, "%Y-%m-%dT%H:%M"), now.tzinfo, now)
     return {"time-past": "IX_ASK_PAST", "time-far": "IX_ASK_FAR"}.get(why, "IX_ASK_TIME") if why else None
 
 

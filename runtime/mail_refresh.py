@@ -37,7 +37,6 @@ Standard library only. Runs on Python 3.9: python3 runtime/mail_refresh.py --hel
 """
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 import threading
@@ -48,6 +47,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import item_refs  # noqa: E402
 import line_stage  # noqa: E402
+import ops_items  # noqa: E402
+import ops_sources  # noqa: E402
 import sources  # noqa: E402
 import turn_gate  # noqa: E402
 
@@ -92,7 +93,7 @@ def _still_refused(ctx: dict, source_id: str, channel, sender) -> bool:
 
 def _failed_word(error) -> str:
     """The closed word for stderr: the refusal's `why` when it is one of the words `ops_items` lists, else `error`. The provider's words are never printed."""
-    closed = importlib.import_module("ops_items").CLOSED_WHY
+    closed = ops_items.CLOSED_WHY
     why = getattr(error, "why", None)
     return why if why in closed else "error"
 
@@ -123,7 +124,7 @@ def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
             return "refreshed"
         line_stage.publish("mail")
         try:
-            importlib.import_module("ops_sources").source_refresh(ctx["cfg"]["project"], source_id, timeout=TURN_TIMEOUT_S)
+            ops_sources.source_refresh(ctx["cfg"]["project"], source_id, timeout=TURN_TIMEOUT_S)
         except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words: only a closed word leaves
             print(f"mail: refresh of {source_id} failed ({_failed_word(e)})", file=sys.stderr)
             _FAILED[key] = MONOTONIC()

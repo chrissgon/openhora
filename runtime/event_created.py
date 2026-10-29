@@ -30,33 +30,30 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import importlib
 import sys
+
+import calendar_document
+import ops_step_seams
 
 SOURCE = "@created"         # the `source` word of a row: it starts with a character no source id can start with (sources.SOURCE_ID), so no registered source is mistaken for it
 SCAN_MAX = 2000             # decisions read, newest first: the ledger of a long-lived project is not walked for ever
-
-
-def _seams():
-    return importlib.import_module("ops_step_seams")
 
 
 def _document(ctx: dict, item: dict):
     """The effect document of an approved card, hash checked, or None when it cannot be read."""
     payload = item["payload"]
     try:
-        return _seams().EffectFiles(ctx["cfg"]).read(item["task_id"], int(payload.get("cycle", 0)), item["payload_sha256"])
+        return ops_step_seams.EffectFiles(ctx["cfg"]).read(item["task_id"], int(payload.get("cycle", 0)), item["payload_sha256"])
     except Exception:      # noqa: BLE001 - a missing or changed file is no event; nothing of the fault is kept
         return None
 
 
 def _row(pending: int, doc: dict) -> dict:
     event = doc["event"]
-    document = importlib.import_module("calendar_document")
     first, last = event["start"], event["end"]
     if not event["all_day"]:          # the wall times of the machine's zone NOW, from the instants: the document's own wall times are those of the zone it was approved in
-        first = document._wall_of(document.parse_instant(event["start_at"])).strftime("%Y-%m-%dT%H:%M")
-        last = document._wall_of(document.parse_instant(event["end_at"])).strftime("%Y-%m-%dT%H:%M")
+        first = calendar_document._wall_of(calendar_document.parse_instant(event["start_at"])).strftime("%Y-%m-%dT%H:%M")
+        last = calendar_document._wall_of(calendar_document.parse_instant(event["end_at"])).strftime("%Y-%m-%dT%H:%M")
     day = datetime.date.fromisoformat(first[:10])
     if event["all_day"]:
         shown = "all day"
@@ -122,8 +119,7 @@ def _instants(row: dict) -> tuple:
     """The start and the end of a row as comparable values: aware datetimes for a timed event, the day strings for an all-day one."""
     if row["all_day"]:
         return (row["start_at"], row["end_at"])
-    document = importlib.import_module("calendar_document")
-    return (document.parse_instant(row["start_at"]), document.parse_instant(row["end_at"]))
+    return (calendar_document.parse_instant(row["start_at"]), calendar_document.parse_instant(row["end_at"]))
 
 
 def signature(row: dict) -> str:
@@ -135,15 +131,14 @@ def signature(row: dict) -> str:
 def live(ctx: dict, row: dict) -> str:
     """"ok", "gone" or "error" (see the module's text)."""
     try:
-        seams = _seams()
-        reader = seams.CalendarReader(ctx)
+        reader = ops_step_seams.CalendarReader(ctx)
         if not reader.enabled(row["account"]):
             return "gone"
         got = reader.event_get(row["account"], row["calendar_id"], row["event_id"])
         raw = got.get("event") if isinstance(got, dict) and got.get("found") is True else None
         if raw is None:
             return "gone"
-        event = importlib.import_module("calendar_document").from_service(raw)
+        event = calendar_document.from_service(raw)
         same = event["all_day"] == row["all_day"] and _instants(dict(row, start_at=event["start_at"], end_at=event["end_at"])) == _instants(row)
         return "ok" if same else "gone"
     except Exception:      # noqa: BLE001 - no read, no event: nothing of the fault is kept (it can hold a provider's words)
