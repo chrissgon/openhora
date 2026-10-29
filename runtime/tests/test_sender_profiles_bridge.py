@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import FIXTURE, wait_for
@@ -35,7 +36,7 @@ shell_kit = st.load("shell_kit")
 
 OTHER = "55119000000003"
 CLERK = "55119000000004"
-NOT_ENABLED = "You do not have permission for that here yet."      # S10: the plain sentence a phone is told (limit L62)
+NOT_ENABLED = "You do not have permission for that here yet."      # S10: the plain sentence a phone is told (limit L62); literal: other test files import this constant
 POLICIES_ALL = {**POLICIES, "clerk": {"groups": ["read-limited", "talk", "answer", "approve-acceptances"], "notices": "actionable"},
                 "watcher": {"groups": ["read-limited", "talk", "answer"], "notices": "actionable"}}
 
@@ -115,6 +116,11 @@ def configure(lab, senders, policies=POLICIES_ALL, channel="staff", notices="tex
            messaging={"senders": {"telegram": senders}, "notices": notices})
 
 
+def not_enabled(text):
+    """The text is the plain refusal a phone is told for a group its profile does not hold (the table's sentence, whatever place it names)."""
+    return pk.said(text, "PHONE_NOT_ALLOWED")
+
+
 def two(lab):
     configure(lab, [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "staff"}])
 
@@ -126,15 +132,16 @@ def test_each_sender_is_sent_a_card_drawn_for_their_own_profile_and_acts_only_as
     two(lab)
     lab.bridge.tick()
     owner, staff = lab.card(OWNER), lab.card(STAFF)
-    assert [a["label"] for a in owner["actions"]] == ["Approve", "Reject"], "the owner's profile approves plans and rejects"
-    assert staff["actions"] == [] and "Act on it on the platform's page." in staff["text"], "the employee's lists neither"
+    labels = [a["label"] for a in owner["actions"]]
+    assert len(labels) == 2 and pk.said(labels[0], "LABEL_APPROVE") and pk.said(labels[1], "LABEL_REJECT"), "the owner's profile approves plans and rejects"
+    assert staff["actions"] == [] and pk.said(staff["text"], "PAGE_LINE"), "the employee's lists neither"
     # the employee types the approval: refused for THEIR profile, with the hash and everything else right; nothing happens
     lab.say(STAFF, f"/approve {lab.plan} {lab.digest}")
-    assert NOT_ENABLED in lab.texts(STAFF)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(STAFF)[-1]) and lab.status(lab.plan) == "open"
     lab.say(STAFF, f"/reject {lab.plan}")
-    assert NOT_ENABLED in lab.texts(STAFF)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(STAFF)[-1]) and lab.status(lab.plan) == "open"
     lab.say(STAFF, f"/release {lab.plan}")
-    assert NOT_ENABLED in lab.texts(STAFF)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(STAFF)[-1]) and lab.status(lab.plan) == "open"
     # the owner taps their button: approved, recorded as the owner's act
     lab.say(OWNER, action=lab.action(OWNER, "Approve"))
     assert lab.texts(OWNER)[-1] == f"Approved #{lab.plan}." and lab.status(lab.plan) == "resolved"
@@ -147,7 +154,7 @@ def test_the_employee_reads_what_waits_and_never_the_spend_and_the_owner_reads_b
     lab.say(STAFF, "/pending")
     assert f"#{lab.plan} plan" in lab.texts(STAFF)[0]
     lab.say(STAFF, "/progress")                     # a line that is a command of the table runs in a job thread of the bridge
-    assert wait_for(lambda: any(NOT_ENABLED in t for t in lab.texts(STAFF)))
+    assert wait_for(lambda: any(not_enabled(t) for t in lab.texts(STAFF)))
     assert not any("cost known" in t for t in lab.texts(STAFF)), "the employee never reads the spend"
     lab.settle()                                    # the reply is sent inside the job: the owner's line waits until the job has ended and released the slot
     lab.say(OWNER, "/progress")
@@ -202,7 +209,7 @@ def test_a_sender_narrowed_after_the_card_was_sent_is_refused_at_the_tap_and_a_s
     # narrowed: the owner's profile loses approve-plans (a narrowing is accepted without the hash of a list: nothing is widened)
     accept(lab.path, policies={**POLICIES_ALL, "owner": ["read", "talk", "answer"]})
     lab.say(OWNER, action=button)
-    assert NOT_ENABLED in lab.texts(OWNER)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(OWNER)[-1]) and lab.status(lab.plan) == "open"
     # the profile is given back: the same button works again (the permission is read when the person acts, not when the card was sent)
     accept(lab.path, policies=POLICIES_ALL)
     # removed from the list of senders: the update is dropped with no reply, and nothing happens
@@ -256,7 +263,7 @@ def test_a_profile_with_notices_actionable_is_sent_a_card_only_for_a_decision_it
     lab.say(CLERK, "/pending")
     assert f"#{lab.acceptance} acceptance" in lab.texts(CLERK)[-1] and f"#{lab.plan} plan" not in lab.texts(CLERK)[-1]
     lab.say(STAFF, "/pending")
-    assert lab.texts(STAFF)[-1] == "northwind-shop: nothing waits for you to act on."
+    pk.assert_said(lab.texts(STAFF)[-1], "NOTHING_TO_ACT", name="northwind-shop")
     lab.say(OWNER, "/pending")
     assert any(t.startswith("northwind-shop: #") and f"#{lab.plan} plan" in t for t in lab.texts(OWNER))
 
@@ -273,7 +280,7 @@ def test_approving_an_effect_for_the_owner_alone_the_card_is_built_for_the_sende
     two(lab)
     lab.bridge.tick()
     owners, staffs = lab.card(OWNER, "request"), lab.card(STAFF, "request")
-    assert [a["label"] for a in owners["actions"]] == ["Reject"] and staffs["actions"] == []
+    assert len(owners["actions"]) == 1 and pk.said(owners["actions"][0]["label"], "LABEL_REJECT") and staffs["actions"] == []
     lab.say(OWNER, f"/approve {lab.effect['id']} {lab.effect['payload_sha256']}")
     assert lab.status(lab.effect["id"]) == "open"
     assert lab.texts(OWNER)[-1].startswith(bridge.EFFECT_REPLY)      # a pull request is approved in the terminal or on the page: no profile grants it a card yet
@@ -292,14 +299,14 @@ def test_limit_46_an_act_from_a_messaging_app_is_checked_against_the_profile_of_
     button = lab.action(OWNER, "Approve")
     # the profile of the sender who acted: the employee's does not list the approval, the owner's does
     lab.say(STAFF, f"/approve {lab.plan} {lab.digest}")
-    assert NOT_ENABLED in lab.texts(STAFF)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(STAFF)[-1]) and lab.status(lab.plan) == "open"
     # only in the chat of its card: the employee holding the owner's button, and a ledger that were to answer with the owner's card, change nothing
     lab.say(STAFF, action=button)
     assert lab.texts(STAFF)[-1] == bridge.STALE and lab.status(lab.plan) == "open"
     # when they act, not when the card was sent: narrowed since, the same button is refused; given back, it works
     accept(lab.path, policies={**POLICIES_ALL, "owner": ["read", "talk", "answer"]})
     lab.say(OWNER, action=button)
-    assert NOT_ENABLED in lab.texts(OWNER)[-1] and lab.status(lab.plan) == "open"
+    assert not_enabled(lab.texts(OWNER)[-1]) and lab.status(lab.plan) == "open"
     accept(lab.path, policies=POLICIES_ALL, channels={"messaging": "staff"})
     # nothing a sender sends names a profile: a text that carries the profile's name is a line, checked for the sender
     lab.say(STAFF, f"/approve {lab.plan} {lab.digest} profile owner")

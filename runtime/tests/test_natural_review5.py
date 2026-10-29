@@ -13,6 +13,7 @@ import datetime
 import pytest
 
 import natural_cases_pt_br as pt
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import made
@@ -79,7 +80,7 @@ def test_a_moment_that_cannot_be_made_is_refused_before_the_reading_is_shown(wor
     key = "sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
     with pytest.raises(ops.OpsError) as e:
         ops.remind(world.path, channel="messaging", sender=SENDER, said=f"remind me tomorrow at 9am to use {key}")
-    assert "looks like a credential" in str(e.value) and key not in str(e.value), "a credential is not echoed back in a question"
+    assert pk.said(str(e.value), "RM_CREDENTIAL", None) and key not in str(e.value), "a credential is not echoed back in a question"
     assert world.rows() == []
 
 
@@ -87,7 +88,7 @@ def test_a_moment_that_cannot_be_made_is_refused_before_the_reading_is_shown(wor
 def test_a_date_that_is_not_one_is_refused_with_the_calendars_sentence(world, line):  # noqa: F811
     with pytest.raises(ops.OpsError) as e:
         ops.remind(world.path, channel="messaging", sender=SENDER, said=line)
-    assert "is not a day of the calendar" in str(e.value), line
+    assert pk.said(str(e.value), "RM_NO_SUCH_DATE", None), line
 
 
 # --- the readings that were shown wrong --------------------------------------------------------------------------------------------------------------------

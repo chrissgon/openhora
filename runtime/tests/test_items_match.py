@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 import interpreter_kit as kit
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, world  # noqa: F401  (the calendar world and its real snapshots)
@@ -104,7 +105,7 @@ def test_a_target_with_no_content_word_filters_nothing_and_the_reply_says_so(wor
     assert numbers(out) == [1, 2, 3] and out["match_empty"] is True and out["filter"] == {"words": [], "unread": False}
     reply = run_items(world, "mostra os emails", {"match": "os e-mails"})
     assert phrases.text("NW_ITEMS_MATCH_EMPTY", cfg_of(world)) in reply.splitlines(), "said once, it never passes for a filtered list"
-    assert reply.splitlines()[0].startswith("Gmail ("), "no header names a filter that was not applied"
+    assert pk.said(reply.splitlines()[0], "NW_ITEMS_HEAD_PHONE", cfg_of(world), name="Gmail"), "no header names a filter that was not applied"
 
 
 def test_a_typed_match_is_a_few_words_and_a_list_of_words_is_checked(world, snaps, clock):
@@ -122,8 +123,8 @@ def test_this_week_and_the_bank_is_the_one_statement_and_the_header_names_the_fi
     inbox(world, snaps, mails())
     reply = run_items(world, "tem algum email do banco essa semana?", {"match": "do banco", "day_span": "essa semana"})
     lines = reply.splitlines()
-    assert lines[0] == "Your e-mails with “banco” between 19/10 and 25/10:"
-    assert lines[1].startswith("Gmail (read at ") and len(lines) == 3 and lines[2].startswith("1. ")
+    assert lines[0] == "Your e-mails with “banco” between 19/10 and 25/10:"      # literal: the one English snapshot of the header (the docstring says so)
+    assert pk.said(lines[1], "NW_ITEMS_HEAD_PHONE", cfg_of(world), name="Gmail", when="at 07:12") and len(lines) == 3 and lines[2].startswith("1. ")
     assert "Extrato de outubro" in reply and "Fatura" not in reply and "Consulta" not in reply and "avisos@" not in reply, "a phone's line shows who and what, not the address"
 
 
@@ -345,7 +346,7 @@ def test_the_model_names_the_bank_and_this_week_and_only_the_bank_is_listed(worl
     assert decision["kind"] == "op" and decision["args"] == {"match": "do banco", "day_span": "essa semana"} and decision["spans"] == {"target": "do banco", "day": "essa semana"}
     reply = run_items(world, line, decision["args"], {"plan_words": decision["spans"]})
     assert "Gmail" in reply and "1. " in reply and "2. " not in reply, "one message of the bank this week"
-    assert reply.splitlines()[0].startswith("Your e-mails with “banco” between 19/10 and 25/10")
+    assert pk.said(reply.splitlines()[0], "NW_ITEMS_MATCH_HEAD", cfg_of(world), filter=" with “banco” between 19/10 and 25/10")
     assert "Fatura" not in reply and "Consulta" not in reply
 
 
@@ -388,20 +389,20 @@ def test_a_target_that_names_a_source_is_that_source_and_filters_no_word(world, 
     inbox(world, snaps, mails(), source="trabalho")
     for target in ("caixa do trabalho", "trabalho"):      # validate: allow english-only -- the Portuguese words under test
         reply = mailbox_reply(world, target)
-        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and "with “" not in reply and "No e-mail" not in reply, (target, reply)
+        assert "Extrato de outubro" in reply and "Consulta confirmada" in reply and pk.said(reply, "NW_ITEMS_MATCH_HEAD", cfg_of(world), filter=" on Mon 19/10") and not pk.said(reply, "NW_ITEMS_EMPTY_MAIL_MATCH", cfg_of(world)), (target, reply)      # the header names the day and no word
 
 
 def test_a_span_of_a_sender_or_a_subject_is_still_a_word_filter(world, snaps, clock):
     inbox(world, snaps, mails(), source="trabalho")
     reply = run_items(world, "tem algum email do banco essa semana?", {"match": "do banco"})      # validate: allow english-only -- the Portuguese line under test
-    assert "with “banco”" in reply and "Extrato de outubro" in reply and "Consulta confirmada" not in reply, reply
+    assert pk.said(reply, "NW_ITEMS_MATCH_HEAD", cfg_of(world), filter=" with “banco” between 19/10 and 25/10") and "Extrato de outubro" in reply and "Consulta confirmada" not in reply, reply
 
 
 def test_vacuity_without_the_mailbox_rule_the_box_becomes_a_word_filter(world, snaps, clock, monkeypatch):
     inbox(world, snaps, mails())
     monkeypatch.setattr(ops_items, "mailbox_target", lambda ctx, spans: None)
     reply = mailbox_reply(world, "caixa do trabalho")      # validate: allow english-only -- the Portuguese words under test
-    assert "with “caixa trabalho”" in reply and "No e-mail with “caixa trabalho”" in reply, "a filter on `caixa` and `trabalho`, which no message holds: an empty list that looks filtered"
+    assert pk.said(reply, "NW_ITEMS_MATCH_HEAD", cfg_of(world), filter=" with “caixa trabalho” on Mon 19/10") and pk.said(reply, "NW_ITEMS_EMPTY_MAIL_MATCH", cfg_of(world), filter=" with “caixa trabalho” on Mon 19/10"), "a filter on `caixa` and `trabalho`, which no message holds: an empty list that looks filtered"
 
 
 

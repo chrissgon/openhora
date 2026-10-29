@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 effects = st.load("effects")
@@ -161,11 +162,24 @@ def test_the_cards_are_well_formed_lines_whose_english_text_is_the_body_and_whos
         assert doc["idempotency_key"] not in text, "no key on the card (limit L62)"
         assert not doc["task_id"] or doc["task_id"] not in text, "no id on the card (limit L62)"
         assert "LTE1001" not in text
-    assert tasks_document.title(add) == "Tasks: add a task" and tasks_document.title(done) == "Tasks: complete a task"
-    assert tasks_document.body(add, SHA).splitlines() == ["Code adds this task after your approval, and nothing else.", "Account: google (pat@example.com)", "List: tarefas (Google Tasks)",
-                                                          "Task: comprar café", "A task with this title only: no due date and no note."]
-    assert tasks_document.body(done, SHA).splitlines()[1:] == ["Account: microsoft (casey.rivera@mail.example)", "List: trabalho (Microsoft To Do)", "Task: enviar o relatório"]
-    assert phrases.card_text(tasks_document.card_lines(add, SHA), PT).splitlines()[2:4] == ["Lista: tarefas (Google Tasks)", "Tarefa: comprar café"]
+    pk.assert_said(tasks_document.title(add), "TITLE_TODO_ADD")
+    pk.assert_said(tasks_document.title(done), "TITLE_TODO_DONE")
+    lines = tasks_document.body(add, SHA).splitlines()
+    assert len(lines) == 5
+    pk.assert_said(lines[0], "CARD_TODO_ADD")
+    pk.assert_said(lines[1], "CARD_ACCOUNT", account="google", address="pat@example.com")
+    pk.assert_said(lines[2], "CARD_TODO_LIST", list="tarefas", service="Google Tasks")
+    pk.assert_said(lines[3], "CARD_TODO_TITLE", title="comprar café")
+    pk.assert_said(lines[4], "CARD_TODO_PLAIN")
+    lines = tasks_document.body(done, SHA).splitlines()[1:]
+    assert len(lines) == 3
+    pk.assert_said(lines[0], "CARD_ACCOUNT", account="microsoft", address="casey.rivera@mail.example")
+    pk.assert_said(lines[1], "CARD_TODO_LIST", list="trabalho", service="Microsoft To Do")
+    pk.assert_said(lines[2], "CARD_TODO_NOW_TITLE", title="enviar o relatório")
+    lines = phrases.card_text(tasks_document.card_lines(add, SHA), PT).splitlines()[2:4]
+    assert len(lines) == 2
+    pk.assert_said(lines[0], "CARD_TODO_LIST", PT, list="tarefas", service="Google Tasks")
+    pk.assert_said(lines[1], "CARD_TODO_TITLE", PT, title="comprar café")
 
 
 def test_only_the_title_of_a_task_the_service_holds_now_is_a_private_line():
@@ -207,23 +221,25 @@ def item_of(doc) -> dict:
 
 def test_the_outcome_of_an_add_names_the_title_the_card_showed_and_the_outcome_of_a_completion_never_does():
     got = messaging_outcome.sentence(item_of(add_doc()), tasks_document.facts(add_doc(), "done", {"task_id": "g1"}), PT)
-    assert got == phrases.text("OUT_TODO_ADDED", PT, title="comprar café", service="Google Tasks") == "Tarefa adicionada: comprar café (Google Tasks)."
+    pk.assert_said(got, "OUT_TODO_ADDED", PT, title="comprar café", service="Google Tasks")
     done = done_doc()
     said = messaging_outcome.sentence(item_of(done), tasks_document.facts(done, "done", {"task_id": "m1"}), PT)
-    assert said == "Tarefa concluída (Microsoft To Do)." and "relatório" not in said
-    assert messaging_outcome.sentence(item_of(done), tasks_document.facts(done, "done", {}), None) == "Task completed (Microsoft To Do)."
-    assert messaging_outcome.sentence(item_of(add_doc()), tasks_document.facts(add_doc(), "replayed", {}), PT) == phrases.text("OUT_REPLAYED", PT), "a replay claims nothing was written again"
+    pk.assert_said(said, "OUT_TODO_DONE", PT, service="Microsoft To Do")
+    assert "relatório" not in said
+    pk.assert_said(messaging_outcome.sentence(item_of(done), tasks_document.facts(done, "done", {}), None), "OUT_TODO_DONE", None, service="Microsoft To Do")
+    pk.assert_said(messaging_outcome.sentence(item_of(add_doc()), tasks_document.facts(add_doc(), "replayed", {}), PT), "OUT_REPLAYED", PT)  # a replay claims nothing was written again
     bare = dict(item_of(add_doc()), payload={"card": [line for line in item_of(add_doc())["payload"]["card"] if line[0] != "CARD_TODO_TITLE"]})
-    assert messaging_outcome.sentence(bare, tasks_document.facts(add_doc(), "done", {}), PT) == "Tarefa adicionada (Google Tasks)."
+    pk.assert_said(messaging_outcome.sentence(bare, tasks_document.facts(add_doc(), "done", {}), PT), "OUT_TODO_ADDED_BARE", PT, service="Google Tasks")
 
 
 def test_a_failed_task_change_is_told_in_plain_words_with_the_service_named():
     said = messaging_failure.from_step("tasks-item", "google", "not_configured", "list", None, PT)
-    assert "Google Tasks" in said and "http" not in said
-    assert "Microsoft To Do" in messaging_failure.from_step("tasks-item", "microsoft", "provider_failed", "task", None, PT)
+    assert pk.said(said, "FAIL_NOT_AUTHORIZED", PT, service="Google Tasks") and "http" not in said
+    assert pk.said(messaging_failure.from_step("tasks-item", "microsoft", "provider_failed", "task", None, PT), "FAIL_NETWORK", PT, service="Microsoft To Do")
     unknown = messaging_failure.from_error(Exception("task-insert: the outcome is unknown: look in the list"), PT, word="tasks", account="google")
-    assert "na sua lista de tarefas" in unknown
-    assert "Google Tasks" in messaging_failure.from_error(Exception("quota exceeded"), PT, word="tasks", account="google")
+    pk.assert_said(unknown, "FAIL_UNKNOWN", PT)
+    pk.assert_said(pk.which(unknown, PT)[1]["place"], "FAIL_LOOK_TASKS", PT)
+    assert pk.said(messaging_failure.from_error(Exception("quota exceeded"), PT, word="tasks", account="google"), "FAIL_QUOTA", PT, service="Google Tasks")
 
 
 def test_a_completion_card_the_phone_may_not_read_is_cut_and_says_so_while_an_add_card_is_whole(tmp_path):

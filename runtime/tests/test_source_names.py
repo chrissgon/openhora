@@ -29,6 +29,7 @@ import types
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import world  # noqa: F401  (the calendar world and its real snapshots)
@@ -62,6 +63,14 @@ def twin(cfg, name, detail_key=None, detail=None):
     return phrases.text("SRC_TWIN", cfg, name=name, detail=phrases.text(detail_key, cfg) if detail_key else detail)
 
 
+def assert_twin(text, cfg, name, detail_key=None, detail=None):
+    """`text` says `SRC_TWIN` with `name` and, as its detail, the sentence of `detail_key` or the word `detail`."""
+    pk.assert_said(text, "SRC_TWIN", cfg, name=name, **({"detail": detail} if detail else {}))
+    if detail_key:
+        assert text.startswith(name + " (") and text.endswith(")"), text
+        pk.assert_said(text[len(name) + 2:-1], detail_key, cfg)      # the detail is what sits between the parentheses of the template
+
+
 def mail(cfg, service):
     return source_names.plain("mail", service, cfg)      # the provider's brand: a mailbox has no phrase of the table (a sentence that is only a field would pass every text of the phone net)
 
@@ -92,8 +101,12 @@ def no_id(*replies):
 def test_the_names_of_mail_and_calendar_sources_in_portuguese_and_in_english(monkeypatch):
     rows = [row("caixa-gmail", "gmail:box=inbox;days=7;max=50"), row("caixa-outlook", "outlook:box=inbox;days=7;max=50"),
             row("agenda-google", "google:calendar=primary;past=0;ahead=14"), row("agenda-outlook", "outlook:calendar=default;past=0;ahead=14")]
-    assert named(monkeypatch, rows, PT) == {"caixa-gmail": "Gmail", "caixa-outlook": "Outlook", "agenda-google": "Agenda do Google", "agenda-outlook": "Agenda do Outlook"}
-    assert named(monkeypatch, rows, EN) == {"caixa-gmail": "Gmail", "caixa-outlook": "Outlook", "agenda-google": "Google calendar", "agenda-outlook": "Outlook calendar"}
+    assert named(monkeypatch, rows, PT) == {"caixa-gmail": "Gmail", "caixa-outlook": "Outlook", "agenda-google": calendar(PT, "Google"), "agenda-outlook": calendar(PT, "Outlook")}
+    assert named(monkeypatch, rows, EN) == {"caixa-gmail": "Gmail", "caixa-outlook": "Outlook", "agenda-google": calendar(EN, "Google"), "agenda-outlook": calendar(EN, "Outlook")}
+    for cfg in (PT, EN):
+        names = named(monkeypatch, rows, cfg)
+        pk.assert_said(names["agenda-google"], "NW_ITEMS_NAME_CAL", cfg, service="Google")
+        pk.assert_said(names["agenda-outlook"], "NW_ITEMS_NAME_CAL", cfg, service="Outlook")
     assert named(monkeypatch, rows, PT)["agenda-google"] == calendar(PT, "Google") and named(monkeypatch, rows, EN)["caixa-gmail"] == mail(EN, GMAIL)
 
 
@@ -112,12 +125,15 @@ def test_the_entry_of_a_source_holds_its_type_and_its_account_and_a_failed_catal
 def test_twins_are_told_apart_by_their_box_and_by_main_or_the_description(monkeypatch):
     two = named(monkeypatch, [row("a", "gmail:box=inbox;days=7;max=50"), row("b", "gmail:box=unread;days=7;max=50"), row("c", "outlook:box=inbox;days=7;max=50")])
     assert two == {"a": twin(PT, "Gmail", "SRC_BOX_INBOX"), "b": twin(PT, "Gmail", "SRC_BOX_UNREAD"), "c": "Outlook"}, "only the twins get a detail"
-    assert two["a"] == "Gmail (caixa de entrada)" and two["b"] == "Gmail (não lidos)"      # validate: allow english-only -- the Portuguese sentence under test
+    assert_twin(two["a"], PT, "Gmail", "SRC_BOX_INBOX")
+    assert_twin(two["b"], PT, "Gmail", "SRC_BOX_UNREAD")
     calendars = named(monkeypatch, [row("p", "google:calendar=primary;past=0;ahead=14"), row("w", "google:calendar=work.calendar@example.com;past=0;ahead=14", "Trabalho"),
                                     row("h", "outlook:calendar=default;past=0;ahead=14")])
-    assert calendars == {"p": twin(PT, "Agenda do Google", "SRC_CAL_MAIN"), "w": twin(PT, "Agenda do Google", detail="Trabalho"), "h": "Agenda do Outlook"}
+    assert calendars == {"p": twin(PT, calendar(PT, "Google"), "SRC_CAL_MAIN"), "w": twin(PT, calendar(PT, "Google"), detail="Trabalho"), "h": calendar(PT, "Outlook")}
+    assert_twin(calendars["p"], PT, calendar(PT, "Google"), "SRC_CAL_MAIN")
+    pk.assert_said(calendars["h"], "NW_ITEMS_NAME_CAL", PT, service="Outlook")
     cut = named(monkeypatch, [row("p", "google:calendar=primary;past=0;ahead=14"), row("w", "google:calendar=w@example.com;past=0;ahead=14", "x" * 40 + "\n{evil}")])
-    assert cut["w"] == twin(PT, "Agenda do Google", detail="x" * 23 + "…"), "one line, 24 characters at most, control characters out"
+    assert cut["w"] == twin(PT, calendar(PT, "Google"), detail="x" * 23 + "…"), "one line, 24 characters at most, control characters out"
 
 
 def test_what_is_still_equal_after_the_detail_is_numbered_in_the_registry_order(monkeypatch):
@@ -223,7 +239,9 @@ def test_the_question_of_which_mailbox_reads_gmail_and_outlook_on_a_phone_and_st
     two_mailboxes(world, snaps)
     out = natural(world, "arquiva o e-mail do github")
     assert out["asked"] and out["reply"] == phrases.text("NW_MAIL_ASK_SOURCE", PT) + "\n1. Gmail\n2. Outlook"
-    assert out["reply"] == "De qual caixa?\n1. Gmail\n2. Outlook"      # validate: allow english-only -- the Portuguese sentence under test
+    asking, *options = out["reply"].split("\n")
+    pk.assert_said(asking, "NW_MAIL_ASK_SOURCE", PT)
+    assert options == ["1. Gmail", "2. Outlook"]
     no_id(out["reply"])
     assert [(o["value"], o["label"]) for o in stored_options()] == [("caixa-gmail", "Gmail"), ("caixa-outlook", "Outlook")], "the values are the ids"
 
@@ -282,7 +300,11 @@ def test_a_word_that_fits_two_sources_of_one_account_asks_again_and_opens_nothin
     two_mailboxes(world, snaps, extra=(("caixa-gmail-nao-lidos", "gmail:box=unread;days=7;max=50"),))
     out = natural(world, "arquiva os e-mails 2 e 4 no gmail")
     options = stored_options()
-    assert [o["value"] for o in options] == ["caixa-gmail", "caixa-gmail-nao-lidos"] and out["reply"].splitlines()[1:] == ["1. Gmail (caixa de entrada)", "2. Gmail (não lidos)"]      # validate: allow english-only -- the Portuguese sentence under test
+    assert [o["value"] for o in options] == ["caixa-gmail", "caixa-gmail-nao-lidos"]
+    listed = out["reply"].splitlines()[1:]
+    assert len(listed) == 2 and listed[0].startswith("1. ") and listed[1].startswith("2. ")
+    assert_twin(listed[0][3:], PT, "Gmail", "SRC_BOX_INBOX")
+    assert_twin(listed[1][3:], PT, "Gmail", "SRC_BOX_UNREAD")
     again = natural(world, "gmail")
     assert again["asked"] and again["reply"].splitlines()[0] == phrases.text("NW_MAIL_ASK_SOURCE", PT), "one match only: gmail names both"
     assert drafts.get(*ops_natural_writes._slot("messaging", READER))["slots"].get("source") is None and pending(world) == []
@@ -346,7 +368,7 @@ def test_the_phone_list_names_a_source_it_could_not_read_in_one_sentence_and_the
     snaps.providers.fail = tsm.Failure()
     on_phone = ask(world, "lista meus emails")
     assert phrases.text("NW_ITEMS_REFUSED_PHONE", PT, name="Outlook") in on_phone.splitlines()
-    assert on_phone.splitlines()[0].startswith("Gmail (") and phrases.text("NW_ITEMS_REFUSED_PHONE", PT, name="Outlook") == "Não consegui ler Outlook agora."      # validate: allow english-only -- the Portuguese sentence under test
+    assert on_phone.splitlines()[0].startswith("Gmail (") and pk.said(on_phone, "NW_ITEMS_REFUSED_PHONE", PT, name="Outlook")
     no_id(on_phone)
     for word in ("snapshot", "refresh", "retrato", "atualize"):
         assert word not in on_phone.lower(), word
@@ -372,7 +394,7 @@ def test_the_list_of_events_of_two_calendars_ends_each_line_with_the_name_of_its
     found = [{"source": "agenda-google", "n": 1, "day": datetime.date(2026, 10, 22), "time": "14:00-15:00", "title": "dentista"},
              {"source": "agenda-outlook", "n": 1, "day": datetime.date(2026, 10, 22), "time": "14:30-15:30", "title": "dentista 2"}]
     lines = event_lookup._list(ctx, "event-cancel", found).splitlines()
-    assert lines[1].endswith(" (Agenda do Google)") and lines[2].endswith(" (Agenda do Outlook)"), lines
+    assert lines[1].endswith(f" ({calendar(PT, 'Google')})") and lines[2].endswith(f" ({calendar(PT, 'Outlook')})"), lines
     no_id("\n".join(lines))
     one = event_lookup._list(ctx, "event-cancel", found[:1]).splitlines()
     assert one[1].endswith("dentista") and "(" not in one[1], "one source: no parenthesis, as before"

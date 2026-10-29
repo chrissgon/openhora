@@ -13,11 +13,15 @@ import datetime
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, approve, create, fgc, fgw, world  # noqa: F401  (the calendar world and its real approvals)
 from test_items_fresh import ask, project  # noqa: F401
 from test_reminders import Clock
+
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -55,7 +59,10 @@ def test_an_event_created_changed_and_cancelled_through_cards_is_on_the_very_nex
     snaps.calendar("agenda", "google", fgw.CALENDAR, [])
     stand_in = snaps.providers.events[("google", fgw.CALENDAR)]
     del snaps.providers.calls[:]
-    assert ask(world, "list my events") == "No event in the Google calendar between 17/10 and 31/10 (read at 07:12)." and reads(snaps) == [], "fresh and nothing written: no read"
+    first_list = ask(world, "list my events")
+    assert "\n" not in first_list
+    pk.assert_said(first_list, "NW_ITEMS_EMPTY_CAL", EN, name="Google calendar", first="17/10", last="31/10", state="read at 07:12")
+    assert reads(snaps) == [], "fresh and nothing written: no read"
     made = create(world, title="Haircut", start="2026-10-19T13:00")
     approve(world, made)
     stand_in[:] = [timed(1, "19", "13:00", "14:00", "Haircut")]          # what the provider holds now
@@ -71,7 +78,7 @@ def test_an_event_created_changed_and_cancelled_through_cards_is_on_the_very_nex
     approve(world, removed)
     stand_in[:] = []
     listed = ask(world, "list my events")
-    assert len(reads(snaps)) == 3 and "Haircut" not in listed and listed.startswith("No event in the Google calendar"), "cancelled: one more read, gone"
+    assert len(reads(snaps)) == 3 and "Haircut" not in listed and pk.said(listed.splitlines()[0], "NW_ITEMS_EMPTY_CAL", EN, name="Google calendar"), "cancelled: one more read, gone"
 
 
 def test_without_the_mark_the_same_list_is_the_old_snapshot_so_the_oracle_can_fail(world, snaps, clock, monkeypatch):
@@ -135,8 +142,10 @@ def titles(reply):
 def test_tomorrow_keeps_that_day_only_with_the_snapshots_own_number_and_a_header(world, snaps, clock):
     week(world, snaps)
     reply = ask(world, "mostra minha agenda de amanhã")      # validate: allow english-only -- the Portuguese line under test
-    assert reply.splitlines() == ["Agenda de amanhã, dom 18/10:", "Agenda do Google (lido às 07:12):",      # validate: allow english-only -- the Portuguese sentence under test
-                                  "2. dom 18/10 14:00–15:00 · Haircut · você aceitou"]      # validate: allow english-only -- the Portuguese sentence under test
+    head, source, item = reply.splitlines()
+    pk.assert_said(head, "NW_ITEMS_RANGE_HEAD", PT, label="de amanhã, dom 18/10")      # validate: allow english-only -- the Portuguese label under test
+    pk.assert_said(source, "NW_ITEMS_HEAD_PHONE", PT, name="Agenda do Google", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    assert item == "2. dom 18/10 14:00–15:00 · Haircut · você aceitou"      # literal: the table's reply words sit inside an item line the kit does not match; validate: allow english-only -- the Portuguese sentence under test
     assert titles(ask(world, "meus eventos")) == ["Dentist", "Haircut", "Yoga", "Lunch"], "vacuity: with no day in the line every event is listed"
 
 
@@ -156,22 +165,32 @@ def test_today_a_weekday_a_date_this_week_and_next_week(world, snaps, clock, lin
 def test_in_english(world, snaps, clock):
     week(world, snaps, "en")
     reply = ask(world, "show my calendar for tomorrow")
-    assert reply.splitlines()[:2] == ["Calendar for tomorrow, Sun 18/10:", "Google calendar (read at 07:12):"] and titles(reply) == ["Haircut"]
+    head, source = reply.splitlines()[:2]
+    pk.assert_said(head, "NW_ITEMS_RANGE_HEAD", EN, label="for tomorrow, Sun 18/10")
+    pk.assert_said(source, "NW_ITEMS_HEAD_PHONE", EN, name="Google calendar", when="at 07:12")
+    assert titles(reply) == ["Haircut"]
 
 
 def test_a_day_with_nothing_is_the_empty_sentence_for_that_day_and_not_a_bare_heading(world, snaps, clock):
     week(world, snaps)
-    assert ask(world, "minha agenda de quarta").splitlines() == ["Agenda de qua 21/10:", "Nenhum evento na Agenda do Google em qua 21/10 (lido às 07:12)."]      # validate: allow english-only -- the Portuguese sentence under test
+    head, empty = ask(world, "minha agenda de quarta").splitlines()
+    pk.assert_said(head, "NW_ITEMS_RANGE_HEAD", PT, label="de qua 21/10")      # validate: allow english-only -- the Portuguese label under test
+    pk.assert_said(empty, "NW_ITEMS_EMPTY_CAL_AT", PT, name="Agenda do Google", when="em qua 21/10", state="lido às 07:12")      # validate: allow english-only -- the Portuguese words under test
     snaps.calendar("empty-outlook", "outlook", "default", [])
     out = ask(world, "minha agenda de amanhã").splitlines()      # validate: allow english-only -- the Portuguese line under test
-    assert out == ["Agenda de amanhã, dom 18/10:", "Agenda do Google (lido às 07:12):", "2. dom 18/10 14:00–15:00 · Haircut · você aceitou",      # validate: allow english-only -- the Portuguese sentence under test
-                   "Nenhum evento na Agenda do Outlook amanhã (lido às 07:12)."]      # validate: allow english-only -- the Portuguese sentence under test
+    assert len(out) == 4
+    pk.assert_said(out[0], "NW_ITEMS_RANGE_HEAD", PT, label="de amanhã, dom 18/10")      # validate: allow english-only -- the Portuguese label under test
+    pk.assert_said(out[1], "NW_ITEMS_HEAD_PHONE", PT, name="Agenda do Google", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    assert out[2] == "2. dom 18/10 14:00–15:00 · Haircut · você aceitou"      # literal: the table's reply words sit inside an item line the kit does not match; validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(out[3], "NW_ITEMS_EMPTY_CAL_AT", PT, name="Agenda do Outlook", when="amanhã", state="lido às 07:12")      # validate: allow english-only -- the Portuguese words under test
 
 
 def test_an_empty_source_with_a_day_in_english(world, snaps, clock):
     project(world, "en")
     snaps.calendar("agenda", "google", fgw.CALENDAR, [])
-    assert ask(world, "my calendar for tomorrow").splitlines() == ["Calendar for tomorrow, Sun 18/10:", "No event in the Google calendar tomorrow (read at 07:12)."]
+    head, empty = ask(world, "my calendar for tomorrow").splitlines()
+    pk.assert_said(head, "NW_ITEMS_RANGE_HEAD", EN, label="for tomorrow, Sun 18/10")
+    pk.assert_said(empty, "NW_ITEMS_EMPTY_CAL_AT", EN, name="Google calendar", when="tomorrow", state="read at 07:12")
 
 
 NOW = datetime.datetime(2026, 10, 17, 7, 12, tzinfo=datetime.timezone(datetime.timedelta(hours=-3)))

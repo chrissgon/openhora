@@ -9,6 +9,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_natural_rev
 from __future__ import annotations
 
 import natural_cases_pt_br as pt
+import phrase_kit as pk
 from natural_kit import say_yes
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging_natural import no_model, portuguese
@@ -21,6 +22,8 @@ from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F
 
 pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
+PT = {"language": "pt-BR"}
+
 
 def open_rows(day):  # noqa: F811
     return sorted((r["id"], r["due"], r["text"]) for r in day.all()["open"])
@@ -31,17 +34,17 @@ def test_another_time_keeps_the_shown_day_for_an_hour_and_for_a_bare_hour(day, p
     day.say(OWNER, pt.CONFIRM_OLEO)
     day.say(OWNER, "outra hora")      # validate: allow english-only -- a Portuguese answer, the case of the tests
     say_yes(day, OWNER, "15h")
-    assert day.texts(OWNER)[-1] == "Lembrete #1: amanhã, seg 19/10, às 15:00 (BRT): troca de óleo. Para desfazer: /forget 1."      # validate: allow english-only -- the expected Portuguese sentence
+    assert pk.said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT, id=1, when="amanhã, seg 19/10, às 15:00 (BRT)", text="troca de óleo")      # validate: allow english-only -- the expected Portuguese date and words of the reply
     day.say(OWNER, pt.CONFIRM_OLEO)
     day.say(OWNER, "outra hora")      # validate: allow english-only -- a Portuguese answer, the case of the tests
     day.say(OWNER, "9")
-    assert day.texts(OWNER)[-1] == "Qual horário você quer: amanhã, seg 19/10, às 09:00 ou amanhã, seg 19/10, às 21:00? Responda com a hora."      # validate: allow english-only -- the expected Portuguese sentence
+    assert pk.said(day.texts(OWNER)[-1], "NT_ASK_READINGS", PT, options="amanhã, seg 19/10, às 09:00 ou amanhã, seg 19/10, às 21:00")      # validate: allow english-only -- the expected Portuguese options of the question
     no_model(planner)
 
 
 def test_a_part_of_the_day_that_has_passed_is_shown_as_tomorrows(day, planner):  # noqa: F811
     day.say(OWNER, "remind me this morning at 9am to call")
-    assert day.texts(OWNER)[-1] == "I understood: 09:00 today has passed: tomorrow, Mon 19/10, at 09:00: call. Confirm? (yes / another time)" and day.all()["open"] == []
+    assert pk.said(day.texts(OWNER)[-1], "NT_CONFIRM_TEXT", None, when="09:00 today has passed: tomorrow, Mon 19/10, at 09:00", text="call") and day.all()["open"] == []
     day.say(OWNER, "no")
     assert day.all()["open"] == []
     no_model(planner)

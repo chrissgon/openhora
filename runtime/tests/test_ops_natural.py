@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 from sources_fixture import standin_convert
@@ -34,6 +35,7 @@ natural = st.load("natural")
 registry = st.load("registry")
 operations = st.load("operations")
 phrases = st.load("phrases")
+PT = {"language": "pt-BR"}
 plan = st.load("plan")
 roles = st.load("roles")
 router = st.load("router")
@@ -142,8 +144,8 @@ def test_a_tier_1_read_on_the_conversation_the_page_and_the_terminal_does_not_wa
 
 
 def test_the_state_forms_keep_answering_where_they_were_and_a_pending_list_is_a_form_of_its_own(world):
-    assert "What waits for you:" in say(world, "how are we doing?")["reply"]
-    assert say(world, "pendencias")["reply"] == "Nothing waits for you."
+    pk.assert_said(say(world, "how are we doing?")["reply"], "STATE_WAITS", None)
+    pk.assert_said(say(world, "pendencias")["reply"], "NAT_NOTHING_WAITS", None)
     plan_id = say(world, "Which market first?")["pending_id"]
     listed = say(world, "what do I need to approve?")["reply"]
     assert listed == f"#{plan_id} plan: " + ops.pending(world["path"], plan_id)["title"]
@@ -255,22 +257,23 @@ def test_a_write_named_in_words_is_never_run_and_the_reply_is_the_command_to_sen
 def test_a_gated_act_named_in_words_is_never_run_and_the_reply_names_the_place_and_the_command(world):
     before = ops.config(world["path"])["sha256"]
     out = say(world, "muda o modelo do agente")
-    assert out["ran"] is False and "in the terminal or on the page" in out["reply"] and "set-model" in out["reply"]
+    assert out["ran"] is False and pk.said(out["reply"], "NAT_GATED", None, place=phrases.text("NAT_PLACE_BOTH", None)) and "set-model" in out["reply"]
     assert "--agent <agent>" in out["reply"] and "--model <model>" in out["reply"]
     sync = say(world, "sync the documents")["reply"]
-    assert "sync" in sync and "in the terminal or on the page" in sync
+    assert "sync" in sync and pk.said(sync, "NAT_GATED", None, place=phrases.text("NAT_PLACE_BOTH", None))
     assert ops.config(world["path"])["sha256"] == before
     with_senders(world)
     phoned = phone(world, "owner", "muda o modelo do agente")["reply"]
-    assert phoned == "Settings, accounts and permissions are changed on the platform's page." and "python3" not in phoned and "--agent" not in phoned      # a phone has no terminal (LIVE-2)
+    pk.assert_said(phoned, "PHONE_SETTINGS", None, where="on the platform's page.")
+    assert "python3" not in phoned and "--agent" not in phoned      # a phone has no terminal (LIVE-2)
 
 
 def test_an_effect_on_the_persons_accounts_named_in_words_runs_nothing_and_the_reply_is_the_operation_to_run_in_the_projects_language(world):
     out = say(world, "send an email")
-    assert out["ran"] is False and out["reply"].startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and "mail-send" in out["reply"]
+    assert out["ran"] is False and pk.said(out["reply"], "NAT_GATED", None, place=phrases.text("NAT_PLACE_BOTH", None)) and "mail-send" in out["reply"]
     accept(world["path"], language="pt-BR")
     pt = say(world, "manda um email")["reply"]
-    assert pt.startswith("Isso n\u00e3o \u00e9 feito por uma frase. Fa\u00e7a no terminal ou na p\u00e1gina: ") and "mail-send" in pt  # validate: allow english-only -- the Portuguese sentence under test
+    assert pk.said(pt, "NAT_GATED", PT, place=phrases.text("NAT_PLACE_BOTH", PT)) and "mail-send" in pt
     assert "file-create" in say(world, "cria um documento")["reply"] and "mail-mark" in say(world, "mark these as read")["reply"]
     assert ops_core.context(world["path"])["store"].reminders_list(world["ctx"]["conn"], None) == []
     no_model(world)
@@ -284,7 +287,7 @@ def test_the_conversation_stores_the_line_of_a_read_and_a_neutral_word_for_the_w
     assert [m["text"] for m in stored(docs)][0] == "what files do you have?"
     import re
     turn_gate = st.load("turn_gate")      # S41-11: `natural.private` is gone; the detector is the one of S41-9
-    assert turn_gate.private_line("lembrete secret words") and ops_natural.stored_line(docs["ctx"], "lembrete secret words") == "(a reminder)"
+    assert turn_gate.private_line("lembrete secret words") and pk.said(ops_natural.stored_line(docs["ctx"], "lembrete secret words"), "NAT_PRIVATE_LINE", None)
     assert not turn_gate.private_line("what files do you have?")
 
 
@@ -400,12 +403,12 @@ def test_limit_54_a_router_normalised_time_makes_no_reminder_until_the_person_co
     rows = lambda: ctx["store"].reminders_list(ctx["conn"], None)
     reply = ops_natural.run_routed(world["path"], ctx, {"name": "remind", "args": {"text": "recoger el paquete en la porteria"}, "when": "2026-10-23 17:00"},
                                    "recuerdame el viernes a las 17 recoger el paquete en la porteria", "messaging", KEY["owner"], {})
-    assert reply.endswith("Confirm? (yes / another time)") and rows() == [], "asked, not made"
+    assert pk.said(reply, "NT_CONFIRM_TEXT", None, text="recoger el paquete en la porteria") and rows() == [], "asked, not made"
     assert [k["said"] for k in seen] == ["2026-10-23 17:00 recoger el paquete en la porteria"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
     done = ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, world["path"], ctx, "yes", "messaging", None, KEY["owner"], {})[0]      # S41-3: what `ops_natural.take` was (the five rows of the table that take a line of code)
     assert seen[-1]["when"] == "2026-10-23 17:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
         "the moment shown is the moment made, called with the carrying channel and the sender, as the typed command is"
-    assert done.startswith("Reminder #1: Fri 23/10 at 17:00 (BRT): recoger el paquete en la porteria") and [r["text"] for r in rows()] == ["recoger el paquete en la porteria"]
+    assert pk.said(done, "NT_SET_TEXT", None, id=1, when="Fri 23/10 at 17:00 (BRT)", text="recoger el paquete en la porteria") and [r["text"] for r in rows()] == ["recoger el paquete en la porteria"]
 
 
 # --- the rest of the contract ---------------------------------------------------------------------------------------------------------------
@@ -416,8 +419,9 @@ def test_a_tier_1_line_and_the_neutral_word_of_a_reminder_are_left_out_of_the_ro
     say(docs, "lembrete secret words")
     say(docs, "Which market first?")
     prompt = (docs["adapter"] / "last-router-prompt.md").read_text(encoding="utf-8")
-    assert "what files do you have" not in prompt and "secret words" not in prompt and "(a reminder)" not in prompt
-    assert [m["text"] for m in stored(docs)][:3] == ["what files do you have?", docs_first_reply(docs), "(a reminder)"]
+    assert "what files do you have" not in prompt and "secret words" not in prompt and "(a reminder)" not in prompt      # literal: a substring check that the sentence is nowhere in the prompt, which no line-form of the kit expresses
+    texts = [m["text"] for m in stored(docs)][:3]
+    assert texts[:2] == ["what files do you have?", docs_first_reply(docs)] and len(texts) == 3 and pk.said(texts[2], "NAT_PRIVATE_LINE", None)
 
 
 def docs_first_reply(world) -> str:
@@ -427,13 +431,13 @@ def docs_first_reply(world) -> str:
 def test_a_typed_ask_written_as_a_reminder_ends_with_one_hint_and_is_never_rerouted(docs, monkeypatch):
     import re
     out = say(docs, "/ask remind me Friday at 5 pm to pick up the parcel")
-    assert out["reply"].endswith("\n\n" + phrases.text("NAT_ASK_REMIND_HINT", None)) and "write it in words" in out["reply"]
+    assert out["reply"].endswith("\n\n" + phrases.text("NAT_ASK_REMIND_HINT", None)) and pk.said(out["reply"], "NAT_ASK_REMIND_HINT", None)
     assert st.calls(docs["adapter"]) == ["demo-answers 1"], "it stayed an ask: one answer run, no router"
     accept(docs["path"], language="pt-BR")
     pt = say(docs, "/ask remind me Friday at 5 pm to pick up the parcel")["reply"]
-    assert pt.endswith("'me lembra sexta às 17h de pegar a encomenda na portaria'.")      # validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(pt, "NAT_ASK_REMIND_HINT", PT)
     plain = say(docs, "/ask qual o prazo do contrato?")["reply"]
-    assert "write it in words" not in plain and "escreva em palavras" not in plain
+    assert not pk.said(plain, "NAT_ASK_REMIND_HINT", None) and not pk.said(plain, "NAT_ASK_REMIND_HINT", PT)
 
 
 def test_limit_54_amended_a_line_that_names_a_write_and_is_not_a_write_form_still_answers_with_the_place_and_the_operation_and_a_write_form_never_reaches_gated(world, monkeypatch):
@@ -446,7 +450,7 @@ def test_limit_54_amended_a_line_that_names_a_write_and_is_not_a_write_form_stil
     for line, name in (("cria um arquivo", "file-create"), ("manda um e-mail", "mail-send"), ("remarca o evento", "event-change"), ("arquiva os e-mails", "mail-archive")):
         reached.clear()
         reply = say(world, line)["reply"]
-        assert reply.startswith("That is not done from a line of words. Do it in the terminal or on the page: ") and name in reply and reached == [name], (line, reply)
+        assert pk.said(reply, "NAT_GATED", None, place=phrases.text("NAT_PLACE_BOTH", None)) and name in reply and reached == [name], (line, reply)
     reached.clear()
     reply = say(world, "marca dentista quinta às 10h")["reply"]
-    assert reached == [] and not reply.startswith("That is not done from a line of words"), "a write form is read by the family, not sent to the terminal"
+    assert reached == [] and not pk.said(reply, "NAT_GATED", None), "a write form is read by the family, not sent to the terminal"

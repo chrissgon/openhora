@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from sources_fixture import make_docx, make_pdf, make_xlsx, standin_convert, with_sources
 
@@ -26,6 +27,13 @@ operations = st.load("operations")
 sources = st.load("sources")
 attachments = st.load("attachments")
 project_config = st.load("project_config")
+
+
+def said_alone(text, key, **fields):
+    """The text is exactly the one sentence of `key`: one line, nothing else is said."""
+    assert "\n" not in text, text
+    pk.assert_said(text, key, None, **fields)
+
 
 REPO = st.REPO
 IDENT = "4242424242"
@@ -96,20 +104,16 @@ def test_the_numbers_are_fixed_in_code():
 
 def test_the_sentences_are_the_ones_the_spec_names():
     a = attachments
-    assert a.OFF == "Files are not taken from this app for this project. Add it on the platform's page."
-    assert a.MEDIA == ("Voice notes, videos, audio and stickers are not taken yet, and neither are images other than PNG, JPEG, WebP, GIF or HEIC. Send a photo or an image of "
-                       "those types to save it to Drive or OneDrive, or a PDF, a Word document, a spreadsheet, a presentation, an HTML page or a text file to add it to the project.")
-    assert a.IMAGE_NOT_SOURCE == "Images are not added to the project; I can save them to Drive or OneDrive."
-    assert a.TOO_LARGE.format(name="a.pdf", size="30.0 MiB", cap="25.0 MiB") == "a.pdf is 30.0 MiB; a file from this app is at most 25.0 MiB."
-    assert a.DAY.format(n=20, size="80.0 MiB") == ("This project took 20 files (80.0 MiB) from messaging apps today, its limit. "
-                                                    "Send it again tomorrow, or add it on the page.")
-    assert a.HELD_FULL.format(n=10) == "10 files wait for your answer already. Answer them first (/pending)."
-    assert a.GONE.format(platform="telegram") == "That file can no longer be fetched from telegram. Send it again."
-    assert a.MISMATCH.format(name="a.pdf", declared="application/pdf", sniffed="Word document") == (
-        "a.pdf says it is a application/pdf and its bytes are a Word document, so it was not taken.")
-    assert a.REFUSED.format(name="a.docx", reason="it holds what looks like a credential") == (
-        "a.docx was not added and was deleted: it holds what looks like a credential.")
-    assert a.CAPTION_IGNORED == "The text sent with a file is read only as a request to save it; use the buttons on its card for anything else."
+    pk.assert_said(a.OFF, "ATT_OFF", None)
+    pk.assert_said(a.MEDIA, "ATT_MEDIA", None)
+    pk.assert_said(a.IMAGE_NOT_SOURCE, "ATT_IMAGE_NOT_SOURCE", None)
+    pk.assert_said(a.TOO_LARGE.format(name="a.pdf", size="30.0 MiB", cap="25.0 MiB"), "ATT_TOO_LARGE", None, name="a.pdf", size="30.0 MiB", cap="25.0 MiB")
+    pk.assert_said(a.DAY.format(n=20, size="80.0 MiB"), "ATT_DAY", None, n=20, size="80.0 MiB")
+    pk.assert_said(a.HELD_FULL.format(n=10), "ATT_HELD_FULL", None, n=10)
+    pk.assert_said(a.GONE.format(platform="telegram"), "ATT_GONE", None, platform="telegram")
+    pk.assert_said(a.MISMATCH.format(name="a.pdf", declared="application/pdf", sniffed="Word document"), "ATT_MISMATCH", None, name="a.pdf", declared="application/pdf", sniffed="Word document")
+    pk.assert_said(a.REFUSED.format(name="a.docx", reason="a reason"), "ATT_REFUSED", None, name="a.docx", reason="a reason")
+    pk.assert_said(a.CAPTION_IGNORED, "ATT_CAPTION_IGNORED", None)
 
 
 def test_a_size_is_said_in_binary_units_and_a_name_is_cleaned_and_cut():
@@ -372,8 +376,8 @@ def test_adding_a_held_file_makes_version_1_with_a_provenance_and_no_sender_anyw
     done = case.hold(PDF)
     added = ops.attachment_add(case.path, done["attachment"]["id"], channel="messaging", sender=SENDER)
     assert (added["added"], added["imported"], added["source"], added["version"], added["label"]) == (True, True, "q3-plan", 1, "import")
-    assert added["reply"].splitlines()[0] == "Added Q3 plan.pdf as `q3-plan`, version 1."
-    assert added["reply"].splitlines()[1:] == [f"Note: {w}" for w in added["warnings"]], "a warning the import made is told, in its own words"
+    pk.assert_said(added["reply"].splitlines()[0], "ATT_ADDED", None, name="Q3 plan.pdf", id="q3-plan", n=1)
+    assert all(pk.said(line, "ATT_NOTE", None, note=w) for line, w in zip(added["reply"].splitlines()[1:], added["warnings"])) and len(added["reply"].splitlines()) == 1 + len(added["warnings"]), "a warning the import made is told, in its own words"
     store, conn = case.ctx["store"], case.ctx["conn"]
     version = store.source_latest(conn, "q3-plan")
     came = {"channel": "messaging", "platform": "telegram", "profile": "staff", "attachment": 1}
@@ -410,7 +414,7 @@ def test_the_same_bytes_again_change_nothing_and_say_so(case):
     done = case.hold(PDF, target="q3-plan")
     added = ops.attachment_add(case.path, done["attachment"]["id"], channel="messaging", sender=SENDER)
     assert added["imported"] is False and added["version"] == 1
-    assert added["reply"] == "Q3 plan.pdf is already the newest version of `q3-plan` (version 1): nothing changed."
+    said_alone(added["reply"], "ATT_ADDED_SAME", name="Q3 plan.pdf", id="q3-plan", n=1)
     assert case.ctx["store"].source_version_count(case.ctx["conn"], "q3-plan") == 1
 
 
@@ -426,7 +430,9 @@ def test_a_credential_in_the_converted_text_refuses_the_file_deletes_it_and_ends
     done = case.hold(make_pdf(f"The key is {fake_key()} and must not travel."), name="keys.pdf")
     with pytest.raises(ops.OpsError) as caught:
         ops.attachment_add(case.path, done["attachment"]["id"], channel="messaging", sender=SENDER)
-    assert str(caught.value) == "keys.pdf was not added and was deleted: it holds what looks like a credential."
+    refusal = str(caught.value)
+    said_alone(refusal, "ATT_REFUSED", name="keys.pdf")
+    pk.assert_said(refusal.split(": ", 1)[1].rstrip("."), "ATT_REASON_CREDENTIAL", None)      # the reason is the sentence of its own key
     assert fake_key() not in str(caught.value)
     row = case.rows()[0]
     assert (row["status"], row["code"], row["source_id"]) == ("refused", "credential", None)
@@ -497,7 +503,7 @@ def test_a_held_file_expires_after_seven_days_when_someone_tries_to_add_it_and_t
 def test_a_discard_deletes_the_file_and_ends_the_hold_and_a_decided_file_cannot_be_decided_again(case):
     done = case.hold(PDF)
     out = ops.attachment_discard(case.path, done["attachment"]["id"], channel="messaging", sender=SENDER)
-    assert out["discarded"] is True and out["reply"] == "Discarded Q3 plan.pdf."
+    assert out["discarded"] is True and pk.said(out["reply"], "ATT_DISCARDED", None, name="Q3 plan.pdf") and "\n" not in out["reply"]
     assert case.rows()[0]["status"] == "discarded" and not (case.data / "attachments" / "held" / "1").exists()
     for call in (ops.attachment_discard, ops.attachment_add):
         with pytest.raises(ops.OpsError, match="That file is discarded, not waiting for your answer."):
@@ -550,7 +556,7 @@ def test_the_grant_that_adds_without_a_card_is_checked_in_the_operation_against_
     assert case.rows() == []
     accept(case.path, messaging={"senders": {"telegram": [{"id": IDENT, "policy": "desk"}]}})
     done = case.hold(PDF, direct=True)
-    assert done["added"]["version"] == 1 and done["added"]["reply"].startswith("Added Q3 plan.pdf as `q3-plan`, version 1.")
+    assert done["added"]["version"] == 1 and pk.said(done["added"]["reply"].splitlines()[0], "ATT_ADDED", None, name="Q3 plan.pdf", id="q3-plan", n=1)
     row = case.rows()[0]
     assert (row["status"], row["direct"], row["profile"]) == ("added", True, "desk")
     assert case.ctx["store"].source_latest(case.ctx["conn"], "q3-plan")["provenance"]["profile"] == "desk"
@@ -630,12 +636,12 @@ def test_a_sender_lists_adds_and_discards_only_the_files_they_sent_and_the_perso
     for call in (ops.attachment_add, ops.attachment_discard):
         with pytest.raises(ops.OpsError) as caught:
             call(case.path, first, channel="messaging", sender=OTHER_KEY)
-        assert str(caught.value) == f"No file {first} waits for you.", "the answer tells nothing of a file that is someone else's"
+        said_alone(str(caught.value), "ATT_NO_SUCH", n=first)      # the answer tells nothing of a file that is someone else's
     assert [r["status"] for r in case.rows()] == ["held", "held"]
     ops.attachment_discard(case.path, first, channel="messaging", sender=SENDER)
     with pytest.raises(ops.OpsError) as caught:
         ops.attachment_add(case.path, first, channel="messaging", sender=OTHER_KEY)
-    assert str(caught.value) == f"No file {first} waits for you.", "not even that it was discarded"
+    said_alone(str(caught.value), "ATT_NO_SUCH", n=first)      # not even that it was discarded
     assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=OTHER_KEY)["recent"]] == []
     assert [r["id"] for r in ops.attachments(case.path, channel="messaging", sender=SENDER)["recent"]] == [first]
     assert ops.attachment_add(case.path, second, channel="messaging", sender=OTHER_KEY)["version"] == 1
@@ -737,4 +743,5 @@ def test_a_problem_of_this_machine_reaches_a_phone_as_a_fixed_sentence_and_the_t
     monkeypatch.setattr(attachments, "keep_held", lambda *a, **k: (_ for _ in ()).throw(attachments.FolderError(f"no room in {case.cfg['data_dir']}")))
     with pytest.raises(ops.OpsError) as caught:
         case.hold(make_pdf("Another file"), name="Next.pdf")
-    assert caught.value.phone == "Next.pdf could not be kept on this machine. Send it again in a while." and "/" not in caught.value.phone
+    said_alone(caught.value.phone, "ATT_KEPT_FAILED", name="Next.pdf")
+    assert "/" not in caught.value.phone

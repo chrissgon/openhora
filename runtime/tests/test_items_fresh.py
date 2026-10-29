@@ -14,6 +14,7 @@ import shlex
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, world  # noqa: F401  (the calendar world and its real snapshots)
@@ -30,8 +31,25 @@ phrases = st.load("phrases")
 OUTLOOK_LINE = "Liste o ultimo email do meu Outlook"
 OLD, NEW = "Bia Costa · Appointment confirmed · today 06:00", "Cora Dias · New invoice · today 06:00"      # the stand-in provider prints every message at 09:00 UTC, which is 06:00 in the world's zone
 OUTLOOK_MAIL = "Dan Reis · Weekly report · today 06:00"
-NOTE = "(list from 07:12)"       # the stand-in clock reads at 10:12 UTC; the world's zone is America/Sao_Paulo (-03:00)
-NOT_ADDED = "Your mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page."
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
+WHERE_EN = "on the platform's page"
+
+
+def assert_alone(reply, key, cfg, **fields):
+    """The reply is exactly one sentence of the table: one line, nothing else is said."""
+    assert "\n" not in reply, reply
+    pk.assert_said(reply, key, cfg, **fields)
+
+
+def assert_not_added(reply):
+    """The reply is the one sentence that says no mailbox has been added, and where it is added: on the platform's page (the reply ends it with a full stop)."""
+    assert_alone(reply, "NW_ITEMS_ADD_MAIL", EN, where=WHERE_EN + ".")
+
+
+def is_note(line, cfg=EN, time="07:12"):
+    """The line is the note that says the list is the one of an earlier time (the stand-in clock reads at 10:12 UTC; the world's zone is America/Sao_Paulo, -03:00)."""
+    return pk.said(line, "NW_ITEMS_OLD", cfg, time=time)
 
 
 @pytest.fixture
@@ -96,33 +114,32 @@ def with_inbox(world, snaps):
 def test_no_mail_source_on_a_phone_is_one_plain_sentence_with_no_command(world, snaps, clock):
     project(world)
     reply = ask(world, "list my emails")
-    assert reply == NOT_ADDED and phone_problems(reply) == [] and mail_reads(snaps) == []
+    assert_not_added(reply)
+    assert phone_problems(reply) == [] and mail_reads(snaps) == []
 
 
 def test_the_live_line_without_a_source_names_the_outlook_mailbox_in_portuguese(world, snaps, clock):
     project(world, "pt-BR")
     reply = ask(world, OUTLOOK_LINE)
-    assert reply == ("A sua caixa de e-mail do Outlook ainda não foi adicionada a este projeto, então não há o que listar. "      # validate: allow english-only -- the Portuguese sentence under test
-                     "Ela é adicionada uma vez, na página da plataforma.")      # validate: allow english-only -- the Portuguese sentence under test
+    assert_alone(reply, "NW_ITEMS_ADD_MAIL_ACCOUNT", PT, service="Outlook", where="na página da plataforma.")      # validate: allow english-only -- the Portuguese words under test
     assert phone_problems(reply) == []
 
 
 def test_no_calendar_source_on_a_phone_says_the_calendar(world, snaps, clock):
     project(world)
-    assert ask(world, "list my events") == ("Your calendar has not been added to this project yet, so there is nothing to list. "
-                                            "It is added once, on the platform's page.")
-    assert ask(world, "list my events on my outlook calendar").startswith("Your Outlook calendar has not been added to this project yet")
+    assert_alone(ask(world, "list my events"), "NW_ITEMS_ADD_CAL", EN, where=WHERE_EN + ".")
+    assert pk.said(ask(world, "list my events on my outlook calendar"), "NW_ITEMS_ADD_CAL_ACCOUNT", EN, service="Outlook")
 
 
 def test_the_page_link_is_the_place_when_the_project_has_one(world, snaps, clock):
     project(world, page_url="https://platform.example/p")
-    assert ask(world, "list my emails").endswith("It is added once, on the platform's page: https://platform.example/p")
+    assert_alone(ask(world, "list my emails"), "NW_ITEMS_ADD_MAIL", EN, where="on the platform's page: https://platform.example/p")
 
 
 def test_a_calendar_source_alone_does_not_answer_a_request_for_mail(world, snaps, clock):
     project(world)
     snaps.calendar("agenda", "google", "pat@example.com", [tsm.event(1, title="Dentist", id="ev1")])
-    assert ask(world, "list my emails") == NOT_ADDED
+    assert_not_added(ask(world, "list my emails"))
     assert "Dentist" in ask(world, "list my events")      # the control: the same project lists its calendar
 
 
@@ -130,7 +147,7 @@ def test_in_the_conversation_the_exact_command_is_given_for_each_configured_acco
     project(world)
     reply = ask(world, "list my emails", sender=None, channel="chat")
     lead, *commands = reply.splitlines()
-    assert lead == "Your mailbox has not been added to this project yet. Add it once, in the terminal, then ask again:"
+    pk.assert_said(reply, "NW_ITEMS_CMD_MAIL", EN, commands="\n".join(commands))      # the lead line, then one command for each account
     assert [c.partition(": ")[0] for c in commands] == ["Gmail", "Outlook"], "both accounts of the project, in a fixed order"
     for command, source, origin in zip(commands, ("mail-gmail", "mail-outlook"), ("gmail:box=inbox;days=7;max=50", "outlook:box=inbox;days=7;max=50")):
         words = shlex.split(command.partition(": ")[2])
@@ -144,16 +161,16 @@ def test_the_command_given_is_one_the_runtime_accepts_and_the_list_then_works(wo
         words = shlex.split(command.partition(": ")[2])
         ops_sources.source_mail(world["path"], words[words.index("--source") + 1], words[words.index("--origin") + 1])
     listed = ask(world, "list my emails")
-    assert OLD in listed and OUTLOOK_MAIL in listed and "Gmail (read" in listed and "Outlook (read" in listed and "inbox" not in listed.lower()
+    assert OLD in listed and OUTLOOK_MAIL in listed and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail") and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="Outlook") and "inbox" not in listed.lower()
 
 
 def test_the_calendar_command_and_an_account_named_in_the_line_narrow_the_examples(world, snaps, clock):
     project(world)
     both = ask(world, "list my events", sender=None, channel="chat").splitlines()
-    assert both[0] == "Your calendar has not been added to this project yet. Add it once, in the terminal, then ask again:"
+    pk.assert_said("\n".join(both), "NW_ITEMS_CMD_CAL", EN, commands="\n".join(both[1:]))
     assert [c.partition(": ")[0] for c in both[1:]] == ["Google", "Outlook"] and all("source-calendar" in c for c in both[1:])
     one = ask(world, OUTLOOK_LINE, sender=None, channel="chat").splitlines()
-    assert one[0] == "Your Outlook mailbox has not been added to this project yet. Add it once, in the terminal, then ask again:"
+    pk.assert_said("\n".join(one), "NW_ITEMS_CMD_MAIL_ACCOUNT", EN, service="Outlook", commands="\n".join(one[1:]))
     assert len(one) == 2 and one[1].startswith("Outlook: ") and "gmail" not in one[1] and "outlook:box=inbox;days=7;max=50" in one[1]
 
 
@@ -168,14 +185,14 @@ def test_only_the_configured_accounts_get_an_example(world, snaps, clock):
 def test_a_line_that_names_outlook_with_only_a_gmail_source_says_the_outlook_mailbox_is_not_added(world, snaps, clock):
     with_inbox(world, snaps)
     reply = ask(world, OUTLOOK_LINE)
-    assert reply == "Your Outlook mailbox has not been added to this project yet, so there is nothing to list. It is added once, on the platform's page."
+    assert_alone(reply, "NW_ITEMS_ADD_MAIL_ACCOUNT", EN, service="Outlook", where=WHERE_EN + ".")
     assert OLD not in reply and mail_reads(snaps) == [], "the other account's source is neither listed nor read"
     assert OLD in ask(world, "list my emails on my gmail"), "the control: the Gmail account lists its own source"
 
 
 def test_the_phone_oracle_fails_on_a_reply_that_holds_a_command():
     assert phone_problems("Add it with: python3 /x/runtime/cli.py source-mail --project /p --source a --origin b") != []
-    assert phone_problems(NOT_ADDED) == []
+    assert phone_problems(phrases.text("NW_ITEMS_ADD_MAIL", EN, where=phrases.text("PHONE_WHERE", EN))) == []
 
 
 # --- fresh lists ---------------------------------------------------------------------------------------------------------------------------------
@@ -187,7 +204,7 @@ def test_a_stale_snapshot_is_read_again_once_and_the_list_holds_the_new_message(
     snaps.later(minutes=11)
     reply = ask(world, "list my emails")
     assert len(mail_reads(snaps)) == 1, "one read of the one source"
-    assert OLD in reply and NEW in reply and NOTE not in reply
+    assert OLD in reply and NEW in reply and not any(is_note(line) for line in reply.splitlines())
 
 
 def test_a_fresh_snapshot_is_listed_as_it_is_with_no_read(world, snaps, clock):
@@ -218,9 +235,9 @@ def test_a_failed_refresh_lists_the_old_snapshot_with_one_note_and_no_provider_t
     snaps.providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
     reply = ask(world, "list my emails")
     assert len(mail_reads(snaps)) == 1
-    assert reply.splitlines()[-1] == NOTE and reply.count("(list from") == 1
+    assert is_note(reply.splitlines()[-1]) and sum(is_note(line) for line in reply.splitlines()) == 1
     assert OLD in reply and NEW not in reply and "ZEBRA" not in reply + " ".join(capfd.readouterr())
-    assert ask(world, "list my emails").splitlines()[-1] == NOTE, "still stale and still failing: still the note"
+    assert is_note(ask(world, "list my emails").splitlines()[-1]), "still stale and still failing: still the note"
 
 
 def test_the_note_is_in_portuguese_for_a_portuguese_project(world, snaps, clock):
@@ -228,7 +245,7 @@ def test_the_note_is_in_portuguese_for_a_portuguese_project(world, snaps, clock)
     project(world, "pt-BR")
     snaps.later(minutes=11)
     snaps.providers.fail = tsm.Failure()
-    assert ask(world, "lista os emails").splitlines()[-1] == "(lista de 07:12)"
+    assert is_note(ask(world, "lista os emails").splitlines()[-1], PT)
 
 
 def test_an_account_named_in_the_line_reads_and_lists_only_that_accounts_sources(world, snaps, clock):
@@ -298,8 +315,9 @@ def calendar_world(world, snaps, language="en"):
 def test_the_calendar_on_a_phone_has_a_plain_name_a_local_time_the_day_of_each_event_and_no_internal_word(world, snaps, clock):
     calendar_world(world, snaps)
     reply = ask(world, "list my events")
-    assert reply.splitlines() == [
-        "Google calendar (read at 07:12):",
+    head, *items = reply.splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name="Google calendar", when="at 07:12")
+    assert items == [      # literal: the table's reply words sit inside item lines the kit does not match
         "1. Sat 17/10 09:00\u201310:00 \u00b7 Dentist \u00b7 you accepted",
         "2. Sat 17/10 14:00\u201315:00 \u00b7 Budget review \u00b7 organized by work.example \u00b7 no answer from you yet \u00b7 online meeting",
         "3. Sun 18/10 all day \u00b7 Family lunch \u00b7 you accepted"]
@@ -309,8 +327,9 @@ def test_the_calendar_on_a_phone_has_a_plain_name_a_local_time_the_day_of_each_e
 
 def test_the_calendar_on_a_phone_in_portuguese(world, snaps, clock):
     calendar_world(world, snaps, "pt-BR")
-    assert ask(world, "meus eventos").splitlines() == [
-        "Agenda do Google (lido às 07:12):",      # validate: allow english-only -- the Portuguese sentence under test
+    head, *items = ask(world, "meus eventos").splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", PT, name="Agenda do Google", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    assert items == [      # literal: the table's reply words sit inside item lines the kit does not match
         "1. sáb 17/10 09:00\u201310:00 \u00b7 Dentist \u00b7 você aceitou",      # validate: allow english-only -- the Portuguese sentence under test
         "2. sáb 17/10 14:00\u201315:00 \u00b7 Budget review \u00b7 organizado por work.example \u00b7 sem resposta sua ainda \u00b7 reunião online",      # validate: allow english-only -- the Portuguese sentence under test
         "3. dom 18/10 dia inteiro \u00b7 Family lunch \u00b7 você aceitou"]      # validate: allow english-only -- the Portuguese sentence under test
@@ -319,7 +338,9 @@ def test_the_calendar_on_a_phone_in_portuguese(world, snaps, clock):
 def test_the_mail_on_a_phone_has_a_plain_name_and_a_local_time(world, snaps, clock):
     with_inbox(world, snaps)
     reply = ask(world, "list my emails")
-    assert reply.splitlines() == ["Gmail (read at 07:12):", "1. " + OLD]
+    head, item = reply.splitlines()
+    pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="at 07:12")
+    assert item == "1. " + OLD
     assert "bia@clinic.example" not in reply and "(read 2026" not in reply
 
 
@@ -327,7 +348,7 @@ def test_a_snapshot_read_on_another_day_says_the_day(world, snaps, clock):
     with_inbox(world, snaps)
     snaps.later(hours=20)
     snaps.providers.fail = tsm.Failure()
-    assert ask(world, "list my emails").splitlines()[0] == "Gmail (read on 17/10 at 07:12):"
+    pk.assert_said(ask(world, "list my emails").splitlines()[0], "NW_ITEMS_HEAD_PHONE", EN, name="Gmail", when="on 17/10 at 07:12")
 
 
 def test_two_sources_of_one_account_are_told_apart_by_their_box_and_then_by_a_number(world, snaps, clock):
@@ -337,16 +358,22 @@ def test_two_sources_of_one_account_are_told_apart_by_their_box_and_then_by_a_nu
     heads = [line for line in ask(world, "list my emails").splitlines() if line.endswith("):")]
     gmail = "Gmail"
     boxes = [phrases.text("SRC_TWIN", None, name=gmail, detail=phrases.text(key, None)) for key in ("SRC_BOX_INBOX", "SRC_BOX_STARRED")]      # BL5D: the box tells twins apart
-    assert heads == [f"{name} (read at 07:12):" for name in boxes]
+    assert len(heads) == len(boxes)
+    for head, name in zip(heads, boxes):
+        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=name, when="at 07:12")
     ops_sources.source_mail(world["path"], "inbox-2", "gmail:box=inbox;days=3;max=50")
     heads = [line for line in ask(world, "list my emails").splitlines() if line.endswith("):")]
-    assert [h.partition(" (read")[0] for h in heads] == [boxes[0] + " 1", boxes[0] + " 2", boxes[1]]      # equal after the detail: numbered in the registry's order (by id)
+    numbered = [boxes[0] + " 1", boxes[0] + " 2", boxes[1]]      # equal after the detail: numbered in the registry's order (by id)
+    assert len(heads) == len(numbered)
+    for head, name in zip(heads, numbered):
+        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=name, when="at 07:12")
 
 
 def test_the_conversation_and_the_terminal_keep_the_source_id_the_utc_time_and_the_line_as_the_snapshot_prints_it(world, snaps, clock):
     calendar_world(world, snaps)
     chat = ask(world, "list my events", sender=None, channel="chat").splitlines()
-    assert chat[0] == "agenda-google (read 2026-10-17 10:12):" and chat[1].startswith("1. 09:00-10:00 \u00b7 Dentist \u00b7 ") and "organizer: you" in chat[1]
+    pk.assert_said(chat[0], "NW_ITEMS_HEAD", EN, source="agenda-google", read_at="2026-10-17 10:12")
+    assert chat[1].startswith("1. 09:00-10:00 \u00b7 Dentist \u00b7 ") and "organizer: you" in chat[1]
     rows = ops.items(world["path"], kind="calendar", channel="terminal")["sources"][0]["items"]
     assert [r["n"] for r in rows] == [1, 2, 3] and rows[0]["day"] == "2026-10-17" and rows[2]["day"] == "2026-10-18"
 

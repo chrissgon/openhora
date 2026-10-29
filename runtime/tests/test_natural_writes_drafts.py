@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (the calendar world)
@@ -53,7 +54,7 @@ def test_a_write_question_replaces_a_reminder_question_and_says_so_and_the_other
     policy(world)
     drafts.put("messaging", SENDER, {"need": "confirm", "how": "trigger", "line": "x", "text": "x", "readings": [], "project": "p"}, "remind")
     out = phone(world, "marca quinta às 10h no google")
-    assert out["reply"].startswith("The previous question was discarded. ") and live() is not None
+    assert out["reply"].startswith("The previous question was discarded. ") and live() is not None      # literal: the sentence sits inside a longer line the kit does not match
     drafts.put("messaging", SENDER, {"need": "confirm", "how": "trigger", "line": "y", "text": "y", "readings": [], "project": "p"}, "remind")
     assert live() is None, "the reminder's question took the slot"
 
@@ -68,7 +69,7 @@ def test_the_question_waits_ten_minutes_and_is_then_gone(world, clock, monkeypat
     now[0] += 2
     assert live() is None
     late = phone(world, "Dentista")
-    assert late["reply"] is None or "waits for your approval" not in late["reply"], "a late answer is a plain line, never the title of an event"
+    assert late["reply"] is None or not pk.said(late["reply"], "ACCT_CARD_SENT", None), "a late answer is a plain line, never the title of an event"
 
 
 def test_the_question_is_bound_to_the_project_it_was_asked_in(world, clock):
@@ -98,7 +99,7 @@ def test_the_words_of_a_question_are_never_written_to_a_file_the_store_the_log_o
     ctx = ops_core.context(world["path"])
     stored = json.dumps([m["text"] for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)])
     assert SENTINEL not in stored
-    assert ops_natural.stored_line(ctx, f"cria um evento {SENTINEL} sábado no google") == "(a request to your accounts)", "the word the store keeps for such a line"
+    pk.assert_said(ops_natural.stored_line(ctx, f"cria um evento {SENTINEL} sábado no google"), "NW_PRIVATE_LINE", None)      # the word the store keeps for such a line
     needle = SENTINEL.encode()
     leaks = [os.path.join(d, f) for d, _, fs in os.walk(world["tmp"]) for f in fs if f.endswith((".sqlite", ".json", ".log", ".jsonl", ".md", ".txt"))
              and needle in open(os.path.join(d, f), "rb").read()]
@@ -113,14 +114,14 @@ def test_the_account_question_takes_the_number_or_the_word_of_an_option_and_noth
     if expected:
         assert f"Account: {expected.lower()}" in body(world, out)
     else:
-        assert out["asked"] is True and out["reply"].startswith("Which account?") or "reply" in out
+        assert out["asked"] is True and pk.said(out["reply"], "NW_ASK_ACCOUNT", None) or "reply" in out
 
 
 def test_a_short_reply_that_fits_nothing_is_asked_once_more_and_a_second_one_gives_the_question_up_in_a_sentence(world, clock):
     policy(world)
     phone(world, "marca dentista quinta às 10h")
     again = phone(world, "hmm")
-    assert again["asked"] and again["reply"].startswith("Which account?") and live()["retries"] == 1
+    assert again["asked"] and pk.said(again["reply"], "NW_ASK_ACCOUNT", None) and live()["retries"] == 1
     dropped = phone(world, "talvez")
     assert dropped["reply"] == phrases.text("NW_GIVE_UP", None) and live() is None and not dropped["asked"], "given up in a plain sentence, nothing opened"
     assert phone(world, "hmm")["reply"] is None, "and the next short line is a plain line"
@@ -131,14 +132,15 @@ def test_a_no_or_a_cancel_drops_the_question_and_nothing_is_opened(world, clock,
     policy(world)
     phone(world, "marca dentista quinta às 10h")
     out = phone(world, word)
-    assert out["reply"] == "Nothing was opened." and live() is None and spy == []
+    pk.assert_said(out["reply"], "NW_CANCELLED", None)
+    assert live() is None and spy == []
 
 
 def test_a_line_that_is_a_new_request_drops_the_question_and_is_that_request(world, clock):
     policy(world)
     phone(world, "marca dentista quinta às 10h")
     out = phone(world, "marca almoço sexta às 12h no google")
-    assert out["reply"].startswith("The previous question was discarded.") is False and OPEN in out["reply"] and live() is None
+    assert out["reply"].startswith("The previous question was discarded.") is False and pk.said(out["reply"], "ACCT_CARD_SENT", None) and live() is None      # literal: the sentence sits inside a longer line the kit does not match
     phone(world, "marca dentista quinta às 10h")
     slash = phone(world, "/status")
     assert slash["reply"] is None and live() is None

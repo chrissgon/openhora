@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_limits_account_writes as limits
 
@@ -300,8 +301,8 @@ def test_the_reader_checks_every_answer_before_any_module_sees_it(monkeypatch):
 def test_the_read_asks_posso_first_and_says_what_it_understood_in_both_languages():
     assert plan_confirm.SENTENCES["todo-list"] == "UNDERSTOOD_TODO_LIST" and "todo-list" not in plan_confirm.ALWAYS
     ctx = {"cfg": {"language": "pt-BR", "channels": {}}}
-    assert plan_confirm.understood(ctx, "todo-list", {}, "o que tem na lista de tarefas") == "listar suas tarefas abertas"
-    assert plan_confirm.understood({"cfg": {"language": "en", "channels": {}}}, "todo-list", {}, "my tasks") == "list your open tasks"
+    pk.assert_said(plan_confirm.understood(ctx, "todo-list", {}, "o que tem na lista de tarefas"), "UNDERSTOOD_TODO_LIST", ctx["cfg"])
+    pk.assert_said(plan_confirm.understood({"cfg": {"language": "en", "channels": {}}}, "todo-list", {}, "my tasks"), "UNDERSTOOD_TODO_LIST", {"language": "en"})
     assert plan_confirm.needed({"cfg": {"channels": {"messaging": ["read", "tasks-read"]}}}, "todo-list", "messaging", "telegram:1", False) is True
     assert plan_confirm.needed({"cfg": {"channels": {}}}, "todo-list", "terminal", None, False) is False
 

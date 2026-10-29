@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import rows  # noqa: F401
@@ -29,7 +30,6 @@ OTHERS = "telegram:777"
 PLAIN = "telegram:6161"
 PROFILES = {"owner": ["read", "talk", "files-write"], "other": ["read", "talk", "files-write"], "plain": ["read", "talk"]}
 IDS = {"owner": "830461975213", "other": "777", "plain": "6161"}
-OPEN = "waits for your approval"
 
 
 @pytest.fixture(autouse=True)
@@ -79,9 +79,9 @@ def test_a_file_the_sender_sent_is_saved_by_a_line_that_names_it_and_the_card_is
     policy(world)
     hold(world, sender="830461975213")
     out = phone(world, "salva esse pdf no drive")
-    assert out["resend"] and OPEN in out["reply"] and out["asked"] is False
+    assert out["resend"] and pk.said(out["reply"], "ACCT_CARD_SENT", None, pending=out["resend"]) and out["asked"] is False
     text = body(world, out)
-    assert "Contract.pdf" in text and "Google Drive" in text
+    assert pk.said(text, "CARD_FILE_SENT", None, name="Contract.pdf", service="Google Drive")
     assert [kind for kind, _, _ in spy] == ["file-write"] and spy[0][1]["operation"] == "save" and spy[0][1]["attachment"] == 1 and spy[0][2]["sender"] == OWNER
     assert world["gd"].requests == [] or all(r["method"] == "GET" or r["path"].endswith("/token") for r in world["gd"].requests), "a card writes nothing"
 
@@ -117,10 +117,10 @@ def test_a_new_file_needs_its_name_and_its_text_in_the_line_and_the_folder_is_a_
     policy(world)
     out = phone(world, "cria um arquivo chamado ideias.md na pasta cv no drive com o texto: comprar tinta azul")
     text = body(world, out)
-    assert "ideias.md" in text and "comprar tinta azul" in text and "Google Drive" in text
+    assert pk.said(text, "CARD_FILE_NAME", None, name="ideias.md", service="Google Drive") and "comprar tinta azul" in text
     assert spy[0][1]["operation"] == "create" and spy[0][1]["name"] == "ideias.md" and spy[0][1]["folder"] == "cv" and spy[0][1]["content"] == "comprar tinta azul"
     unknown = phone(world, "cria um arquivo chamado ideias2.md na pasta contratos no drive com o texto: x")
-    assert unknown["asked"] and "I do not have the folder 'contratos'" in unknown["reply"] and "default, cv" in unknown["reply"]
+    assert unknown["asked"] and pk.said(unknown["reply"], "NW_ASK_FOLDER", None, name="contratos", names="default, cv")
     chosen = phone(world, "cv")
     assert "ideias2.md" in body(world, chosen)
 
@@ -128,11 +128,11 @@ def test_a_new_file_needs_its_name_and_its_text_in_the_line_and_the_folder_is_a_
 def test_two_accounts_with_folders_are_asked_and_a_name_with_no_extension_is_asked_never_chosen(world, clock, spy):
     policy(world)
     first = phone(world, "cria uma nota chamada compras com o texto: pão e leite")
-    assert first["asked"] and first["reply"].startswith("Which account?")
+    assert first["asked"] and pk.said(first["reply"], "NW_ASK_ACCOUNT", None)
     second = phone(world, "microsoft")
-    assert second["asked"] and "What is the file name?" in second["reply"] and spy == []
+    assert second["asked"] and pk.said(second["reply"], "NW_ASK_FILE_NAME", None) and spy == []
     third = phone(world, "compras.txt")
-    assert "compras.txt" in body(world, third) and "OneDrive" in body(world, third) and "pão e leite" in body(world, third)
+    assert pk.said(body(world, third), "CARD_FILE_NAME", None, name="compras.txt", service="OneDrive") and "pão e leite" in body(world, third)
 
 
 def test_a_google_doc_is_made_in_the_google_drive_with_its_word(world, clock, spy):
@@ -162,10 +162,10 @@ def test_a_profile_without_files_write_gets_the_typed_sentence(world, clock, spy
 def test_a_new_file_opens_its_card_from_the_terminal_shell_and_the_page_with_the_real_carrying_channel(world, clock, spy, channel, carried):
     policy(world)
     reply = ops.natural_write(world["path"], "cria um arquivo chamado ideias.md no drive com o texto: comprar tinta azul", channel=channel or "terminal")["reply"]      # S41-11: no plain line is claimed on a shell any more: the card is opened through the writes' entry with the carrying channel
-    assert OPEN in reply and spy and spy[-1][2]["channel"] == carried and spy[-1][1]["operation"] == "create"
+    assert pk.said(reply, "ACCT_CARD_SENT", None) and spy and spy[-1][2]["channel"] == carried and spy[-1][1]["operation"] == "create"
     held = hold(world, sender="830461975213")
     saved = ops.natural_write(world["path"], "salva o anexo %d no drive" % held, channel=channel or "terminal")["reply"]
-    assert OPEN in saved and spy[-1][1]["operation"] == "save" and spy[-1][2]["channel"] == carried
+    assert pk.said(saved, "ACCT_CARD_SENT", None) and spy[-1][1]["operation"] == "save" and spy[-1][2]["channel"] == carried
 
 
 def test_a_file_name_that_fails_the_check_is_asked_again_once_and_then_given_up_so_no_question_loops(world, clock, spy):
@@ -173,7 +173,7 @@ def test_a_file_name_that_fails_the_check_is_asked_again_once_and_then_given_up_
     phone(world, "cria uma nota chamada compras com o texto: pão e leite")
     phone(world, "microsoft")
     again = phone(world, "compras")
-    assert again["asked"] and "What is the file name?" in again["reply"]
+    assert again["asked"] and pk.said(again["reply"], "NW_ASK_FILE_NAME", None)
     gave_up = phone(world, "notas")
     assert not gave_up["asked"] and gave_up["reply"] == phrases.text("NW_GIVE_UP", None) and spy == []
     nothing = phone(world, "compras.txt")
@@ -194,7 +194,7 @@ def test_a_question_or_a_request_offered_as_a_name_is_a_new_line_never_the_name(
 def test_a_question_with_options_is_asked_once_more_for_a_short_non_answer_and_then_given_up_in_a_sentence(world, clock, spy):
     policy(world)
     first = phone(world, "cria uma nota chamada compras com o texto: pão e leite")
-    assert first["reply"].startswith("Which account?")
+    assert pk.said(first["reply"], "NW_ASK_ACCOUNT", None)
     again = phone(world, "talvez")
     assert again["asked"] and again["reply"] == first["reply"], "the same question once more"
     gave_up = phone(world, "hmm")

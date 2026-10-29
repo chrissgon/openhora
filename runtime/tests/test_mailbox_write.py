@@ -37,6 +37,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from sources_fixture import standin_convert
@@ -212,15 +213,17 @@ def test_an_archive_prepares_a_card_of_every_message_by_the_subject_and_sender_t
     started = archive(world)
     assert set(started) == {"request", "task", "pending", "word", "on_cards"} and started["word"] == "mailbox" and started["on_cards"] is True
     item = item_of(world, started)
-    assert item["kind"] == "effect" and item["title"] == "Mailbox: archive messages" and "Appointment" not in item["title"]
+    assert item["kind"] == "effect" and pk.said(item["title"], "TITLE_BOX_ARCHIVE", None) and "Appointment" not in item["title"]
     assert item["payload"]["step"] == {"kind": "mailbox-change", "step": "mailbox"} and phrases.card_valid(item["payload"]["card"])
     assert item["body"] == phrases.card_text(item["payload"]["card"])
     lines = item["body"].splitlines()
-    assert lines[0] == f"Code makes this change in your mailbox {fgm.ACCOUNT} after your approval. Nothing is sent and nothing is deleted."
-    assert lines[1] == f"Account: google ({fgm.ACCOUNT})" and lines[2] == "Archive: 2 message(s)"
-    assert lines[3] == "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday", "the subject is the LIVE one, not the snapshot's, and the sender is the address alone"
-    assert lines[4] == "2. 2026-10-16 11:30 · from bob@shop.example · Your order has shipped"
-    assert lines[5].startswith("Read from your mailbox at 20") and lines[6].startswith("Chosen from a snapshot read at 20") and len(lines) == 7
+    assert len(lines) == 7
+    pk.assert_said(lines[0], "CARD_BOX_CODE", None, address=fgm.ACCOUNT)
+    pk.assert_said(lines[1], "CARD_ACCOUNT", None, account="google", address=fgm.ACCOUNT)
+    pk.assert_said(lines[2], "CARD_BOX_ARCHIVE", None, n=2)
+    assert pk.said(lines[3], "CARD_BOX_ITEM", None, i=1, date="2026-10-17 06:00", sender="ana@clinic.example", subject="Appointment confirmed for Monday"), "the subject is the LIVE one, not the snapshot's, and the sender is the address alone"
+    pk.assert_said(lines[4], "CARD_BOX_ITEM", None, i=2, date="2026-10-16 11:30", sender="bob@shop.example", subject="Your order has shipped")
+    assert pk.said(lines[5], "CARD_BOX_READ_AT", None) and pk.said(lines[6], "CARD_BOX_SNAPSHOT", None)
     doc = effect_doc(world, started)
     assert doc["effect"] == "mailbox" and doc["action"] == "archive" and doc["implementation"] == "gmail" and doc["messages"][0]["ref"] == "inbox#1"
     assert doc["messages"][0]["labels"] == ["INBOX", "UNREAD"] and doc["messages"][0]["change_key"] is None and doc["zone"] == "America/Sao_Paulo"
@@ -228,7 +231,7 @@ def test_an_archive_prepares_a_card_of_every_message_by_the_subject_and_sender_t
     first = calls(world["google"])[0]
     assert first[2]["format"] == "metadata" and first[2]["metadataHeaders"] == ["Subject", "From", "Date", "Message-ID"], "no body is read"
     tasks, pending = rows(world)
-    assert {t["id"]: t["title"] for t in tasks}[started["task"]] == "Mailbox: archive messages" and len(pending) == 1
+    assert pk.said({t["id"]: t["title"] for t in tasks}[started["task"]], "TITLE_BOX_ARCHIVE", None) and len(pending) == 1
     assert "Display Name" not in item["body"], "the sender's display name is another person's words and is dropped"
 
 
@@ -249,7 +252,7 @@ def test_the_approval_of_an_archive_is_one_batch_modify_after_a_read_of_each_mes
 
 def test_a_move_adds_the_label_the_project_names_and_leaves_the_inbox_unless_the_account_says_otherwise(world):
     started = ops.mail_move(world["path"], "google", "inbox#1", "bills")
-    assert "Move to \"bills\": 1 message(s)" in item_of(world, started)["body"] and effect_doc(world, started)["folder_id"] == "Label_7"
+    assert pk.said(item_of(world, started)["body"], "CARD_BOX_MOVE", None, folder="bills", n=1) and effect_doc(world, started)["folder_id"] == "Label_7"
     approve(world, started)
     assert world["google"].writes() == [("POST", f"{MESSAGES}/batchModify", {}, {"ids": ["m1"], "addLabelIds": ["Label_7"], "removeLabelIds": ["INBOX"]})]
     edit_accounts(world, lambda accounts: accounts["google"].__setitem__("move_removes_inbox", False))
@@ -262,7 +265,7 @@ def test_a_move_adds_the_label_the_project_names_and_leaves_the_inbox_unless_the
 
 def test_a_mark_changes_the_unread_label_and_a_mark_that_changes_nothing_is_refused(world):
     started = ops.mail_mark(world["path"], "google", "inbox#1,inbox#3", "read")
-    assert "Mark as read: 2 message(s)" in item_of(world, started)["body"]
+    assert pk.said(item_of(world, started)["body"], "CARD_BOX_READ", None, n=2)
     approve(world, started)
     assert world["google"].writes() == [("POST", f"{MESSAGES}/batchModify", {}, {"ids": ["m1", "m3"], "addLabelIds": [], "removeLabelIds": ["UNREAD"]})]
     again = refused(world, ops.mail_mark, "google", "inbox#1", "read")
@@ -276,7 +279,7 @@ def test_a_mark_changes_the_unread_label_and_a_mark_that_changes_nothing_is_refu
 def test_a_trash_is_one_trash_call_per_message_and_a_message_in_the_trash_already_is_refused(world):
     started = ops.mail_trash(world["path"], "google", "inbox#1,inbox#2")
     body = item_of(world, started)["body"]
-    assert "Move to the trash (Gmail empties it after 30 days): 2 message(s)" in body
+    assert pk.said(body, "CARD_BOX_TRASH_GMAIL", None, n=2)
     approve(world, started)
     assert world["google"].writes() == [("POST", f"{MESSAGES}/m1/trash", {}, None), ("POST", f"{MESSAGES}/m2/trash", {}, None)]
     assert all("TRASH" in world["google"].messages[m]["labelIds"] for m in ("m1", "m2")) and world["google"].unexpected() == []
@@ -298,7 +301,7 @@ def test_an_outlook_archive_moves_each_message_to_the_archive_folder_after_one_r
     started = archive(world, "work#1,work#2", "microsoft")
     doc = effect_doc(world, started)
     assert doc["implementation"] == "outlook-mail" and doc["folder_id"] == "archive" and doc["messages"][0]["change_key"] == "CK1" and doc["messages"][0]["folder_id"] == fgr.FOLDERS["inbox"]
-    assert "Archive: 2 message(s)" in item_of(world, started)["body"] and "1. 2026-10-17 06:00 · from ana@clinic.example · Appointment confirmed for Monday" in item_of(world, started)["body"]
+    assert pk.said(item_of(world, started)["body"], "CARD_BOX_ARCHIVE", None, n=2) and pk.said(item_of(world, started)["body"], "CARD_BOX_ITEM", None, i=1, date="2026-10-17 06:00", sender="ana@clinic.example", subject="Appointment confirmed for Monday")
     assert graph_calls(world) == [("GET", "/v1.0/me/mailFolders/archive"), ("GET", f"{GRAPH_MESSAGES}/m1"), ("GET", f"{GRAPH_MESSAGES}/m2")]
     world["graph"].requests.clear()
     done = approve(world, started)
@@ -315,7 +318,7 @@ def test_an_outlook_move_goes_to_the_folder_the_project_names_and_a_trash_to_del
     assert world["graph"].writes() == [("POST", f"{GRAPH_MESSAGES}/m1/move", {}, {"destinationId": fgr.NAMED})]
     world["graph"].requests.clear()
     trashed = ops.mail_trash(world["path"], "microsoft", "work#2")
-    assert "Move to Deleted Items (Outlook deletes them from there after 30 days): 1 message(s)" in item_of(world, trashed)["body"]
+    assert pk.said(item_of(world, trashed)["body"], "CARD_BOX_TRASH_OUTLOOK", None, n=1)
     approve(world, trashed)
     assert world["graph"].writes() == [("POST", f"{GRAPH_MESSAGES}/m2/move", {}, {"destinationId": "deleteditems"})]
     world["graph"].requests.clear()
@@ -378,17 +381,18 @@ def test_limit_55_a_mail_folder_the_configuration_stops_naming_between_the_card_
 
 
 def test_a_reference_that_cannot_be_resolved_is_refused_with_a_sentence_of_the_phrase_table_and_nothing_is_made(world):
-    cases = {"inbox#9": "does not exist", "inbox#0": "start at 1", "nothing#1": "There is no source nothing", "inbox#x": "is not a reference to a message", "created:3": "created:3 does not name a message of your mailbox",
-             "inbox": "is not a reference", "": "Name at least one message", "inbox#1,inbox#1": "is named twice"}
-    for ref, sentence in cases.items():
+    cases = {"inbox#9": ("ACCT_MBOX_REF_PAST_END", {"ref": "inbox#9", "source": "inbox"}), "inbox#0": ("ACCT_MBOX_REF_ZERO", {"ref": "inbox#0"}), "nothing#1": ("ACCT_MBOX_REF_NO_SOURCE", {"source": "nothing"}),
+             "inbox#x": ("ACCT_MBOX_REF_MALFORMED", {"ref": "inbox#x"}), "created:3": ("ACCT_MBOX_REF_WRONG_KIND", {"ref": "created:3"}), "inbox": ("ACCT_MBOX_REF_MALFORMED", {"ref": "inbox"}),
+             "": ("ACCT_MBOX_NO_MESSAGES", {}), "inbox#1,inbox#1": ("ACCT_MBOX_DUPLICATE", {"ref": "inbox#1"})}
+    for ref, (key, fields) in cases.items():
         error = refused(world, ops.mail_archive, "google", ref)
-        assert sentence in str(error), (ref, str(error))
+        assert pk.said(str(error), key, None, **fields), (ref, str(error))
     assert rows(world)[1] == [] and world["google"].requests == []
     other = refused(world, ops.mail_archive, "google", "work#1")      # an Outlook message asked on the Google account
-    assert "another account than the google account" in str(other)
+    pk.assert_said(str(other), "ACCT_MBOX_OTHER_ACCOUNT", None, ref="work#1", account="google")
     twenty_one = ",".join(f"inbox#{i}" for i in range(1, 22))
     many = refused(world, ops.mail_archive, "google", twenty_one)
-    assert "at most 20 messages; 21 were named" in str(many) and many.code == 2
+    assert pk.said(str(many), "ACCT_MBOX_TOO_MANY", None, max=20, n=21) and many.code == 2
 
 
 def test_every_item_ref_error_code_has_its_sentence_in_both_languages_with_only_the_fields_the_reference_gives():
@@ -414,9 +418,13 @@ NEW_DRAFT = {"to": "joe@shop.example", "cc": "amy@shop.example", "bcc": "boss@sh
 def test_a_new_gmail_draft_is_shown_whole_saved_by_one_post_and_never_sent(world):
     started = ops.mail_draft(world["path"], "google", **NEW_DRAFT)
     item = item_of(world, started)
-    assert item["title"] == "Mailbox: save a draft" and item["body"].splitlines()[0].endswith("It is not sent: it waits in your Drafts for you to read and send yourself.")
-    for needle in ("To: joe@shop.example", "Cc: amy@shop.example", "Bcc: boss@shop.example", "Subject: Haircut on Monday", "The draft's text, exactly as it will be saved (every line starts with \u2502):\n\u2502 Hello Joe,\n\u2502 See you at 13:00."):
-        assert needle in item["body"], needle
+    assert pk.said(item["title"], "TITLE_BOX_DRAFT", None) and pk.said(item["body"].splitlines()[0], "CARD_BOX_CODE_DRAFT", None, address=fgm.ACCOUNT)
+    shown = item["body"]
+    assert pk.said(shown, "CARD_BOX_DRAFT_TO", None, to="joe@shop.example"), shown
+    assert pk.said(shown, "CARD_BOX_DRAFT_CC", None, cc="amy@shop.example"), shown
+    assert pk.said(shown, "CARD_BOX_DRAFT_BCC", None, bcc="boss@shop.example"), shown
+    assert pk.said(shown, "CARD_BOX_DRAFT_SUBJECT", None, subject="Haircut on Monday"), shown
+    assert pk.said(shown, "CARD_BOX_DRAFT_TEXT", None, body="\u2502 Hello Joe,\n\u2502 See you at 13:00."), shown
     assert world["google"].requests == [], "preparing a new draft reads nothing and opens no connection"
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["action"] == "draft" and done["result"]["draft_id"] in world["google"].drafts
@@ -434,8 +442,8 @@ def test_a_reply_draft_goes_to_the_sender_the_index_recorded_never_to_the_reply_
     reply = doc["draft"]["reply"]
     assert reply["reply_to"] == "desk@clinic.example" and reply["message_id"] == "<a1@mail.example>" and reply["thread_id"] == "t1" and reply["ref"] == "inbox#1"
     body = item_of(world, started)["body"]
-    assert "Reply to: ana@clinic.example, the sender of inbox#1 (2026-10-17 06:00, 'Appointment confirmed for Monday')" in body
-    assert "The message asks replies to go to desk@clinic.example: this draft goes to the sender above, not there." in body and "To: ana@clinic.example" in body
+    assert pk.said(body, "CARD_BOX_DRAFT_REPLY", None, address="ana@clinic.example", ref="inbox#1", date="2026-10-17 06:00", subject="Appointment confirmed for Monday")
+    assert pk.said(body, "CARD_BOX_DRAFT_REPLY_DIFFERS", None, other="desk@clinic.example") and pk.said(body, "CARD_BOX_DRAFT_REPLY_TO", None, to="ana@clinic.example")
     approve(world, started)
     [(_, _, _, sent)] = world["google"].writes()
     assert sent["message"]["threadId"] == "t1"
@@ -820,7 +828,8 @@ def test_a_gmail_message_with_many_labels_is_archived_whole(world):
                                   "Hi \u200b there", "Hi \u202e there", "Hi \u115f there", "Hi \u2800 there"])
 def test_a_draft_text_that_could_pass_for_the_frame_of_the_card_or_draws_nothing_is_refused(world, body):
     error = refused(world, ops.mail_draft, "google", **{**NEW_DRAFT, "body": body})
-    assert error.code in (1, 2) and ("begins like the frame of the card" in str(error) or "hidden character" in str(error)), str(error)
+    reason = str(error).partition(": ")[2]      # the refusal names the field, then the sentence of its key
+    assert error.code in (1, 2) and (pk.said(reason, "ACCT_MAIL_FRAME", None) or pk.said(reason, "ACCT_MAIL_TEXT_HIDDEN", None)), str(error)
     assert rows(world)[1] == [] and world["google"].requests == []
 
 

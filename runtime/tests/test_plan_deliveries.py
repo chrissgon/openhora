@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 lab = st.load("lab")
@@ -177,7 +178,7 @@ def test_deliveries_are_chained_in_the_order_listed(tree):
         ("d2-demo-writes", ["d1-market"], "business")]
     assert [d["tasks"] for d in payload["deliveries"]] == [["d1-market", "d1-profile"], ["d2-demo-writes"]]
     assert payload["flow"] == plan.DELIVERIES_FLOW and item["title"] == "Plan: 2 deliveries (3 tasks)"
-    assert "flows/deliveries.json" not in item["body"] and "Estimate: 6 runs" in item["body"]
+    assert "flows/deliveries.json" not in item["body"] and any(pk.said(line.partition(" (")[0], "PLAN_ESTIMATE", runs=6) for line in item["body"].splitlines())      # the line goes on with the formula in parentheses
     approved = approve(tree, out["pending_id"])
     assert [(t["key"], t["state"]) for t in approved["tasks"]] == [
         ("d1-market", "ready"), ("d1-profile", "planned"), ("d2-demo-writes", "planned")]
@@ -198,8 +199,8 @@ def test_an_item_the_router_did_not_route_reaches_the_person_with_the_whole_repl
     reply(tree, PROSE, "reply-alpha.md")
     none = routed(tree, TWO)
     asked = ops.pending(path, none["pending_id"])
-    assert (none["kind"], asked["kind"], asked["title"]) == ("question", "question", "No delivery was routed")
-    assert asked["body"] == f"The planning agent did not name a flow or a skill for request {none['request']}"
+    assert (none["kind"], asked["kind"]) == ("question", "question") and pk.said(asked["title"], "TITLE_NO_DELIVERY_ROUTED")
+    pk.assert_said(asked["body"], "BODY_NOT_NAMED", request=none["request"])
     assert asked["payload"]["raw"].count(PROSE.rstrip("\n")) == 2 and asked["payload"]["actions"] == ["choose-flow", "cancel"]
 
 

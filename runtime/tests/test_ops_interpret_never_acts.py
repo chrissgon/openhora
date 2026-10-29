@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import rows, world  # noqa: F401  (the calendar world)
 from test_channel_grants import accept
@@ -99,12 +100,12 @@ def test_an_event_in_spanish_opens_the_card_of_its_exact_content_and_the_card_st
     spies = Spies(monkeypatch)
     stand_in(monkeypatch, op("event-create", {"title": "cena con Dana", "time": "el viernes a las 20:00"}, time_iso="2026-10-23T20:00", weekday="fri"))
     out = ops.say(world["path"], "pon cena con Dana el viernes a las 20:00", channel="messaging", sender=OWNER)
-    assert out["reply"].startswith("Which account?"), "the question of the family, asked by the draft the interpreter opened"
+    assert pk.said(out["reply"], "NW_ASK_ACCOUNT", None), "the question of the family, asked by the draft the interpreter opened"
     out = ops.say(world["path"], "1", channel="messaging", sender=OWNER)      # the answer belongs to the draft: code reads it, no model
     assert out["resend"], "a decision whose card the bridge sends"
     item = ops.pending(world["path"], out["resend"])
-    lines = item["body"].splitlines()
-    assert "Title: cena con Dana" in lines and "When: Fri 23/10/2026 20:00-21:00 (America/Sao_Paulo)" in lines
+    pk.assert_said(item["body"], "CARD_CAL_TITLE", None, title="cena con Dana")
+    pk.assert_said(item["body"], "CARD_CAL_WHEN", None, when="Fri 23/10/2026 20:00-21:00 (America/Sao_Paulo)")
     assert item["status"] == "open" and spies.seen == [] and requests_made(world) == [], "a card is opened; approving it is the person's, by its hash"
 
 
@@ -113,7 +114,7 @@ def test_a_span_that_is_not_in_the_line_opens_no_card(world, clock, monkeypatch)
     spies = Spies(monkeypatch)
     stand_in(monkeypatch, op("event-create", {"title": "cena con Beatriz", "time": "el viernes a las 20:00"}, time_iso="2026-10-23T20:00", weekday="fri"))
     out = ops.say(world["path"], "pon cena con Dana el viernes a las 20:00", channel="messaging", sender=OWNER)
-    assert out["reply"] == "I was not sure what you meant, so I did nothing. Can you say it another way?"
+    pk.assert_said(out["reply"], "IX_ASK_AGAIN", None)
     assert rows(world) == ([], []) and spies.seen == [] and requests_made(world) == []
 
 

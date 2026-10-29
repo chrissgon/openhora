@@ -12,6 +12,7 @@ from phone_literals import PLAIN_REFUSAL  # noqa: E402
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 from test_ask import accept, add_source
@@ -26,7 +27,6 @@ ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 drafts = st.load("drafts")
 operations = st.load("operations")
-phrases = st.load("phrases")
 
 QUESTION = "Q1: Which market do you mean?\n"
 
@@ -92,7 +92,8 @@ def test_the_words_of_a_reminder_listed_by_a_natural_read_are_not_in_the_convers
     for channel in ("mcp", "page"):
         shown = [m["text"] for m in ops.conversation(world["path"], channel=channel)["messages"]]
         assert not any("secret dentist words" in t for t in shown), channel
-    assert [m["text"] for m in stored(world) if m["role"] == "assistant"] == [phrases.text("NAT_READ_REPLY", None)]
+    replies = [m["text"] for m in stored(world) if m["role"] == "assistant"]
+    assert len(replies) == 1 and pk.said(replies[0], "NAT_READ_REPLY", None)
 
 
 def test_a_read_the_mcp_mode_may_make_itself_is_stored_as_it_was_said(docs):
@@ -100,8 +101,7 @@ def test_a_read_the_mcp_mode_may_make_itself_is_stored_as_it_was_said(docs):
     shown = [m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"]
     assert shown == [out["reply"]], "sources is a row of the MCP ceiling: no secret in it"
     acted = say(docs, "list my attachments")      # attachments is not: neutral
-    assert acted["reply"] and [m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"][-1] \
-        == phrases.text("NAT_READ_REPLY", None)
+    assert acted["reply"] and pk.said([m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"][-1], "NAT_READ_REPLY", None)
 
 
 # --- M1 -------------------------------------------------------------------------------------------------------------------------------------
@@ -113,9 +113,9 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
     [made] = reminders(world)
     router_says(world, OPERATION.format(name="reminder-forget") + f"Argument id: {made['id']}\n")
     asked = phone(world, "owner", f"how is task {made['id']} going?")
-    assert asked["reply"].startswith(f"Cancel reminder #{made['id']}: ") and asked["reply"].endswith("dentist? (yes / no)")
+    assert pk.said(asked["reply"], "NT_ASK_FORGET_TEXT", None, id=made["id"], text="dentist")
     assert [r["status"] for r in reminders(world)] == ["open"], "nothing was cancelled by the router's word"
-    assert phone(world, "owner", "no")["reply"] == phrases.text("NT_KEPT", None) and [r["status"] for r in reminders(world)] == ["open"]
+    assert pk.said(phone(world, "owner", "no")["reply"], "NT_KEPT", None) and [r["status"] for r in reminders(world)] == ["open"]
     phone(world, "owner", f"how is task {made['id']} going?")
     done = phone(world, "owner", "yes")
     assert done["ran"] is False and [r["status"] for r in reminders(world)] == ["cancelled"]
@@ -125,15 +125,16 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
 
 
 @pytest.mark.parametrize("line, expected", [
-    ("help", "GREET_HEAD"), ("ajuda", "GREET_HEAD"), ("what can you do", "GREET_HEAD"),      # S5: a help line in words from a sender who may talk is the summary of what that sender may do
-    ("what flows are there", "That is not done from a message. Do it on the platform's page."),
+    ("help", ("GREET_HEAD", {})), ("ajuda", ("GREET_HEAD", {})), ("what can you do", ("GREET_HEAD", {})),      # S5: a help line in words from a sender who may talk is the summary of what that sender may do
+    ("what flows are there", ("PHONE_ELSEWHERE", {"where": "on the platform's page."})),
 ])
 def test_the_help_and_a_read_the_channel_does_not_have_get_a_true_sentence_through_the_bridge(rig, line, expected):
     rig.bridge.handle(rig.update(OWNER, line))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
     text = rig.sent()[0]["message"]["text"]
     assert "turns it on" not in text and "is not enabled" not in text
-    assert text.splitlines()[0] == phrases.text("GREET_HEAD", None) if expected == "GREET_HEAD" else text == expected
+    key, fields = expected
+    assert pk.said(text.splitlines()[0] if key == "GREET_HEAD" else text, key, None, **fields)
 
 
 def test_a_refusal_for_a_row_no_configuration_can_turn_on_says_where_it_is_done():
@@ -153,7 +154,7 @@ def test_a_profile_with_ask_and_without_talk_can_answer_the_list_of_files_to_cho
     accept(rig.world["path"], policies={**PROFILES, "askonly": ["read", "ask"]}, messaging={"senders": {"telegram": [{"id": OWNER, "policy": "askonly"}]}})
     rig.bridge.handle(rig.update(OWNER, "/ask what does the report say about sales?"))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
-    assert rig.sent()[0]["message"]["text"].startswith("Which file do you mean?")
+    assert pk.said(rig.sent()[0]["message"]["text"], "NAT_ASK_WHICH", None)
     rig.bridge.handle(rig.update(OWNER, "1"))
     assert wait_for(lambda: len(rig.sent()) == 2) and settled(rig)
     assert "not enabled" not in rig.sent()[1]["message"]["text"] and "Which file" not in rig.sent()[1]["message"]["text"]
@@ -181,7 +182,7 @@ def test_the_card_goes_out_again_at_most_once_a_minute_and_the_sentence_says_so_
     clock["t"] += 61
     monkeypatch.setattr(rig.bridge, "send_card", lambda *a, **k: False)      # a card that cannot be sent
     rig.bridge.handle(rig.update(OWNER, "aprova a pendencia 1"))
-    assert wait_for(lambda: rig.sent()[-1]["message"]["text"] == phrases.text("NAT_DECISION_NO_CARD", None)) and settled(rig)
+    assert wait_for(lambda: pk.said(rig.sent()[-1]["message"]["text"], "NAT_DECISION_NO_CARD", None)) and settled(rig)
     assert cards() == 3
 
 
@@ -203,7 +204,7 @@ def test_the_answer_to_a_file_list_waits_in_the_queue_when_the_router_is_busy_an
     add_source(world, "report-2025", "# Report 2025\n\nSales grew.\n", name="report 2025.txt")
     add_source(world, "report-2026", "# Report 2026\n\nSales fell.\n", name="report 2026.txt")
     first = ops.say(world["path"], "/ask what does the report say about sales?", channel="page")
-    assert first["reply"].startswith("Which file do you mean?")
+    assert pk.said(first["reply"], "NAT_ASK_WHICH", None)
     with ops_core._route_lock(world["ctx"]["cfg"]):
         queued = ops.say(world["path"], "2", channel="page")
         assert queued["queued"] is True and drafts.count() == 1, "queued, and the draft is still there"
@@ -218,7 +219,7 @@ def test_a_reply_to_the_mcp_mode_carries_no_path_of_this_machine_and_a_terminal_
     assert "/set-model is done" in out
     assert str(world["path"]) not in out and str(world["tree"]) not in out and "<project>" in out
     page = say(world, "muda o modelo do agente", channel="page")["reply"]
-    assert "from a message" not in page and "line of words" in page and str(world["path"]) in page
+    assert not pk.said(page, "PHONE_ELSEWHERE", None) and pk.said(page, "NAT_GATED", None) and str(world["path"]) in page
     assert str(world["path"]) not in say(world, "approve 3", channel="mcp")["reply"]
 
 
