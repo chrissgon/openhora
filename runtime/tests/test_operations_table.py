@@ -15,6 +15,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from expected_kit import extend
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
@@ -259,8 +260,8 @@ def test_the_texts_that_name_a_command_are_built_by_the_table():
         "python3 runtime/cli.py handler --project /p --name n --verb v --arg a=b"
     with pytest.raises(ValueError):
         operations.command_line("status", "/p", nothing=1)
-    assert ops.PLAN_NEXT.format(pending=5) == "Approve with /approve 5"
-    assert ops.ASK_NEXT == "Answer with a plain line, or start again with /new <text>"
+    pk.assert_said(ops.PLAN_NEXT.format(pending=5), "PLAN_NEXT", pending=5)
+    pk.assert_said(ops.ASK_NEXT, "ASK_NEXT")
     body = st.load("effect_pull_request").body({"repo": "r", "base": "b", "head": "h", "project_commit": "c", "title": "t", "body": "x",
                          "files": [], "removed": []}, "f" * 64)
     assert f"Approve exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 {'f' * 64}" in body

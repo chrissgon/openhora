@@ -13,6 +13,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, UNSURE_LINES
@@ -284,7 +285,7 @@ def test_a_line_makes_a_reminder_for_the_sender_with_the_facts_a_chat_shows(worl
     got = said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to call the florist")
     assert got["reminder"]["text"] == "call the florist" and got["reminder"]["due"] == "2026-10-19 13:00"
     assert got["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
-    assert got["reply"] == "Reminder #1 set for 2026-10-19 13:00 (BRT)."
+    pk.assert_said(got["reply"], "RM_SET", None, id=1, wall="2026-10-19 13:00", zone="BRT")
     first = ops.remind(world.path, channel="messaging", sender=SENDER, said="13:00 stretch", how="command")["ask"]
     assert first["need"] == "confirm" and first["readings"][0]["rolled"] is True, "a time of day that had passed rolled over to tomorrow, and the question says so"
     rolled = ops.remind(world.path, channel="messaging", sender=SENDER, said="yes", how="command", draft=first)
@@ -321,22 +322,22 @@ def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_t
 
 
 def test_the_checks_of_the_strict_grammar_stay_over_a_line_in_words(world):  # noqa: F811
-    for said, sentence in (("remind me today at 1pm to stretch", "That time has passed. Now it is 18/10/2026 14:00."),
-                           ("remind me in 400 days to stretch", "A reminder is at most 366 days ahead."),
-                           ("remind me 30/02 at 10:00 to stretch", "2027-02-30 is not a day of the calendar."),
+    for said, sentence in (("remind me today at 1pm to stretch", ("RM_PAST", {"now": "18/10/2026 14:00"})),
+                           ("remind me in 400 days to stretch", ("RM_TOO_FAR", {})),
+                           ("remind me 30/02 at 10:00 to stretch", ("RM_NO_SUCH_DATE", {"given": "2027-02-30"})),
                            ("remind me tomorrow at 9h with sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6", None)):
         with pytest.raises(ops.OpsError) as e:
             ops.remind(world.path, channel="messaging", sender=SENDER, said=said)
         if sentence:
-            assert str(e.value) == sentence, said
+            pk.assert_said(str(e.value), sentence[0], None, **sentence[1])
         else:
-            assert "looks like a credential" in str(e.value) and "A1b2C3d4E5f6" not in str(e.value)
+            assert pk.said(str(e.value), "RM_CREDENTIAL") and "A1b2C3d4E5f6" not in str(e.value)
     assert world.rows() == []
 
 
 def test_the_terminal_and_the_page_keep_the_strict_grammar_and_the_sentence_they_always_got(world):  # noqa: F811
     got = world.remind("15:00", "Call the florist")
-    assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)." and got["human"]["time"] == "15:00"
+    assert pk.said(got["reply"], "RM_SET", id=1, wall="2026-10-18 15:00", zone="BRT") and got["human"]["time"] == "15:00"
     with pytest.raises(ops.OpsError):
         world.remind("13hrs", "x")
 
@@ -348,13 +349,13 @@ def test_a_cancelled_reminder_is_brought_back_as_a_new_one_with_the_same_words_a
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
     back = ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert back["restored"] == 1 and back["reminder"]["id"] == 2 and back["reply"] == "Reminder #1 is back as #2." and back["reminder"]["text"] == "water the plants"
+    assert back["restored"] == 1 and back["reminder"]["id"] == 2 and pk.said(back["reply"], "RM_BACK", old=1, new=2) and back["reminder"]["text"] == "water the plants"
     assert back["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
     rows = {r["id"]: r for r in world.rows()}
     assert rows[1]["status"] == "cancelled" and rows[2]["status"] == "open" and (rows[1]["text"], rows[1]["due_utc"], rows[1]["chat"]) == (rows[2]["text"], rows[2]["due_utc"], rows[2]["chat"])
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 1 is already back."
+    pk.assert_said(str(e.value), "RM_ALREADY_BACK", n=1)
 
 
 def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_is_about_to_fire(world):  # noqa: F811
@@ -373,15 +374,15 @@ def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_
     world.clock.moment += datetime.timedelta(seconds=30)
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 2 is too close to its time to bring back."
+    pk.assert_said(str(e.value), "RM_RESTORE_TOO_LATE", n=2)
 
 
 def test_the_terminal_names_the_reminder_it_brings_back_and_the_old_sentence_of_the_forget_stays(world):  # noqa: F811
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     forgot = ops.reminder_forget(world.path, 1, channel="terminal")
-    assert forgot["reply"] == "Forgot reminder #1." and forgot["reminder"]["text"] == "water the plants" and forgot["human"]["time"] == "13:00"
+    assert pk.said(forgot["reply"], "RM_FORGOT", id=1) and forgot["reminder"]["text"] == "water the plants" and forgot["human"]["time"] == "13:00"
     assert ops.reminder_restore(world.path, 9, channel="terminal") == {"none": True}
-    assert ops.reminder_restore(world.path, 1, channel="terminal")["reply"] == "Reminder #1 is back as #2."
+    pk.assert_said(ops.reminder_restore(world.path, 1, channel="terminal")["reply"], "RM_BACK", old=1, new=2)
 
 
 def test_a_forget_by_words_looks_among_the_senders_own_by_whole_words_and_numbers_are_words(world):  # noqa: F811

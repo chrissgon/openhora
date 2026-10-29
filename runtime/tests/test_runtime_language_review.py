@@ -11,6 +11,7 @@ import threading
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import decision, world  # noqa: F401  (the stand-in world fixture)
 
@@ -88,9 +89,10 @@ def test_a_size_has_a_decimal_comma_in_portuguese_and_a_nameless_file_is_called_
     assert attachments.size_text(3584, PT_CFG) == "3,5 KiB" and attachments.size_text(30 * 1024 * 1024, PT_CFG) == "30,0 MiB" and attachments.size_text(812, PT_CFG) == "812 bytes"
     nameless = {"name": None, "type": "application/pdf", "size": 30 * 1024 * 1024}
     refuse = {"code": "too_large", "size": 30 * 1024 * 1024}
-    assert attachments.refusal_text(refuse, nameless, "telegram", 20 * 1024 * 1024) == "file is 30.0 MiB; a file from this app is at most 20.0 MiB."
-    assert attachments.refusal_text(refuse, nameless, "telegram", 20 * 1024 * 1024, PT_CFG).startswith("arquivo tem 30,0 MiB; ")
-    assert phrases.localize("Big.pdf is 3.5 KiB; a file from this app is at most 20.0 MiB.", PT_CFG) == "Big.pdf tem 3,5 KiB; um arquivo deste aplicativo pode ter no máximo 20,0 MiB."
+    pk.assert_said(attachments.refusal_text(refuse, nameless, "telegram", 20 * 1024 * 1024), "ATT_TOO_LARGE", None, name="file", size="30.0 MiB", cap="20.0 MiB")
+    assert pk.said(attachments.refusal_text(refuse, nameless, "telegram", 20 * 1024 * 1024, PT_CFG), "ATT_TOO_LARGE", PT_CFG, name="arquivo", size="30,0 MiB")
+    english = phrases.text("ATT_TOO_LARGE", None, name="Big.pdf", size="3.5 KiB", cap="20.0 MiB")
+    pk.assert_said(phrases.localize(english, PT_CFG), "ATT_TOO_LARGE", PT_CFG, name="Big.pdf", size="3,5 KiB", cap="20,0 MiB")
 
 
 # --- m3: the language is read once for an update, a tick or a drain ---------------------------------------------------------------------------------------

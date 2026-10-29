@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from test_calendar_write import Snapshots, approve, fgc, fgw, rows, world  # noqa: F401  (the calendar world and its real snapshots)
@@ -40,6 +41,7 @@ OWNER = "telegram:830461975213"
 PROFILES = {"owner": ["read", "talk", "calendar-write", "ask-mail", "interpret"]}
 UTC = datetime.timezone.utc
 ZONE = "America/Sao_Paulo"
+PT = {"language": "pt-BR"}
 ALLOWED = {"event-cancel", "event-change", "event-create"}
 TITLE = "Academia teste"
 MASTER = "gymmaster"                 # Google's series master
@@ -157,10 +159,11 @@ def test_a_line_that_says_the_series_opens_one_card_of_the_series_and_the_approv
     reply, extras = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=1)
     lines = body_lines(world, extras)
-    assert lines[0].startswith("Code cancels the whole series after your approval: every occurrence leaves the calendar."), "the card says in words that it is the whole series"
-    for wanted in ("Repeats: every Monday, no end date", "The series began at: Mon 02/11/2026 07:00-08:00 (America/Sao_Paulo)", "The event now: Academia teste",
-                   "Account: google (pat@example.com)", f"Event: {MASTER}"):
-        assert wanted in lines, (wanted, lines)
+    assert pk.said(lines[0], "CARD_CAL_SERIES_CANCEL"), "the card says in words that it is the whole series"
+    card = "\n".join(lines)
+    for key, fields in (("CARD_CAL_REPEAT_WEEKLY_MO", {}), ("CARD_CAL_SERIES_SINCE", {"when": "Mon 02/11/2026 07:00-08:00 (America/Sao_Paulo)"}), ("CARD_CAL_NOW_TITLE", {"title": "Academia teste"}),
+                        ("CARD_ACCOUNT", {"account": "google", "address": "pat@example.com"}), ("CARD_CAL_EVENT", {"event_id": MASTER})):
+        assert pk.said(card, key, None, **fields), (key, fields, lines)
     assert not [l for l in lines if "gymmaster_" in l], "no instance's id is on the card: it is the series' own"
     assert google_writes(world) == [], "a card is opened; the approval writes"
     done = approve(world, {"pending": extras["resend"]})
@@ -181,7 +184,8 @@ def test_the_series_words_open_the_card_of_the_series_and_never_of_one_occurrenc
     lead = text_of("RECUR_FOUND_SERIES", title=TITLE, rule=text_of("RECUR_RULE_WEEKLY_MO", time="07:00")) + "\n" if target == "academias teste" else ""      # a name that is near, not the same: the person is shown which series it is
     assert reply == lead + text_of("ACCT_CARD_SENT", pending=1), (line, reply)
     lines = body_lines(world, extras)
-    assert lines[0].startswith("Code cancels the whole series after your approval") and "Repeats: every Monday, no end date" in lines and f"Event: {MASTER}" in lines, lines
+    card = "\n".join(lines)
+    assert pk.said(lines[0], "CARD_CAL_SERIES_CANCEL") and pk.said(card, "CARD_CAL_REPEAT_WEEKLY_MO") and pk.said(card, "CARD_CAL_EVENT", None, event_id=MASTER), lines
     assert google_writes(world) == []
 
 
@@ -235,7 +239,7 @@ def test_a_change_of_a_series_is_refused_in_a_plain_sentence_and_opens_no_card(w
     google_series(world, monkeypatch)
     reply, extras = carry(world, "muda a academia teste para as 8h", op_text("event-change", {"target": "academia teste", "time": "as 8h"}, time_iso="2026-11-04T08:00", weekday="wed"))      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("RECUR_CHANGE_REFUSED") and nothing_started(world) and "resend" not in extras and google_writes(world) == []
-    assert reply == "Ainda não consigo mudar um evento que se repete. Você pode mudar a série no app da agenda, ou me pedir para cancelar a série inteira."      # validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(reply, "RECUR_CHANGE_REFUSED", PT)
 
 
 @pytest.mark.parametrize("call", [lambda w: ops.event_cancel(w["path"], "google", "agenda#1"), lambda w: ops.event_change(w["path"], "google", "agenda#1", title="New name")],
@@ -258,7 +262,7 @@ def test_the_typed_series_flag_opens_the_same_card_and_names_the_series_master_n
     google_series(world, monkeypatch)
     started = ops.event_cancel(world["path"], "google", "agenda#1", series=True)
     lines = ops.pending(world["path"], started["pending"])["body"].splitlines()
-    assert f"Event: {MASTER}" in lines and lines[0].startswith("Code cancels the whole series"), "agenda#1 is an instance of the series (gymmaster_1): the card is of the master"
+    assert pk.said("\n".join(lines), "CARD_CAL_EVENT", None, event_id=MASTER) and pk.said(lines[0], "CARD_CAL_SERIES_CANCEL"), "agenda#1 is an instance of the series (gymmaster_1): the card is of the master"
     with pytest.raises(ops.OpsError):
         ops.event_cancel(world["path"], "google", "agenda#1", series=True, occurrence="2026-11-09")      # one or the other, never both
 
@@ -277,7 +281,7 @@ def test_the_card_on_a_phone_says_the_whole_series_in_words_and_holds_no_id(worl
     _, extras = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
     item = ops.pending(world["path"], extras["resend"])
     shown = messaging_cards.effect_card_text(item, {"language": "pt-BR"}, True, False, False)
-    assert "série inteira" in shown and "toda segunda-feira" in shown and "Academia teste" in shown, shown      # validate: allow english-only -- the Portuguese words under test
+    assert pk.said(shown, "CARD_CAL_SERIES_CANCEL", PT) and pk.said(shown, "CARD_CAL_REPEAT_WEEKLY_MO", PT) and "Academia teste" in shown, shown
     assert MASTER not in shown and "gymmaster" not in shown and "Evento:" not in shown, "no id is shown on a phone"      # validate: allow english-only -- the Portuguese word under test
 
 
@@ -289,8 +293,8 @@ def test_an_outlook_series_is_cancelled_by_the_cancel_action_on_the_master_with_
     reply, extras = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=1)
     lines = body_lines(world, extras)
-    assert lines[0].startswith("Code cancels the whole series after your approval") and "Outlook moves it to Deleted Items" in lines[0], "the place a cancelled series goes is the account's own"
-    assert "Repeats: every Monday, no end date" in lines and any(line.startswith("Account: microsoft") for line in lines), lines
+    assert pk.said(lines[0], "CARD_CAL_SERIES_CANCEL_OUTLOOK"), "the place a cancelled series goes is the account's own"
+    assert pk.said("\n".join(lines), "CARD_CAL_REPEAT_WEEKLY_MO") and any(pk.said(line, "CARD_ACCOUNT", None, account="microsoft") for line in lines), lines
     assert graph_writes(world) == []
     assert approve(world, {"pending": extras["resend"]})["task_state"] == "done"
     sent = graph_writes(world)
@@ -326,7 +330,7 @@ def test_a_series_the_platform_created_is_found_by_its_name_and_cancelled_whole(
     assert created == [("POST", EVENTS, ["RRULE:FREQ=WEEKLY;BYDAY=MO"])], "the series was written once, with its rule"
     reply, extras = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=2), reply
-    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval")
+    pk.assert_said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
     assert approve(world, {"pending": extras["resend"]})["task_state"] == "done"
     assert [m for m, _, _, _ in google_writes(world)] == ["POST", "DELETE"] and world["google"].events == {}, "the series the platform made is the series the platform removed"
     again, _ = cancel(world, "cancela a série academia teste", target="academia teste")      # validate: allow english-only -- the Portuguese line under test
@@ -349,21 +353,21 @@ def test_a_series_whose_name_holds_a_series_word_can_still_be_cancelled_by_one_o
     google_series(world, monkeypatch, title="Daily")
     reply, extras = cancel(world, "cancela só a daily de 16/11", target="daily", day="16/11")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
-    assert body_lines(world, extras)[0].startswith("Code cancels only this one occurrence"), "the name 'daily' does not make this the whole series"
-    assert "Event: gymmaster_2" in body_lines(world, extras)
+    assert pk.said(body_lines(world, extras)[0], "CARD_CAL_OCCURRENCE_CANCEL"), "the name 'daily' does not make this the whole series"
+    assert pk.said("\n".join(body_lines(world, extras)), "CARD_CAL_EVENT", None, event_id="gymmaster_2")
 
 
 def test_a_series_whose_name_holds_a_series_word_is_cancelled_whole_when_the_person_says_so_beside_the_name(world, monkeypatch):
     google_series(world, monkeypatch, title="Daily")
     reply, extras = cancel(world, "cancela a série daily", target="daily")      # validate: allow english-only -- the Portuguese line under test
-    assert reply == text_of("ACCT_CARD_SENT", pending=1) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+    assert reply == text_of("ACCT_CARD_SENT", pending=1) and pk.said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
 
 
 def test_vacuity_with_the_name_left_in_the_line_a_series_called_daily_is_cancelled_whole_by_its_name(world, monkeypatch):
     google_series(world, monkeypatch, title="Daily")
     monkeypatch.setattr(recurrence, "without", lambda text, *pieces: text)      # the name not taken out, in a copy: the oracles above must fail on it
     reply, extras = cancel(world, "cancela a daily", target="daily")      # validate: allow english-only -- the Portuguese line under test
-    assert reply == text_of("ACCT_CARD_SENT", pending=1) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+    assert reply == text_of("ACCT_CARD_SENT", pending=1) and pk.said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
 
 
 def test_the_master_that_has_a_guest_is_refused_on_the_typed_path_though_its_instances_show_none(world, monkeypatch):
@@ -414,28 +418,28 @@ def test_a_target_that_says_weekly_opens_the_card_of_the_series(world, monkeypat
     google_series(world, monkeypatch, title="Piano lesson")
     reply, extras = cancel(world, "cancel my weekly piano lesson", target="weekly piano lesson")
     assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply      # a name that is near, not the same, is shown first: "Encontrei a série ... É esta?"
-    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval") and f"Event: {MASTER}" in body_lines(world, extras)
+    assert pk.said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL") and pk.said("\n".join(body_lines(world, extras)), "CARD_CAL_EVENT", None, event_id=MASTER)
 
 
 def test_a_target_that_says_every_day_of_a_series_opens_the_card_of_the_series(world, monkeypatch):
     google_series(world, monkeypatch, title="Yoga")
     reply, extras = cancel(world, "tira da agenda a yoga todo dia", target="yoga todo dia")      # validate: allow english-only -- the Portuguese line under test
     assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
-    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval")
+    pk.assert_said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
 
 
 def test_a_target_that_says_this_weeks_asks_for_the_instance_of_this_week_and_not_a_date(world, monkeypatch):
     google_series(world, monkeypatch, title="Piano lesson")
     reply, extras = cancel(world, "cancel just this week's piano lesson", target="this week's piano lesson")
     assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
-    assert body_lines(world, extras)[0].startswith("Code cancels only this one occurrence") and "Event: gymmaster_1" in body_lines(world, extras), "the instance of Monday 09/11, the one inside the week"
+    assert pk.said(body_lines(world, extras)[0], "CARD_CAL_OCCURRENCE_CANCEL") and pk.said("\n".join(body_lines(world, extras)), "CARD_CAL_EVENT", None, event_id="gymmaster_1"), "the instance of Monday 09/11, the one inside the week"
 
 
 def test_a_target_that_holds_the_repetition_of_the_line_in_its_own_words_is_the_series(world, monkeypatch):
     google_series(world, monkeypatch, title="Aula de violão")      # validate: allow english-only -- the Portuguese title under test
     reply, extras = cancel(world, "apaga da agenda a aula de violão toda semana", target="aula de violão toda semana")      # validate: allow english-only -- the Portuguese line under test
     assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)), reply
-    assert body_lines(world, extras)[0].startswith("Code cancels the whole series after your approval")
+    pk.assert_said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
 
 
 def test_a_series_called_daily_and_a_target_with_its_name_alone_is_still_asked_about(world, monkeypatch):
@@ -448,7 +452,7 @@ def test_a_series_called_daily_and_a_target_with_its_name_alone_is_still_asked_a
 def test_a_series_called_daily_and_a_target_that_adds_every_day_is_the_series(world, monkeypatch):
     google_series(world, monkeypatch, title="Daily")
     reply, extras = cancel(world, "cancel the daily every day", target="daily every day")
-    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)) and body_lines(world, extras)[0].startswith("Code cancels the whole series")
+    assert reply.endswith(text_of("ACCT_CARD_SENT", pending=1)) and pk.said(body_lines(world, extras)[0], "CARD_CAL_SERIES_CANCEL")
 
 
 def test_vacuity_with_the_markers_taken_out_the_target_that_says_weekly_is_asked_about_again(world, monkeypatch):

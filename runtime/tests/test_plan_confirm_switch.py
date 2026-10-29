@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+import phrase_kit as pk
 from plan_confirm_kit import OWNER, op, ops, ops_natural, phrases, plan_confirm, say, text, world, rig  # noqa: F401
 from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 
@@ -34,7 +35,7 @@ def test_with_the_switch_off_a_tier_1_read_runs_at_once_and_no_plan_is_kept(rig,
     out = say(rig, OWNER, "mostra minha agenda")
     assert out["reply"] == "READ-REPLY" and reads == ["items"] and "plan_confirm" not in out and ops.plan_live(rig.world["path"], OWNER) is None
     state = say(rig, OWNER, "como estamos?")
-    assert "plan_confirm" not in state and "What waits for you" in state["reply"]
+    assert "plan_confirm" not in state and pk.said(state["reply"], "STATE_WAITS")
 
 
 @pytest.mark.parametrize("line", ["nao cancela o pedido 3", "quero cancelar o pedido 3", "no need to cancel request 3", "se der erro, cancela o pedido 3", "devo cancelar o pedido 3?"])

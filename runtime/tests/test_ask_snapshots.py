@@ -13,6 +13,7 @@ import pytest
 
 import standin_tree as st
 from test_ask import OWNER_KEY, PROFILES, SENDERS, accept, add_source, ask, run_files, runs, tree, two, write_config  # noqa: F401
+from test_ask_reply import only
 
 ops = st.load("ops")
 ops_ask = st.load("ops_ask")
@@ -103,7 +104,7 @@ def test_the_same_question_from_a_messaging_sender_who_holds_ask_is_refused_and_
         out = ask(mixed, text, channel="messaging", sender=OWNER_KEY)
         assert out["reply"] == ops_ask.SNAPSHOT_HERE and out["refusal"] == "snapshot-channel" and out["ran"] is False, text
         assert out["run_id"] is None and out["request_id"] is None and out["sources"] == []
-    assert "terminal or on the page" in ops_ask.SNAPSHOT_HERE and "Nothing was run" in ops_ask.SNAPSHOT_HERE
+    only(ops_ask.SNAPSHOT_HERE, "SNAPSHOT_HERE")
     assert len(runs(mixed)) == before and st.calls(mixed["adapter"]) == []
     typed = ops.say(mixed["path"], "/ask what is the prazo in @inbox?", channel="messaging", sender=OWNER_KEY)
     assert ops_ask.SNAPSHOT_HERE in typed["reply"] and len(runs(mixed)) == before and st.calls(mixed["adapter"]) == []

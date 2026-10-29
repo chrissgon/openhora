@@ -15,7 +15,9 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
+from test_ask_reply import lines_saying, said_then
 from test_chat import ASKING, FLOW, messages, reply, router_prompt, say
 from test_chat import tree as chat_tree  # noqa: F401
 from test_contained_run import SOCIAL
@@ -197,11 +199,17 @@ def test_a_task_does_not_start_on_a_file_that_fails_a_check_and_starts_when_it_i
     assert ops.run_next(path)["status"] == "ok" and len(st.calls(plain_tree["adapter"])) == 1
 
 
+def router_failed_with(text, start) -> bool:
+    """`text` is the sentence ROUTER_FAILED, and the failure it names begins with `start` (what the instructions module says of the file)."""
+    found = pk.which(text)
+    return found is not None and found[0] == "ROUTER_FAILED" and found[1]["failure"].startswith(start)
+
+
 @pytest.mark.parametrize("kind", list(BROKEN))
 def test_the_router_does_not_run_on_a_file_that_fails_a_check(chat_tree, tmp_path, kind):
     start = break_it(chat_tree, kind, tmp_path)
     out = say(chat_tree, "Which market first?")
-    assert out["reply"].startswith("The router could not run: " + start) and out["pending_id"] is None
+    assert router_failed_with(out["reply"], start) and out["pending_id"] is None
     assert st.calls(chat_tree["adapter"]) == []
     fix_it(chat_tree)
     assert say(chat_tree, "Which market first?")["pending_id"] is not None
@@ -340,19 +348,20 @@ def test_an_answer_to_the_routers_question_may_end_with_one_proposal_of_the_pers
     reply(chat_tree, ASKING)
     reply(chat_tree, ASKING, "router-reply-2.md")
     asked = say(chat_tree, "Which market first?")
-    assert "instruction_proposal" not in asked and "Add this line" not in asked["reply"]
+    assert "instruction_proposal" not in asked and not lines_saying(asked["reply"], "INSTR_PROPOSAL_ASK")
     answered = say(chat_tree, LINE)
     offered = answered["instruction_proposal"]
     user_line = [m["text"] for m in messages(chat_tree) if m["role"] == "user"][-1]
     assert offered["line"] == user_line == LINE, "the line is the person's own stored text"
     command = ops_instructions.core._command("instructions-add", path, line=LINE, base_sha256="none")
     assert offered["command"] == command and offered["base_sha256"] == "none"
-    assert answered["reply"].endswith(f'Add this line to the project\'s instructions? "{LINE}"\n{command}\n'
-                                      "accept it on the page (Building > Instructions) or in the terminal"), "the conversation shell cannot write the file"
+    ending = answered["reply"].splitlines()[-3:]
+    assert len(ending) == 3 and said_then(ending[0], "INSTR_PROPOSAL_ASK", tail=f'"{LINE}"') and ending[1] == command, "the conversation shell cannot write the file"
+    pk.assert_said(ending[2], "INSTR_WHERE_ELSEWHERE")
     assert not (chat_tree["project"] / PATH).exists(), "a proposal writes nothing"
     # never twice for one request, whatever the person answers next
     again = say(chat_tree, "Always keep each reply under 120 words, please.")
-    assert again["request_id"] == answered["request_id"] and "instruction_proposal" not in again and "Add this line" not in again["reply"]
+    assert again["request_id"] == answered["request_id"] and "instruction_proposal" not in again and not lines_saying(again["reply"], "INSTR_PROPOSAL_ASK")
     # only instructions-add writes it, and only from the terminal or the page
     for channel in ("messaging", "mcp", "chat"):
         with pytest.raises(ops.OpsError, match="limit L40"):
@@ -366,12 +375,12 @@ def test_a_line_that_starts_a_request_or_is_short_is_not_proposed_and_messaging_
     new = say(chat_tree, "Which market should the invented studio go after first?")
     assert "instruction_proposal" not in new
     short = say(chat_tree, "The clinic project.")                  # 19 characters: a choice, not a rule
-    assert "instruction_proposal" not in short and "Add this line" not in short["reply"]
+    assert "instruction_proposal" not in short and not lines_saying(short["reply"], "INSTR_PROPOSAL_ASK")
     reply(chat_tree, ASKING)
     other = ops.say(str(chat_tree["project"]), "/new Another invented request about pricing.")
     assert other["request_id"] != new["request_id"]
     on_messaging = ops.say(str(chat_tree["project"]), LINE, channel="messaging", sender="telegram:830461975213")
-    assert "instruction_proposal" not in on_messaging and "Add this line" not in on_messaging["reply"], "an answer on a messaging app is never proposed (LIVE-1)"
+    assert "instruction_proposal" not in on_messaging and not lines_saying(on_messaging["reply"], "INSTR_PROPOSAL_ASK"), "an answer on a messaging app is never proposed (LIVE-1)"
     assert not (chat_tree["project"] / PATH).exists()
 
 
@@ -382,7 +391,7 @@ def test_an_answer_to_a_tasks_question_may_end_with_the_proposal_through_the_ope
     assert first["ending"] == "question"
     done = ops.answer_proposing(path, first["pending_id"], LINE, channel="terminal")
     assert done["instruction_proposal"]["line"] == LINE and done["instruction_proposal"]["base_sha256"] == "none"
-    assert LINE in done["instruction_proposal"]["text"] and "or on the page: Building > Instructions" in done["instruction_proposal"]["text"]
+    assert LINE in done["instruction_proposal"]["text"] and pk.said(done["instruction_proposal"]["text"], "INSTR_WHERE_SAYS")
     second = ops.run_next(path)
     assert ops.pending(path, second["pending_id"])["kind"] == "review"
     # the answer to a review is not the answer to a question: nothing is proposed
@@ -463,6 +472,6 @@ def test_the_router_refuses_a_broken_file_before_a_use_of_the_skill_is_recorded(
     monkeypatch.setattr(ops, "_use_start", lambda *a, **k: uses.append(a) or real(*a, **k))
     put(chat_tree, "a" * 4001)
     out = say(chat_tree, "Which market first?")
-    assert out["reply"].startswith("The router could not run: the project's instructions are too long") and uses == []
+    assert router_failed_with(out["reply"], "the project's instructions are too long") and uses == []
     put(chat_tree, RULES + "\n")
     assert say(chat_tree, "Which market first?")["pending_id"] is not None and len(uses) == 1

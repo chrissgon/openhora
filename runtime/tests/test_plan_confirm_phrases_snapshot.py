@@ -12,6 +12,7 @@ import datetime
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 ops_natural = st.load("ops_natural")
@@ -49,4 +50,4 @@ def test_a_value_is_one_line_of_at_most_80_characters_and_a_number_is_a_number()
     said = plan_confirm.understood({"cfg": cfg}, "research", {"question": long}, "x")
     shown = said.split("“")[1].split("”")[0]
     assert "\n" not in shown and len(shown) <= plan_confirm.VALUE_MAX and shown.startswith("weather in Lisbon tomorrow")
-    assert plan_confirm.understood({"cfg": cfg}, "cancel", {"request_id": True}, "x") == "cancel request #?", "a number that is no number is never written as one"
+    pk.assert_said(plan_confirm.understood({"cfg": cfg}, "cancel", {"request_id": True}, "x"), "UNDERSTOOD_CANCEL", cfg, id="?")  # a number that is no number is never written as one
