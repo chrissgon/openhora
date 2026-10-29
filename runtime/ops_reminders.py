@@ -46,6 +46,7 @@ sys.path.insert(0, HERE)
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import natural  # noqa: E402  (the same folder: a request in the person's own words, package NR-1)
+import turn_gate  # noqa: E402  (the same folder: `complete_reminder`, the one home of the call to the reminder question engine, and the code guard it passes)
 import ops_core as core  # noqa: E402
 import reminders as rm  # noqa: E402
 import workcopy  # noqa: E402
@@ -173,7 +174,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
             raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
         return words, found
     if said is not None:
-        understood = natural.complete(draft, said, clock) if draft else natural.understand(said, clock, how)
+        understood = turn_gate.complete_reminder(draft, said, clock) if draft else natural.understand(said, clock, how)
         if understood is None:
             return {"declined": True}
         if understood.get("cancel"):

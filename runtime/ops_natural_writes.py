@@ -499,7 +499,7 @@ def _classify(ctx: dict, state: dict, said: str):
         return {"kind": "slots", "slots": got["slots"]} if got is not None else _retry(state, said, tables)
     if need in ("time", "reading", "weekday"):
         engine = state["slots"].get("_engine")
-        got = natural.complete(engine, said, now, tables) if engine else None
+        got = turn_gate.complete_reminder(engine, said, now, tables) if engine else None
         if got is None:
             return None
         if got.get("cancel"):
@@ -576,7 +576,7 @@ def _object_follows(shaped, heads: list, family: str, tables: list) -> bool:
 def _retry(state: dict, said: str, tables: list):
     """The same question once more for a short reply that does not answer it; the second time the question is given up (a sentence says nothing was opened); a reply that is
     not short is a new line (None)."""
-    if not natural.short_answer(said, tables):
+    if not natural.short_answer(said, tables, new=turn_gate.new_request(said)):
         return None
     return {"kind": "retry"} if state.get("retries", 0) < ANSWER_RETRIES else {"kind": "giveup"}
 

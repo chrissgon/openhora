@@ -24,6 +24,7 @@ from test_reminders import BRT, NOT_ENABLED, OTHER, SENDER, THIRD, world  # noqa
 pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
+turn_gate = st.load("turn_gate")
 ops = st.load("ops")
 ops_reminders = st.load("ops_reminders")
 phrases = st.load("phrases")
@@ -33,10 +34,10 @@ NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
 
 
 def completed(draft, said, now=NOW):
-    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation: a free-text reminder is made only after a yes."""
-    got = natural.complete(draft, said, now)
+    """`turn_gate.complete_reminder` (`natural.complete` with the guard's verdict, CANDIDATE-OUT), and the "yes" that makes the reminder when the answer was a reading shown for confirmation: a free-text reminder is made only after a yes."""
+    got = turn_gate.complete_reminder(draft, said, now)
     if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
-        return natural.complete(got["ask"], "yes", now)
+        return turn_gate.complete_reminder(got["ask"], "yes", now)
     return got
 
 ENGLISH_CANDIDATES = [
