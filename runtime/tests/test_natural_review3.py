@@ -24,16 +24,17 @@ from test_reminders import BRT, OTHER, SENDER, world  # noqa: F401  (the world f
 pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
+turn_gate = st.load("turn_gate")
 ops = st.load("ops")
 
 NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
 
 
 def completed(draft, said, now=NOW):
-    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation (a free-text reminder is made only after a yes)."""
-    got = natural.complete(draft, said, now)
+    """`turn_gate.complete_reminder` (`natural.complete` with the guard's verdict, CANDIDATE-OUT), and the "yes" that makes the reminder when the answer was a reading shown for confirmation (a free-text reminder is made only after a yes)."""
+    got = turn_gate.complete_reminder(draft, said, now)
     if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
-        return natural.complete(got["ask"], "yes", now)
+        return turn_gate.complete_reminder(got["ask"], "yes", now)
     return got
 
 
@@ -160,8 +161,10 @@ def test_a_short_reply_that_does_not_fit_is_asked_once_and_a_longer_or_other_lin
     again = completed(draft, "thanks", NOW)["ask"]
     assert again["retries"] == 1 and again["need"] == "text"
     assert completed(again, "thanks", NOW) is None
-    for line in ("write the launch post for the shop", "what is the weather like today", "remind me tomorrow at 9am to call Ana", "cancel reminder 3", "undo"):
+    for line in ("write the launch post for the shop", "what is the weather like today", "remind me tomorrow at 9am to call Ana", "cancel reminder 3"):
         assert completed(confirm_draft(), line, NOW) is None, line
+    once = completed(confirm_draft(), "undo", NOW)      # CANDIDATE-OUT (OPEN-CO-3): a bare undo is no longer named by a table, so it is asked once more, and the next one is a new line
+    assert once["ask"]["retries"] == 1 and completed(once["ask"], "undo", NOW) is None
     for line in ("remind me tomorrow at 10am to call Ana", "cancel reminder 3", "me lembra amanhã às 9h de ligar"):      # validate: allow english-only -- a Portuguese line, the case of the tests
         assert completed(asked("remind me at 9 to stretch"), line, NOW) is None, "a line that starts a request of its own is never the answer"
 

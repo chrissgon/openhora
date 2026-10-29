@@ -107,9 +107,9 @@ def _ops():
 def _recognised(ctx: dict, line: str, sender) -> bool:
     """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card."""
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
-    # the card that waits, and `ops_natural.recognises` now holds those private words. The reminders' own claim (`natural.candidate`: a reminder, the loose scheduling verb) is what is left to ask here;
-    # S41-11's second part deletes it and this line then reads the interpreter's own word for a new request.
-    return (card_words.card_word(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or natural.candidate(line) is not None
+    # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
+    # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
+    return (card_words.card_word(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or turn_gate.new_request(line) is not None
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
 
 

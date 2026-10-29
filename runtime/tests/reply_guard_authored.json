@@ -1,0 +1,87 @@
+{
+ "note": "CANDIDATE-OUT PR 1: the lines the build script of the reply set pairs with a reminder question. Written by an author agent as a person would answer, or ask for something else, while a reminder question is open; invented names, no address. No label and no outcome is here: the labels come from a blind labeller, the old outcome from the engine on the base (reply_guard_build.py).",
+ "answers": {
+  "time": {
+   "pt-BR": ["10h", "às 10", "amanhã às 9h", "depois do almoço", "daqui a 2 horas", "15:30", "de manhã cedo", "sexta às 14h", "9", "meio-dia", "às 8 da noite", "em 30 minutos", "hoje 18h", "22/10 às 9h", "só às 17h", "não sei ainda", "tanto faz", "o mais cedo possível"],
+   "en": ["10am", "at 10", "tomorrow at 9am", "after lunch", "in 2 hours", "3:30pm", "early morning", "friday at 2pm", "9", "noon", "at 8 in the evening", "in 30 minutes", "today 6pm", "22/10 at 9", "only at 5pm", "not sure yet", "whenever", "as early as possible"]
+  },
+  "reading": {
+   "pt-BR": ["amanhã", "hoje à noite", "a primeira", "9 da manhã", "o das 21h", "21:00", "a segunda opção", "de manhã", "à noite", "nenhuma, às 15h", "a de hoje", "09:00", "amanhã cedo", "as duas, não sei", "21h"],
+   "en": ["the first one", "the morning one", "tomorrow", "tonight", "9 pm", "neither, at 10", "the second", "today", "9:00", "the evening one", "tomorrow morning", "21:00", "both are wrong, make it 3pm", "the one tomorrow", "9 am"]
+  },
+  "weekday": {
+   "pt-BR": ["terça", "quarta-feira", "sexta às 10h", "segunda de manhã", "no sábado", "quinta", "domingo", "terça que vem às 14h", "dia 22", "depende, quinta talvez", "quinta-feira", "qualquer dia, quarta", "segunda", "sexta de tarde", "na quarta, às 9h"],
+   "en": ["Tuesday", "on Friday", "wednesday at 3pm", "Mon", "thursday morning", "Saturday", "next Tuesday", "the 22nd", "any day, wednesday", "friday afternoon", "sunday", "thursday", "on monday at 9am", "wed", "maybe thursday, not sure"]
+  },
+  "text": {
+   "pt-BR": ["ligar para a Ana", "pagar o aluguel", "tomar o remédio", "levar o guarda-chuva", "reunião com o time", "buscar as crianças na escola", "enviar o relatório para a Marta", "cancelar a assinatura da revista", "marcar o dentista", "responder o email do Pedro", "comprar pão", "renovar o passaporte", "me avisa de beber água", "desfazer a compra do notebook", "o aniversário da Lia"],
+   "en": ["call Ana", "pay the rent", "take the medicine", "bring the umbrella", "team meeting", "pick the kids up from school", "send the report to Marta", "cancel the magazine subscription", "book the dentist", "reply to Pedro's email", "buy bread", "renew the passport", "tell me to drink water", "undo the notebook purchase", "Lia's birthday"]
+  },
+  "kind": {
+   "pt-BR": ["lembrete", "evento", "um lembrete mesmo", "na agenda", "só lembrete", "coloca na agenda", "pode ser lembrete", "evento no calendário", "os dois", "lembrete e evento", "aqui no chat", "um evento", "agenda", "o primeiro", "no calendário, por favor"],
+   "en": ["reminder", "event", "just a reminder", "calendar please", "put it on my calendar", "a reminder is fine", "an event", "here in the chat", "both", "reminder and event", "the first one", "on the calendar", "reminder please", "make it an event", "calendar"]
+  },
+  "confirm": {
+   "pt-BR": ["sim", "não", "ok", "confirma", "isso", "pode ser", "pode", "certo", "sim obrigado", "claro", "perfeito", "nada disso", "não, não é isso", "outra hora", "tá certo", "negativo"],
+   "en": ["yes", "no", "ok", "confirm", "that's right", "go ahead", "sure", "yep", "correct", "yes thanks", "perfect", "not that", "no, that's wrong", "another time", "sounds right", "nope"]
+  },
+  "again": {
+   "pt-BR": ["amanhã às 15h", "sexta", "semana que vem", "segunda 9h", "daqui a 3 dias", "dia 25", "hoje às 20h", "domingo às 10h", "em 2 horas", "quinta de manhã", "dia 30 às 8h", "depois de amanhã", "não sei, depois eu falo", "esquece isso"],
+   "en": ["tomorrow at 3pm", "friday", "next week", "monday 9am", "in 3 days", "on the 25th", "today at 8pm", "sunday at 10", "in 2 hours", "thursday morning", "the 30th at 8am", "the day after tomorrow", "not sure, I'll tell you later", "forget it"]
+  },
+  "forget": {
+   "pt-BR": ["sim", "não", "pode cancelar", "cancela", "isso", "manter", "deixa como está", "sim, cancela", "confirmo", "melhor não", "pode apagar", "não cancela não", "ok", "tá, pode"],
+   "en": ["yes", "no", "yes please", "cancel it", "keep it", "leave it", "don't", "yes, go ahead", "confirmed", "better not", "delete it", "no, keep it", "ok", "sure, do it"]
+  }
+ },
+ "amend": {
+  "pt-BR": ["sim mas às 15h", "sim, mas amanhã às 16h", "não, às 16h", "ok mas às 8", "pode, só que sexta", "sim mas troca pra 10h", "sim, às 7h30", "sim mas às 21h", "não, é às 16h", "não, amanhã 9h", "sim, só muda para as 18h", "certo mas no sábado", "ok porém às 11h", "sim, mas depois de amanhã", "isso, só que às 14h"],
+  "en": ["yes but at 3pm", "yes, but tomorrow at 4pm", "no, at 4pm", "ok but make it 8am", "yes, just change it to 10", "sure but on friday", "no, it's 4pm", "yes at 7:30", "yeah but 9pm", "right, but saturday", "ok but at noon", "no, tomorrow 9am", "yes, but the day after tomorrow", "correct, only at 2pm", "yes but make it 6:30pm"]
+ },
+ "giveups": {
+  "pt-BR": ["deixa pra lá", "esquece", "não precisa", "deixa quieto", "desisti", "não quero mais", "melhor não", "deixa", "pode esquecer isso", "mudei de ideia"],
+  "en": ["never mind", "forget it", "skip it", "drop it", "no need", "leave it", "scrap that", "I changed my mind", "let's not", "don't bother"]
+ },
+ "requests": {
+  "reminders-list": {
+   "pt-BR": ["meus lembretes", "mostra meus lembretes", "quais lembretes eu tenho?", "lista os lembretes", "o que tenho de lembrete para amanhã?", "ver lembretes", "lembretes", "me mostra os lembretes de hoje"],
+   "en": ["my reminders", "show my reminders", "what reminders do I have?", "list reminders", "list my reminders for tomorrow", "show reminders", "reminders", "what are my reminders for today?"]
+  },
+  "forget": {
+   "pt-BR": ["cancela o lembrete 3", "apaga o lembrete da consulta", "esquece o lembrete do dentista", "remove o lembrete 5", "cancela os lembretes de amanhã", "exclui o lembrete 2", "cancela o lembrete das 10h", "apaga todos os lembretes", "tira o lembrete da reunião", "cancela o lembrete do aluguel"],
+   "en": ["cancel reminder 3", "delete the reminder about the appointment", "forget the dentist reminder", "remove reminder 5", "cancel tomorrow's reminders", "delete reminder 2", "cancel the 10am reminder", "delete all reminders", "drop the reminder about the meeting", "cancel the rent reminder"]
+  },
+  "restore": {
+   "pt-BR": ["desfaz", "desfaz o lembrete", "restaura o lembrete que cancelei", "volta o lembrete 3", "traz de volta o último lembrete", "desfaz o último cancelamento", "recupera o lembrete que apaguei", "restaura o lembrete 4", "desfaz isso", "quero de volta o lembrete do aluguel"],
+   "en": ["undo", "undo that", "restore the reminder I cancelled", "bring back reminder 3", "bring back the last reminder", "undo the last cancel", "recover the reminder I deleted", "restore reminder 4", "undo the reminder", "I want the rent reminder back"]
+  },
+  "new-reminder": {
+   "pt-BR": ["me lembra de ligar para o Bruno amanhã às 9h", "lembrete: pagar o boleto sexta às 10h", "me avisa em 30 minutos para tirar o bolo do forno", "cria um lembrete para segunda às 8h: reunião de pauta", "me lembra daqui a 2 horas de regar a horta", "marca um lembrete para amanhã de manhã", "lembra eu de renovar o seguro dia 25", "me lembra toda segunda de passar o relatório"],
+   "en": ["remind me to call Bruno tomorrow at 9am", "reminder: pay the bill friday at 10am", "tell me in 30 minutes to take the cake out of the oven", "create a reminder for monday at 8am: planning meeting", "remind me in 2 hours to water the garden", "set a reminder for tomorrow morning", "remind me to renew the insurance on the 25th", "remind me every monday to send the report"]
+  },
+  "calendar-create": {
+   "pt-BR": ["marca uma reunião com a Marta amanhã às 14h", "agenda dentista sexta às 9h", "coloca na agenda almoço com o Rui quinta ao meio-dia", "cria um evento: workshop de design sábado às 10h", "marca reunião de equipe segunda às 9h30", "agendar consulta com a dra. Helena dia 22 às 16h", "adiciona na agenda: aniversário da Lia dia 30", "bloqueia a agenda amanhã das 13h às 15h"],
+   "en": ["schedule a meeting with Marta tomorrow at 2pm", "book the dentist friday at 9am", "put lunch with Rui on the calendar thursday at noon", "create an event: design workshop saturday at 10am", "set up the team meeting monday at 9:30", "book an appointment with Dr. Helena on the 22nd at 4pm", "add to the calendar: Lia's birthday on the 30th", "block my calendar tomorrow from 1pm to 3pm"]
+  },
+  "calendar-read": {
+   "pt-BR": ["o que tenho na agenda amanhã?", "quais são meus compromissos de sexta?", "tenho reunião hoje?", "mostra minha agenda da semana", "o que tem no calendário hoje?", "que horas é minha próxima reunião?", "estou livre quinta à tarde?", "me mostra os eventos de segunda", "o que tenho agendado para sábado?", "minha agenda de amanhã"],
+   "en": ["what's on my calendar tomorrow?", "what are my appointments on friday?", "do I have a meeting today?", "show my agenda for the week", "what's on the calendar today?", "when is my next meeting?", "am I free thursday afternoon?", "show me monday's events", "what do I have scheduled for saturday?", "my agenda for tomorrow"]
+  },
+  "mail": {
+   "pt-BR": ["responde o email da Ana dizendo que aceito", "envia um email para contato@clinica.example pedindo o horário", "arquiva os emails do boletim", "lê meus emails novos", "rascunha uma resposta para o Pedro", "marca como lido o email do banco", "move o email da Carla para a pasta projetos", "apaga os emails de promoção"],
+   "en": ["reply to Ana's email saying I accept", "send an email to contato@clinica.example asking for the time", "archive the newsletter emails", "read my new emails", "draft a reply to Pedro", "mark the bank's email as read", "move Carla's email to the projects folder", "delete the promotion emails"]
+  },
+  "file": {
+   "pt-BR": ["salva essa nota como ata-reuniao.md", "cria um arquivo notas.txt com a lista de compras", "substitui o conteúdo de plano.md pelo rascunho", "guarda isso no arquivo ideias.md", "cria o arquivo roteiro.md", "lista meus arquivos", "abre o arquivo contrato.pdf", "anexa isso ao arquivo diario.md"],
+   "en": ["save this note as meeting-minutes.md", "create a file notes.txt with the shopping list", "replace the content of plan.md with the draft", "store this in the file ideas.md", "create the file script.md", "list my files", "open the file contract.pdf", "append this to the file diary.md"]
+  },
+  "brake": {
+   "pt-BR": ["para a tarefa 5", "pausa a rotina semanal", "cancela a tarefa 3", "para tudo", "interrompe a pesquisa", "pausa o resumo diário", "para a rotina 2", "cancela o pedido 4"],
+   "en": ["stop task 5", "pause the weekly routine", "cancel task 3", "stop everything", "halt the research", "pause the daily digest", "stop routine 2", "cancel request 4"]
+  },
+  "decision": {
+   "pt-BR": ["aprova 2", "rejeita o 3", "aprova tudo", "recusa o card 4", "ok aprovado", "reprova 1", "aprova o 5", "libera o 2", "nega o 3", "aprovo o 1"],
+   "en": ["approve 1", "reject 2", "approve all", "decline card 3", "approved", "deny 4", "approve 5", "release 2", "reject number 3", "i approve 1"]
+  }
+ }
+}

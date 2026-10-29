@@ -132,7 +132,7 @@ def _answers(ctx: dict, draft: dict, said: str, owner: str):
         return None
     if said.lstrip().startswith("/"):
         return None
-    return natural.complete(draft, said, _clock())
+    return turn_gate.complete_reminder(draft, said, _clock())
 
 
 def _expired(draft: dict) -> bool:

@@ -440,15 +440,77 @@ def private_kind(line):
             write = True
     if write:
         return "write"
-    if "?" not in line and any(h["kind"] in ("clock", "relative") for h in hits()):
-        first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
-        if not (first and any(first.group(1) in step["starters"] for step in steps)):
-            rest = nt.without(line, _joined([(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits()]))
-            if rest and len(rest.split()) <= bare_max:
-                return "reminder"
+    if _bare_reminder(line, norm, origin, steps, bare_max, hits()):
+        return "reminder"
     if any(heads.match(norm) and all(holds(line, norm, head_words) for holds in needs) for heads, head_words, needs in writes):
         return "write"
     return None
+
+
+def _bare_reminder(line, norm, origin, steps, bare_max, hits) -> bool:
+    """The last step of the private rule (rule 6): a line with no question mark, a clock or a relative time, a first word that is not a work starter and at most `bare_max` words once the time is
+    taken out is a reminder said bare ("amanha as 10h ligar para a Ana"). `hits` are the time engine's hits of `line`. Shared by `private_kind` and `new_request`."""
+    if "?" in line or not any(h["kind"] in ("clock", "relative") for h in hits):
+        return False
+    first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
+    if first and any(first.group(1) in step["starters"] for step in steps):
+        return False
+    rest = nt.without(line, _joined([(origin[h["s"]], origin[h["e"] - 1] + 1) for h in hits]))
+    return bool(rest) and len(rest.split()) <= bare_max
+
+
+NOUN_WORDS_MAX = 6      # a line of at most this many words that holds a reminder noun ("meus lembretes", "cancela o lembrete 3") is a new request, not the answer to a reminder question (OPEN-CO-3)
+
+
+def new_request(line):
+    """CANDIDATE-OUT: what the reminder question engine asks, in place of `natural.candidate`, to tell a reply that starts a request of its own from the answer to the open question. "reminder" or
+    "write" for a line that starts as a reminder or a new event by the private words (S41-9's data), "form" for a closed form of the language tables (a reminder noun in a short line, a closed form
+    of an operation), "bare" for a reminder said with a time and a few words, None for anything else (a slash command is a command: None). Pure: it reads no model, no interpreter, no configuration
+    and no clock, and it never executes a form (`natural.match` is a recogniser here). The steps, the first that holds wins:
+      (a) `lead_kind` (a `lead` or `lead_write` start);
+      (b) a `verb_noun` start; an `anywhere_with_time` phrase with a time; a `lead_with_time` start with a time (never the write shapes: they flag text answers such as "responde o email da Ana");
+      (c) a head of `triggers.calendar`, or a head of `calendar_verb` or `calendar_loose` with any time in the line;
+      (d) a word of `forget.nouns` in a line of at most NOUN_WORDS_MAX words;
+      (e) `natural.match(line)`: a closed form of an operation (a decision, a read, a brake, an undo by number);
+      (f) the bare step of `private_kind`, as "bare".
+    The caller of `natural.complete` and `natural.short_answer` passes the verdict as `new=`; the kind question exempts the verdict itself ("lembrete" and "evento" are answers to it)."""
+    if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
+        return None
+    led = lead_kind(line)
+    if led is not None:
+        return led
+    steps, _writes, bare_max = _compiled_rule()
+    norm, origin = nt.normalise(line)
+    found = []
+
+    def hits():
+        if not found:
+            found.append(time_hits(line)["hits"])
+        return found[0]
+    for step in steps:
+        if (step["verb_noun"] and step["verb_noun"].match(norm)) or (step["anywhere_time"] and step["anywhere_time"].search(norm) and hits()):
+            return "reminder"
+    for step in steps:
+        if step["lead_time"] and step["lead_time"].match(norm) and hits():
+            return "write"
+    tables = natural._tables(None)
+    if natural._head(norm, tables, "calendar") is not None or (hits() and any(natural._head(norm, tables, key) is not None for key in ("calendar_verb", "calendar_loose"))):
+        return "write"
+    words = natural._words(norm)
+    if words and len(words) <= NOUN_WORDS_MAX and {w for t in tables for w in t["forget"]["nouns"]} & set(words):
+        return "form"
+    if natural.match(line) is not None:
+        return "form"
+    if _bare_reminder(line, norm, origin, steps, bare_max, hits()):
+        return "bare"
+    return None
+
+
+def complete_reminder(draft, said, now, languages=None):
+    """The one home of the call to the reminder question engine (CANDIDATE-OUT): `natural.complete` with the verdict of `new_request` on the reply as `new=`, which tells a reply that starts a request
+    of its own (a new line: None) from the answer to the open question. Every product caller of `natural.complete` goes through here (a test reads the sources). It lives beside the guard, not in
+    `ops_natural`, because `ops_reminders` reaches it at the top level of its imports and `ops_natural` closes an import cycle with it (runtime/tests/test_import_breakers.py)."""
+    return natural.complete(draft, said, now, languages, new=new_request(said))
 
 
 def _joined(spans) -> list:

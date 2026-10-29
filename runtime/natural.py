@@ -587,10 +587,11 @@ def affirm(said, languages=None) -> bool:
 WIDE_WORDS = 8          # the longest reply to the kind question that is still an attempt at an answer ("talvez mais tarde, ainda nao sei")
 
 
-def short_answer(said, languages=None, wide: bool = False) -> bool:
+def short_answer(said, languages=None, wide: bool = False, new=None) -> bool:
     """Whether a reply that does not fit the question is short enough to be an attempt at an answer ("hmm", "talvez"), so that the question is asked once more: a
     long line, a question, a request for work or another request of this tier is a new line. With `wide` (the kind question, which the person answers in a phrase) up
-    to WIDE_WORDS words, and a line that starts with a word of a question or of a request for work (`work_starters`) is still a new line."""
+    to WIDE_WORDS words, and a line that starts with a word of a question or of a request for work (`work_starters`) is still a new line. `new` is the verdict of `turn_gate.new_request` on the
+    reply (the bare reading included, as `candidate` named it): any verdict makes the line a new one; None, the default, counts it as no request."""
     tables = _tables(languages)
     said = said if isinstance(said, str) else ""
     verbs = {w for table in tables for w in table["work_verbs"]}
@@ -599,12 +600,14 @@ def short_answer(said, languages=None, wide: bool = False) -> bool:
         starters = {w for table in tables for w in table["work_starters"]}
         if tokens and tokens[0] in starters:
             return False
-    return 0 < len(said.split()) <= (WIDE_WORDS if wide else 3) and "?" not in said and not (verbs & set(tokens)) and candidate(said, tables) is None
+    return 0 < len(said.split()) <= (WIDE_WORDS if wide else 3) and "?" not in said and not (verbs & set(tokens)) and new is None
 
 
-def _retry(draft: dict, said: str, tables: list):
+def _retry(draft: dict, said: str, tables: list, new=None):
     """The same question once more for a short reply that does not answer it; None the second time (the line is then handled as a new one)."""
-    if draft.get("retries", 0) >= 1 or not short_answer(said, tables, wide=draft.get("need") == "kind"):
+    if draft.get("need") == "kind" and new == "form":
+        new = None          # the kind question is answered in the words of a request ("so lembrete"): a reminder noun in a short line (the guard's `form`) is no reason to drop it, as `candidate` named none
+    if draft.get("retries", 0) >= 1 or not short_answer(said, tables, wide=draft.get("need") == "kind", new=new):
         return None
     return {"ask": {**draft, "retries": draft.get("retries", 0) + 1}}
 
@@ -704,10 +707,13 @@ def engine_word(draft, said, languages=None):
     return said
 
 
-def complete(draft, said, now, languages=None):
+def complete(draft, said, now, languages=None, new=None):
     """The next line of the chat finishing `draft` (see the module's text), or None when it is not an answer to it. A short reply that does not fit is asked once
     more (the same draft, `retries` 1) instead of being dropped. The yes and no words of the language data count for every caller, the bridge's and the operations
-    layer's alike (`engine_word`)."""
+    layer's alike (`engine_word`). `new` is the verdict of the code guard `turn_gate.new_request` on `said` (CANDIDATE-OUT: "reminder", "write", "form", "bare" or None; this module does not
+    import the gate, the caller passes it): a line that starts a request of its own is a new line (None), except for the kind question, which the person answers with the words of a request (the words reminder and event),
+    and for the bare reading ("sim mas as 15h" is a yes with an hour, not a line of its own). With the default None a line counts as no request: it is an answer, shown and confirmed (the reminder is made
+    only from a reading the person was shown and said yes to)."""
     tables = _tables(languages)
     said = engine_word(draft, said, languages)
     said = said if isinstance(said, str) else ""
@@ -718,13 +724,12 @@ def complete(draft, said, now, languages=None):
     if need == "forget" and not rest and kinds and set(kinds) <= {"yes", "cancel", "thanks"} and "yes" in kinds:
         return {"forget": draft["ids"]}          # "yes, cancel it": the word cancel is the action here, not a way out
     if need == "forget" and kinds == ["cancel"] and not rest:
-        return _retry(draft, said, tables)          # "cancel" to "cancel it?" does not say which way: asked once more
+        return _retry(draft, said, tables, new)          # "cancel" to "cancel it?" does not say which way: asked once more
     if kinds and set(kinds) <= {"cancel", "thanks"} and "cancel" in kinds and not rest:
         return _cancelled(need)
     if kinds and set(kinds) <= {"other", "thanks"} and "other" in kinds and not rest and need != "kind":          # "no", "no thanks": the question is given up
         return _cancelled(need)
-    named = candidate(said, tables)
-    if named is not None and need != "kind" and not (named["op"] == "remind" and named["how"] == "bare"):          # "sim mas as 15h" is a yes with an hour, not a line of its own
+    if new not in (None, "bare") and need != "kind":          # "sim mas as 15h" is a yes with an hour, not a line of its own
         return None          # a line that starts a request of its own ("me lembra ...", "cancela o lembrete 3") is a new line, never the answer to a question
     settled = {**draft, "doubt": False, "confirmed": False, "retries": 0}
     cued = _cued(said, draft, tables)
@@ -733,7 +738,7 @@ def complete(draft, said, now, languages=None):
             return {"forget": draft["ids"]}
         if kinds == ["other"] and not rest:
             return {"cancel": True}
-        return _retry(draft, said, tables)
+        return _retry(draft, said, tables, new)
     if need == "confirm":
         reading = draft["readings"][0]
         if kinds == ["other"] and not rest:
@@ -743,29 +748,29 @@ def complete(draft, said, now, languages=None):
         if "yes" in kinds and set(kinds) <= {"yes", "thanks"} and rest:
             but = {w for t in tables for p in t["but_words"] for w in p.split()}
             change = _time_only(" ".join(w for w in rest if w not in but), now, tables)          # "yes, but at 3pm": a yes with a new hour (or day)
-            new = _replace(reading, change, now) if change else None
-            if new is not None:
-                return _next(settled, new)
+            shifted = _replace(reading, change, now) if change else None
+            if shifted is not None:
+                return _next(settled, shifted)
         if kinds == ["again"] and not rest:
             return {"ask": {**_draft("again", how, draft["text"], draft["text"]), "date": reading["date"] if not reading.get("relative") else None}}          # "another time": the words are kept, the moment is asked
         parsed = _time_only(cued, now, tables)
-        new = _replace(reading, parsed, now) if parsed else None
-        return _retry(draft, said, tables) if new is None else _next(settled, new)
+        shifted = _replace(reading, parsed, now) if parsed else None
+        return _retry(draft, said, tables, new) if shifted is None else _next(settled, shifted)
     if need == "again":
         return _complete_when(draft, cued, now, tables, settled)
     if need == "weekday":
         done = _complete_week(draft, cued, now, tables)
-        return _retry(draft, said, tables) if done is None else done
+        return _retry(draft, said, tables, new) if done is None else done
     if need == "time":
         digits = re.fullmatch(r"\s*([0-9]{1,2})\s*", said)
         if digits:          # a bare hour answers "at what time?": it is asked which of the two (09:00 or 21:00), never taken
             if int(digits.group(1)) > 23:
-                return _retry(draft, said, tables)
+                return _retry(draft, said, tables, new)
             prefix = _table_of(draft, tables)["bare_hour_prefixes"]
             return understand(draft["line"] + " " + (prefix[0] + " " if prefix else "") + digits.group(1), now, how, tables, trust=True)
         parsed = _time_only(cued, now, tables)
         if parsed is None:
-            return _retry(draft, said, tables)
+            return _retry(draft, said, tables, new)
         if "missing" in parsed and parsed["day"]:          # a day answers "at what time?": it replaces the day the line had, and only the hour is still asked
             old = nt.parse(draft["line"], now, tables)
             base = nt.without(draft["line"], old["spans"]) if old and "spans" in old else draft["line"]
@@ -776,20 +781,20 @@ def complete(draft, said, now, languages=None):
     if need == "reading":
         picked = _pick(draft, cued, now, tables)
         if picked is None:
-            return _retry(draft, said, tables)
+            return _retry(draft, said, tables, new)
         return _next(settled, picked)          # a pick is not a yes: the picked reading is shown whole (the day, the hour, the words) and the yes makes it
     if need == "kind":
         kinds, rest = _kinds_around(said, kinds, rest, tables)          # the kind with the closed words around it
         if not kinds:          # a day or an hour instead of the kind: the reading shown is not the one meant, and the kind is asked again with the new one
             change = _time_only(cued, now, tables)
-            new = _replace(draft["readings"][0], change, now) if change else None
-            if new is not None:
-                return _next(settled, new)
+            shifted = _replace(draft["readings"][0], change, now) if change else None
+            if shifted is not None:
+                return _next(settled, shifted)
         corrected = _kind_with_time(said, kinds, rest, draft, now, tables)          # the kind with a time beside it: the time corrects the reading shown
         if corrected is not None:
             return {"event": True, "reading": corrected["reading"]} if corrected["kind"] == "event" else _next(settled, corrected["reading"], now)          # a reminder with a changed reading is shown and asked again: never made at once
         if rest or len(set(kinds)) != 1 or kinds[0] in ("other", "thanks", "again"):
-            return _retry(draft, said, tables)
+            return _retry(draft, said, tables, new)
         if kinds[0] == "event":
             return {"event": True}
         return _next({**settled, "confirmed": True}, draft["readings"][0], now)          # "reminder", or a yes: the reading shown, with the day it was shown with
@@ -797,10 +802,10 @@ def complete(draft, said, now, languages=None):
         reading = draft["readings"][0]
         parsed = _time_only(cued, now, tables)
         if parsed is not None:                       # a bare time completes the time, not the text
-            new = _replace(reading, parsed, now)
-            return None if new is None else {"ask": {**draft, "readings": [new]}}
-        if kinds or candidate(said, tables) is not None:
-            return _retry(draft, said, tables) if kinds else None
+            shifted = _replace(reading, parsed, now)
+            return None if shifted is None else {"ask": {**draft, "readings": [shifted]}}
+        if kinds or new is not None:
+            return _retry(draft, said, tables, new) if kinds else None
         verbs = {w for table in tables for w in table["work_verbs"]}
         tokens = _words(nt.normalise(said)[0])
         if len(said.split()) > TEXT_MAX_WORDS or verbs & set(tokens) or nt.recurring(said, tables):
