@@ -251,12 +251,6 @@ ALLOWED = (
     # own checker (the validator reuses the runtime's flow-file rules instead of holding a copy); a layer never
     # reads tooling except the scripts the runtime rows list.
     ("scripts/validate.py", ("scripts/",) + NOT_RUNTIME + ("runtime/flow_files.py",)),
-    # scripts/registry_build.py (S41-9) alone also reads the three pure language-table modules by path: it is the one-time builder of runtime/registry/*.json from those tables, and
-    # S41-11 deletes it with the table keys it reads; a layer never reads it
-    ("scripts/registry_build.py", ("scripts/",) + NOT_RUNTIME + ("runtime/natural.py", "runtime/natural_time.py", "runtime/natural_writes.py")),
-    # scripts/interpreter_corpus_tier1.py (S41-11, PR 1) alone also reads the same three modules by path: it is the one-time builder of evals/interpreter/tier1-cover-v1.jsonl from today's code
-    # claimers, and S41-11 (PR 2a) deletes it with them; a layer never reads it
-    ("scripts/interpreter_corpus_tier1.py", ("scripts/",) + NOT_RUNTIME + ("runtime/natural.py", "runtime/natural_time.py", "runtime/natural_writes.py")),
     ("scripts/**", ("scripts/",) + NOT_RUNTIME),
 )
 

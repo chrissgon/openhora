@@ -279,14 +279,40 @@ def test_h1_an_interpret_holder_whose_entry_is_off_gets_the_typed_command_for_a_
         let_go()
 
 
-def test_vacuity_h1_with_the_pass_clause_back_the_raw_line_is_routed(lab, monkeypatch):
+@pytest.mark.parametrize("held", [False, True], ids=["idle", "slot-held"])
+def test_vacuity_h1_with_the_old_clause_back_the_raw_line_reaches_the_planning_agent(lab, monkeypatch, held):
+    """The real twin (S41-11 PR 2b, the review of 2026-10-29): the code of the first review round put back, both halves of it. The second leg's row `typed-private-line` stands down when the line carries
+    a route pass (`or extras.get("route_pass") is not None`), and the first leg's row `route-pass` gives no typed answer for a line that is not deferred (it issues the pass, as it did). The same
+    line then reaches the planning agent as it was written, the typed sentence is not sent, and the stand-in agent is asked with it."""
     entry_off(monkeypatch)
-    real = ops_turn.route_pass_row
-    monkeypatch.setattr(ops_turn, "typed_sentence", lambda ctx, said, sender: None)      # the first leg has no answer for the line: it is handed back, and the second leg's row must stand alone
+    real_typed, real_pass = ops_turn.typed_private_line, ops_turn.route_pass_row
+
+    def old_typed_private_line(project, ctx, said, channel, sender, extras, state):
+        if extras.get("deferred") or extras.get("route_pass") is not None:
+            return None
+        return real_typed(project, ctx, said, channel, sender, extras, state)
+
+    def old_route_pass_row(project, ctx, said, channel, sender, extras, state):
+        with monkeypatch.context() as inner:
+            inner.setattr(ops_turn, "typed_sentence", lambda ctx_, said_, sender_: None)      # the first leg of the old code never asked for the typed sentence
+            return real_pass(project, ctx, said, channel, sender, extras, state)
+    monkeypatch.setitem(ops_turn.ROWS, "typed-private-line", old_typed_private_line)
+    monkeypatch.setitem(ops_turn.ROWS, "route-pass", old_route_pass_row)
+    reached = []
+    real_route = st.load("ops_say")._say_route
+    monkeypatch.setattr(st.load("ops_say"), "_say_route", lambda project, ctx, said, *a, **k: reached.append(said) or real_route(project, ctx, said, *a, **k))
     router_says(lab.world, "Route: none (capability, pending)\nWhy: a plain question\nNext: nothing.\n")
-    say(lab, OWNER, reminder_line(lab), ROUTE)
-    assert wait_for(lambda: bool(lab.texts(OWNER)))
-    assert phrases.text("IX_TYPE_REMIND", {"language": lab.language}, command="/remind <time> <text>") not in lab.texts(OWNER)
+    let_go = hold_agent(lab) if held else (lambda: None)
+    typed = phrases.text("IX_TYPE_REMIND", {"language": lab.language}, command="/remind <time> <text>")
+    try:
+        say(lab, OWNER, reminder_line(lab), ROUTE)
+        if held:
+            assert wait_for(lambda: bool(lab.bridge.waiting)), "the raw line is kept for the planning agent's turn, as it was written"
+        else:
+            assert wait_for(lambda: reached == [reminder_line(lab)]), "the raw line reached the planning agent"
+        assert typed not in lab.texts(OWNER)
+    finally:
+        let_go()
 
 
 # --- H2: the page queue keeps no private line ----------------------------------------------------------------------------------------------------------------

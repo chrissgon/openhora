@@ -208,7 +208,7 @@ def test_a_reading_the_engine_is_unsure_of_is_carried_as_a_doubt_not_as_a_questi
 
 def test_the_write_mode_of_the_engine_leaves_the_results_of_nr_1_unchanged():
     assert natural.understand("dentista quinta às 10h", NOW, "write")["ask"]["need"] == "confirm"
-    first = natural.understand("me lembra amanhã às 9h de ligar para a gráfica", NOW, "trigger")
+    first = natural.understand("ligar para a gráfica amanhã às 9h", NOW, "command")      # S41-11 PR 2b: the way `trigger` is gone from the product; the words after `/remind` are read as they are
     assert first["ask"]["need"] == "confirm" and first["ask"]["text"] == "ligar para a gráfica"
 
 

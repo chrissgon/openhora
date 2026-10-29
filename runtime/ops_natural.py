@@ -198,10 +198,15 @@ def needs(ctx: dict, said: str, channel, sender):
             return draft["op"] if _writes().answers(ctx, draft, said) else None
         if _answers(ctx, draft, said, owner) is not None:
             return "ask" if owner == "ops" else "remind"
-    group = natural.needs(said)
+    group = line_group(said)
     if group is not None and channel in operations.by_name(group)["channels"]:
         return group
     return None
+
+
+def line_group(said: str):
+    """The group a messaging sender must hold for a plain line that code reads whole: `pending` for a decision said in words (`natural.decision`: a decision is a read of its card), else None (the line needs `talk`)."""
+    return "pending" if natural.decision(said) is not None else None
 
 
 def stored_line(ctx: dict, said: str, channel=None, sender=None) -> str:

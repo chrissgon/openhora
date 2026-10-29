@@ -285,12 +285,13 @@ def test_a_line_longer_than_a_form_is_a_request_not_a_form():
     assert natural.match("aprova o pedido 21 " + "e " * natural.LINE_WORDS) is None
 
 
-def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_decision_said_in_words_and_no_other_line():
-    """S41-11: the one closed reading code keeps is a decision said in words (`natural.decision`, the D operations); a read, a notice or an act said in words is the interpreter's and needs `talk`."""
-    assert natural.needs("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
-    assert natural.needs("rejeite a pergunta 25") == "pending" and natural.needs("approve request 7") == "pending"
+def test_the_line_group_names_the_group_a_messaging_sender_must_hold_for_a_decision_said_in_words_and_no_other_line():
+    """S41-11: the one closed reading code keeps is a decision said in words (`natural.decision`, the D operations); a read, a notice or an act said in words is the interpreter's and needs `talk`. PR 2b: the group is `ops_natural.line_group` (it was `natural.needs`)."""
+    ops_natural = st.load("ops_natural")
+    assert ops_natural.line_group("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
+    assert ops_natural.line_group("rejeite a pergunta 25") == "pending" and ops_natural.line_group("approve request 7") == "pending"
     for line in ("quais arquivos voce tem?", "pendencias", "cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
-        assert natural.needs(line) is None, line
+        assert ops_natural.line_group(line) is None, line
     assert natural.decision("aprova o 12")["op"] == "approve" and natural.decision("cancela o pedido 8") is None and natural.decision("pendencias") is None, "match still knows the forms; `decision` keeps the D class"
 
 

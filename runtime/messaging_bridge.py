@@ -263,6 +263,12 @@ def dated(message: dict, cfg) -> dict:
     return out
 
 
+def line_group(text):
+    """The group a plain line needs for the bridge's own reading, when there is no project to ask: `pending` for a decision said in words (S41-11: the one closed reading code keeps, a read of its
+    card; `natural.needs` before PR 2b), else None (the line needs `talk`)."""
+    return "pending" if natural.decision(text) is not None else None
+
+
 def queueable(text) -> bool:
     """Whether a line may wait for the project: a plain line, or the slash command `new` or `ask` (with or without `@bot`). Any other command is an
     act of the table (`/cancel`, `/approve`, `/progress`...) and is refused as it always was: a brake kept behind the run it should stop is of no use."""
@@ -1852,7 +1858,7 @@ class Bridge(shell_kit.Jobs):
                 return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL)
             except self.ops.OpsError:
                 return None
-        found = natural.needs(text)
+        found = line_group(text)
         return found if found is not None and CHANNEL in self.ops.operations.by_name(found)["channels"] else None
 
     def resend(self, project: dict, chat: str, pending_id: int, force: bool = False) -> bool:

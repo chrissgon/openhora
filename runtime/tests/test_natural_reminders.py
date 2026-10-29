@@ -14,11 +14,13 @@ import re
 import pytest
 
 import standin_tree as st
-from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, TEXT_CASES, UNSURE_LINES
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
+from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, UNSURE_LINES
 from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, NOT_ENABLED, OTHER, SENDER, THIRD, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
 ops = st.load("ops")
@@ -96,17 +98,6 @@ ENGLISH_CANDIDATES = [
 @pytest.mark.parametrize("line,expected", CANDIDATE_CASES + ENGLISH_CANDIDATES)
 def test_a_line_is_matched_to_a_reminder_operation_by_the_tables_and_nothing_else_is(line, expected):
     assert natural.candidate(line) == expected
-
-
-@pytest.mark.parametrize("line,expected", TEXT_CASES + [
-    ("remind me tomorrow at 1 pm to call the florist", "call the florist"),
-    ("remind me to phone the neighbour tomorrow at 9am", "phone the neighbour"),
-    ("Please remind me in 2 hours about the oven", "the oven"),
-    ("reminder: friday at 15:00 pay the rent", "pay the rent"),
-])
-def test_the_words_of_the_reminder_are_the_line_without_the_trigger_the_time_and_one_connector(line, expected):
-    got = made(natural, line, NOW, "trigger")
-    assert got["text"] == expected and got["when"]
 
 
 def test_the_command_form_needs_no_trigger_and_keeps_the_words_in_their_order():

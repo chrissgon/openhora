@@ -197,19 +197,6 @@ CANDIDATE_CASES = [
     ("preciso revisar o relatório de vendas do trimestre e mandar para a diretoria até amanhã às 15h", None),
 ]
 
-# (a line, the words of the reminder it makes: the line minus the trigger, the time phrases and the connectives at its edges)
-TEXT_CASES = [
-    ("me lembra amanhã às 13h da aula de violão", "aula de violão"),
-    ("me lembra de pagar a conta dia 10 às 9h", "pagar a conta"),
-    ("Me lembre sexta às 9h que o gás acaba", "o gás acaba"),
-    ("lembra-me em 2 horas de tirar o pão do forno", "tirar o pão do forno"),
-    ("pode me lembrar hoje às 18h para ligar para o Rui", "ligar para o Rui"),
-    ("lembrete: veterinário amanhã 15h", "veterinário"),
-    ("em 25 min me avisa de desligar o fogão", "desligar o fogão"),
-    ("às 9h me lembra de regar as plantas", "regar as plantas"),
-    ("me lembra amanhã 9h de pagar a parcela 3/10", "pagar a parcela 3/10"),
-]
-
 # Lines the parse makes a reminder of only after asking: a word of the time that it did not use. (Asked, never made.)
 UNSURE_LINES = [
     "me lembra amnha às 9h de pagar a conta",

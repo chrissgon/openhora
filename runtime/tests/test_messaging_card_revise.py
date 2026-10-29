@@ -192,7 +192,9 @@ def test_the_write_form_of_a_change_of_an_event_is_a_line_for_the_hook_and_goes_
     mail_card(world)
     revise = Revise(world, result={"pass": True})
     world.say("muda para as 10h")
-    assert wait_for(lambda: revise.changes) and revise.checks[0][2] == "muda para as 10h" and world.calls("say") == []
+    assert wait_for(lambda: revise.changes) and revise.checks[0][2] == "muda para as 10h"
+    assert settle(world)      # S41-11 PR 2b: the line goes on once the hook answers `pass`; no write form claims it any more (PR 2a), so it goes on to `say`, a moment after the hook's answer: the old check of an empty list at once was a race
+    assert [call[2]["text"] for call in world.calls("say")] == ["muda para as 10h"], "the line the hook did not take went on, once"
 
 
 def test_a_failure_of_the_layer_is_one_plain_sentence_and_the_card_is_left_alone(world):

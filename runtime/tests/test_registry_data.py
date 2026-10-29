@@ -1,5 +1,5 @@
 """S41-9: the private-line words and the search stop words are data the registry owns (runtime/registry/*.json, runtime/registry_data.py), read by the gate
-(`turn_gate.private_line`) and by `event_lookup`; the old table readers are the oracles.
+(`turn_gate.private_line`) and by `event_lookup`; the old table readers (frozen in runtime/tests/closed_heads.py and old_claim.py since S41-11) are the oracles.
 
 What is proven here, each with its vacuity:
 
@@ -8,7 +8,8 @@ What is proven here, each with its vacuity:
   * The private detector flags every line `natural.private` flags, on every corpus (the three natural corpora, the interpreter's dev sets, the entry corpus) and on a seeded
     differential fuzz of generated and mutated lines. Vacuity: one phrase a corpus line needs dropped from a copy of the data -> the superset fails. The lines only the new detector flags
     are counted per corpus (OPEN-41-10); on the entry corpus and the three natural corpora there are none, so that no stored row or outage route of the entry replay can change.
-  * Both files are well formed (header, version, folded, sorted, without repeat) and equal what scripts/registry_build.py makes from the tables while the tables exist.
+  * Both files are well formed (header, version, folded, sorted, without repeat). They were made once from the language tables by a builder script that S41-11 PR 2b deleted with its two tests
+    (the files equal what the builder makes; the builder is deterministic and has help): the data is edited by hand under review from then on, and the tests above are what holds it.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_registry_data.py
 """
@@ -33,7 +34,6 @@ import event_lookup  # noqa: E402
 import natural  # noqa: E402
 import natural_time as nt  # noqa: E402
 import natural_writes as nw  # noqa: E402
-import registry_build  # noqa: E402
 import registry_data  # noqa: E402
 import turn_gate  # noqa: E402
 from closed_heads import old_private, closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
@@ -198,7 +198,7 @@ def superset_failures(lines) -> list:
 
 @pytest.mark.parametrize("name", sorted(CORPORA))
 def test_private_words_flag_a_superset(name):
-    """Every line `natural.private` flags on the corpus, `turn_gate.private_line` flags (the oracle stays in runtime/natural.py until S41-11)."""
+    """Every line `natural.private` flags on the corpus, `turn_gate.private_line` flags (the oracle is `closed_heads.old_private`, the S41-9 reader frozen as a test stand-in)."""
     lines = corpus_lines(name)
     assert len(lines) >= 40
     assert superset_failures(lines) == []
@@ -454,28 +454,6 @@ def test_the_words_are_generic_words_of_the_languages():
     text = (FOLDER / "private_words.json").read_text(encoding="utf-8") + (FOLDER / "search_stop_words.json").read_text(encoding="utf-8")
     assert "@" not in text.replace('"address"', "")
     assert "http" not in text
-
-
-def test_the_files_equal_what_the_builder_makes_from_the_tables():
-    """While the tables exist (until S41-11 deletes them and the builder), the committed files equal the builder's output; the commit name is not compared."""
-    built = registry_build.build("x")
-    for name, data in built.items():
-        have = json.loads((FOLDER / name).read_text(encoding="utf-8"))
-        have["made_from"] = "x"
-        assert have == data, name
-    assert subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--check"], capture_output=True, text=True).returncode == 0
-
-
-def test_the_builder_is_deterministic_and_has_help(tmp_path):
-    first = registry_build.build("abc1234")
-    assert registry_build.render(first["private_words.json"]) == registry_build.render(registry_build.build("abc1234")["private_words.json"])
-    out = subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--made-from", "abc1234", "--out", str(tmp_path)], capture_output=True, text=True)
-    assert out.returncode == 0
-    assert (tmp_path / "private_words.json").read_text(encoding="utf-8") == registry_build.render(registry_build.build("abc1234")["private_words.json"])
-    assert (tmp_path / "search_stop_words.json").read_text(encoding="utf-8") == registry_build.render(registry_build.build("abc1234")["search_stop_words.json"])
-    helped = subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--help"], capture_output=True, text=True)
-    assert helped.returncode == 0 and "registry" in helped.stdout.lower()
-    assert subprocess.run([sys.executable, str(REPO / "scripts/registry_build.py"), "--check", "--out", str(tmp_path)], capture_output=True, text=True).returncode == 0
 
 
 # --- the four gaps of the review of S41-9 (each was a line the oracle flags and the first detector did not), the validation and the stored word ---------------------------------------

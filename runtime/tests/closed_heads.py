@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import pytest
 
+import old_claim
 import standin_tree as st
 
 natural = st.load("natural")
 nw = st.load("natural_writes")
+ops_natural = st.load("ops_natural")
+messaging_bridge = st.load("messaging_bridge")
 
 
 def _read_closed(text, tables, now, shaped):
@@ -74,7 +77,7 @@ def closed_heads(monkeypatch):
 
 
 def _old_needs(line, languages=None):
-    """What `natural.needs` was: the group a messaging sender must hold for a line `match` takes (a read or a notice its own, a decision `pending`, the other classes `talk`)."""
+    """What `natural.needs` was (deleted by S41-11 PR 2b; the product asks `ops_natural.line_group`): the group a messaging sender must hold for a line `match` takes (a read or a notice its own, a decision `pending`, the other classes `talk`)."""
     found = natural.match(line, languages)
     if found is None:
         return None
@@ -86,12 +89,29 @@ def _old_needs(line, languages=None):
 
 @pytest.fixture
 def tier1_forms(monkeypatch):
-    """Every closed form of the tables claims a line again, as before S41-11: `natural.decision` is `natural.match` and `natural.needs` is the old one, for the length of the test. For the tests of
-    `ops_natural.run` (the order of the checks, the policy, the number, the reply of each class) that entered through a plain line: the product's claim is a decision said in words alone, and the other
-    classes are the interpreter's carry-out, which calls `run` too."""
-    monkeypatch.setattr(natural, "decision", natural.match)
-    monkeypatch.setattr(natural, "needs", _old_needs)
+    """Every closed form of the tables claims a line again, as before S41-11: `natural.decision` is `natural.match` and the group a plain line needs (`ops_natural.line_group`) is the old one, for the
+    length of the test. For the tests of `ops_natural.run` (the order of the checks, the policy, the number, the reply of each class) that entered through a plain line: the product's claim is a
+    decision said in words alone, and the other classes are the interpreter's carry-out, which calls `run` too."""
+    claim_forms(monkeypatch)
     return natural.match
+
+
+@pytest.fixture
+def trigger_reading(monkeypatch):
+    """The reminder engine's old entry, for the tests that read a line that starts with a remind word ("remind me tomorrow at 9 to call"): `natural.understand` is the old one, which cuts the trigger
+    words out of the reminder's text when the way is `trigger` (S41-11 PR 2b: the product reads with `command` and `write` alone, and a line of words is read by the interpreter). What these tests guard
+    (the time reading, the question asked, the confirmation, the pick, the draft, the forget and the undo) is the engine's, which is the same function for every other way."""
+    monkeypatch.setattr(natural, "understand", old_claim.understand)
+    return old_claim.understand
+
+
+def claim_forms(monkeypatch):
+    """The closed forms and the old reading engine, put back with `monkeypatch` (a test, or a block of `entry_kit.old_claims`): `natural.decision` is `natural.match`, `ops_natural.line_group` and the
+    bridge's own `line_group` are the old `needs`, and `natural.understand` is the old one, which cut a trigger word out of the reminder's text (a draft made under the old claim has the way `trigger`)."""
+    monkeypatch.setattr(natural, "decision", natural.match)
+    monkeypatch.setattr(ops_natural, "line_group", _old_needs)
+    monkeypatch.setattr(messaging_bridge, "line_group", _old_needs)
+    monkeypatch.setattr(natural, "understand", old_claim.understand)
 
 
 # --- the interpreter's side of the bridge, for the tests that enter through a plain line (S41-11) -----------------------------------------------------------------------------------------------
@@ -126,7 +146,7 @@ def reader_text(line, now):
     written = nw.read(line, now)
     if written is not None and written["op"] in served:
         return sis.model_text(line, written["op"], now)
-    named = natural.claim(line)
+    named = old_claim.claim(line)
     if named is None:
         return None
     op = named["op"]
@@ -140,7 +160,7 @@ def reader_text(line, now):
             slots["target"] = named["words"]
         return _op_text(op, slots)
     if op == "remind":
-        reading = natural.understand(line, now, named.get("how", "trigger"))
+        reading = old_claim.understand(line, now, named.get("how", "trigger"))
         shape = reading.get("ask") or reading
         words = shape.get("text") or ""
         slots = {"text": words} if words and words in line else {}
