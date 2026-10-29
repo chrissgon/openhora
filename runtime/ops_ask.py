@@ -53,7 +53,6 @@ import ask_select
 import autonomy
 import lab
 import line_stage
-import natural
 import operations
 import ops_actor
 import ops_cancel
@@ -67,6 +66,7 @@ import roles
 import router
 import source_resolve
 import sources
+import turn_gate
 import workcopy
 
 
@@ -224,12 +224,11 @@ def holds_mail(cfg: dict, channel, sender) -> bool:
 
 
 def ask(project: str, text: str, channel: str | None = None, sender: str | None = None) -> dict:
-    """`_ask`, and, when the question is written as a reminder (a tier-1 form of runtime/natural.py), one more line at the end of the reply that
+    """`_ask`, and, when the question is written as a reminder (the private words of runtime/turn_gate.py), one more line at the end of the reply that
     says how to ask for a reminder in words (package NR-2, contracts/runtime.md "Natural requests"). The question is never rerouted: an explicit
     /ask stays an ask."""
     out = _ask(project, text, channel, sender)
-    found = natural.candidate(text) if isinstance(text, str) else None
-    if found and found["op"] == "remind" and isinstance(out.get("reply"), str):
+    if turn_gate.private_kind(text) == "reminder" and isinstance(out.get("reply"), str):      # S41-11: the private words of S41-9 say it, not the claimers of the tables
         out = dict(out, reply=out["reply"] + "\n\n" + phrases.text("NAT_ASK_REMIND_HINT", core._config_of(project)))
     return out
 

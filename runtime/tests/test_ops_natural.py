@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 from sources_fixture import standin_convert
 from test_ask import ANSWER, LEASE, NOTES, accept, add_source, run_files, runs, write_config
 from test_chat import AGENTS, BRANCH, PACKS
@@ -46,6 +47,9 @@ SENDERS = {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": READER, "policy
                         {"id": MAILER, "policy": "mailer"}, {"id": ASKER, "policy": "asker"}, {"id": PLAIN, "policy": "plain"}]}
 FLOW = "Route: flow-demo (flow, pending)\nWhy: a market question\nNext: the market task.\n"
 OPERATION = "Route: none (operation)\nOperation: {name}\n"
+
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 
 @pytest.fixture
@@ -279,8 +283,9 @@ def test_the_conversation_stores_the_line_of_a_read_and_a_neutral_word_for_the_w
     say(docs, "what files do you have?")
     assert [m["text"] for m in stored(docs)][0] == "what files do you have?"
     import re
-    assert natural.private("lembrete secret words") and ops_natural.stored_line(docs["ctx"], "lembrete secret words") == "(a reminder)"
-    assert not natural.private("what files do you have?")
+    turn_gate = st.load("turn_gate")      # S41-11: `natural.private` is gone; the detector is the one of S41-9
+    assert turn_gate.private_line("lembrete secret words") and ops_natural.stored_line(docs["ctx"], "lembrete secret words") == "(a reminder)"
+    assert not turn_gate.private_line("what files do you have?")
 
 
 # --- the drafts -----------------------------------------------------------------------------------------------------------------------------------
@@ -396,7 +401,7 @@ def test_limit_54_a_router_normalised_time_makes_no_reminder_until_the_person_co
     reply = ops_natural.run_routed(world["path"], ctx, {"name": "remind", "args": {"text": "recoger el paquete en la porteria"}, "when": "2026-10-23 17:00"},
                                    "recuerdame el viernes a las 17 recoger el paquete en la porteria", "messaging", KEY["owner"], {})
     assert reply.endswith("Confirm? (yes / another time)") and rows() == [], "asked, not made"
-    assert [k["said"] for k in seen] == ["recoger el paquete en la porteria 2026-10-23 17:00"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
+    assert [k["said"] for k in seen] == ["2026-10-23 17:00 recoger el paquete en la porteria"] and seen[0]["channel"] == "messaging" and seen[0]["sender"] == KEY["owner"]
     done = ops_turn.dispatch_rows(ops_turn.TAKE_ROWS, world["path"], ctx, "yes", "messaging", None, KEY["owner"], {})[0]      # S41-3: what `ops_natural.take` was (the five rows of the table that take a line of code)
     assert seen[-1]["when"] == "2026-10-23 17:00" and seen[-1]["channel"] == "messaging" and seen[-1]["sender"] == KEY["owner"], \
         "the moment shown is the moment made, called with the carrying channel and the sender, as the typed command is"

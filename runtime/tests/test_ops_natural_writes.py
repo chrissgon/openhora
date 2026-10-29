@@ -15,6 +15,7 @@ import json
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import GRAPH_SEEDED, SEEDED, install_item_refs, rows, seed_google, seed_graph, world  # noqa: F401  (the calendar world)
 from test_channel_grants import accept
 from test_reminders import Clock
@@ -79,7 +80,9 @@ def phone(world, text, sender="telegram:830461975213"):
 
 
 def say(world, text, channel=None, sender=None):
-    return ops.say(world["path"], text, channel=channel, sender=sender)
+    """S41-11: a plain line is claimed on no shell any more (a page or terminal line reaches the planning agent, the interpreter reads a phone's); the card is opened through the writes' own entry
+    with the carrying channel, which is what these tests are about (the reader, the resolver, the card's lines per shell)."""
+    return ops.natural_write(world["path"], text, channel=channel or "terminal", sender=sender)
 
 
 def body(world, out):
@@ -256,7 +259,7 @@ def test_a_line_that_repeats_is_refused_in_words_and_opens_nothing_at_catalog_ve
     monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", version)      # CB-9: at version 2 the sender has no group `interpret` here: the interpreter is off, and the closed form answers as before
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
-    assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None) and spy == [] and not drafts.count()
+    assert out["reply"] == phrases.text("RECUR_NOT_READ", None) and spy == [] and not drafts.count()
 
 
 def interpreter_for_owner(monkeypatch, entry):
@@ -270,7 +273,7 @@ def test_at_catalog_version_2_with_the_group_held_and_no_entry_for_the_language_
     interpreter_for_owner(monkeypatch, None)
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
-    assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None) and spy == [] and not drafts.count()
+    assert out["reply"] == phrases.text("RECUR_NOT_READ", None) and spy == [] and not drafts.count()
 
 
 def test_at_catalog_version_2_with_the_interpreter_on_a_line_that_repeats_is_no_write_form_and_opens_nothing_here(world, clock, spy, monkeypatch):
@@ -280,7 +283,7 @@ def test_at_catalog_version_2_with_the_interpreter_on_a_line_that_repeats_is_no_
     out = phone(world, "marca yoga toda segunda às 7h no google")
     assert out["reply"] is None and spy == [] and not drafts.count(), "the caller handles it as any plain line: the interpreter reads it"
     other = phone(world, "marca yoga toda segunda às 7h no google", sender="telegram:5151")
-    assert other["reply"] == phrases.text("NW_RECURRING_EVENT", None), "another sender, who holds no `interpret`, keeps the closed form's sentence"
+    assert other["reply"] == phrases.text("RECUR_NOT_READ", None), "another sender, who holds no `interpret`, keeps the closed form's sentence"
 
 
 def test_vacuity_the_scope_left_out_the_interpreter_on_gives_the_sentence_back(world, clock, spy, monkeypatch):
@@ -289,7 +292,7 @@ def test_vacuity_the_scope_left_out_the_interpreter_on_gives_the_sentence_back(w
     monkeypatch.setattr(st.load("ops_interpret"), "repeat_scope", lambda where, channel, sender: st.load("natural").repeat_scope(False))      # the planted fault: the scope never says on
     policy(world)
     out = phone(world, "marca yoga toda segunda às 7h no google")
-    assert out["reply"] == phrases.text("NW_RECURRING_EVENT", None), "the oracle above (reply None) fails on the planted fault"
+    assert out["reply"] == phrases.text("RECUR_NOT_READ", None), "the oracle above (reply None) fails on the planted fault"
 
 
 def test_a_reading_the_engine_is_unsure_of_opens_the_card_with_a_line_that_says_which_part_to_check(world, clock):

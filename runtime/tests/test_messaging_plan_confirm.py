@@ -17,6 +17,10 @@ from frame_kit import claims
 from plan_bridge_kit import ASKER_ID, OWNER_ID, OWNER_KEY, brig, bridge, ops, phrases, question_text, rig, wait_for, world  # noqa: F401
 from plan_confirm_kit import PROF, SENDER_LIST, accept, op, ops_say
 from test_service import WAIT
+import pytest
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 DAY = "Mon 19/10/2026"      # "de amanha" on the clock of the world of test_ops_natural.py
 

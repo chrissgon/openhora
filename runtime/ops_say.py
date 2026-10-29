@@ -49,6 +49,7 @@ import plan
 import plan_confirm
 import router
 import skill_meta
+import turn_gate
 
 
 def _ops():
@@ -140,7 +141,7 @@ def chat_memory(messages: list, settled: set, quiet=frozenset()) -> str:
             start = n + 1
     private = ops_natural.private_ids(messages)      # a reminder in a language no table ships: the router named it after the line was stored
     kept = [m for m in messages[start:] if (m["role"] == "user" and m.get("id") not in private and not m["text"].startswith("/") and not state_question(m["text"])
-                                            and natural.match(m["text"]) is None and natural.candidate(m["text"]) is None
+                                            and natural.decision(m["text"]) is None and turn_gate.private_kind(m["text"]) is None
                                             and not ops_natural.is_placeholder(m["text"])) or
             (m["role"] == "assistant" and m.get("task_id") is not None and m.get("task_id") not in quiet)][-MEMORY_TURNS:]
     lines = [f"{m['role']}: {' '.join(m['text'].split())[:MEMORY_CUT]}" for m in kept]
@@ -158,7 +159,25 @@ def _sentences(ctx: dict, channel: str):
     return phrases.scope(phrases.current_scope())
 
 
-def say(project: str, text: str, channel: str | None = None, sender: str | None = None, can_send: dict | None = None, plan_ok: dict | None = None) -> dict:
+class ToAgent(Exception):
+    """The decide leg of a line (`say(..., decide=True)`) found nothing that code or the interpreter takes: the line goes back to the bridge unrouted, with a route pass (`id`)."""
+
+    def __init__(self, id):
+        super().__init__("to the planning agent")
+        self.id = id
+
+
+def reads_words(project: str, sender=None, channel: str = "messaging") -> bool:
+    """S41-11: whether a plain line of this sender is decided first, with no slot of the project (SPEC-S41-11-BRAKE): a messaging sender who holds the group `interpret`, whether or not an
+    entry is in force (with none, the decide leg gives a brake in words its typed hint). Read-only; not an operation of the table."""
+    if channel != "messaging" or not sender:
+        return False
+    ctx = core.context(project)
+    return operations.holds("interpret", "messaging", ctx["cfg"]["channels"], sender)
+
+
+def say(project: str, text: str, channel: str | None = None, sender: str | None = None, can_send: dict | None = None, plan_ok: dict | None = None, decide: bool = False,
+        route_pass: str | None = None) -> dict:
     """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
     line is stored (for a messaging sender whom the interpreter reads, AFTER the decision and as a neutral word unless it went to the planning agent: runtime/ops_interpret.py, limit L63); a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
     line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
@@ -175,6 +194,9 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     shell passes none and is `chat`): a command in the line is done only when its row lists that channel, so a shell
     that may not approve, reject, retry or cancel cannot do it by typing the command here either. `sender` (POL-2) is the messaging sender who typed the
     line (`<platform>:<sender id>`, operations.sender_key): a command in it is checked against THAT sender's profile and done as that sender.
+    `decide` and `route_pass` (S41-11, messaging only, passed by the bridge alone) are the two legs of a plain line of a sender whom the interpreter reads: with `decide` the line is walked through
+    the whole stage `ops` with no route lock check and nothing stored before the decision; a line no row of code and no decision of the interpreter takes comes back as `{"to_agent": <pass id>}`
+    (nothing stored, no plan dropped); with `route_pass` the interpreter row takes the pass in place of a second call.
     `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
     call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
     A plain line on a messaging app that stands for a typed command (slice S20: "rejeite a pergunta 25" is `/reject 25`) hands the typed line back in "typed": for a command the
@@ -188,6 +210,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     channel = channel or "chat"
     if plan_ok is not None and channel != "messaging":
         raise core.OpsError("plan_ok is a messaging argument", 2)
+    if (decide or route_pass is not None) and channel != "messaging":
+        raise core.OpsError("decide and route_pass are messaging arguments", 2)
     ops_actor.require(channel, sender)
     ctx = core.context(project)
     said = core._text(text, "the line")
@@ -203,10 +227,12 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
                 return confirmed
         plan_before = channel == "messaging" and plan_confirm.live(project, sender) is not None      # D5: any other line than a yes, a no or a correction drops the plan, as a line drops a draft
         handled = turns.code_claims(ctx, said, channel, sender, plan_before)      # a line code answers by itself waits for no run and no queue: a form, a draft's answer, a greeting, a request to delete a file, a bare yes or no with a live plan
-        if _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:
+        if not decide and _turn_routes(said) and not asks_state(ctx, said, channel, sender) and not handled:      # the decide leg takes no route lock: only a line handed back is queued, in the route leg
             # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the
             # router is free again; a shell that drains nothing is refused while the router answers another request.
             if channel in QUEUING_CHANNELS and (route_busy(ctx) or _queue_read(ctx, peek=True)):
+                if turn_gate.private_kind(said) is not None:      # H2 (review of 2026-10-29, L51, L61): the queue keeps the line as written, so a reminder or a write in words is refused as busy, never queued
+                    raise core.RunBusy(RUN_BUSY, 1)
                 stored = _enqueue_line(ctx, said)
                 return {"reply": None, "request_id": None, "pending_id": None, "ran": False, "queued": True,
                         "message_id": stored["id"]}
@@ -216,17 +242,28 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
         # A plain line of a sender whom the interpreter reads (S1, limit L63) is stored AFTER the decision: as a neutral word unless the interpreter sent it to the planning agent
         # (`extras["interpreted"]`), so that a line the model service read is never kept in the store. Every other line is stored first, as it always was.
         deferred = not said.startswith("/") and importlib.import_module("ops_interpret").enabled(ctx, channel, sender)
-        stored = None if deferred else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
+        late = deferred or decide      # the decide leg stores nothing before the decision, whether or not an entry is in force: a line handed back is stored by the route leg alone (P3)
+        stored = None if late else core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=kept)
         extras = {"deferred": True} if deferred else {}
+        if decide:
+            extras["decide"] = True
+        if route_pass is not None:
+            extras["route_pass"] = route_pass
         if can_send is not None and channel == "messaging":
             extras["can_send"] = can_send
+        handed = False
         try:
             reply, request_id, pending_id, ran, run_id, offered = turns.dispatch(project, ctx, said, channel, stored["id"] if stored else None, sender, extras)
+        except ToAgent as hand:
+            handed = True
+            if plan_before and "plan_confirm" not in extras and not extras.get("plan_keep"):
+                plan_confirm.drop(project, sender)      # the line arrived now: any other line than a yes drops the old plan, here, in the first leg (the route leg runs later and must not drop a plan a newer brake made)
+            return {"reply": None, "to_agent": hand.id, "request_id": None, "pending_id": None, "ran": False, "queued": False}
         finally:
-            if deferred:
+            if late and not handed:
                 core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=phrases.text("IX_PRIVATE_LINE", ctx["cfg"]) if extras.get("interpreted") else kept)
-        if plan_before and "plan_confirm" not in extras and not extras.get("plan_keep"):
-            plan_confirm.drop(project, sender)      # D5: this line asked no new plan and is not a yes nobody could take: the old plan is gone
+        if plan_before and route_pass is None and "plan_confirm" not in extras and not extras.get("plan_keep"):
+            plan_confirm.drop(project, sender)      # D5: this line asked no new plan and is not a yes nobody could take: the old plan is gone (a line the decide leg handed back dropped it in its first leg)
         core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant",
                      text=extras.get("stored") or reply or phrases.text("NO_REPLY", ctx["cfg"]), task_id=extras.get("task_id", request_id), run_id=extras.get("run_id", run_id))
         return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False, **_carried(extras, channel, offered)}
@@ -238,7 +275,8 @@ def _carried(extras: dict, channel: str, offered=None) -> dict:
     return {**({"instruction_proposal": offered} if offered else {}), **({"resend": extras["resend"]} if "resend" in extras else {}), **({"lead": extras["lead"]} if channel == "messaging" and "lead" in extras else {}), **({"resend_forced": True} if extras.get("resend_forced") else {}),
             **({"typed": extras["typed"]} if channel == "messaging" and "typed" in extras else {}),
             **({"attachment": extras["attachment"]} if channel == "messaging" and "attachment" in extras else {}),
-            **({"plan_confirm": extras["plan_confirm"]} if channel == "messaging" and "plan_confirm" in extras else {})}
+            **({"plan_confirm": extras["plan_confirm"]} if channel == "messaging" and "plan_confirm" in extras else {}),
+            **({"ask_yes": True} if channel == "messaging" and extras.get("ask_yes") else {})}
 
 
 def _say_confirmed(project: str, ctx: dict, said: str, sender, can_send, plan_ok: dict) -> dict:
@@ -331,12 +369,6 @@ def natural_write(project: str, line: str, channel: str = "messaging", sender=No
 def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
     """Whether this sender has a live question about a write (the bridge asks it before it reads a line as new). Not an operation of the table."""
     return importlib.import_module("ops_natural_writes").has_live(project, channel, sender)
-
-
-def event_list_picks(project: str, said: str, sender) -> bool:
-    """Whether this sender's live list of events would take the line as a pick by an ordinal word or by a value the list shows (LP-1, runtime/list_pick.py): the bridge asks it before it
-    takes a line that holds only a clock for a reminder. Read-only; not an operation of the table."""
-    return importlib.import_module("event_lookup").picks(core.context(project), said, sender, importlib.import_module("ops_natural")._clock())
 
 
 def natural_forget(project: str, sender, channel: str = "messaging") -> None:

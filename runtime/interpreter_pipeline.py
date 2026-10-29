@@ -11,7 +11,8 @@ The stages, in order; the first that decides ends the item (`run_item`):
   1. forward      a messaging item that is a forward (`forwarded` anything but absent or false: the fail-closed reading of runtime/messaging_inbound.py)  -> forwarded
   0. precheck     a line over `max_line_chars` is never sent (`interpreter.precheck`)                                                                -> route / clarify
   2. closed       with a frame, the newest open item and a line that code reads as the same yes or no (`natural.confirm_kind`), or one digit      -> answer
-  3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.match`          -> the operation
+  3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.decision`: a decision said in words (S41-11: the
+                  one closed reading code keeps, the D operations; the model never approves) or `greeting.help_form` (help in words)                                                     -> the operation
   4. model        `interpreter.build_messages`, `call(system, user)`, `interpreter.parse`, `interpreter.check` (the sender holds every group: `ALLOWED`)
   5. mapping      the decision to `observed` (`observe`, `OBSERVED_OF`): a measurement-only table. It never gives `executed`: nothing is executed
 The forward is first because a forward is never a request, whatever its length.
@@ -46,6 +47,7 @@ from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import greeting  # noqa: E402  (the same folder, pure: the closed forms of help in words, S41-11)
 import interpreter  # noqa: E402  (the same folder: the protocol, the validator and the served catalog)
 import mail_compose  # noqa: E402  (the same folder, pure: the seed of a new e-mail)
 import natural  # noqa: E402  (the same folder: tier 1, the classes, the confirm reading)
@@ -269,8 +271,10 @@ def _closed_answer(frame, line: str):
 
 
 def _tier1(line: str):
-    """The decision for a line that is one closed form of exactly one operation (`natural.match`), spans rebuilt from its slots; else None."""
-    found = natural.match(line)
+    """The decision for a line that is a decision said in words (`natural.decision`, the D operations: S41-11 keeps these closed readings), spans rebuilt from its slots; else None."""
+    found = natural.decision(line)
+    if found is None and greeting.help_form(line):      # the help in words is the other closed reading code keeps (the row `help-in-words`, S41-11): the operation `commands`
+        found = {"op": "commands", "args": {}, "tier": 1}
     if found is None:
         return None
     op, args = found["op"], found["args"]

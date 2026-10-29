@@ -380,7 +380,7 @@ def project_switch(bridge, turn) -> bool:
 
 def help_in_words(bridge, turn) -> bool:
     # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
-    if turn.kind in ("text", "natural") and (natural.match(turn.intent["text"]) or {}).get("op") == "commands" and not bridge.greets(turn.project, turn.chat, turn.intent["text"]):
+    if turn.kind in ("text", "natural") and greeting.help_form(turn.intent["text"]) and not bridge.greets(turn.project, turn.chat, turn.intent["text"]):
         bridge.reply(turn.chat, bridge.t("HELP", project=turn.project), turn.project)
         return True
     return False
@@ -415,26 +415,11 @@ def remind_typed(bridge, turn) -> bool:
     return False
 
 
-def write_form(bridge, turn) -> bool:
-    if turn.kind == "natural" and turn.intent.get("op") == "write":
-        bridge.write(turn.project, turn.chat, turn.intent["text"])
-        return True
-    return False
-
-
 def reminder_form(bridge, turn) -> bool:
-    if turn.kind != "natural" or turn.intent.get("op") == "write":
+    # S41-11: only `/remind <free words>` (the intent `natural`, how "command") is read here; a reminder or a write said in words with no slash is read by the interpreter (L63)
+    if turn.kind != "natural":
         return False
-    if turn.intent.get("op") == "remind" and turn.intent.get("how") == "bare" and bridge.list_picks(turn.project, turn.chat, turn.intent["text"]):
-        return False          # LP-1: "a das 15h" right after a list of events answers the list; it is no reminder with no words (the line goes on to `say`, where `event-list-number` takes it)
     return bool(bridge.remind.natural(turn.project, turn.chat, turn.intent))
-
-
-def say_natural(bridge, turn) -> bool:
-    if turn.kind == "natural":
-        bridge.say(turn.project, turn.chat, turn.intent["text"])
-        return True
-    return False
 
 
 def reminders_list(bridge, turn) -> bool:
@@ -542,11 +527,20 @@ def delete_refusal_before_queue(bridge, turn) -> bool:
 
 
 def closed_form_without_slot(bridge, turn) -> bool:
-    found = None if turn.text.lstrip().startswith("/") else natural.match(turn.text)
-    if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
+    found = None if turn.text.lstrip().startswith("/") else natural.decision(turn.text)
+    if found is not None:      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
         bridge.start(turn.project, turn.chat, found["op"], bridge.line(turn.project, turn.chat, turn.text, None))
         return True
     return False
+
+
+def decide_without_slot(bridge, turn) -> bool:
+    # A11-2 (S41-11, SPEC-S41-11-BRAKE): a plain line of a sender who holds `interpret` (or a brake form of any sender) is decided in a job that takes no model slot, so a brake said in words works while the planning agent answers.
+    # Only a line the decision hands back (with a route pass) goes on to `say-queue`, in a second job.
+    if turn.text.lstrip().startswith("/") or not turn.text.strip() or not (bridge.reads_words(turn.project, turn.chat) or bridge.brake_form(turn.text)):
+        return False      # a sender the interpreter does not read is decided only when the line is a brake form: its typed hint is answered at once (review C1-a)
+    bridge.decide(turn.project, turn.chat, turn.text)
+    return True
 
 
 def say_queue(bridge, turn) -> bool:
@@ -557,10 +551,10 @@ def say_queue(bridge, turn) -> bool:
 ROWS = {
     "drop-unlisted": drop_unlisted, "drop-invalid-attachments": drop_invalid_attachments, "ignore": ignore, "forwarded-refusal": forwarded_refusal, "reply-to-card": reply_to_card,
     "frame": frame, "project-switch": project_switch, "help-in-words": help_in_words,
-    "attachment-line": attachment_line, "attachment-arrived": attachment_arrived, "attachment-typed": attachment_typed, "remind-typed": remind_typed, "write-form": write_form,
-    "reminder-form": reminder_form, "say-natural": say_natural, "reminders-list": reminders_list, "forget-typed": forget_typed, "tap": tap, "usage": usage, "help-typed": help_typed,
+    "attachment-line": attachment_line, "attachment-arrived": attachment_arrived, "attachment-typed": attachment_typed, "remind-typed": remind_typed,
+    "reminder-form": reminder_form, "reminders-list": reminders_list, "forget-typed": forget_typed, "tap": tap, "usage": usage, "help-typed": help_typed,
     "project-typed": project_typed, "pending-typed": pending_typed, "decision-typed": decision_typed, "reply": reply, "say": say,
-    "delete-refusal-before-queue": delete_refusal_before_queue, "closed-form-without-slot": closed_form_without_slot, "say-queue": say_queue,
+    "delete-refusal-before-queue": delete_refusal_before_queue, "closed-form-without-slot": closed_form_without_slot, "decide-without-slot": decide_without_slot, "say-queue": say_queue,
 }
 
 

@@ -159,6 +159,22 @@ class Reminders:
             bridge.reply(chat, sentence, project)
         self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
 
+    def shared(self, chat: str):
+        """The question the interpreter's carry-out left for this chat in the store of drafts (S41-11), or None. Its owner is `remind`; the bridge holds no copy."""
+        return drafts.get("messaging", self.bridge.key(chat), "remind")
+
+    def ask_yes_shared(self, project: dict, chat: str, sentence: str) -> bool:
+        """Send the question of the shared draft with the one-tap Yes button and bind the message to it (review C2-d). False when the platform has no buttons or the send failed: the plain question goes."""
+        bridge = self.bridge
+        draft = self.shared(chat)
+        if draft is None or draft.get("need") not in ("confirm", "forget"):
+            return False
+        bridge.last_message.pop(chat, None)
+        if not bridge.ask_yes(project, chat, sentence):
+            return False
+        draft["message_id"] = bridge.last_message.get(chat)
+        return True
+
     def tapped(self, project: dict, chat: str, card: dict) -> None:
         """A tap on the "Yes" button of a question about a reminder: the same as the typed "yes", for the question the button belongs to. A button of a question that is
         no longer the open one (answered, replaced, expired, lost on a restart) is told so."""

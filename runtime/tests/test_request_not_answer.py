@@ -30,6 +30,9 @@ from test_messaging_queue import settle
 from test_router_question_phone import LINE, TEMPLATE, chat_tree, phone  # noqa: F401  (the bridge over the chat tree, with a stand-in router)
 from test_router_question_stale import ANSWER, OWNER, STAFF, Wall, ask, open_questions, states, wall  # noqa: F401
 from test_sender_profiles import POLICIES, accept
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -124,25 +127,6 @@ def test_a_command_of_the_table_is_never_the_answer_with_or_without_the_rule(pho
     monkeypatch.setattr(ops_natural, "recognises", old_rule)
     question, said = served(phone, wall, "/pending")
     assert said[0].startswith(LISTING) and TAKEN.format(id=question["id"]) not in said[0]
-    unchanged(phone, question)
-
-
-def test_a_reminder_in_words_is_served_and_so_is_the_list_of_reminders_and_the_question_is_untouched(phone, wall):
-    """The bridge reads a reminder before `say`: the question is not consulted. The sender holds `reminders` (a group of this test's profile)."""
-    policies = {**POLICIES, "owner": [*POLICIES["owner"], "reminders"]}
-    accept(phone.path, language="pt-BR", policies=policies, channels={"messaging": "staff"},
-           messaging={"senders": {"telegram": [{"id": OWNER, "policy": "owner"}, {"id": STAFF, "policy": "staff"}]}, "notices": "text"})
-    reply(phone.tree, TEMPLATE)
-    phone.say(OWNER, LINE)
-    [question] = open_questions(phone)
-    wall.later(300)
-    before = len(phone.texts(OWNER))
-    phone.say(OWNER, "me lembra amanhã às 10 de X")  # validate: allow english-only -- a line the person types in Portuguese
-    phone.say(OWNER, "meus lembretes")  # validate: allow english-only -- a line the person types in Portuguese
-    first, second = phone.texts(OWNER)[before:]
-    assert first.startswith(WHICH_TIME) and "às 10:00" in first, first  # validate: allow english-only -- the Portuguese sentence under test
-    assert second == NO_REMINDERS, "the reminder is not made until the time is chosen"
-    assert not any(TAKEN.format(id=question["id"]) in t for t in phone.texts(OWNER)[before:])
     unchanged(phone, question)
 
 
@@ -263,22 +247,6 @@ def test_the_live_line_is_served_as_the_calendar_list_by_code_with_no_model_call
     assert rig.calls == [], "no model call"
     assert bound(rig) == pending_id and ops.pending(rig.world["path"], pending_id)["status"] == "open"
     assert natural_writes.items_kind("mostra minha agenda") == "calendar"  # validate: allow english-only -- the line of the live case
-
-
-def test_vacuity_without_the_calendar_forms_the_live_line_costs_a_call_and_a_model_that_says_answer_takes_it(rig):
-    pending_id, _ = ask_frame(rig)
-    spy_routes(rig)
-    spy_runs(rig)
-    without_the_calendar_forms(rig.monkeypatch)
-    rig.says["text"] = text("answer", answers_item="i1")
-    out = say_as(rig, "owner", "mostra minha agenda")  # validate: allow english-only -- the line of the live case
-    assert len(rig.calls) == 1 and out["reply"].startswith("I took that as the answer") and [row.get("run") for row in rig.spy] == [None]
-
-
-def test_vacuity_a_sender_the_interpreter_does_not_read_has_the_live_line_taken_as_the_answer_without_the_forms(phone, wall, monkeypatch):
-    without_the_calendar_forms(monkeypatch)
-    question, said = served(phone, wall, "mostra minha agenda")  # validate: allow english-only -- the line of the live case
-    assert said[0].startswith(TAKEN.format(id=question["id"]))
 
 
 def test_a_line_the_interpreter_maps_to_an_operation_is_served_and_the_question_stays_open_in_one_call(rig):

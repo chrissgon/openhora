@@ -13,6 +13,7 @@ import json
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import rows  # noqa: F401
 from test_files_write import OTHER, PDF, SENDER, hold, item_of, register, seed_drive, world  # noqa: F401  (the files world)
 from test_reminders import Clock
@@ -160,10 +161,10 @@ def test_a_profile_without_files_write_gets_the_typed_sentence(world, clock, spy
 @pytest.mark.parametrize("channel, carried", [(None, "terminal"), ("page", "page")])
 def test_a_new_file_opens_its_card_from_the_terminal_shell_and_the_page_with_the_real_carrying_channel(world, clock, spy, channel, carried):
     policy(world)
-    reply = ops.say(world["path"], "cria um arquivo chamado ideias.md no drive com o texto: comprar tinta azul", channel=channel)["reply"]
+    reply = ops.natural_write(world["path"], "cria um arquivo chamado ideias.md no drive com o texto: comprar tinta azul", channel=channel or "terminal")["reply"]      # S41-11: no plain line is claimed on a shell any more: the card is opened through the writes' entry with the carrying channel
     assert OPEN in reply and spy and spy[-1][2]["channel"] == carried and spy[-1][1]["operation"] == "create"
     held = hold(world, sender="830461975213")
-    saved = ops.say(world["path"], "salva o anexo %d no drive" % held, channel=channel)["reply"]
+    saved = ops.natural_write(world["path"], "salva o anexo %d no drive" % held, channel=channel or "terminal")["reply"]
     assert OPEN in saved and spy[-1][1]["operation"] == "save" and spy[-1][2]["channel"] == carried
 
 

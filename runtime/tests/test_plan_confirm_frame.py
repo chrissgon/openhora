@@ -17,6 +17,9 @@ from test_interpret_router_frame import FIRST, QUESTION, SECOND, TOKEN
 from test_ops_natural import router_says
 
 import standin_tree as st
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops_research = st.load("ops_research")
 LINE = "will it rain in Lisbon, weather in Lisbon tomorrow"

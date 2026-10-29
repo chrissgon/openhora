@@ -196,6 +196,7 @@ QUEUE_EXPIRED = phrases.en("QUEUE_EXPIRED")
 QUEUE_STOPPED = phrases.en("QUEUE_STOPPED")
 QUEUE_WAIT = 1800     # seconds a line may wait for the project
 QUEUE_PER_CHAT = 1    # waiting lines of one chat
+TURN_WAIT = 30.0      # seconds a decide leg waits for the earlier lines of its chat to be decided (S41-11): a bound, never a reason to hold a line for good
 QUEUE_PER_PROJECT = 5
 QUEUE_RETRY = 1.0     # seconds before a line that met `RunBusy` is started again
 QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits out a `RunBusy` pause (a held slot is looked at when its job ends)
@@ -325,6 +326,8 @@ class Bridge(shell_kit.Jobs):
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
+        self.turn_lock = threading.Condition()   # S41-11: the decide legs of one chat run in the order the lines came (`decide`): the number last issued and the next to run, by chat
+        self.turn_taken, self.turn_next = {}, {}
         self.drain_lock = threading.Lock()    # one drain at a time, so that lines start in order
         self.scope = threading.local()        # the languages read for the update, the tick or the drain being handled on this thread (`read_once`)
         self.session_ready = None             # a listen provider: whether its session is ready (the loop sets it); no waiting line starts while it is not
@@ -1539,8 +1542,51 @@ class Bridge(shell_kit.Jobs):
         a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
         messaging_turn.dispatch(self, messaging_turn.Turn(project=project, chat=chat, text=text), stage="bridge-say")      # the order of the claims made before a line is queued: `turn_order.ORDER`, stage `bridge-say`
 
-    def say_queue(self, project: dict, chat: str, text: str) -> None:
-        """The last row of the stage `bridge-say`: the line is started, or kept in the queue of the project (BQ-1), as `say` always did once nothing before it took the line."""
+    def reads_words(self, project: dict, chat: str) -> bool:
+        """S41-11: whether a plain line of this chat's sender is decided first, with no slot (the group `interpret`; the operations layer decides). False for an operations object that cannot say, or
+        on a fault: the restrictive default is today's single leg."""
+        found = getattr(self.ops, "reads_words", None)
+        if found is None:
+            return False
+        try:
+            return bool(found(project["path"], self.key(chat)))
+        except self.ops.OpsError:
+            return False
+
+    def brake_form(self, text: str) -> bool:
+        """S41-11 (review C1-a): whether a plain line is a brake said in a closed form (`natural.match` reads it, read only: an operation of `operations.LINE_BRAKES`). A sender the interpreter does
+        not read is decided on such a line too, so that its brake gets the typed hint at once and is never queued behind the run it should stop."""
+        found = natural.match(text) if isinstance(text, str) else None
+        return found is not None and found["op"] in self.ops.operations.LINE_BRAKES
+
+    def decide(self, project: dict, chat: str, text: str) -> None:
+        """The first leg of a plain line of a sender whom the interpreter reads (A11-2, SPEC-S41-11-BRAKE): a job that takes no model slot, run behind the earlier lines of this chat (a plan or a draft
+        changes in the order the lines came). Everything that takes the line answers from it; a line nothing takes comes back (`line` sees `to_agent`) and is queued for the agent's turn."""
+        with self.turn_lock:
+            self.turn_taken[chat] = number = self.turn_taken.get(chat, 0) + 1
+        inner = self.line(project, chat, text, None, decide=True)
+
+        def call():
+            with self.turn_lock:
+                self.turn_lock.wait_for(lambda: self.turn_next.get(chat, 1) == number or self.stopping.is_set(), timeout=TURN_WAIT)
+            try:
+                inner()
+            finally:
+                with self.turn_lock:
+                    self.turn_next[chat] = max(self.turn_next.get(chat, 1), number + 1)
+                    self.turn_lock.notify_all()
+        try:
+            self.start_job(project["id"], "say", self.inherit(call), slot=False)
+        except BaseException as e:      # a job that does not start leaves no number behind: the lines after it must not wait for it
+            with self.turn_lock:
+                self.turn_next[chat] = max(self.turn_next.get(chat, 1), number + 1)
+                self.turn_lock.notify_all()
+            if not isinstance(e, shell_kit.Stopping):
+                raise
+
+    def say_queue(self, project: dict, chat: str, text: str, route_pass=None) -> None:
+        """The last row of the stage `bridge-say`: the line is started, or kept in the queue of the project (BQ-1), as `say` always did once nothing before it took the line. `route_pass` is the pass the
+        decide leg handed back with the line (S41-11): the route leg carries it, so that the interpreter is not asked a second time."""
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return
@@ -1549,7 +1595,7 @@ class Bridge(shell_kit.Jobs):
         held = False
         if not mine:
             try:
-                self.start_job(project["id"], "say", self.inherit(self.line(project, chat, text, None)))
+                self.start_job(project["id"], "say", self.inherit(self.line(project, chat, text, None, route_pass=route_pass)))
                 return
             except shell_kit.Busy:
                 held = True
@@ -1558,7 +1604,7 @@ class Bridge(shell_kit.Jobs):
         # beyond the caps the line gets the sentence it always got: the router's when the lines only wait out a `RunBusy` pause, else the slot's
         now = self.monotonic()
         busy_elsewhere = bool(mine) and not held and all(e["after"] > now for e in mine)
-        self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING")
+        self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING", route_pass=route_pass)
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
 
     def repeat_scope(self, project: dict, chat: str):
@@ -1587,16 +1633,6 @@ class Bridge(shell_kit.Jobs):
         """Whether a plain line answers the chat's open question about a write (the operations layer decides: `natural_needs` names the draft's operation then)."""
         try:
             return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL) is not None
-        except self.ops.OpsError:
-            return False
-
-    def list_picks(self, project: dict, chat: str, text: str) -> bool:
-        """Whether the chat's live list of events would take a plain line as a pick by an ordinal word or by a value the list shows (LP-1: "a última", "a das 15h"); the operations layer decides."""
-        found = getattr(self.ops, "event_list_picks", None)          # an operations object without it (a test's) has no list
-        if found is None:
-            return False
-        try:
-            return bool(found(project["path"], text, self.key(chat)))
         except self.ops.OpsError:
             return False
 
@@ -1654,12 +1690,13 @@ class Bridge(shell_kit.Jobs):
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
 
-    def line(self, project: dict, chat: str, text: str, entry, plan_ok=None, allow_as=None):
+    def line(self, project: dict, chat: str, text: str, entry, plan_ok=None, allow_as=None, decide=False, route_pass=None):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting
         list when the run begins. The policy is read by `run_op` now; a kept line also needs the project to be accepted and its sender still listed in
         it, else it is dropped with no reply, as an update from an unlisted sender is. `plan_ok` ({"item", "sha256"}, D5) makes the call the confirmed run of the plan those name,
         which only the kind `plan-confirm` (through `plan_decide`) and `plan_tapped` pass after they read the person's OK; `allow_as` is then the plan's operation, whose group the policy is asked for (the operations
-        layer asks it again) in place of `self.needs`."""
+        layer asks it again) in place of `self.needs`. `decide` (S41-11) runs the first leg of a plain line: a result that comes back with `to_agent` is queued (`say_queue`, with the route pass) and nothing is
+        said; `route_pass` is the second leg's pass."""
         def call():
             if entry is not None:
                 self.leave(entry)
@@ -1681,13 +1718,17 @@ class Bridge(shell_kit.Jobs):
                         shown = None
                     acked = self.ack_begin(project, chat, seen)      # S19: one short sentence if the reply takes more than a moment
                     if plan_ok is None:
-                        result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
+                        legs = ({"decide": True} if decide else {}) | ({"route_pass": route_pass} if route_pass is not None else {})
+                        result = self.run_op(project, "say", kind="interpret" if decide and self.reads_words(project, chat) else None, sender=chat, allow_as=self.needs(text, project, chat), text=text, **legs, **self.send_arguments())      # review C1-b: leg 1 asks the policy with the kind `interpret`, so that `interpret` alone reaches the decision (the refusal after it is the operations layer's, decision #6)
                     else:
                         result = self.run_op(project, "say", sender=chat, allow_as=allow_as, text=text, plan_ok=plan_ok, **self.send_arguments())
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
                     self.ack_end(acked)
+                if result.get("to_agent"):      # S41-11: the decide leg handed the line back: the route leg, with its pass, as `say_queue` always did (nothing was stored, nothing is said)
+                    self.say_queue(project, chat, text, route_pass=result["to_agent"])
+                    return
                 planned = result.get("plan_confirm")
                 if isinstance(planned, dict):      # the reply is the question "Posso?" of a plan (D5): it is sent with its buttons and bound in the ledger
                     self.ask_plan(project, chat, result.get("reply") or "", planned)
@@ -1713,6 +1754,8 @@ class Bridge(shell_kit.Jobs):
                     self.keep_cards(chat, said, project)
                     return
                 self.scope.replied = None
+                if result.get("ask_yes") and result.get("attachment") is None and not carded and self.remind.ask_yes_shared(project, chat, said):
+                    return      # review C2-d: a reminder question of the interpreter's carry-out goes with the one-tap Yes button and is bound in the ledger
                 attached, why = self.file_to_send(project, chat, result.get("attachment"))
                 if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
                     said = self.t("FS_RIGHT_CHANGED", project=project)
@@ -1834,7 +1877,7 @@ class Bridge(shell_kit.Jobs):
             self.resent[key] = now
         return bool(sent)
 
-    def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
+    def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str, route_pass=None) -> None:
         """Keep the line and say so, or say `refusal` (the phrase table's key of the sentence the line always got when the project was busy: `RUN_BUSY` or
         `STILL_WORKING`). A sender whose policy refuses the line is told so now, and nothing is kept for it."""
         try:
@@ -1845,9 +1888,9 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             self.reply(chat, self.t(refusal, project=project), project)
             return
-        self.reply(chat, self.t("QUEUED" if self.keep(project, chat, text) else refusal, project=project), project)
+        self.reply(chat, self.t("QUEUED" if self.keep(project, chat, text, route_pass=route_pass) else refusal, project=project), project)
 
-    def keep(self, project: dict, chat: str, text: str, entry=None, retry: bool = False) -> bool:
+    def keep(self, project: dict, chat: str, text: str, entry=None, retry: bool = False, route_pass=None) -> bool:
         """Keep a line in memory for the project. A new line (no `entry`) is kept when the bridge is not stopping, the chat has none waiting and the
         project has fewer than QUEUE_PER_PROJECT; `entry` puts a line that was started and met a busy router back where it was. `retry` makes it wait
         QUEUE_RETRY seconds before it is started again. True when the line is kept. Nothing about the line is logged beyond a count."""
@@ -1859,7 +1902,7 @@ class Bridge(shell_kit.Jobs):
                         or sum(1 for e in self.waiting if e["project"]["id"] == project["id"]) >= QUEUE_PER_PROJECT:
                     return False
                 self.ticket += 1
-                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0, "starting": False}
+                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0, "starting": False, "route_pass": route_pass}
             if retry:
                 entry["after"] = self.monotonic() + QUEUE_RETRY
             self.waiting.append(entry)
@@ -1897,7 +1940,7 @@ class Bridge(shell_kit.Jobs):
                         oldest["starting"] = True
                     try:
                         with self.sentences_for(oldest["chat"], oldest["project"]):      # TT-2: the job says its sentences in the language of the chat's sender
-                            job = self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest))
+                            job = self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest, route_pass=oldest.get("route_pass")))
                         self.start_job(oldest["project"]["id"], "say", job)
                     except shell_kit.Stopping:
                         self.leave(oldest)

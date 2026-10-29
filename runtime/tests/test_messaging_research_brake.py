@@ -22,6 +22,9 @@ from test_research import (ASKER, ASKER_KEY, LINE_1, RESEARCH_PROFILES, RESEARCH
 from test_service import WAIT
 from test_messaging import SENDER, world as card_world  # noqa: F401  (the stand-in bridge world of test_messaging.py, under another name: this module's `world` is the real one)
 from test_messaging_card_words import GRANTED, decided, plan
+from closed_heads import words_interpreted  # noqa: F401  (S41-11: the line "mostra minha agenda" that asks the plan question is read by the interpreter's stand-in)
+
+pytestmark = pytest.mark.usefixtures("words_interpreted")
 
 ack = st.load("messaging_ack")
 bridge = st.load("messaging_bridge")
@@ -135,8 +138,24 @@ def test_a_yes_that_follows_the_kit_ask_starts_the_search_even_when_the_job_that
     assert t("STILL_WORKING") not in brig.texts(ASKER)
 
 
+def test_a_yes_sent_the_moment_the_question_is_bound_is_not_refused_as_still_working_when_the_line_was_decided_without_a_slot(brig, monkeypatch):
+    """S41-11 (A11-2): the line of a sender the interpreter reads is decided in a job that takes no model slot, so a yes that comes while that job has not ended meets no busy project: the search begins."""
+    slow_to_end(monkeypatch)
+    brig.search.arm()
+    brig.say(LINE_1, sender=ASKER)
+    assert wait_for(lambda: brig.question_id(ASKER) is not None), "the question was bound"
+    brig.say("sim", sender=ASKER)
+    assert brig.search.started.wait(HELD), "the search began after the OK"
+    assert t("STILL_WORKING") not in brig.texts(ASKER)
+
+
 def test_vacuity_a_yes_sent_the_moment_the_question_is_bound_is_refused_as_still_working_and_no_search_begins(brig, monkeypatch):
-    """The sensitivity of the test above: the same slow job, and the yes sent as soon as the ledger holds the question (what `ask` did before it waited)."""
+    """The sensitivity of the test above: with the row `decide-without-slot` out of the table the line takes the project's slot as it did, and the yes sent as soon as the ledger holds the question
+    (what `ask` did before it waited) meets the job that has not ended."""
+    import closed_heads
+    turn_order = st.load("turn_order")
+    monkeypatch.setattr(turn_order, "names", lambda stage, real=turn_order.names: tuple(n for n in real(stage) if n != "decide-without-slot"))
+    monkeypatch.setattr(bridge.Bridge, "handle", closed_heads.REAL_HANDLE[-1])      # the bridge is not waited for after a line: this test is about the moment
     slow_to_end(monkeypatch)
     brig.search.arm()
     brig.say(LINE_1, sender=ASKER)

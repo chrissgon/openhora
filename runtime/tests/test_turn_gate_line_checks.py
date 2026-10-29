@@ -322,7 +322,7 @@ def test_the_stored_row_of_a_reminder_and_of_a_write_is_the_neutral_word(world):
     assert ops_natural.stored_line(ctx, PRIVATE_WRITE) == phrases.text("NAT_PRIVATE_LINE", ctx["cfg"]) != PRIVATE_WRITE
     assert ops_natural.stored_line(ctx, "what files do you have?") == "what files do you have?"
     writing = PRIVATE_WRITE_PT
-    assert ops_natural.natural_writes().candidate(writing) is not None
+    assert turn_gate.private_kind(writing) == "write"      # S41-11: the families' claim (`natural_writes.candidate`) is gone; the gate's words say what the line is
     assert ops_natural.stored_line(ctx, writing) == phrases.text("NW_PRIVATE_LINE", ctx["cfg"]) != writing
 
 
@@ -331,8 +331,7 @@ def test_a_newly_private_write_line_is_stored_as_a_request_to_the_accounts_not_a
     write's neutral word, never as "(a reminder)"; a reminder keeps its own."""
     ctx = ops_core.context(world["path"])
     line = "cancel event 2 on my calendar"
-    assert not natural.private(line) and ops_natural.natural_writes().candidate(line) is None
-    assert turn_gate.private_kind(line) == "write"
+    assert turn_gate.private_kind(line) == "write"      # S41-11: the old detector and the families' claim are gone; the gate's words alone say it
     assert ops_natural.stored_line(ctx, line) == phrases.text("NW_PRIVATE_LINE", ctx["cfg"]) != phrases.text("NAT_PRIVATE_LINE", ctx["cfg"])
     assert turn_gate.private_kind(PRIVATE_REMINDER) == "reminder"
     assert ops_natural.stored_line(ctx, PRIVATE_REMINDER) == phrases.text("NAT_PRIVATE_LINE", ctx["cfg"])

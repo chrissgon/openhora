@@ -54,15 +54,13 @@ ORDER = _rows("bridge", (
     # the frame: a line that answers what is open, before any line is read as a new request: ONE row, the dispatcher over the pending kinds (FRAME_KINDS below)
     ("frame", "A line that answers something that is open (a question about a reminder or a write, the OK of a plan, a word on a decision card, the stop of a search, a change of the card that waits) is taken by the first of the pending kinds, in the order of FRAME_KINDS, that reads it (S41-8; PLAN-BRAIN section 3)."),
     ("project-switch", "\"Change to the project X\", the typed /project said in words (S20)."),
-    ("help-in-words", "\"help\" in words is the typed /help (the fixed list), unless the line is a greeting the sender may talk to (S5)."),
+    ("help-in-words", "\"help\" in words is the typed /help (the fixed list), unless the line is a greeting the sender may talk to (S5). Its closed forms are the module greeting.py's (S41-11)."),
     ("attachment-line", "A line about the file just sent: discard it, add it to the project (ATT-3)."),
     # one row for each kind of line the parse returns
     ("attachment-arrived", "A file arrived (ATT-1b)."),
     ("attachment-typed", "/add <n> and /discard <n> (ATT-1b)."),
     ("remind-typed", "/remind <time> <text> in the strict grammar (RM-1)."),
-    ("write-form", "A write to the person's accounts said in words, a form the parse read before any reminder (NR-5)."),
-    ("reminder-form", "A reminder or its listing or removal said in words, done by code with no model (NR-1)."),
-    ("say-natural", "Any other natural line goes to `say`."),
+    ("reminder-form", "`/remind <free words>`, the one natural intent left (S41-11): done by code with no model (NR-1). A reminder said in words with no slash is read by the interpreter."),
     ("reminders-list", "/reminders (RM-1)."),
     ("forget-typed", "/forget <n> (RM-1)."),
     ("tap", "A tap on a button (a card or a question)."),
@@ -75,8 +73,9 @@ ORDER = _rows("bridge", (
     ("say", "Every other line goes to `say`. This row always takes the line."),
 )) + _rows("bridge-say", (
     ("delete-refusal-before-queue", "A request to delete a file is answered at once, before any queue, run or model, when the sender may talk and may not move a file to the trash (S14b)."),
-    ("closed-form-without-slot", "A decision or an act said in a closed form is answered by code and started without a model slot, so that a brake said in words works while the planning agent answers (S20)."),
-    ("say-queue", "The line goes to the planning agent: started, or kept in the queue of the project (BQ-1). This row always takes the line."),
+    ("closed-form-without-slot", "A decision said in a closed form (approve, reject, release, answer, go-ahead: the maintainer keeps these closed readings, 2026-10-28) is answered by code and started without a model slot, as the typed /reject is (S20, S41-11)."),
+    ("decide-without-slot", "A plain line of a sender who holds `interpret` is decided in a job that takes no model slot: every row of code and the interpreter run, a brake said in words is answered at once, and only a line handed back with a route pass goes on (A11-2, 2026-10-28)."),
+    ("say-queue", "The line goes to the planning agent: started, or kept in the queue of the project (BQ-1), or handed back by `decide-without-slot` with its route pass. This row always takes the line."),
 )) + _rows("ops", (
     # before the line is stored: the OK of a plan runs out of the dispatch of the turn (`ops_turn.confirmed`)
     ("confirmed-plan", "The OK of a plan the operations layer asked (`plan_ok`, passed by the bridge after it read the yes under L64's conditions, or the Yes button) runs that plan once and nothing else; no model reads the line (L65).", MESSAGING),
@@ -92,11 +91,13 @@ ORDER = _rows("bridge", (
     ("draft-answer", "The line that answers the sender's live draft (a question about a reminder, about a write to the person's accounts, or the choice of a file); any other line drops the draft and goes on (NR-1, NR-5).", EVERY_SHELL),
     ("event-list-number", "A number said right after a list of events means that entry (S11).", MESSAGING),
     ("file-list-number", "A number said right after a list of files picks that file (S17).", MESSAGING),
-    ("write-form-ops", "A write to the person's accounts said in words opens the card of its exact content and writes nothing (NR-5, L61).", NOT_MCP),
-    ("tier-1-form", "A tier-1 form, a closed whole-line form of the table of natural requests, is executed by `ops_natural.run` and checked exactly as the typed command is (L54).", EVERY_SHELL),
+    ("tier-1-form", "A decision said in a closed whole-line form (the D operations: the one closed reading of the table of natural requests that code keeps, 2026-10-28) is executed by `ops_natural.run` and checked exactly as the typed command is (L54). A write, a reminder, a read or an act said in words is read by the interpreter.", EVERY_SHELL),
     # what no list of code took
-    ("talk-refusal", "A sender who may not talk, and whose line no form of code took, gets the refusal of the typed `talk`, never the router.", EVERY_SHELL),
-    ("interpreter", "A plain line of a messaging sender whom the interpreter reads, which no list of code took, is read by the natural-language interpreter: messaging only, the documentation of `ops_interpret.enabled` (L63(1)).", MESSAGING),
+    ("talk-refusal", "A sender who may not talk, whom the interpreter does not read, and whose line no form of code took, gets the refusal of the typed `talk`, never the router.", EVERY_SHELL),
+    ("interpreter", "A plain line of a messaging sender whom the interpreter reads, which no list of code took, is read by the natural-language interpreter: messaging only, the documentation of `ops_interpret.enabled` (L63(1)). A route pass of the decide leg stands for its decision.", MESSAGING),
+    ("talk-refusal-after-interpreter", "A sender whom the interpreter reads and who may not talk gets the refusal of the typed `talk` for a line the interpreter sent to the router (a `route` decision), never the router; the reads and acts the interpreter chose were asked with \"Posso?\" before (S41-11, L63, L65).", MESSAGING),
+    ("route-pass", "In the decide leg, a line no row took is handed back unrouted with a route pass; with no model decision a brake form gets the typed hint and is never queued (A11-2).", MESSAGING),
+    ("typed-private-line", "A reminder or a write said in words by a sender whom the interpreter does not read gets the typed-command sentence and goes to no model: nothing of it is routed (the maintainer, 2026-10-28).", MESSAGING),
     ("planning-agent", "Every other line goes to the planning agent, or is the answer to its open question. This row always takes the line.", EVERY_SHELL),
 ))
 
@@ -116,6 +117,8 @@ FRAME_KINDS = (
 # A row that left the table: {"name", "replaced_by", "date"} (filled by S41-8 and S41-11; L63(3) names the replacement in its row, in the sentence "Replaced so far", and a test reads it there).
 # `s20-verb-lists` is a claimer that left before the table existed: the closed verb lists of slice S20, replaced by the plan-confirm OK of L65 (2026-10-24).
 FRAME_REPLACEMENT = "frame (runtime/turn_order.py FRAME_KINDS, the one dispatcher of PLAN-BRAIN §3)"
+INTERPRETER_REPLACEMENT = "the interpreter (L63), its decision carried out by the same family resolvers and dispatcher"
+SAY_REPLACEMENT = "the row say (the one natural intent left, a typed /remind with free words, is taken by reminder-form; any other line goes to say as the row said)"
 RETIRED: tuple = (
     {"name": "s20-verb-lists", "replaced_by": "the plan-confirm OK of L65", "date": "2026-10-24"},
     {"name": "reminder-draft-answer", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
@@ -125,6 +128,9 @@ RETIRED: tuple = (
     {"name": "card-word", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
     {"name": "research-stop", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
     {"name": "card-revise", "replaced_by": FRAME_REPLACEMENT, "date": "2026-10-26"},
+    {"name": "write-form", "replaced_by": INTERPRETER_REPLACEMENT, "date": "2026-10-28"},
+    {"name": "write-form-ops", "replaced_by": INTERPRETER_REPLACEMENT, "date": "2026-10-28"},
+    {"name": "say-natural", "replaced_by": SAY_REPLACEMENT, "date": "2026-10-28"},
 )
 
 

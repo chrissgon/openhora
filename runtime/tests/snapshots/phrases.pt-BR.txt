@@ -422,7 +422,11 @@ IX_CANNOT_WRITE: Entendi que você quer mudar algo nas suas contas, mas não con
 IX_LONG_LINE: Essa mensagem é longa demais para eu ler aqui. Envie em partes menores.
 IX_NONE: Não vi um pedido nessa mensagem.
 IX_OUTAGE: Não consegui entender agora. Tente de novo em alguns minutos.
+IX_OUTAGE_BRAKE: Não consigo ler frases agora. Para fazer isso agora, digite /pending.
 IX_PRIVATE_LINE: (uma mensagem)
+IX_TYPE_BRAKE: Não leio frases para você. Para fazer isso agora, digite /pending.
+IX_TYPE_REMIND: Não leio frases para você. Para criar um lembrete, digite /pending.
+IX_TYPE_WRITE: Não leio frases para você. Escrever na sua agenda, no seu e-mail ou nos seus arquivos se faz digitando o comando, ou na página da plataforma.
 IX_WRITE_LANGUAGE: Por enquanto, peça isso em português ou em inglês.
 KIND_ACCEPTANCE: aceite
 KIND_EFFECT: pedido

@@ -41,6 +41,9 @@ from test_channel_grants import accept
 sys.path.insert(0, str(st.REPO / "providers" / "mailer" / "tests"))
 import fake_gmail_send as fgs  # noqa: E402  (providers/mailer/tests/fake_gmail_send.py: the stand-in for Gmail)
 import fake_graph_send as fgg  # noqa: E402  (providers/mailer/tests/fake_graph_send.py: the stand-in for Graph)
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")

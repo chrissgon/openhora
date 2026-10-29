@@ -77,6 +77,15 @@ WORDS = {
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 _COMPILED = {}
 
+# S41-11: the closed forms of "help in words" that the fixed list of commands answers (the row `help-in-words` of runtime/messaging_turn.py), moved here from `requests.forms.commands` of the language
+# tables (runtime/natural_lang_pt_br.py, natural_lang_en.py), which keep the key until the tables' deletion. Each is a whole-line form over normal(): words, groups `( )`, `|` and `?`, nothing open.
+HELP_FORMS = (
+    r"ajuda", r"(que|quais) (comandos|coisas) (voce|vc) (tem|sabe fazer|faz|entende)", r"o que (voce|vc) (sabe|consegue|pode) fazer", r"como (eu )?(uso|usar)( isso| voce)?",  # validate: allow english-only -- the closed Portuguese forms of help in words, language data
+    r"help( me)?", r"what can you do", r"what (commands|can i ask)( do you (have|know))?", r"how (do|can) i use (this|you)",
+)
+HELP_LINE_WORDS_MAX = 40      # as `natural.LINE_WORDS`: a longer line is a request, not a form
+_HELP_COMPILED = []
+
 
 def normal(line: str) -> str:
     """The line in lower case, accents off ("ss" for the German sharp s), every other character (punctuation, emoji) a space, blanks collapsed."""
@@ -125,6 +134,19 @@ def is_greeting(line, language=None, helps=True) -> bool:
     if not flat or len(flat.split()) > LINE_WORDS_MAX:
         return False
     return _shape(language, helps).fullmatch(flat) is not None
+
+
+def help_form(line) -> bool:
+    """Whether the WHOLE line is one closed form of help in words (`HELP_FORMS`): the typed /help said in words, answered with the fixed list of commands to every listed sender (S41-11: the row
+    `help-in-words`; the decision of 2026-10-28 keeps it code). A slash line, a line with an address and an empty line are not."""
+    if not isinstance(line, str) or not line.strip() or line.startswith("/") or "@" in line:
+        return False
+    flat = normal(line)
+    if not flat or len(flat.split()) > HELP_LINE_WORDS_MAX:
+        return False
+    if not _HELP_COMPILED:
+        _HELP_COMPILED.extend(re.compile(form) for form in HELP_FORMS)
+    return any(form.fullmatch(flat) for form in _HELP_COMPILED)
 
 
 def as_question(line, language=None) -> bool:

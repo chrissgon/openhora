@@ -16,33 +16,14 @@ from test_messaging_queue import WAIT, clocked, planner, settle  # noqa: F401  (
 from test_messaging_reminders import WITH, day, listed  # noqa: F401  (the day fixture: a clock and a lab with a reminders profile)
 from test_sender_profiles import OWNER
 from test_sender_profiles_bridge import OTHER, lab  # noqa: F401  (the lab fixture)
+import pytest
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms", "words_interpreted")      # S41-11: every closed form claims a line in this file, as it did
 
 
 def open_rows(day):  # noqa: F811
     return sorted((r["id"], r["due"], r["text"]) for r in day.all()["open"])
-
-
-def test_a_line_in_a_language_with_no_table_is_shown_with_the_moment_that_was_read_and_nothing_is_made_until_the_person_says(day, planner):  # noqa: F811
-    portuguese(day)
-    day.say(OWNER, "rappelle-moi vendredi à 21h30 de payer l'électricité")      # validate: allow english-only -- a French line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Hoje, dom 18/10, às 21:30:") and day.texts(OWNER)[-1].endswith("sua agenda?")      # validate: allow english-only -- the expected Portuguese sentence
-    assert day.all()["open"] == []
-    day.say(OWNER, "sexta")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Sex 23/10 às 21:30:") and day.texts(OWNER)[-1].endswith("sua agenda?") and day.all()["open"] == [], "a line with no remind word of a table is also asked reminder or event"      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, "lembrete")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Lembrete #1: sex 23/10 às 21:30 (BRT):")      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
-
-
-def test_a_date_with_no_cue_is_read_shown_and_made_only_on_a_yes(day, planner):  # noqa: F811
-    day.say(OWNER, "remind me May 5 at 9am to pay rent")
-    assert day.texts(OWNER)[-1] == "I understood: Wed 05/05/2027 at 09:00: pay rent. Confirm? (yes / another time)" and day.all()["open"] == []
-    day.say(OWNER, "yes")
-    assert open_rows(day) == [(1, "2027-05-05 09:00", "pay rent")]
-    portuguese(day)
-    day.say(OWNER, "me lembra no Natal às 9h de ligar pra vó")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Entendi: 09:00 de hoje já passou: amanhã, seg 19/10, às 09:00:") and len(day.all()["open"]) == 1      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)
 
 
 def test_another_time_keeps_the_shown_day_for_an_hour_and_for_a_bare_hour(day, planner):  # noqa: F811
@@ -58,17 +39,6 @@ def test_another_time_keeps_the_shown_day_for_an_hour_and_for_a_bare_hour(day, p
     no_model(planner)
 
 
-def test_a_yes_with_a_new_hour_and_a_no_thanks(day, planner):  # noqa: F811
-    portuguese(day)
-    day.say(OWNER, pt.CONFIRM_OLEO)
-    say_yes(day, OWNER, "sim mas às 15h")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Lembrete #1: amanhã, seg 19/10, às 15:00 (BRT):")      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, pt.CONFIRM_OLEO)
-    day.say(OWNER, "nao obrigado")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.CANCELLED and len(day.all()["open"]) == 1
-    no_model(planner)
-
-
 def test_a_part_of_the_day_that_has_passed_is_shown_as_tomorrows(day, planner):  # noqa: F811
     day.say(OWNER, "remind me this morning at 9am to call")
     assert day.texts(OWNER)[-1] == "I understood: 09:00 today has passed: tomorrow, Mon 19/10, at 09:00: call. Confirm? (yes / another time)" and day.all()["open"] == []
@@ -77,27 +47,3 @@ def test_a_part_of_the_day_that_has_passed_is_shown_as_tomorrows(day, planner): 
     no_model(planner)
 
 
-def test_a_forget_with_no_noun_is_shown_and_confirmed_and_one_with_no_such_reminder_is_a_plain_line(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, pt.LINE_CLASS)
-    day.say(OWNER, "cancela #1")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.ASK_FORGET_ONE and open_rows(day)[0][0] == 1
-    day.say(OWNER, "não")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.KEPT and len(day.all()["open"]) == 1
-    day.say(OWNER, "cancela o 99")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert settle(day) and planner.texts() == ["cancela o 99"], "no such reminder: not a request about reminders, a plain line"      # validate: allow english-only -- the line above
-    day.say(OWNER, "cancela o lembrete n° 1")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1] == pt.FORGOT_ONE and day.all()["open"] == [], "an explicit number acts at once"
-
-
-def test_a_forget_by_numbers_alone_in_the_words_is_shown_and_a_name_acts(day, planner):  # noqa: F811
-    portuguese(day)
-    say_yes(day, OWNER, "me lembra amanhã às 9h de pagar a parcela 3")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    say_yes(day, OWNER, "me lembra amanhã às 10h de ligar pra floricultura")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    day.say(OWNER, "cancela o lembrete sobre 3")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Cancelar o lembrete #1:") and len(day.all()["open"]) == 2      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, "sim, cancela")      # validate: allow english-only -- a Portuguese answer, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Lembrete #1 cancelado:") and len(day.all()["open"]) == 1      # validate: allow english-only -- the expected Portuguese sentence
-    day.say(OWNER, "cancela o lembrete sobre floricultura")      # validate: allow english-only -- a Portuguese line, the case of the tests
-    assert day.texts(OWNER)[-1].startswith("Lembrete #2 cancelado:") and day.all()["open"] == [], "a name acts at once"      # validate: allow english-only -- the expected Portuguese sentence
-    no_model(planner)

@@ -34,6 +34,7 @@ import threading
 import time
 from pathlib import Path
 
+import closed_heads
 import standin_tree as st
 import test_calendar_write as tcw
 import test_sources_mail as tsm
@@ -71,6 +72,7 @@ interpreter_route = st.load("interpreter_route")
 mail_refresh = st.load("mail_refresh")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
+greeting = st.load("greeting")
 phone_delete = st.load("phone_delete")
 phrases = st.load("phrases")
 plan_confirm = st.load("plan_confirm")
@@ -95,7 +97,7 @@ PRESTATES = ("none", "card_last", "two_cards", "card_list_shown", "plan_last", "
              "router_question", "event_list_shown", "file_list_shown", "attachment_held", "config_unaccepted",
              "plan_then_card", "research_and_card", "route_busy", "route_busy_ask_choice",
              "expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held",
-             "question_of_other_project")      # the last two are the spec's list plus the two states the guards of L64 need: a plan live with a card sent after it, and a search that runs with a card last
+             "question_of_other_project", "slot_held", "interpreter_outage")      # the last two are the spec's list plus the two states the guards of L64 need: a plan live with a card sent after it, and a search that runs with a card last
 OPS_PRESTATES = ("none", "router_question", "write_draft_title", "reminder_draft", "route_busy", "route_busy_ask_choice")      # the pre-states a line of the page, the terminal, mcp or chat can be in
 OPS_CHANNELS = ("page", "terminal", "mcp", "chat")      # the shells whose line is given to ops.say with no sender (S41-1c adds mcp and chat); `reader_interpret` holds read and interpret, not talk, and is listed only in the worlds of its own scenarios
 REPLY_TO = (None, "card", "plan", "list", "question", "nothing")      # `nothing`: a message id that no message of the chat has
@@ -105,12 +107,18 @@ ACTIONS = (None, "yes", "no", "approve", "reject", "release", "invalid")      # 
 # The name of every claimer, as S41-2 (bridge) and S41-3 (operations) will name the rows of `turn_order.ORDER` (the two specs list them: they are asserted equal there).
 BRIDGE_NAMES = ("drop-unlisted", "drop-invalid-attachments", "ignore", "forwarded-refusal", "reply-to-card", "reminder-draft-answer", "reminder-expired-yes", "write-draft-answer",
                 "plan-confirm-word", "card-word", "research-stop", "card-revise", "project-switch", "help-in-words", "attachment-line", "attachment-arrived", "attachment-typed",
-                "remind-typed", "write-form", "reminder-form", "say-natural", "reminders-list", "forget-typed", "tap", "usage", "help-typed", "project-typed", "pending-typed",
+                "remind-typed", "reminder-form", "reminders-list", "forget-typed", "tap", "usage", "help-typed", "project-typed", "pending-typed",
                 "decision-typed", "reply", "say")
-BRIDGE_SAY_NAMES = ("delete-refusal-before-queue", "closed-form-without-slot", "say-queue")
+BRIDGE_SAY_NAMES = ("delete-refusal-before-queue", "closed-form-without-slot", "decide-without-slot", "say-queue")
 OPS_NAMES = ("confirmed-plan", "command", "greeting", "plan-bare-word", "delete-file", "router-question", "state-question", "draft-answer", "event-list-number", "file-list-number",
-             "write-form-ops", "tier-1-form", "talk-refusal", "interpreter", "planning-agent")
+             "tier-1-form", "talk-refusal", "interpreter", "talk-refusal-after-interpreter", "route-pass", "typed-private-line", "planning-agent")
 CLAIMER_NAMES = BRIDGE_NAMES + BRIDGE_SAY_NAMES + OPS_NAMES
+# S41-11: the rows the interpreter replaced. Their authored scenarios stay in the base corpus (the corpus is closed: a scenario is never removed), so `entry_corpus_build.CLAIMERS` keeps an entry for
+# each, but no row of the table has the name any more: after the re-record the trace of their lines holds `interpreter`, `planning-agent` or another row, never the retired name.
+RETIRED_CLAIMER_NAMES = ("write-form", "write-form-ops", "say-natural")
+# S41-11: the rows that stay but read fewer lines (a reminder or a write said in words is the interpreter's now): their authored takes of the base corpus are not expected to be taken by them any more,
+# and each still takes at least one scenario of the golden (`test_every_claimer_takes_at_least_one_scenario`).
+NARROWED_CLAIMER_NAMES = ("reply-to-card", "reminder-form", "closed-form-without-slot", "tier-1-form", "say-queue")
 # S41-8: the seven claimers that answered what is open are the pending kinds of the one row `frame` of `turn_order.ORDER`. The golden names them as it was recorded, by the claimer, so the kit's
 # trace keeps those names (a kind's `take` is wrapped, below) and this table is the one place that says which kind of `turn_order.FRAME_KINDS` each name is.
 FRAME_KIT_NAMES = {"reminder-draft": "reminder-draft-answer", "reminder-expired": "reminder-expired-yes", "write-draft": "write-draft-answer", "plan-confirm": "plan-confirm-word",
@@ -274,6 +282,29 @@ def prestate_cb9_file_ask_asked_not_proven(w):
     w.monkeypatch.setattr(lab, "standing", standing)
     _cb9_asked(w, CB9_FILE_TEXT, CB9_ANSWER)
 # --- end of the CB-9 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# --- S41-11 (review C1-a): the pre-state `owner_no_interpret`, in this one block (the base corpus and golden use none of it) ---------------------------------------------------------------------
+# A messaging line of the owner on buttons, in a world where the owner talks and holds every group but `interpret`: the interpreter does not read the owner's lines. No state is built.
+NO_INTERPRET_PRESTATES = ("owner_no_interpret",)
+PRESTATES = (*PRESTATES, *NO_INTERPRET_PRESTATES)
+_world_for_before_s41_11, _vocabulary_before_s41_11 = world_for, vocabulary_problems
+
+
+def world_for(scenario, table, policies):      # noqa: F811
+    """As above; in `owner_no_interpret` the owner's profile lacks the group `interpret`."""
+    if scenario["prestate"] not in NO_INTERPRET_PRESTATES:
+        return _world_for_before_s41_11(scenario, table, policies)
+    return table, {**policies, "owner": [group for group in policies["owner"] if group != "interpret"]}, {}
+
+
+def vocabulary_problems(scenario):      # noqa: F811
+    """As above; the pre-state `owner_no_interpret` is a messaging line of the owner on buttons."""
+    bad = scenario.get("prestate") in NO_INTERPRET_PRESTATES and (scenario.get("channel") != "messaging" or scenario.get("sender") != "owner" or scenario.get("platform") != "buttons")
+    return _vocabulary_before_s41_11(scenario) + (["the pre-state owner_no_interpret is a messaging line of the owner on buttons"] if bad else [])
+
+
+def prestate_owner_no_interpret(w):
+    """No state is built: the world is the pre-state (`world_for`)."""
+# --- end of the S41-11 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 
 REMINDER_LINE = "me lembra de ligar para o dentista"      # validate: allow english-only -- the Portuguese line under test
@@ -345,6 +376,145 @@ def load_answers() -> dict:
     return table
 
 
+# S41-11 (A11-5): the reviewed answers source for the lines the tier-1 claimers took and the interpreter takes now. Read by the stand-in after the packages' texts and before `answers()`: M41-5's
+# recorded DeepSeek answers (run 1) of the two cover corpora, named here once the measurement has run and the supervisor has committed them (never globbed: a new measurement must not change the
+# golden), else the decision the line's own gold states (an operation with the integer slot written in the line, or a read that needs no slot). A line with neither has no answer here: the stand-in
+# says `route`, as it does for every line no file holds, and the re-record shows what that costs.
+COVER_ANSWER_FILES = ("m41-5-2026-10-28/M1/20261028T210847Z-d19e4d27.answers.jsonl", "m41-5-2026-10-28/M2/20261028T224301Z-5facdaa2.answers.jsonl")      # M41-5 (2026-10-28), committed by #647; named here once, in the same commit as the re-record
+COVER_CORPORA = ("dev-relabelled.jsonl", "tier1-cover-v1.jsonl")
+
+
+def gold_text(item: dict):
+    """The model text a line's own gold states, or None: an `op` gold with its slots as written in the line (the first accepted value of each), or a read that needs no slot (scope `op`). An item with
+    a frame, a time-only gold, a clarification or a write with no span states none: only a recorded answer (or a person) can say what a model reads in those."""
+    gold = item["gold"]
+    if item.get("frame") is not None or gold.get("outcome") != "op" or not gold.get("op"):
+        return None
+    if gold.get("slots") is not None:
+        return op_text(gold["op"], {slot: values[0] for slot, values in gold["slots"].items()})
+    if gold.get("scope") == "op" and natural.CLASSES.get(gold["op"]) == "R":
+        return op_text(gold["op"])
+    return None
+
+
+# S41-11 (A11-5, conditions of the reading of M41-5, 2026-10-28): the cover answers are joined to their items BY ITEM ID (never by the text of a line); an item takes its run-1 answer, else its
+# run-2 answer where run 1 failed (a timeout), else its own gold; the items below take their gold whatever the model said, each with its reason; an answer that carries a `time_iso` is kept only
+# when the line's time is never believed from the model at either clock (the item's own and the replay's, pinned: REPLAY_CLOCK); a line that several items hold with different answers has no recorded answer here (its gold when every item agrees on one, else none, and the stand-in says `route`).
+COVER_GOLD_ONLY = {
+    "dev-pt-br-40111": "a pt-BR 'para a tarefa N' was read as 'show task N' by the model (a brake miss of M41-5): the golden never freezes a read that A11-2 must refuse to make",
+    "dev-pt-br-40112": "the same line with the task 7 (a brake miss of M41-5)",
+    "dev-pt-br-20186": "the files-to-mail-move line: the model's family is wrong (mail-move for a file request), its gold is `route`",
+}
+COVER_REPORT = {}
+REPLAY_CLOCK = "2026-10-18T14:00"      # the clock of the world of every scenario: test_reminders.Clock, Sunday 2026-10-18 14:00 in America/Sao_Paulo (installed by test_ops_natural.world); never the wall clock
+
+
+def _cover_time_unstable(item: dict, obj: dict) -> bool:
+    """Whether the model's `time_iso` of this answer could be believed at the item's clock or at the replay's pinned clock (`REPLAY_CLOCK`; the table, and so `answers_sha256`, depends on the time engine through `interpreter._classify`: a change of the engine moves the hash and asks for a re-record, loudly): the line's time slot is not read by code (nor asked) at both."""
+    import datetime
+    from zoneinfo import ZoneInfo
+    if "time_iso" not in obj:
+        return False
+    span = next((v for (op, slot), v in ((k, (obj.get("slots") or {}).get(k[1])) for k in interpreter.TIME_SLOTS if k[0] == obj.get("op")) if isinstance(v, str)), None)
+    if span is None:
+        return True
+    zone = ZoneInfo(item["zone"])
+    clocks = (datetime.datetime.fromisoformat(item["clock"]).replace(tzinfo=zone), datetime.datetime.fromisoformat(REPLAY_CLOCK).replace(tzinfo=ZoneInfo(ZONE)))
+    return any(interpreter._classify(span, collapse(item["line"]), clock)[0] == "model" for clock in clocks)
+
+
+def load_cover_answers() -> dict:
+    """{collapsed line: model text} of the reviewed answers source above. Read once; `COVER_REPORT` says what was kept, replaced and dropped."""
+    corpora, recorded = {}, {}
+    for name in COVER_CORPORA:
+        for raw in (REPO / "evals" / "interpreter" / name).read_text(encoding="utf-8").splitlines():
+            if raw.strip():
+                row = json.loads(raw)
+                corpora.setdefault(row["id"], row)
+    for name in COVER_ANSWER_FILES:
+        for raw in (ANSWER_DIR / name).read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            row = json.loads(raw)
+            if row.get("ok") and isinstance(row.get("text"), str) and row.get("run") in (1, 2):
+                recorded.setdefault(row.get("item"), {}).setdefault(row["run"], row["text"])
+    report = {"recorded": 0, "run2": 0, "gold_only": [], "no_answer": [], "time_fallback": [], "gold": 0, "conflicts": [], "dropped": []}
+    by_line = {}
+    for item_id, item in corpora.items():
+        if item.get("frame") is not None:
+            continue
+        runs = recorded.get(item_id, {})
+        text, source = runs.get(1), "run1"
+        if text is None and runs.get(2) is not None:
+            text, source = runs[2], "run2"
+        if item_id in COVER_GOLD_ONLY:
+            text, source = None, "gold-only"
+            report["gold_only"].append(item_id)
+        elif text is None:
+            report["no_answer"].append(item_id)
+        if text is not None:
+            try:
+                obj = json.loads(text)
+            except ValueError:
+                obj = {}
+            if isinstance(obj, dict) and _cover_time_unstable(item, obj):
+                text, source = None, "time-fallback"
+                report["time_fallback"].append(item_id)
+        if text is not None:
+            report["run2" if source == "run2" else "recorded"] += 1
+        else:
+            text = gold_text(item)
+            source = "gold" if text is not None else "none"
+            report["gold"] += text is not None
+        if text is not None:
+            by_line.setdefault(collapse(item["line"]), []).append((item_id, text, source))
+    table = {}
+    for line, found in by_line.items():
+        texts = {t for _, t, _ in found}
+        if len(texts) == 1:
+            table[line] = found[0][1]
+            continue
+        golds = {gold_text(corpora[i]) for i, _, _ in found}
+        report["conflicts"].append({"line": line, "items": [i for i, _, _ in found]})
+        at_replay = [t for i, t, _ in found if corpora[i].get("clock") == REPLAY_CLOCK]      # the items disagree: the one clocked as the replay is the one whose time reads as it will
+        if len(set(at_replay)) == 1:
+            table[line] = at_replay[0]
+        elif len(golds) == 1 and None not in golds:
+            table[line] = golds.pop()
+        else:
+            report["dropped"].append(line)
+    COVER_REPORT.clear()
+    COVER_REPORT.update(report)
+    return table
+
+
+_GOLD = []
+
+
+def gold_answers() -> dict:
+    """{collapsed line: the model text the line's own gold states}: what a pre-state's fixed lines are answered with while it runs (`StandInModel.setup`), never the recorded answers."""
+    if not _GOLD:
+        table = {}
+        for name in COVER_CORPORA:
+            for raw in (REPO / "evals" / "interpreter" / name).read_text(encoding="utf-8").splitlines():
+                if raw.strip():
+                    row = json.loads(raw)
+                    text = gold_text(row)
+                    if text is not None:
+                        table.setdefault(collapse(row["line"]), text)
+        _GOLD.append(table)
+    return _GOLD[0]
+
+
+_COVER = []
+
+
+def cover_answers() -> dict:
+    if not _COVER:
+        _COVER.append(load_cover_answers())
+    return _COVER[0]
+
+
 _ANSWERS = []
 
 
@@ -356,7 +526,7 @@ def answers() -> dict:
 
 def answers_sha256() -> str:
     """The hash of the table of recorded answers the stand-in reads, with the hand-written ones: the golden is valid only for this table."""
-    table = {**answers(), **OVERRIDES}
+    table = {**answers(), **cover_answers(), **OVERRIDES, **{"gold:" + k: v for k, v in gold_answers().items()}}      # S41-11: the reviewed answers source of the cover set sits between the recorded files and the hand-written texts
     return hashlib.sha256(json.dumps(sorted(table.items()), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -367,6 +537,8 @@ class StandInModel:
     def __init__(self):
         self.calls = 0
         self.lines = []
+        self.use_gold = False      # S41-11: true for a guard, composite or reply scenario: a line its pre-state also says is answered with its gold, in both places
+        self.setup = False      # S41-11: true while a pre-state runs its own lines (the fixed lines of a fixture): the cover answers are for the lines under test, never for the fixture's
 
     def complete(self, route_id, system, user, **kw):
         self.calls += 1
@@ -374,6 +546,8 @@ class StandInModel:
         self.lines.append(line)
         text = OVERRIDES.get(collapse(line)) if line else None
         text = EXT_OVERRIDES.get(collapse(line)) if line and text is None else text      # HOT-1: the model texts of the packages' scenarios, after the base ones
+        text = (gold_answers().get(collapse(line)) if self.setup or self.use_gold else None) if line and text is None else text
+        text = cover_answers().get(collapse(line)) if line and text is None and not self.setup else text      # S41-11 (A11-5): the fixed lines of a pre-state get their gold, the lines under test the recorded answers: the reviewed answers source of the cover set, before the older recorded files
         text = answers().get(collapse(line)) if line and text is None else text
         return {"ok": True, "text": text if text is not None else json.dumps({"v": 1, "kind": "route"}), "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"}
 
@@ -583,6 +757,16 @@ def wrap(monkeypatch, owner, name, effect, when, label=None):
     return original
 
 
+def named_row(row, name):
+    """A row of `ops_turn.ROWS` that records its name as the operations layer's event when it takes the line (its result is not None)."""
+    def wrapped(*args, **kwargs):
+        out = row(*args, **kwargs)
+        if out is not None and rec().live:
+            rec().event("ops", name)
+        return out
+    return wrapped
+
+
 def trace_claimers(monkeypatch):
     """Wrap, without changing them, the methods and functions that claim a line today (the names are in CLAIMER_NAMES). Test-side only."""
     bridge_event = lambda name: ("event", "bridge")      # noqa: E731
@@ -632,14 +816,14 @@ def trace_claimers(monkeypatch):
     monkeypatch.setattr(bridge.Bridge, "reply", reply)
     original_job = bridge.Bridge.start_job
 
-    def start_job(self, project, op, call, queues=False):
+    def start_job(self, project, op, call, queues=False, slot=None):
         recorder = rec()
         if recorder.live:
             with recorder.lock:
                 recorder.jobs.append(op)
             if getattr(recorder.local, "in_say", 0):
-                recorder.event("bridge-say", "say-queue" if op == "say" else "closed-form-without-slot")
-        return original_job(self, project, op, call, queues=queues)
+                recorder.event("bridge-say", "decide-without-slot" if slot is False else "say-queue" if op == "say" else "closed-form-without-slot")      # S41-11: named by the slot the job takes, not by the op alone
+        return original_job(self, project, op, call, queues=queues, slot=slot)
     monkeypatch.setattr(bridge.Bridge, "start_job", start_job)
     original_keep = bridge.Bridge.keep_or_refuse
 
@@ -659,8 +843,10 @@ def trace_claimers(monkeypatch):
     wrap(monkeypatch, ops_natural_writes, "answer", ops_event, "not-none", "draft-answer")
     wrap(monkeypatch, event_lookup, "take", ops_event, "not-none", "event-list-number")
     wrap(monkeypatch, ops_file_read, "take", ops_event, "not-none", "file-list-number")
-    wrap(monkeypatch, ops_natural_writes, "open_line", ops_event, "not-none", "write-form-ops")
-    wrap(monkeypatch, ops_natural, "run", ops_event, "called", "tier-1-form")
+    # S41-11: `write-form-ops` is retired (`open_line` is now called by the interpreter's carry-out, which is the row `interpreter`), and `tier-1-form` and the two talk refusals are named by their own
+    # rows (a function of `ops_turn.ROWS`), not by `ops_natural.run`, which the interpreter's carry-out calls too
+    for row_name in ("tier-1-form", "talk-refusal", "talk-refusal-after-interpreter", "route-pass", "typed-private-line"):
+        monkeypatch.setitem(ops_turn.ROWS, row_name, named_row(ops_turn.ROWS[row_name], row_name))
     wrap(monkeypatch, ops_interpret, "turn", ops_event, "not-none", "interpreter")
     original_ask = plan_confirm.ask
 
@@ -694,12 +880,12 @@ def infer_bridge(recorder, update) -> str:
     facts = recorder.facts
     intent = facts.get("intent") or {}
     kind = intent.get("kind")
-    if kind in ("text", "natural") and facts.get("greets_false") and (natural.match(intent.get("text") or "") or {}).get("op") == "commands":
+    if kind in ("text", "natural") and facts.get("greets_false") and greeting.help_form(intent.get("text") or ""):
         return "help-in-words"
     if kind == "natural" and update.get("reply_to") and facts.get("reply_to_card"):
         kind = "reply"
     if kind == "natural":
-        return "write-form" if intent.get("op") == "write" else "say-natural"
+        return "say"
     return {"attachment": "attachment-arrived", "add": "attachment-typed", "discard": "attachment-typed", "remind": "remind-typed", "reminders": "reminders-list",
             "forget": "forget-typed", "action": "tap", "usage": "usage", "help": "help-typed", "project": "project-typed", "pending": "pending-typed",
             "approve": "decision-typed", "reject": "decision-typed", "release": "decision-typed", "answer": "decision-typed", "reply": "reply", "text": "say"}.get(kind, "")
@@ -715,8 +901,6 @@ def infer_ops(recorder) -> str:
         return "plan-bare-word"
     if facts["turn_talks"] and channel == "messaging" and facts["turn_delete"]:
         return "delete-file"
-    if not facts["turn_talks"]:
-        return "talk-refusal"
     return ""
 
 
@@ -857,6 +1041,7 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     accept(w.path, policies=policies, messaging={"senders": table}, accounts=ACCOUNTS, **more)
     monkeypatch.setattr(ops_interpret, "_zone", lambda now_: ZONE)
     w.model = StandInModel()
+    w.model.use_gold = scenario["id"].startswith(("guard.", "composite.", "reply."))
     monkeypatch.setattr(interpreter_route, "complete", w.model.complete)
     w.provider_starts = Counter()
     block_providers(monkeypatch, w.provider_starts)
@@ -914,6 +1099,19 @@ def settle(w, extra=()):
 
 def say_ops(w, text, channel):
     return ops.say(w.path, text, channel=channel)
+
+
+@contextlib.contextmanager
+def old_claims(w):
+    """S41-11: the pre-states that put a question in the world (a reminder's, a write's) were made by saying the line, which a closed head claimed. The product claims no such line any more, so the
+    pre-state is built under the old claim, as the golden's was, and the claim is gone when the line of the scenario is delivered (`run_scenario` leaves this block before `line_hook`)."""
+    with w.monkeypatch.context() as mp:
+        read, candidate = closed_heads.make(natural_writes.read)
+        mp.setattr(natural_writes, "read", read)
+        mp.setattr(natural_writes, "candidate", candidate, raising=False)
+        mp.setattr(natural, "decision", natural.match)
+        mp.setattr(natural, "needs", closed_heads._old_needs)
+        yield
 
 
 def card_ids(w, chat=OWNER):
@@ -1089,6 +1287,25 @@ def prestate_route_busy_ask_choice(w):
     hold_route(w)
 
 
+def prestate_slot_held(w):
+    """S41-11 (A11-2): the planning agent answers another request: its job holds the project's model slot and the route lock. A brake said in words must not wait for it; a plain line does (it is kept)."""
+    release = threading.Event()
+    w.release = release
+    w.b.bridge.start_job(w.b.project["id"], "say", lambda: release.wait(HELD_SECONDS))
+    hold_route(w)
+    w.held = [t for t in list(w.b.bridge.threads) if t.is_alive()]
+
+
+def prestate_interpreter_outage(w):
+    """S41-11 (A11-2): the daily route is out: its breaker is open, so no call is made (and a call that is made fails with an outage code, and is counted)."""
+    def failing(route_id, system, user, **kw):
+        w.model.calls += 1
+        return {"ok": False, "code": "E_NETWORK", "latency_ms": 5}
+    w.monkeypatch.setattr(interpreter_route, "complete", failing)
+    gate = st.load("turn_gate")
+    gate._breaker.update(fails=gate.BREAKER_FAILS, until=gate.clock() + gate.BREAKER_OPEN)      # the breaker is open (SPEC-S41-11-BRAKE section 6.3): the gate admits no call, so the model is not asked at all
+
+
 def drain(w):
     """After a line that was queued: the router is free again, and the queue is drained as the service drains it (`route_queued`, one entry per call), until nothing is left to route."""
     drained = []
@@ -1106,7 +1323,7 @@ def drain(w):
 
 
 def prestate_reminder_draft(w):
-    w.b.say(REMINDER_LINE)
+    w.b.bridge.remind.natural(w.b.project, OWNER, {"kind": "natural", "op": "remind", "how": "trigger", "text": REMINDER_LINE})      # what the row `reminder-form` did for the line, before S41-11
     settle(w)
 
 
@@ -1117,8 +1334,9 @@ def prestate_reminder_expired(w):
 
 
 def prestate_write_draft_title(w):
-    w.b.say(WRITE_TITLE_LINE)
-    settle(w)
+    with old_claims(w):
+        w.b.bridge.write(w.b.project, OWNER, WRITE_TITLE_LINE)      # what the row `write-form` did for the line, before S41-11
+        settle(w)
 
 
 def prestate_router_question(w):
@@ -1319,15 +1537,18 @@ def run_scenario(scenario, tmp_path, monkeypatch, line_hook=None) -> dict:
     try:
         if scenario["channel"] != "messaging" and scenario["prestate"] not in OPS_PRESTATES:
             raise ValueError(f"{scenario['id']}: no pre-state {scenario['prestate']} on a {scenario['channel']} line")
+        w.model.setup = True
         if scenario["channel"] != "messaging" and scenario["prestate"] == "router_question":
             (w.world["adapter"] / "router-reply.md").write_text(ROUTER_TEMPLATE, encoding="utf-8")
             say_ops(w, ROUTER_LINE, scenario["channel"])
         elif scenario["channel"] != "messaging" and scenario["prestate"] == "write_draft_title":
-            say_ops(w, WRITE_TITLE_LINE, scenario["channel"])
+            with old_claims(w):
+                ops.natural_write(w.path, WRITE_TITLE_LINE, channel=scenario["channel"] if scenario["channel"] != "chat" else "terminal")      # what the row `write-form-ops` did for the line, before S41-11
         elif scenario["channel"] != "messaging" and scenario["prestate"] == "reminder_draft":
             say_ops(w, REMINDER_LINE, scenario["channel"])
         else:
             PRESTATE_FUNCTIONS[scenario["prestate"]](w)
+        w.model.setup = False
         before = {"sent": len(sent_rows(w)) if w.scenario["channel"] == "messaging" else 0,
                   "ledger": len(w.b.bridge.ledger.data["cards"]) if w.scenario["channel"] == "messaging" else 0,
                   "stored": {row["id"] for row in stored_rows(w)}, "model": w.model.calls}

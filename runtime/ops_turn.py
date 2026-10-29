@@ -56,7 +56,7 @@ import turn_order
 
 TRACE = None      # None, or a function that a test sets to receive `(name, state)` of the row that took a line
 EARLY = "confirmed-plan"      # the row `confirmed` runs; `dispatch` does not
-TAKE_ROWS = ("draft-answer", "event-list-number", "file-list-number", "write-form-ops", "tier-1-form")      # what `ops_natural.take` was: for `dispatch_rows`, in tests
+TAKE_ROWS = ("draft-answer", "event-list-number", "file-list-number", "tier-1-form")      # what `ops_natural.take` was: for `dispatch_rows`, in tests
 
 
 def _say():
@@ -200,30 +200,35 @@ def file_list_number(project, ctx, said, channel, sender, extras, state):
     return None if picked is None else _out(extras, picked)
 
 
-def write_form_ops(project, ctx, said, channel, sender, extras, state):
-    if state.asked is not None or state.natural_channel == "mcp":
-        return None
-    opened = ops_natural._writes().open_line(project, ctx, said, state.natural_channel, sender, extras)      # a write form opens the card of its exact content (limit L61), never a write
-    return None if opened is None else _out(extras, opened)
-
-
 def tier_1_form(project, ctx, said, channel, sender, extras, state):
     if state.asked is not None:
         return None
-    found = natural.match(said)
+    found = natural.decision(said)      # S41-11: the one closed reading code keeps, a decision said in words (the D operations); every other form is read by the interpreter
     if found is None:
         return None
     return _out(extras, ops_natural.run(project, ctx, found["op"], found["args"], said, state.natural_channel, sender, extras))      # a tier-1 form is checked exactly as the typed command is (limit L54)
 
 
 def talk_refusal(project, ctx, said, channel, sender, extras, state):
+    if extras.get("deferred"):      # S41-11: a sender the interpreter reads is refused after it (`talk-refusal-after-interpreter`), so that the reads and acts it chooses keep working with "Posso?" (decision 2026-10-25, #6)
+        return None
     if not _talks(state):      # admitted under another group, and no form of it took the line: it is not a model's, so it is refused as the typed `talk` is
+        return _plain(phone_refusal.said(operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender), channel, ctx["cfg"]))
+    return None
+
+
+def talk_refusal_after_interpreter(project, ctx, said, channel, sender, extras, state):
+    if extras.get("deferred") and not _talks(state):      # the interpreter sent the line to the router (`route`) or took none: a sender who may not talk never reaches the router (L54)
         return _plain(phone_refusal.said(operations.refusal('say', channel, ctx['cfg']['channels'], sender=sender), channel, ctx["cfg"]))
     return None
 
 
 def interpreter(project, ctx, said, channel, sender, extras, state):
     if not extras.get("deferred"):      # S1 (limit L63): a plain line of a sender the interpreter reads, which no list of code took (the hybrid order of 2026-10-21)
+        return None
+    if extras.get("route_pass") is not None and ops_interpret_take_pass(project, sender, said, extras):      # S41-11: the route leg of a line the decide leg handed back: its decision stands, the model is not asked again
+        if state.framed and extras.get("frame") == "new":
+            state.asked = None
         return None
     if channel == "messaging":
         live_plan = plan_confirm.live(project, sender)      # D5: the sender's plan is a typed item of the frame (its operation and age; `last` holds the plan's own words)
@@ -239,6 +244,64 @@ def interpreter(project, ctx, said, channel, sender, extras, state):
     return None
 
 
+def ops_interpret_take_pass(project, sender, said, extras) -> bool:
+    return importlib.import_module("ops_interpret").take_pass(project, sender, said, extras)
+
+
+def brake_hint(ctx: dict, said: str, sender, reads: bool = True):
+    """The sentence of the outage hint for a line that is a brake form, or None (SPEC-S41-11-BRAKE section 2): `natural.match` reads the line, read only and never executed, and says the operation;
+    only an operation of `operations.LINE_BRAKES` gets one. The typed command comes from `ops_natural.TYPED` with the one number the line writes (`<n>` when it writes none or several);
+    a brake with no typed form on a phone (`routine-pause`, `routine-cancel`) gets the sentence that says where it is done."""
+    found = natural.match(said)
+    if found is None or found["op"] not in operations.LINE_BRAKES:
+        return None
+    typed = ops_natural.TYPED.get(found["op"])
+    if typed is None:
+        return ops_natural.phone_sentence(ctx, found["op"])
+    number = importlib.import_module("turn_gate").the_number(said)
+    return phrases.text("IX_OUTAGE_BRAKE" if reads else "IX_TYPE_BRAKE", ctx["cfg"], command=typed[0].replace("{n}", str(number) if number is not None else "<n>"))      # L2: a sender the interpreter never reads is not told it "cannot read words right now"
+
+
+def route_pass_row(project, ctx, said, channel, sender, extras, state):
+    """The decide leg's last word (S41-11): the line reached the end of the table, so no row of code and no decision of the interpreter took it. With no model decision (the call failed, a limit,
+    the breaker, or no entry in force) a brake form is answered with the typed hint and never queued: the model is believed over the recogniser, so after a decision of `route` there is no hint.
+    Otherwise the line goes back to the bridge unrouted, with a route pass, to be queued for the planning agent's turn."""
+    if not extras.get("decide"):
+        return None
+    if extras.get("no_decision") or not extras.get("deferred"):
+        hint = brake_hint(ctx, said, sender, reads=importlib.import_module("ops_say").reads_words(project, sender))
+        if hint is not None:
+            return _plain(hint)
+    if not extras.get("deferred"):      # H1 (review of 2026-10-29): a holder of `interpret` whose entry is off says a reminder or a write in words: the typed command, slot-free, and nothing of the line is handed on
+        typed = typed_sentence(ctx, said, sender)
+        if typed is not None:
+            extras["stored"] = typed
+            return _plain(typed)
+    raise importlib.import_module("ops_say").ToAgent(importlib.import_module("route_pass").issue(project, sender, said, extras.get("frame") or "new"))
+
+
+def typed_sentence(ctx: dict, said: str, sender):
+    """The sentence of a sender whom the interpreter does not read and who says a reminder or a write in words (the decision of 2026-10-28, C1-c): the typed command, and nothing leaves the host: the line goes to no model. None for any other line."""
+    kind = importlib.import_module("turn_gate").private_kind(said)
+    if kind is None:
+        return None
+    if kind == "reminder":
+        return phrases.text("IX_TYPE_REMIND", ctx["cfg"], command="/remind <time> <text>")
+    return phrases.text("IX_TYPE_WRITE", ctx["cfg"])
+
+
+def typed_private_line(project, ctx, said, channel, sender, extras, state):
+    """C1-c (the maintainer, 2026-10-28): a reminder or a write said in words by a sender whom the interpreter does not read is answered with the typed command, and the line goes to no model:
+    it reaches the end of the order only here, so nothing of it is routed."""
+    if extras.get("deferred"):
+        return None
+    typed = typed_sentence(ctx, said, sender)
+    if typed is None:
+        return None
+    extras["stored"] = typed
+    return _plain(typed)
+
+
 def planning_agent(project, ctx, said, channel, sender, extras, state):
     asked = state.asked
     out = _say()._say_route(project, ctx, said, state.line_id, channel, answer_to=asked, sender=sender, extras=extras)
@@ -251,8 +314,8 @@ def planning_agent(project, ctx, said, channel, sender, extras, state):
 
 ROWS = {
     "confirmed-plan": confirmed_plan, "command": command, "greeting": greeting_row, "plan-bare-word": plan_bare_word, "delete-file": delete_file, "router-question": router_question,
-    "state-question": state_question, "draft-answer": draft_answer, "event-list-number": event_list_number, "file-list-number": file_list_number, "write-form-ops": write_form_ops,
-    "tier-1-form": tier_1_form, "talk-refusal": talk_refusal, "interpreter": interpreter, "planning-agent": planning_agent,
+    "state-question": state_question, "draft-answer": draft_answer, "event-list-number": event_list_number, "file-list-number": file_list_number,
+    "tier-1-form": tier_1_form, "talk-refusal": talk_refusal, "interpreter": interpreter, "talk-refusal-after-interpreter": talk_refusal_after_interpreter, "route-pass": route_pass_row, "typed-private-line": typed_private_line, "planning-agent": planning_agent,
 }
 
 
@@ -323,11 +386,11 @@ def _bare_plan_word(ctx, said, channel, sender, plan_before) -> bool:
     return bool(plan_before and natural.confirm_kind(said) is not None)      # D5: a yes or a no with a live plan is answered by code (`plan-bare-word`), never queued
 
 
-# `_form_or_draft` stands for THREE rows at once (`draft-answer`, `write-form-ops`, `tier-1-form`) because it asks `ops_natural.peek`, which answers for the three together (a tier-1 form, a write form, the
-# answer to the sender's live draft). A package that removes one of those rows must first split `peek`, or the claim keeps answering for a row that is gone: `code_claims` drops the claim only when ALL
-# of its rows have left the table.
+# `_form_or_draft` stands for TWO rows at once (`draft-answer`, `tier-1-form`) since S41-11 took `write-form-ops` out: it asks `ops_natural.peek`, which answers for both together (a decision said in
+# words, the answer to the sender's live draft). A package that removes one of those rows must first split `peek`, or the claim keeps answering for a row that is gone: `code_claims` drops the claim
+# only when ALL of its rows have left the table.
 CLAIMS = (      # (the rows whose lines the claim stands for, the claim), in the order the queue decision always read them
-    (("draft-answer", "write-form-ops", "tier-1-form"), _form_or_draft), (("greeting",), _greets), (("delete-file",), _deletes_a_file), (("plan-bare-word",), _bare_plan_word),
+    (("draft-answer", "tier-1-form"), _form_or_draft), (("greeting",), _greets), (("delete-file",), _deletes_a_file), (("plan-bare-word",), _bare_plan_word),
 )
 
 

@@ -29,6 +29,7 @@ from test_messaging_reminders import WITH, day, reminder_texts  # noqa: F401  (t
 from test_ops_natural import SENDERS as WORLD_SENDERS
 from test_sender_profiles import OWNER, STAFF, accept, loaded
 from test_sender_profiles_bridge import CLERK, OTHER, lab  # noqa: F401  (the lab fixture)
+from closed_heads import closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures; a plain line is read by the interpreter's stand-in)
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -329,6 +330,7 @@ def accept_world(world, **profile_keys):
     accept(world["path"], language="pt-BR", policies=policies, messaging={"senders": WORLD_SENDERS})
 
 
+@pytest.mark.usefixtures("tier1_forms", "words_interpreted")
 def test_the_question_posso_is_said_in_the_language_of_the_sender_who_asked(brig):
     accept_world(brig.world, sentence_language="en")
     brig.ask("mostra minha agenda", sender=OWNER_ID)

@@ -35,6 +35,9 @@ from test_calendar_write import world  # noqa: F401  (the calendar world and its
 from test_items_fresh import ask, project, snaps  # noqa: F401  (the mail desk of the stand-in providers)
 from test_ops_natural_writes import READER, forget  # noqa: F401  (a sender that may read; the drafts are cleared around each test)
 from test_phone_card_targets import item, line, mail_reply
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 cards = st.load("messaging_cards")
 event_lookup = st.load("event_lookup")

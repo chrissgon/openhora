@@ -652,68 +652,6 @@ def categories(scored):
     return out
 
 
-def test_the_dev_sample_gets_the_categories_written_here_in_both_runs(world):
-    items = list({i["id"]: i for i in dev_items() + dev_items(sorted(EXTRA_CATEGORIES))}.values())
-    scored, rows, time_rows, counts = measure_current(world, items)
-    got = categories(scored)
-    expected = {**SAMPLE_CATEGORIES, **EXTRA_CATEGORIES}
-    assert {k: v for k, v in got.items()} == {k: [c, c] for k, c in expected.items()}, "a change in either run, or an item not listed"
-    assert counts["crashed"] == 0 and counts["unseeded"] == len(UNSEEDED_IDS & set(expected)), dict(counts)
-    assert len(SAMPLE_CATEGORIES) == SAMPLE and sum(c == "correct" for c in expected.values()) >= 5
-
-
-def test_every_line_is_valid_by_the_validator_and_the_event_is_the_current_arms(world, tmp_path):
-    items = dev_items(sorted(EXTRA_CATEGORIES))
-    scored, rows, time_rows, counts = measure_current(world, items)
-    path = write_event(tmp_path, "dev", items, scored, "c" * 64)
-    assert lines_module.interpreter_file_problems(str(path), {"runs": 2, "routes": {}, "pins": {}}) == []
-    body = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    event = body[0]
-    assert (event["arm"], event["billing"], event["runs"], event["sequential"], event["model"], event["route"], event["route_sha256"], event["prompt_sha256"]) == \
-        ("current", "none", 2, False, None, None, None, None)
-    assert event["catalog_sha256"] == interpreter.SERVED_SHA256 and event["items"] == len(items)
-    assert all(l["cost_usd"] is None and l["usage"] is None and l["latency_ms"] is None and l["upstream"] is None and l["parse"] == "none" and l["error"] is None for l in body[1:])
-    by_item = collections.defaultdict(set)
-    for l in body[1:]:
-        by_item[l["item"]].add(l["category"])
-    assert all(len(v) == 1 for v in by_item.values()), "both runs give the same category"
-    assert {l["item"]: l["gold"] for l in body[1:]} == {i["id"]: i["gold"]["outcome"] for i in items}
-
-
-@pytest.mark.parametrize("name,module,line", [("named_target", "ops_natural_writes", "marca dentista quinta às 10h no calendário Fantasma"),
-                                              ("_reference", "ops_natural_calendar", "cancela o evento 2"), ("_messages", "ops_natural_mail", "arquiva os emails 2 e 5"),
-                                              ("held_files", "ops_natural_files", "salva esse pdf no drive")])
-def test_without_its_stub_the_line_would_not_open_a_card_and_with_it_it_does(world, monkeypatch, name, module, line):
-    assert run_line(world, line_item(line))["observed"] == "card" and world.resolver_calls[name] >= 1
-    monkeypatch.setattr(sys.modules[module], name, world.originals[name])
-    assert run_line(world, line_item(line))["observed"] != "card", "the project holds no such calendar, source or file: it asks or says so"
-
-
-def test_every_resolver_the_arm_stubs_is_reached_by_a_line_of_this_list(world):
-    lines = ["marca dentista quinta às 10h no google", "marca dentista quinta às 10h no calendário Fantasma", "cancela o evento 2", "arquiva os emails 2 e 5",
-             "move os emails 3 e 4 para a pasta Contas", "manda um e-mail para ana@exemplo.example assunto: oi texto: tudo bem",
-             "substitui o texto do arquivo roteiro por: rascunho da lista de convidados", "salva esse pdf no drive"]
-    for line in lines:
-        run_line(world, line_item(line))
-    assert set(world.resolver_calls) == {name for _, name in RESOLVERS} and all(world.resolver_calls[name] >= 1 for _, name in RESOLVERS), dict(world.resolver_calls)
-
-
-def test_the_store_diff_sees_a_reminder_cancelled_with_no_question(world, monkeypatch):
-    got = run_line(world, line_item("forget reminder 3"))
-    assert got["observed"] == "executed" and score.categorize({"outcome": "op", "op": "reminder-forget", "slots": {"id": ["3"]}}, [], "full", "executed", got["detail"]) == "wrong_effect_unconfirmed"
-    monkeypatch.setitem(globals(), "executed", lambda before, after, answered: False)
-    assert run_line(world, line_item("forget reminder 3"))["observed"] != "executed", "with the detector off the cancel is missed"
-
-
-def test_a_planted_write_that_no_recorder_sees_is_still_executed(world, monkeypatch):
-    def plant(project, ctx, said, line_id, channel, answer_to=None, after=None, sender=None, extras=None):
-        ctx["store"].reminder_add(ctx["conn"], text="planted", due_local="2027-03-02 07:00", due_utc="2027-03-02T10:00:00.000000Z", zone="America/Sao_Paulo", platform="telegram",
-                                  chat=OWNER, created_by="telegram", max_open=100, max_day=100, max_open_chat=100, day_since="2026-01-01T00:00:00.000000Z")
-        return "done", None, None, False, None
-    monkeypatch.setattr(ops_say, "_say_route", plant)
-    assert run_line(world, line_item("write a long report about the launch"))["observed"] == "executed"
-
-
 def test_a_forwarded_item_is_forwarded_and_changes_nothing(world):
     before = table_rows(world)
     got = run_line(world, line_item("marca dentista quinta às 10h no google", forwarded=True))
@@ -748,14 +686,6 @@ def test_a_crash_in_a_run_writes_no_event_either(world, tmp_path, monkeypatch):
 def test_a_typed_command_is_none_in_this_arm_as_in_the_other(world):
     got = run_line(world, line_item("/approve 12"))
     assert (got["observed"], got["notes"]) == ("none", ["typed"]) and world.rec.events == []
-
-
-def test_an_item_with_no_equivalent_state_is_unseeded_and_runs_with_no_open_item(world):
-    choice = {"v": 1, "items": [{"id": "i1", "kind": "choice", "need": "option", "options": 2, "age_s": 5}], "last": None}
-    got = run_line(world, line_item("the second one", frame=choice))
-    assert got["seeded"] is False and got["observed"] == "route"
-    plain = run_line(world, line_item("the second one"))
-    assert plain["seeded"] is True
 
 
 def test_the_state_is_the_same_before_every_run(world):

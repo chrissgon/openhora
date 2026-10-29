@@ -12,12 +12,20 @@ cover the corpus. `WB_FULL_FUZZ=1` walks every line in every case (runtime/READM
 index) so that no test runs for minutes: one case took 47 to 87 s alone and up to 190 s on a loaded runner, past the 120 s a CI worker waits before it dumps its stacks, and a
 worker died in one of them in the whole-suite run of 2026-10-21 (the cause of the death was not found; the long test is the only thing that held, and the shards remove it).
 
+S41-11 (re-targeted, never removed: L60, L61): the FIRST line of a dialogue no longer enters through the closed heads of the write families (the product has none). It enters as the product enters
+it: a stand-in model answers with the decision built from the line's gold, the family reader's own reading of the line with the operation fixed (runtime/tests/interpreter_stand_in.py), the
+interpreter's own parse and check (`ops_interpret.decide`) accepts or refuses it, and `ops_interpret._carry_out` carries it out through the same family resolvers; for every third line a PERTURBED
+decision is carried out too (a span that is not in the line, a number the line does not write, an account the project does not list, an `inherit` with nothing to inherit). The walk after the first
+line is unchanged: the family questions and the 40+ answers, the three configurations, the three states. A line that answers nothing is a new line, which the stand-in model sends to the router. The
+oracle is the same (`natural_writes.problems`, which reads `turn_gate.value_problems`) on every recorded call, plus the gate's own counters.
+
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
      WB_FULL_FUZZ=1 uv run --with pytest==9.1.1 pytest runtime/tests/test_natural_writes_dialogues.py
 """
 from __future__ import annotations
 
 import copy
+import datetime
 import json
 import os
 from pathlib import Path
@@ -26,6 +34,8 @@ from types import SimpleNamespace
 import pytest
 
 import standin_tree as st
+import interpreter_stand_in as si
+import natural_kit
 from test_calendar_write import world  # noqa: F401  (the calendar world: a real project to read the configuration of)
 from test_natural_corpus import clock
 from test_natural_dialogues import lines as reminder_lines
@@ -41,11 +51,16 @@ ops_natural_writes = st.load("ops_natural_writes")
 drafts = st.load("drafts")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
+natural_time = st.load("natural_time")
 turn_gate = st.load("turn_gate")
+ops_interpret = st.load("ops_interpret")
+interpreter = st.load("interpreter")
 
 HERE = Path(__file__).resolve().parent
 NOW = clock("2026-10-19 09:00")
-CHANNEL = "terminal"
+CHANNEL = "messaging"      # S41-11: the interpreter carries a decision out on the messaging channel only (`ops_interpret.CHANNEL`)
+ALLOWED = {row["op"] for row in interpreter.SERVED["ops"]}
+NOW_LOCAL = NOW.replace(tzinfo=None)      # the interpreter reads the wall clock of the zone
 ANSWERS = ["sim", "yes", "não", "no", "cancela", "cancel", "1", "2", "3", "4", "5", "6", "8h", "às 15h", "9", "21", "amanhã", "sexta", "quinta às 10h", "dia todo", "o dia todo",      # validate: allow english-only -- a Portuguese line is the input under test
            "all day", "google", "outlook", "microsoft", "work", "personal", "trabalho", "ideias.md", "notas.txt", "documento google", "Dentista da Júlia", "Reunião com o time",      # validate: allow english-only -- a Portuguese line is the input under test
            "bia@exemplo.example", "um assunto qualquer", "um texto de corpo", "marca outra coisa quinta às 9h", "/status", "lista os e-mails", "hmm",
@@ -131,22 +146,43 @@ class Env:
         monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: channel != "mcp")
         monkeypatch.setattr(item_refs, "read_index", lambda ctx, source_id, **kw: {"source": source_id, "type": "mail", "entries": copy.deepcopy(MAIL_INDEX)})
         monkeypatch.setattr(ops_natural_writes, "_call_operation", self.record)
+        monkeypatch.setattr(ops_natural_writes, "_admit", lambda ctx, op, channel, sender: None)      # the policy is not what the walk is about: the sender may do what the line asks
+        self.carried = self.refused_by_check = 0
 
     def record(self, project, op, args, channel, sender):
         self.calls.append((op, dict(args)))
         return {"request": 1, "task": 1, "pending": 7, "word": "calendar", "on_cards": True}
 
+    def first(self, text, op, text_of_model=None):
+        """The first line of a dialogue, entered as the product enters it (S41-11): the stand-in model's answer (`text_of_model`, else the decision built from the line's gold, `op`), the interpreter's own
+        parse and check, and `_carry_out`. `op` "work" is a request for work: the model says `route` and nothing is opened. Returns the decision's kind (None: the family reads nothing in the line)."""
+        extras = {}
+        if op == "work":
+            decision = ops_interpret.decide(text, '{"v":1,"kind":"route"}', NOW_LOCAL, si.ZONE, ALLOWED)
+            assert decision["kind"] == "route", text
+            return "route"
+        model = text_of_model if text_of_model is not None else si.model_text(text, op, NOW_LOCAL)
+        if model is None:
+            return None
+        decision = ops_interpret.decide(text, model, NOW_LOCAL, si.ZONE, ALLOWED)
+        if decision["kind"] == "op":
+            self.carried += 1
+            ops_interpret._carry_out(self.project, self.ctx, decision, text, None, extras)
+            if ops_natural_writes.live(CHANNEL, None) is not None:
+                self.asked += 1
+        else:
+            self.refused_by_check += 1
+        return decision["kind"]
+
     def step(self, text):
-        """The messaging bridge's `natural_write` without the seed: the sender's open question first, then the line as a new write. Returns (the reply, whether the line was
-        taken as the answer to the open question)."""
+        """The messaging bridge's `natural_write` for a later line: the sender's open question first. A line that answers nothing is a new line of its own, which the stand-in model sends to the router
+        (nothing is opened). Returns (the reply, whether the line was taken as the answer to the open question)."""
         extras = {}
         draft = ops_natural_writes.live(CHANNEL, None)
         if draft is not None:
             self.offered["options"] |= {o["value"] for o in draft.get("options", []) if isinstance(o["value"], str)}
         reply = ops_natural_writes.answer(self.project, self.ctx, draft, text, CHANNEL, None, extras) if draft is not None else None
         taken = reply is not None
-        if reply is None:
-            reply = ops_natural_writes.open_line(self.project, self.ctx, text, CHANNEL, None, extras)
         if ops_natural_writes.live(CHANNEL, None) is not None:
             self.asked += 1
         return reply, taken
@@ -209,16 +245,32 @@ def test_no_write_is_opened_with_a_guessed_slot(world, moment, monkeypatch, conf
     env = Env(world, monkeypatch, CONFIGS[config], state)
     rows = corpus()
     case = sorted(CONFIGS).index(config) * len(STATES) + sorted(STATES).index(state)
-    every = [(index, rows[index]["line"], rows[index]["op"] == "work") for index in shard_of(sampled(rows, case), shard, SHARDS)]
-    for index, text, work in every:
+    every = [(index, rows[index]["line"], rows[index]["op"]) for index in shard_of(sampled(rows, case), shard, SHARDS)]
+    perturbed = 0
+    for index, text, op in every:
+        work = op == "work"
         drafts.clear()
         env.calls.clear()
-        env.step(text)
+        env.first(text, op)
         env.check([text], work)
         if work:
             assert ops_natural_writes.live(CHANNEL, None) is None, text
             continue
+        held = copy.deepcopy(ops_natural_writes.live(CHANNEL, None))
+        if index % 3 == 2:      # S41-11: for every third line a model that read it wrong: the checks that stand between a wrong decision and a card must hold, whatever the walk then asks
+            drafts.clear()
+            env.calls.clear()
+            model = si.model_text(text, op, NOW_LOCAL)
+            if model is not None:
+                perturbed += 1
+                env.first(text, op, si.perturbed(model, index // 3, env.accounts))
+                env.check([text])
+            drafts.clear()
+            if held is not None:
+                drafts.put(CHANNEL, "", held, "write", ttl=600)
+        env.calls.clear()
         env.explore([text], 0, 2 if index % 9 == 0 else 1)
+    assert perturbed > 10, perturbed
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
     assert env.opened > 100 and env.asked > 100, (env.opened, env.asked)          # the walk reaches both ends: calls made and questions asked
     assert env.gate_refusals == [] and env.gate_calls >= env.opened > 100, (env.gate_calls, env.opened, env.gate_refusals[:6])          # S41-7: the gate refused none of the calls the oracle accepts, and every call went through it
@@ -247,19 +299,54 @@ def test_the_provenance_check_catches_a_slot_the_person_never_gave():
     assert natural_writes.problems("event-create", {"account": "microsoft", "title": "dentista", "start": "2026-10-22T10:00"}, ["marca dentista quinta às 10h", "2"], two, offered, NOW) == []
 
 
-def test_both_reminder_corpora_never_open_a_write_and_the_calendar_lines_among_them_open_nothing_with_a_guessed_slot(world, moment, monkeypatch):  # noqa: F811
+def remind_text(line: str, now) -> str:
+    """What a model that read a reminder line would answer: the operation `remind` with the time as written, the moment the reminders' own engine reads, and the longest rest of the line (a span of
+    it). "" when the line holds no time or the engine reads none."""
+    phrase = si.time_phrase(line, natural_time.languages())
+    if not phrase or phrase not in line:
+        return ""
+    before, _, after = line.partition(phrase)
+    rest = max((before.strip(" ,;:-"), after.strip(" ,;:-")), key=len)
+    when = natural_kit.made(natural, line, now).get("when")
+    if not rest or not isinstance(when, str):
+        return ""
+    try:
+        moment = datetime.datetime.strptime(when, "%Y-%m-%d %H:%M")
+    except ValueError:      # a date that does not exist (31/02): the engine reads none, the model has nothing to say
+        return ""
+    return json.dumps({"v": 1, "kind": "op", "op": "remind", "slots": {"text": rest, "when": phrase}, "time_iso": moment.strftime("%Y-%m-%dT%H:%M"), "weekday": si.WEEKDAYS[moment.weekday()]},
+                      ensure_ascii=False)
+
+
+def test_both_reminder_corpora_through_the_interpreter_open_no_write_and_a_calendar_read_of_them_opens_nothing_with_a_guessed_slot(world, moment, monkeypatch):  # noqa: F811
+    """S41-11 (re-targeted from the claim `natural.candidate`): every reminder line enters as a model's `remind` decision, checked by the interpreter and carried out; it opens no write. Every third
+    line also enters as a model that took the reminder for an event (the decision the family's reader would give with `event-create` fixed): whatever card that opens must pass the oracle."""
     env = Env(world, monkeypatch, CONFIGS["two"], "one")
+    carried = confused = 0
     for index, (text, now) in enumerate(reminder_lines()):
         moment.moment = now
+        local = now.replace(tzinfo=None)
         drafts.clear()
         env.calls.clear()
-        named = natural.candidate(text)
-        env.step(text)
-        if named is not None and named["op"] in ("remind", "reminders", "reminder-forget", "reminder-restore"):
-            assert env.calls == [] and ops_natural_writes.live(CHANNEL, None) is None, (text, named)
+        model = remind_text(text, now)
+        if model:
+            decision = ops_interpret.decide(text, model, local, si.ZONE, ALLOWED)
+            if decision["kind"] == "op":
+                carried += 1
+                try:
+                    ops_interpret._carry_out(env.project, env.ctx, decision, text, None, {})
+                except ops_core.OpsError:      # the policy of the stand-in world may refuse a reminder to a sender it does not list: the line opened nothing either way
+                    pass
+            assert env.calls == [] and ops_natural_writes.live(CHANNEL, None) is None, (text, decision["kind"])
+        if index % 3 == 2:
+            wrong = si.model_text(text, "event-create", local)
+            if wrong is not None:
+                confused += 1
+                env.first(text, "event-create", wrong)
         env.check([text])
         if index % 40 == 0:
             env.explore([text], 0, 1)
+    assert carried > 100 and confused > 20, (carried, confused)
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
     assert env.gate_refusals == [], env.gate_refusals[:6]          # S41-7
 
@@ -271,16 +358,18 @@ def test_the_corpus_holds_what_the_spec_asks_of_it():
     assert sum(1 for r in rows if r["op"] == "work") >= 60 and len(ANSWERS) >= 30
     assert {r["op"] for r in rows} >= {"event-create", "event-change", "event-cancel", "file-create", "file-replace", "file-save", "work",
                                        "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"}
-    for row in rows:
-        found = natural_writes.read(row["line"], NOW)
-        assert (found["op"] if found else "work") == row["op"], row
+    for row in rows:      # S41-11: the families read a line with the operation of its row fixed; with no operation nothing reads it (no closed head claims a line any more)
+        assert natural_writes.read(row["line"], NOW) is None, row
+        if row["op"] != "work":
+            found = natural_writes.read(row["line"], NOW, op=row["op"])
+            assert found is not None and found["op"] == row["op"], row
 
 
 def test_a_line_from_the_mcp_mode_opens_nothing_whatever_the_corpus(world, moment, monkeypatch):  # noqa: F811
     env = Env(world, monkeypatch, CONFIGS["default"], "two")
     for row in corpus():
         extras = {}
-        assert ops_natural_writes.open_line(env.project, env.ctx, row["line"], "mcp", None, extras) is None, row
+        assert ops_natural_writes.open_line(env.project, env.ctx, row["line"], "mcp", None, extras, hint=None if row["op"] == "work" else row["op"]) is None, row
     assert env.calls == []
 
 
@@ -302,3 +391,72 @@ def test_a_router_that_names_random_write_operations_with_random_spans_opens_a_w
             env.check([row["line"]])
     assert env.bad == [], "\n".join(map(str, env.bad[:12]))
     assert env.gate_refusals == [], env.gate_refusals[:6]          # S41-7
+
+
+# --- vacuity of the walk (S41-11): the guards each fail on a planted wrong result -------------------------------------------------------------------------
+
+
+EVENT_ROWS = [row for row in corpus() if row["op"] == "event-create" and row["lang"] == "pt-BR"][:40]
+
+
+def test_vacuity_a_resolver_that_fills_a_slot_the_person_never_gave_is_reported_by_the_oracle(world, moment, monkeypatch):  # noqa: F811
+    env = Env(world, monkeypatch, CONFIGS["two"], "one")
+    real = ops_natural_writes.family_ops
+
+    class Inventing:
+        def __init__(self, family):
+            self.family = real(family)
+
+        def resolve(self, *args, **kwargs):
+            out = self.family.resolve(*args, **kwargs)
+            if "args" in out and "title" in out["args"]:
+                out["args"]["title"] = "Invented title nobody wrote"
+            return out
+
+        def __getattr__(self, name):
+            return getattr(self.family, name)
+    monkeypatch.setattr(ops_natural_writes, "family_ops", lambda family: Inventing(family))
+    for row in EVENT_ROWS:
+        drafts.clear()
+        env.calls.clear()
+        env.first(row["line"], row["op"])
+        env.check([row["line"]])
+    assert env.bad, "the oracle must report a title the person never wrote"
+
+
+def trusting(original: str):
+    """An interpreter whose check lets a perturbed answer through: the decision of the ORIGINAL answer with the perturbed spans laid over it, as a model's wrong span would be believed by a check that does not look."""
+    real = ops_interpret.decide
+
+    def decide(line, text, now, zone, allowed, frame=None):
+        decision = real(line, original, now, zone, allowed)
+        if decision["kind"] == "op":
+            decision["spans"] = dict(decision["spans"], **{k: v for k, v in json.loads(text)["slots"].items() if k in decision["spans"]})
+        return decision
+    return decide
+
+
+def test_vacuity_the_check_patched_open_lets_a_wrong_span_open_a_card_and_the_oracle_reports_it_and_the_real_check_refuses_it(world, moment, monkeypatch):  # noqa: F811
+    real_decide = ops_interpret.decide
+    kinds, opened_wrong = [], 0
+    for row in EVENT_ROWS:
+        model = si.model_text(row["line"], row["op"], NOW_LOCAL)
+        if model is None or "time" not in json.loads(model)["slots"] or "title" not in json.loads(model)["slots"]:
+            continue
+        wrong = si.perturbed(model, 0, ("google", "microsoft"))      # kind 0: a title that is not in the line
+        assert json.loads(wrong)["slots"]["title"] != json.loads(model)["slots"]["title"]
+        with monkeypatch.context() as inner:
+            env = Env(world, inner, CONFIGS["two"], "one")
+            drafts.clear()
+            env.first(row["line"], row["op"], wrong)
+            env.check([row["line"]])
+            assert env.bad == [] and env.calls == [], "the real check refuses a span that is not in the line: no card, nothing to report"
+            kinds.append(real_decide(row["line"], wrong, NOW_LOCAL, si.ZONE, ALLOWED)["kind"])
+        with monkeypatch.context() as inner:
+            env = Env(world, inner, CONFIGS["two"], "one")
+            inner.setattr(ops_interpret, "decide", trusting(model))
+            drafts.clear()
+            env.first(row["line"], row["op"], wrong)
+            env.check([row["line"]])
+            opened_wrong += bool(env.bad)
+    assert kinds and "op" not in kinds and opened_wrong >= 3, (kinds, opened_wrong)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (the calendar world)
 from test_ops_natural_writes import forget, phone, policy  # noqa: F401
 from test_reminders import Clock

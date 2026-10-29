@@ -13,6 +13,7 @@ import os
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (the calendar world)
 from test_ops_natural_writes import BLIND, GROUPS, OPEN, PLAIN, READER, SENDER, body, forget, phone, policy  # noqa: F401
 from test_reminders import Clock
@@ -42,7 +43,7 @@ def test_write_is_an_owner_of_the_one_store_and_a_draft_is_one_per_sender(world,
     phone(world, "marca quinta às 10h no google")
     first = live()
     assert first["kind"] == "write" and first["need"] == "title" and first["op"] == "event-create" and drafts.count() == 1
-    phone(world, "marca sexta às 15h no google")
+    phone(world, "marca na agenda sexta às 15h no google")      # S41-11: a line that starts as a write head and its object ("marca na agenda") is a new request; a bare verb ("marca sexta ...") may be a title
     assert live()["slots"]["start"].startswith("2026-10-23") and drafts.count() == 1, "a new question replaces the old one"
     phone(world, "marca sábado às 15h no google", READER)
     assert drafts.count() == 2, "another sender has a question of their own"
@@ -92,11 +93,12 @@ def test_the_words_of_a_question_are_never_written_to_a_file_the_store_the_log_o
     monkeypatch.setattr("builtins.open", watching)
     asked = phone(world, f"cria um evento {SENTINEL} sexta no google")
     assert asked["asked"] and SENTINEL in live()["slots"]["title"]
-    ops.say(world["path"], f"cria um evento {SENTINEL} sábado no google", channel="messaging", sender=SENDER)
+    phone(world, f"cria um evento {SENTINEL} sábado no google")      # S41-11: no plain line is claimed by `say` any more; the bridge's own entry takes the line (the conversation's neutral word is `stored_line`'s)
     assert opened == [] and SENTINEL not in caplog.text
     ctx = ops_core.context(world["path"])
     stored = json.dumps([m["text"] for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)])
-    assert SENTINEL not in stored and "(a request to your accounts)" in stored
+    assert SENTINEL not in stored
+    assert ops_natural.stored_line(ctx, f"cria um evento {SENTINEL} sábado no google") == "(a request to your accounts)", "the word the store keeps for such a line"
     needle = SENTINEL.encode()
     leaks = [os.path.join(d, f) for d, _, fs in os.walk(world["tmp"]) for f in fs if f.endswith((".sqlite", ".json", ".log", ".jsonl", ".md", ".txt"))
              and needle in open(os.path.join(d, f), "rb").read()]

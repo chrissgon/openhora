@@ -13,6 +13,7 @@ from phone_literals import PLAIN_REFUSAL  # noqa: E402
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 from test_ask import accept, add_source
 from test_messaging_ask import wait_for
 from test_messaging_natural_ops import rig  # noqa: F401
@@ -28,6 +29,9 @@ operations = st.load("operations")
 phrases = st.load("phrases")
 
 QUESTION = "Q1: Which market do you mean?\n"
+
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 
 def settled(rig):

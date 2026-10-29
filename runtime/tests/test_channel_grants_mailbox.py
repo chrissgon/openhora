@@ -28,6 +28,9 @@ import phrase_kit as pk
 import standin_tree as st
 from test_mailbox_write import NEW_DRAFT, approve, archive, effect_doc, item_of, ops, ops_core, operations, phrases, rows, world  # noqa: F401  (the mailbox world: `world` is a fixture the tests below use)
 from test_channel_grants import accept as accept_channels
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 HOLDER = {"telegram": [{"id": "830461975213", "policy": "holder"}]}
 

@@ -25,6 +25,9 @@ import standin_tree as st
 from test_ask import accept
 from test_ops_interpret_dispatch import BARE, IX_PROFILES, IX_SENDERS, ZONE  # noqa: F401
 from test_ops_natural import FLOW, KEY, router_says, world  # noqa: F401  (the real-operations world fixture)
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 interpreter = st.load("interpreter")

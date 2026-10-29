@@ -170,7 +170,7 @@ def run_line(env, op):
     drafts.clear()
     env.calls.clear()
     extras = {}
-    reply = ops_natural_writes.open_line(env.project, env.ctx, LINES[op], "terminal", None, extras)
+    reply = ops_natural_writes.open_line(env.project, env.ctx, LINES[op], "terminal", None, extras, hint=op)      # S41-11: the operation is the decision's: no closed head claims the line
     return reply, extras
 
 
@@ -416,14 +416,14 @@ def test_an_account_the_person_picked_is_picked_and_one_the_person_wrote_is_thei
     origins = []
     real = turn_gate.provenance
     monkeypatch.setattr(turn_gate, "provenance", lambda op, args, got: origins.append(dict(got)) or real(op, args, got))
-    env.step("coloca na agenda troca de pneus depois de amanhã 9h")      # validate: allow english-only -- a Portuguese line is the input under test
-    state = ops_natural_writes.live("terminal", None)
-    assert state is not None and state["need"] == "account" and not state["origins"], state
+    env.first("coloca na agenda troca de pneus depois de amanhã 9h", "event-create")      # validate: allow english-only -- a Portuguese line is the input under test (S41-11: through the interpreter's decision)
+    state = ops_natural_writes.live("messaging", None)
+    assert state is not None and state["need"] == "account" and "account" not in state["origins"], state      # S41-11: the seed of the decision declares the title and the start (line-span, time-engine); the account has no origin yet
     env.step("2")
     assert env.calls == [("event-create", {"account": "microsoft", "title": "troca de pneus", "start": "2026-10-21T09:00"})], env.calls
     assert origins == [{"account": "picked", "title": "line-span", "start": "time-engine"}], origins
     env.calls.clear()
-    env.step("coloca na agenda troca de pneus depois de amanhã 9h no outlook")      # validate: allow english-only -- a Portuguese line is the input under test
+    env.first("coloca na agenda troca de pneus depois de amanhã 9h no outlook", "event-create")      # validate: allow english-only -- a Portuguese line is the input under test
     assert env.calls and env.calls[-1][1]["account"] == "microsoft" and origins[-1]["account"] == "line-span", (origins, env.calls)
 
 
@@ -638,7 +638,7 @@ def test_the_walk_the_fuzzers_make_passes_through_the_gate_and_none_of_its_calls
     for row in rows[::5]:
         drafts.clear()
         env.calls.clear()
-        env.step(row["line"])
+        env.first(row["line"], row["op"])      # S41-11: the first line enters as a decision of the interpreter, as in the fuzz itself
         env.check([row["line"]], row["op"] == "work")
         opened = env.opened
     assert env.bad == [] and env.gate_refusals == [] and env.gate_calls >= opened > 20, (env.gate_calls, opened, env.gate_refusals[:4])

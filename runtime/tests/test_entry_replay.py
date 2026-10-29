@@ -236,7 +236,8 @@ def test_every_change_the_header_names_is_made_of_rows_of_the_corpus_with_a_caus
     header, _ = golden()
     ids = {s["id"] for s in corpus()}
     for change in header.get("changes", []):
-        assert set(change) == {"commit", "ids", "cause"}, change
+        assert set(change) in ({"commit", "ids", "cause"}, {"commit", "ids", "cause", "answers_sha256"}), change      # S41-11 (A11-5): a re-record that changes the stand-in's table of answers names the hash it moved from and to
+        assert "answers_sha256" not in change or set(change["answers_sha256"]) == {"from", "to"}, change
         assert change["ids"] and set(change["ids"]) <= ids, "every id is a scenario of the corpus"
         assert isinstance(change["cause"], str) and change["cause"].strip(), "a cause"
         assert isinstance(change["commit"], str) and len(change["commit"]) >= 7, "a commit"
@@ -258,19 +259,24 @@ def test_replace_rows_leaves_every_unnamed_line_identical_and_raises_on_an_unkno
         build.replace_rows(lines, [new, new])
 
 
+NOT_AUTHORED = ("talk-refusal-after-interpreter", "decide-without-slot", "route-pass", "typed-private-line")      # S41-11: a row added after the base corpus closed: its scenarios are the package s41-11's (runtime/tests/entry_ext/)
+
+
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_every_scenario_is_well_formed_and_every_claimer_has_a_row_in_the_table():
     for scenario in corpus():
         assert ek.check_scenario(scenario) == [], scenario["id"]
-    assert set(build.CLAIMERS) == set(ek.CLAIMER_NAMES), "the table of authored scenarios has one entry for every claimer name of the kit"
-    assert len(ek.CLAIMER_NAMES) == len(set(ek.CLAIMER_NAMES)) == 31 + 3 + 15
+    assert set(build.CLAIMERS) == set(ek.CLAIMER_NAMES) - set(NOT_AUTHORED) | set(ek.RETIRED_CLAIMER_NAMES), "the table of authored scenarios has one entry for every claimer name of the kit (the rows of NOT_AUTHORED have their scenarios in a package: entry_ext/), and keeps the entries of the retired rows (the corpus is closed)"
+    assert len(ek.CLAIMER_NAMES) == len(set(ek.CLAIMER_NAMES)) == 29 + 4 + 17
+    assert not set(ek.RETIRED_CLAIMER_NAMES) & set(ek.CLAIMER_NAMES)
 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
 def test_every_claimer_takes_at_least_one_scenario():
     _, recorded = golden()
     seen = {name for row in recorded.values() for name in row["trace"]}
-    assert set(ek.CLAIMER_NAMES) - seen == set(), "every claimer of the kit is the first to take a line in at least one scenario of the golden"
+    assert set(ek.CLAIMER_NAMES) - seen == set(), "every claimer of the kit is the first to take a line in at least one scenario of the golden (of the base or of a package)"
+    assert seen & set(ek.RETIRED_CLAIMER_NAMES) == set(), "S41-11: no recorded trace holds a retired row (the golden was re-recorded for them)"
 
 
 def authored_wrong(recorded: dict, expectations: list, moved=frozenset()) -> list:
@@ -279,7 +285,10 @@ def authored_wrong(recorded: dict, expectations: list, moved=frozenset()) -> lis
     wrong = []
     for claimer, role, scenario_id in expectations:
         names = recorded[scenario_id]["trace"]
-        if role == "take" and claimer not in names:
+        if claimer in ek.RETIRED_CLAIMER_NAMES:      # S41-11: the row is gone, its authored lines are now the interpreter's or the planning agent's: no retired name may be in the trace
+            if claimer in names:
+                wrong.append(f"{scenario_id}: a retired row {claimer} is in the trace {names}")
+        elif role == "take" and claimer not in names and claimer not in ek.NARROWED_CLAIMER_NAMES:      # a narrowed row (S41-11) no longer reads every line it was authored to take: the interpreter does
             wrong.append(f"{scenario_id}: authored as taken by {claimer}, the trace is {names}")
         elif role != "take" and claimer in names and scenario_id not in moved:
             wrong.append(f"{scenario_id}: authored as a near-miss of {claimer}, the trace is {names}")
@@ -292,9 +301,10 @@ def test_every_authored_take_is_taken_and_every_near_miss_is_not():
     the finding (the line, the state or the claimer was misread), not a failure to hide. A near-miss that a reviewed re-record moved (the header's `changes`) is the one allowed exception."""
     header, recorded = golden()
     _, expectations = build.generate(False)
-    taken = {name: 0 for name in build.CLAIMERS}
+    taken = {name: 0 for name in build.CLAIMERS if name not in ek.RETIRED_CLAIMER_NAMES and name not in ek.NARROWED_CLAIMER_NAMES}
     for claimer, role, scenario_id in expectations:
-        taken[claimer] += role == "take" and claimer in recorded[scenario_id]["trace"]
+        if claimer in taken:
+            taken[claimer] += role == "take" and claimer in recorded[scenario_id]["trace"]
     wrong = authored_wrong(recorded, expectations, {i for change in header.get("changes", []) for i in change["ids"]})
     short = {name: count for name, count in taken.items() if count < 5}
     assert not short, f"claimers with fewer than five lines they take: {short}"
@@ -307,6 +317,8 @@ def test_vacuity_a_near_miss_is_excused_only_when_a_reviewed_re_record_moved_it(
     assert authored_wrong(recorded, expectations) and authored_wrong(recorded, expectations, {"x.take.01"}), "a near-miss that is taken fails unless it is named"
     assert authored_wrong(recorded, expectations, {"x.near.01"}) == [], "named by a re-record, it may be taken"
     assert authored_wrong(recorded, [("file-list-number", "take", "x.take.01")], {"x.take.01"}), "a take that is not taken fails, named or not"
+    assert authored_wrong(recorded, [("reply-to-card", "take", "x.take.01")]) == [], "a take of a narrowed row (S41-11) is excused: the interpreter reads the line now"
+    assert ek.NARROWED_CLAIMER_NAMES and not set(ek.NARROWED_CLAIMER_NAMES) & set(ek.RETIRED_CLAIMER_NAMES), "the narrowed rows are rows of the table"
 
 
 COMPOSITES = ("expired_and_write_draft", "reminder_and_write_draft", "reminder_and_expired", "plan_and_write_draft", "plan_and_file_held")
@@ -360,8 +372,9 @@ def test_the_operations_composites_the_interpreter_sender_without_talk_and_the_m
     assert {"route_busy", "route_busy_ask_choice"} <= set(ek.PRESTATES) and {"mcp", "chat"} <= set(ek.CHANNELS) and "reader_interpret" in ek.SENDERS
     viewer = [s for s in scenarios if s["sender"] == "reader_interpret"]
     assert {s["channel"] for s in viewer} == {"messaging", "ops"} and len(viewer) >= 10
-    assert "talk-refusal" in {n for s in viewer if s["channel"] == "ops" for n in recorded[s["id"]]["trace"]}, "a sender with no talk meets the refusal of the operations layer, and no model is asked"
-    assert all(recorded[s["id"]]["model_calls"] == 0 for s in viewer)
+    refused = {n for s in viewer if s["channel"] == "ops" for n in recorded[s["id"]]["trace"]}
+    assert "talk-refusal-after-interpreter" in refused, "a sender with no talk and `interpret` meets the refusal of the operations layer after the interpreter's one call (decision #6)"
+    assert all(recorded[s["id"]]["model_calls"] == (1 if {"interpreter", "talk-refusal-after-interpreter"} & set(recorded[s["id"]]["trace"]) else 0) for s in viewer if s["channel"] == "ops"), "one call when the interpreter read the line, none otherwise (decision #6)"
     for channel in ("mcp", "chat"):
         assert len([s for s in scenarios if s["channel"] == channel]) >= 5, channel
     drained = [s for s in scenarios if s["prestate"] in ("route_busy", "route_busy_ask_choice") and any(row["to"].endswith("-drain") and row["flags"].get("routed") == "line" for row in recorded[s["id"]]["sent"])]

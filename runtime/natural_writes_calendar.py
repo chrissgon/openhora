@@ -304,13 +304,27 @@ def _change(line: "nw.Line", tables: list, now):
     form = _change_form(line, tables, now, verb)
     if form is not None:
         return form
-    named = natural.candidate(line.text, tables)
-    if named and named["op"] == "remind":          # not a change form, and a line that NR-1 would take for a reminder and then for a NEW event
+    if _reads_as_a_bare_time(line.text, tables):          # not a change form, and a line the time engine reads as a clock or a day with few words besides (S41-11: the family's own predicate, it was `natural.candidate` saying remind)
         if _noun_at(line, verb, tables) is not None:          # "remarca o evento 0 para as 10h": a typed number form whose number is not one: the hint says how to name it
             return {"op": "event-change", "say": "NW_CHANGE_BY_NUMBER", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         # "mude o corte de cabelo para as 10h": the person names the event, not its number (slice S16b): the line is the lookup by name's (runtime/event_lookup.py `by_name`)
         return {"op": "event-change", "by_name": True, "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
     return None
+
+
+def _reads_as_a_bare_time(text: str, tables: list) -> bool:
+    """Whether the line holds a clock or a relative time, no question mark and no repetition, does not start with a work starter, and has between one and `natural.BARE_WORDS_MAX` words once the
+    time is taken out: what `natural.candidate` called a bare reminder (S41-11 moved the test here, the one reader that is left of it)."""
+    hits = nt.find(text, tables)["hits"]
+    if not any(h["kind"] in ("clock", "relative") for h in hits) or "?" in text or nt.recurring(text, tables):
+        return False
+    norm, origin = nt.normalise(text)
+    first = re.match(r"[^a-z0-9]*([a-z0-9]+)", norm)
+    starters = {w for table in tables for w in table["work_starters"]}
+    if first and first.group(1) in starters:
+        return False
+    rest = nt.without(text, nt._spans({"origin": origin, "hits": hits}))
+    return bool(rest) and len(rest.split()) <= natural.BARE_WORDS_MAX
 
 
 def _change_form(line: "nw.Line", tables: list, now, verb: int):

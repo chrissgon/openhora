@@ -202,10 +202,10 @@ def a_row_that_takes_nothing(name):
     return rp.row_never(name)
 
 
-def say_natural_that_takes_nothing(mp):
-    """A planted defect: the bridge row `say-natural` takes nothing; the row `say` after it does the same work (`test_turn_order.SAME_EFFECT_AS_A_LATER_ROW`), so the outcome is the golden's and only the table's
-    trace names another row than the kit's."""
-    mp.setitem(messaging_turn.ROWS, "say-natural", lambda bridge, turn: False)
+def reminder_form_that_takes_nothing(mp):
+    """A planted defect: the bridge row `reminder-form` takes nothing (S41-11: it reads only `/remind <free words>`), so the table's trace names the row that takes the line instead of the claimer the
+    golden records."""
+    mp.setitem(messaging_turn.ROWS, "reminder-form", lambda bridge, turn: False)
 
 
 def a_second_read_of_every_message(mp):
@@ -235,7 +235,7 @@ def with_a_reply():
 PLANTED = {
     "claims": (negated, lambda: [s for s in rp.corpus() if s["id"] in CLAIMS_SCENARIOS], "the frozen expression says"),
     "ops": (a_row_that_takes_nothing("greeting"), lambda: rp.scenarios_of("greeting", 2), ": table "),
-    "bridge": (say_natural_that_takes_nothing, lambda: to.lines_of("say-natural", 2), ": table "),
+    "bridge": (reminder_form_that_takes_nothing, lambda: to.lines_of("reminder-form", 2), ": table "),
     "reads": (a_read_outside_a_turn, lambda: [s for s in rp.corpus() if s["channel"] == "messaging"][:2], "outside a turn"),
     "envelope": (a_second_read_of_every_message, lambda: with_a_reply()[:3], "read twice"),
 }

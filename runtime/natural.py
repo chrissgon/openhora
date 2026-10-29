@@ -1138,26 +1138,28 @@ def match(line: str, languages=None):
     return {"op": op, "args": args, "tier": 1}
 
 
+def decision(line: str, languages=None):
+    """S41-11 (the maintainer, 2026-10-28): the one closed reading of a plain line that code keeps. A decision said in words ("aprova o 1", "reject 3": the D operations approve, reject, release,
+    answer, go-ahead) is `match`'s form of a D operation, else None: the model never approves, and a word never decides a card. Every other form `match` knows (a read, a notice, an act, a
+    brake) is no longer claimed by code: the interpreter reads it (L63). Pure."""
+    found = match(line, languages)
+    return found if found is not None and CLASSES.get(found["op"]) == "D" else None
+
+
 def needs(line: str, languages=None):
-    """The operation whose group a messaging sender must hold for this line to be tier 1 (a form of `match`), or None (the line
-    needs the group `talk`, as every plain line does): a read or a notice needs its own group, a decision needs to read (`pending`), the other classes `talk`."""
-    found = match(line, languages)          # not `candidate`: a reminder in words is the messaging bridge's own, done before a line reaches `say`; one it declined is a plain line
-    if found is None:
-        return None
-    cls = CLASSES[found["op"]]
-    if cls in ("R", "N"):
-        return found["op"]
-    return "pending" if cls == "D" else None
+    """The operation whose group a messaging sender must hold for this line to be a decision said in words (`decision`): "pending" (a decision is a read of its card), or None (the line
+    needs the group `talk`, as every plain line does)."""
+    return "pending" if decision(line, languages) is not None else None
 
 
-def private(line: str, languages=None) -> bool:
-    """Whether the line is a reminder asked in words (`candidate` says `remind`) or a write to the person's accounts (runtime/natural_writes.py `candidate`): the conversation
-    stores a neutral word for it, as the words are the person's private ones (limits L51 and L61)."""
-    found = candidate(line, languages)
-    if found is not None and found["op"] in PRIVATE:
-        return True
-    import importlib
-    return importlib.import_module("natural_writes").candidate(line, languages, claim=False) is not None          # a write to the person's accounts (package NR-5, limit L61)
+def only_trigger(text, languages=None) -> bool:
+    """Whether `text` is made only of the words that ask for a reminder ("me lembra", "remind me"): no words of the reminder itself. Pure."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    tables = _tables(languages)
+    norm, _origin = nt.normalise(text)
+    head = _head(norm, tables, "remind")
+    return head is not None and not _words(norm[head:])
 
 
 def confirm_kind(said, languages=None):

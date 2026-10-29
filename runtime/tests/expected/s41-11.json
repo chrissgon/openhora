@@ -1,8 +1,8 @@
 {
- "package": "lp-1",
+ "package": "s41-11",
  "add": {
   "operations_table.NOT_OPERATIONS": [
-   "event_list_picks"
+   "reads_words"
   ]
  }
 }

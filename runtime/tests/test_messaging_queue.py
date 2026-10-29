@@ -43,6 +43,7 @@ class Planner:
     def __init__(self):
         self.calls, self.hold, self.refusals, self.lock = [], set(), 0, threading.Lock()
         self.gates, self.entered, self.free = {}, {}, False
+        self.real = None
 
     def event(self, table, k):
         with self.lock:
@@ -54,7 +55,9 @@ class Planner:
     def reached(self, k):
         return self.event(self.entered, k)
 
-    def say(self, project, text, channel=None, sender=None):
+    def say(self, project, text, channel=None, sender=None, decide=False, route_pass=None, **more):
+        if decide and self.real is not None:      # S41-11: the decide leg of a line of a sender the interpreter reads is the real operation's (the planner stands for the agent's turn, the second leg)
+            return self.real(project, text, channel=channel, sender=sender, decide=True, **more)
         with self.lock:
             k = len(self.calls)
             self.calls.append({"text": text, "channel": channel, "sender": sender})
@@ -85,6 +88,7 @@ class Planner:
 @pytest.fixture
 def planner(lab, monkeypatch):  # noqa: F811
     p = Planner()
+    p.real = ops.say
     monkeypatch.setattr(ops, "say", p.say)
     yield p
     p.open_all()      # a thread a test left holding ends before the lab fixture joins it

@@ -76,6 +76,7 @@ import phone_refusal
 import phrases
 import plan_confirm
 import recurrence
+import route_pass
 import turn_gate
 
 CHANNEL = "messaging"
@@ -294,9 +295,22 @@ def _said(text: str, extras: dict) -> tuple:
     return text, None, None, False, extras.get("run_id")
 
 
+def take_pass(project: str, sender, said: str, extras: dict) -> bool:
+    """S41-11 (SPEC-S41-11-BRAKE): the route leg of a line takes the route pass the decide leg issued instead of asking the model again. A valid pass (this project, this sender, this line, not
+    taken, not expired) leaves what the decision left (`interpreted` False: the line goes to the planning agent and is stored as it was said; `frame` "new" or "answer") and answers True; any other
+    answers False and the interpreter reads the line as it always did (at worst one more call, never a route with no decision)."""
+    found = route_pass.take(project, sender, said, extras.get("route_pass"))
+    if found is None:
+        return False
+    extras["interpreted"] = False
+    extras["frame"] = found["frame"]
+    return True
+
+
 def _no_decision(ctx: dict, said: str, extras: dict):
     """No decision (entry off, a limit, a failed call): a line that is not private, in a project whose tables detect private lines, goes to the planning agent as before;
     any other gets the sentence."""
+    extras["no_decision"] = True      # S41-11: the decide leg knows that no model decided: a brake form gets its typed hint (runtime/ops_turn.py, the row `route-pass`)
     if _tag(ctx["cfg"]) in ROUTE_LANGUAGES and not turn_gate.private_line(said):
         extras["interpreted"] = False
         return None
@@ -486,6 +500,13 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         return _decided(project, ctx, decision["op"], said, sender, extras)
     if kind == "refuse_policy":
         return _said(_refusal(ctx, decision["op"], sender), extras)
+    if kind == "clarify" and decision.get("why") == "time-ask" and decision.get("op") == "remind" and decision.get("spans", {}).get("when"):
+        # the decision of 2026-10-28: where the code's time reader has two readings (or one to confirm) the engine's own question is asked ("Which time do you mean: A or B?"); the generic sentence
+        # only when the engine has nothing to offer. It never makes a reminder before the person's yes.
+        spans = decision["spans"]
+        reply = ops_natural.run(project, ctx, "remind", {"text": spans.get("text", "")}, said, CHANNEL, sender, extras, when=spans["when"], routed=True)
+        if reply != phrases.text("NAT_NOT_BELIEVED", cfg):
+            return _said(reply, extras)
     key = WHY_SENTENCE.get(decision.get("why")) if kind == "clarify" else None
     if key is None:
         _log_ask_again(decision)

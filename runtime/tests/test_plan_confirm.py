@@ -13,6 +13,9 @@ import pytest
 import standin_tree as st
 from plan_confirm_kit import (ASKER, OFF, OWNER, PROF, SENDER_LIST, ZONE, accept, ok_of, op, ops, ops_natural, ops_say, operations, pending_items,  # noqa: F401
                               phrases, plan_confirm, question, say, spy_read, text, world, rig)  # noqa: F401
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops_research = st.load("ops_research")
 ops_natural_writes = st.load("ops_natural_writes")

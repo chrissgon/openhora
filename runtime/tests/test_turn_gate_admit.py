@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: the event reviser's world opens its card from a plain line)
 import test_event_revise_flow as ter
 import test_mail_compose_flow as tmc
 import test_mail_revise_flow as tmr

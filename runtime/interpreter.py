@@ -965,7 +965,7 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
             if again[2] is None:
                 time, disagree, problem = again
         if problem:
-            return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name)
+            return _clarify(problem[0], slot=time_slots[0], error=problem[1], op=name, spans={**plain, time_slots[0]: span}, args=args)      # the spans ride along: a reminder's doubt about its time is asked by the engine itself (the decision of 2026-10-28)
         spans[time_slots[0]] = span
     decision = {"kind": "op", "error": None, "op": name, "args": args, "spans": spans, "time": time, "inherited": inherited, "time_disagree": disagree}
     if ground:

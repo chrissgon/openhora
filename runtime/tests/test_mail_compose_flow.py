@@ -25,6 +25,9 @@ import phrase_kit as pk
 import standin_tree as st
 from test_reminders import Clock
 from test_send_own_account import ACCOUNTS, CFG, PT, assert_lines, world  # noqa: F401  (the own-account mail world)
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 # Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
@@ -347,18 +350,21 @@ def test_a_stand_in_that_accents_what_was_typed_without_accents_reaches_the_card
 # --- the guided dialogue ---------------------------------------------------------------------------------------------------------------------------
 
 
+SUBJECT_TYPED = "Reunião sobre Openhora"      # validate: allow english-only -- a Portuguese subject under test
+
+
 def guided(world, monkeypatch, compose=COMPOSED):
-    model = setup(world, monkeypatch, interpret='{"v":1,"kind":"none"}', compose=compose, language="pt-BR")
-    first = phone(world, "Envie um email para joana.silva@clinica.example")
-    assert not first.get("resend") and "\n" not in first["reply"] and pk.said(first["reply"], "NW_MAIL_ASK_SUBJECT", PT, to="joana.silva@clinica.example"), first["reply"]
+    """S41-11: the interpreter names the send with the address and the subject the person wrote and no body: the dialogue asks the body (the exact-text marker is offered)."""
+    model = setup(world, monkeypatch, interpret=op("mail-send", {"to": ADDRESS, "subject": SUBJECT_TYPED}), compose=compose, language="pt-BR")
+    first = phone(world, "Envie um email para joana.silva@clinica.example assunto " + SUBJECT_TYPED)      # validate: allow english-only -- a Portuguese line is the input under test
+    assert not first.get("resend") and "\n" not in first["reply"] and first["reply"] == phrases.text("MC_ASK_BODY", ops_core.context(world["path"])["cfg"], to=ADDRESS), first["reply"]
     return model
 
 
 def test_the_guided_dialogue_words_the_answer_to_the_body_question_and_the_card_shows_the_text(world, clock, monkeypatch):
     model = guided(world, monkeypatch)
     cfg = ops_core.context(world["path"])["cfg"]
-    asked = phone(world, "Reunião sobre Openhora")      # validate: allow english-only -- a Portuguese answer under test
-    assert asked["reply"] == phrases.text("MC_ASK_BODY", cfg, to=ADDRESS) and "exact" in phrases.text("MC_ASK_BODY", {"language": "en"}, to="x")
+    assert "exact" in phrases.text("MC_ASK_BODY", {"language": "en"}, to="x")
     description = "Perguntar a disponibilidade de uma call amanha as 16hrs, para falarmos sobre o openhora"      # validate: allow english-only -- a Portuguese answer under test
     out = phone(world, description)
     lines = card_lines(world, out)
@@ -370,7 +376,6 @@ def test_the_guided_dialogue_words_the_answer_to_the_body_question_and_the_card_
 
 def test_the_marker_exact_text_sends_the_answer_as_written_with_no_model_call(world, clock, monkeypatch):
     model = guided(world, monkeypatch)
-    phone(world, "Reunião sobre Openhora")      # validate: allow english-only -- a Portuguese answer under test
     out = phone(world, "texto exato: Oi Joana, amanhã às 16h. Pode?")      # validate: allow english-only -- a Portuguese answer under test
     assert out["resend"] and text_of(card_lines(world, out)) == ["Oi Joana, amanhã às 16h. Pode?"]      # validate: allow english-only -- a Portuguese answer under test
     assert model.of("compose") == []
@@ -378,7 +383,6 @@ def test_the_marker_exact_text_sends_the_answer_as_written_with_no_model_call(wo
 
 def test_a_failed_compose_in_the_guided_dialogue_sends_the_answer_as_written(world, clock, monkeypatch):
     model = guided(world, monkeypatch, compose=None)
-    phone(world, "Reunião sobre Openhora")      # validate: allow english-only -- a Portuguese answer under test
     out = phone(world, "Perguntar a disponibilidade de uma call amanha as 16hrs")      # validate: allow english-only -- a Portuguese answer under test
     assert out["resend"] and text_of(card_lines(world, out)) == ["Perguntar a disponibilidade de uma call amanha as 16hrs"]      # validate: allow english-only -- a Portuguese answer under test
     assert len(model.of("compose")) == 1
@@ -420,25 +424,16 @@ def test_vacuity_a_validator_that_accepts_everything_puts_the_foreign_link_on_th
     assert "elsewhere.example" in card(world, out), "the oracle of the hostile test sees a planted wrong result"
 
 
-def test_a_closed_form_with_its_own_subject_and_body_is_sent_as_the_person_wrote_it_with_no_model_call(world, clock, monkeypatch):
-    model = setup(world, monkeypatch)
-    out = phone(world, "Envie um email para joana.silva@clinica.example assunto Teste dizendo Oi tudo bem")      # validate: allow english-only -- a Portuguese line is the input under test
-    lines = card_lines(world, out)
-    assert out["resend"] and has(lines, "CARD_MAIL_SUBJECT", subject="Teste") and text_of(lines) == ["Oi tudo bem"] and model.calls == []
-
-
-def test_a_sender_without_the_group_interpret_gets_the_guided_dialogue_with_the_persons_words_and_no_model_call(world, clock, monkeypatch):
+def test_a_sender_without_the_group_interpret_who_asks_for_a_mail_in_words_gets_the_typed_sentence_and_no_model_call(world, clock, monkeypatch):
+    """S41-11 (the maintainer, 2026-10-28): the guided dialogue of a closed form is gone with the claim; a sender the interpreter does not read gets the typed-command sentence, and no model is asked."""
     model = setup(world, monkeypatch, language="pt-BR")
-    first = phone(world, "Envie um email para joana.silva@clinica.example", sender=BARE)
+    out = phone(world, "Envie um email para joana.silva@clinica.example", sender=BARE)
     cfg = ops_core.context(world["path"])["cfg"]
-    assert first["reply"] == phrases.text("NW_MAIL_ASK_SUBJECT", cfg, to=ADDRESS)
-    assert phone(world, "Reunião sobre Openhora", sender=BARE)["reply"] == phrases.text("NW_MAIL_ASK_BODY", cfg, to=ADDRESS)      # validate: allow english-only -- a Portuguese answer under test
-    out = phone(world, "Perguntar a disponibilidade de uma call amanha", sender=BARE)      # validate: allow english-only -- a Portuguese answer under test
-    assert out["resend"] and text_of(card_lines(world, out)) == ["Perguntar a disponibilidade de uma call amanha"] and model.calls == []      # validate: allow english-only -- a Portuguese answer under test
+    assert out["reply"] == phrases.text("IX_TYPE_WRITE", cfg)
+    assert model.calls == [] and not out.get("resend")
 
 
 def test_the_marker_with_nothing_after_it_asks_the_body_again_and_opens_no_card(world, clock, monkeypatch):
     model = guided(world, monkeypatch)
-    phone(world, "Reunião sobre Openhora")      # validate: allow english-only -- a Portuguese answer under test
     out = phone(world, "texto exato:")      # validate: allow english-only -- a Portuguese answer under test
     assert not out.get("resend") and out["reply"] == phrases.text("MC_ASK_BODY", ops_core.context(world["path"])["cfg"], to=ADDRESS) and model.of("compose") == []
