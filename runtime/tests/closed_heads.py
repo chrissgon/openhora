@@ -178,6 +178,7 @@ def words_interpreted(monkeypatch):
         text = reader_text(line, reminders.now()) if line else None
         return {"ok": True, "text": text if text is not None else json.dumps({"v": 1, "kind": "route"}), "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"}
     monkeypatch.setattr(route, "complete", complete)
+    monkeypatch.setattr(st.load("ops_interpret"), "_zone", lambda now: "America/Sao_Paulo")      # the zone of the clocks of these tests, whatever the machine's (CI runs in UTC)
     bridge = st.load("messaging_bridge")
     real_handle = bridge.Bridge.handle
     REAL_HANDLE.append(real_handle)      # a timing test puts it back: it wants the bridge as it is, not waited for
