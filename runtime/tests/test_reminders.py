@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_attachments import IDENT, OTHER, accept, case, fake_key  # noqa: F401  (the project the attachment tests use)
 
@@ -29,6 +30,12 @@ FIFTH = "8181818181"
 SENDER = f"telegram:{IDENT}"
 PROFILES = {"staff": ["read", "talk", "reminders"], "reader": ["read", "talk"]}
 NOT_ENABLED = "is not enabled for this channel"
+
+
+def assert_spec(text, spec):
+    """`text` says the sentence a spec names: (phrase key, {field: value})."""
+    key, fields = spec
+    pk.assert_said(text, key, None, **fields)
 
 
 class Clock:
@@ -85,8 +92,8 @@ def test_the_line_after_remind_is_a_time_and_the_words_to_send():
             split(bad)
         assert str(e.value) == rm.USAGE, bad
     assert split("buy milk") == ("buy", "milk"), "a line that is not a time is read as one; resolve refuses it"
-    assert rm.USAGE == "Usage: /remind HH:MM <text>, /remind YYYY-MM-DD HH:MM <text> or /remind in <n>m|h|d <text> (24-hour clock, two digits)."
-    assert rm.USAGE_FORGET == "Usage: /forget <n>"
+    pk.assert_said(rm.USAGE, "RM_USAGE")
+    pk.assert_said(rm.USAGE_FORGET, "USAGE_FORGET")
 
 
 # --- 2. HH:MM: today, or tomorrow when it has passed ----------------------------------------------------------------------------------------
@@ -108,7 +115,8 @@ def test_a_time_less_than_a_minute_ahead_is_refused_and_so_is_one_a_second_from_
     now = moment("2026-10-18 14:00", seconds=30)
     with pytest.raises(ValueError) as e:
         resolve("14:01", now)
-    assert str(e.value) == rm.TOO_SOON.format(now="2026-10-18 14:00") == "A reminder is at least one minute ahead. Now it is 2026-10-18 14:00."
+    assert str(e.value) == rm.TOO_SOON.format(now="2026-10-18 14:00")
+    pk.assert_said(str(e.value), "RM_TOO_SOON", None, now="2026-10-18 14:00")
     assert resolve("14:02", now)["wall"] == "2026-10-18T14:02" and rm.MIN_AHEAD == 60
 
 
@@ -122,11 +130,12 @@ def test_a_date_and_a_time_name_that_moment_and_a_moment_that_has_passed_is_refu
     for past in ("2026-10-18 13:00", "2026-10-18 14:00", "2025-01-01 10:00"):
         with pytest.raises(ValueError) as e:
             resolve(past, now)
-        assert str(e.value) == "That time has passed. Now it is 2026-10-18 14:00.", past
+        assert pk.said(str(e.value), "RM_PAST", None, now="2026-10-18 14:00") and str(e.value).count("\n") == 0, past
     assert resolve("2027-10-19 14:00", now)["wall"] == "2027-10-19T14:00", "366 days is the limit and a day of a leap-less year is 365"
     with pytest.raises(ValueError) as e:
         resolve("2027-10-20 14:00", now)
-    assert str(e.value) == rm.TOO_FAR == "A reminder is at most 366 days ahead."
+    assert str(e.value) == rm.TOO_FAR
+    pk.assert_said(str(e.value), "RM_TOO_FAR")
     assert rm.MAX_AHEAD == 366 * 86400
 
 
@@ -162,11 +171,11 @@ def test_a_time_or_a_day_that_does_not_exist_is_refused_with_the_sentence_that_s
     for given in ("24:00", "25:00", "12:60", "99:99"):
         with pytest.raises(ValueError) as e:
             resolve(given, now)
-        assert str(e.value) == f"{given} is not a time of day (00:00 to 23:59).", given
+        assert pk.said(str(e.value), "RM_NOT_A_TIME", None, given=given) and str(e.value).count("\n") == 0, given
     for given in ("2026-02-30", "2026-13-01", "2026-00-10", "2025-02-29"):
         with pytest.raises(ValueError) as e:
             resolve(given + " 10:00", now)
-        assert str(e.value) == f"{given} is not a day of the calendar.", given
+        assert pk.said(str(e.value), "RM_NO_SUCH_DATE", None, given=given) and str(e.value).count("\n") == 0, given
     assert resolve("2028-02-29 10:00", moment("2028-02-01 10:00"))["wall"] == "2028-02-29T10:00"
 
 
@@ -191,7 +200,7 @@ def test_a_wall_time_the_clock_skips_is_refused_and_one_that_happens_twice_means
     before_spring = datetime.datetime(2026, 3, 7, 12, 0, tzinfo=zone)
     with pytest.raises(ValueError) as e:
         resolve("2026-03-08 02:30", before_spring, zone)
-    assert str(e.value) == "2026-03-08 02:30 does not exist on that day (the clock skips it). Pick another time."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_TIME", None, given="2026-03-08 02:30")
     got = resolve("2026-03-08 03:30", before_spring, zone)
     assert got["due"].utcoffset() == datetime.timedelta(hours=-4) and got["wall"] == "2026-03-08T03:30" and got["zone"] == "EDT"
     before_fall = datetime.datetime(2026, 10, 31, 12, 0, tzinfo=zone)
@@ -221,10 +230,10 @@ def test_the_text_is_one_line_of_at_most_300_characters():
     assert clean("  two\nlines\r\n and\ttabs\x00\x1b[31m  ") == "two lines and tabs [31m"
     assert clean("a b c") == "a b c"
     assert clean("é" * 300) == "é" * 300 and len(clean("😀" * 300)) == 300, "characters, not bytes"
-    for bad, sentence in (("", rm.NO_TEXT), ("   \n\t", rm.NO_TEXT), (None, rm.NO_TEXT), ("x" * 301, "A reminder is at most 300 characters; yours has 301.")):
+    for bad, sentence in (("", ("RM_NO_TEXT", {})), ("   \n\t", ("RM_NO_TEXT", {})), (None, ("RM_NO_TEXT", {})), ("x" * 301, ("RM_TOO_LONG", {"max": 300, "n": 301}))):
         with pytest.raises(ValueError) as e:
             clean(bad)
-        assert str(e.value) == sentence
+        assert_spec(str(e.value), sentence)
     assert rm.TEXT_MAX == 300
 
 
@@ -247,11 +256,11 @@ def test_the_late_window_is_six_hours_and_a_late_line_carries_the_time_it_was_du
     assert rm.verdict(due, moment("2026-10-18 15:00")) == ("send", 6 * 3600), "exactly 6 hours is the last second"
     assert rm.verdict(due, moment("2026-10-18 15:00", seconds=1)) == ("missed", 6 * 3600 + 1)
     assert rm.verdict(due, moment("2026-10-18 16:00")) == ("missed", 7 * 3600), "7 hours late is missed"
-    assert rm.line(4, "Call the dentist", "2026-10-18T09:00", 30) == "Reminder: Call the dentist", "the tick's own delay is not a mark"
-    assert rm.line(4, "Call the dentist", "2026-10-18T09:00", 300) == "Reminder: Call the dentist"
-    assert rm.line(4, "Call the dentist", "2026-10-18T09:00", 301) == "Reminder: Call the dentist (due at 09:00)"
-    assert rm.line(4, None, "2026-10-18T09:00", 0) == "A reminder is due (#4)."
-    assert rm.line(4, None, "2026-10-18T09:00", 3600) == "A reminder is due (#4). It was due at 09:00."
+    pk.assert_said(rm.line(4, "Call the dentist", "2026-10-18T09:00", 30), "RM_TEXT_LINE", None, text="Call the dentist")      # the tick's own delay is not a mark
+    pk.assert_said(rm.line(4, "Call the dentist", "2026-10-18T09:00", 300), "RM_TEXT_LINE", None, text="Call the dentist")
+    assert rm.line(4, "Call the dentist", "2026-10-18T09:00", 301) == "Reminder: Call the dentist (due at 09:00)"      # literal: two table sentences on one line, the kit matches one key
+    pk.assert_said(rm.line(4, None, "2026-10-18T09:00", 0), "RM_COUNT_LINE", None, id=4)
+    assert rm.line(4, None, "2026-10-18T09:00", 3600) == "A reminder is due (#4). It was due at 09:00."      # literal: two table sentences on one line, the kit matches one key
 
 
 # --- 8. making one -------------------------------------------------------------------------------------------------------------------------------
@@ -259,15 +268,15 @@ def test_the_late_window_is_six_hours_and_a_late_line_carries_the_time_it_was_du
 
 def test_the_terminal_makes_a_reminder_for_a_listed_sender_and_the_answer_names_the_day_and_the_time(world):
     got = world.remind("15:00", "Call the dentist")
-    assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)."
+    pk.assert_said(got["reply"], "RM_SET", None, id=1, wall="2026-10-18 15:00", zone="BRT")
     assert got["reminder"] == {"id": 1, "due": "2026-10-18 15:00", "zone": "BRT", "status": "open", "platform": "telegram", "for": "staff on telegram",
                                "created_by": "terminal", "text": "Call the dentist"}
     assert IDENT not in str(got), "the sender's id is in the store alone"
     [row] = world.rows()
     assert (row["platform"], row["chat"], row["created_by"], row["status"], row["due_local"], row["zone"]) == ("telegram", IDENT, "terminal", "open", "2026-10-18T15:00", "BRT")
     assert row["due_utc"] == "2026-10-18T18:00:00.000000Z" and row["text"] == "Call the dentist"
-    assert world.remind("in 2h", "Stretch")["reply"] == "Reminder #2 set for 2026-10-18 16:00 (BRT)."
-    assert world.remind("2026-10-20 09:30", "Renew the passport")["reply"] == "Reminder #3 set for 2026-10-20 09:30 (BRT)."
+    pk.assert_said(world.remind("in 2h", "Stretch")["reply"], "RM_SET", None, id=2, wall="2026-10-18 16:00", zone="BRT")
+    pk.assert_said(world.remind("2026-10-20 09:30", "Renew the passport")["reply"], "RM_SET", None, id=3, wall="2026-10-20 09:30", zone="BRT")
 
 
 def test_the_terminal_names_the_sender_and_a_sender_it_names_must_be_listed_and_hold_the_group(world):
@@ -289,11 +298,12 @@ def test_the_terminal_names_the_sender_and_a_sender_it_names_must_be_listed_and_
 
 def test_a_refused_time_or_text_stores_nothing_and_is_a_usage_error(world):
     world.clock.moment += datetime.timedelta(seconds=30)
-    for when, text, sentence in (("3pm", "x", rm.USAGE), ("15:00", "   ", rm.NO_TEXT), ("15:00", "y" * 301, "A reminder is at most 300 characters; yours has 301."),
-                                 ("2026-10-18 13:00", "x", "That time has passed. Now it is 2026-10-18 14:00."), ("14:01", "x", rm.TOO_SOON.format(now="2026-10-18 14:00"))):
+    for when, text, sentence in (("3pm", "x", ("RM_USAGE", {})), ("15:00", "   ", ("RM_NO_TEXT", {})), ("15:00", "y" * 301, ("RM_TOO_LONG", {"max": 300, "n": 301})),
+                                 ("2026-10-18 13:00", "x", ("RM_PAST", {"now": "2026-10-18 14:00"})), ("14:01", "x", ("RM_TOO_SOON", {"now": "2026-10-18 14:00"}))):
         with pytest.raises(ops.OpsError) as e:
             world.remind(when, text)
-        assert str(e.value) == sentence and e.value.code == 2, (when, text)
+        assert_spec(str(e.value), sentence)
+        assert e.value.code == 2, (when, text)
     assert world.rows() == []
 
 
@@ -301,17 +311,17 @@ def test_a_text_that_looks_like_a_credential_is_refused_and_nothing_of_it_is_sto
     key = fake_key()
     with pytest.raises(ops.OpsError) as e:
         world.remind("15:00", f"my key is {key}")
-    assert "looks like a credential" in str(e.value) and key not in str(e.value) and e.value.code == 2
+    assert pk.said(str(e.value), "RM_CREDENTIAL") and key not in str(e.value) and e.value.code == 2
     with pytest.raises(ops.OpsError):
         world.phone(SENDER, "15:00", f"use {key} tonight")
     assert world.rows() == []
-    assert world.remind("15:00", "Pay the electricity bill")["reply"].startswith("Reminder #")
+    assert pk.said(world.remind("15:00", "Pay the electricity bill")["reply"], "RM_SET")
 
 
 def test_the_group_is_off_for_a_messaging_app_until_the_project_lists_it_and_the_sender_must_hold_it(world):
     me = SENDER
     got = world.phone(me, "15:00", "Call the dentist")
-    assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)."
+    pk.assert_said(got["reply"], "RM_SET", None, id=1, wall="2026-10-18 15:00", zone="BRT")
     assert world.rows()[0]["created_by"] == f"messaging:telegram:staff:{IDENT}" and world.rows()[0]["chat"] == IDENT
     with pytest.raises(ops.OpsError) as e:
         world.phone(f"telegram:{THIRD}", "15:00", "x")
@@ -338,7 +348,7 @@ def test_a_messaging_sender_reminds_themselves_only(world):
 
 def test_the_text_is_stored_clean_and_never_in_the_answer_of_a_messaging_app(world):
     got = world.phone(SENDER, "15:00", "  Call\nthe   dentist\t")
-    assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)." and "Call" not in got["reply"]
+    assert pk.said(got["reply"], "RM_SET", None, id=1, wall="2026-10-18 15:00", zone="BRT") and "Call" not in got["reply"]
     assert world.rows()[0]["text"] == "Call the dentist"
 
 
@@ -352,8 +362,8 @@ def test_thirty_reminders_a_day_for_one_chat_then_the_next_day_and_the_other_cha
         ops.reminder_forget(world.path, n, channel="terminal")           # the day counts what was made, not what still waits
     with pytest.raises(ops.OpsError) as e:
         world.remind("in 40m", "one too many")
-    assert str(e.value) == "30 reminders were already made for this chat today. Try again tomorrow."
-    assert world.remind("in 40m", "for someone else", f"telegram:{OTHER}")["reply"].startswith("Reminder #31")
+    pk.assert_said(str(e.value), "RM_DAY_FULL", None, n=30)
+    assert pk.said(world.remind("in 40m", "for someone else", f"telegram:{OTHER}")["reply"], "RM_SET", None, id=31)
     world.clock.set("2026-10-19 09:00")
     assert world.remind("in 40m", "a new day")["reminder"]["id"] == 32, "the day is the machine's local day"
     assert len(world.rows()) == 32
@@ -364,7 +374,7 @@ def test_one_chat_holds_thirty_waiting_reminders_and_the_others_are_not_blocked(
         world.remind("in 2h", f"line {n}")
     with pytest.raises(ops.OpsError) as e:
         world.remind("in 2h", "one too many")
-    assert str(e.value) == "There are already 30 reminders waiting for this chat. Forget one first."
+    pk.assert_said(str(e.value), "RM_CHAT_FULL", None, n=30)
     with pytest.raises(ops.OpsError):
         world.phone(SENDER, "in 2h", "one too many, from the phone")
     assert world.remind("in 2h", "another chat is free", f"telegram:{OTHER}")["reminder"]["id"] == 31
@@ -383,7 +393,7 @@ def test_one_hundred_reminders_wait_in_a_project_and_a_sent_one_makes_room(world
     assert len(world.rows("open")) == 100
     with pytest.raises(ops.OpsError) as e:
         world.remind("in 2h", "the hundred and first", f"telegram:{FIFTH}")
-    assert str(e.value) == "There are already 100 reminders waiting in this project. Forget one first."
+    pk.assert_said(str(e.value), "RM_OPEN_FULL", None, n=100)
     ops.reminder_forget(world.path, 1, channel="terminal")
     assert world.remind("in 2h", "now there is room", f"telegram:{FIFTH}")["reminder"]["id"] == 101
 
@@ -423,13 +433,13 @@ def test_a_sender_forgets_their_own_reminder_and_another_sender_s_looks_like_one
     other = str(e.value)
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_forget(world.path, 99, channel="messaging", sender=SENDER)
-    assert other == str(e.value).replace("99", "2") == "No reminder 2 waits for you.", "the same answer for a reminder of someone else and one that is not there"
+    assert other == str(e.value).replace("99", "2") and pk.said(other, "RM_NO_SUCH", None, n=2), "the same answer for a reminder of someone else and one that is not there"
     assert world.rows("open")[1]["id"] == 2
-    assert ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)["reply"] == "Forgot reminder #1."      # the terminal and the page keep this sentence
+    pk.assert_said(ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)["reply"], "RM_FORGOT", None, id=1)      # the terminal and the page keep this sentence
     assert [r["id"] for r in world.rows("cancelled")] == [1]
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 1 is cancelled, not waiting."
+    pk.assert_said(str(e.value), "RM_NOT_WAITING", None, n=1, status="cancelled")
     assert ops.reminder_forget(world.path, 2, channel="terminal")["reminder"]["status"] == "cancelled", "the terminal is the person's own"
     for bad in (0, -1, "1", True):
         with pytest.raises(ops.OpsError):
@@ -442,7 +452,7 @@ def test_a_reminder_that_is_being_sent_is_not_forgotten_and_the_ones_that_did_no
     [sending] = ops.reminders_due(world.path, "telegram")["send"]
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_forget(world.path, sending["id"], channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 1 is being sent now."
+    pk.assert_said(str(e.value), "RM_BEING_SENT", None, n=1)
     ops.reminders_retry(world.path, 1)
     world.clock.set("2026-10-19 04:00")
     assert ops.reminders_due(world.path, "telegram")["missed"] == 1
@@ -522,7 +532,7 @@ def test_five_hours_late_is_delivered_with_the_time_it_was_due_and_seven_hours_l
     got = ops.reminders_due(world.path, "telegram")
     assert got["send"] == [] and got["missed"] == 1, "7 hours past its time the one that was only claimed once is missed"
     assert sorted((r["id"], r["status"]) for r in world.rows()) == [(1, "sent"), (2, "missed")]
-    assert rm.line(1, "Five hours late", "2026-10-18T15:00", 5 * 3600) == "Reminder: Five hours late (due at 15:00)"
+    assert rm.line(1, "Five hours late", "2026-10-18T15:00", 5 * 3600) == "Reminder: Five hours late (due at 15:00)"      # literal: two table sentences on one line, the kit matches one key
 
 
 def test_a_sender_removed_before_the_time_gets_nothing_and_the_reminder_is_dropped(world):
@@ -560,7 +570,7 @@ def test_in_count_mode_a_due_reminder_carries_no_text(world):
     world.clock.set("2026-10-18 16:00")
     [item] = ops.reminders_due(world.path, "telegram")["send"]
     assert item == {"id": 1, "chat": IDENT, "late": 0, "due_local": "2026-10-18T16:00"} and "dentist" not in str(item)
-    assert rm.line(item["id"], item.get("text"), item["due_local"], item["late"]) == "A reminder is due (#1)."
+    pk.assert_said(rm.line(item["id"], item.get("text"), item["due_local"], item["late"]), "RM_COUNT_LINE", None, id=1)
 
 
 def test_only_the_platform_asking_is_served_and_no_more_than_ten_go_out_in_a_tick(world):
@@ -616,7 +626,7 @@ def test_turning_the_group_on_is_a_widening_that_accept_config_takes_only_with_i
         ops.accept_config(world.path, shown["sha256"])
     assert "--widen" in str(e.value) or "widen" in str(e.value)
     ops.accept_config(world.path, shown["sha256"], widen=shown["widening_sha256"])
-    assert world.phone(SENDER, "15:00", "now it is on")["reply"].startswith("Reminder #1")
+    assert pk.said(world.phone(SENDER, "15:00", "now it is on")["reply"], "RM_SET", None, id=1)
 
 
 # --- 13. review of RM-1: the clock changes, the text, the order of the checks -----------------------------------------------------------------
@@ -649,7 +659,7 @@ def test_a_time_that_has_passed_today_is_tomorrows_even_when_the_clock_skipped_i
     before_skip = datetime.datetime(2026, 3, 8, 0, 30, tzinfo=zone)
     with pytest.raises(ValueError) as e:
         rm.resolve("02:30", before_skip, at)                              # ahead today and skipped: refused, not guessed
-    assert str(e.value) == "2026-03-08 02:30 does not exist on that day (the clock skips it). Pick another time."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_TIME", None, given="2026-03-08 02:30")
     fold = datetime.datetime(2026, 11, 1, 1, 15, tzinfo=zone, fold=1)      # the second 01:15 of the night
     assert rm.resolve("01:30", fold, at)["wall"] == "2026-11-02T01:30", "the first 01:30 is behind us"
 

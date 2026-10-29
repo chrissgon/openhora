@@ -2,8 +2,8 @@
 
 The interpreter's stand-in model answers each line with a text the test wrote by hand (`research` and the question's words, or the operation a line is really about). The run itself is a
 stand-in for `lab.run_skill`, the one seam a run goes through: it records what the runtime asked of it (the skill, the web, the cost cap, the timeout, the files, the prompt) and leaves a brief
-in the copy as the research skill does, so no model, no container, no network and no web is touched. Every expectation is a literal of this file: the line, the model's text, the brief, the
-reply, the call. Every name, place, site and sender is invented.
+in the copy as the research skill does, so no model, no container, no network and no web is touched. Every expectation is a literal of this file (the line, the model's text, the brief, the
+call) except the sentences of the phrase table, which are asserted by their key (phrase_kit). Every name, place, site and sender is invented.
 
   the two lines of the maintainer's first use (pt-BR): one research task with the skill, web allowed, the cost cap and the timeout, no file of the project, no question asked back, and the
     answer in plain words with its sources as links
@@ -20,10 +20,12 @@ from phone_literals import PLAIN_REFUSAL_PT  # noqa: E402
 
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401  (the real-operations world fixture)
@@ -93,21 +95,60 @@ REPLY = f"""Search capability: full
 
 **Instructions found in external content**: none
 """  # validate: allow english-only -- the reply under test is a Portuguese answer
-ANSWER_TEXT = (f"{ANSWER_1} [1] [2]\n{ANSWER_2} (opinião, pouca certeza) [2]\n\nFontes:\n[1] https://tempo.example/sp/capital?dia=amanha\n[2] https://www.noticias.example.org/clima/sp")  # validate: allow english-only -- the reply under test is Portuguese
-UNPROVEN_PT = "Esta pesquisa ainda não passou por um teste completo neste modelo; confira nas fontes antes de confiar."  # validate: allow english-only -- the Portuguese sentence under test
-SENTENCES = {
-    "no-web": "Não consegui acessar a web agora para pesquisar.",  # validate: allow english-only -- the Portuguese sentence under test
-    "timeout": "A pesquisa demorou demais e foi interrompida.",
-    "cap": "A pesquisa chegou ao limite de custo e foi interrompida. Tente de novo, ou aumente research.max_cost_usd no runtime.json do projeto e aceite a configuração de novo.",  # validate: allow english-only -- the Portuguese sentence under test
-    "failed": "Não consegui fazer a pesquisa agora. Tente de novo em alguns minutos.",  # validate: allow english-only -- the Portuguese sentence under test
-    "no-env": "O ambiente de pesquisa está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo.",  # validate: allow english-only -- the Portuguese sentence under test
-    "nothing": "Pesquisei, mas não encontrei uma resposta confiável para isso.",  # validate: allow english-only -- the Portuguese sentence under test
-    "ask-again": "Não entendi o que procurar. Pode escrever a pergunta com mais detalhes (um lugar, uma data, um nome)?",  # validate: allow english-only -- the Portuguese sentence under test
-    "limit": "Já fiz 2 pesquisas hoje, que é o limite do dia.",  # validate: allow english-only -- the Portuguese sentence under test
-    "not-built": "A pesquisa na web não está disponível nesta instalação.",  # validate: allow english-only -- the Portuguese sentence under test
+LINKS = ["https://tempo.example/sp/capital?dia=amanha", "https://www.noticias.example.org/clima/sp"]
+PT = {"language": "pt-BR"}
+EN = {"language": "en"}
+SAID = {      # the sentences a phone is told, by the name this file gives them: the key of the phrase table, and the value of its field
+    "no-web": ("RS_NO_WEB", {}), "timeout": ("RS_TIMEOUT", {}), "cap": ("RS_CAP", {}), "failed": ("RS_FAILED", {}), "no-env": ("RS_NO_ENV", {}),
+    "nothing": ("RS_NOTHING", {}), "ask-again": ("RS_ASK_AGAIN", {}), "limit": ("RS_LIMIT", {"count": 2}), "not-built": ("RS_NOT_BUILT", {}),
 }
-NO_QUESTION = "Não tive certeza do que você quis dizer, então não fiz nada. Pode dizer de outro jeito?"  # validate: allow english-only -- the Portuguese sentence under test
-STORED = "(respondido por uma pesquisa na web)"
+
+
+def said_pt(reply, key, **fields) -> bool:
+    """`reply` is exactly the one sentence of `key` in Portuguese (the project of this file's world says its replies in pt-BR)."""
+    return isinstance(reply, str) and "\n" not in reply and pk.said(reply, key, PT, **fields)
+
+
+def assert_said_pt(reply, key, **fields):
+    assert "\n" not in reply, reply
+    pk.assert_said(reply, key, PT, **fields)
+
+
+def says(reply, word) -> bool:
+    key, fields = SAID[word]
+    return said_pt(reply, key, **fields)
+
+
+def assert_says(reply, word):
+    key, fields = SAID[word]
+    assert_said_pt(reply, key, **fields)
+
+
+def assert_answer(reply, unproven=False):
+    """`reply` is the answer of BRIEF as a phone is told it: the two claims (the second marked as an opinion of low confidence), a blank line, the sentence RS_SOURCES and the two links,
+    and, for a run that is not proven, a blank line and the sentence RS_UNPROVEN."""
+    parts = reply.split("\n\n")
+    assert len(parts) == (3 if unproven else 2), parts
+    first, second = parts[0].split("\n")
+    assert first == f"{ANSWER_1} [1] [2]"
+    found = re.fullmatch(re.escape(ANSWER_2) + r" \((?P<marks>.+)\) \[2\]", second)
+    assert found, second
+    opinion, low = found["marks"].split(", ")
+    pk.assert_said(opinion, "RS_OPINION", PT)
+    pk.assert_said(low, "RS_LOW", PT)
+    heading, *links = parts[1].split("\n")
+    pk.assert_said(heading, "RS_SOURCES", PT)
+    assert links == [f"[{n}] {link}" for n, link in enumerate(LINKS, 1)]
+    if unproven:
+        pk.assert_said(parts[2], "RS_UNPROVEN", PT)
+
+
+def answered(reply, unproven=False) -> bool:
+    try:
+        assert_answer(reply, unproven)
+    except AssertionError:
+        return False
+    return True
 
 
 def op(name, slots=None):
@@ -228,10 +269,10 @@ def expect_one_research(made, question, max_cost=0.6, timeout=300):
 def test_a_general_question_runs_one_research_task_with_the_web_the_cost_cap_and_the_timeout_and_answers_in_plain_words_with_links(research, line, span):
     research["answer"]["text"] = op("research", {"question": span})
     reply = phone(research, line)
-    assert reply == ANSWER_TEXT
+    assert_answer(reply)
     expect_one_research(research["run"], span)
     assert st.calls(research["adapter"]) == []      # the router was not asked, and no plan or question was put to the person
-    assert "?" not in reply.split("\n\nFontes:")[0] and "core-research" not in reply and "docs/" not in reply and "```" not in reply and ".md" not in reply
+    assert "?" not in reply.split("\n\n")[0] and "core-research" not in reply and "docs/" not in reply and "```" not in reply and ".md" not in reply
 
 
 def test_the_run_is_a_row_of_the_store_with_a_neutral_request_and_the_conversation_holds_a_neutral_word(research):
@@ -243,7 +284,7 @@ def test_the_run_is_a_row_of_the_store_with_a_neutral_request_and_the_conversati
     [request] = [t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] is None]
     assert request["title"] == f"Question {request['id']}" and request["text"] == "web research"
     texts = [r["text"] for r in stored(research)]
-    assert STORED in texts and "(uma mensagem)" in texts and ANSWER_1 not in json.dumps(texts, ensure_ascii=False)
+    assert any(said_pt(text, "RS_STORED") for text in texts) and any(said_pt(text, "IX_PRIVATE_LINE") for text in texts) and ANSWER_1 not in json.dumps(texts, ensure_ascii=False)
 
 
 def test_the_stage_a_phone_is_told_is_research_while_the_run_goes(research):
@@ -279,13 +320,14 @@ def test_vacuity_a_run_without_the_web_or_with_the_project_in_the_copy_is_not_th
 
 
 def test_a_sender_without_the_group_research_gets_the_plain_refusal_and_nothing_runs(research):
-    assert phone(research, LINE_1, PLAIN_KEY) == PLAIN_REFUSAL_PT
+    assert phone(research, LINE_1, PLAIN_KEY) == PLAIN_REFUSAL_PT      # literal: the refusal a limit row quotes (phone_literals.py), not read from the table
     assert research["run"].calls == [] and st.calls(research["adapter"]) == [] and runs(research) == []
 
 
 def test_vacuity_the_same_sender_with_the_group_gets_the_answer(research):
     accept(research["path"], policies=dict(RESEARCH_PROFILES, plain=["read", "talk", "interpret", "research"]), messaging={"senders": RESEARCH_SENDERS})
-    assert phone(research, LINE_1, PLAIN_KEY) == ANSWER_TEXT and len(research["run"].calls) == 1
+    assert_answer(phone(research, LINE_1, PLAIN_KEY))
+    assert len(research["run"].calls) == 1
 
 
 def test_the_group_is_in_no_default_policy_on_the_messaging_channel_the_terminal_and_nowhere_else():
@@ -311,7 +353,8 @@ def test_the_widening_line_says_the_question_goes_to_a_search_service_and_to_the
 
 def test_the_terminal_may_ask_without_a_group_and_the_page_and_the_mcp_mode_may_not(research):
     out = ops.research(research["path"], LINE_1, channel="terminal")
-    assert out["reply"] == ANSWER_TEXT and out["ran"] is True and out["status"] == "answer" and out["refusal"] is None
+    assert_answer(out["reply"])
+    assert out["ran"] is True and out["status"] == "answer" and out["refusal"] is None
     assert out["links"] == ["https://tempo.example/sp/capital?dia=amanha", "https://www.noticias.example.org/clima/sp"]
     expect_one_research(research["run"], LINE_1)
     for channel in ("page", "mcp"):
@@ -337,15 +380,19 @@ def test_the_configured_cost_cap_and_timeout_are_what_the_run_is_given(research)
 
 def test_the_daily_count_is_enforced_from_the_store(research):
     set_limits(research, max_per_day=2)
-    assert phone(research, LINE_1) == ANSWER_TEXT and phone(research, LINE_1) == ANSWER_TEXT
+    assert_answer(phone(research, LINE_1))
+    assert_answer(phone(research, LINE_1))
     third = phone(research, LINE_1)
-    assert third == SENTENCES["limit"] and len(research["run"].calls) == 2 and len(runs(research)) == 2
+    assert_says(third, "limit")
+    assert len(research["run"].calls) == 2 and len(runs(research)) == 2
     assert ops.research(research["path"], LINE_1, channel="terminal")["status"] == "limit" and len(research["run"].calls) == 2      # the terminal is counted too
 
 
 def test_vacuity_a_higher_daily_count_lets_the_third_question_run(research):
     set_limits(research, max_per_day=3)
-    assert [phone(research, LINE_1) for _ in range(3)] == [ANSWER_TEXT] * 3 and len(research["run"].calls) == 3
+    for reply in [phone(research, LINE_1) for _ in range(3)]:
+        assert_answer(reply)
+    assert len(research["run"].calls) == 3
 
 
 def test_a_failed_run_counts_for_the_day(research):
@@ -353,7 +400,7 @@ def test_a_failed_run_counts_for_the_day(research):
     research["run"].mode = "adapter"
     phone(research, LINE_1)
     research["run"].mode = "ok"
-    assert phone(research, LINE_1) == "Já fiz 1 pesquisa hoje, que é o limite do dia."  # validate: allow english-only -- the Portuguese sentence under test
+    assert_said_pt(phone(research, LINE_1), "RS_LIMIT_ONE")
     assert len(research["run"].calls) == 1
 
 
@@ -379,7 +426,7 @@ def test_the_key_research_has_small_defaults_and_accepts_a_value_inside_its_boun
 def test_a_run_that_fails_gives_one_plain_sentence(research, mode, word, capsys):
     research["run"].mode = mode
     reply = phone(research, LINE_1)
-    assert reply == SENTENCES[word]
+    assert_says(reply, word)
     for private in ("error", "core-research", "adapter", "early_end", "boom", "exploded", "Traceback", MARK):
         assert private not in reply
     [row] = runs(research)
@@ -390,7 +437,8 @@ def test_a_run_that_fails_gives_one_plain_sentence(research, mode, word, capsys)
 
 # --- the research environment is off (RESEARCH-NO-DOCKER) --------------------------------------------------------------------------------------------------
 
-NO_ENV_EN = "The research environment is off on this computer (Docker is not running). Start Docker and ask again."
+NO_ENV_EN = "The research environment is off on this computer (Docker is not running). Start Docker and ask again."      # literal: the test of the table's own sentence below pins it
+NO_ENV_PT = "O ambiente de pesquisa está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo."      # validate: allow english-only -- the Portuguese sentence under test  # literal: the same
 NOT_THESE = ("alguns minutos", "few minutes", "daemon", "container:", "docker:", "Tente de novo", "Try again", "internal", "LabError", "unreachable", MARK)
 
 
@@ -398,7 +446,7 @@ def test_with_docker_off_the_phone_is_told_the_research_environment_is_off_and_n
     research["run"].mode = "docker"
     before = pending_items.count()
     reply = phone(research, LINE_1)
-    assert reply == SENTENCES["no-env"]
+    assert_says(reply, "no-env")
     for private in NOT_THESE:
         assert private not in reply, private
     [row] = runs(research)
@@ -413,7 +461,8 @@ def test_the_same_sentence_in_english(research):
     accept(research["path"], language="en")
     research["run"].mode = "docker"
     reply = phone(research, LINE_1)
-    assert reply == NO_ENV_EN and "few minutes" not in reply and "daemon" not in reply
+    pk.assert_said(reply, "RS_NO_ENV", EN)
+    assert not pk.said(reply, "RS_FAILED", EN) and "daemon" not in reply
 
 
 def test_a_run_that_could_not_start_for_another_reason_keeps_the_general_sentence_and_the_run_counts_for_the_day(research):
@@ -421,14 +470,16 @@ def test_a_run_that_could_not_start_for_another_reason_keeps_the_general_sentenc
     set_limits(research, max_per_day=2)
     research["run"].mode = "container"
     before = pending_items.count()
-    assert phone(research, LINE_1) == SENTENCES["failed"] != SENTENCES["no-env"]
+    reply = phone(research, LINE_1)
+    assert_says(reply, "failed")
+    assert not says(reply, "no-env")
     assert pending_items.count() == before
     research["run"].mode = "docker"
-    assert phone(research, LINE_1) == SENTENCES["no-env"]
+    assert_says(phone(research, LINE_1), "no-env")
     [first, second] = sorted(runs(research), key=lambda row: row["id"])
     assert (first["failure"], second["failure"]) == ("internal", "internal") and autonomy.never_reached_the_model(second)
     research["run"].mode = "ok"
-    assert phone(research, LINE_1) == SENTENCES["limit"], "a run that could not start counts for the day, as any failed run"
+    assert_says(phone(research, LINE_1), "limit")      # a run that could not start counts for the day, as any failed run
 
 
 @pytest.mark.parametrize("kind, word", [("docker", "no-env"), ("container", "failed"), (None, "failed")])
@@ -439,7 +490,7 @@ def test_a_stand_in_execute_that_raises_an_ops_error_is_told_by_its_lab_kind(res
             error.lab_kind = kind
         raise error
     monkeypatch.setattr(ops_contained, "execute", refuse)
-    assert phone(research, LINE_1) == SENTENCES[word]
+    assert_says(phone(research, LINE_1), word)
     assert [row["failure"] for row in runs(research)] == ["internal"]
 
 
@@ -449,20 +500,20 @@ def test_the_new_sentences_exist_in_both_tables_and_carry_no_field():
             text = phrases.TABLE[tag][key]
             assert text and "{" not in text and "}" not in text, (key, tag)
             assert "daemon" not in text and "alguns minutos" not in text and "few minutes" not in text
-    assert phrases.TABLE["en"]["RS_NO_ENV"] == NO_ENV_EN and phrases.TABLE["pt-BR"]["RS_NO_ENV"] == SENTENCES["no-env"]
+    assert phrases.TABLE["en"]["RS_NO_ENV"] == NO_ENV_EN and phrases.TABLE["pt-BR"]["RS_NO_ENV"] == NO_ENV_PT
     assert phrases.TABLE["en"]["RS_NO_ENV"] != phrases.TABLE["en"]["RS_FAILED"] and phrases.TABLE["pt-BR"]["RS_NO_ENV"] != phrases.TABLE["pt-BR"]["RS_FAILED"]
 
 
 def test_the_cap_sentence_says_what_to_do_next_in_both_languages():
     """RESEARCH-LIMITS (the maintainer, 2026-10-24): on the cap the person is told to try again or to raise the project's ceiling."""
     en, pt = phrases.TABLE["en"]["RS_CAP"], phrases.TABLE["pt-BR"]["RS_CAP"]
-    assert "Try again" in en and "research.max_cost_usd" in en and "runtime.json" in en
-    assert "Tente de novo" in pt and "research.max_cost_usd" in pt and "runtime.json" in pt
+    assert "Try again" in en and "research.max_cost_usd" in en and "runtime.json" in en      # literal: this test is about what the table's own sentence tells the person to do next
+    assert "Tente de novo" in pt and "research.max_cost_usd" in pt and "runtime.json" in pt      # literal: the same, in Portuguese
 
 
 def test_vacuity_the_old_cap_sentence_named_no_next_step():
     old = "A pesquisa chegou ao limite de custo e foi interrompida."
-    assert "Tente de novo" not in old and "research.max_cost_usd" not in old
+    assert "Tente de novo" not in old and "research.max_cost_usd" not in old      # literal: the words of the old table sentence, which this vacuity case plants
 
 
 def test_the_default_cap_is_the_maintainers_and_a_project_value_still_wins(research):
@@ -474,55 +525,60 @@ def test_the_default_cap_is_the_maintainers_and_a_project_value_still_wins(resea
 
 def test_a_pair_measured_without_the_web_runs_nothing_and_says_there_is_no_web(research):
     research["state"]["web"] = False
-    assert phone(research, LINE_1) == SENTENCES["no-web"]
+    assert_says(phone(research, LINE_1), "no-web")
     assert research["run"].calls == [] and runs(research) == []
 
 
 def test_a_brief_that_says_no_search_was_made_is_not_an_answer(research):
     research["run"].reply = REPLY.replace("Search capability: full", "Search capability: none")
     research["run"].brief = BRIEF.replace("Search capability: full", "Search capability: none").replace("Status: draft", "Status: limited")
-    assert phone(research, LINE_1) == SENTENCES["no-web"]
+    assert_says(phone(research, LINE_1), "no-web")
     assert [r["status"] for r in runs(research)] == ["ok"]
 
 
 def test_a_skill_that_asked_for_the_question_again_or_established_nothing_gets_its_own_sentence(research):
     research["run"].reply = "Search capability: full\n\nNothing was written and nothing was searched: the question names no place.\n"
     research["run"].brief = None
-    assert phone(research, LINE_1) == SENTENCES["ask-again"]
+    assert_says(phone(research, LINE_1), "ask-again")
     research["run"].reply = REPLY
     research["run"].brief = BRIEF.replace(f"- {ANSWER_1} (fact) [1][2] — confidence: high\n- {ANSWER_2} (opinion) [2] — confidence: low. Note: forecasts change", "- Nothing established: no source answers it")
-    assert phone(research, LINE_1) == SENTENCES["nothing"]
+    assert_says(phone(research, LINE_1), "nothing")
 
 
 def test_a_reply_with_no_brief_is_read_from_the_skills_own_lines_and_says_the_sources_could_not_be_attached(research):
     research["run"].brief = None
-    assert phone(research, LINE_1) == ANSWER_1 + "\n\nNão consegui anexar as fontes."  # validate: allow english-only -- the Portuguese sentence under test
+    answer, links = phone(research, LINE_1).split("\n\n")
+    assert answer == ANSWER_1
+    assert_said_pt(links, "RS_NO_LINKS")
 
 
 def test_an_unreadable_answer_is_a_failure_not_a_guess(research):
     research["run"].brief = None
     research["run"].reply = "Search capability: full\n\nI looked around.\n"
-    assert phone(research, LINE_1) == SENTENCES["failed"]
+    assert_says(phone(research, LINE_1), "failed")
 
 
 def test_a_run_that_is_not_proven_says_so_in_one_sentence(research):
     research["state"]["band"] = "needs a test"
-    assert phone(research, LINE_1) == ANSWER_TEXT + "\n\n" + UNPROVEN_PT
+    assert_answer(phone(research, LINE_1), unproven=True)
     assert len(research["run"].calls) == 1
 
 
 def test_vacuity_a_proven_run_has_no_such_sentence(research):
-    assert UNPROVEN_PT not in phone(research, LINE_1)
+    assert not pk.said(phone(research, LINE_1), "RS_UNPROVEN", PT)
 
 
 def test_the_skill_must_be_the_one_the_code_expects_or_nothing_runs(research):
     skill_md = research["tree"] / "skills" / "core-research" / "SKILL.md"
     skill_md.write_text(skill_md.read_text(encoding="utf-8").replace("  side_effects: []", "  side_effects: [send]"), encoding="utf-8")
-    assert phone(research, LINE_1) == SENTENCES["not-built"] and research["run"].calls == []
+    assert_says(phone(research, LINE_1), "not-built")
+    assert research["run"].calls == []
     skill_md.write_text(skill_md.read_text(encoding="utf-8").replace("  side_effects: [send]", "  side_effects: []").replace("  requires: [search:web]", "  requires: []"), encoding="utf-8")
-    assert phone(research, LINE_1) == SENTENCES["not-built"] and research["run"].calls == []
+    assert_says(phone(research, LINE_1), "not-built")
+    assert research["run"].calls == []
     skill_md.unlink()
-    assert phone(research, LINE_1) == SENTENCES["not-built"] and research["run"].calls == []
+    assert_says(phone(research, LINE_1), "not-built")
+    assert research["run"].calls == []
 
 
 def test_the_real_research_skill_declares_the_web_and_no_side_effect():
@@ -532,34 +588,36 @@ def test_the_real_research_skill_declares_the_web_and_no_side_effect():
 
 def test_a_model_that_names_a_question_the_line_does_not_hold_runs_nothing(research):
     research["answer"]["text"] = op("research", {"question": "the price of gold in Tokyo"})
-    assert phone(research, LINE_1) == NO_QUESTION and research["run"].calls == []
+    assert_said_pt(phone(research, LINE_1), "IX_ASK_AGAIN")
+    assert research["run"].calls == []
 
 
 # --- what is not research ------------------------------------------------------------------------------------------------------------------------
 
 
-AGENDA_NONE = "A sua agenda ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, na página da plataforma."  # validate: allow english-only -- the Portuguese sentence under test
-MAIL_NONE = "A sua caixa de e-mail ainda não foi adicionada a este projeto, então não há o que listar. Ela é adicionada uma vez, na página da plataforma."  # validate: allow english-only -- the Portuguese sentence under test
-NO_FOLDERS = "Nenhuma pasta do seu Google Drive ou do OneDrive está configurada neste projeto, então não consigo procurar arquivos."  # validate: allow english-only -- the Portuguese sentence under test
+AGENDA_NONE = "NW_ITEMS_ADD_CAL"      # the keys of the sentences a project with no agenda, no mailbox or no folder is told
+MAIL_NONE = "NW_ITEMS_ADD_MAIL"
+NO_FOLDERS = "FR_NO_FOLDERS"
 
 
 @pytest.mark.parametrize("line, want", [("mostra minha agenda", AGENDA_NONE), ("liste meus emails", MAIL_NONE)])
 def test_a_line_about_the_agenda_or_the_mail_is_the_read_of_the_snapshots_and_runs_no_research(research, line, want):
     research["answer"]["text"] = op("items")      # what a model that read the catalog says for these lines
-    assert phone(research, line) == want
+    assert_said_pt(phone(research, line), want)
     assert research["run"].calls == [] and st.calls(research["adapter"]) == [] and runs(research) == []
 
 
 def test_a_file_request_is_a_file_read_and_runs_no_research(research):
     research["answer"]["text"] = op("file-read", {"file": "relatorio de marco"})
-    assert phone(research, "Me traga o conteudo do arquivo relatorio de marco") == NO_FOLDERS
+    assert_said_pt(phone(research, "Me traga o conteudo do arquivo relatorio de marco"), NO_FOLDERS)
     assert research["run"].calls == [] and runs(research) == []
 
 
 @pytest.mark.parametrize("line", ["mostra minha agenda", "liste meus emails", "quais sao meus arquivos de marco?", "what is on my calendar tomorrow", "lis mes e-mails de ce matin", "zeig mir meinen Kalender"])  # validate: allow english-only -- lines under test
 def test_a_question_about_the_persons_own_calendar_mail_or_files_does_not_run_research_even_when_the_model_says_so(research, line):
     research["answer"]["text"] = op("research", {"question": line})
-    assert phone(research, line) in (NO_QUESTION, MAIL_NONE, AGENDA_NONE)      # a form of code claims "liste meus emails" and the agenda lines before the model is asked; every other line is refused by the guard
+    reply = phone(research, line)
+    assert any(said_pt(reply, key) for key in ("IX_ASK_AGAIN", MAIL_NONE, AGENDA_NONE))      # a form of code claims "liste meus emails" and the agenda lines before the model is asked; every other line is refused by the guard
     assert research["run"].calls == [] and runs(research) == [] and st.calls(research["adapter"]) == []
     assert ops.research(research["path"], line, channel="terminal")["status"] == "personal" and research["run"].calls == []
 
@@ -567,16 +625,14 @@ def test_a_question_about_the_persons_own_calendar_mail_or_files_does_not_run_re
 @pytest.mark.parametrize("line", ["Qual a agenda cultural de Sao Paulo neste fim de semana?", "Quanto custa uma pasta de dente em Sao Paulo?", "what is the calendar of public holidays in Brazil"])
 def test_vacuity_the_bare_noun_is_a_general_question_and_runs_research(research, line):
     research["answer"]["text"] = op("research", {"question": line})
-    assert phone(research, line) == ANSWER_TEXT
+    assert_answer(phone(research, line))
     assert len(research["run"].calls) == 1
 
 
 def test_a_possessive_in_the_line_stops_a_span_that_leaves_it_out(research):
     research["answer"]["text"] = op("research", {"question": "agenda de amanha"})
-    assert phone(research, "mostra a minha agenda de amanha") == NO_QUESTION and research["run"].calls == []
-
-
-BUSY = "Já estou pesquisando outra pergunta; tente de novo em instantes."  # validate: allow english-only -- the Portuguese sentence under test
+    assert_said_pt(phone(research, "mostra a minha agenda de amanha"), "IX_ASK_AGAIN")
+    assert research["run"].calls == []
 
 
 def test_a_line_that_meets_a_run_in_progress_gets_the_research_busy_sentence(research):
@@ -584,9 +640,9 @@ def test_a_line_that_meets_a_run_in_progress_gets_the_research_busy_sentence(res
     ctx = ops_core.context(research["path"])
     extras = {}
     with ops_core._route_lock(ctx["cfg"]):
-        assert ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, extras) == BUSY
-    assert research["run"].calls == [] and extras["stored"] == STORED
-    assert ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, {}) == ANSWER_TEXT      # vacuity: the lock released, the same line runs
+        assert_said_pt(ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, extras), "RS_BUSY")
+    assert research["run"].calls == [] and said_pt(extras["stored"], "RS_STORED")
+    assert_answer(ops_research.reply(research["path"], ctx, {"question": LINE_1}, LINE_1, "messaging", ASKER_KEY, {}))      # vacuity: the lock released, the same line runs
 
 
 def test_only_research_runs_count_for_the_day(research, monkeypatch):
@@ -688,11 +744,12 @@ def test_a_sender_removed_while_the_run_goes_gets_nothing(research, monkeypatch)
         return out
     monkeypatch.setattr(lab, "run_skill", run_then_remove)
     reply = phone(research, LINE_1)
-    assert removed and reply == "A resposta foi retida: você não pode mais perguntar neste canal."  # validate: allow english-only -- the Portuguese sentence under test
+    assert removed
+    assert_said_pt(reply, "WITHHELD")
     assert ANSWER_1 not in reply
 
 
 def test_the_path_the_interpreter_takes_stores_the_line_as_a_neutral_word(research):
     phone(research, LINE_1)
     users = [r["text"] for r in stored(research) if r["role"] == "user"]
-    assert users[-2:] == ["(uma mensagem)", "sim"] and LINE_1 not in json.dumps(stored(research), ensure_ascii=False)      # the line, then the person's OK of the question (D5): the OK is stored as it was said
+    assert len(users) >= 2 and said_pt(users[-2], "IX_PRIVATE_LINE") and users[-1] == "sim" and LINE_1 not in json.dumps(stored(research), ensure_ascii=False)      # the line, then the person's OK of the question (D5): the OK is stored as it was said

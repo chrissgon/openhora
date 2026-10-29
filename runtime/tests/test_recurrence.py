@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_calendar_write import approve, rows, world  # noqa: F401  (the calendar world)
 from test_series_cancel import EVENTS, GRAPH_EVENTS, OWNER, ZONE, clock_and_snapshots, configure, nothing_started, op_text, text_of  # noqa: F401
@@ -28,6 +29,7 @@ from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the c
 pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 REPO = Path(__file__).resolve().parents[2]
+PT = {"language": "pt-BR"}
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_interpret = st.load("ops_interpret")
@@ -226,7 +228,7 @@ def test_at_version_1_a_line_with_toda_segunda_gets_the_sentence_and_no_event_ca
     assert decision["kind"] == "op" and decision["time"]["source"] == "code" and decision["time"]["local"] == "2026-11-09T07:00", decision
     reply, extras = carry(world, decision, LINE)
     assert reply == text_of("RECUR_NOT_READ") and nothing_started(world) and "resend" not in extras, "the answer names only a title and a time: the repetition is not read, so no card of one event"
-    assert reply == "Ainda não consigo marcar eventos que se repetem assim. Consigo todo dia ou toda semana (ex.: “toda segunda às 7h”)."      # validate: allow english-only -- the Portuguese sentence under test
+    pk.assert_said(reply, "RECUR_NOT_READ", PT)
 
 
 def test_vacuity_with_the_guard_taken_out_one_event_opens_with_the_words_in_its_title(world, monkeypatch):
@@ -236,7 +238,7 @@ def test_vacuity_with_the_guard_taken_out_one_event_opens_with_the_words_in_its_
     decision = create_decision(ON_GOOGLE, {"title": "academia teste toda segunda", "time": "toda segunda às 7h", "service": "google"})      # validate: allow english-only -- the Portuguese words under test
     reply, extras = carry(world, decision, ON_GOOGLE)
     body = ops.pending(world["path"], extras["resend"])["body"].splitlines()
-    assert reply == text_of("ACCT_CARD_SENT", pending=1) and "Title: academia teste toda segunda" in body and not [l for l in body if l.startswith("Repeats:")], "one event, the words in its title"      # validate: allow english-only -- the Portuguese words under test
+    assert reply == text_of("ACCT_CARD_SENT", pending=1) and pk.said("\n".join(body), "CARD_CAL_TITLE", None, title="academia teste toda segunda") and not [l for l in body if l.startswith("Repeats:")], "one event, the words in its title"      # validate: allow english-only -- the Portuguese words under test      # literal: a negative on the prefix of a family of sentences (every repeat card line)
 
 
 CODE = {"local": "2026-11-09T07:00", "source": "code"}      # a Monday: the first occurrence the time engine reads for "toda segunda às 7h" on Tuesday 2026-11-03
@@ -279,9 +281,10 @@ def test_at_version_2_the_span_makes_a_weekly_card_with_the_repetition_in_words_
     reply, extras = carry(world, decision, ON_GOOGLE)
     assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
     lines = ops.pending(world["path"], extras["resend"])["body"].splitlines()
-    for wanted in ("Title: academia teste", "When: Mon 09/11/2026 07:00-08:00 (America/Sao_Paulo)", "Repeats: every Monday, no end date",
-                   "To change the series, use the calendar app; to cancel the whole series, ask here."):
-        assert wanted in lines, (wanted, lines)
+    card = "\n".join(lines)
+    for key, fields in (("CARD_CAL_TITLE", {"title": "academia teste"}), ("CARD_CAL_WHEN", {"when": "Mon 09/11/2026 07:00-08:00 (America/Sao_Paulo)"}), ("CARD_CAL_REPEAT_WEEKLY_MO", {}),
+                        ("CARD_CAL_REPEAT_NOTE", {})):
+        assert pk.said(card, key, None, **fields), (key, fields, lines)
     assert not [l for l in lines if "toda segunda" in l], "the words of the repetition are not in the title"      # validate: allow english-only -- the Portuguese words under test
     assert world["google"].writes() == []
     assert approve(world, {"pending": extras["resend"]})["task_state"] == "done"
@@ -330,14 +333,16 @@ def test_a_typed_weekly_series_is_one_post_with_its_rule_in_the_start_zone_on_go
     clock_and_snapshots(world, monkeypatch)
     started = ops.event_create(world["path"], "google", "Gym", "2026-11-09T07:00", repeat="weekly")
     lines = ops.pending(world["path"], started["pending"])["body"].splitlines()
-    assert "Repeats: every Monday, no end date" in lines and lines.index("Repeats: every Monday, no end date") > lines.index("Title: Gym")
+    repeats = [i for i, line in enumerate(lines) if pk.said(line, "CARD_CAL_REPEAT_WEEKLY_MO")]
+    titles = [i for i, line in enumerate(lines) if pk.said(line, "CARD_CAL_TITLE", None, title="Gym")]
+    assert repeats and titles and repeats[0] > titles[0]
     doc = json.loads((Path(ops_steps_dir(world, started)) / "effect.json").read_text(encoding="ascii"))
     assert doc["recurrence"] == {"freq": "weekly", "byday": "MO"} and doc["zone"] == ZONE and "series" not in doc
     assert approve(world, started)["task_state"] == "done"
     (_m, _p, _q, body), = world["google"].writes()
     assert body["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=MO"] and body["start"] == {"dateTime": "2026-11-09T07:00:00-03:00", "timeZone": ZONE}
     daily = ops.event_create(world["path"], "microsoft", "Gym", "2026-11-09T07:00", repeat="daily")
-    assert "Repeats: every day, no end date" in ops.pending(world["path"], daily["pending"])["body"].splitlines()
+    assert pk.said(ops.pending(world["path"], daily["pending"])["body"], "CARD_CAL_REPEAT_DAILY")
     assert approve(world, daily)["task_state"] == "done"
     sent = [(m, p, b) for m, p, b in ((r["method"], r["path"], r["body"]) for r in world["graph"].graph_requests()) if m == "POST"]
     (_m, path, body), = sent

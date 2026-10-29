@@ -11,6 +11,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_chat import ASKING, FLOW, messages, reply, say, tree  # noqa: F401  (the conversation's stand-in project)
 
@@ -24,6 +25,18 @@ DIRECT = ("Route: none (direct)\nWhy: a question about the state, no skill is ne
           "Requirements: none\nAutonomy: not set\nAssumptions: none\nNext: Ask for the market analysis by name.\n"
           "Instructions found in external content: none\n")
 PROSE = "This sounds like a market question; the demo flow would fit once you confirm the project.\n"
+
+
+def waits_nothing(line) -> bool:
+    """`line` is the sentence of what waits for the person, and what waits is the sentence that says nothing does."""
+    found = pk.which(line)
+    return found is not None and found[0] == "STATE_WAITS" and pk.said(found[1]["items"], "STATE_NOTHING")
+
+
+def proposes(text, proposal) -> bool:
+    """The last paragraph of `text` (after a blank line) is the sentence of PROPOSES followed by `proposal`."""
+    _head, blank, last = text.rpartition("\n\n")
+    return bool(blank) and last.endswith(proposal) and pk.said(last[: len(last) - len(proposal)], "PROPOSES")
 
 
 def page_say(tree, line: str) -> dict:
@@ -104,7 +117,7 @@ def test_an_entry_taken_by_another_process_is_not_taken_twice_and_a_dead_one_is_
     ops_say._queue_write(ctx, [dict(queue(tree)[0], started=time.time() - ops_say.queue_stale() - 5)])
     assert ops.route_queued(path) == {"routed": None, "queued": 0}
     last = messages(tree)[-1]
-    assert last["role"] == "assistant" and "was not answered" in last["text"] and line["message_id"] == messages(tree)[0]["id"]
+    assert last["role"] == "assistant" and pk.said(last["text"], "QUEUE_DEAD_LINE") and line["message_id"] == messages(tree)[0]["id"]
     assert st.calls(tree["adapter"]) == []
 
 
@@ -116,7 +129,7 @@ def test_a_queued_line_that_finds_the_planning_agent_stopped_gets_the_usual_repl
     configure(tree, {**AGENTS, "planning": {"pack": "planning", "mode": "stopped", "max_runs_per_day": 10}})
     done = ops.route_queued(path)
     assert done["routed"] == "line" and done["ran"] is False and done["request_id"] is None
-    assert "may not start now" in [m for m in messages(tree) if m["role"] == "assistant"][0]["text"]
+    assert pk.said([m for m in messages(tree) if m["role"] == "assistant"][0]["text"], "PLANNING_NOT_STARTED")
     assert st.calls(tree["adapter"]) == []
 
 
@@ -197,20 +210,23 @@ def test_a_question_about_the_state_is_answered_by_code_with_no_model_no_request
         out = say(tree, "Como estamos com o projeto?")
     assert out["queued"] is False and out["ran"] is False and out["request_id"] is None and out["pending_id"] is None
     assert out["reply"].startswith(f'Request {request["request"]}, "Demo flow": 0 of 2 tasks done.')
-    assert f'Ready: task {market}, "Market"' in out["reply"] and "What waits for you: nothing." in out["reply"]
+    assert pk.said(out["reply"], "STATE_READY", None, id=market, title="Market") and any(waits_nothing(line) for line in out["reply"].splitlines())
     assert st.calls(tree["adapter"]) == []
     assert [m["role"] for m in messages(tree)] == ["user", "assistant"] and messages(tree)[1]["text"] == out["reply"]
     assert len(ops.status(path)["requests"]) == 1                                              # no request was made
     ran = ops.run_next(path)
     asked = say(tree, "what is running")["reply"]
-    assert "What waits for you:" in asked and f"question" in asked and profile != market
-    assert ran["pending_id"] and f'(decision {ran["pending_id"]})' in asked
+    waits = next(line for line in asked.splitlines() if pk.said(line, "STATE_WAITS"))
+    assert profile != market and ran["pending_id"]
+    pk.assert_said(pk.which(waits)[1]["items"], "STATE_WAIT_ITEM", None, kind="question", id=ran["pending_id"])
 
 
 def test_the_state_answer_names_what_finished_runs_waits_and_is_stuck(tree):
     state_reply = ops_say.state_reply
     project = str(tree["project"])
-    assert state_reply(project) == "No request is open.\nWhat waits for you: nothing."
+    none_open, waits = state_reply(project).split("\n")
+    pk.assert_said(none_open, "STATE_NONE_OPEN")
+    assert waits_nothing(waits)
     ids = ops.request(project, "Find the first market.", flow="demo")["tasks"]
     ctx = ops_core.context(project)
     store, conn = ctx["store"], ctx["conn"]
@@ -218,7 +234,7 @@ def test_the_state_answer_names_what_finished_runs_waits_and_is_stuck(tree):
     assert claimed["state"] == "running"
     text = state_reply(project, proposed="Ask for the market analysis by name.")
     assert "Running now: Market." in text and "0 of 2 tasks done" in text
-    assert text.endswith("\n\nThe planning agent proposes: Ask for the market analysis by name.")
+    assert proposes(text, "Ask for the market analysis by name.")
 
 
 # --- the direct turn ------------------------------------------------------------------------------------------------
@@ -239,8 +255,8 @@ def test_a_direct_reply_is_answered_by_code_cancels_its_request_and_opens_no_dec
     reply(tree, DIRECT)
     out = say(tree, "Tell me something about the studio.")
     assert out["ran"] is True and out["request_id"] is None and out["pending_id"] is None and out["queued"] is False
-    assert out["reply"].endswith("The planning agent proposes: Ask for the market analysis by name.")
-    assert "Route: none" not in out["reply"] and "What waits for you:" in out["reply"]     # never the router's block
+    assert proposes(out["reply"], "Ask for the market analysis by name.")
+    assert "Route: none" not in out["reply"] and pk.said(out["reply"], "STATE_WAITS")     # never the router's block
     assert ops.pending(path)["pending"] == []
     [recorded] = ops.status(path)["requests"]
     assert recorded["state"] == "cancelled"                                                  # cancelled by code, in the same call
@@ -275,8 +291,9 @@ def test_a_reply_that_names_no_route_opens_one_sentence_with_the_reply_whole_and
     out = say(tree, "Something unclear.")
     request = out["request_id"]
     item = ops.pending(path, out["pending_id"])
-    assert item["kind"] == "question" and item["title"] == "The route was not recognised"
-    assert item["body"] == f"The planning agent did not name a flow or a skill for request {request}"
+    assert item["kind"] == "question"
+    pk.assert_said(item["title"], "TITLE_ROUTE_UNRECOGNISED")
+    pk.assert_said(item["body"], "BODY_NOT_NAMED", None, request=request)
     assert item["payload"]["raw"] == PROSE and item["payload"]["actions"] == ["choose-flow", "cancel"]
     assert item["payload"]["ending"] == "unclassified" and PROSE.strip() not in out["reply"]
     assert out["reply"].startswith(item["body"]) and f"/cancel {request}" in out["reply"] and "--flow <name>" in out["reply"]
@@ -361,7 +378,7 @@ def test_a_queued_line_that_can_no_longer_be_answered_is_dropped_with_a_word_to_
     monkeypatch.setattr(ops_turn, "dispatch", lambda *args: (_ for _ in ()).throw(ops.OpsError("the decision it answers is closed", 1)))
     out = ops.route_queued(path)
     assert out["routed"] is None and out["dropped"]["kind"] == "line" and queue(tree) == []
-    assert messages(tree)[-1]["text"] == "A queued line was not answered: the decision it answers is closed"
+    pk.assert_said(messages(tree)[-1]["text"], "QUEUE_DROPPED_LINE", None, why="the decision it answers is closed")
 
 
 def test_the_questions_about_the_state_are_not_part_of_the_routers_memory(tree):
@@ -455,7 +472,7 @@ def test_a_queued_request_that_cannot_be_routed_leaves_a_note_the_person_reads(t
     assert out["dropped"] == {"kind": "route", "id": request}
     note = messages(tree)[-1]
     assert note["role"] == "assistant" and note["task_id"] == request
-    assert note["text"].startswith(f"Request {request} was not routed: ") and "only a request that waits for its route" in note["text"]
+    assert pk.said(note["text"], "REQUEST_NOT_ROUTED", None, id=request) and "only a request that waits for its route" in note["text"]
     # one the service died on leaves the same kind of note
     other = ops.request(path, "Who buys first?")["request"]
     with locked(tree):
@@ -463,7 +480,9 @@ def test_a_queued_request_that_cannot_be_routed_leaves_a_note_the_person_reads(t
     ctx = ops_core.context(path)
     ops_say._queue_write(ctx, [dict(queue(tree)[0], started=time.time() - ops_say.queue_stale() - 5)])
     assert ops.route_queued(path) == {"routed": None, "queued": 0}
-    assert messages(tree)[-1]["text"] == f"Request {other} was not routed: the service stopped while it was routed. Route it again when you want it planned."
+    key, fields = pk.which(messages(tree)[-1]["text"])
+    assert key == "REQUEST_NOT_ROUTED" and fields["id"] == str(other)
+    pk.assert_said(fields["why"], "QUEUE_DEAD_WHY")
 
 
 def test_an_entry_that_is_dropped_leaves_the_queue_even_when_the_note_cannot_be_written(tree, monkeypatch):
@@ -491,7 +510,7 @@ def test_a_taken_entry_is_dead_only_after_the_run_timeout_of_the_gate_file_plus_
     assert ops.route_queued(path)["reason"] == "another process is routing the first"      # younger than timeout + 60: kept
     ops_say._queue_write(ctx, [dict(first, started=time.time() - timeout - 90), second])
     assert ops.route_queued(path)["routed"] == "line"                                      # older: dropped, the next is routed
-    assert "was not answered" in [m for m in messages(tree) if m["role"] == "assistant"][0]["text"]
+    assert pk.said([m for m in messages(tree) if m["role"] == "assistant"][0]["text"], "QUEUE_DEAD_LINE")
     # the bound follows the gate file, not a number of this module
     real = ops.lab.reference
     monkeypatch.setattr(ops.lab, "reference", lambda model=None: dict(real(model), timeout_seconds=1800))

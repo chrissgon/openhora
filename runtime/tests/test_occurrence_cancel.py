@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_series_cancel import (WEEKLY_MONDAY, EVENTS, GRAPH_DAILY, GRAPH_MASTER, MASTER, TITLE, approve, body_lines, cancel, carry, event_series, google_series, google_writes, graph_series,  # noqa: F401
                                 graph_writes, nothing_started, no_card, op_text, ops, text_of, world)
@@ -39,11 +40,12 @@ def daily(world, monkeypatch, days=5):
 
 def assert_card(world, extras, instance, when, time_text="07:00-08:00"):
     lines = body_lines(world, extras)
-    assert lines[0].startswith("Code cancels only this one occurrence after your approval, and nothing else."), lines[0]
-    for wanted in (f"Event: {instance}", f"The event now is at: {when} {time_text} (America/Sao_Paulo)", "The rest of the series stays as it is.", "Repeats: every Monday, no end date"
-                   if "Mon" in when else "Repeats: every day, no end date", "The event now: Academia teste"):
-        assert wanted in lines, (wanted, lines)
-    assert f"Event: {MASTER}" not in lines, "the card is of the instance, never of the master"
+    card = "\n".join(lines)
+    pk.assert_said(lines[0], "CARD_CAL_OCCURRENCE_CANCEL")
+    for key, fields in (("CARD_CAL_EVENT", {"event_id": instance}), ("CARD_CAL_NOW_WHEN", {"when": f"{when} {time_text} (America/Sao_Paulo)"}), ("CARD_CAL_OCCURRENCE_STAYS", {}),
+                        ("CARD_CAL_REPEAT_WEEKLY_MO" if "Mon" in when else "CARD_CAL_REPEAT_DAILY", {}), ("CARD_CAL_NOW_TITLE", {"title": "Academia teste"})):
+        assert pk.said(card, key, None, **fields), (key, fields, lines)
+    assert not pk.said(card, "CARD_CAL_EVENT", None, event_id=MASTER), "the card is of the instance, never of the master"
 
 
 # --- one occurrence, by the words that say so ---------------------------------------------------------------------------------------------------
@@ -146,7 +148,7 @@ def test_the_card_shows_the_instance_as_the_provider_has_it_even_when_the_line_s
     weekly(world, monkeypatch)
     _, extras = cancel(world, "cancela só a academia teste de 16/11 às 9h", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
     lines = body_lines(world, extras)
-    assert "The event now is at: Mon 16/11/2026 07:00-08:00 (America/Sao_Paulo)" in lines and not [l for l in lines if "09:00" in l], lines
+    assert pk.said("\n".join(lines), "CARD_CAL_NOW_WHEN", None, when="Mon 16/11/2026 07:00-08:00 (America/Sao_Paulo)") and not [l for l in lines if "09:00" in l], lines
 
 
 def test_an_instance_moved_by_hand_is_cancelled_at_its_own_time_and_the_card_shows_that_time(world, monkeypatch):
@@ -154,7 +156,7 @@ def test_an_instance_moved_by_hand_is_cancelled_at_its_own_time_and_the_card_sho
     moved = world["google"].events["gymmaster_2"]
     moved["start"], moved["end"] = {"dateTime": "2026-11-16T08:30:00-03:00"}, {"dateTime": "2026-11-16T09:30:00-03:00"}
     _, extras = cancel(world, "cancela só a academia teste de 16/11", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
-    assert "The event now is at: Mon 16/11/2026 08:30-09:30 (America/Sao_Paulo)" in body_lines(world, extras)
+    pk.assert_said("\n".join(body_lines(world, extras)), "CARD_CAL_NOW_WHEN", None, when="Mon 16/11/2026 08:30-09:30 (America/Sao_Paulo)")
     assert approve(world, {"pending": extras["resend"]})["task_state"] == "done"
     assert [(m, p) for m, p, _, _ in google_writes(world)] == [("PATCH", f"{EVENTS}/gymmaster_2")]
 
@@ -183,7 +185,7 @@ def test_an_instance_that_started_at_another_time_after_the_card_is_stale_even_w
 def test_the_typed_occurrence_flag_takes_a_day_and_finds_the_instance_of_the_series_the_reference_belongs_to(world, monkeypatch):
     weekly(world, monkeypatch)
     started = ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-16")
-    assert "Event: gymmaster_2" in ops.pending(world["path"], started["pending"])["body"].splitlines(), "agenda#1 is the 09/11 instance: the day named is another one of the same series"
+    assert pk.said(ops.pending(world["path"], started["pending"])["body"], "CARD_CAL_EVENT", None, event_id="gymmaster_2"), "agenda#1 is the 09/11 instance: the day named is another one of the same series"
     with pytest.raises(ops.OpsError) as none:
         ops.event_cancel(world["path"], "google", "agenda#1", occurrence="2026-11-17")
     assert "no occurrence on that day" in str(none.value)
@@ -218,8 +220,9 @@ def test_an_outlook_occurrence_is_cancelled_by_the_cancel_action_on_the_occurren
     reply, extras = cancel(world, "cancela só a academia teste de 16/11", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
     lines = body_lines(world, extras)
-    assert lines[0].startswith("Code cancels only this one occurrence after your approval") and "Outlook moves it to Deleted Items" in lines[0], lines[0]
-    assert "The event now is at: Mon 16/11/2026 07:00-08:00 (America/Sao_Paulo)" in lines and "The rest of the series stays as it is." in lines
+    pk.assert_said(lines[0], "CARD_CAL_OCCURRENCE_CANCEL_OUTLOOK")
+    card = "\n".join(lines)
+    assert pk.said(card, "CARD_CAL_NOW_WHEN", None, when="Mon 16/11/2026 07:00-08:00 (America/Sao_Paulo)") and pk.said(card, "CARD_CAL_OCCURRENCE_STAYS")
     assert approve(world, {"pending": extras["resend"]})["task_state"] == "done"
     sent = graph_writes(world)
     assert [(m, p.rsplit("/events/", 1)[1], b) for m, p, b in sent] == [("POST", "AAMkGym00001Occ2=/cancel", {})], sent
@@ -231,7 +234,7 @@ def test_an_outlook_daily_series_and_tomorrow_open_the_card_of_tomorrows_occurre
     graph_series(world, monkeypatch, pattern=GRAPH_DAILY, step=1, first="2026-11-03T10:00:00", last="2026-11-03T11:00:00", days=4)
     reply, extras = cancel(world, "cancela a academia teste de amanhã", target="academia teste", day="amanhã")      # validate: allow english-only -- the Portuguese line under test
     assert reply == text_of("ACCT_CARD_SENT", pending=1), reply
-    assert "The event now is at: Wed 04/11/2026 07:00-08:00 (America/Sao_Paulo)" in body_lines(world, extras)
+    pk.assert_said("\n".join(body_lines(world, extras)), "CARD_CAL_NOW_WHEN", None, when="Wed 04/11/2026 07:00-08:00 (America/Sao_Paulo)")
 
 
 def test_the_seam_starts_only_the_two_reads_with_the_token_and_a_write_verb_only_as_a_dry_run_while_a_card_is_prepared(world, monkeypatch):

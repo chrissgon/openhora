@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_runtime_language_file
 """
 from __future__ import annotations
 
+import phrase_kit as pk
 import standin_tree as st
 from test_attachments import IDENT, PDF, accept, case  # noqa: F401  (the project the attachment tests use)
 from test_messaging_attach import card_action, make_world, world  # noqa: F401  (the stand-in world over a real store)
@@ -15,6 +16,7 @@ ops = st.load("ops")
 attachments = st.load("attachments")
 phrases = st.load("phrases")
 PT = phrases.TABLE["pt-BR"]
+PT_CFG = {"language": "pt-BR"}
 
 
 def speak(world, tag):
@@ -25,27 +27,29 @@ def test_a_provider_that_takes_no_file_and_a_channel_without_the_group_are_told_
     w = make_world(case, monkeypatch, caps={"attachments": False})
     speak(w, "pt-BR")
     w.send([w.file()])
-    assert w.texts() == ["A conexão deste aplicativo ainda não recebe arquivos."] and w.fetches() == []  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    [told] = w.texts()
+    pk.assert_said(told, "ATT_NO_FILES", PT_CFG)
+    assert w.fetches() == []
     w.reset()
     (w.folder / "caps.json").write_text('{"attachments": true, "max_attachment_bytes": 20971520}')
     w.messenger._caps = None
     accept(case.path, channels={"messaging": ["read", "talk"]}, policies=None, language="pt-BR")
     w.send([w.file()])
-    assert w.texts() == ["Arquivos não são recebidos por este aplicativo neste projeto. Adicione na página da plataforma."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    [told] = w.texts()
+    pk.assert_said(told, "ATT_OFF", PT_CFG)
     assert w.fetches() == [] and case.rows() == []
 
 
 def test_the_refusals_before_a_byte_is_fetched_are_in_portuguese(world):
     speak(world, "pt-BR")
     world.send([world.file("p1", "talk.ogg", 5000, "voice")])
-    assert world.texts() == [PT["ATT_MEDIA"]] == ["Notas de voz, vídeos, áudios e figurinhas ainda não são aceitos, nem imagens que não sejam PNG, JPEG, WebP, GIF ou HEIC. "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                                                  "Envie uma foto ou imagem desses tipos para salvar no Drive ou no OneDrive, ou um PDF, um documento Word, uma planilha, "  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                                                  "uma apresentação, uma página HTML ou um arquivo de texto para adicionar ao projeto."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    [media] = world.texts()
+    pk.assert_said(media, "ATT_MEDIA", PT_CFG)
     world.send([world.file("big", "Big.pdf", 30 * 1024 * 1024)])
-    assert world.texts()[-1] == "Big.pdf tem 30,0 MiB; um arquivo deste aplicativo pode ter no máximo 20,0 MiB."
+    pk.assert_said(world.texts()[-1], "ATT_TOO_LARGE", PT_CFG, name="Big.pdf", size="30,0 MiB", cap="20,0 MiB")
     before = len(world.texts())
     world.send([world.file()], text="please read the file")
-    assert world.texts()[before].endswith("O texto enviado junto com um arquivo é lido só como um pedido para salvar; para o resto, use os botões do card dele.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert pk.said(world.texts()[before].splitlines()[-1], "ATT_CAPTION_IGNORED", PT_CFG)
     assert len(world.fetches()) == 1
 
 
@@ -53,22 +57,30 @@ def test_the_card_of_a_held_file_and_its_answers_are_in_portuguese(world):
     speak(world, "pt-BR")
     world.send([world.file("r1", "Q3 plan.pdf", len(PDF))])
     [message] = [s["message"] for s in world.sent()]
-    assert message["text"] == (f"northwind-shop · arquivo #1\n\nRecebi Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf). O que faço?\n"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                               "\"Adicionar ao projeto\" a transforma em um documento que o assistente pode ler em northwind-shop, como `q3-plan`.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert [(a["label"], a["id"].split(":")[1]) for a in message["actions"]] == [("Adicionar ao projeto", "add"), ("Descartar", "discard")]
+    head, blank, what, add = message["text"].split("\n")
+    pk.assert_said(head, "HEADER_FILE", PT_CFG, project="northwind-shop", id=1)
+    assert blank == ""
+    pk.assert_said(what, "ATTACH_WHAT", PT_CFG, name="Q3 plan.pdf", size=attachments.size_text(len(PDF)), kind="pdf")
+    pk.assert_said(add, "ATTACH_WHAT_ADD", PT_CFG, project="northwind-shop", id="q3-plan")
+    assert [a["id"].split(":")[1] for a in message["actions"]] == ["add", "discard"]
+    pk.assert_said(message["actions"][0]["label"], "LABEL_ADD", PT_CFG)
+    pk.assert_said(message["actions"][1]["label"], "LABEL_DISCARD", PT_CFG)
     action = card_action(world, "add")
     world.reset()
     world.say("/pending")
-    assert world.texts() == ["northwind-shop: nada pendente para você.",  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                             "northwind-shop: arquivos esperando pela sua resposta\narquivo #1 Q3 plan.pdf: /add 1 ou /discard 1"]
+    nothing, waiting = world.texts()
+    pk.assert_said(nothing, "NOTHING_WAITS", PT_CFG, name="northwind-shop")
+    waiting_head, waiting_line = waiting.split("\n")
+    pk.assert_said(waiting_head, "ATT_WAITING_HEAD", PT_CFG, project="northwind-shop")
+    pk.assert_said(waiting_line, "ATT_WAITING_LINE", PT_CFG, id=1, name="Q3 plan.pdf")
     world.say(action=action)
-    assert world.texts()[-1].splitlines()[0] == "Q3 plan.pdf adicionado como `q3-plan`, versão 1."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(world.texts()[-1].splitlines()[0], "ATT_ADDED", PT_CFG, name="Q3 plan.pdf", id="q3-plan", n=1)
     world.say(action=action)
-    assert world.texts()[-1] == "Esse arquivo tem o status adicionado: não está esperando pela sua resposta."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(world.texts()[-1], "ATT_NOT_HELD", PT_CFG, status="adicionado")
     world.say("/add 77")
-    assert world.texts()[-1] == "Use o card que foi enviado a você (envie /pending)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(world.texts()[-1], "NO_CARD", PT_CFG)
     world.say("/add")
-    assert world.texts()[-1] == "Uso: /add <n>"
+    pk.assert_said(world.texts()[-1], "USAGE_ADD", PT_CFG)
 
 
 def test_a_typed_discard_is_answered_in_portuguese(world):
@@ -76,31 +88,35 @@ def test_a_typed_discard_is_answered_in_portuguese(world):
     world.put("r2", PDF + b"\n")
     world.send([world.file("r1"), world.file("r2", "Second.pdf")])
     world.say("/discard 2")
-    assert world.texts()[-1] == "Second.pdf descartado."
+    pk.assert_said(world.texts()[-1], "ATT_DISCARDED", PT_CFG, name="Second.pdf")
 
 
 def test_what_a_phone_is_told_of_an_error_of_the_operations_layer(world):
     phone = world.bridge.attach.phone
     speak(world, "pt-BR")
     assert phone(ops.OpsError("see /Users/someone/projects/x/ for it"), world.project) == PT["ATT_MACHINE"]
-    assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "Não há arquivo 3 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert phone(ops.OpsError(attachments.REFUSED.format(name="a.docx", reason="it holds macros, which are never converted")), world.project) == (
-        "a.docx não foi adicionado e foi apagado: contém macros, que nunca são convertidas.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert phone(ops.OpsError("Send /add 3 or /discard 3."), world.project) == "Não consegui concluir isso. Tente de novo; se continuar falhando, veja o que aconteceu na página da plataforma.", "a text the table does not know is the plain sentence in a language that is not English (S14b)"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(phone(ops.OpsError(phrases.text("ATT_NO_SUCH", None, n=3)), world.project), "ATT_NO_SUCH", PT_CFG, n=3)
+    refused = ops.OpsError(attachments.REFUSED.format(name="a.docx", reason=phrases.text("ATT_REASON_MACRO", None)))
+    pk.assert_said(phone(refused, world.project), "ATT_REFUSED", PT_CFG, name="a.docx", reason=phrases.text("ATT_REASON_MACRO", PT_CFG))
+    # a text the table does not know is the plain sentence in a language that is not English (S14b)
+    pk.assert_said(phone(ops.OpsError("Send /add 3 or /discard 3."), world.project), "PHONE_FAILED", PT_CFG, where=phrases.text("PHONE_WHERE", PT_CFG) + ".")      # a full stop closes the sentence that ends with the place
     assert phone(ops.OpsError("The sources folder cannot be opened", 3), world.project) == PT["ATT_MACHINE"]
     speak(world, None)
-    assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "No file 3 waits for you."
+    pk.assert_said(phone(ops.OpsError(phrases.text("ATT_NO_SUCH", None, n=3)), world.project), "ATT_NO_SUCH", None, n=3)
     assert phone(ops.OpsError("see /Users/someone/projects/x/ for it"), world.project) == attachments.MACHINE
     speak(world, "fr")
-    assert phone(ops.OpsError("No file 3 waits for you."), world.project) == "No file 3 waits for you."
+    pk.assert_said(phone(ops.OpsError(phrases.text("ATT_NO_SUCH", None, n=3)), world.project), "ATT_NO_SUCH", {"language": "fr"}, n=3)
 
 
 def test_an_english_project_gets_the_file_sentences_it_always_got(world):
     world.send([world.file("p1", "talk.ogg", 5000, "voice")])
     assert world.texts() == [attachments.MEDIA]
     world.send([world.file("r1", "Q3 plan.pdf", len(PDF))])
-    assert world.texts()[-1].startswith(f"northwind-shop · file #1\n\nI received Q3 plan.pdf ({attachments.size_text(len(PDF))}, pdf). What should I do?\n")
+    head, blank, what, _rest = world.texts()[-1].split("\n", 3)
+    pk.assert_said(head, "HEADER_FILE", None, project="northwind-shop", id=1)
+    assert blank == ""
+    pk.assert_said(what, "ATTACH_WHAT", None, name="Q3 plan.pdf", size=attachments.size_text(len(PDF)), kind="pdf")
     world.say(action=card_action(world, "add"))
-    assert world.texts()[-1].splitlines()[0] == "Added Q3 plan.pdf as `q3-plan`, version 1."
+    pk.assert_said(world.texts()[-1].splitlines()[0], "ATT_ADDED", None, name="Q3 plan.pdf", id="q3-plan", n=1)
     world.say("/add 77")
-    assert world.texts()[-1] == "Act on the card sent to you (send /pending)."
+    pk.assert_said(world.texts()[-1], "NO_CARD", None)

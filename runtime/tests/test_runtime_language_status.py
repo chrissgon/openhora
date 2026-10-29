@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import decision, world  # noqa: F401  (the stand-in world fixture)
@@ -17,6 +18,34 @@ from test_sender_profiles_bridge import lab  # noqa: F401  (the lab fixture: the
 
 ops = st.load("ops")
 cards = st.load("messaging_cards")
+phrases = st.load("phrases")
+PT_CFG = {"language": "pt-BR"}
+
+
+def card_parts(text, cfg, kind, id):
+    """A card is its header line (project, kind of the decision, number), a blank line, the title, a blank line and the body: returns (title, body)."""
+    head, blank, title, blank_again, body = text.split("\n", 4)
+    pk.assert_said(head, "HEADER", cfg, project="northwind-shop", kind=phrases.kind_word(kind, cfg), id=id)
+    assert blank == "" and blank_again == "", text
+    return title, body
+
+
+def assert_pending_list(text, cfg, *entries):
+    """The `/pending` reply: the first line is the project and the first entry, each other line one entry (a question's sentence, or the number, the kind and the heading of another
+    decision as (kind, number, heading key, fields)), then the sentence that says how to dismiss one."""
+    lines = text.split("\n")
+    assert len(lines) == len(entries) + 1, text
+    assert lines[0].startswith("northwind-shop: ")
+    lines[0] = lines[0][len("northwind-shop: "):]
+    for line, entry in zip(lines, entries):
+        if entry[0] == "PEND_QUESTION":
+            pk.assert_said(line, "PEND_QUESTION", cfg, **entry[1])
+        else:
+            kind, id, key, fields = entry
+            prefix = f"#{id} {phrases.kind_word(kind, cfg)}: "
+            assert line.startswith(prefix), line
+            pk.assert_said(line[len(prefix):], key, cfg, **fields)
+    pk.assert_said(lines[-1], "PEND_DISMISS_TYPED", cfg)
 
 
 def asks(world, tag):
@@ -33,60 +62,75 @@ def asks(world, tag):
 
 def test_a_heading_code_wrote_whole_is_said_on_the_card_and_in_the_list_and_the_card_is_bound_to_the_stored_one(world):
     texts = asks(world, "pt-BR")
-    assert texts[0].startswith("northwind-shop · pergunta #2\n\nO roteador pergunta\n\nWhich flow do you want?"), "a question that is not the router's own (no ending) keeps the heading code wrote"
-    assert texts[1].startswith("northwind-shop · pergunta #3\n\nHours\n\n"), "a title that is the person's or the model's is not touched"
-    assert texts[2].startswith("northwind-shop · aceite #4\n\nA entrega 2 não foi encaminhada depois do briefing\n\n")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    title, body = card_parts(texts[0], PT_CFG, "question", 2)
+    pk.assert_said(title, "TITLE_ROUTER_ASKS", PT_CFG)
+    assert body.startswith("Which flow do you want?"), "a question that is not the router's own (no ending) keeps the heading code wrote"
+    title, _body = card_parts(texts[1], PT_CFG, "question", 3)
+    assert title == "Hours", "a title that is the person's or the model's is not touched"
+    title, _body = card_parts(texts[2], PT_CFG, "acceptance", 4)
+    pk.assert_said(title, "TITLE_REROUTE_FAILED", PT_CFG, k=2)
     stored = world.items[2]
     card = world.bridge.ledger.last_card(world.projects[0]["id"], 2, "830461975213")
-    assert card["content_sha256"] == cards.sha256_text("The router asks\n\nWhich flow do you want?") == cards.content_sha256(stored), "the hash is of the stored text"
-    assert stored["title"] == "The router asks"
+    assert card["content_sha256"] == cards.sha256_text(phrases.text("TITLE_ROUTER_ASKS", None) + "\n\nWhich flow do you want?") == cards.content_sha256(stored), "the hash is of the stored text"
+    pk.assert_said(stored["title"], "TITLE_ROUTER_ASKS", None)
     world.say("/pending")
-    assert world.texts()[-1] == ("northwind-shop: #2 pergunta do assistente: Which flow do you want?\n#3 pergunta do assistente: When do we open?\n#4 aceite: A entrega 2 não foi encaminhada depois do briefing\nPara dispensar, responda: /reject <número>.")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert_pending_list(world.texts()[-1], PT_CFG, ("PEND_QUESTION", {"id": 2, "text": "Which flow do you want?"}), ("PEND_QUESTION", {"id": 3, "text": "When do we open?"}),
+                        ("acceptance", 4, "TITLE_REROUTE_FAILED", {"k": 2}))
 
 
 def test_the_body_of_an_unrecognised_route_is_stored_in_english_and_a_card_says_it_in_the_language_with_the_hash_unchanged(world):
     stored = ops._not_recognised(None, {"id": 3}, "the router's reply", "no route named", {})
-    assert stored["body"] == "The planning agent did not name a flow or a skill for request 3" and stored["title"] == "The route was not recognised"
+    pk.assert_said(stored["body"], "BODY_NOT_NAMED", None, request=3)
+    pk.assert_said(stored["title"], "TITLE_ROUTE_UNRECOGNISED", None)
     world.config["language"] = "pt-BR"
     world.items[6] = decision("question", 6, title=stored["title"], body=stored["body"])
     world.items[7] = decision("question", 7, title="Hours", body="The planning agent did not name a flow or a skill for request 3, but the shop opens at nine")
     world.bridge.tick()
     first, second = [s["message"]["text"] for s in world.sent()]
-    assert first.startswith("northwind-shop · pergunta #6\n\nPedido não entendido\n\nNão entendi o pedido e não comecei nada. Pode dizer de outro jeito?")  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert "O agente de planejamento" not in second, "a body that is not exactly the one code wrote is a person's or a model's text and is not touched"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    title, body = card_parts(first, PT_CFG, "question", 6)
+    pk.assert_said(title, "PEND_NOT_UNDERSTOOD_TITLE", PT_CFG)
+    assert pk.said(body.split("\n")[0], "PHONE_NOT_UNDERSTOOD", PT_CFG)
+    assert not pk.said(second, "BODY_NOT_NAMED", PT_CFG) and pk.said(second, "BODY_NOT_NAMED", None, request="3, but the shop opens at nine"), "a body that is not exactly the one code wrote is a person's or a model's text and is not touched"
     card = world.bridge.ledger.last_card(world.projects[0]["id"], 6, "830461975213")
     assert card["content_sha256"] == cards.sha256_text(stored["title"] + "\n\n" + stored["body"]), "the card is bound to the stored text"
     assert world.items[6]["body"] == stored["body"]
     world.config.pop("language")
     world.items[8] = decision("question", 8, title=stored["title"], body=stored["body"])
     world.bridge.tick()
-    assert world.sent()[-1]["message"]["text"].startswith("northwind-shop · question #8\n\nRequest not understood\n\nI did not understand the request and started nothing.")
+    title, body = card_parts(world.sent()[-1]["message"]["text"], None, "question", 8)
+    pk.assert_said(title, "PEND_NOT_UNDERSTOOD_TITLE", None)
+    assert pk.said(body.split("\n")[0], "PHONE_NOT_UNDERSTOOD", None)
 
 
 def test_the_same_decisions_in_a_project_with_no_language_or_a_tag_with_no_table_read_as_they_always_did(world):
     texts = asks(world, None)
-    assert texts[0].startswith("northwind-shop · question #2\n\nThe router asks\n\nWhich flow do you want?")
-    assert texts[2].startswith("northwind-shop · acceptance #4\n\nDelivery 2 was not routed after its brief\n\n")
+    title, body = card_parts(texts[0], None, "question", 2)
+    pk.assert_said(title, "TITLE_ROUTER_ASKS", None)
+    assert body.startswith("Which flow do you want?")
+    title, _body = card_parts(texts[2], None, "acceptance", 4)
+    pk.assert_said(title, "TITLE_REROUTE_FAILED", None, k=2)
     world.say("/pending")
-    assert world.texts()[-1] == ("northwind-shop: #2 question from the assistant: Which flow do you want?\n#3 question from the assistant: When do we open?\n#4 acceptance: Delivery 2 was not routed after its brief\nTo dismiss one, reply: /reject <number>.")
+    assert_pending_list(world.texts()[-1], None, ("PEND_QUESTION", {"id": 2, "text": "Which flow do you want?"}), ("PEND_QUESTION", {"id": 3, "text": "When do we open?"}),
+                        ("acceptance", 4, "TITLE_REROUTE_FAILED", {"k": 2}))
 
 
 def test_a_tag_with_no_table_reads_as_english(world):
     texts = asks(world, "fr")
-    assert texts[0].startswith("northwind-shop · question #2\n\nThe router asks\n\n")
+    title, _body = card_parts(texts[0], {"language": "fr"}, "question", 2)
+    pk.assert_said(title, "TITLE_ROUTER_ASKS", {"language": "fr"})
 
 
 def test_the_status_of_a_reminder_is_said_on_the_phone_and_stays_english_in_the_operations_layer_and_the_log(day):  # noqa: F811
     accept(day.path, language="pt-BR")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1].startswith("Lembrete #1 cancelado: hoje, dom 18/10, às 15:00 (BRT):") # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "NT_FORGOT_TEXT", PT_CFG, id=1, when="hoje, dom 18/10, às 15:00 (BRT)", text=DENTIST)  # validate: allow english-only -- the day words of a time are the value under test
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "O lembrete 1 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NOT_WAITING", PT_CFG, n=1, status="cancelado")
     with pytest.raises(ops.OpsError) as caught:
         ops.reminder_forget(day.path, 1, channel="terminal")
-    assert str(caught.value) == "Reminder 1 is cancelled, not waiting.", "the operations layer, and so the terminal, the MCP mode and the API, keep the store's word"
+    assert pk.said(str(caught.value), "RM_NOT_WAITING", None, n=1, status="cancelled"), "the operations layer, and so the terminal, the MCP mode and the API, keep the store's word"
     assert not any("cancelado" in line for line in day.log) and not any("aprovado" in line for line in day.log)
     accept(day.path, language=None)
     day.say(OWNER, "/forget 1")
-    assert day.texts(OWNER)[-1] == "Reminder 1 is cancelled, not waiting."
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NOT_WAITING", None, n=1, status="cancelled")
