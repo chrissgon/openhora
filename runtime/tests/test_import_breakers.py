@@ -51,10 +51,14 @@ RUNTIME = REPO / "runtime"
 # (the 11 edges of natural, ops_natural, ops_natural_writes and turn_gate) and the one edge to `ops` that 44-C moves.
 # CANDIDATE-OUT 2: the repeat scope (`repeat_goes_on` and its four openers) is deleted, and with it two lazy edges: natural -> recurrence (debt) and ops_natural_writes -> ops_interpret
 # (a cycle edge), one call each; the numbers are the file's own AST count on the head rebased onto 44-B 3a: 79 lazy calls, 63 edges, 11 debt (81, 65 and 12 minus the two edges).
+# 44-B cluster 3b (the importers of the natural layer: ops_natural, ops_natural_writes, turn_gate): 7 debt edges became top-level imports (ops_natural -> item_refs, ops_items,
+# ops_reminders, reminders; ops_natural_writes -> account_start, natural_writes_calendar) and the dead accessor `ops_natural.natural_writes()` (no caller) is gone with its edge,
+# ops_natural -> natural_writes; 3 stay lazy as `light-start:` (turn_gate -> interpreter_route, operations, policy_widening: LIGHT_GATE, a test pins the gate's top-level imports
+# to a closed list); none closed a cycle: 68 lazy calls, 56 edges, 1 debt. What is left as debt is the one edge to `ops` that 44-C moves.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 79
-LAZY_EDGES_BUDGET = 63
-PLAIN_DEBT_BUDGET = 11
+LAZY_CALLS_BUDGET = 68
+LAZY_EDGES_BUDGET = 56
+PLAIN_DEBT_BUDGET = 1
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
@@ -68,6 +72,8 @@ LIGHT_LAB = ("light-start: an http call, a replay and a status of the interprete
              "test_interpreter_account_route.py pins it): only an account route reaches the lab facade, when it first needs it")
 LIGHT_REGISTRY = ("light-start: the registry is pure and loads before the gate; `origins` reads the gate's ALLOWED table when it is first asked, and "
                   "test_registry_rows.py pins that importing the registry never loads turn_gate")
+LIGHT_GATE = ("light-start: the gate is a low layer that imports no layer above it, and test_turn_gate_provenance pins its top-level imports to a closed list (the standard "
+              "library, natural, natural_time, natural_writes, registry_data); the route, the operations table and the widening are read when a function needs them")
 DEBT_OPS = ("debt: points at ops and no top-level path from ops leads back today, but the sibling calls an operation of the facade at call time; "
             "package 44-C moves the function the sibling needs")
 
@@ -95,10 +101,8 @@ ROWS = (
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural", CYCLE_OPS, "ops"),
-    ("ops_natural", DEBT, "item_refs natural_writes ops_items ops_reminders reminders"),
     ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_natural_writes", CYCLE_OPS, "ops"),
-    ("ops_natural_writes", DEBT, "account_start natural_writes_calendar"),
     ("ops_reads", CYCLE_OPS, "ops"),
     ("ops_research", CYCLE_OPS, "ops"),
     ("ops_runs", CYCLE, "ops_file_ask ops_routines ops_steps"),
@@ -113,7 +117,7 @@ ROWS = (
     ("source_names", CYCLE, "ops_natural_calendar"),
     ("sources", CYCLE, "sources_mail sources_onedrive workcopy"),
     ("turn_gate", CYCLE, "ops_natural"),
-    ("turn_gate", DEBT, "interpreter_route operations policy_widening"),
+    ("turn_gate", LIGHT_GATE, "interpreter_route operations policy_widening"),
     ("workcopy", CYCLE, "drop"),
 )
 ALLOWED_LAZY = {(source, target): reason for source, reason, targets in ROWS for target in targets.split()}

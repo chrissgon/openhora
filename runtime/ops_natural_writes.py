@@ -40,11 +40,13 @@ import importlib
 import re
 import sys
 
+import account_start
 import drafts
 import line_stage
 import list_pick
 import natural
 import natural_writes as nw
+import natural_writes_calendar
 import operations
 import ops_actor
 import ops_core as core
@@ -291,7 +293,6 @@ def _opened(project: str, ctx: dict, state: dict, args: dict, channel, sender, e
         started = _call_operation(project, state["op"], args, channel, sender)
     except core.OpsError as e:
         return ops_natural._error(cfg, e, channel)
-    account_start = importlib.import_module("account_start")
     lines = []
     when = state["slots"].get("_when")
     if when and when.get("rolled"):
@@ -664,7 +665,7 @@ def answer(project: str, ctx: dict, state: dict, said: str, channel, sender, ext
         if "ask" not in got:
             drafts.drop(*slot)
             return _t(ctx, "NW_CANCELLED")
-        fold = importlib.import_module("natural_writes_calendar").from_engine(got["ask"], state.get("end_clock"), state.get("all_day", False))
+        fold = natural_writes_calendar.from_engine(got["ask"], state.get("end_clock"), state.get("all_day", False))
         slots.pop("_engine", None)
         if fold["slots"].get("title") and "title" in slots:
             fold["slots"].pop("title")

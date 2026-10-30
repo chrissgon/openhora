@@ -48,16 +48,20 @@ import time
 import unicodedata
 
 import drafts
+import item_refs
 import line_stage
 import messaging_guard as guard
 import ops_core as core
 import natural
 import operations
 import ops_actor
+import ops_items
+import ops_reminders
 import phone_errors
 import phone_refusal
 import phrases
 import plan_confirm
+import reminders
 import turn_gate
 
 DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spec's choice, not measured)
@@ -84,10 +88,6 @@ def _ops():
     return importlib.import_module("ops")
 
 
-def natural_writes():
-    return importlib.import_module("natural_writes")
-
-
 def _say():
     return importlib.import_module("ops_say")
 
@@ -111,7 +111,7 @@ def _slot(channel, sender):
 
 
 def _clock():
-    return importlib.import_module("ops_reminders").now()
+    return ops_reminders.now()
 
 
 def _answers(ctx: dict, draft: dict, said: str, owner: str):
@@ -228,7 +228,7 @@ PRIVATE_READS = ("pending", "task")      # the reads that draw a decision's card
 def keeps_private(ctx: dict, name, channel, sender) -> bool:
     """Whether the reply of this read, drawn for THIS sender, may hold lines that only a holder of `ask-mail` reads (the recipient, the subject, the text of a mail or
     an event): such a reply goes to the chat that asked and the conversation, which the MCP mode reads, keeps a neutral word (limit L51), typed command or words."""
-    return channel == "messaging" and name in PRIVATE_READS and bool(sender) and bool(importlib.import_module("item_refs").private_groups(ctx, "messaging", sender))
+    return channel == "messaging" and name in PRIVATE_READS and bool(sender) and bool(item_refs.private_groups(ctx, "messaging", sender))
 
 
 def private_ids(rows: list) -> set:
@@ -280,7 +280,6 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if not turn_gate.number_believed(said, args.get(VETTED[name])):
             return phrases.text("NAT_WHICH_DECISION" if cls == "D" else "NAT_ASK_ID", cfg)
     if name == "items" and "kind" not in args:      # BL5B: the list's kind, account and range are part of the call, so that the plan's hash binds them and the question says what will be read; a correction keeps what the plan it corrects had (`extras["plan_previous"]`, the sender's own plan)
-        ops_items = importlib.import_module("ops_items")
         spans = ops_items.span_args_of(args)      # CB-1 (catalog version 2): the spans of the line the interpreter verified for the target, the day and the state; the list reads them as code, and they never reach `items` as they are
         args = {key: value for key, value in args.items() if key not in ops_items.SPAN_PARAMS.values()}
         said_no = ops_items.unreadable_filter(spans, _clock())      # a day or a state the person stated and code cannot read is a sentence: never a list that looks filtered
@@ -388,7 +387,7 @@ def _read(project: str, ctx: dict, name: str, row: dict, args: dict, channel, se
     if name == "items":      # S11: the numbers this list shows are what the sender may point to next (runtime/event_lookup.py)
         importlib.import_module("event_lookup").remember_items(ctx, channel, sender, out)
     if name == "items":      # S15: with nothing to list, the reply says what to add and where (a phone: no command)
-        return _clip(importlib.import_module("ops_items").reply(project, ctx, out, channel), channel)
+        return _clip(ops_items.reply(project, ctx, out, channel), channel)
     return _clip(_render(name, out, cfg, channel), channel)
 
 
@@ -453,7 +452,7 @@ def _render(name: str, out, cfg: dict, channel) -> str:
     if name == "reminders":
         return _reminders(out, cfg)
     if name == "items":
-        return importlib.import_module("ops_items").render(out, cfg)
+        return ops_items.render(out, cfg)
     if name == "artifacts":
         rows = out.get("artifacts") or []
         return "\n".join(f"- {r['path']}" for r in rows[:LIST_MAX * 3]) or t("NAT_NOTHING")
@@ -543,7 +542,7 @@ def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sen
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     extras["stored"] = t("NAT_PRIVATE_REPLY")      # the reply shows the reminder's words: the conversation keeps a neutral word (limit L51)
-    words = importlib.import_module("reminders").forget_words(span)
+    words = reminders.forget_words(span)
     if not words:
         return t("RM_FORGET_WORDS_NONE")
     try:
@@ -554,7 +553,7 @@ def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sen
     if found.get("none"):
         return t("RM_FORGET_WORDS_NONE")
     if found.get("choose"):
-        today = importlib.import_module("ops_reminders").now().date()
+        today = ops_reminders.now().date()
         lines = [f"#{r['id']} " + natural.describe(natural.info_of(r["due"][:10], r["due"][11:16], today), cfg) + (f": {r['text']}" if "text" in r else "") for r in found["choose"]]
         return "\n".join([t("RM_FORGET_WORDS_WHICH")] + lines)
     sentence, draft = natural.forget_question([found], cfg, with_text)
@@ -563,7 +562,7 @@ def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sen
 
 
 def _notices_text(cfg: dict) -> bool:
-    return importlib.import_module("ops_reminders")._notices_text(cfg)
+    return ops_reminders._notices_text(cfg)
 
 
 def _reminder_line(args: dict, when) -> str:
