@@ -178,6 +178,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_question.py` | Reject a question: the person turns it down, and it closes (slice S14). |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_reminders.py` | The operations over reminders (package RM-1): make one, list them, forget one, and what the messaging bridge asks of the store to send them. |
+| `runtime/ops_requests.py` | The router's run on a request: the request that waits for its route, the router skill run once on it (or once on each delivery of a request that lists several), and the pending decision that run opens (44-C3). |
 | `runtime/ops_research.py` | A question of general information answered by a web search (slice R2-F1): `research`, one run of the skill `core-research` with web access. |
 | `runtime/ops_routines.py` | The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
