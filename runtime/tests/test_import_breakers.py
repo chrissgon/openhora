@@ -63,14 +63,18 @@ RUNTIME = REPO / "runtime"
 # new (ops_facade -> ops, the seam `function(name)`, one call, CYCLE_FACADE): the siblings call an operation of the facade through ops_facade.function(name) and the reads read what moved
 # (SERVICE and the held tasks to ops_reads, the held record to ops_runs). ops_event_revise -> ops was the one debt edge: debt 1 -> 0. The file's own AST count on the head: 58 lazy
 # calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher (the entry), ops_facade (the seam), ops_say (`_drain_route`, 44-C3) and ops_runs (the run body and the round, 44-C4).
+# 44-C3 (the router's run on a request moved to ops_requests): one edge to `ops` is gone (ops_say -> ops, the one call in `_drain_route`) and one cycle edge is new (ops_say -> ops_requests,
+# the same call, now `importlib.import_module("ops_requests")`: ops_requests imports ops_say for the person's line and the question of a reply that names no route, so ops_say cannot
+# import it at the top): -1 edge and call, +1 edge and call. The file's own AST count on the head: 58 lazy calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher
+# (the entry), ops_facade (the seam) and ops_runs (the run body and the round, 44-C4).
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
 LAZY_CALLS_BUDGET = 58
 LAZY_EDGES_BUDGET = 47
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
-CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the router's run "
-             "that ops_say reads moves in 44-C3, and the run body and the round that ops_runs reads move in 44-C4 (OPEN-C2)")
+CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the run body "
+             "and the round that ops_runs reads move in 44-C4 (OPEN-C2)")
 CYCLE_FACADE = ("cycle: the one seam through which a sibling calls an operation of the table, or a public entry of the facade, by name at call time "
                 "(OPEN-S8 keeps the facade); a private helper never goes through it (test_ops_facade)")
 CYCLE_ENTRY = ("cycle: dispatcher.bootstrap loads by path the operations layer of the checkout a project's configuration names and returns the module "
@@ -107,8 +111,7 @@ ROWS = (
     ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps"),
     ("ops_runs", CYCLE_OPS, "ops"),
-    ("ops_say", CYCLE, "ops_ask ops_turn"),
-    ("ops_say", CYCLE_OPS, "ops"),
+    ("ops_say", CYCLE, "ops_ask ops_requests ops_turn"),
     ("ops_step_seams", CYCLE, "ops_file_read"),
     ("phrases", CYCLE, "phone_questions"),
     ("plan_confirm", CYCLE, "ops_natural"),

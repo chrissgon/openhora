@@ -8,8 +8,8 @@
 A sibling of runtime/ops.py, which exposes `say` and `chat_memory` under their names; no shell imports this file. The
 names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation of the facade (`status`,
 `progress`, `answer`, `request`, `route`, the call of a row of the table) is reached through `ops_facade.function(name)` (runtime/ops_facade.py),
-and the one helper of the route that stays in runtime/ops.py (`_route_request`, until 44-C3) through `_ops()`, at call time, never imported at
-module level, so that the two files do not import each other.
+and the router's run on a request (`_route_request`, runtime/ops_requests.py, 44-C3) through `importlib.import_module("ops_requests")` in
+`_drain_route`, at call time, never imported at module level: ops_requests imports this file, so the two files do not import each other.
 
 A line typed while the router is answering another request of the project is not refused: it is stored with its reply
 pending (the queue below) and `route_queued` answers it when the route lock is free (a run of a task never holds it);
@@ -60,11 +60,6 @@ import ops_file_read
 import ops_interpret
 import ops_natural_writes
 import ops_todo
-
-
-def _ops():
-    """runtime/ops.py, found at call time: the helper of the route that `_drain_route` calls stays there (44-C3 moves it)."""
-    return importlib.import_module("ops")
 
 
 def _turns():
@@ -750,7 +745,7 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
 
 
 def _drain_route(project: str, ctx: dict, request_id: int) -> dict:
-    done = _ops()._route_request(ctx, request_id)
+    done = importlib.import_module("ops_requests")._route_request(ctx, request_id)
     if done.get("kind") == "operation":      # the router named an operation of the table (NR-2): not dropped, and not left on "Route it": it is answered as a line would be
         line = person_line(core._stored(ctx, ctx["store"].task_get, request_id)["text"])
         _close_by_code(ctx, request_id, "code:operation")

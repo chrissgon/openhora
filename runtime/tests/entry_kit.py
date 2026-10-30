@@ -55,6 +55,7 @@ FIXTURE = HERE / "fixtures" / "messenger_standin.py"
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
+ops_runs = st.load("ops_runs")
 ops_interpret = st.load("ops_interpret")
 ops_natural = st.load("ops_natural")
 ops_natural_writes = st.load("ops_natural_writes")
@@ -1033,7 +1034,7 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     reset_globals()
     w.closers.append(reset_globals)
     monkeypatch.setattr(plan_confirm, "ACTIVE", True)
-    monkeypatch.setattr(ops, "_use_start", lambda *args, **kwargs: None)      # the record of a field use runs scripts/evidence.py of the tree the run reads: none in the world, and it must say nothing
+    monkeypatch.setattr(ops_runs, "_use_start", lambda *args, **kwargs: None)      # the record of a field use runs scripts/evidence.py of the tree the run reads: none in the world, and it must say nothing (44-C3: the recorder lives in ops_runs, and ops.py and ops_requests call it there)
     now = [1000.0]
     monkeypatch.setattr(pending_items, "clock", lambda: now[0])
     monkeypatch.setattr(ack, "ACK_DELAY", 3600.0)      # the acknowledgement of a slow line is a clock's: the replay never waits for it

@@ -83,7 +83,7 @@ def decision_text(item: dict) -> str:
 
 
 def router_asks(item: dict) -> bool:
-    """Whether the decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks"
+    """Whether the decision is the question the router asked about a request (ops_requests._route_run writes it whole: the kind `question`, the title "The router asks"
     and the ending `question`). A card shows such a question as the question alone (phrases.asked_view); a task's question, whose title names its skill, is shown whole."""
     return phrases.is_router_question(item)      # the one test, shared with the conversation's reply (ops_say), so that the reply and the card stay in lockstep
 

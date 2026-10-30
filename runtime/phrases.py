@@ -1405,7 +1405,7 @@ def asked_view(reply, cfg=None) -> str:
 
 
 def is_router_question(item) -> bool:
-    """Whether a decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks" and
+    """Whether a decision is the question the router asked about a request (ops_requests._route_run writes it whole: the kind `question`, the title "The router asks" and
     the ending `question`). A messaging app shows such a question as the question alone, in the reply and on the card, by this one test."""
     payload = item.get("payload") if isinstance(item, dict) else None
     return isinstance(item, dict) and item.get("kind") == "question" and item.get("title") == en("TITLE_ROUTER_ASKS") \
