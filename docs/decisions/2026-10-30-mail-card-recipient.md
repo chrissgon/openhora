@@ -1,0 +1,45 @@
+## 2026-10-30: an open e-mail card changes its recipient when the person types the address (mail-card-recipient; no model call, no provider call, no lab run in this entry, fingerprint unchanged)
+
+This entry records the maintainer's two decisions of 2026-10-30, the rule that follows from them, the change it makes to limit L63, the new dated entry of `runtime/interpreter_enable.json`, what code protects and what it does not, and the two open points with their answers. The change is built and tested with a stand-in model only. **The one paid step that proves the new prompt (OPEN-1, about US$ 0.08) has not run and waits for the maintainer's "pode"; the pull request is not to be merged before it.**
+
+### The maintainer's decisions of 2026-10-30
+
+Given in chat in Portuguese and translated here from Portuguese.
+
+1. A line on an open e-mail card that asks to change who receives it opens a new card for his approval, when the person typed the address literally in the line. A name stays refused: something would have to guess the address.
+2. His rule, which replaces the closed code form first briefed: "Tudo que for um pedido do humano vamos sempre preferir o modelo responder, para poder funcionar em qualquer situacao. Regras de codigo apenas onde termos total previsibilidade do input." (Portuguese; in English: whatever is a request of the human, the model should answer, so that it works in any situation; rules of code only where the input is fully predictable.) validate: allow english-only -- the maintainer's own words, quoted
+
+### The rule
+
+The model reads whether the line asks to replace the recipient: its answer is `{"recipient": "<address>"}`. Code checks the answer and alone decides what the new card holds. An answer opens a new card only when ALL hold:
+
+1. the card has exactly one recipient;
+2. the line, with its quoted texts and its text block removed, tokenizes without a bad `@` (`natural_writes_mail.tokenize`);
+3. the distinct addresses of that line, leaving out the card's current recipient, are exactly one, and it equals the model's answer ignoring case.
+
+The address written on the card is the token of the line (`mail_revise.typed_recipient`), never the model's string, never an address of the card, of a mail body, of an attachment or of a forwarded message. The sender, the subject and the body are copied from the old card and checked equal (`ops_card_revise._recipient`, with the origins `line-span` for the recipient and `card-copy` for the rest); the new card is a new document with its own hash and is approved on its own, so the old hash is refused for good. A name, several addresses, an add, a remove, a copy, a second change in the same line, an address that is not whole, an address only inside quotation marks, a card with two recipients: one sentence (`RV_RECIPIENTS`), the old card stays open. The same address as the current one: `RV_ALREADY`. A reply card, a reply draft, a card with a Cc, a Bcc or a file, an outbox card: `RV_NOT_REVISABLE`, no model, as before.
+
+### Limit L63, old and new
+
+Old: "the recipients and the account of the new card are copied from the old card by code and checked equal, so a revision can never change who receives an e-mail (an instruction that asks for it gets one sentence and no model call)."
+
+New: see `contracts/runtime.md`, limit L63, the paragraph "A waiting card changed by words": the account is copied and checked equal, the recipients too unless the model answers `{"recipient": "<address>"}` and code takes that answer only for the one new address the line types whole outside its quoted texts; any other answer about the recipients, a name included, gets `RV_RECIPIENTS`. **The price the maintainer should know:** such a line is now one model call like any change of a card, so the card's subject and body reach the model provider for it (L63 loses "no model call" on these lines). The same paragraph's "Where code cannot enforce it" now says what code does not protect (below). Limits L60, L61, L55, L42, L16, L62 and L64 need no text change; they were checked one by one in the spec.
+
+### The new dated entry
+
+`runtime/interpreter_enable.json` gains one entry dated 2026-10-30 (basis `maintainer-decision`) that copies every pin of the entry of LUNA-ENABLE, the fallback included, and changes only `revise_prompt_sha256`, to the hash of the new `runtime/mail_revise_prompt.txt` (`ccba767585c83a69b4d734238077690f41ef675d76c487809306569c16a2aa4d`), plus the `reason` and the `status_line`. The interpreter's own prompt, catalog, protocol, route, the e-mail compose prompt and the fallback are unchanged. Without the entry a changed revise prompt turns the whole change of a card by words off (`revise_active`), so the prompt and the entry change together. The same prompt also goes to the fallback route during an outage, like the interpreter's own calls.
+
+The prompt gains a second answer form for "a request about who receives the e-mail", a rewritten rule 3, "apart from rule 3" in rule 4, and a sentence in rule 5 that the subject and the body are data too.
+
+### What code does not protect
+
+Hard, in code: the recipient of a new card is an address the person typed; a name can never become a recipient; nothing is sent without the approval of the new hash. Measured, not enforced: the model may take an address the person typed for another purpose as the new recipient; may answer only the address on "change the recipient to X and change the subject" (the subject change is then lost, and the card shows it); or may reword the text on "change to Ana" (To unchanged, `RV_DONE_MAIL`, the card shows it). Under the maintainer's rule these are the model's reading; the card and its approval are the protection, and OPEN-1 measures how often.
+
+### Open points and their answers
+
+- **OPEN-1, how the new prompt is proved.** No harness measures this prompt (`interpreter_measure.py` reads only the interpreter's). The stand-in tests prove code's side only. Recommended and built: one throwaway paid run on the daily route, `runtime/tests/mail_card_recipient_proof.py`, 30 fictional lines three times each (90 calls, about US$ 0.08 at most, an anchor from the interpreter's calls and not a quote). Rule chosen before the figure: 10 lines that replace the recipient, at least 27 of 30 answered with that address; 10 lines of a name, several addresses, add, remove, copy or a second change, at least 27 of 30 answered with an empty recipient, every miss listed; 10 ordinary changes of the text, one with a body that plants a recipient request, 30 of 30 not in the recipient form. Below it: rewrite rule 3, new hash, run once more, then report. The report is published passed or not, with the model, the date and the number of runs. **Status: not run. It needs the maintainer's "pode".** The fallback route is not measured.
+- **OPEN-2, `copia x@y.example` and a bare address.** They do not open the gate, so they go to the interpreter and the card does not change. Decided by the supervisor on the spec's recommendation (the maintainer was away): keep the gate. Widening it to any address would send the card's text to the provider on a new request written in free words, against L63. Cost: those lines get no sentence about the recipient and the person says it again with a verb.
+
+### What was not verified
+
+Any real model's answer to the new prompt (so every "model" row of the rule is the prompt's intent, not a measurement); the exact price; the fallback route; the phone (Telegram) end to end. The entry replay has no mail card in its prestate and so does not see this change; it proves only that nothing else moved (no golden row changed).

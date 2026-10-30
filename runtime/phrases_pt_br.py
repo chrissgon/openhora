@@ -668,7 +668,7 @@ TABLE = {
     "MC_REPLY_NOT_WORDED": "Não consegui redigir esta resposta; o card mostra as suas próprias palavras, como você escreveu. Confira o texto antes de aprovar.",
     "MC_ASK_BODY": "O que o e-mail para {to} deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com \"texto exato:\".",
     "RV_FAILED": "Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card.",
-    "RV_RECIPIENTS": "Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.",
+    "RV_RECIPIENTS": "Só consigo trocar quem recebe quando este card tem um destinatário e a linha traz só o pedido e o novo endereço completo, sem nome, cópia ou outro ajuste. O card continua como estava.",
     "RV_NOT_REVISABLE": "Para mudar este card, rejeite e peça de novo.",
     "RV_DONE_MAIL": "Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.",
     "RV_DONE_EVENT": "Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.",

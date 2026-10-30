@@ -33,11 +33,13 @@ For a mail card the model is called only when the line holds a word that asks fo
 line, "lista os emails" or "obrigado" or a thought, is not an instruction for the card, reaches no model here and goes on as it always did. For a line that names another event than the
 card's ("muda o dentista para as 10h" on the card of "evento social") the event card is left alone and the line goes on.
 
-The change (limit L55, principle 11: an effect only after the approval of its exact content). Recipients and the account of a mail card, and everything of an event card the line does not
+The change (limit L55, principle 11: an effect only after the approval of its exact content). The account of a mail card, its recipients (but for the case below), and everything of an event card the line does not
 name, are copied by code from the old card's document, and the new card is checked equal to it in everything but the change. Everything that can fail fails BEFORE the old card is touched
 (a sentence, and the old card is sent once more so that it is the last message and a word still decides it); then the old card is ended and the new one opened and checked, so the worst
-case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". An instruction that asks to change who receives an e-mail gets
-one sentence and no new card (the person asks for a new e-mail). A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
+case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". A line that asks to change who receives an e-mail is read by the model like any other
+(the answer {"recipient": "<address>"}, `mail_revise.recipient_answer`); code opens a new card (`_recipient`) only when the card has one recipient and the address is the one new address the person typed
+whole in the line outside its quoted texts (`mail_revise.typed_recipient`); the sender, the subject and the body are the old card's, checked equal. A name, several addresses, an add, a remove or a copy,
+an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open. A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
 
 Privacy (limit L63): nothing is logged, printed or stored here but the one decision in memory for the length of RETAIN seconds; the calls are counted in the interpreter's limits.
 
@@ -230,21 +232,23 @@ def swap(project: str, ctx: dict, old_id, open_new, matches, done_key: str, chan
 
 
 def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sender) -> dict:
-    if mail_revise.asks_recipients(line):
-        return say(ctx, "RV_RECIPIENTS", pending_id)
     admission = turn_gate.admit(ctx, sender)
     if admission is None:
         return say(ctx, "RV_FAILED", pending_id)
-    revised, ok = None, False
+    revised, ok, asked = None, False, None
     try:
         got = turn_gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(ops_interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
                         deadline_ms=mail_revise.DEADLINE_MS, params=mail_revise.PARAMS)
         ok = bool(got.get("ok"))
         if ok:
-            revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
+            asked = mail_revise.recipient_answer(got.get("text"))
+            if asked is None:
+                revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
-        ok, revised = False, None
+        ok, revised, asked = False, None, None
     turn_gate.record(ok)
+    if asked is not None:
+        return _recipient(project, ctx, pending_id, asked, line, mail, channel, sender)
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
@@ -273,6 +277,40 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
                 and (found["kind"], found["account"], found["address"], found["to"]) == (mail["kind"], mail["account"], mail["address"], mail["to"])
                 and (found["subject"], found["body"].strip()) == (revised["subject"], revised["body"].strip()))
     return swap(project, ctx, pending_id, open_new, matches, "RV_DONE_MAIL", channel, sender)
+
+
+def _recipient(project: str, ctx: dict, pending_id, asked: str, line: str, mail: dict, channel, sender) -> dict:
+    """The model read a request to change who receives the card (see the module's text). Code takes only an address the person typed; everything else of the new card is the old card's, checked equal."""
+    address = mail_revise.typed_recipient(asked, line, mail["to"])
+    if address is None:
+        return say(ctx, "RV_RECIPIENTS", pending_id)
+    if address.lower() == mail["to"][0].lower():
+        return say(ctx, "RV_ALREADY", pending_id)
+    if not mail_revise.keeps_body(mail["body"]):
+        return say(ctx, "RV_FAILED", pending_id)
+    seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": [address], "subject": mail["subject"], "body": mail["body"]}},
+                          {"account": "card-copy", "to": "line-span", "subject": "card-copy", "body": "card-copy"})
+    key = "text" if seed["op"] == "mail-send" else "body"
+    arguments = {"account": mail["account"], "to": address, "subject": mail["subject"], key: mail["body"]}
+    problems = turn_gate.provenance(seed["op"], arguments, {**seed.origins, key: seed.origins["body"]})
+    if problems:
+        print(turn_gate.refusal_line(seed["op"], problems), file=sys.stderr)
+        return say(ctx, "RV_FAILED", pending_id)
+
+    def open_new():
+        opened = ops_facade.function("natural_write")(project, "", channel=channel, sender=sender, seed=seed)
+        if not isinstance(opened.get("resend"), int):
+            ops_facade.function("natural_forget")(project, sender, channel)
+        return opened.get("resend")
+
+    def matches(new_id) -> bool:
+        try:
+            made = core._stored(ctx, ctx["store"].pending_get, new_id)
+            found = mail_revise.shape(ops_grants.effect_document(ctx, made))
+        except core.OpsError:
+            return False
+        return found == dict(mail, to=[address]) and made.get("kind") == "effect" and made.get("status", "open") == "open"
+    return swap(project, ctx, pending_id, open_new, matches, "RV_DONE_RECIPIENT", channel, sender)
 
 
 def card_revise(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None) -> dict:

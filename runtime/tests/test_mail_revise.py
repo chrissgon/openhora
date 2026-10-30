@@ -15,6 +15,9 @@ import pytest
 
 import standin_tree as st
 
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
+
 mail_revise = st.load("mail_revise")
 interpreter_enable = st.load("interpreter_enable")
 mail_compose = st.load("mail_compose")
@@ -38,11 +41,13 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert "fallback" in every[-1] and "fallback" not in every[-2], "the newest entry is the outage-path entry of LUNA-ENABLE (it carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before it"
-    every = every[:-1]
+    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" not in every[-3], "the newest entry is the one of mail-card-recipient and the one before it the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    recipient, luna = every[-1], every[-2]
+    assert recipient["date"] == "2026-10-30" and recipient["revise_prompt_sha256"] == mail_revise.prompt_sha256() == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"], "the newest entry pins the recipient prompt; the older pin stays as it was decided"
+    every = every[:-2]
     current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
-    assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
+    assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == luna["revise_prompt_sha256"], "the 2026-10-22 pin is the one the entry before the recipient prompt still carries"
     assert "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in first_revise["reason"] and "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" in newest["reason"]
     assert first_revise is not newest and first_revise["revise_prompt_sha256"] != newest["revise_prompt_sha256"], "the older pin stays as it was decided"
     pinned = [e for e in every if "revise_prompt_sha256" in e]
@@ -75,8 +80,9 @@ def test_the_quoted_texts_of_an_instruction(text, expected):
 
 @pytest.mark.parametrize("line, expected", [("Mande para outra@elsewhere.example", True), ("Mude o destinatário para a Ana", True), ("Change the recipient", True), ("Add a Cc to the boss", True), ("Envoie à un autre destinataire", True),
                                             ("Ajuste o tom", False), ('coloque "Prezado destinatário" no começo', False), ('coloque "ana@elsewhere.example" no fim', False), ("Send it to Ana", True)])      # validate: allow english-only -- Portuguese lines under test
-def test_a_request_to_change_who_receives_the_e_mail(line, expected):
-    assert mail_revise.asks_recipients(line) is expected
+def test_the_words_that_ask_in_words_to_change_who_receives_the_e_mail_open_the_gate(line, expected):
+    """`recipient_words` only decides whether the model reads the line (limit L63); the model's reading and `typed_recipient` decide the rest (test_mail_card_recipient.py)."""
+    assert mail_revise.recipient_words(line) is expected
 
 
 @pytest.mark.parametrize("line, expected", [("Ajuste o corpo", True), ("Troque a palavra", True), ("Please fix the typo", True), ("e a reunião de quinta?", False), ("lista os emails", False), ("Rename it", True)])      # validate: allow english-only -- Portuguese lines under test

@@ -16,15 +16,20 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   has_change_word(line)                    whether the line holds a word that asks for a change (a closed list in six languages; it decides only whether a sentence is said)
   clean(line)                              the instruction as one line (white space collapsed), or None when it is empty or longer than INSTRUCTION_MAX
   literals(line)                           the texts the instruction puts between quotation marks ("..." or the curved pair), in order
-  asks_recipients(line)                    whether the instruction, outside its quoted texts, names an address or asks to change who receives the e-mail
+  recipient_words(line)                    whether the instruction, outside its quoted texts, asks in words to change who receives the e-mail (it only opens the gate, `ops_card_revise._taken`)
+  recipient_answer(text)                   the model's answer of the form {"recipient": "..."} (exactly that key, a text), else None
+  typed_recipient(answer, line, to)        the new recipient AS THE PERSON TYPED IT in the line, else None (the card has one recipient; the one new address of the line outside its quoted texts is the answer)
+  keeps_body(body)                         whether a new card with this body keeps it as it is (a body that starts with the marker of a literal text would lose it)
   message(language, subject, body, line)   the one user message the model is given: nothing else of the person, of the mailbox or of any third party
-  accept(text, to, subject, body, line)    {"subject", "body"} for the model's text, {"same": True} when it is valid and changes nothing, or None. Code decides: `mail_compose.validate` (strict JSON with exactly the two keys, no
+  accept(text, to, subject, body, line)    {"subject", "body"} for the model's text, {"same": True} when it is valid and changes nothing, or None. Code decides: `mail_compose.validate` (for a change of the text, strict JSON with exactly the two keys, no
                                            header line, no HTML, no code fence, no link, no address other than the recipients of the card and those the card's own text already
                                            holds, nothing the card refuses), a change from the card as it was, and every quoted text of the instruction in the new subject or body
   PARAMS, DEADLINE_MS                      the settings of the one model call, which is the gate's (`turn_gate.call`, runtime/turn_gate.py), on the daily route of the entry that pinned this prompt
 
 What the model sees: the language, the subject, the body of the card and the instruction line. Never the recipients, the sender's address, a message of the mailbox, a file
-or any third-party text. The recipients and the account of the new card are the old card's, copied by code: a revision can never change who receives an e-mail.
+or any third-party text. The account of the new card is the old card's, copied by code. So are its recipients, except in one case: the model answers {"recipient": "<address>"} (the maintainer's rule of 2026-10-30: a
+person's request is read by the model, and a rule of code stands only where the input is fully predictable) and `typed_recipient` finds that very address typed whole in the person's line:
+the recipient changes only by `typed_recipient`, and the address used is the line's, never the model's string, the card's or a message's.
 
 Privacy (limit L63, D2): the card's text and the instruction go to the model provider under the retention terms the group `interpret` was widened with, exactly as the
 interpreter's line and the compose call do. Nothing is logged, printed or written by this file: no instruction, no subject, no body, no exception message.
@@ -41,6 +46,7 @@ import sys
 import unicodedata
 
 import mail_compose
+import natural_writes_mail
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMPT_FILE = os.path.join(HERE, "mail_revise_prompt.txt")
@@ -53,8 +59,8 @@ OBJECT = re.compile(r"(?<![a-z])(?:a\s+mensagem|(?:o|este|esta|esse|essa|the|thi
                     r"corps|evento|event|evenement|termin|card|cartao|correo|courriel|nachricht|messaggio|testo))(?![a-z])")
 QUOTED = re.compile(r"\"([^\"]+)\"|“([^”]+)”")
 ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# The words of a request to change who receives the e-mail, folded (lower case, no accents), whole words. A closed list that only improves the sentence the person is told:
-# the safety does not read it (the recipients are copied from the card and `mail_compose.validate` refuses an address that is not already there).
+# The words of a request to change who receives the e-mail, folded (lower case, no accents), whole words. A closed list that only opens the gate (a line with such a word may reach the model, which
+# reads the request): the safety does not read it (`typed_recipient` takes only an address the person typed, and `mail_compose.validate` refuses an address that is not already there).
 RECIPIENT_WORDS = frozenset({"destinatario", "destinatarios", "recipient", "recipients", "destinataire", "destinataires", "empfanger", "destinatari", "cc", "cco", "bcc", "cci"})
 RECIPIENT_PHRASES = ("mande para", "manda para", "mandar para", "envie para", "envia para", "enviar para", "send it to", "send this to", "send to", "send the e-mail to",
                      "mandalo a", "envialo a", "envoie le a", "schick es an", "invialo a")
@@ -210,20 +216,43 @@ def _outside(line: str) -> str:
     return QUOTED.sub(" ", split_block(line)[0])
 
 
-def has_address(line: str) -> bool:
-    """Whether the instruction holds an e-mail address outside its quoted texts."""
-    return bool(ADDRESS.search(unicodedata.normalize("NFKC", _outside(line))))
-
-
 def recipient_words(line: str) -> bool:
     """Whether the instruction, outside its quoted texts, asks in words to change who receives the e-mail (a word or a phrase of the closed lists)."""
     folded = _fold(_outside(line))
     return bool(set(re.findall(r"[a-z]+", folded)) & RECIPIENT_WORDS) or any(re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", folded) for p in RECIPIENT_PHRASES)
 
 
-def asks_recipients(line: str) -> bool:
-    """Whether the instruction, outside its quoted texts, holds an address or asks to change who receives the e-mail (see the module's text)."""
-    return has_address(line) or recipient_words(line)
+def recipient_answer(text):
+    """The text of the model's answer of the form {"recipient": "..."} (white space around it cut), or None when the answer is not of that form: exactly that one key, a text."""
+    if not isinstance(text, str):
+        return None
+    found = mail_compose.FENCE.fullmatch(text.strip())
+    try:
+        obj = json.loads(found.group(1) if found else text)
+    except (ValueError, RecursionError):
+        return None
+    return obj["recipient"].strip() if isinstance(obj, dict) and set(obj) == {"recipient"} and isinstance(obj["recipient"], str) else None
+
+
+def typed_recipient(answer: str, line: str, to: list):
+    """The new recipient AS THE PERSON TYPED IT, or None: the card has one recipient, the instruction outside its quoted texts and its text block holds only plain addresses, and leaving out
+    the card's recipient the one address it holds is the model's answer. Reads only the person's line: nothing of the card's text, a message or a file reaches it. The current recipient typed alone is returned as it is (the caller says RV_ALREADY)."""
+    if len(to) != 1 or not answer:
+        return None
+    tokens = natural_writes_mail.tokenize(_outside(line))
+    if tokens is None:
+        return None
+    typed = {t.value.lower(): t.value for t in tokens if t.kind == "addr"}
+    current = to[0].lower()
+    new = {key: value for key, value in typed.items() if key != current}
+    if answer.lower() == current and not new and current in typed:
+        return typed[current]
+    return new[answer.lower()] if set(new) == {answer.lower()} else None
+
+
+def keeps_body(body: str) -> bool:
+    """Whether opening a card with this body keeps it as it is: a body that starts with the marker of a literal text would lose it (`ops_natural_mail._compose_args`)."""
+    return not mail_compose.strip_marker(body)[1]
 
 
 def message(language: str, subject: str, body: str, line: str) -> str:
