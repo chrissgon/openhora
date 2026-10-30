@@ -54,6 +54,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import natural  # noqa: E402  (the same folder: the operations, their slots and `check_operation`, which this module calls unchanged)
 import natural_time as nt  # noqa: E402  (the same folder: the time reader whose reading wins over the model's)
+import natural_writes  # noqa: E402  (the same folder: the word lists of the writing operations, read from the tables)
+import natural_writes_mail  # noqa: E402  (the same folder: the words of a mail target and its ground)
 import recurrence  # noqa: E402  (the same folder: the closed words of a repetition; CB-7)
 import turn_gate  # noqa: E402  (the same folder: the private line, the gate's check; the gate imports no interpreter)
 
@@ -1049,10 +1051,8 @@ def _target_with_subject(target, line, others, name):
     wider = line[begin:kept[-1][0]]
     if len(wider) > SPAN_MAX or _check_slots(name, {"target": wider}, line)[1] is not None:
         return target
-    import importlib
-    mail = importlib.import_module("natural_writes_mail")
     tables = natural._tables(None)
-    if len(mail.target_words(_subject_ground(target, wider), tables)) <= len(mail.target_words(target, tables)):
+    if len(natural_writes_mail.target_words(_subject_ground(target, wider), tables)) <= len(natural_writes_mail.target_words(target, tables)):
         return target          # the widening must add a content word and still name a message (a sentence, more than TARGET_WORDS_MAX words, names nothing)
     return wider
 
@@ -1073,10 +1073,8 @@ def _own_subject_split(target):
     (SUBJECT_MARKERS, folded, whole words, the longest first) starts at its second word or later with a word after it that is not itself the start of a marker ("Mei Su about": the name "Su" is a marker of another language), when the part before the marker holds no letter or digit, or when the
     ground (`_subject_ground`: the person, then the subject without the marker word) has no content words within GROUND_WORDS_MAX. Made of the target's own words only (a span the check
     verified): nothing is added, so every word of the ground is a word of the target, and `match_words` still requires every one."""
-    import importlib
-    mail = importlib.import_module("natural_writes_mail")
     tables = natural._tables(None)
-    if not target or mail.target_words(target, tables):
+    if not target or natural_writes_mail.target_words(target, tables):
         return None
     toks = [(m.start(), natural.normal(m.group())) for m in _WORD.finditer(target)]
     markers = sorted(SUBJECT_MARKERS, key=len, reverse=True)
@@ -1093,7 +1091,7 @@ def _own_subject_split(target):
         if not any(ch.isalnum() for ch in person):
             return None
         own = _subject_ground(person, target)
-        return (person, own) if mail.ground_words(own, tables) else None
+        return (person, own) if natural_writes_mail.ground_words(own, tables) else None
     return None
 
 
@@ -1168,15 +1166,13 @@ def _open_note(name, obj, line, ops) -> bool:
     names = set(slots) | set(inherit)
     if not names <= set(ops[name]["slots"]) or names & NOTE_BLOCKERS:
         return False
-    import importlib
-    writes = importlib.import_module("natural_writes")
     tables = natural._tables(None)
     words = natural.normal(line).split()
 
     def held(phrases):
         return any(words[at:at + len(p)] == p for p in (phrase.split() for phrase in phrases) if p for at in range(len(words)))
-    return (held(writes.listed(tables, "mail", "draft_verbs")) and not held(writes.listed(tables, "mail", "nouns"))
-            and not held(writes.listed(tables, "mail", "reply_verbs")))
+    return (held(natural_writes.listed(tables, "mail", "draft_verbs")) and not held(natural_writes.listed(tables, "mail", "nouns"))
+            and not held(natural_writes.listed(tables, "mail", "reply_verbs")))
 
 
 def _deadline_set_apart(line) -> bool:

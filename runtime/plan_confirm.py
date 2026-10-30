@@ -44,7 +44,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import command_words  # noqa: E402
 import interpreter  # noqa: E402
 import natural  # noqa: E402
+import natural_writes  # noqa: E402
 import operations  # noqa: E402
+import ops_items  # noqa: E402
 import pending_items  # noqa: E402
 import phrases  # noqa: E402
 import registry  # noqa: E402
@@ -123,7 +125,6 @@ def _number(value) -> str:
 def _day(ctx: dict, said: str, args=None) -> str:
     """The day (or week) a list of items is asked for, written as the operations layer writes a date (`Wed 28/10/2026`), or "" for no range. The range is the call's own (`args`, BL5B:
     a corrected list may keep the range of the plan it corrects) when it has one, else the line's."""
-    ops_items = importlib.import_module("ops_items")
     found = args if isinstance(args, dict) and args.get("first") and args.get("last") else ops_items._line_args(said, _ops_natural()._clock())
     if "first" not in found:
         return ""
@@ -164,7 +165,7 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
         cap = ((ctx.get("cfg") or {}).get("research") or {}).get("max_cost_usd")
         return t(key, question=_clip(args.get("question") or ""), cap=phrases.decimal(f"{float(cap):.2f}", cfg) if isinstance(cap, (int, float)) else "?")
     if name == "items":
-        kind = args.get("kind") or importlib.import_module("natural_writes").items_kind(said)      # BL5B: the call's own kind (a corrected list keeps the old plan's), else the line's
+        kind = args.get("kind") or natural_writes.items_kind(said)      # BL5B: the call's own kind (a corrected list keeps the old plan's), else the line's
         words = " ".join(w for w in (args.get("match") or []) if isinstance(w, str))      # CB-1: the words code read from the person's target (a list of none says nothing: the reply says so)
         key = {"mail": "UNDERSTOOD_ITEMS_MAIL_MATCH" if words else "UNDERSTOOD_ITEMS_MAIL", "calendar": "UNDERSTOOD_ITEMS_CALENDAR_MATCH" if words else "UNDERSTOOD_ITEMS_CALENDAR"}.get(kind, "UNDERSTOOD_ITEMS")
         sentence = t(key, words=_clip(words))
