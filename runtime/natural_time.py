@@ -341,7 +341,7 @@ class _Compiled:
 
 
 _compiled = {}
-COMPILED_MAX = 64          # the tables whose patterns are kept: the shipped ones are a few; more means the caller makes a new table object for each call, and the oldest are dropped, never kept for good
+COMPILED_MAX = 64          # the tables whose patterns are kept: the shipped ones are a few; more means the caller makes a new table object for each call, and the whole cache is cleared when it is full, never kept for good
 
 
 def _comp(table) -> "_Compiled":
