@@ -19,7 +19,7 @@ by limits L1 to L6, the lab, the return of what the run left under the write loc
 with the stop request read first under that lock (L41), the change set the run made (`_changeset_of`, `_code_state`: L9, L11), the
 dependency sets, and the pending decision. The gate is principle 11: `_gate_payload` recovers the payload the skill showed
 (`effects.recover_payload`, limit L16) and keeps it as `payload.md`, and `_effect_or_review` opens an `effect` whose `payload_sha256`
-is the hash of the effect document `effect.json` it wrote (limits L15 and L17), or a `review` with its reason; a run executes
+is the hash of the effect document `effect.json` it wrote (limits L15 and L16), or a `review` with its reason; a run executes
 nothing and changes nothing outside its copy. Approving an effect and executing it stay in runtime/ops.py (`approve`,
 `_approve_effect`, `_execute_effect`): they read the hash this file stores and are not moved.
 
