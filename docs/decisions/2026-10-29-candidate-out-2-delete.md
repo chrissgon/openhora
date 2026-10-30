@@ -10,10 +10,46 @@ PR 1 (#656) made the reminder question engine ask the code guard `turn_gate.new_
 
 **Frozen, test-owned (`runtime/tests/old_claim.py`).** `candidate`, `_forget`, `_undo`, `_verb_noun` are copied there byte for byte but for the names of the helpers that stayed in `natural.py`, with the ten keys as literals per language (`FROZEN_WORDS`) laid over the live tables by `_frozen_tables` whatever they hold. On the PR head, before the deletion commit, the copy equals the product function on the 1,848 unique lines of `evals/interpreter/dev-relabelled.jsonl`, `tier1-cover-v1.jsonl` and `runtime/tests/entry_corpus.jsonl` (2,606 raw): 579 lines are named by `candidate`, 0 differences for `candidate`, `_forget`, `_undo` and `_verb_noun`, sha256 `b0f902f8bc3d0c7e4c11c0344c6ff7248006fd571cbaf7279fc68dcc097adc26` over the sorted JSON of every (line, `candidate`, (`_forget`, `_undo`, `_verb_noun`)). A planted change of one frozen word (the English `undo`) makes the copy differ, so the comparison can fail. `closed_heads.py` reads `old_claim.candidate`; the `repeat_goes_on` branches of `closed_heads.make` and of `old_claim.claim` are deleted (`claim` is now `candidate`).
 
+**How to recompute the hash.** The comparison needs both functions, so it runs on the freeze commit of this branch (`ecf1b912` at the time of writing: the commit titled "the stand-ins freeze the old candidate reading", the parent of the deletion), where the product `candidate` and the frozen copy both exist. Save the script below as `equal.py` at the repository root of that checkout and run `python3 equal.py`; it prints the counts and the hash (rerun there on 2026-10-30: 2606 raw, 1848 unique, 579 hits, 0 differences, the sha256 above). The serialisation is `json.dumps([line, candidate, [forget, undo, verb_noun]], sort_keys=True, ensure_ascii=False)` encoded as UTF-8, one update per unique line in order of first appearance in the three files (dev-relabelled `line`, tier1-cover-v1 `line`, entry corpus `text`).
+
+```python
+"""One run: the frozen copy in old_claim equals the product functions on the unique lines of the three sets. Prints the count and a sha256 of the (line, result) pairs."""
+import hashlib, json, sys
+sys.path.insert(0, "runtime"); sys.path.insert(0, "runtime/tests")
+import natural, natural_time as nt, old_claim
+lines = []
+for path, key in (("evals/interpreter/dev-relabelled.jsonl", "line"), ("evals/interpreter/tier1-cover-v1.jsonl", "line"), ("runtime/tests/entry_corpus.jsonl", "text")):
+    for row in open(path, encoding="utf-8"):
+        row = json.loads(row)
+        value = row.get(key)
+        if isinstance(value, str):
+            lines.append(value)
+uniq = list(dict.fromkeys(lines))
+print("raw", len(lines), "unique", len(uniq))
+tables = natural._tables(None)
+frozen = old_claim._frozen_tables(None)
+h = hashlib.sha256()
+diff = 0
+hits = 0
+for line in uniq:
+    a = natural.candidate(line)
+    b = old_claim.candidate(line)
+    norm = nt.normalise(line)[0]
+    pa = (natural._forget(norm, tables), natural._undo(norm, tables), natural._verb_noun(norm, tables))
+    pb = (old_claim._forget(norm, frozen), old_claim._undo(norm, frozen), old_claim._verb_noun(norm, frozen))
+    if a != b or pa != pb:
+        diff += 1
+        print("DIFF", repr(line), a, b, pa, pb)
+    hits += a is not None
+    h.update(json.dumps([line, a, pa], sort_keys=True, ensure_ascii=False).encode())
+print("candidate hits", hits, "differences", diff, "sha256", h.hexdigest())
+sys.exit(1 if diff else 0)
+```
+
 **Left for 44-B (OPEN-CO-5).** The dead `eventorother` branch and the op branches of `messaging_remind.natural`/`remind.natural`, which only pre-states and stand-ins reach, stay as they are. The docstring of `messaging_remind.natural` that named `natural.candidate` is fixed (one line).
 
 **T9, computed twice.** Statically: `git grep` of every deleted name and key in the tests gave 14 files (`test_repeat_goes_on.py` deleted, `test_natural_reminders.py`, `test_natural_review3.py`, `test_natural_review4.py`, `test_natural_table.py`, `test_natural_corpus.py`, `test_natural_dialogues.py`, `test_natural_writes.py`, `test_recurrence.py`, `test_ops_natural_writes.py`, `test_registry_data.py`, `test_calendar_list_words.py`, `test_natural_time.py`, `test_request_not_answer.py`). By running, before any test edit, the 255 test files that read a changed module or the public surface of `ops` (125 by the names, 102 more by the modules, 28 that scan the source; three runs, never the whole suite): 262 tests failed in 15 files, the 13 above plus `test_turn_gate_refresh.py` (its inventory of thread-locals listed `natural.py` for the repeat scope) and `test_operations_table.py` (`interpreter_on` was in its list of public functions that are not operations; the list is `runtime/tests/expected/cb-9.json`). The run found two files the static list missed, and `test_request_not_answer.py` (a planted-fault helper) passes without an edit but was re-pointed anyway.
-- **delete** (the subject left the product): `test_repeat_goes_on.py` (5 tests); `test_natural_writes.py` (2 tests on the scope; the part that still holds, "the operation fixed by the interpreter reads a repeating line", is kept as one edited test); `test_recurrence.py` (6 params), `test_ops_natural_writes.py` (2) — all of them tested a stand-in-only behaviour (`closed_heads.make` reading `repeat_goes_on`); `test_natural_review3.py` (33 params: forget by number, undo, a scheduling verb without the word reminder), `test_natural_review4.py` (21: the forms of a reminder number, a bare forget, a forget by the hour), and the 104 parameters of the candidate table in `test_natural_reminders.py`; four constants of `natural_cases_pt_br.py` that only the deleted tests read.
+- **delete** (the subject left the product): `test_repeat_goes_on.py` (5 tests); `test_natural_writes.py` (2 tests on the scope; the part that still holds, "the operation fixed by the interpreter reads a repeating line", is kept as one edited test); `test_recurrence.py` (6 params), `test_ops_natural_writes.py` (2) — all of them tested a stand-in-only behaviour (`closed_heads.make` reading `repeat_goes_on`); `test_natural_review3.py` (32 params: forget by number, undo, a scheduling verb without the word reminder), `test_natural_review4.py` (21: the forms of a reminder number, a bare forget, a forget by the hour), and the 104 parameters of the candidate table in `test_natural_reminders.py`; four constants of `natural_cases_pt_br.py` that only the deleted tests read.
 - **re-target**: `test_natural_reminders.py` (the table of 104 lines is the guard's oracle now: 86 lines agree with `turn_gate.new_request` and the 18 that differ are pinned one by one with the guard's verdict, with a vacuity case), `test_natural_corpus.py` (4) and `test_natural_dialogues.py` (5) and `test_registry_data.py` (3) to `old_claim.candidate`/`FROZEN_WORDS`, `test_request_not_answer.py` (the planted `old_rule` ends in the `private_kind` check the product's `recognises` has).
 - **edit**: `test_calendar_list_words.py` (12: the column of `natural.candidate` dropped), `test_natural_table.py` (53: `operation_of` and the candidate half of a test), `test_natural_review3.py` (4) and `test_natural_review4.py` (1), `test_natural_time.py` (5: the stub table without the ten keys, plus a new test that the keys are gone and that the schema refuses a table with one of a group), `test_turn_gate_refresh.py` and `expected/cb-9.json` (the inventory), `test_turn_order.py` (a stub method). `test_import_breakers.py`: the budgets drop by two edges, one call each (after the rebase onto 44-B 3a, which had set 81 calls, 65 edges and 12 debt: the file's own AST count on the rebased head is 79, 63 and 11) (natural to recurrence, a debt edge; ops_natural_writes to ops_interpret, a cycle edge).
 - **A finding.** The assertion `found["op"] not in ("event-create",)` of `test_natural_table.py` (the lines that ask for work) could not fail: `candidate` returns `calendar-event-create`, never `event-create`. It is dropped, not re-pointed; the test's first assertion (`natural.match(line) is None`) is the one that held.

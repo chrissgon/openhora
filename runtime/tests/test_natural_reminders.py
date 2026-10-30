@@ -99,7 +99,7 @@ ENGLISH_CANDIDATES = [
 
 # CANDIDATE-OUT 2: `natural.candidate` (what a line is) is deleted; the question engine asks the code guard `turn_gate.new_request` whether a line starts a request of its own. The table above is kept as
 # the guard's oracle: a line the old table named is a request to the guard, and a line it left alone is none, except these (the line, the guard's verdict), each a difference the guard has on purpose:
-# a forget by its words, a bare undo, and a calendar line with no verb the guard knows are asked once more or taken as answers (OPEN-CO-3); a line about reminders not working is a `form` (a reminder noun
+# a forget by its words and a bare undo are asked once more or taken as answers (OPEN-CO-3); "agenda consulta ..." is a calendar line the guard does not see: its step (c) reads `triggers.calendar`, `calendar_verb` and `calendar_loose`, never `calendar_noun`, and pt-BR "agenda" is only in `calendar_noun`; a line about reminders not working is a `form` (a reminder noun
 # in a short line) or a `reminder` (it starts with the noun), because the guard does not read the problem words; "every monday at 8am send me a summary" is a bare reading.
 GUARD_DIFFERENCES = {
     "esquece o lembrete da aula de violão": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
@@ -119,7 +119,9 @@ GUARD_DIFFERENCES = {
 
 def guard_disagreements(guard):
     """The lines of the table that `guard` (a function of a line) does not treat as the table does: a request (a verdict) for a line the old table named, none for a line it left alone, and the
-    pinned verdict for each line of GUARD_DIFFERENCES. Empty when the guard is `turn_gate.new_request`."""
+    pinned verdict for each line of GUARD_DIFFERENCES. Empty when the guard is `turn_gate.new_request`. This oracle checks request or no request only: which verdict (reminder, write, form, bare) a
+    line gets is covered by the per-step oracles of test_reply_guard.py (`test_each_step_of_the_guard_names_its_line`, `test_the_twins_that_lack_the_word_that_matters_are_no_request`,
+    `test_the_twin_pairs_differ_only_by_the_trigger`)."""
     out = []
     for line, expected in CANDIDATE_CASES + ENGLISH_CANDIDATES:
         verdict = guard(line)
