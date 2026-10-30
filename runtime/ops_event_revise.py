@@ -14,7 +14,7 @@ change request is about THAT card.
 
 How. The line is read by the interpreter exactly as any plain line is (runtime/ops_interpret.py: the same entry, the same limits, the same checks of the spans against the line and the
 same time checks, TIME-GUARD included, with all their questions). Only a decision `event-change` is a change of the card; a question the checks ask (a time that needs a day, a time that
-is not clear) is asked as it is asked for any line, and every other decision goes on to the turn that reads the line. The title span replaces the title (a pair of quotation marks
+is not clear) is asked as it is asked for any line, and every other decision goes on to the turn that reads the line. The one exception is a refusal (`refuse_policy`) on a line that names no other object (`event_lookup.names_other_object`): the operation was the model's reading, not the person's request, so no refusal is said of it and the person is asked what to change. The title span replaces the title (a pair of quotation marks
 around it is taken off); the time span replaces the start, on the day of the card when the span names no day, and the end keeps the length the card has; the account word of the line
 (runtime/event_lookup.py `account_named`) changes the account of a card that CREATES an event (and then the calendar is the account's first, not the old account's), and nothing else.
 A card that changes an event found in a snapshot is made again with the same event (`<source>#<n>`, the same calendar) and the part the person named replaced, and the new card is refused unless it names the same event id on the same calendar (a snapshot refreshed meanwhile numbers the events differently); the event of the calendar is not touched by
@@ -242,6 +242,8 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
         return {"pass": True}
     if decision.get("kind") == "clarify":
         return base.say(ctx, ops_interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
+    if decision.get("kind") == "refuse_policy" and not event_lookup.names_other_object(line):
+        return base.say(ctx, "EV_CHANGE_WHAT", pending_id)      # the model named an operation the sender may not ask and the line names no other object: the operation was the model's reading, not the person's request, so no refusal is said of it; the card is sent again
     spans, time_ = decision.get("spans") or {}, decision.get("time")
     if decision.get("kind") != "op" or decision.get("op") != "event-change" or names_another(line, spans, doc):
         base.remember(project, channel, sender, line, decision)      # not a change of this card: the turn that follows reads the decision that was made
