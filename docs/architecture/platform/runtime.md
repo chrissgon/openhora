@@ -154,6 +154,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_contained.py` | The contained run (stage 7): one run of one skill of an area agent's pack, in the eval container, for a caller that is not a task (a handler's agent run). |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
 | `runtime/ops_event_revise.py` | Change the card of an event by words (slice S13): the title or the time of a card that waits, with no search of the calendar and no prompt of its own. |
+| `runtime/ops_facade.py` | The one seam through which a sibling of runtime/ops.py calls an operation of the facade (44-C2, OPEN-S8): `function(name)` returns `ops.&lt;name&gt;`, read at the moment of the call. |
 | `runtime/ops_file_ask.py` | A question about what ONE file of the person's Drive or OneDrive says (package FA-1, SPEC-FILE-ASK): `file-ask`, a class R operation behind the group `ask-files`. |
 | `runtime/ops_file_read.py` | Find and read a file by words of its name under the folders the project lists for the person's own accounts, subfolders included (slices S8 and S17): `file-read`, a class R operation. |
 | `runtime/ops_file_trash.py` | Move a file to the trash of the person's own Drive or OneDrive, found by its name (slice R2-A): `file-trash`, a class E operation (an effect with a card). |
