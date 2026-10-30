@@ -187,6 +187,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_step_effects.py` | The approval of an effect that a step task opened (package P8): the third path an external effect takes, beside a skill's gate and a standing approval (runtime/effects.py, "for the step path"). |
 | `runtime/ops_step_seams.py` | What a step kind is handed to reach anything outside the project's files (package P8, limit L30): the services of the engine's Context. |
 | `runtime/ops_steps.py` | The run of a step task (package P5): the one operation `run_step`, and what a process that runs a step task does around the engine of runtime/steps.py. |
+| `runtime/ops_task_run.py` | The start and the body of a task run, and the gate where a run's effect becomes a pending approval (44-C4a). |
 | `runtime/ops_todo.py` | The operations over the person's own to-do list (package CB-5, SPEC-CATALOG-BATCH 6.5): list the open tasks, add a task, mark one as completed. |
 | `runtime/ops_turn.py` | The operations layer's dispatcher: it walks the `ops` stage of the table of the order in which a line is claimed (package S41-3; runtime/turn_order.py) and runs the code of each row. |
 | `runtime/ops_waits.py` | The derived waits in the operations layer: which task waits for which, worked out from the artifact contract. |

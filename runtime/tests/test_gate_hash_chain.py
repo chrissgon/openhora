@@ -1,4 +1,4 @@
-"""Test of the hash chain at a skill's gate (44-C4a, OPEN-C4-4; principle 11, limits L15, L16, L17): the payload a skill showed,
+"""Test of the hash chain at a skill's gate (44-C4a, OPEN-C4-4; principle 11, limits L15 and L16): the payload a skill showed,
 the effect document that carries its hash, and the pending decision that carries the document's hash. A wrong
 `payload_file_sha256` in the effect document passed every other test of the runtime (2,423 tests of 65 files, planted by the
 44-C4 spec writer); the run's start and body moved to runtime/ops_task_run.py in this package, and this file is the test that
