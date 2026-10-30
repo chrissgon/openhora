@@ -80,6 +80,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --hel
 from __future__ import annotations
 
 import ast
+import bisect
 import calendar
 import datetime
 import json
@@ -94,6 +95,7 @@ MAX_READINGS = 4          # a question offers at most this many readings
 RELATIVE_MAX = 9999       # the largest n of `in <n>m|h|d` (runtime/reminders.py)
 _L = r"(?<![a-z0-9])"
 _R = r"(?![a-z0-9])"
+_TOKEN = re.compile(r"[a-z0-9]+")          # a word of the folded line
 
 LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "cued", "hour_words_long", "not_typos", "recurrence", "recurrence_before_day",
          "recurrence_joiners", "work_verbs", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
@@ -339,11 +341,14 @@ class _Compiled:
 
 
 _compiled = {}
+COMPILED_MAX = 64          # the tables whose patterns are kept: the shipped ones are a few; more means the caller makes a new table object for each call, and the whole cache is cleared when it is full, never kept for good
 
 
 def _comp(table) -> "_Compiled":
     found = _compiled.get(id(table))
     if found is None or found.table is not table:
+        if len(_compiled) >= COMPILED_MAX:
+            _compiled.clear()          # each entry holds its table and about twenty patterns (about 40 kB): a cache that only grows is a leak of a call-per-line caller
         found = _compiled[id(table)] = _Compiled(table)
     return found
 
@@ -678,19 +683,48 @@ def _deadlines(norm: str, hits: list, tables: list) -> tuple:
         return hits, []
     stops = {w for t in tables for w in t.get("deadline_to", [])}
     breaks = [tuple(p.split()) for t in tables for p in t.get("deadline_breaks", [])]
+    # Everything a hit asks about the others is read from tables built ONCE (one pass over the tokens and the hits), so that the time is linear in the line: the old reading
+    # rescanned the text before each hit and every other hit for each hit, which is quadratic and let one long line of times hold the engine for minutes.
+    tokens = [(m.start(), m.end()) for m in _TOKEN.finditer(norm)]
+    starts = [a for a, _b in tokens]
+    by_end = sorted(hits, key=lambda g: g["e"])
+    ends = [g["e"] for g in by_end]
+    moment_to = []          # moment_to[i]: whether one of the first i+1 hits by end is a date, a slash date or a relative one
+    seen = False
+    for g in by_end:
+        seen = seen or g["kind"] in ("date", "slash", "relative")
+        moment_to.append(seen)
+    clocks = [g["s"] for g in hits if g["kind"] == "clock"]
+    last_clock = max(clocks) if clocks else -1
+
+    def last_tokens(at, count):
+        """The last `count` tokens of norm[:at], the one the cut falls inside shortened to the cut."""
+        i = bisect.bisect_left(starts, at)
+        out = [norm[a:min(b, at)] for a, b in tokens[max(0, i - count):i]]
+        return out
     kept, deadline = [], []
     for h in hits:
-        before = re.findall(r"[a-z0-9]+", norm[:h["s"]])[-2:]
-        near = re.findall(r"[a-z0-9]+", norm[:h["s"]])[-3:]          # "to the deadline on the 20th": the destination word may stand one word further back
-        own = re.findall(r"[a-z0-9]+", norm[h["s"]:h["e"]])
-        earlier = [g for g in hits if g is not h and g["e"] <= h["s"]]
-        gap = re.findall(r"[a-z0-9]+", norm[max(g["e"] for g in earlier):h["s"]]) if earlier else []
-        if (h["kind"] in ("date", "slash") and any(w in words for w in before)
-                and not (own and own[0] in stops) and not any(w in stops for w in near)
-                and not any(tuple(gap[i:i + len(b)]) == b for b in breaks for i in range(len(gap)))
-                and any(g["kind"] in ("date", "slash", "relative") for g in earlier)
-                and any(g is not h and g["kind"] == "clock" for g in hits)
-                and not any(g["kind"] == "clock" and g["s"] >= h["e"] for g in hits)):
+        if h["kind"] not in ("date", "slash"):
+            kept.append(h)
+            continue
+        before = last_tokens(h["s"], 2)
+        own = _TOKEN.search(norm, h["s"], h["e"])
+        near = last_tokens(h["s"], 3)          # "to the deadline on the 20th": the destination word may stand one word further back
+        if not (any(w in words for w in before) and not (own and own.group() in stops) and not any(w in stops for w in near)):
+            kept.append(h)
+            continue
+        if h["e"] <= h["s"]:          # an empty hit (the scan never makes one): the plain reading, which leaves the hit itself out of `earlier`
+            earlier = [g for g in hits if g is not h and g["e"] <= h["s"]]
+            moment, edge = any(g["kind"] in ("date", "slash", "relative") for g in earlier), max((g["e"] for g in earlier), default=0)
+            gap = _TOKEN.findall(norm, edge, h["s"]) if earlier else []
+        else:
+            i = bisect.bisect_right(ends, h["s"])          # the hits that end at or before this one starts: `earlier`
+            moment, edge = (moment_to[i - 1], ends[i - 1]) if i else (False, 0)
+            gap = _TOKEN.findall(norm, edge, h["s"]) if i else []          # the words between the latest of them and this one
+        if (not any(tuple(gap[j:j + len(b)]) == b for b in breaks for j in range(len(gap)))
+                and moment
+                and bool(clocks)
+                and last_clock < h["e"]):
             deadline.append(h)
         else:
             kept.append(h)

@@ -390,7 +390,7 @@ def test_the_engine_holds_no_word_of_any_language_and_no_import_of_the_runtime()
     found = sorted(w for w in words if len(w) > 2 and any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", text) for text in strings))
     assert len(words) > 100 and found == [], "a word of a language is data in a table, not in the engine"
     imports = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", source, re.M))
-    assert imports <= {"__future__", "ast", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports
+    assert imports <= {"__future__", "ast", "bisect", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports
 
 
 # --- what is left near the time, what repeats, and the checks of the tables' list ---------------------------------------------------------------------------
