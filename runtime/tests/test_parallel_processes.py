@@ -20,6 +20,7 @@ import pytest
 import standin_tree as st
 
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_runs = st.load("ops_runs")
 
@@ -54,8 +55,8 @@ def real(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
                                                if p and not os.path.exists(os.path.join(p, "docker"))))
     assert_cannot_reach_a_model(os.environ)
-    monkeypatch.setattr(ops, "_credential_stop", lambda model=None: None)
-    monkeypatch.setattr(ops, "_image_stop", lambda: None)
+    monkeypatch.setattr(ops_round, "_credential_stop", lambda model=None: None)
+    monkeypatch.setattr(ops_round, "_image_stop", lambda: None)
     monkeypatch.setattr(ops_runs, "SPAWNED", [])
     monkeypatch.setattr(ops_runs, "STOPPING", threading.Event())
     started = []
@@ -142,9 +143,9 @@ def test_real_children_hold_their_task_locks_with_their_pids_and_a_waiting_round
 ROUND = """
 import json, sys, threading, time
 sys.path.insert(0, %(runtime)r)
-import ops, ops_runs
-ops._credential_stop = lambda model=None: None
-ops._image_stop = lambda: None
+import ops, ops_round, ops_runs
+ops_round._credential_stop = lambda model=None: None
+ops_round._image_stop = lambda: None
 def watch():
     while len(ops_runs.SPAWNED) < 2:
         time.sleep(0.05)

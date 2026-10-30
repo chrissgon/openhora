@@ -28,6 +28,7 @@ PT = {"language": "pt-BR"}
 lab = st.load("lab")
 language = st.load("language")
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_language = st.load("ops_language")
 operations = st.load("operations")
@@ -398,7 +399,7 @@ def test_the_backlog_subtasks_a_delivery_spawns_carry_its_language_and_the_card_
                 "tasks": [{"key": "d1-backlog", "language": "en"}, {"key": "d2-backlog", "language": "es"}]}
     proposed = [{"key": "t-1", "skill": "demo-writes", "title": "T-1", "text": "do it.", "depends_on": [], "milestone": False},
                 {"key": "t-2", "skill": "demo-writes", "title": "T-2", "text": "do it.", "depends_on": [], "milestone": False}]
-    monkeypatch.setattr(ops, "_approved_plan", lambda c, rid: approved)
+    monkeypatch.setattr(ops_round, "_approved_plan", lambda c, rid: approved)
     monkeypatch.setattr(plan, "backlog_tasks", lambda p, root=None: [dict(t) for t in proposed])
     created = []
     monkeypatch.setattr(ops.ops_waits, "add_subtasks", lambda c, rid, tasks: created.extend(tasks) or {"tasks": []})

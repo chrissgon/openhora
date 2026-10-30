@@ -15,8 +15,8 @@ documents a run returned; the record of the tasks a round held (`HELD_CURSOR`, `
 that a run records with scripts/evidence.py (`USE_ID`, `RECORDER_TIMEOUT`, `_recorder`, `_record`, `_use_start`; 44-C3); runtime/ops.py
 re-exports them for the shells and the tests. The start and the body of a run (`_prepare_run`, `_run_start`, `_run_body`,
 `PREPARE_ERRORS`) live in runtime/ops_task_run.py (44-C4a) and are read as `ops_task_run.<name>` through `_task_run_module()`; the
-helpers of the round that stay in runtime/ops.py (`_snapshot`, ...) are reached at call time through `_ops()` until 44-C4b. Neither
-is imported at module level.
+helpers of the round (`_snapshot`, `_mode_releases`, `_ticks`, ...) live in runtime/ops_round.py (44-C4b) and are read as `rounds.<name>`
+through `_round_module()`. Neither module is imported at module level, and nothing of this file reads runtime/ops.py any more.
 
 Every task run is its own OS process: `run-task --project <dir> --task <id>` (runtime/cli.py). The lab's session ends
 every container of its process and `_key_in_environment` writes the environment, so two runs in one process would
@@ -79,9 +79,9 @@ EDITED_LINE = "The person edited {path} on the platform since the last run; its 
 PER_RUN_USD = 0.5          # what a floor run of unknown cost counts at, when runtime.json names no max_cost_usd_per_run
 
 
-def _ops():
-    """runtime/ops.py, found at call time: the helpers of the round stay there until 44-C4b."""
-    return importlib.import_module("ops")
+def _round_module():
+    """runtime/ops_round.py, found at call time: it imports this file at its top (the pieces of a run, the children, the held record), so this file cannot import it back (44-C4b)."""
+    return importlib.import_module("ops_round")
 
 
 def _task_run_module():
@@ -841,7 +841,7 @@ def _record_held(ctx: dict, held: list, missing=()) -> None:
 def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     """One round of the dispatcher (see ops.dispatch). Returns {"handlers", "released", "started", "ran", "held",
     "stopped"}; "started" lists the children this round started, "ran" the runs that ended since the last report."""
-    ops = _ops()
+    rounds = _round_module()
     ctx = core.context(project)
     cfg = ctx["cfg"]
     with core._dispatch_lock(cfg):
@@ -858,10 +858,10 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
                                    for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
             if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
                 return {"stopped": "no area agent is configured", "routines": fired}
-        out = {"handlers": ops._ticks(ctx, project), "routines": fired, "released": [], "started": [], "ran": [], "held": [], "stopped": None}
+        out = {"handlers": rounds._ticks(ctx, project), "routines": fired, "released": [], "started": [], "ran": [], "held": [], "stopped": None}
         if wait:
             STOPPING.clear()
-        return _round(ctx, project, ops.DISPATCH_BUDGET if budget_seconds is None else budget_seconds, wait, out)
+        return _round(ctx, project, rounds.DISPATCH_BUDGET if budget_seconds is None else budget_seconds, wait, out)
 
 
 def _fire_routines(ctx: dict) -> list:
@@ -874,7 +874,7 @@ def _fire_routines(ctx: dict) -> list:
 
 
 def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dict:
-    ops = _ops()
+    rounds = _round_module()
     began = time.monotonic()
     state = {"keys": core._keys(), "checked": {}, "held": [], "missing": [], "released": [], "first": True}
     mine = []
@@ -887,7 +887,7 @@ def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dic
             for entry in _reported(ctx):
                 out["ran"].append(entry)
                 if out["stopped"] is None:
-                    out["stopped"] = ops._stops_the_round(entry)
+                    out["stopped"] = rounds._stops_the_round(entry)
             if out["stopped"] is None and STOPPING.is_set():
                 out["stopped"] = "the dispatcher was stopped: no new run starts"
             if out["stopped"] is None:
@@ -920,8 +920,8 @@ def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dic
 
 def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget: float, mine: list) -> tuple:
     """One decision and its starts. Returns (children started, the reason nothing more starts when none did)."""
-    ops, cfg = _ops(), ctx["cfg"]
-    if ops._configuration_moved(ctx):  # accepted again, or edited, since the round began: a mode may have been narrowed
+    rounds, cfg = _round_module(), ctx["cfg"]
+    if rounds._configuration_moved(ctx):  # accepted again, or edited, since the round began: a mode may have been narrowed
         out["stopped"] = ("the configuration changed during the round (a mode, a cap or an agent): no new run "
                           "starts; the next round reads it")
         return 0, None
@@ -938,11 +938,11 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             except ctx["store"].StoreError as e:
                 raise core.OpsError(str(e), e.code) from None
     while True:
-        snapshot = ops._snapshot(ctx, state["keys"])
+        snapshot = rounds._snapshot(ctx, state["keys"])
         decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
         out["held"] = decided["held"]
         state["held"] = dispatcher.held_of(snapshot, decided)
-        did = ops._mode_releases(ctx, state["released"], snapshot, decided)
+        did = rounds._mode_releases(ctx, state["released"], snapshot, decided)
         out["released"] += did
         if not decided["start"] and did:
             continue  # a release may have made a task ready
@@ -971,9 +971,9 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             continue
         model, checked = snapshot["model"].get(task_id), state["checked"]
         if model is not None and ("credential", model) not in checked:
-            checked[("credential", model)] = ops._credential_stop(model)
+            checked[("credential", model)] = rounds._credential_stop(model)
         if "image" not in checked:
-            checked["image"] = ops._image_stop()
+            checked["image"] = rounds._image_stop()
         if checked["image"]:  # no run starts without the image: the rest of the round is held with it
             reason, out["stopped"], state["missing"] = checked["image"]
             state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in order[position:]})

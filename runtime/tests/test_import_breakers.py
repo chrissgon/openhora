@@ -62,22 +62,24 @@ RUNTIME = REPO / "runtime"
 # 44-C2 (the seam and the reads): six edges to `ops` are gone (ops_card_revise, ops_event_revise, ops_instructions, ops_natural, ops_natural_writes, ops_reads: seven calls) and one is
 # new (ops_facade -> ops, the seam `function(name)`, one call, CYCLE_FACADE): the siblings call an operation of the facade through ops_facade.function(name) and the reads read what moved
 # (SERVICE and the held tasks to ops_reads, the held record to ops_runs). ops_event_revise -> ops was the one debt edge: debt 1 -> 0. The file's own AST count on the head: 58 lazy
-# calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher (the entry), ops_facade (the seam), ops_say (`_drain_route`, 44-C3) and ops_runs (the run body and the round, 44-C4).
+# calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher (the entry), ops_facade (the seam), ops_say (`_drain_route`, 44-C3); since 44-C4b the dispatcher (the entry) and ops_facade (the seam) only.
 # 44-C3 (the router's run on a request moved to ops_requests): one edge to `ops` is gone (ops_say -> ops, the one call in `_drain_route`) and one cycle edge is new (ops_say -> ops_requests,
 # the same call, now `importlib.import_module("ops_requests")`: ops_requests imports ops_say for the person's line and the question of a reply that names no route, so ops_say cannot
 # import it at the top): -1 edge and call, +1 edge and call. The file's own AST count on the head: 58 lazy calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher
-# (the entry), ops_facade (the seam) and ops_runs (the run body and the round, 44-C4).
+# (the entry) and ops_facade (the seam); the run body (44-C4a) and the round (44-C4b) were the last that ops_runs read in ops.py.
 # 44-C4a (the start and the body of a run, and the gate, moved to ops_task_run): one cycle edge is new (ops_runs -> ops_task_run, the one call in `_task_run_module()`: ops_task_run imports
 # ops_runs for the pieces of a run, so ops_runs cannot import it back); the edge ops_runs -> ops stays, for the round that 44-C4b moves: +1 call, +1 edge. The file's own AST count on the
 # head: 59 lazy calls, 48 edges, 0 debt.
+# 44-C4b (the dispatcher's round and the releases moved to ops_round): the edge ops_runs -> ops is gone (the one call in `_ops()`, and the row CYCLE_OPS with its constant) and one cycle edge
+# is new (ops_runs -> ops_round, the one call in `_round_module()`: ops_round imports ops_runs for the held record, the children and the pieces of a run, so ops_runs cannot import it back):
+# -1 call and edge, +1 call and edge. The file's own AST count on the head: 59 lazy calls, 48 edges, 0 debt. What reaches `ops` at call time is now the dispatcher (the entry) and ops_facade
+# (the seam) only.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
 LAZY_CALLS_BUDGET = 59
 LAZY_EDGES_BUDGET = 48
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
-CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the round "
-             "that ops_runs reads moves in 44-C4b (OPEN-C2)")
 CYCLE_FACADE = ("cycle: the one seam through which a sibling calls an operation of the table, or a public entry of the facade, by name at call time "
                 "(OPEN-S8 keeps the facade); a private helper never goes through it (test_ops_facade)")
 CYCLE_ENTRY = ("cycle: dispatcher.bootstrap loads by path the operations layer of the checkout a project's configuration names and returns the module "
@@ -112,8 +114,7 @@ ROWS = (
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural_writes", CYCLE, "event_lookup"),
-    ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps ops_task_run"),
-    ("ops_runs", CYCLE_OPS, "ops"),
+    ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_round ops_routines ops_steps ops_task_run"),
     ("ops_say", CYCLE, "ops_ask ops_requests ops_turn"),
     ("ops_step_seams", CYCLE, "ops_file_read"),
     ("phrases", CYCLE, "phone_questions"),

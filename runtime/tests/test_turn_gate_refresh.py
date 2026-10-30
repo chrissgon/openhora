@@ -569,7 +569,7 @@ def test_the_provider_read_is_reached_from_a_persons_line_by_these_three_paths_a
 
 OTHER_NAMES_OF_THE_SAME_WORDS = {("operations.py", "<table>"),      # the rows `source-mail` and `source-calendar` of the table of operations (typed, terminal and page)
                                  ("ops.py", "<import>"),      # the export of the two typed operations
-                                 ("ops.py", "<module>"), ("ops.py", "poll"), ("ops_runs.py", "_pass")}      # `ops._snapshot`: the dispatcher's own snapshot of the keys, a different function of the same name
+                                 ("ops_round.py", "<module>"), ("ops.py", "poll"), ("ops_runs.py", "_pass")}      # `ops_round._snapshot`: the dispatcher's own snapshot of the keys, a different function of the same name
 
 
 def test_the_ways_to_the_provider_are_named_only_in_the_source_operations():
