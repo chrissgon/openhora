@@ -270,7 +270,7 @@ def _remounted(data: dict, project: str) -> bool:
         return False
     try:
         return os.path.samestat(os.stat(recorded), here)
-    except OSError:
+    except (OSError, ValueError):      # a path with a NUL or a lone surrogate (a marker is text a person or a sync client may have damaged) leads nowhere: it never blocks the way out, `--adopt-sources`
         return False
 
 

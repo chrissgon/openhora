@@ -43,3 +43,14 @@ def test_a_plain_failure_keeps_the_note_and_says_no_reason(world, snaps, clock):
     assert "Please send the receipt." in reply
     assert not any(pk.said(line, key, CFG, name=name) for line in reply.splitlines() for key in ("NW_ITEMS_REFUSED_AUTH", "NW_ITEMS_REFUSED_FOLDER")
                    for name in ("Gmail", "Outlook", "Gmail, Outlook"))
+
+
+def test_the_terminal_and_the_page_keep_their_words_for_a_refused_folder(world, snaps, clock):
+    boxes(world, snaps)
+    refuse_folder(world)
+    for number in (1, 2):
+        terminal, _ = ask(world, {"number": number}, f"read {number}", channel="terminal")
+        assert not any(pk.said(terminal, key, CFG) for key in ("NW_ITEMS_REFUSED_FOLDER", "NW_ITEMS_REFUSED_AUTH")), "the phone's sentence (trying again here will not help) is for a phone"
+        assert "Trying again here" not in terminal
+    phone, _ = ask(world, {"number": 1}, "read 1")
+    pk.assert_said(phone, "NW_ITEMS_REFUSED_FOLDER", CFG, name="Gmail, Outlook")

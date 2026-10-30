@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import stat
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -214,6 +215,40 @@ def test_a_lease_on_a_marker_of_another_project_changes_nothing(tmp_path):
             written = plant(world, foreign)
             sources._renew_marker(folder.fd, world.cfg)
             assert world.marker.read_bytes() == written, foreign
+
+
+def test_a_live_lease_of_another_host_leaves_a_remounted_marker_as_it_is(tmp_path):
+    """The marker is renewed under THIS host's lease and after it is taken: another host's live lease refuses the write, and nothing is renewed (review of #673)."""
+    world = marked(tmp_path)
+    written = plant(world, other_device(world))
+    other = {"host_id": "0123456789abcdef", "host_name": "another-host", "pid": 4242, "taken_at": "2026-10-30 10:00:00 UTC",
+             "expires_at": time.time() + 3600, "expires": "2026-10-30 11:00:00 UTC"}
+    (Path(world.cfg["sources_dir"]) / lease.LEASE_NAME).write_text(json.dumps(other) + "\n", encoding="utf-8")
+    with sources.Folder(world.cfg) as folder:
+        with pytest.raises(sources.SourcesError) as caught:
+            sources.take_lease(folder, world.cfg)
+        assert caught.value.code == "lease" and "another-host" in str(caught.value)
+        assert world.marker.read_bytes() == written, "the marker is the bytes it was: nothing renewed without the lease"
+    assert not (Path(world.cfg["sources_dir"]) / (sources.MARKER + ".new")).exists()
+    # the oracle can fail: when the lease is this host's the same call does renew
+    (Path(world.cfg["sources_dir"]) / lease.LEASE_NAME).unlink()
+    with sources.Folder(world.cfg) as folder:
+        sources.take_lease(folder, world.cfg)
+    assert world.marker.read_bytes() != written and json.loads(world.marker.read_text())["renewed_from"] == other_device(world)
+
+
+@pytest.mark.parametrize("path", ["/tmp/project\u0000folder", "/tmp/project\ud800folder"])
+def test_a_marker_path_with_a_nul_or_a_lone_surrogate_is_foreign_and_adopt_still_works(tmp_path, path):
+    """A damaged marker is text a person or a sync client may have written: a path that cannot be stat'ed is a path that leads nowhere, never a raw error that blocks the way out."""
+    world = marked(tmp_path)
+    sha = project_config.load(world.project)["sha256"]
+    plant(world, other_device(world), path=path)
+    refuses(world.cfg)
+    assert "--adopt-sources" in refused(ops.accept_config, world.project, sha)
+    done = ops.accept_config(world.project, sha, adopt_sources=True)
+    assert done["sources_folder_adopted"]["from"]["id"] == other_device(world)
+    assert json.loads(world.marker.read_text())["project"] == world.key
+    passes(world.cfg)
 
 
 def test_adopt_still_takes_a_foreign_folder_and_not_a_remounted_one(tmp_path):

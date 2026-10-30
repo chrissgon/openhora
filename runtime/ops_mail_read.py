@@ -210,7 +210,7 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
         refresh_failed = not by_number and phone and ops_items._refresh_failed(project, ctx, source["id"])      # the old snapshot is read as it is; the failure was said on stderr with a closed word
         snapshot, why = _read_index(ctx, source["id"], channel, sender)
         reason = turn_gate.failed_reason(source["id"]) or (why if why in ops_items.REASON_KEYS else None)
-        if reason:
+        if reason and phone:      # the sentence is for a phone (L62: "trying again here will not help"); the terminal, the conversation and the page keep their own words
             told.setdefault(reason, []).append(name_of(source["id"]))
         if snapshot is None:
             failed.append(name_of(source["id"]))

@@ -163,26 +163,32 @@ def _rows(ctx: dict, source_id: str, version) -> list:
 
 def events(ctx: dict, sender) -> tuple:
     """(events, problem): the events of every registered calendar source whose newest snapshot can be read, as {"source", "n", "day", "time", "title", "read_at"}; `problem` says why there is
-    none: "not-readable" (the sender may not read a snapshot), "no-source", "stale" (every snapshot was refused)."""
+    none: "not-readable" (the sender may not read a snapshot), "no-source", "stale" (every snapshot was refused), "folder" (every snapshot was refused because the project's sources
+    folder is: a reason only the computer solves, which `_found` says in its own sentence and never as "no such event")."""
     if not item_refs.may_read(ctx, CHANNEL, sender):
         return [], "not-readable"
     listed = ops_natural_calendar.calendar_sources(ctx)
     if not listed:
         return [], "no-source"
     clock = ops_items.SNAPSHOT_CLOCK
-    out, refused = [], 0
+    out, refused, folder = [], 0, False
     for source in listed:
         try:
             snapshot = item_refs.read_index(ctx, source["id"], channel=CHANNEL, sender=sender, kinds=("calendar",), clock=clock)
-        except (item_refs.ItemRefError, sources.SourcesError):      # a refused folder (sources-identity) counts as a snapshot refused: the lookup says "stale", it does not lose the reply
+        except item_refs.ItemRefError:
             refused += 1
+            continue
+        except sources.SourcesError as e:      # a refused folder (sources-identity) is a refusal with a reason of its own; any other fault is raised as before
+            if ops_items.reason_of(e.code) != "folder":
+                raise
+            refused, folder = refused + 1, True
             continue
         known = {e["n"]: e for e in snapshot["entries"]}
         for n, day, fields in _rows(ctx, source["id"], snapshot["version"]):
             if n in known and "cancelled" not in fields[2:]:
                 out.append({"source": source["id"], "n": n, "day": day, "time": fields[0], "title": fields[1], "read_at": snapshot["read_at"],
                             "recurring": known[n].get("recurring") is True})          # CB-7: the index's own record that the event belongs to a series (never the text's word)
-    return (out, None) if refused < len(listed) else ([], "stale")
+    return (out, None) if refused < len(listed) else ([], "folder" if folder else "stale")
 
 
 def refresh(project: str, ctx: dict) -> None:
@@ -1102,6 +1108,9 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
     named = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
     account = named
     rows, problem = events(ctx, sender)
+    if problem == "folder":          # the sources folder is refused: a read of the provider cannot cure it and "no such event" would be false; the reason, once, with the calendars' plain names
+        table = source_names.catalog(ctx)
+        return _text(ctx, ops_items.REASON_KEYS["folder"], name=", ".join((table.get(s["id"]) or {}).get("name") or s["id"] for s in ops_natural_calendar.calendar_sources(ctx)))
     if problem in PROBLEM:
         return _text(ctx, PROBLEM[problem])          # the sender may not read a snapshot: nothing is refreshed and nothing is searched
     found, account = ([], account) if problem else _narrowed(ctx, rows, text, kind, value, now.date(), said, account)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,6 +30,7 @@ ops_items = st.load("ops_items")
 event_lookup = st.load("event_lookup")
 sources = st.load("sources")
 turn_gate = st.load("turn_gate")
+secret_state = st.load("secret_state")
 
 PROVIDER_WORDS = "Google said ZEBRA-SECRET: run uv run providers/mailbox/auth.py --provider gmail"
 
@@ -70,6 +72,25 @@ def test_an_expired_authorization_has_its_own_sentence_and_nothing_of_the_provid
     assert len(mail_reads(snaps)) == 1 and phone_problems(reply) == []
     seen = reply + " ".join(capfd.readouterr())
     assert "ZEBRA" not in seen and "auth.py" not in seen and "not-configured" not in seen
+
+
+def test_a_locked_secret_store_is_not_told_as_an_expired_authorization(world, snaps, clock, monkeypatch):
+    """The provider exits 3 (`not-configured`) for a store that is locked too: unlocking cures it, so the phone gets the plain sentence; the same failure with the store answering is the authorization."""
+    with_inbox(world, snaps)
+    snaps.later(hours=30)
+    snaps.providers.fail = tsm.Failure("not-configured", PROVIDER_WORDS)
+
+    def store(state):
+        stand_in = SimpleNamespace(probe_store=lambda name="default": {"state": state, "detail": "the secret store is locked or unavailable: unlock it"},
+                                   credentials_status=lambda environ=None: {"state": "absent"}, manager_applies=lambda names: False,
+                                   probe_manager=lambda environ=None: {"state": "na", "detail": ""})
+        monkeypatch.setattr(secret_state, "_resolver", lambda root: stand_in)
+    store("locked")
+    only(ask(world, "list my emails"), "NW_ITEMS_REFUSED_PHONE", name="Gmail")
+    ops_items._CHECKED.clear()
+    store("ok")
+    snaps.later(minutes=1)
+    only(ask(world, "list my emails"), "NW_ITEMS_REFUSED_AUTH", name="Gmail")
 
 
 def test_a_fresh_snapshot_keeps_its_list_its_note_and_says_the_authorization(world, snaps, clock):
@@ -151,4 +172,4 @@ def test_a_folder_refusal_on_a_fresh_snapshot_does_not_escape_the_calendar_looku
     found, problem = event_lookup.events(ctx, READER)
     assert problem is None and [e["title"] for e in found] == ["Dentist"], "the same world, before the folder is refused, finds the event"
     refuse_folder(world)
-    assert event_lookup.events(ctx, READER) == ([], "stale")
+    assert event_lookup.events(ctx, READER) == ([], "folder"), "a refusal with a reason of its own, not an old snapshot: the line says the reason, never that the event does not exist"

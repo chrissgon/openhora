@@ -680,6 +680,8 @@ def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation
             elif isinstance(node, ast.Call) and ast.unparse(node.func).endswith("import_module"):
                 imported.add("<dynamic>")
         assert imported <= allowed, (name, imported - allowed)
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "ops_items"}
+        assert used <= {"reason_of", "REASON_KEYS"}, (name, used)      # the family takes the closed reason and its sentence keys from ops_items and nothing of its operations (`items`, `render`, ...)
         called = {ast.unparse(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
         assert not [c for c in called if any(word in c for word in ("approve", "execute", "effect", "account_start", "run_step", "ops."))], (name, called)
     assert (st.RUNTIME / "natural_writes_mail.py").read_text(encoding="utf-8").count("open(") == 0, "a pure module opens no file"
