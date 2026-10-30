@@ -180,6 +180,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_reminders.py` | The operations over reminders (package RM-1): make one, list them, forget one, and what the messaging bridge asks of the store to send them. |
 | `runtime/ops_requests.py` | The router's run on a request: the request that waits for its route, the router skill run once on it (or once on each delivery of a request that lists several), and the pending decision that run opens (44-C3). |
 | `runtime/ops_research.py` | A question of general information answered by a web search (slice R2-F1): `research`, one run of the skill `core-research` with web access. |
+| `runtime/ops_round.py` | The dispatcher's round and the releases a mode makes: what a round reads before it decides, what a release starts, and the tick of the handlers (44-C4b). |
 | `runtime/ops_routines.py` | The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
