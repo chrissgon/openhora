@@ -47,8 +47,8 @@ shell_kit = st.load("shell_kit")
 KINDS = tuple(turn_order.kinds())
 KIT = ek.FRAME_KIT_NAMES      # the names the golden gives the claimers the kinds took over
 PAIRS = list(zip(KINDS, KINDS[1:]))
-SEEN = {("reminder-expired", "write-draft"), ("write-draft", "plan-confirm"), ("decision-card-word", "research-run"), ("research-run", "decision-card-revise")}
-DISJOINT = {("reminder-draft", "reminder-expired"), ("plan-confirm", "decision-card-word")}
+SEEN = {("reminder-expired", "write-draft"), ("write-draft", "plan-confirm"), ("decision-card-word", "research-run"), ("research-run", "decision-card-again")}
+DISJOINT = {("reminder-draft", "reminder-expired"), ("plan-confirm", "decision-card-word"), ("decision-card-again", "decision-card-revise")}
 
 
 def swapping(first, second):
@@ -154,9 +154,9 @@ def test_every_kind_is_load_bearing_disabling_it_changes_a_scenario(kind, tmp_pa
 # --- the order of adjacent kinds -----------------------------------------------------------------------------------------------------------------------
 
 
-def test_the_six_adjacent_pairs_are_the_ones_the_tests_below_say():
+def test_the_adjacent_pairs_are_the_ones_the_tests_below_say():
     assert PAIRS == [("reminder-draft", "reminder-expired"), ("reminder-expired", "write-draft"), ("write-draft", "plan-confirm"), ("plan-confirm", "decision-card-word"),
-                     ("decision-card-word", "research-run"), ("research-run", "decision-card-revise")]
+                     ("decision-card-word", "research-run"), ("research-run", "decision-card-again"), ("decision-card-again", "decision-card-revise")]
     assert SEEN | DISJOINT == set(PAIRS) and not SEEN & DISJOINT
 
 

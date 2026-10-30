@@ -16,7 +16,7 @@ does not read this line, else a truthy value that `take` receives) and `take(bri
 after it dropped its question). The envelope checks every kind made for itself (a tap is no line, an empty line, a command, a forwarded message, an e-mail that is not a reply) are the properties of
 `Turn`, which are read the same way by every kind and read once when they read the world outside the turn. Where two kinds tested different things (the raw text of the update, the first line of an
 e-mail reply), each keeps its own, named. The two checks the acts make again at act time (`Bridge.word_act` against the ledger, the decision and the last message as they are now, `Bridge.still_last`; `Bridge.plan_decide` against the
-live plan's item and hash and, for a yes, the last message again) are the bridge's and are not here. A greeting in question form ("oi, tudo bem?") is never the OK of a plan (L64H, `greeting.as_question`).
+live plan's item and hash and, for a yes, the last message again) are the bridge's and are not here. A greeting in question form ("oi, tudo bem?") is never the OK of a plan (L64H, `greeting.as_question`). ACEITE-37 added an eighth kind, `decision-card-again`, which never was a row of its own.
 
 THE LAYER. A `messaging_*` module may not import the operations layer (scripts/tests/test_layer_map.py). This module takes the bridge as an argument and reads everything else through it, so it
 imports no operations module; the order of the operations layer's own claimers is the second stage of the table, dispatched by a module of that layer (package S41-3).
@@ -40,6 +40,7 @@ import greeting
 import messaging_inbound as inbound
 import messaging_provider as provider
 import natural
+import natural_writes
 import phone_delete
 import turn_order
 
@@ -330,6 +331,20 @@ def research_run_take(bridge, turn, stopper):
     return False
 
 
+# decision-card-again: a bare word on a card that is not the last message decides nothing and the card is sent again (ACEITE-37, limit L64): after the stop of a search, which still reads a no first
+def decision_card_again_applies(bridge, turn):
+    """The word of `decision_card_word_applies`, on a line that replies to nothing, on a platform whose acts are not replies, that is no phrase about the file just sent ("pode salvar"): the word, else None."""
+    word = decision_card_word_applies(bridge, turn)
+    if word is None or turn.update.get("reply_to") or turn.email or natural_writes.file_line(turn.first_line) is not None:
+        return None
+    return word
+
+
+def decision_card_again_take(bridge, turn, word):
+    """`Bridge.word_again`, with the chat's last message as it is now (empty after a restart and while a send is on its way)."""
+    return bridge.word_again(turn.listed, turn.chat, word, bridge.last_sent.get(turn.chat))
+
+
 # decision-card-revise: a change of the card that waits, said in words (S13, limit L64)
 
 
@@ -354,6 +369,7 @@ KINDS = {
     "reminder-draft": Kind(reminder_draft_applies, reminder_draft_take), "reminder-expired": Kind(reminder_expired_applies, reminder_expired_take),
     "write-draft": Kind(write_draft_applies, write_draft_take), "plan-confirm": Kind(plan_confirm_applies, plan_confirm_take),
     "decision-card-word": Kind(decision_card_word_applies, decision_card_word_take), "research-run": Kind(research_run_applies, research_run_take),
+    "decision-card-again": Kind(decision_card_again_applies, decision_card_again_take),
     "decision-card-revise": Kind(decision_card_revise_applies, decision_card_revise_take),
 }
 

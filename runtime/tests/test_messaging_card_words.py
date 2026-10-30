@@ -131,7 +131,7 @@ def test_a_message_sent_after_the_card_ends_the_word(world):
     world.say("hello there")      # the reply to it is the last message now
     assert wait_for(lambda: world.texts()[-1] == "Noted.")
     world.say("sim")
-    assert nothing_decided(world) and wait_for(lambda: len(world.calls("say")) == 2)
+    assert nothing_decided(world) and len(world.calls("say")) == 1 and len(world.bridge.ledger.data["cards"]) == 2      # ACEITE-37: the card is sent again, the line does not go to say
 
 
 def test_a_delivered_reminder_or_any_later_card_ends_the_word(world):
@@ -139,7 +139,7 @@ def test_a_delivered_reminder_or_any_later_card_ends_the_word(world):
     world.bridge.tick()
     world.bridge.reply(SENDER, "A reminder: water the plants.")      # a reminder is delivered through `reply`
     world.say("sim")
-    assert nothing_decided(world) and went_to_say(world)
+    assert nothing_decided(world) and world.calls("say") == [] and len(world.bridge.ledger.data["cards"]) == 2      # ACEITE-37: the card is sent again
 
 
 def test_after_a_restart_the_last_message_is_forgotten_and_a_word_decides_nothing(world):
@@ -147,7 +147,7 @@ def test_after_a_restart_the_last_message_is_forgotten_and_a_word_decides_nothin
     world.bridge.tick()
     world.bridge = world.make()      # same ledger, nothing remembered
     world.say("sim")
-    assert nothing_decided(world) and went_to_say(world)
+    assert nothing_decided(world) and world.calls("say") == [] and len(world.bridge.ledger.data["cards"]) == 2      # ACEITE-37: the ledger survives a restart, the card is sent again
 
 
 def test_two_cards_send_the_numbered_list_and_decide_nothing(world):
@@ -506,6 +506,7 @@ def test_the_counters_see_an_approval_when_the_one_fact_the_guard_reads_is_plant
     assert wait_for(lambda: world.texts()[-1] == "Noted.")
     world.say("sim")
     assert nothing_decided(world)
+    del world.bridge.ledger.data["cards"][-1]      # the record of the card sent again is gone: the first card is the newest again
     world.bridge.last_sent[SENDER] = message_ids(world)[0]      # the planted wrong fact
     world.say("sim")
     assert approvals(world) == [(1, "a" * 64)]

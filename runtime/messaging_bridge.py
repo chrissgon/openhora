@@ -96,7 +96,7 @@ it is the only decision card of that sender in that chat that a word could decid
 new card otherwise). Several such cards: one numbered list is sent (kind and title, no id) and nothing is decided; for `LIST_SECONDS`, while the list is the last message, a position
 ("aprovo o 2") decides that card; "approve all" is never done (`WORD_ONE_AT_A_TIME`); "todos nao" rejects every card of the list, each through its own card. A line that is a reply
 (the reply gesture) to a decision card decides THAT card, whether or not it is the last message. A platform that declares `actions_need_reply` (e-mail) is decided only by a reply to
-the card. Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
+the card. A bare word with no reply while no such card is the last message decides nothing and the card is sent again (several: the list; the kind `decision-card-again`, `word_again`, ACEITE-37). Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
 A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language (`command_sentence`), never the operation's JSON.
 
 Words that change a card (S13, limits L63 and L64). A plain line that is not such a word is about the card that waits when that card is the LAST message sent to the chat (or the line replies to
@@ -1041,6 +1041,44 @@ class Bridge(shell_kit.Jobs):
             return False      # a position chooses from the list only
         else:
             return self.word_act(newest[0], chat, newest[1], word["op"], last=last) or False
+        return True
+
+    def question_waits(self, listed: list, chat: str) -> bool:
+        """Whether the card of a question, still open, was sent to this chat: a bare word may be its answer, and the operations layer reads it next (ACEITE-37)."""
+        with self.ledger.lock:
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat and c.get("kind") == "question" and c.get("pending_id") is not None]
+        for rec in records:
+            target = next((p for p in listed if p["id"] == rec.get("project")), None)
+            if target is None:
+                continue
+            try:
+                if self.ops.pending(target["path"], pending_id=rec["pending_id"]).get("status", "open") == "open":
+                    return True
+            except self.ops.OpsError:
+                continue
+        return False
+
+    def word_again(self, listed: list, chat: str, word: dict, last) -> bool:
+        """A card word with no reply that `word_last` did not take (the kind `decision-card-again`, ACEITE-37, limit L64). It decides nothing: one open card is sent again, with a new message id, new
+        buttons and the hash of the decision as it is now, and stays the last message, so that its button or the next word decides it; several get the numbered list. False, and the line goes on as
+        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question, and an act the one card does not offer."""
+        if word["n"] is not None:
+            return False
+        found = self.word_cards(listed, chat)
+        if not found or (last and any(str(c[1]["message_id"]) == last for c in found)):
+            return False
+        if self.plan_waits(listed, chat) or self.question_waits(listed, chat):
+            return False
+        if len(found) > 1:
+            self.send_list(chat, found)
+            return True
+        project, card, _ = found[0]
+        if word["op"] not in self.offers(card):
+            return False
+        if self.resend(project, chat, card["pending_id"], force=True):
+            self.keep_cards(chat, self.t("WORD_CARD_AGAIN", project=project), project)
+        else:
+            self.reply(chat, self.t("NAT_DECISION_NO_CARD", project=project), project)
         return True
 
     # --- the project the lines go to, said in words (S20) -----------------------------------------------------------------------
