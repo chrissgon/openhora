@@ -359,16 +359,49 @@ def test_private_words_flag_a_superset_of_surface_mutated_lines(seed):
     assert [x for x in flagged if not turn_gate.private_line(x)][:10] == []
 
 
+FULL_SHARDS = 4           # with WB_FULL_FUZZ=1 the generated-line fuzz is this many tests per seed; shard k checks the lines whose index is k modulo FULL_SHARDS (the idiom of test_natural_writes_dialogues.py)
+SHARDS = FULL_SHARDS if FULL else 1
+
+
+def shard_of(items: list, shard: int, shards: int) -> list:
+    """The part of the lines that one shard checks: those whose index equals `shard` modulo `shards`. The shards are disjoint and together make the whole list."""
+    return [item for index, item in enumerate(items) if index % shards == shard]
+
+
+@pytest.fixture
+def shard():
+    """The shard of the lines: the whole of them (shard 0 of 1) unless WB_FULL_FUZZ=1 parametrizes it below."""
+    return 0
+
+
+def sharded(test):
+    """With WB_FULL_FUZZ=1 the test runs once per shard; otherwise once, with the fixture's shard 0 of 1."""
+    return pytest.mark.parametrize("shard", range(FULL_SHARDS))(test) if FULL else test
+
+
+@sharded
 @pytest.mark.parametrize("seed", [101, 102])
-def test_private_words_flag_a_superset_of_generated_and_mutated_lines(seed):
+def test_private_words_flag_a_superset_of_generated_and_mutated_lines(seed, shard):
     """A seeded differential fuzz (generated from the tables' own phrases, and corpus lines with words dropped, added, swapped, upper-cased or with a time or a polite word added): the
-    oracle's flags are all kept. A few thousand lines, deterministic."""
+    oracle's flags are all kept. A few thousand lines, deterministic. With WB_FULL_FUZZ=1 the 160,000 lines are made in each of the four shards and each checks one in four of them (the oracle
+    is what takes the time: a test of 160,000 lines took 200 s on the CI machine, past its 120 s budget)."""
     rng = random.Random(seed)
     lines, pools, times = generated(rng, 80000 if FULL else 4000)
     lines += mutated(rng, 80000 if FULL else 4000, pools, times)
-    flagged = [x for x in lines if old_private(x)]
-    assert len(flagged) > (30000 if FULL else 1500)
+    flagged = [x for x in shard_of(lines, shard, SHARDS) if old_private(x)]
+    assert len(flagged) > (30000 if FULL else 1500) // SHARDS
     assert [x for x in flagged if not turn_gate.private_line(x)] == []
+
+
+def test_the_shards_of_the_generated_lines_are_disjoint_and_together_the_whole_list():
+    lines, pools, times = generated(random.Random(101), 300)
+    lines += mutated(random.Random(101), 300, pools, times)
+    for shards in (1, FULL_SHARDS):
+        parts = [shard_of(lines, k, shards) for k in range(shards)]
+        assert sum(len(p) for p in parts) == len(lines) and sorted(x for p in parts for x in p) == sorted(lines), "every line in exactly one shard"
+    assert FULL_SHARDS > 1 and shard_of(lines, 0, FULL_SHARDS) != shard_of(lines, 1, FULL_SHARDS)
+    broken = [shard_of(lines, k, FULL_SHARDS) for k in (0, 1, 2)]          # vacuity: a shard missing from the set loses lines, which the check above would see
+    assert sorted(x for p in broken for x in p) != sorted(lines)
 
 
 def test_a_typed_command_and_a_blank_or_odd_line_are_not_private():
