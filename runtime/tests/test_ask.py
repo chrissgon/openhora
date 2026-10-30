@@ -440,7 +440,7 @@ def test_the_row_ask_lists_the_terminal_the_conversation_the_page_and_messaging_
     assert row["channels"] == ("terminal", "chat", "page", "messaging") and "mcp" not in row["channels"]
     assert (row["model"], row["job"], row["channel_arg"], row["chat_reply"]) == (True, True, True, "reply")
     assert [a["name"] for a in row["args"]] == ["text"] and row["args"][0]["kind"] == "text"
-    assert operations.GROUPS["ask"] == {"operations": ("ask",), "kind": None}
+    assert operations.GROUPS["ask"] == {"operations": ("ask", "mail-ask"), "kind": None}      # MAIL-SUMMARY: the question about one e-mail rides the group, paired with `ask-mail` on a messaging app (test_mail_ask.py)
     assert "ask" in operations.GROUP_TEXT and "ask" not in operations.DEFAULT_POLICY["messaging"]
     assert "the platform's servers" in operations.GROUP_TEXT["ask"]
     assert "ask" not in operations.GRANTS["messaging"] and "ask" not in operations.GRANTS["mcp"]      # not a grant: the row lists messaging, so it is inside the ceiling
