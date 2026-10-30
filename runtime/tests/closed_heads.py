@@ -31,7 +31,7 @@ def _read_closed(text, tables, now, shaped):
         got = module.read(text, tables, now)
         if got:
             return nw._finish(got, name, shaped, tables, None)
-    named = natural.candidate(text, tables)
+    named = old_claim.candidate(text, tables)
     if named and named["op"] == "calendar-event-create" and named["how"] == "trigger" and "calendar" in nw.FAMILIES:
         got = nw.family_module("calendar").read(text, tables, now, op="event-create")
         return nw._finish(got, "calendar", shaped, tables, None)
@@ -60,7 +60,7 @@ def make(real):
 
 def old_private(line, languages=None):
     """What `natural.private` was (the S41-9 oracle of the private-line detector, deleted with the claim): a reminder asked in words, or a write the closed heads of the families take."""
-    found = natural.candidate(line, languages)
+    found = old_claim.candidate(line, languages)
     if found is not None and found["op"] in natural.PRIVATE:
         return True
     _, candidate = make(nw.read)
