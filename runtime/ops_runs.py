@@ -13,9 +13,10 @@ usage a run reports (`_count`, `_skill_loaded`, `_reported_usage`), the runtime'
 the spend limit and the day's caps (`_budget`, `_agents_of_the_day`, `_midnight_utc`, `PER_RUN_USD`), `code_task` and the push of the
 documents a run returned; the record of the tasks a round held (`HELD_CURSOR`, `HELD_KEPT`, `_now_iso`, `_record_held`; 44-C2); the use of a skill
 that a run records with scripts/evidence.py (`USE_ID`, `RECORDER_TIMEOUT`, `_recorder`, `_record`, `_use_start`; 44-C3); runtime/ops.py
-re-exports them for the shells and the tests. The helpers of a run that stay in
-runtime/ops.py (`_prepare_run`, `_run_start`, `_run_body`, `_snapshot`, ...) are reached at call time through `_ops()`, never
-imported at module level (44-C4 moves them).
+re-exports them for the shells and the tests. The start and the body of a run (`_prepare_run`, `_run_start`, `_run_body`,
+`PREPARE_ERRORS`) live in runtime/ops_task_run.py (44-C4a) and are read as `ops_task_run.<name>` through `_task_run_module()`; the
+helpers of the round that stay in runtime/ops.py (`_snapshot`, ...) are reached at call time through `_ops()` until 44-C4b. Neither
+is imported at module level.
 
 Every task run is its own OS process: `run-task --project <dir> --task <id>` (runtime/cli.py). The lab's session ends
 every container of its process and `_key_in_environment` writes the environment, so two runs in one process would
@@ -79,8 +80,13 @@ PER_RUN_USD = 0.5          # what a floor run of unknown cost counts at, when ru
 
 
 def _ops():
-    """runtime/ops.py, found at call time: the helpers of a run and of the round stay there."""
+    """runtime/ops.py, found at call time: the helpers of the round stay there until 44-C4b."""
     return importlib.import_module("ops")
+
+
+def _task_run_module():
+    """runtime/ops_task_run.py, found at call time: it imports this file at its top (the pieces of a run), so this file cannot import it back (44-C4a)."""
+    return importlib.import_module("ops_task_run")
 
 
 def _same(a: str, b: str) -> bool:
@@ -416,7 +422,7 @@ def run_task(project: str, task_id: int, requested=None, checked: bool = True) -
         started = _start(ctx, task_id, requested, checked)
         if started.get("ran", True) is None:
             return {**started, "recovered": recovered["tasks"], "pending": len(core._stored(ctx, ctx["store"].pending_list))}
-        out = {**_ops()._run_body(ctx, started), "recovered": recovered["tasks"]}
+        out = {**_task_run_module()._run_body(ctx, started), "recovered": recovered["tasks"]}
         if documents.enabled(cfg):
             with core._write_lock(cfg, wait=None):
                 out["documents"] = _push_after_run(ctx, out)
@@ -433,9 +439,9 @@ def _is_step(ctx: dict, task_id: int) -> bool:
 
 def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
     """Admit, claim and open the run row of one task, under the claim lock. The slow work (the task, its skill, the secret
-    store, the routing) is done before the lock. Returns the run's start (what ops._run_body takes), or a refusal
+    store, the routing) is done before the lock. Returns the run's start (what ops_task_run._run_body takes), or a refusal
     {"ran": None, "reason", "held"}."""
-    ops, cfg, store = _ops(), ctx["cfg"], ctx["store"]
+    task_run, cfg, store = _task_run_module(), ctx["cfg"], ctx["store"]
     try:
         task = store.task_get(ctx["conn"], task_id)
     except store.StoreError:
@@ -444,8 +450,8 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
     prepared, failure = None, None
     if task is not None and task["parent_id"] is not None and task.get("skill") and task["state"] == "ready":
         try:
-            prepared = ops._prepare_run(ctx, task, requested, keys)
-        except ops.PREPARE_ERRORS as e:
+            prepared = task_run._prepare_run(ctx, task, requested, keys)
+        except task_run.PREPARE_ERRORS as e:
             failure = e
     with core._claim_lock(cfg):
         if task is not None and task.get("skill") and documents.enabled(cfg):
@@ -478,8 +484,8 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
         started = None
         if failure is None:
             try:
-                started = ops._run_start(ctx, claim, prepared)
-            except ops.PREPARE_ERRORS as e:
+                started = task_run._run_start(ctx, claim, prepared)
+            except task_run.PREPARE_ERRORS as e:
                 failure = e
         if failure is not None:
             core._stored(ctx, store.task_fail_orphans, [claim["id"]], [], _note(f"the run could not start: {failure}"))

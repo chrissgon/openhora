@@ -15,6 +15,7 @@ import standin_tree as st
 
 changeset = st.load("changeset")
 ops = st.load("ops")
+ops_task_run = st.load("ops_task_run")
 
 
 def test_a_missing_run_folder_is_an_error_not_a_skip(tmp_path):
@@ -29,11 +30,11 @@ def test_a_missing_run_folder_is_an_error_not_a_skip(tmp_path):
 def test_the_next_code_task_of_a_request_is_refused_when_an_earlier_run_folder_is_gone(tmp_path, monkeypatch):
     def clean(project, *args):
         return subprocess.CompletedProcess([], 0, stdout="" if args[0] == "status" else "abc123\n", stderr="")
-    monkeypatch.setattr(ops, "_git", clean)
-    monkeypatch.setattr(ops, "_request_run_dirs", lambda ctx, request_id: [str(tmp_path / "gone")])
+    monkeypatch.setattr(ops_task_run, "_git", clean)
+    monkeypatch.setattr(ops_task_run, "_request_run_dirs", lambda ctx, request_id: [str(tmp_path / "gone")])
     got = ops._code_state({"cfg": {"project": str(tmp_path)}}, {"parent_id": 7})
     assert "refused" in got and "the request's change set" in got["refused"] and "is gone" in got["refused"]
-    monkeypatch.setattr(ops, "_request_run_dirs", lambda ctx, request_id: [])
+    monkeypatch.setattr(ops_task_run, "_request_run_dirs", lambda ctx, request_id: [])
     assert ops._code_state({"cfg": {"project": str(tmp_path)}}, {"parent_id": 7}) == {"project_commit": "abc123", "current": None}
 
 

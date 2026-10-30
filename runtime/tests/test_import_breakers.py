@@ -67,14 +67,17 @@ RUNTIME = REPO / "runtime"
 # the same call, now `importlib.import_module("ops_requests")`: ops_requests imports ops_say for the person's line and the question of a reply that names no route, so ops_say cannot
 # import it at the top): -1 edge and call, +1 edge and call. The file's own AST count on the head: 58 lazy calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher
 # (the entry), ops_facade (the seam) and ops_runs (the run body and the round, 44-C4).
+# 44-C4a (the start and the body of a run, and the gate, moved to ops_task_run): one cycle edge is new (ops_runs -> ops_task_run, the one call in `_task_run_module()`: ops_task_run imports
+# ops_runs for the pieces of a run, so ops_runs cannot import it back); the edge ops_runs -> ops stays, for the round that 44-C4b moves: +1 call, +1 edge. The file's own AST count on the
+# head: 59 lazy calls, 48 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 58
-LAZY_EDGES_BUDGET = 47
+LAZY_CALLS_BUDGET = 59
+LAZY_EDGES_BUDGET = 48
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
-CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the run body "
-             "and the round that ops_runs reads move in 44-C4 (OPEN-C2)")
+CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the round "
+             "that ops_runs reads moves in 44-C4b (OPEN-C2)")
 CYCLE_FACADE = ("cycle: the one seam through which a sibling calls an operation of the table, or a public entry of the facade, by name at call time "
                 "(OPEN-S8 keeps the facade); a private helper never goes through it (test_ops_facade)")
 CYCLE_ENTRY = ("cycle: dispatcher.bootstrap loads by path the operations layer of the checkout a project's configuration names and returns the module "
@@ -109,7 +112,7 @@ ROWS = (
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural_writes", CYCLE, "event_lookup"),
-    ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps"),
+    ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps ops_task_run"),
     ("ops_runs", CYCLE_OPS, "ops"),
     ("ops_say", CYCLE, "ops_ask ops_requests ops_turn"),
     ("ops_step_seams", CYCLE, "ops_file_read"),
