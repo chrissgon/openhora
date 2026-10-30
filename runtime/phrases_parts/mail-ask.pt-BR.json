@@ -26,6 +26,7 @@
   "MA_NUMBER_CHECK": "Confira: {values} não aparece no e-mail.",
   "MA_PICK": "Diga “resuma o {n} do {box}”, com o número e a caixa do que você quer.",
   "MA_WHICH_SAY_TWO": "Diga “resuma o {n} do {first_box}” ou “do {second_box}”.",
-  "MA_WHICH_SAY_ONE": "Diga “resuma o {n} do {box}” para ler o que está no {box}."
+  "MA_WHICH_SAY_ONE": "Diga “resuma o {n} do {box}” para ler o que está no {box}.",
+  "MA_CHANGED": "Os e-mails foram lidos de novo depois da sua pergunta, então não li nada. Pergunte de novo."
  }
 }

@@ -14,17 +14,22 @@ The question is the person's whole line, so a summary ("summarize this e-mail"),
 
 The order of one question, each step before the next:
 
-  1. "Shall I go ahead?" (runtime/ops_natural.py `run`, plan_confirm.ALWAYS: a read with a cost, whose privacy is off-host, always asks, and `confirm-reads-off` does not remove it). No provider is called
-     before it. The sentence is code's: the person's own span and the cap of the run, no word of the message.
-  2. The policy: a messaging sender needs the groups `ask` AND `ask-mail` (operations.PAIRED); nothing new is granted, both are in his profile already. The page follows the table; the terminal is never narrowed.
+  1. The policy, first (runtime/ops_natural.py `run`): a messaging sender needs the groups `ask` AND `ask-mail` together (operations.PAIRED); a sender who does not gets the plain refusal and no plan. Nothing new
+     is granted: a policy that already holds both groups needs no change, and any other project's policy is the person's to widen with `accept-config --widen`. The page follows the table; the terminal is
+     never narrowed.
+  2. "Shall I go ahead?" (the same `run`, plan_confirm.ALWAYS: a read with a cost, whose privacy is off-host, always asks, and `confirm-reads-off` does not remove it). No provider is called before it. The
+     sentence is code's: the person's own span and the cap of the run, no word of the message. The plan carries `pin` ({box: snapshot version}, read from the store): a yes reads a message of that
+     snapshot or nothing (MA_CHANGED), so the number the person was asked about is the message that is read.
   3. The reader: `ops_file_ask._skill()`, as for a file: the answer skill, with no side effect, that has passed its first full test on the reference model, else MA_NOT_BUILT or MA_NOT_PROVEN.
   4. The naming and the text: `ops_mail_read._run(..., whole=True)`, the snapshot's own cleaned body of that one message (the credential scan, the links replaced and the cut at 4,000 characters were done
      when the snapshot was made), the whole of it and not the phone's 1,500. This module scans it once more (limit L14) and hands nothing to the reader on a hit: MA_WITHHELD.
   5. The bounds and the run: `ops_file_ask.contained`, the same code as a question about a file with this operation's phrase keys: ONE temporary source (the data line, the header lines and the text), never
-     registered, handed to one contained run of the answer skill with the web off; the prompt is the question and `ops_ask.ASK_TASK_TEXT` byte for byte. The day's count is kept apart from `file-ask`'s by the
-     request word MA_REQUEST_TEXT. The configuration's key `file_ask` bounds it (USD 0.25, 180 s, 20 a day by default).
-  6. The reply: `ask_reply.check` with the message's line as its footer (MA_READ: who, subject, when and box, never an id or a version). While the reply passes code's checks, any run of digits in its prose that
-     the message does not hold is named after it (MA_NUMBER_CHECK, `ask_reply.absent_numbers`): a warning, never a block.
+     registered, handed to one contained run of the answer skill with the web off; the prompt is the question and `ops_ask.ASK_TASK_TEXT` byte for byte. The question is the person's line, except that a
+     list line pasted into it is taken out (a subject is a stranger's words, and the question sits right above the task text). The day's count is kept apart from `file-ask`'s by the request word
+     MA_REQUEST_TEXT. The configuration's key `file_ask` bounds it (USD 0.25, 180 s, 20 a day by default).
+  6. The reply: `ask_reply.check` with the message's line as its footer (MA_READ: who, subject, when and box, never an id or a version); a quote is checked against the message's own words (its sender, its
+     subject and its text), not against the platform's data line. While the reply passes code's checks, any run of digits in its prose that the message's own words do not hold is named after it
+     (MA_NUMBER_CHECK, `ask_reply.absent_numbers`): a warning, never a block, counted in the room of the reply.
   7. What is left of the run: nothing but the counts (`ops_file_ask.purge`; `sweep` covers a crash).
 
 The run is not tool-less: the model has tools inside the container, with the web off and only the provider reachable; it sees one file, the skill declares no side effect, and nothing it writes comes back but its
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -54,6 +60,7 @@ import ops_core as core  # noqa: E402
 import ops_file_ask as reader  # noqa: E402
 import ops_mail_read as named  # noqa: E402
 import ops_natural  # noqa: E402
+import ops_natural_mail  # noqa: E402
 import phrases  # noqa: E402
 import snapshot_text  # noqa: E402
 import sources  # noqa: E402
@@ -89,14 +96,59 @@ def _still_may(project: str, channel, sender) -> bool:
     return operations.permitted(OP, where, cfg["channels"])
 
 
-def _after(cfg: dict, body: str, text: str) -> str:
-    """The note that follows a reply that passed code's checks: the runs of digits of the reply's prose that the message does not hold (a warning; a calculation of the model's own is not blocked)."""
-    missing = ask_reply.absent_numbers(body, text)
+def _own_words(got: dict) -> str:
+    """The message's own words: its sender, its subject and its text. Not the platform's data line and not the time it was read: a quote is checked against these, and a number is looked for in them."""
+    return "From: " + got["who"] + "\nSubject: " + got["subject"] + "\n\n" + got["text"]
+
+
+def _verify(text: str, got: dict) -> str:
+    return _own_words(got)
+
+
+def _after(cfg: dict, body: str, got: dict) -> str:
+    """The note that follows a reply that passed code's checks: the runs of digits of the reply's prose that the message's own words do not hold (a warning; a calculation of the model's own is not blocked)."""
+    missing = ask_reply.absent_numbers(body, _own_words(got))
     return "\n\n" + phrases.text("MA_NUMBER_CHECK", cfg, values=", ".join(missing[:NUMBER_WARNINGS_MAX])) if missing else ""
 
 
 KIT = {"request": "MA_REQUEST_TEXT", "failed": "MA_FAILED", "timeout": "MA_TIMEOUT", "cap": "MA_CAP", "day": "MA_DAY_LIMIT", "day_one": "MA_DAY_LIMIT_ONE", "not_found": "MA_NOT_FOUND", "source": SOURCE_ID,
-       "label": _label, "still_may": _still_may, "after": _after, "op": OP}
+       "label": _label, "still_may": _still_may, "after": _after, "verify": _verify, "op": OP}
+
+
+def pin(ctx: dict, args: dict, said, channel, sender) -> dict:
+    """The newest snapshot version of each mail box the call could name, read from the store with no provider call: {source id: version}. `ops_natural.run` puts it in the arguments of the plan, so
+    that the plan's hash binds it, and `_ask` refuses to read a message of a snapshot that is not the one the plan was drawn on: a number means the message it meant when the person was asked."""
+    try:
+        spec = named._check(args)
+        account, unreadable = named._account_of(said, args)
+        if unreadable:
+            return {}
+        boxes = [b for b in ops_natural_mail._mail_sources(ctx) if (account is None or b["account"] == account) and (spec["ref"] is None or b["id"] == spec["ref"][0])]
+        versions = {}
+        for box in boxes:
+            snapshot, _why = named._read_index(ctx, box["id"], channel, sender)
+            if snapshot is not None:
+                versions[box["id"]] = snapshot["version"]
+        return versions
+    except core.OpsError:
+        return {}
+
+
+def _question(said: str, args: dict, cfg: dict) -> str:
+    """The question the reader gets. The person's whole line, except that a line pasted from a list takes its span out: a subject is a stranger's words, and the question sits right above "answer the
+    question above". Nothing is left of it, or the span cannot be found in the line as it is written: the summary's own question."""
+    summary = phrases.text("MA_SUMMARY_QUESTION", cfg)
+    if args.get("summary"):
+        return summary
+    span, question = args.get("match"), said.strip()
+    if isinstance(span, str) and span.strip() and named._list_line(span) is not None:
+        pattern = r"\s+".join(re.escape(word) for word in span.split())
+        if re.search(pattern, question) is None:
+            return summary
+        question = " ".join(re.sub(pattern, " ", question).split())
+        if not any(c.isalnum() for c in question):
+            return summary
+    return question
 
 
 def _copy_text(got: dict, when: str) -> str:
@@ -104,8 +156,9 @@ def _copy_text(got: dict, when: str) -> str:
     return DATA_LINE.format(when=when) + "\n\nFrom: " + got["who"] + "\nSubject: " + got["subject"] + "\nReceived: " + got["when"] + "\n\n" + got["text"]
 
 
-def _ask(project: str, ctx: dict, args: dict, said, question: str, channel, sender) -> dict:
-    """Steps 3 to 6 for a message named in `args` (the keys `message`, `number`, `match`, `day`, `account`) and a question already checked."""
+def _ask(project: str, ctx: dict, args: dict, said, question: str, channel, sender, pinned=None) -> dict:
+    """Steps 3 to 6 for a message named in `args` (the keys `message`, `number`, `match`, `day`, `account`) and a question already checked. `pinned` ({source id: version}, from `pin`): the snapshot the
+    plan was drawn on; a message of another version is not read."""
     cfg = ctx["cfg"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     skill, why = reader._skill()
@@ -114,6 +167,8 @@ def _ask(project: str, ctx: dict, args: dict, said, question: str, channel, send
     outcome = named._run(project, ctx, {k: args.get(k) for k in ("message", "number", "match", "day", "account")}, said, channel, sender, whole=True)
     if outcome["status"] != "text":
         return reader._out(named.render(outcome, cfg, project, ctx, channel, PICK), outcome["status"])
+    if pinned is not None and pinned.get(outcome["source"]) != outcome.get("version"):
+        return reader._out(t("MA_CHANGED"), "changed")      # the mailbox was read again after the person was asked: the number may name another message, so nothing is read
     if not outcome["text"]:
         return reader._out(t("MA_NO_TEXT"), "no-text")
     if sources._workcopy().scan(outcome["text"].encode("utf-8")):      # limit L14: the snapshot left such a message out; this is the second guard
@@ -156,9 +211,9 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     extras["stored"] = phrases.text("MA_STORED", cfg)
     if len(said) > ask_select.ASK_TEXT_MAX:
         return phrases.text("IX_ASK_AGAIN", cfg)
-    question = phrases.text("MA_SUMMARY_QUESTION", cfg) if args.get("summary") else said.strip()
+    pinned = args.get("pin") if isinstance(args.get("pin"), dict) else None
     try:
-        return _ask(project, ctx, args, said, question, channel, sender)["reply"]
+        return _ask(project, ctx, args, said, _question(said, args, cfg), channel, sender, pinned)["reply"]
     except core.RunBusy:
         return phrases.text("MA_BUSY", cfg)
     except core.OpsError as e:

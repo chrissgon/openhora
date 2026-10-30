@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -173,7 +174,7 @@ def _show(ctx: dict, picked: dict, phone: bool, whole: bool = False) -> dict:
     text, cut = _body(parsed, picked["n"], phone, whole)
     if text is None:      # the newest version is not the one the number came from, or its text does not hash to the store's record: nothing is shown
         return {"status": "unavailable"}
-    return {"status": "text", **_summary(picked), "version": picked["version"], "text": text, "cut": cut}
+    return {"status": "text", **_summary(picked), **({"version": picked["version"]} if whole else {}), "text": text, "cut": cut}      # `version` only for `mail-ask`: `mail-read` returns what it always returned
 
 
 def _read_index(ctx: dict, source_id: str, channel, sender):
@@ -188,14 +189,33 @@ def _read_index(ctx: dict, source_id: str, channel, sender):
         return None, ops_items.reason_of(e.code) or "integrity"
 
 
+LIST_NUMBER = re.compile(r"\s*[0-9]{1,4}\.\s+")      # the "3. " a list prints before a line
+TIME_SHAPED = re.compile(r"(?:\S+\s+){0,2}[0-9]{1,2}:[0-9]{2}")      # what `mailtext.when_text` prints: "today 06:00", "Wed 14/10 09:00"
+
+
 def _list_line(span: str):
-    """(who, subject) as word tuples when `span` is a line of a list this platform printed (`ops_items._phone_mail`: who · subject · when), else None. The form is code's own; the when is left out (it reads differently after midnight)."""
-    parts = [part.strip() for part in span.split(" · ")]
+    """The (who, subject) candidates, as word tuples, when `span` is a line of a list this platform printed, else None. The forms are code's own (`ops_items.render` and `_phone_mail`: "3. " and a mark
+    for an unread message before "who · subject · when"; `mail-read`'s own list adds the box before the who). The last part is left out only when it has the shape of a time (the when reads differently after
+    midnight, and a subject that merely holds a digit is not one); a subject may hold " · " itself. Two candidates when the first part could be a box name; a subject of () matches any subject."""
+    text = span.strip()
+    found = LIST_NUMBER.match(text)
+    if found:
+        text = text[found.end():]
+    for mark in phrases.every("NW_ITEMS_UNREAD_MARK"):
+        if text.startswith(mark):
+            text = text[len(mark):].lstrip()
+    parts = [part.strip() for part in text.split(" \u00b7 ")]
     if len(parts) < 2 or not all(parts):
         return None
-    if len(parts) >= 3 or any(c.isdigit() for c in parts[-1]):
-        parts = parts[:2] if len(parts) >= 3 else parts[:1] + [""]
-    return tuple(nwm._words_of(parts[0])), tuple(nwm._words_of(parts[1]))
+    if TIME_SHAPED.fullmatch(parts[-1]):
+        parts = parts[:-1]
+    words = lambda piece: tuple(nwm._words_of(piece))  # noqa: E731
+    if len(parts) == 1:
+        return [(words(parts[0]), ())]
+    found_as = [(words(parts[0]), words(" \u00b7 ".join(parts[1:])))]
+    if len(parts) >= 3:
+        found_as.append((words(parts[1]), words(" \u00b7 ".join(parts[2:]))))
+    return found_as
 
 
 def _read_matches(entries: list, words: list, parsed: dict) -> list:
@@ -252,7 +272,7 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
             parsed = _blocks(ctx, source["id"], snapshot["version"])
             if listed:
                 seen = [(e, _line(parsed.get(e["n"], {}), e, cfg)) for e in entries]
-                entries = [e for e, row in seen if tuple(nwm._words_of(row["who"])) == listed[0] and (not listed[1] or tuple(nwm._words_of(row["subject"])) == listed[1])]
+                entries = [e for e, row in seen if any(tuple(nwm._words_of(row["who"])) == who and (not subject or tuple(nwm._words_of(row["subject"])) == subject) for who, subject in listed)]
             if words:
                 entries = _read_matches(entries, words, parsed)
             if spec["day"] and entries:

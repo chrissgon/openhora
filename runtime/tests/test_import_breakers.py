@@ -75,9 +75,10 @@ RUNTIME = REPO / "runtime"
 # -1 call and edge, +1 call and edge. The file's own AST count on the head: 59 lazy calls, 48 edges, 0 debt. What reaches `ops` at call time is now the dispatcher (the entry) and ops_facade
 # (the seam) only.
 # MAIL-SUMMARY (`mail-ask`): one cycle edge is new (ops_natural -> ops_mail_ask, the one call in `run`, as its siblings ops_file_ask and ops_mail_read: ops_mail_ask imports ops_natural
-# for `_error` and ops_mail_read, which imports ops_natural, so ops_natural cannot import it at the top): +1 call, +1 edge. The file's own AST count on the head: 60 lazy calls, 49 edges, 0 debt.
+# for `_error` and ops_mail_read, which imports ops_natural, so ops_natural cannot import it at the top): +1 call, +1 edge; and a second call in the same function, `pin`, which binds the plan to
+# the snapshot versions it was drawn on (the same edge): +1 call. The file's own AST count on the head: 61 lazy calls, 49 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 60
+LAZY_CALLS_BUDGET = 61
 LAZY_EDGES_BUDGET = 49
 PLAIN_DEBT_BUDGET = 0
 

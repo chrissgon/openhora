@@ -217,13 +217,25 @@ def _trim(text: str, room: int, mark: str) -> str:
     return (head.rstrip() + " " + mark).strip()
 
 
-DIGITS = re.compile(r"[0-9]+")
+def _digit_runs(text: str) -> list:
+    """The runs of decimal digits of any script in `text` (ASCII, Arabic-Indic, full-width ...), each with its value as a string of ASCII digits (leading zeros ignored)."""
+    runs, current = [], ""
+    for char in text:
+        if char.isdecimal():
+            current += char
+        elif current:
+            runs.append(current)
+            current = ""
+    if current:
+        runs.append(current)
+    return [(run, "".join(str(unicodedata.decimal(c)) for c in run).lstrip("0") or "0") for run in runs]      # no int(): a run of thousands of digits is no error
 
 
 def absent_numbers(response: str, source: str) -> list:
-    """The runs of digits of a reply's prose that the source does not hold (leading zeros ignored), in order, none twice. Quote lines are not read: code checked them. Pure."""
-    have = {run.lstrip("0") or "0" for run in DIGITS.findall(source)}
-    return list(dict.fromkeys(run for line in parse(response)["prose"] for run in DIGITS.findall(line) if (run.lstrip("0") or "0") not in have))
+    """The runs of digits (any script) of a reply's prose that the source does not hold (leading zeros ignored, a full-width or Arabic-Indic digit is the digit it is), in order, none twice, as the prose
+    writes them. Quote lines are not read: code checked them. Pure."""
+    have = {value for _run, value in _digit_runs(source)}
+    return list(dict.fromkeys(run for line in parse(response)["prose"] for run, value in _digit_runs(line) if value not in have))
 
 
 def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None, read_label=None, max_chars=None, not_found="FA_NOT_FOUND") -> dict:

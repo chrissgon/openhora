@@ -26,6 +26,7 @@
   "MA_NUMBER_CHECK": "Check this: {values} is not in the e-mail.",
   "MA_PICK": "Say “summarize {n} from {box}”, with the number and the box of the one you want.",
   "MA_WHICH_SAY_TWO": "Say “summarize {n} from {first_box}” or “from {second_box}”.",
-  "MA_WHICH_SAY_ONE": "Say “summarize {n} from {box}” to read the one in {box}."
+  "MA_WHICH_SAY_ONE": "Say “summarize {n} from {box}” to read the one in {box}.",
+  "MA_CHANGED": "The mailbox was read again after you asked, so I did not read anything. Ask again."
  }
 }

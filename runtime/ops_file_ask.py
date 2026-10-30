@@ -436,8 +436,10 @@ def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, 
         failure = result["failure"]
         return fail(failure["kind"], _failure_word(result, limits["max_cost_usd"], kit), counts, result["image_digest"], result.get("reported"))
     body, _masked = workcopy.masked_reply(result["response"])
-    checked = ask_reply.check(body, [{"source": kit["source"], "version": got["version"] or "current"}], {kit["source"]: text}, routing["autonomy"] == "proven", skill, routing["model"], cfg,
-                              read_label=kit["label"](cfg, got), max_chars=_room(channel, notes), not_found=kit["not_found"])      # what is over is taken from the model's prose, never from the quotes code checked
+    after = kit["after"](cfg, body, got) if kit.get("after") and ask_reply.parse(body)["answer"] in ("found", "partial") else ""      # a note that follows the checked reply (mail-ask: a number the e-mail does not hold), counted in the room
+    copy = kit["verify"](text, got) if kit.get("verify") else text      # what a quote is checked against: the platform's own data line is not the source's words (mail-ask)
+    checked = ask_reply.check(body, [{"source": kit["source"], "version": got["version"] or "current"}], {kit["source"]: copy}, routing["autonomy"] == "proven", skill, routing["model"], cfg,
+                              read_label=kit["label"](cfg, got), max_chars=_room(channel, notes + after), not_found=kit["not_found"])      # what is over is taken from the model's prose, never from the quotes code checked
     shown, _masked = workcopy.masked_reply(checked["text"])
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
     every = ops_runs._reported_usage(lab.reported_usage(dest), routing)
@@ -448,7 +450,6 @@ def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, 
         return cancelled
     if not kit["still_may"](project, channel, sender):
         return _out(t("WITHHELD"), "withheld", ran=True, **base)      # the run is recorded: it was made and spent
-    after = kit["after"](cfg, body, text) if kit.get("after") and checked["outcome"] in ("found", "partial") else ""      # a note that follows the checked reply (mail-ask: a number the e-mail does not hold)
     return _out(shown + notes + after, "answer", ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 
 
