@@ -410,6 +410,35 @@ def test_a_failing_provider_gives_one_plain_sentence_in_portuguese_with_nothing_
     assert mail_refresh._lock_of(key).acquire(blocking=False), "the lock of the source is released after a failure"
 
 
+def test_an_expired_authorization_is_told_by_its_own_sentence_also_in_the_cooling_time(world, monkeypatch, capsys):
+    wall = Wall(monkeypatch)
+    stale(world)
+    world["readers"].fail = tsm.Failure("not-configured", f"{PLANTED}: run uv run providers/mailbox/auth.py")
+    out = resolve(world)
+    assert said(out) == "NW_ITEMS_REFUSED_AUTH" and len(reads(world)) == 1
+    assert out["say"]["fields"] == {"name": "Gmail"} and PLANTED not in json.dumps(out), "the plain name of the box, and nothing of the provider"
+    wall.now += 100
+    assert said(resolve(world)) == "NW_ITEMS_REFUSED_AUTH" and len(reads(world)) == 1, "within 120 s: no further read, and the same reason"
+    err = capsys.readouterr().err
+    assert PLANTED not in err and err.splitlines() == ["mail: refresh of inbox failed (mail)"]
+
+
+def test_any_other_provider_failure_keeps_the_plain_refresh_sentence(world, monkeypatch):
+    wall = Wall(monkeypatch)
+    stale(world)
+    world["readers"].fail = tsm.Failure("failed", PLANTED)
+    assert said(resolve(world)) == "NW_MAIL_REFRESH_FAILED" and len(reads(world)) == 1
+    wall.now += 100
+    assert said(resolve(world)) == "NW_MAIL_REFRESH_FAILED", "cooling, and still not an authorization"
+    wall.now += 21      # past the cooldown the source is read again and the reason of that try is the one that counts
+    world["readers"].fail = tsm.Failure("not-configured", "x")
+    assert said(resolve(world)) == "NW_ITEMS_REFUSED_AUTH" and len(reads(world)) == 2
+    wall.now += 10
+    assert mail_refresh.last_reason(ops_core.context(world["path"]), "inbox") == "authorization"
+    wall.now += 200
+    assert mail_refresh.last_reason(ops_core.context(world["path"]), "inbox") is None, "a word is said only while its failure is the current one"
+
+
 def test_an_unknown_fault_is_printed_as_the_word_error_and_never_as_its_text(world, capsys, monkeypatch):
     def boom(project, source_id, file, timeout):
         raise RuntimeError(f"{PLANTED} in /etc/passwd")

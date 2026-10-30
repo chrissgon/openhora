@@ -69,6 +69,7 @@ class SourcesRefused(Exception):
 def _refused(error: "sources.SourcesError") -> "core.OpsError":
     refused = core.OpsError(str(error), CODES.get(error.code, 1))
     refused.why = error.code      # the word of the refusal, for the caller that sorts a file's fault from a problem of this machine (ops_attachments)
+    refused.provider_kind = getattr(error, "provider_kind", None)   # a provider's closed word (sources_mail.provider_call), for the phone's sentence about an authorization
     return refused
 
 

@@ -232,7 +232,7 @@ def test_a_failed_refresh_lists_the_old_snapshot_with_one_note_and_no_provider_t
     with_inbox(world, snaps)
     add_message(snaps)
     snaps.later(minutes=11)
-    snaps.providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
+    snaps.providers.fail = tsm.Failure("failed", "the provider said ZEBRA-SECRET")
     reply = ask(world, "list my emails")
     assert len(mail_reads(snaps)) == 1
     assert is_note(reply.splitlines()[-1]) and sum(is_note(line) for line in reply.splitlines()) == 1
@@ -244,7 +244,7 @@ def test_the_note_is_in_portuguese_for_a_portuguese_project(world, snaps, clock)
     with_inbox(world, snaps)
     project(world, "pt-BR")
     snaps.later(minutes=11)
-    snaps.providers.fail = tsm.Failure()
+    snaps.providers.fail = tsm.Failure("failed", "exit 1")
     assert is_note(ask(world, "lista os emails").splitlines()[-1], PT)
 
 

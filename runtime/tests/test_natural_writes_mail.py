@@ -668,7 +668,7 @@ def test_the_mcp_mode_reads_no_snapshot_for_a_line_and_a_page_or_terminal_caller
 def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation_of_the_layer():
     import ast
     allowed = {"__future__", "bisect", "datetime", "os", "re", "sys", "unicodedata", "zoneinfo", "mail_address", "natural_time", "item_refs", "mail_refs", "natural_writes_mail", "ops_core", "phrases", "project_config",
-               "sources", "sources_mail", "natural", "mail_compose", "mail_refresh", "mail_reply_compose", "turn_gate"}      # mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing; turn_gate (S41-6) opens the line's refresh budget in `resolve` and holds no provider; mail_refresh (BL5E) reads a stale snapshot again through the source operations, once for a line; mail_reply_compose (BL7-2) decides when a reply's body is a description and words it through mail_compose.write, with no recipient and no subject; it opens no card and executes nothing
+               "sources", "sources_mail", "natural", "mail_compose", "mail_refresh", "mail_reply_compose", "turn_gate", "ops_items", "source_names"}      # ops_items and source_names (sources-identity) give the closed reason of a refusal and the plain name of a box for its sentence: words in, a sentence out, no card and no provider; mail_compose (slice S7) words a new e-mail through the daily route; it opens no card and executes nothing; turn_gate (S41-6) opens the line's refresh budget in `resolve` and holds no provider; mail_refresh (BL5E) reads a stale snapshot again through the source operations, once for a line; mail_reply_compose (BL7-2) decides when a reply's body is a description and words it through mail_compose.write, with no recipient and no subject; it opens no card and executes nothing
     for name in ("natural_writes_mail.py", "ops_natural_mail.py"):
         tree = ast.parse((st.RUNTIME / name).read_text(encoding="utf-8"))
         imported = set()
@@ -680,6 +680,8 @@ def test_the_family_reaches_no_effect_no_writer_and_no_approval_and_no_operation
             elif isinstance(node, ast.Call) and ast.unparse(node.func).endswith("import_module"):
                 imported.add("<dynamic>")
         assert imported <= allowed, (name, imported - allowed)
+        used = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "ops_items"}
+        assert used <= {"reason_of", "REASON_KEYS"}, (name, used)      # the family takes the closed reason and its sentence keys from ops_items and nothing of its operations (`items`, `render`, ...)
         called = {ast.unparse(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
         assert not [c for c in called if any(word in c for word in ("approve", "execute", "effect", "account_start", "run_step", "ops."))], (name, called)
     assert (st.RUNTIME / "natural_writes_mail.py").read_text(encoding="utf-8").count("open(") == 0, "a pure module opens no file"

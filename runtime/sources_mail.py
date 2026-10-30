@@ -69,6 +69,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import secret_state  # noqa: E402  (stdlib only: whether the secret store is locked, sources-identity)
 import snapshot_text as text  # noqa: E402
 import sources  # noqa: E402
 from sources import SourcesError, _clean  # noqa: E402
@@ -148,6 +149,25 @@ def origin_of(source_type: str, value) -> dict:
 # --- the one caller of the providers (limit L52) -----------------------------------------------------------------------------------
 
 
+def _closed_kind(cfg: dict, kind, names) -> "str | None":
+    """The closed word a provider failure carries for the phone (sources-identity): `usage`, `failed`, or `not-configured`. A provider exits 3 (`not-configured`) also when the OS secret
+    store is locked or unavailable, the credentials folder is unsafe or the password manager is locked: unlocking cures it, and it is not an expired authorization, so the word is
+    dropped (None: the plain sentence, a retry may work) when the store says so (runtime/secret_state.py, asked fresh, no secret read). A 401 on the API call and a refused refresh also exit 3
+    and cannot be told from an expired authorization without reading the provider's text, which the runtime does not: they stay `not-configured`. A store that cannot be asked is not guessed at."""
+    if kind not in ("usage", "not-configured", "failed"):
+        return None
+    if kind != "not-configured":
+        return kind
+    try:
+        if secret_state.unreadable_sentence(cfg["workbench"], names=list(names or ()), fresh=True):
+            return None
+        if secret_state.probe(cfg["workbench"])["state"] == "unknown":      # the answer just kept: the resolver could not be run or asked here
+            return None
+    except Exception:      # noqa: BLE001 - a resolver that does not run here: the plain sentence says nothing that is not known
+        return None
+    return kind
+
+
 def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: list, *, call=None, timeout: int = PROVIDER_TIMEOUT) -> dict:
     """One read verb of a mail or calendar provider, through providers/resolve.py, in a process that has the minimum environment and the
     provider's own secret. The implementation is explicit (never "auto"). Only the verbs of VERBS are sent. `call(cls, verb, args, root=,
@@ -167,7 +187,9 @@ def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: lis
     except Exception as e:
         kind = getattr(e, "kind", None)
         reason = getattr(e, "reason", None) or str(e)
-        raise SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code) from None
+        refused = SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code)
+        refused.provider_kind = _closed_kind(cfg, kind, secrets)   # the closed word of why, never the provider's text: the phone says "authorization" from it
+        raise refused from None
     if not isinstance(out, dict):
         raise SourcesError(f"the {code} provider answered no object", code)
     return out
