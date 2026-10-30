@@ -348,7 +348,7 @@ def test_the_set_of_callers_that_open_a_card_is_the_one_listed_here():
             callers[wanted] += [(path.name, scope) for scope, _line in calls_in(tree, wanted)]
     assert callers["_call_operation"] == [("ops_natural_writes.py", "_opened")], callers["_call_operation"]
     assert sorted(callers["start_card"]) == [("ops_file_trash.py", "_card"), ("ops_file_trash.py", "file_trash")], callers["start_card"]      # `file_trash` is the typed command
-    assert sorted(callers["swap"]) == [("ops_card_revise.py", "_mail"), ("ops_event_revise.py", "revise")], callers["swap"]      # `_mail` opens through `natural_write`: `_opened`
+    assert sorted(callers["swap"]) == [("ops_card_revise.py", "_mail"), ("ops_card_revise.py", "_recipient"), ("ops_event_revise.py", "revise")], callers["swap"]      # `_mail` and `_recipient` (mail-card-recipient: the address is the line's, origin `line-span`) open through `natural_write`: `_opened`
 
 
 def seam_calls(tree) -> list:
