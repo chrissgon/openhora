@@ -55,19 +55,27 @@ FROZEN_WORDS = {
 }
 
 
+_FROZEN = {}          # id of a live table -> (the table, the table with the ten keys put back): made once per live table, see `_frozen_tables`
+
+
 def _frozen_tables(languages):
     """The tables of `natural._tables(languages)`, each with the ten keys of the old reading put back from `FROZEN_WORDS` (by its tag; a table of another tag, a stub, gets them empty), whatever the
-    live table holds. A table this function made is kept as it is, so the function is idempotent."""
+    live table holds. A table this function made is kept as it is, so the function is idempotent. The copy of a live table is made ONCE and kept (as `natural_time._comp` keeps the compiled
+    patterns of a table, by the table's identity): a copy made on every call is a new object every time, so `_comp` found no patterns for it and built them again, and kept every one of them for the life
+    of the process (about 40 kB for each line the oracle was asked about: 800 MB after 20,000 lines, several GB in the full fuzz of test_registry_data.py)."""
     out = []
     for table in natural._tables(languages):
         if table.get("frozen_words"):
             out.append(table)
             continue
-        words = FROZEN_WORDS.get(table.get("tag"), {})
-        out.append({**table, "frozen_words": True,
+        held = _FROZEN.get(id(table))
+        if held is None or held[0] is not table:
+            words = FROZEN_WORDS.get(table.get("tag"), {})
+            held = _FROZEN[id(table)] = (table, {**table, "frozen_words": True,
                     "problem_words": list(words.get("problem_words", [])), "calendar_noun_reads": list(words.get("calendar_noun_reads", [])), "remind_nouns": list(words.get("remind_nouns", [])),
                     "triggers": {**table["triggers"], **{k: list(words.get("triggers", {}).get(k, [])) for k in ("reminders", "reminders_bare", "undo", "note")}},
                     "forget": {**table["forget"], **{k: list(words.get("forget", {}).get(k, [])) for k in ("verbs", "id_words", "id_marked")}}})
+        out.append(held[1])
     return out
 
 
