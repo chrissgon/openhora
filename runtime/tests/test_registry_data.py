@@ -7,7 +7,7 @@ What is proven here, each with its vacuity:
     below). Vacuity: one stop word dropped from a copy of the data -> the equality fails.
   * The private detector flags every line `natural.private` flags, on every corpus (the three natural corpora, the interpreter's dev sets, the entry corpus) and on a seeded
     differential fuzz of generated and mutated lines. Vacuity: one phrase a corpus line needs dropped from a copy of the data -> the superset fails. The lines only the new detector flags
-    are counted per corpus (OPEN-41-10); on the entry corpus and the three natural corpora there are none, so that no stored row or outage route of the entry replay can change.
+    are counted per corpus (OPEN-41-10); on the entry corpus and the three natural corpora there are none but the two lines of `ACCEPTED_NEW` (PRIVATE-CALENDAR-HEAD, accepted 2026-10-30), so that no stored row or outage route of the entry replay can change.
   * Both files are well formed (header, version, folded, sorted, without repeat). They were made once from the language tables by a builder script that S41-11 PR 2b deleted with its two tests
     (the files equal what the builder makes; the builder is deterministic and has help): the data is edited by hand under review from then on, and the tests above are what holds it.
 
@@ -50,7 +50,8 @@ CORPORA = {
     "interpreter_ix_test_v1": REPO / "evals/interpreter/ix-test-v1.jsonl",
     "entry_corpus": REPO / "runtime/tests/entry_corpus.jsonl",
 }
-NO_NEW = ("natural_corpus", "natural_writes_corpus", "natural_writes_mail_corpus", "entry_corpus")      # no line is newly private here: a newly private line would change a stored row of the replay
+NO_NEW = ("natural_corpus", "natural_writes_corpus", "natural_writes_mail_corpus", "entry_corpus")      # no line is newly private here but the accepted ones: a newly private line would change a stored row of the replay
+ACCEPTED_NEW = frozenset({"Agende corte de cabelo amanhã às 14h", "agende o fisioterapeuta sexta 9h"})      # validate: allow english-only -- the two lines of these corpora that PRIVATE-CALENDAR-HEAD made private (a calendar head with a time is a write), accepted by the maintainer on 2026-10-30 ("Aceito (Recomendado)"); the stored row of the first is already IX_PRIVATE_LINE in the golden, so no row changes
 
 
 def corpus_lines(name: str) -> list:
@@ -203,7 +204,15 @@ def test_private_words_flag_a_superset(name):
     assert len(lines) >= 40
     assert superset_failures(lines) == []
     if name in NO_NEW:
-        assert [(i, x) for i, x in lines if turn_gate.private_line(x) and not old_private(x)] == []
+        assert [(i, x) for i, x in lines if turn_gate.private_line(x) and not old_private(x) and x not in ACCEPTED_NEW] == []
+
+
+def test_each_accepted_new_line_is_in_a_no_new_corpus_and_is_private():
+    """The accepted list cannot rot: every line of it is still a line of a NO_NEW corpus, is private now and was not private for the old reader."""
+    corpus = {x for name in NO_NEW for _, x in corpus_lines(name)}
+    for line in sorted(ACCEPTED_NEW):
+        assert line in corpus, line
+        assert turn_gate.private_line(line) and not old_private(line), line
 
 
 def test_the_corpora_have_private_lines_in_them():

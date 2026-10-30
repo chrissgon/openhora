@@ -40,7 +40,10 @@
     "put on my calendar",
     "put on the calendar"
    ],
-   "lead_with_time": [],
+   "lead_with_time": [
+    "book",
+    "schedule"
+   ],
    "anywhere_with_time": [
     "remind me"
    ],
@@ -617,6 +620,8 @@
     "ponha na agenda"
    ],
    "lead_with_time": [
+    "agendar",
+    "agende",
     "marca",
     "marcar",
     "marque"
