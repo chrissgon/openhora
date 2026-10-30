@@ -41,6 +41,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+import manifest  # noqa: E402  (the same folder: ending_facts, for a corpus)
 import path_rule  # noqa: E402  (the same folder, as the other modules import each other)
 import skill_meta  # noqa: E402
 
@@ -313,7 +314,6 @@ def classify(response: str, changes: dict, outputs_written, outputs_missing, out
 def corpus_counts(corpus: str, root: str = ROOT) -> dict:
     """Classify every line of a corpus file with the facts of the line's skill (manifest.ending_facts). A corpus
     line does not record what the run's copy held, so no line has `outputs_present`."""
-    import manifest  # the same folder; imported here because manifest.py reads the packs only for this command
     facts_of, out = {}, {"lines": 0, "by_ending": {}, "stopped": {}, "changed": {}, "unclassified_ids": []}
     with open(corpus, encoding="ascii") as f:
         for raw in f:

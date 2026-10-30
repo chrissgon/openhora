@@ -57,6 +57,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import attachments  # noqa: E402  (the same folder: the hold of the files a messaging app brought)
+import lab  # noqa: E402  (the same folder: the lab facade's container tool)
 import orphans  # noqa: E402  (the same folder: the sweep of orphan containers)
 import sources  # noqa: E402  (the same folder: the sources folder, its lease and its lock)
 
@@ -483,7 +484,6 @@ def _containers(cfg: dict, now: float, tool, include_running: bool = False, dry_
         import shutil
         if shutil.which("docker") is None:
             return {"removed": [], "kept": [], "problem": None, "disabled": True}
-        import lab
         tool = lab.container_tool
     return orphans.sweep(tool, now=now, dry_run=dry_run, include_running=include_running)
 

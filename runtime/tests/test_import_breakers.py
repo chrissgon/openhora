@@ -45,31 +45,36 @@ RUNTIME = REPO / "runtime"
 # ops_natural -> ops_file_read, ops_mail_read, ops_research and ops_todo, ops_natural_writes -> ops, ops_say -> ops_turn, ops_step_seams -> ops_file_read,
 # source_names -> ops_natural_calendar): 101 lazy calls, 82 edges, 32 debt. What is left as debt is cluster 3 (the rest), the edges of ops_natural and
 # ops_natural_writes, the edges of turn_gate, and the one edge to `ops` that 44-C moves.
+# 44-B cluster 3a (the rest, but not the importers of the natural layer: natural, ops_natural, ops_natural_writes, turn_gate): 17 debt edges became top-level
+# imports (board, changeset, deps, effect_files, endings, interpreter, plan_confirm, run_stop, source_names, upkeep) and 3 stay lazy as `light-start:`
+# (dispatcher -> lab, interpreter_route -> lab, registry -> turn_gate; the reasons are LIGHT_ENTRY, LIGHT_LAB and LIGHT_REGISTRY): 81 lazy calls, 65 edges, 12 debt. What is left as debt is cluster 3b
+# (the 11 edges of natural, ops_natural, ops_natural_writes and turn_gate) and the one edge to `ops` that 44-C moves.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 101
-LAZY_EDGES_BUDGET = 82
-PLAIN_DEBT_BUDGET = 32
+LAZY_CALLS_BUDGET = 81
+LAZY_EDGES_BUDGET = 65
+PLAIN_DEBT_BUDGET = 12
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
              "(test_runtime_rules); package 44-C moves the functions the siblings need")
 DEBT = ("debt: closes no cycle on its own today; package 44-B makes it a top-level import, or writes here the reason it stays lazy "
         "(`light-start:`)")
+LIGHT_ENTRY = ("light-start: the dispatcher is the entry the scheduler starts with the system interpreter; it imports no sibling, checks the project's configuration "
+               "against the pin, and only then puts the checkout's runtime/ first on sys.path (bootstrap), so the `check` verb loads the lab from the checkout the "
+               "project names and reports a lab that cannot load; a top-level `import lab` would load the lab of the dispatcher's own folder before the pin check")
+LIGHT_LAB = ("light-start: an http call, a replay and a status of the interpreter's route never load the lab (its module text; "
+             "test_interpreter_account_route.py pins it): only an account route reaches the lab facade, when it first needs it")
+LIGHT_REGISTRY = ("light-start: the registry is pure and loads before the gate; `origins` reads the gate's ALLOWED table when it is first asked, and "
+                  "test_registry_rows.py pins that importing the registry never loads turn_gate")
 DEBT_OPS = ("debt: points at ops and no top-level path from ops leads back today, but the sibling calls an operation of the facade at call time; "
             "package 44-C moves the function the sibling needs")
 
 # (module, reason, targets): one row per module and kind of reason, the targets in one string.
 ROWS = (
-    ("board", DEBT, "ops_cancel router"),
-    ("changeset", DEBT, "lab"),
-    ("deps", DEBT, "lab"),
     ("dispatcher", CYCLE_OPS, "ops"),
-    ("dispatcher", DEBT, "lab"),
-    ("effect_files", DEBT, "attachments ops_file_read"),
-    ("endings", DEBT, "manifest"),
+    ("dispatcher", LIGHT_ENTRY, "lab"),
     ("event_lookup", CYCLE, "event_series"),
-    ("interpreter", DEBT, "natural_writes natural_writes_mail"),
-    ("interpreter_route", DEBT, "lab"),
+    ("interpreter_route", LIGHT_LAB, "lab"),
     ("mail_compose", CYCLE, "interpreter_enable ops_interpret"),
     ("natural", DEBT, "recurrence"),
     ("natural_writes", CYCLE, "turn_gate"),
@@ -102,16 +107,12 @@ ROWS = (
     ("ops_step_seams", CYCLE, "ops_file_read"),
     ("phrases", CYCLE, "phone_questions"),
     ("plan_confirm", CYCLE, "ops_natural"),
-    ("plan_confirm", DEBT, "natural_writes ops_items"),
     ("policy_widening", CYCLE, "interpreter_enable"),
-    ("registry", DEBT, "turn_gate"),
-    ("run_stop", DEBT, "lab"),
+    ("registry", LIGHT_REGISTRY, "turn_gate"),
     ("source_names", CYCLE, "ops_natural_calendar"),
-    ("source_names", DEBT, "mail_refs natural natural_writes ops_core"),
     ("sources", CYCLE, "sources_mail sources_onedrive workcopy"),
     ("turn_gate", CYCLE, "ops_natural"),
     ("turn_gate", DEBT, "interpreter_route operations policy_widening"),
-    ("upkeep", DEBT, "lab"),
     ("workcopy", CYCLE, "drop"),
 )
 ALLOWED_LAZY = {(source, target): reason for source, reason, targets in ROWS for target in targets.split()}

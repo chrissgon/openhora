@@ -52,10 +52,12 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import attachments  # noqa: E402  (the hold of the files a messaging app brought: read when a held file is written)
 import effect_send  # noqa: E402  (read_project_file: a file of the project, no link on the way)
 import effects  # noqa: E402
 import files_document  # noqa: E402
 import mail_address  # noqa: E402
+import ops_file_read  # noqa: E402  (a reader of the person's own folders: `locate`, when a trash is approved)
 import phrases  # noqa: E402
 import project_config  # noqa: E402
 from files_document import WORD, document, check, title, describe, summary, body, sha  # noqa: E402,F401  (the pure half, re-exported)
@@ -145,7 +147,6 @@ def serves(root: str, implementation: str):
 def grant_problem(cfg: dict, doc: dict):
     """The words of why a file to trash is not provably under the folder the project grants now, or None: the walk the search makes (runtime/ops_file_read.py `locate`) from
     that folder must reach the file's id. A walk that was cut, or a folder that did not answer, proves nothing, so it is a problem too."""
-    import ops_file_read  # noqa: PLC0415  (a reader of the person's own folders: loaded when a trash is approved)
     found = ops_file_read.locate(cfg, doc["account"], doc["base"]["root"], doc["target"]["id"])
     if found == "unproven":
         return "the folders could not be looked through to the end, so the file is not shown to be inside the granted folder"
@@ -238,7 +239,6 @@ def content_bytes(doc: dict, work_dir, project) -> bytes:
         except (OSError, ValueError):
             data = None
     else:
-        import attachments  # noqa: PLC0415  (the hold: loaded when a held file is written)
         data = attachments.read_held(work_dir, content["attachment"]) if work_dir else None
     if data is None or len(data) != content["bytes"] or sha(data) != content["sha256"]:
         raise StaleError("the content is not the file the task read (it changed, or it is gone)")

@@ -32,6 +32,10 @@ import importlib
 import sys
 
 import item_refs
+import mail_refs
+import natural
+import natural_writes
+import ops_core
 import phrases
 import snapshot_text
 import sources
@@ -46,7 +50,7 @@ DETAIL_MAX = 24      # characters of a person's description used as a detail
 
 def account_of(row: dict):
     """The account ("google" | "microsoft") a mail or calendar source belongs to, from the implementation its origin names; None when the origin is not one this runtime reads."""
-    table = importlib.import_module("mail_refs").ACCOUNT_OF if row["type"] == "mail" else importlib.import_module("ops_natural_calendar").CAL_ACCOUNT
+    table = mail_refs.ACCOUNT_OF if row["type"] == "mail" else importlib.import_module("ops_natural_calendar").CAL_ACCOUNT
     try:
         return table.get(sources_mail.origin_of(row["type"], row["origin"])["implementation"])
     except sources.SourcesError:
@@ -130,14 +134,13 @@ def words(entry) -> list:
     account = entry.get("account") if isinstance(entry, dict) else None
     if not account:
         return []
-    natural, nw = importlib.import_module("natural"), importlib.import_module("natural_writes")
-    return list(nw.listed(natural._tables(None), "services", account))
+    return list(natural_writes.listed(natural._tables(None), "services", account))
 
 
 def for_project(project: str) -> dict:
     """{source id: name} of a project for the messaging bridge; {} for any failure (a phone then shows what it showed before)."""
     try:
-        ctx = importlib.import_module("ops_core").context(project)
+        ctx = ops_core.context(project)
         return {i: e["name"] for i, e in catalog(ctx).items()}
     except Exception:      # noqa: BLE001 - presentation only: never a refusal
         return {}
