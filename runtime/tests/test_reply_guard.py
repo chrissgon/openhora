@@ -315,8 +315,9 @@ def test_the_source_of_the_guard_reads_no_gate_interpreter_or_configuration():
 
 # --- 7. every product call passes the verdict -------------------------------------------------------------------------------------------------------------
 
-# A call that passes no verdict, on purpose: the `eventorother` question of the bridge, which only pre-states and stand-ins reach since `reminder-form` carries /remind intents alone (OPEN-CO-5, left for 44-B).
-UNGUARDED = {("messaging_remind.py", "short_answer")}
+# A call that passes no verdict, on purpose. None is left: the one there was, the `eventorother` question of the bridge, was unreachable since `reminder-form` carries /remind intents alone,
+# and 44-B 3b (OPEN-CO-5) deleted it. A new entry here is a reason written beside it.
+UNGUARDED = set()
 
 
 def unguarded_calls(source: str, name: str):
