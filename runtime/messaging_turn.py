@@ -134,8 +134,7 @@ def _read(bridge, turn) -> None:
     must have run before them."""
     if turn.intent is None:
         turn.project = bridge.project_of(turn.sender, turn.listed)
-        with bridge.repeat_scope(turn.project, turn.chat):      # CB-9: a line that repeats is no closed form when the interpreter is on for this sender
-            turn.intent = inbound.parse(turn.update)
+        turn.intent = inbound.parse(turn.update)
         turn.kind = turn.intent["kind"]
         turn.replied = turn.update.get("reply_to")
 

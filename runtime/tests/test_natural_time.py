@@ -267,9 +267,8 @@ STUB = {      # an invented language: "morgen" is tomorrow, "heute" today, and a
     "ordinal_suffixes": [], "prefixes": ["um", "am"], "hour_words_24": ["u"], "meridiem": {"am": [], "pm": []},
     "dayparts": {"morning": [], "dawn": [], "afternoon": [], "evening": [], "night": []}, "vague": ["spaeter"], "noon": ["mittag"], "midnight": [],
     "bare_hour_prefixes": ["um"], "relative_in": ["in"], "relative_units": {"m": ["min"], "h": ["std"], "d": ["tagen"], "w": []}, "number_words": {"ein": 1},
-    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_verb": [], "calendar_noun": [],
-                 "calendar_loose": [], "note": [], "undo": []},
-    "forget": {"verbs": [], "nouns": [], "fillers": [], "id_words": [], "id_marked": []}, "polite": [], "connectors": ["an"],
+    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "calendar": [], "calendar_verb": [], "calendar_noun": [], "calendar_loose": []},
+    "forget": {"nouns": [], "fillers": []}, "polite": [], "connectors": ["an"],
     "answers": {"yes": ["ja"], "notice": [], "event": [], "other": [], "cancel": [], "thanks": [], "again": []},
     "vague_parts": {"morning": [], "afternoon": [], "evening": [], "night": []},
     "work_starters": [],
@@ -336,6 +335,22 @@ def test_a_list_that_names_a_bad_file_a_duplicate_tag_or_no_file_is_refused_with
     with pytest.raises(ValueError) as e:
         nt.load_languages(folder)
     assert "natural_languages.json" in str(e.value)
+
+
+DELETED_KEYS = ("problem_words", "calendar_noun_reads", "remind_nouns")      # CANDIDATE-OUT 2: ten keys left the schema with `natural.candidate`; these three are lists
+DELETED_TRIGGERS = ("reminders", "reminders_bare", "undo", "note")
+DELETED_FORGET = ("verbs", "id_words", "id_marked")
+
+
+def test_the_ten_keys_only_the_deleted_reading_used_are_gone_from_the_shipped_tables_and_the_schema_refuses_a_table_that_holds_one():
+    for table in nt.languages():
+        assert not set(DELETED_KEYS) & set(table) and not set(DELETED_TRIGGERS) & set(table["triggers"]) and not set(DELETED_FORGET) & set(table["forget"]), table["tag"]
+        assert set(table["forget"]) == {"nouns", "fillers"} and {"remind", "remind_anywhere", "calendar", "calendar_verb", "calendar_noun", "calendar_loose"} == set(table["triggers"])
+    assert not set(DELETED_KEYS) & set(nt.LISTS) and not set(DELETED_TRIGGERS) & set(nt.GROUPS["triggers"]) and not set(DELETED_FORGET) & set(nt.GROUPS["forget"])
+    for planted in ({**STUB, "triggers": {**STUB["triggers"], "undo": []}}, {**STUB, "forget": {**STUB["forget"], "verbs": []}}):      # the vacuity: the stub passes, a stub with one old key of a group does not
+        with pytest.raises(ValueError):
+            nt.check_table(planted)
+    nt.check_table(STUB)
 
 
 def test_the_shipped_tables_follow_the_schema_and_a_table_that_breaks_it_is_refused():

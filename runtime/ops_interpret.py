@@ -71,7 +71,6 @@ import line_stage
 import mail_compose
 import natural
 import operations
-import ops_core
 import ops_file_trash
 import ops_items
 import ops_natural
@@ -107,17 +106,6 @@ def enabled(ctx: dict, channel, sender) -> bool:
         return False
     cfg = ctx["cfg"]
     return operations.holds("interpret", CHANNEL, cfg["channels"], sender) and interpreter_enable.active(_tag(cfg)) is not None
-
-
-def repeat_scope(where, channel, sender):
-    """CB-9: the scope in which a line that repeats ("every Monday at 9") goes on to the interpreter instead of being claimed by a closed form (natural.repeat_scope): open only when the
-    interpreter is ON for this sender and the project's language (`enabled`), asked once and only for a line that holds a repetition phrase. With the interpreter off the closed forms keep
-    such a line and answer it as before catalog version 2 (an event that repeats is not yet read). `where` is the project's context, or the project's path (its context is then read only if the
-    question is asked). Used as `with repeat_scope(where, channel, sender):` by every entry that reads a plain line."""
-    def on() -> bool:
-        ctx = ops_core.context(where) if isinstance(where, str) else where
-        return enabled(ctx, channel, sender)
-    return natural.repeat_scope(on)
 
 
 # --- the call and the decision -------------------------------------------------------------------------------------------------------------------------

@@ -47,10 +47,7 @@ def make(real):
         text = line if isinstance(line, str) else ""
         if not nw._claim(text):
             return None
-        found = _read_closed(text, tables, now, nw.Line(text))
-        if found is not None and found["op"] == "event-create" and claim and natural.repeat_goes_on(text):
-            return None
-        return found
+        return _read_closed(text, tables, now, nw.Line(text))
 
     def candidate(line, languages=None, *, claim=True):
         got = read(line, None, languages, claim=claim)

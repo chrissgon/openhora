@@ -9,7 +9,6 @@
    "file-ask": "added by package CB-9 (the flip to catalog version 2) after the corpus was drawn; its dev lines are in evals/interpreter/dev-catalog-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus"
   },
   "operations_table.NOT_OPERATIONS": [
-   "interpreter_on",
    "mailbox_target"
   ]
  }

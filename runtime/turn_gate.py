@@ -419,7 +419,7 @@ def lead_kind(line):
 
 def private_kind(line):
     """"reminder" for a private line a reminder in words asks (a `lead`, `anywhere_with_time`, `verb_noun` or bare step), "write" for one that asks for a write to the person's mail, calendar or files
-    (a `lead_write`, `lead_with_time` or write shape), None for a line that is not private; a line that starts as a new event is a write, as `natural.candidate` reads it first. `ops_natural.stored_line` stores the neutral word of the kind."""
+    (a `lead_write`, `lead_with_time` or write shape), None for a line that is not private; a line that starts as a new event is a write (first, as the old `natural.candidate`, now deleted, read it). `ops_natural.stored_line` stores the neutral word of the kind."""
     if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
         return None
     steps, writes, bare_max = _compiled_rule()
@@ -430,7 +430,7 @@ def private_kind(line):
         if not found:
             found.append(time_hits(line)["hits"])
         return found[0]
-    if any(step["lead_write"] and step["lead_write"].match(norm) for step in steps):      # a new event is asked first, as natural.candidate reads it
+    if any(step["lead_write"] and step["lead_write"].match(norm) for step in steps):      # a new event is asked first, as the old `natural.candidate` (deleted) read it
         return "write"
     write = False
     for step in steps:
@@ -463,7 +463,7 @@ NOUN_WORDS_MAX = 6      # a line of at most this many words that holds a reminde
 
 
 def new_request(line):
-    """CANDIDATE-OUT: what the reminder question engine asks, in place of `natural.candidate`, to tell a reply that starts a request of its own from the answer to the open question. "reminder" or
+    """CANDIDATE-OUT: what the reminder question engine asks, in place of the old `natural.candidate` (deleted by CANDIDATE-OUT 2), to tell a reply that starts a request of its own from the answer to the open question. "reminder" or
     "write" for a line that starts as a reminder or a new event by the private words (S41-9's data), "form" for a closed form of the language tables (a reminder noun in a short line, a closed form
     of an operation), "bare" for a reminder said with a time and a few words, None for anything else (a slash command is a command: None). Pure: it reads no model, no interpreter, no configuration
     and no clock, and it never executes a form (`natural.match` is a recogniser here). The steps, the first that holds wins:

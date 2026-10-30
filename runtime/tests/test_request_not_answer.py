@@ -40,6 +40,7 @@ ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 natural = st.load("natural")
 natural_writes = st.load("natural_writes")
+turn_gate = st.load("turn_gate")
 phrases = st.load("phrases")
 
 PT = {"language": "pt-BR"}
@@ -99,7 +100,7 @@ def old_rule(ctx, said, channel, sender):
     found = natural.match(said)
     if found is not None:
         return natural.class_of(found["op"]) != "R"
-    return ops_natural.peek(ctx, said, channel, sender) or natural.candidate(said) is not None
+    return ops_natural.peek(ctx, said, channel, sender) or turn_gate.private_kind(said) is not None      # CANDIDATE-OUT 2: the fallback is the one the product's `recognises` has (it was `natural.candidate`)
 
 
 def served(phone, wall, line):

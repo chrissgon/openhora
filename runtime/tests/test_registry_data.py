@@ -34,6 +34,7 @@ import event_lookup  # noqa: E402
 import natural  # noqa: E402
 import natural_time as nt  # noqa: E402
 import natural_writes as nw  # noqa: E402
+import old_claim  # noqa: E402  (CANDIDATE-OUT 2: the frozen old reading, the oracle of the private-line detector and the words of the fuzz)
 import registry_data  # noqa: E402
 import turn_gate  # noqa: E402
 from closed_heads import old_private, closed_heads, tier1_forms, words_interpreted  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
@@ -243,7 +244,8 @@ def generated(rng: random.Random, n: int) -> tuple:
     pools = []
     for table in nt.languages():
         writes, triggers = table["requests"]["writes"], table["triggers"]
-        heads = triggers["remind"] + triggers["note"] + triggers["calendar"] + triggers["calendar_verb"] + triggers["calendar_loose"] + triggers["calendar_noun"]
+        frozen = old_claim.FROZEN_WORDS[table["tag"]]      # the table no longer holds `note` and `remind_nouns` (CANDIDATE-OUT 2): the fuzz keeps their words, frozen in the stand-in
+        heads = triggers["remind"] + frozen["triggers"]["note"] + triggers["calendar"] + triggers["calendar_verb"] + triggers["calendar_loose"] + triggers["calendar_noun"]
         pool = []
         for family, keys in (("calendar", ("change_verbs", "cancel_verbs", "rename")), ("mail", ("send_verbs", "reply_verbs", "draft_verbs", "archive_verbs", "move_verbs", "mark_verbs", "trash_verbs")),
                              ("files", ("create_verbs", "replace_verbs", "save_verbs"))):
@@ -252,7 +254,7 @@ def generated(rng: random.Random, n: int) -> tuple:
             for value in writes[family].values():
                 if isinstance(value, list):
                     pool += value
-        pool += writes["articles"] + writes["polite"] + writes["service_in"] + table["remind_nouns"] + table["polite"] + table["connectors"] + table["edge_words"]
+        pool += writes["articles"] + writes["polite"] + writes["service_in"] + frozen["remind_nouns"] + table["polite"] + table["connectors"] + table["edge_words"]
         pool += [p for names in writes["services"].values() for p in names] + [p for names in (writes["files"].get("kinds") or {}).values() for p in names]
         pools.append((heads, pool, table["polite"] + writes["polite"]))
     times = ["at 9am", "tomorrow at 3pm", "in 2 hours", "amanha as 15h", "hoje 18h30", "friday 10:00", "daqui a 2 horas", "dia 25 as 9h", "next week", "em 30 minutos"]
@@ -501,5 +503,5 @@ def test_the_kind_of_a_private_line_is_a_reminder_or_a_write():
     assert turn_gate.private_kind("what is the weather in Lisbon") is None
     assert turn_gate.private_kind("/remind 15:00 call Maria") is None
     for line in oracle_flagged_corpus_lines()[:3000]:
-        if natural.candidate(line) and natural.candidate(line)["op"] in natural.PRIVATE:
+        if old_claim.candidate(line) and old_claim.candidate(line)["op"] in natural.PRIVATE:
             assert turn_gate.private_kind(line) == "reminder", line

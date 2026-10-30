@@ -49,10 +49,12 @@ RUNTIME = REPO / "runtime"
 # imports (board, changeset, deps, effect_files, endings, interpreter, plan_confirm, run_stop, source_names, upkeep) and 3 stay lazy as `light-start:`
 # (dispatcher -> lab, interpreter_route -> lab, registry -> turn_gate; the reasons are LIGHT_ENTRY, LIGHT_LAB and LIGHT_REGISTRY): 81 lazy calls, 65 edges, 12 debt. What is left as debt is cluster 3b
 # (the 11 edges of natural, ops_natural, ops_natural_writes and turn_gate) and the one edge to `ops` that 44-C moves.
+# CANDIDATE-OUT 2: the repeat scope (`repeat_goes_on` and its four openers) is deleted, and with it two lazy edges: natural -> recurrence (debt) and ops_natural_writes -> ops_interpret
+# (a cycle edge), one call each; the numbers are the file's own AST count on the head rebased onto 44-B 3a: 79 lazy calls, 63 edges, 11 debt (81, 65 and 12 minus the two edges).
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 81
-LAZY_EDGES_BUDGET = 65
-PLAIN_DEBT_BUDGET = 12
+LAZY_CALLS_BUDGET = 79
+LAZY_EDGES_BUDGET = 63
+PLAIN_DEBT_BUDGET = 11
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
@@ -76,7 +78,6 @@ ROWS = (
     ("event_lookup", CYCLE, "event_series"),
     ("interpreter_route", LIGHT_LAB, "lab"),
     ("mail_compose", CYCLE, "interpreter_enable ops_interpret"),
-    ("natural", DEBT, "recurrence"),
     ("natural_writes", CYCLE, "turn_gate"),
     ("ops_ask", CYCLE_OPS, "ops"),
     ("ops_cancel", CYCLE, "board"),
@@ -95,7 +96,7 @@ ROWS = (
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural", CYCLE_OPS, "ops"),
     ("ops_natural", DEBT, "item_refs natural_writes ops_items ops_reminders reminders"),
-    ("ops_natural_writes", CYCLE, "event_lookup ops_interpret"),
+    ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_natural_writes", CYCLE_OPS, "ops"),
     ("ops_natural_writes", DEBT, "account_start natural_writes_calendar"),
     ("ops_reads", CYCLE_OPS, "ops"),

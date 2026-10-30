@@ -140,7 +140,7 @@ PARSER_CASES = [
     ("fui na loja sex 3", None),
 ]
 
-# (a line, what `natural.candidate` makes of it with no clock)
+# (a line, what the old `natural.candidate` made of it with no clock; the guard `turn_gate.new_request` is compared with this table in test_natural_reminders.py)
 CANDIDATE_CASES = [
     ("me lembra amanhã às 13h da aula de violão", {"op": "remind", "how": "trigger"}),
     ("Me lembre sexta às 9 de ligar para a gráfica", {"op": "remind", "how": "trigger"}),
@@ -318,15 +318,6 @@ PART_LINES = [
     ("me lembra amanhã à tarde às 3 de buscar o pacote", ("confirm", "2026-10-19 15:00")),
     ("me lembra amanhã de manhã às 21h de ligar", ("confirm", "2026-10-19 21:00")),
 ]
-# What a forget line is: an explicit number acts, a number after another word is confirmed, an hour is matched against the moment.
-FORGET_FORMS = [
-    ("cancela o lembrete 3", {"id": 3}), ("cancela o lembrete #3", {"id": 3}), ("esquece o lembrete numero 3", {"id": 3}),
-    ("apaga o lembrete do 3", {"id": 3, "confirm": True}), ("esquece o lembrete de 2", {"id": 2, "confirm": True}),
-    ("esquece o lembrete no 4", {"id": 4, "confirm": True}), ("apague os lembretes 1 e 2", {"id": None, "ids": [1, 2], "confirm": True}),
-    ("cancela o lembrete das 9", {"id": None, "at": "das 9", "confirm": True}),
-]
-# Lines that are not an undo (the bare word only, optionally with "the reminder").
-NOT_UNDO = ["desfaz o commit", "desfaz isso no código", "desfazer a última mudança do site"]
 LINE_WEEK = "me lembra semana que vem às 10h de pagar o aluguel"
 LINE_WEEK_NO_TIME = "me lembra semana que vem de pagar o aluguel"
 ASK_WEEKDAY = "Qual dia da semana que vem? Responda com o dia da semana, por exemplo terça."
@@ -358,10 +349,6 @@ ORDINAL_LINES = [
     ("me lembra 1o de dezembro às 10h do curso", "2026-12-01 10:00"), ("me lembra primeiro de dezembro às 10h do curso", "2026-12-01 10:00"),
     ("me lembra dia 1º às 10h do curso", "2026-11-01 10:00"), ("me lembra dia primeiro às 10h do curso", "2026-11-01 10:00"),
 ]
-# Q1: the forms of an explicit number ("n° 3", "n.3", "no. 3", "nº3" act at once), and the ones that are only shown.
-ID_FORMS = ["cancela o lembrete n° 3", "cancela o lembrete N° 3", "cancela o lembrete n.3", "cancela o lembrete n. 3", "cancela o lembrete no. 3", "cancela o lembrete nº3",
-            "cancela o lembrete numero 3", "cancela o lembrete 3", "cancela o lembrete #3"]
-BARE_FORGET = ["cancela #3", "cancela o 3", "esquece o 3"]
 # Repetitions that are not "every" followed by a unit.
 REPEAT_MORE = ["me lembra todo santo dia às 8h de tomar vitamina", "me lembra a cada meia hora de alongar", "me lembra de hora em hora de beber água",
                "me lembra dia sim dia não às 9h de regar", "me lembra nos dias úteis às 9h de bater o ponto", "me lembra de segunda a sexta às 9h de bater o ponto"]

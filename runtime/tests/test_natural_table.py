@@ -79,7 +79,6 @@ def test_nothing_is_planned_any_more_and_the_effects_are_operations_that_end_in_
     assert natural.PLANNED == () and not E - OPS, "the writes of SPEC-SECRETARY-WRITES exist: each is an operation, and a line only names it"
     for name in E:
         assert any(name in operations.GROUPS[g]["operations"] for g in operations.GROUPS), name      # in a group of the channel policy, like any other
-    assert natural.operation_of("calendar-event-create") == "event-create" and natural.operation_of("remind") == "remind"
 
 
 def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
@@ -263,8 +262,6 @@ ARE_FORMS = {"help": "commands", "ajuda": "commands", "task 3": "task", "tarefa 
 @pytest.mark.parametrize("line", TO_THE_ROUTER)
 def test_a_line_that_asks_for_work_with_the_words_of_an_operation_reaches_the_router(line):
     assert natural.match(line) is None, line
-    found = natural.candidate(line)
-    assert found is None or found["op"] not in ("event-create",) or "calendar" in line or "agenda" in line, (line, found)      # the reminders' own intents decide the rest
 
 
 @pytest.mark.parametrize("line, op", sorted(ARE_FORMS.items()))

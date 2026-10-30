@@ -700,7 +700,7 @@ def natural_write(project: str, line: str, *, channel: str = "messaging", sender
     """The messaging bridge's entry (ops.natural_write; not a row of the table): the sender's live write draft is tried first, then the line as a new write, then the seed
     (a reminder question answered "event", the loose verb's question, the caption of a file). Returns {"reply": the sentence | None, "resend": the decision whose card the
     bridge sends, "asked": true when a question was kept}. `reply` None: the line is no write form and answers nothing: the caller handles it as any plain line."""
-    with turn_gate.turn(), importlib.import_module("ops_interpret").repeat_scope(project, channel, sender):      # CB-9: a repeating line is a write form only while the interpreter is off for this sender; S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
         ops_actor.require(channel, sender)
         ctx = core.context(project)
         said = "" if seed and not str(line or "").strip() else core._text(line, "the line")          # a seed may come with no text (a button of a file's card)

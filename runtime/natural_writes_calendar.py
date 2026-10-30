@@ -6,7 +6,7 @@
 """The calendar family of the natural writes (package NR-5a), pure: a new event, a change to an event and the removal of one, read from a line by closed heads and
 markers (the lists of `requests.writes.calendar` and `requests.writes.services` of the language tables). The interface is runtime/natural_writes.py's.
 
-  event-create   the calendar intent of runtime/natural.py `candidate` (a verb with a calendar word, or "marca" with a time), read with the operation fixed. The head and
+  event-create   a new event (a verb with a calendar word, or "marca" with a time), read with the operation fixed. The head and
                  the account and calendar words are cut, the rest goes to the time engine (`natural.understand`, `how` "write"), whose words are the title. A range
                  ("das 13h as 15h", "from 1pm to 3pm", "13h-15h") gives the end; "dia todo" / "all day" makes an all-day event; a line that repeats ("toda segunda") is
                  refused in words (`recurring`: no recurrence in this version). Slots: title, start, end, calendar (a name as written), account (a service word)
@@ -304,7 +304,7 @@ def _change(line: "nw.Line", tables: list, now):
     form = _change_form(line, tables, now, verb)
     if form is not None:
         return form
-    if _reads_as_a_bare_time(line.text, tables):          # not a change form, and a line the time engine reads as a clock or a day with few words besides (S41-11: the family's own predicate, it was `natural.candidate` saying remind)
+    if _reads_as_a_bare_time(line.text, tables):          # not a change form, and a line the time engine reads as a clock or a day with few words besides (S41-11: the family's own predicate, it was the old `natural.candidate` saying remind)
         if _noun_at(line, verb, tables) is not None:          # "remarca o evento 0 para as 10h": a typed number form whose number is not one: the hint says how to name it
             return {"op": "event-change", "say": "NW_CHANGE_BY_NUMBER", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
         # "mude o corte de cabelo para as 10h": the person names the event, not its number (slice S16b): the line is the lookup by name's (runtime/event_lookup.py `by_name`)
@@ -314,7 +314,7 @@ def _change(line: "nw.Line", tables: list, now):
 
 def _reads_as_a_bare_time(text: str, tables: list) -> bool:
     """Whether the line holds a clock or a relative time, no question mark and no repetition, does not start with a work starter, and has between one and `natural.BARE_WORDS_MAX` words once the
-    time is taken out: what `natural.candidate` called a bare reminder (S41-11 moved the test here, the one reader that is left of it)."""
+    time is taken out: what the old `natural.candidate` called a bare reminder (S41-11 moved the test here)."""
     hits = nt.find(text, tables)["hits"]
     if not any(h["kind"] in ("clock", "relative") for h in hits) or "?" in text or nt.recurring(text, tables):
         return False
