@@ -118,7 +118,9 @@ def test_every_part_but_the_recipient_is_the_old_cards_byte_for_byte(world, cloc
     draft_new = f.revise(world, draft_old, draft_sha, LINE)["resend"]
     was, now = document(world, draft_old), document(world, draft_new)
     assert was["effect"] == now["effect"] == "mailbox" and was["draft"]["to"] == [OLD] and now["draft"]["to"] == [NEW]
-    assert {key for key in set(was) | set(now) if was.get(key) != now.get(key)} - {"draft"} <= {"task", "idempotency_key", "dry_run_sha256", "message_id"}
+    differ = {key for key in set(was) | set(now) if was.get(key) != now.get(key)} - {"draft"}
+    assert differ <= {"task", "idempotency_key", "dry_run_sha256", "message_id", "read_at"}, differ      # `read_at` is the second the draft was prepared: two cards made in different seconds differ in it
+    assert {"task", "idempotency_key", "dry_run_sha256"} <= differ, "vacuity: the oracle sees what is made new with the document"
     assert {key: value for key, value in was["draft"].items() if key != "to"} == {key: value for key, value in now["draft"].items() if key != "to"}
     assert f.status(world, draft_old) != "open" and f.open_cards(world) == [new, draft_new], "the revised e-mail card and the revised draft card are the two that are open"
 
