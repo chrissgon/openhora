@@ -467,7 +467,7 @@ def test_vacuity_with_no_question_about_a_write_the_same_word_brings_the_card_ba
 # --- a line in question form decides no card, on the card that is last and on the re-send --------------------------------------------------------------------------------------------------------
 
 
-QUESTIONS = ["sim?", "pode?", "nao?", "can you approve", "could you cancel"]
+QUESTIONS = ["sim?", "pode?", "nao?", "can you approve", "could you cancel", "poderia aprovar", "poderia cancelar", "consegue aprovar"]
 
 
 @pytest.mark.parametrize("line", QUESTIONS)
@@ -493,11 +493,19 @@ def test_vacuity_with_the_question_rule_off_the_question_decides_the_card_that_i
     assert approvals(world) == [(1, H1)]
 
 
-def test_vacuity_with_the_question_rule_off_the_question_brings_the_card_back(world, monkeypatch):
+@pytest.mark.parametrize("line", ["sim?", "poderia aprovar", "consegue aprovar"])
+def test_vacuity_with_the_question_rule_off_the_question_brings_the_card_back(world, monkeypatch, line):
     stale(world)
     monkeypatch.setattr(messaging_turn.card_words, "card_word", messaging_turn.card_words.card_shape)
-    world.say("sim?")
+    world.say(line)
     assert len(records(world)) == 2
+
+
+@pytest.mark.parametrize("line", ["pode aprovar", "pode cancela"])
+def test_the_imperatives_with_pode_stay_card_words_and_bring_the_card_back(world, line):
+    stale(world)
+    world.say(line)
+    assert nothing_decided(world) and len(records(world)) == 2
 
 
 def test_a_line_in_question_form_gets_the_acknowledgement_a_card_word_does_not():

@@ -36,7 +36,7 @@ ORACLE_ORDINALS = {"primeiro": 1, "primeira": 1, "segundo": 2, "terceiro": 3, "t
                    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
 ORACLE_POLITE = [("por", "favor"), ("pf",), ("please",), ("pls",), ("pode",), ("poderia",), ("consegue",), ("oi",), ("ola",), ("ei",), ("can", "you"), ("could", "you"), ("would", "you"),
                  ("hey",), ("hi",)]
-ORACLE_ASKS = [("can", "you"), ("could", "you"), ("would", "you")]      # ACEITE-37: a line that asks for the act in these words is a question, not a form
+ORACLE_ASKS = [("can", "you"), ("could", "you"), ("would", "you"), ("poderia",), ("consegue",)]      # ACEITE-37: a line that asks for the act in these words is a question, not a form
 ACCENTS = {"\u00e3": "a", "\u00e1": "a", "\u00e0": "a", "\u00e2": "a", "\u00e9": "e", "\u00ea": "e", "\u00ed": "i", "\u00f3": "o", "\u00f4": "o", "\u00f5": "o", "\u00fa": "u", "\u00e7": "c"}
 
 
@@ -78,7 +78,7 @@ def asks(line: str, tokens: list) -> bool:
         tail = tail[:-1]
     if tail.endswith("?") or tail.endswith("\uff1f"):
         return True
-    return any(tuple(tokens[at:at + 2]) in ORACLE_ASKS for at in range(len(tokens) - 1))
+    return any(tuple(tokens[at:at + size]) in ORACLE_ASKS for size in (1, 2) for at in range(len(tokens) - size + 1))
 
 
 def oracle(line: str):
@@ -140,6 +140,7 @@ BAD = [
     "podemos aprovar", "n\u00e3o sei", "talvez", "aprovo o x", "aprova um", "sim, mas muda a hora para as 15h", "reject the", "cancel it", "ok then", "aprovado por mim", "all",
     "todas as tres", "agende corte de cabelo amanh\u00e3 \u00e0s 14h no outlook",
     "sim?", "pode?", "n\u00e3o?", "ok?", "approve?", "sim ?", "sim?!", "sim\uff1f", "aprova o 2?", "can you approve", "could you cancel", "would you approve", "can you sim",
+    "poderia aprovar", "poderia cancelar", "consegue aprovar", "poderia", "consegue", "sim poderia",
 ]
 
 
@@ -191,20 +192,20 @@ def test_a_line_wrongly_read_with_a_weekday_as_a_position_is_caught_by_the_walk(
 def test_a_line_in_question_form_is_no_card_word_and_the_plain_forms_stay_forms():
     """ACEITE-37 (the maintainer, 2026-10-30). A question mark at the end (punctuation after it does not hide it) or "can you", "could you", "would you" make a question; "sim!", "sim.", "SIM",
     "ok", "pode" and "yes" stay forms, and the multi-word forms that were taken stay taken."""
-    for line in ("sim?", "pode?", "n\u00e3o?", "SIM?", "sim ?", "sim?!", "sim?)", "approve?", "can you approve", "Could you cancel", "would you approve it"):
+    for line in ("sim?", "pode?", "n\u00e3o?", "SIM?", "sim ?", "sim?!", "sim?)", "approve?", "can you approve", "Could you cancel", "would you approve it", "poderia aprovar", "Poderia cancelar", "consegue aprovar", "consegue cancelar"):
         assert card_words.question_form(line) is True, line
-    for line in ("sim?", "pode?", "n\u00e3o?", "can you approve", "could you cancel"):
+    for line in ("sim?", "pode?", "n\u00e3o?", "can you approve", "could you cancel", "poderia aprovar", "poderia cancelar", "consegue aprovar"):
         assert card_words.card_word(line) is None, line
     for line in ("sim!", "sim.", "SIM", "ok", "pode", "yes"):
         assert card_words.question_form(line) is False and card_words.card_word(line) is not None, line
-    for line in ("oi sim", "yes please", "pode cancela", "por favor aprova", "poderia aprovar", "consegue aprovar", "hey, ok", "hi approve"):
+    for line in ("oi sim", "yes please", "pode cancela", "por favor aprova", "pode aprovar", "hey, ok", "hi approve"):
         assert card_words.card_word(line) is not None, line      # the other multi-word forms are as they were
     assert card_words.question_form(None) is False and card_words.question_form(3) is False
 
 
 def test_the_shape_without_the_question_rule_is_what_the_readers_that_keep_a_line_away_from_a_change_read():
     """`card_shape` is `card_word` before ACEITE-37: "sim?" has the shape, and has no word."""
-    for line in ("sim?", "pode?", "can you approve"):
+    for line in ("sim?", "pode?", "can you approve", "poderia aprovar", "consegue aprovar"):
         assert card_words.card_shape(line) is not None and card_words.card_word(line) is None, line
     assert card_words.card_shape("sim!") == card_words.card_word("sim!") and card_words.card_shape("sim, pode marcar") is None
 
@@ -233,7 +234,7 @@ def test_the_oracle_agrees_with_every_hand_written_line():
 # --- the walk: generated lines, the oracle decides what each one is ------------------------------------------------------------------------------------------------------
 
 BANK = ["sim", "ok", "aprovo", "aprova", "pode", "marcar", "mandar", "salvar", "manda", "ver", "yes", "approve", "go", "ahead", "nao", "rejeito", "cancela", "deixa", "no", "reject",
-        "cancel", "todos", "todas", "all", "hey", "can", "you", "o", "a", "the", "number", "2", "10", "0", "primeiro", "segunda", "quarta", "quinta", "sexta", "segundo", "third", "por", "favor", "please", "dentista", "lembrete",
+        "cancel", "todos", "todas", "all", "hey", "can", "you", "poderia", "consegue", "o", "a", "the", "number", "2", "10", "0", "primeiro", "segunda", "quarta", "quinta", "sexta", "segundo", "third", "por", "favor", "please", "dentista", "lembrete",
         "3", "e", "mas", "amanha", "hoje", "arquivo", "agenda", "aprovar", "pf"]
 
 

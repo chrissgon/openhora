@@ -11,7 +11,7 @@ matter. There is never an open tail: "pode marcar o dentista" and "pode marcar a
 is None; a slash line, an empty line and a line of more than `LINE_WORDS_MAX` words are None.
 
 A line in QUESTION FORM is never a card word (ACEITE-37, the maintainer, 2026-10-30): "sim?", "pode?", "nao?" (the line ends in a question mark, however much punctuation follows it) and a line that asks
-for the act with "can you", "could you" or "would you" ("can you approve", "could you cancel") ask something and decide nothing; they go on to the model as any free line. `question_form(line)` says it,
+for the act with "can you", "could you" or "would you" ("can you approve", "could you cancel") or, in Portuguese, with "poderia" or "consegue" ("poderia aprovar", "consegue aprovar") ask something and decide nothing; they go on to the model as any free line. `question_form(line)` says it,
 `card_shape(line)` is the reading without that rule (the shape of an approve or a reject form, asked or not), for the readers that must keep treating such a line as card-shaped (they are named in the
 function's text), and `card_word` is the shape unless the line is a question. "sim!", "sim.", "SIM", "ok", "pode" and "yes" stay forms.
 
@@ -60,7 +60,7 @@ WORDS = {
                      ["setimo", "setima"], ["oitavo", "oitava"], ["nono", "nona"], ["decimo", "decima"]],
     },
 }
-QUESTION_LEADS = ("can you", "could you", "would you")      # a line that asks for the act in these words is a question, whatever follows ("can you approve")
+QUESTION_LEADS = ("can you", "could you", "would you", "poderia", "consegue")      # a line that asks for the act in these words is a question, whatever follows ("can you approve", "poderia aprovar"); "pode" is not one: "pode aprovar" is an imperative
 QUESTION_MARK = re.compile(r"[?\uff1f][^\w]*$")      # a question mark followed by nothing but punctuation and blanks: "sim?", "pode ?", "nao?!"
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 LISTS = ("approve", "reject", "all", "articles", "polite")
