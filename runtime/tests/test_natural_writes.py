@@ -147,24 +147,11 @@ def test_a_line_that_repeats_is_read_as_a_refusal_never_as_a_single_event_at_cat
         assert got is not None and got["op"] == "event-create" and got["recurring"] is True and "start" not in got["slots"], text
 
 
-def test_at_catalog_version_2_with_the_interpreter_on_a_line_that_repeats_is_no_write_form_and_goes_on_to_the_interpreter(monkeypatch):
+def test_at_catalog_version_2_the_operation_fixed_by_the_interpreters_decision_still_reads_a_line_that_repeats(monkeypatch):
     monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
-    with st.load("natural").repeat_scope(True):      # CB-9: the interpreter is on for this sender and language
-        for text in lines.RECURRING:
-            assert nw.read(text, NOW) is None and nw.candidate(text) is None, text
-            assert nw.read(text, NOW, op="event-create") is not None, "the operation fixed by the interpreter's decision still reads it: only the claim of the closed form is gone"
-
-
-def test_at_catalog_version_2_with_the_interpreter_off_or_no_scope_a_line_that_repeats_keeps_the_closed_form_as_at_version_1(monkeypatch):
-    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
-    for scope in (None, False):      # no scope is the restrictive default; a scope that says off is the same
-        for text in lines.RECURRING:
-            if scope is None:
-                got = nw.read(text, NOW)
-            else:
-                with st.load("natural").repeat_scope(scope):
-                    got = nw.read(text, NOW)
-            assert got is not None and got["op"] == "event-create" and got["recurring"] is True and "start" not in got["slots"], (scope, text)
+    for text in lines.RECURRING:      # CANDIDATE-OUT 2: the repeat scope of CB-9 is gone (nothing in the product claimed a line with it since PR 2b); the family reads a repeating line when the operation is fixed
+        got = nw.read(text, NOW, op="event-create")
+        assert got is not None and got["op"] == "event-create" and got["recurring"] is True and "start" not in got["slots"], text
 
 
 def test_the_order_of_recognition_puts_the_write_heads_before_the_calendar_verb_and_a_reminder_stays_a_reminder():

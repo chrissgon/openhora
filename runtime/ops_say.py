@@ -223,7 +223,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     said = core._text(text, "the line")
     store = ctx["store"]
     turns = _turns()      # the order of who takes the line is the table of runtime/turn_order.py, stage `ops`; its dispatcher is runtime/ops_turn.py (S41-3)
-    with turns.turn(), _sentences(ctx, channel), ops_interpret.repeat_scope(ctx, channel, sender):      # CB-9: and a repeating line goes to the interpreter only when it is on for this sender; S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
+    with turns.turn(), _sentences(ctx, channel):      # S41-6: the line's refresh budget (limits L52 and L53), open from the begin-turn hooks to the stored reply; TT-2: and the language of its fixed sentences
         event_lookup.begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
         ops_file_read.begin_turn(ctx, channel, sender)      # S17: so is a list of files
         ops_todo.begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
@@ -392,17 +392,7 @@ def natural_file_accounts(project: str) -> list:
 def natural_needs(project: str, text: str, sender=None, channel: str = "messaging"):
     """The operation whose group a sender must hold for a plain line to be handled by code (ops_natural.needs), or None: the bridge asks it before it asks
     `talk`. Not an operation of the table."""
-    with ops_interpret.repeat_scope(project, channel, sender):      # CB-9: a repeating line needs the group `talk` (the interpreter reads it) only when the interpreter is on for this sender
-        return ops_natural.needs(core.context(project), text, channel, sender)
-
-
-def interpreter_on(project: str, sender=None, channel: str = "messaging") -> bool:
-    """CB-9: whether the interpreter reads this sender's plain lines in the project's language (ops_interpret.enabled), for the messaging bridge: it opens the scope of a repeating line
-    (natural.repeat_scope) around its first reading of the line. False when the configuration cannot be read. Read-only; not an operation of the table."""
-    try:
-        return bool(ops_interpret.enabled(core.context(project), channel, sender))
-    except core.OpsError:
-        return False
+    return ops_natural.needs(core.context(project), text, channel, sender)
 
 
 GREETING_FAMILIES = (      # S5: (phrase key, the operations and kinds one of which the sender's policy must permit) in the order the summary names them

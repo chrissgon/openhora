@@ -97,9 +97,48 @@ ENGLISH_CANDIDATES = [
 ]
 
 
-@pytest.mark.parametrize("line,expected", CANDIDATE_CASES + ENGLISH_CANDIDATES)
-def test_a_line_is_matched_to_a_reminder_operation_by_the_tables_and_nothing_else_is(line, expected):
-    assert natural.candidate(line) == expected
+# CANDIDATE-OUT 2: `natural.candidate` (what a line is) is deleted; the question engine asks the code guard `turn_gate.new_request` whether a line starts a request of its own. The table above is kept as
+# the guard's oracle: a line the old table named is a request to the guard, and a line it left alone is none, except these (the line, the guard's verdict), each a difference the guard has on purpose:
+# a forget by its words and a bare undo are asked once more or taken as answers (OPEN-CO-3); "agenda consulta ..." is a calendar line the guard does not see: its step (c) reads `triggers.calendar`, `calendar_verb` and `calendar_loose`, never `calendar_noun`, and pt-BR "agenda" is only in `calendar_noun`; a line about reminders not working is a `form` (a reminder noun
+# in a short line) or a `reminder` (it starts with the noun), because the guard does not read the problem words; "every monday at 8am send me a summary" is a bare reading.
+GUARD_DIFFERENCES = {
+    "esquece o lembrete da aula de violão": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "agenda consulta com a nutricionista segunda que vem às 16h20 na clínica": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "desfaz": None, "undo": None, "undo that": None,
+    "desfaz isso": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "esquece o lembrete de pagar 2 boletos": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "cancel the reminder of the 9 oclock one": None,
+    "lembretes funcionam no whatsapp?": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "lembretes não chegam no meu celular": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "meus lembretes não chegaram": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "lembrete 3 não chegou": "reminder",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "delete reminder emails from inbox": "form", "reminders are broken": "form", "my reminders are not working": "form", "do reminders work on whatsapp?": "form",
+    "reminder 3 did not arrive": "reminder", "every monday at 8am send me a summary": "bare",
+}
+
+
+def guard_disagreements(guard):
+    """The lines of the table that `guard` (a function of a line) does not treat as the table does: a request (a verdict) for a line the old table named, none for a line it left alone, and the
+    pinned verdict for each line of GUARD_DIFFERENCES. Empty when the guard is `turn_gate.new_request`. This oracle checks request or no request only: which verdict (reminder, write, form, bare) a
+    line gets is covered by the per-step oracles of test_reply_guard.py (`test_each_step_of_the_guard_names_its_line`, `test_the_twins_that_lack_the_word_that_matters_are_no_request`,
+    `test_the_twin_pairs_differ_only_by_the_trigger`)."""
+    out = []
+    for line, expected in CANDIDATE_CASES + ENGLISH_CANDIDATES:
+        verdict = guard(line)
+        if line in GUARD_DIFFERENCES:
+            if verdict != GUARD_DIFFERENCES[line]:
+                out.append((line, verdict))
+        elif (expected is not None) != (verdict is not None):
+            out.append((line, verdict))
+    return out
+
+
+def test_the_guard_treats_the_lines_of_the_old_table_as_a_request_or_not_except_the_differences_it_has_on_purpose():
+    assert guard_disagreements(turn_gate.new_request) == []
+
+
+def test_vacuity_a_guard_that_says_nothing_or_always_form_disagrees_with_the_table_on_many_lines():
+    assert len(guard_disagreements(lambda line: None)) > 40 and len(guard_disagreements(lambda line: "form")) > 20
 
 
 def test_the_command_form_needs_no_trigger_and_keeps_the_words_in_their_order():
@@ -176,7 +215,7 @@ def test_every_new_sentence_is_a_key_of_the_phrase_table_in_both_languages():
 def test_the_table_of_classes_holds_the_reminders_and_the_calendar_event_is_an_operation_now():
     assert {op: natural.CLASSES[op] for op in ("remind", "reminders", "reminder-forget", "reminder-restore")} == \
         {"remind": "N", "reminders": "R", "reminder-forget": "N", "reminder-restore": "N"}
-    assert natural.CLASSES["event-create"] == "E" and natural.operation_of("calendar-event-create") == "event-create", "the intent is the operation the platform has"
+    assert natural.CLASSES["event-create"] == "E"
     assert natural.PLANNED == ()
 
 

@@ -209,50 +209,13 @@ def test_a_week_with_no_day_asks_which_day_of_it_and_never_offers_tomorrow():
     assert named["ask"]["need"] == "confirm", "a week and a day: the day is read and confirmed, nothing is asked again"
 
 
-# --- Q1: a forget by number --------------------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("line,expected", pt.FORGET_FORMS + [
-    ("forget reminder 3", {"id": 3}), ("cancel reminder #3", {"id": 3}), ("cancel reminder number 3", {"id": 3}),
-    ("cancel the reminder of 3", {"id": 3, "confirm": True}), ("cancel reminders 1 and 2", {"id": None, "ids": [1, 2], "confirm": True}),
-    ("cancel the reminder at 9", {"id": None, "at": "at 9", "confirm": True})])
-def test_a_number_is_an_explicit_id_only_in_the_forms_that_say_so_and_otherwise_it_is_shown_and_confirmed(line, expected):
-    got = natural.candidate(line)
-    assert got["op"] == "reminder-forget" and {key: got[key] for key in expected} == expected, line
-    assert "words" not in got and "many" not in got
-
-
-def test_a_forget_with_words_is_still_words_and_a_forget_with_too_many_numbers_is_asked():
-    assert natural.candidate("cancel the reminder about the florist")["words"] == ["florist"]
-    assert natural.candidate("cancel reminders 1 2 3 4 5 6")["many"] is True
-
-
-# --- the undo is the bare word -------------------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("line", ["undo", "undo that", "undo the reminder", "undo it please", "bring it back", pt.LINE_UNDO, "desfaz o lembrete", "desfaz por favor"])
-def test_the_undo_is_the_bare_word_optionally_with_the_reminder(line):
-    assert natural.candidate(line) == {"op": "reminder-restore", "how": "trigger"}, line
-
-
-@pytest.mark.parametrize("line", ["undo the deploy", "undo that commit", "undo the last change", "undo?", "bring it back to the shop", *pt.NOT_UNDO])
-def test_anything_else_with_the_word_undo_goes_on(line):
-    assert natural.candidate(line) is None or natural.candidate(line)["op"] != "reminder-restore", line
-
-
 # --- Q2: the word reminder wins over a scheduling verb ------------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("line", [pt.LINE_MARCA_LEMBRETE, pt.LINE_AGENDE_LEMBRETE, "schedule a reminder tomorrow at 9am to pay the invoice", "book a reminder tomorrow at 9am to pay the invoice"])
 def test_a_scheduling_verb_with_the_word_reminder_makes_a_reminder(line):
-    assert natural.candidate(line) == {"op": "remind", "how": "trigger"}
     got = made(natural, line, NOW)
     assert got["when"] == "2026-10-19 09:00" and got["text"] in ("pagar o boleto", "pay the invoice"), "the verb and the noun are not part of the words"
-
-
-def test_a_scheduling_verb_without_the_word_reminder_is_unchanged():
-    assert natural.candidate("schedule the plumber tomorrow at 9am") == {"op": "calendar-event-create", "how": "ask"}
-    assert natural.candidate("mark the rent as paid") is None
 
 
 # --- M3, MINOR 1: misspellings are data, a typo is never a name and never drops a word --------------------------------------------------------------------

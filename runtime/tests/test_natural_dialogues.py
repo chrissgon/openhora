@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import old_claim
 import standin_tree as st
 from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from test_natural_corpus import clock, probe_lines
@@ -55,7 +56,7 @@ def walk(ask, now, path, bad, depth):
 
 
 def start(text, now):
-    named = natural.candidate(text)
+    named = old_claim.candidate(text)
     if named is not None and named["op"] != "remind":
         return None
     got = natural.understand(text, now, named["how"] if named else "trigger")
@@ -87,7 +88,7 @@ def test_nothing_is_made_by_a_pick_a_time_a_day_the_words_or_any_answer_but_the_
                                           ("remind me at 8", ["8pm", "call the bank tomorrow"])])
 def test_a_pick_then_the_words_shows_the_whole_reading_and_waits_for_the_yes(line, answers):
     now = clock("2026-10-18 14:00")
-    got = natural.understand(line, now, (natural.candidate(line) or {}).get("how", "trigger"))
+    got = natural.understand(line, now, (old_claim.candidate(line) or {}).get("how", "trigger"))
     for answer in answers:
         assert "ask" in got, (line, answer)
         got = natural.complete(got["ask"], answer, now)

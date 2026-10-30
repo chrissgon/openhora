@@ -19,10 +19,20 @@ from test_send_own_account import world  # noqa: F401  (the mail desk, the stand
 onw = st.load("ops_natural_writes")
 ops_core = st.load("ops_core")
 phrases = st.load("phrases")
+drafts = st.load("drafts")
 
 CLINICA, BANCO, ANA = "contato@clinica-sorriso.example", "avisos@banco-aurora.example", "ana.lima@estudio-norte.example"
 SPANS = {"target": "orçamento", "body": "assino amanhã"}      # validate: allow english-only -- the Portuguese words under test
 SAID = "responde o e-mail de orçamento dizendo que assino amanhã"      # validate: allow english-only -- the Portuguese line under test
+
+
+@pytest.fixture(autouse=True)
+def no_draft_left_behind():
+    """`asked` leaves the family's live question in the process-wide store of drafts, in the slot ("chat", none), which `ops.say` of a later test of the same worker reads: the line it stores
+    becomes the neutral word of a write (`ops_natural.stored_line`). Cleared before and after each test, so no test of this file leaves a draft for another one."""
+    drafts.clear()
+    yield
+    drafts.clear()
 
 
 def mailbox(world):

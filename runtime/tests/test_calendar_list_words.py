@@ -43,20 +43,20 @@ CALENDAR_READS = [
     "what do I have on my calendar",
 ]
 
-# (the line, what it reached before this slice and still reaches): natural_writes.candidate op, event_lookup.verb_op, natural.candidate op ("" is none)
+# (the line, what it reached before this slice and still reaches): natural_writes.candidate op, event_lookup.verb_op ("" is none)
 NOT_CAUGHT = [
-    ("Agende dentista amanhã às 10", "", "", "calendar-event-create"),  # validate: allow english-only -- a line the person types in Portuguese
-    ("Agende dentista amanhã às 10 no google", "", "", "calendar-event-create"),  # validate: allow english-only -- a line the person types in Portuguese
-    ("marca na agenda dentista quinta às 10", "event-create", "", "calendar-event-create"),  # validate: allow english-only -- a line the person types in Portuguese
-    ("remova a reunião da agenda", "", "event-cancel", ""),  # validate: allow english-only -- a line the person types in Portuguese
-    ("cancela o dentista da agenda", "", "event-cancel", ""),  # validate: allow english-only -- a line the person types in Portuguese
-    ("muda a reunião na agenda para as 11", "event-change", "event-change", "remind"),  # validate: allow english-only -- a line the person types in Portuguese
-    ("remove the meeting from my calendar", "", "event-cancel", ""),
-    ("cancel the dentist on my calendar", "", "event-cancel", ""),
-    ("move the meeting on my calendar to 11", "", "event-change", ""),
-    ("schedule a dentist visit tomorrow at 10", "", "", "calendar-event-create"),
-    ("mostra minha agenda e cancela o dentista", "", "", ""),  # validate: allow english-only -- a line the person types in Portuguese
-    ("show my calendar and delete the meeting", "", "", ""),
+    ("Agende dentista amanhã às 10", "", ""),  # validate: allow english-only -- a line the person types in Portuguese
+    ("Agende dentista amanhã às 10 no google", "", ""),  # validate: allow english-only -- a line the person types in Portuguese
+    ("marca na agenda dentista quinta às 10", "event-create", ""),  # validate: allow english-only -- a line the person types in Portuguese
+    ("remova a reunião da agenda", "", "event-cancel"),  # validate: allow english-only -- a line the person types in Portuguese
+    ("cancela o dentista da agenda", "", "event-cancel"),  # validate: allow english-only -- a line the person types in Portuguese
+    ("muda a reunião na agenda para as 11", "event-change", "event-change"),  # validate: allow english-only -- a line the person types in Portuguese
+    ("remove the meeting from my calendar", "", "event-cancel"),
+    ("cancel the dentist on my calendar", "", "event-cancel"),
+    ("move the meeting on my calendar to 11", "", "event-change"),
+    ("schedule a dentist visit tomorrow at 10", "", ""),
+    ("mostra minha agenda e cancela o dentista", "", ""),  # validate: allow english-only -- a line the person types in Portuguese
+    ("show my calendar and delete the meeting", "", ""),
 ]
 
 
@@ -74,13 +74,12 @@ def test_the_mail_forms_still_say_mail_and_the_events_form_says_calendar():
         assert natural.match(line)["op"] == "items" and natural_writes.items_kind(line) == "calendar", line
 
 
-@pytest.mark.parametrize("line,written,verb,candidate", NOT_CAUGHT)
-def test_a_write_that_names_the_agenda_is_no_tier_1_form_and_reaches_the_path_it_reached_before(line, written, verb, candidate):
+@pytest.mark.parametrize("line,written,verb", NOT_CAUGHT)
+def test_a_write_that_names_the_agenda_is_no_tier_1_form_and_reaches_the_path_it_reached_before(line, written, verb):
     assert natural.match(line) is None
     got = natural_writes.candidate(line)
     assert (got["op"] if got else "") == written
     assert (event_lookup.verb_op(line) or "") == verb
-    assert ((natural.candidate(line) or {}).get("op") or "") == candidate
 
 
 @pytest.fixture

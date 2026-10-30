@@ -70,9 +70,9 @@ weekday_after, months (12 lists), weak, cued, month_joiners, day_words, ordinal_
 pm} (with the forms written with dots, "a.m."), dayparts {morning, dawn, afternoon, evening, night}, vague, noon, midnight, bare_hour_prefixes, relative_in,
 relative_units {m, h, d, w}, number_words {word: n}, half_hour, and_half, joiners, half_words, time_words, not_typos, recurrence, recurrence_units,
 recurrence_counted_units, recurrence_phrases, recurrence_other, recurrence_not_before, recurrence_adverbs, recurrence_before_day, recurrence_joiners, week_phrases,
-remind_nouns, vague_parts {morning, afternoon, evening, night}, first_words, ordinal_marks, quarter_past, quarter_to, half_past, date_markers, date_nouns, but_words,
-deadline_words, deadline_to, deadline_breaks, fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
-reminders, reminders_bare, calendar, calendar_verb, calendar_noun, calendar_loose, note, undo}, forget {verbs, nouns, fillers, id_words, id_marked}, polite, connectors, answers {yes,
+vague_parts {morning, afternoon, evening, night}, first_words, ordinal_marks, quarter_past, quarter_to, half_past, date_markers, date_nouns, but_words,
+deadline_words, deadline_to, deadline_breaks, fraction_before, fraction_after, date_cues, edge_words, work_verbs, triggers {remind, remind_anywhere,
+calendar, calendar_verb, calendar_noun, calendar_loose}, forget {nouns, fillers}, polite, connectors, answers {yes,
 notice, event, other, cancel, thanks, again}, work_starters. The trigger and answer words are read by runtime/natural.py, the time words here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --help
@@ -96,15 +96,15 @@ _L = r"(?<![a-z0-9])"
 _R = r"(?![a-z0-9])"
 
 LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "cued", "hour_words_long", "not_typos", "recurrence", "recurrence_before_day",
-         "recurrence_joiners", "problem_words", "work_verbs", "calendar_noun_reads", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
+         "recurrence_joiners", "work_verbs", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
          "hour_words_24", "vague", "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "and_half", "joiners", "half_words", "time_words",
          "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters", "recurrence_units", "recurrence_adverbs",
-         "recurrence_other", "recurrence_not_before", "week_phrases", "remind_nouns", "first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past",
+         "recurrence_other", "recurrence_not_before", "week_phrases", "first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past",
          "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words", "before_words", "topic_words", "date_after_clock", "deadline_words", "deadline_to", "deadline_breaks")
 GROUPS = {"days": ("today", "tomorrow", "day_after_tomorrow"), "meridiem": ("am", "pm"), "dayparts": ("morning", "dawn", "afternoon", "evening", "night"),
           "relative_units": ("m", "h", "d", "w"),
-          "triggers": ("remind", "remind_anywhere", "reminders", "reminders_bare", "calendar", "calendar_verb", "calendar_noun", "calendar_loose", "note", "undo"),
-          "forget": ("verbs", "nouns", "fillers", "id_words", "id_marked"), "vague_parts": ("morning", "afternoon", "evening", "night"),
+          "triggers": ("remind", "remind_anywhere", "calendar", "calendar_verb", "calendar_noun", "calendar_loose"),
+          "forget": ("nouns", "fillers"), "vague_parts": ("morning", "afternoon", "evening", "night"),
           "answers": ("yes", "notice", "event", "other", "cancel", "thanks", "again")}
 
 

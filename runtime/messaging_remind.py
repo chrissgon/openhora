@@ -90,7 +90,7 @@ class Reminders:
     # --- the person's own words (package NR-1) ----------------------------------------------------------------------------------------
 
     def natural(self, project: dict, chat: str, intent: dict) -> bool:
-        """A line in the person's own words that code matched to a reminder operation (runtime/natural.py `candidate`): no model, no route lock, no model
+        """A line in the person's own words that the interpreter named as a reminder operation (the old `natural.candidate`, deleted by CANDIDATE-OUT 2, matched it by code): no model, no route lock, no model
         slot. The policy is the operation's own group, as for the typed command. False when the line is not for these operations after all (a line that only
         looks like a request, from a sender who cannot make reminders): the caller then handles it as any plain line."""
         bridge = self.bridge

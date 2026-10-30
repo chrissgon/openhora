@@ -2690,7 +2690,6 @@ DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
 from ops_say import (  # noqa: E402,F401
     chat_memory,
-    interpreter_on,
     natural_draft,
     natural_file_accounts,
     natural_forget,
