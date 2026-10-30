@@ -12,6 +12,7 @@ a read happens and the one that makes it. It mirrors the calendar's exception (r
 
   (the budget of a line is `turn_gate.turn`: S41-6 moved it there with the other two refresh paths; the mail family's `resolve` and every other entry of the operations layer open it)
   refresh_once(ctx, source_id, channel, sender)   "refreshed" | "failed" | "not-allowed" | "spent": whether the source was read again for this line
+  last_reason(ctx, source_id)               the closed word (ops_items.REASON_KEYS) of why the source's last failed try failed, when only the computer solves it, while that failure is the current one
   forget()                                  clears the memory of failed tries (a test, a process that stops)
 
 Where it lives under the limits:
@@ -60,11 +61,13 @@ MONOTONIC = time.monotonic                           # the seam a test replaces
 _LOCKS = {}                                          # (project, source id) -> the lock of the source
 _LOCKS_GUARD = threading.Lock()
 _FAILED = {}                                         # (project, source id) -> MONOTONIC() of its last failed try: a number, in memory, no content
+_WHY = {}                                            # (project, source id) -> the closed word of why its last failed try failed, when only the computer solves it (ops_items.reason_of): a word, in memory
 
 
 def forget() -> None:
     """Clear the memory of failed tries."""
     _FAILED.clear()
+    _WHY.clear()
 
 
 def _lock_of(key):
@@ -89,6 +92,12 @@ def _still_refused(ctx: dict, source_id: str, channel, sender) -> bool:
     except sources.SourcesError:
         return False
     return False
+
+
+def last_reason(ctx: dict, source_id: str):
+    """The closed word (ops_items.REASON_KEYS) of why the last try on this source failed, or None; said only while that failure is the current one (the source is still cooling)."""
+    key = (ctx["cfg"]["project"], source_id)
+    return _WHY.get(key) if _cooling(key) else None
 
 
 def _failed_word(error) -> str:
@@ -128,10 +137,12 @@ def refresh_once(ctx: dict, source_id: str, channel, sender) -> str:
         except Exception as e:      # noqa: BLE001 - the fault can hold a provider's words: only a closed word leaves
             print(f"mail: refresh of {source_id} failed ({_failed_word(e)})", file=sys.stderr)
             _FAILED[key] = MONOTONIC()
+            _WHY[key] = ops_items.reason_of(getattr(e, "why", None), getattr(e, "provider_kind", None))
             return "failed"
         if _still_refused(ctx, source_id, channel, sender):      # the read worked and the snapshot is still refused (a clock that is off, no new version): rest, as after a failure
             print(f"mail: refresh of {source_id} failed (unchanged)", file=sys.stderr)
             _FAILED[key] = MONOTONIC()
+            _WHY.pop(key, None)
             return "failed"
         return "refreshed"
     finally:

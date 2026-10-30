@@ -167,7 +167,9 @@ def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: lis
     except Exception as e:
         kind = getattr(e, "kind", None)
         reason = getattr(e, "reason", None) or str(e)
-        raise SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code) from None
+        refused = SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code)
+        refused.provider_kind = kind if kind in ("usage", "not-configured", "failed") else None   # the closed word of why, never the provider's text: the phone says "authorization" from it
+        raise refused from None
     if not isinstance(out, dict):
         raise SourcesError(f"the {code} provider answered no object", code)
     return out

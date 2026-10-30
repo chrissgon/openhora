@@ -93,7 +93,7 @@ def test_the_heading_is_the_old_reading_when_no_check_was_made_so_the_oracle_can
 def test_a_failed_refresh_keeps_the_old_time_adds_the_note_and_writes_one_closed_line_to_stderr(world, snaps, clock, capfd):
     inbox(world, snaps, [bia()])
     snaps.later(**LATE)
-    snaps.providers.fail = tsm.Failure(reason="the provider said ZEBRA-SECRET")
+    snaps.providers.fail = tsm.Failure("failed", "the provider said ZEBRA-SECRET")
     capfd.readouterr()
     reply = ask(world, "list my emails")
     seen = capfd.readouterr()
@@ -109,7 +109,7 @@ def test_a_failure_after_a_check_names_the_time_of_the_check(world, snaps, clock
     snaps.later(**LATE)
     ask(world, "list my emails")          # checked at 16:59
     snaps.later(hours=1)
-    snaps.providers.fail = tsm.Failure()
+    snaps.providers.fail = tsm.Failure("failed", "exit 1")
     pk.assert_said(ask(world, "list my emails").splitlines()[-1], "NW_ITEMS_OLD", EN, time="16:59")
 
 

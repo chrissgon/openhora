@@ -42,7 +42,7 @@ What is decided here, and from where:
     again by the platform (runtime/mail_refresh.py `refresh_once`: one provider read for a line, because the line's refresh budget (`turn_gate.turn`, opened by the entry point of the line, else by `resolve`) allows one mail lookup read and `_read_snapshot` is the only caller;
     only that source, in its own box, days and max; the provider bounded at 60 seconds; one read of a source at a time; a source that failed is not tried again for 120
     seconds), and the index is asked again. A number the person chooses from a list is checked against the snapshot the list was drawn from (the draft keeps `_listed`: source and version): if another line, a list on a phone, a typed refresh or a routine read the source again since, the numbers name other messages and the answer is `NW_MAIL_LIST_CHANGED`, nothing opened. A line that names a message number or a written reference never refreshes (a refresh renumbers the snapshot, and the number the person
-    saw would name another message). A refresh that fails, is too slow, or leaves the snapshot still refused is one plain sentence (`NW_MAIL_REFRESH_FAILED`): nothing is listed,
+    saw would name another message). A refresh that fails, is too slow, or leaves the snapshot still refused is one plain sentence (`NW_MAIL_REFRESH_FAILED`, or, when the refresh failed for a reason only the computer solves, the sentence of that reason, `ops_items.REASON_KEYS`): nothing is listed,
     no card is opened. The terminal, the page and the conversation keep the sentence that says to refresh it (they have the command and the button);
   * the account is the one named by a service word of the line (`google`, `gmail`, `outlook`...), or the account of the mailbox the message is in, or the only account the
     project configures, or the account the project chose as its default (when the configuration has one); with two possible it is asked;
@@ -75,8 +75,10 @@ import mail_reply_compose  # noqa: E402
 import natural  # noqa: E402
 import natural_writes_mail as nwm  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_items  # noqa: E402
 import phrases  # noqa: E402
 import project_config  # noqa: E402
+import source_names  # noqa: E402
 import sources  # noqa: E402
 import sources_mail  # noqa: E402
 import turn_gate  # noqa: E402
@@ -220,6 +222,13 @@ def _same_list(ctx: dict, listed, channel, sender) -> None:
         raise _say("NW_MAIL_LIST_CHANGED")
 
 
+def _reason_say(ctx: dict, source_id: str, reason):
+    """The sentence for a refusal only the computer solves (ops_items.REASON_KEYS), naming the source as a phone names it; None when there is no such reason."""
+    if not reason:
+        return None
+    return _say(ops_items.REASON_KEYS[reason], name=(source_names.catalog(ctx).get(source_id) or {}).get("name") or source_id)
+
+
 def _read_snapshot(ctx: dict, source_id: str, channel, sender, may_refresh: bool = False) -> dict:
     """The index of the newest snapshot of `source_id` for the caller. With `may_refresh`, a snapshot refused as stale, missing or without an index is read again once
     (runtime/mail_refresh.py); every other refusal, and every refusal when the refresh is not allowed, is the sentence it always was."""
@@ -238,9 +247,12 @@ def _read_snapshot(ctx: dict, source_id: str, channel, sender, may_refresh: bool
                 except sources.SourcesError as again:
                     raise core.OpsError(" ".join(str(again).split())[:200], 1) from None
             if done in ("failed", "spent"):
-                raise _say("NW_MAIL_REFRESH_FAILED", source=source_id) from None
+                raise (_reason_say(ctx, source_id, mail_refresh.last_reason(ctx, source_id)) or _say("NW_MAIL_REFRESH_FAILED", source=source_id)) from None
         raise _ref_say(e.code, source_id) from None      # "not-allowed", a refusal no read cures, or a line that may not refresh: today's sentence
     except sources.SourcesError as e:
+        told = _reason_say(ctx, source_id, ops_items.reason_of(e.code)) if channel == "messaging" else None      # a phone is told why, in words; the terminal keeps its own
+        if told is not None:
+            raise told from None
         raise core.OpsError(" ".join(str(e).split())[:200], 1) from None
 
 

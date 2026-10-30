@@ -12,7 +12,8 @@ steps can call them without a rewrite.
 The sources folder (`sources_dir` of runtime.json, mandatory, accepted only in the terminal):
 
   L21  dedicated and private: empty, or marked as the runtime's (MARKER) at acceptance, with mode 0700 (accept_folder,
-       check_folder); the runtime checks it again before every use
+       check_folder); the runtime checks it again before every use; a marker that names another device but this folder's inode
+       and a path that still leads to this folder is the same project (_remounted), renewed by the next writer
   L22  disjoint from data_dir, from store_db, from the workbench checkout and from the local evidence folder (path_problems),
        compared by device and inode (os.path.samestat), not by strings
   L23  the runtime writes only inside it and never follows a symbolic link out: every write goes through the open
@@ -242,7 +243,8 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
 def project_identity(project: str) -> dict:
     """The identity of a project's folder: {"id": "<st_dev>:<st_ino>", "path": the real path as it is spelled now}. The id is what the
     file system calls the folder, not how a path spells it (a case-insensitive disk keeps the case a person typed), so the same
-    project opened under two spellings is the same project."""
+    project opened under two spellings is the same project. A device number can change under the same folder (a restart, a disk
+    mounted again): `_remounted` is what says that a marker with another device still names this folder."""
     info = os.stat(project)
     return {"id": f"{info.st_dev}:{info.st_ino}", "path": os.path.realpath(project)}
 
@@ -252,10 +254,31 @@ def project_key(project: str) -> str:
     return project_identity(project)["id"]
 
 
-def _marker_text(project=None) -> str:
+MARKED_ID = re.compile(r"([0-9]+):([0-9]+)")
+_TOLD_REMOUNT = set()      # the projects this process has said it of, so that the log holds one line and not one for each use
+
+
+def _remounted(data: dict, project: str) -> bool:
+    """Whether a marker that names another device is still this project (limit L21): the inode is this folder's and the path the marker recorded leads, now, to this very folder. Compared by
+    os.path.samestat and never as strings: realpath keeps the case a person typed. Reads only."""
+    here = os.stat(project)
+    found = MARKED_ID.fullmatch(str(data.get("project") or ""))
+    recorded = data.get("project_path")
+    if found is None or not isinstance(recorded, str) or not os.path.isabs(recorded):
+        return False
+    if int(found.group(2)) != here.st_ino or int(found.group(1)) == here.st_dev:
+        return False
+    try:
+        return os.path.samestat(os.stat(recorded), here)
+    except OSError:
+        return False
+
+
+def _marker_text(project=None, renewed_from=None) -> str:
     who = project_identity(project) if project else {"id": None, "path": None}
     return json.dumps({"kind": MARKER_KIND, "version": 3, "id": secrets.token_hex(8),
-                       "project": who["id"], "project_path": who["path"]}) + "\n"
+                       "project": who["id"], "project_path": who["path"],
+                       **({"renewed_from": renewed_from} if renewed_from else {})}) + "\n"
 
 
 def _marker_data(fd: int):
@@ -277,11 +300,19 @@ def _marker_data(fd: int):
 
 def _marker_ok(fd: int, project=None) -> bool:
     """Whether the folder holds the marker. With `project`, the marker must also name that project (limit L21: a folder marked by
-    one project is not another project's; a marker that names none is no project's)."""
+    one project is not another project's; a marker that names none is no project's). A marker whose device differs but whose inode and
+    path are this folder's names it too (_remounted); this check only reads."""
     data = _marker_data(fd)
     if data is None:
         return False
-    return project is None or data.get("project") == project_key(project)
+    if project is None or data.get("project") == project_key(project):
+        return True
+    if not _remounted(data, project):
+        return False
+    if project not in _TOLD_REMOUNT:
+        _TOLD_REMOUNT.add(project)
+        print("sources: the project folder's device number changed; same path and inode, so the same project (limit L21)", file=sys.stderr)
+    return True
 
 
 def _describe(who) -> str:
@@ -291,14 +322,14 @@ def _describe(who) -> str:
 
 def _other_project(path: str, data=None, project=None) -> "SourcesError":
     """The refusal of a folder marked for another project. The two identities are in the sentence (the marker's and this project's),
-    so that a person can tell a different project from the same one moved, renamed or on a disk mounted again. `.old` and `.new`
+    so that a person can tell a different project from the same one moved, renamed or on a disk mounted at another path. `.old` and `.new`
     carry them for the caller that builds the command to take the folder over."""
     old = {"id": (data or {}).get("project"), "path": (data or {}).get("project_path")}
     new = project_identity(project) if project else {"id": None, "path": None}
     error = SourcesError(f"the sources folder {path} was marked for another project: its marker names {_describe(old)}, and this "
                          f"project is {_describe(new)}. One sources folder serves one project: name a separate folder for each "
                          "project in runtime.json sources_dir. If this is the same project (moved, renamed, or on a disk mounted "
-                         "again) and it should take the folder over, accept the configuration in the terminal with --adopt-sources",
+                         "at another path) and it should take the folder over, accept the configuration in the terminal with --adopt-sources",
                          "foreign")
     error.old, error.new = old, new
     return error
@@ -328,7 +359,7 @@ def _open_folder_fd(path: str) -> int:
     return fd
 
 
-def _rewrite_marker(fd: int, project: str) -> None:
+def _rewrite_marker(fd: int, project: str, renewed_from=None) -> None:
     """Replace the marker with one for `project`: a new file written whole through the folder's descriptor, then one rename."""
     temporary = f"{MARKER}.new"
     try:
@@ -337,7 +368,7 @@ def _rewrite_marker(fd: int, project: str) -> None:
         pass
     mark = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
     with os.fdopen(mark, "w", encoding="utf-8") as f:
-        f.write(_marker_text(project))
+        f.write(_marker_text(project, renewed_from))
         f.flush()
         os.fsync(f.fileno())
     os.rename(temporary, MARKER, src_dir_fd=fd, dst_dir_fd=fd)
@@ -1120,11 +1151,28 @@ def take_lease(folder: Folder, cfg: dict, clock=None) -> dict:
     other host whose expired lease this host took over, or None; the takeover is also recorded (lease.record_takeover) for the doctor."""
     now = clock() if clock is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()
     try:
-        return lease.take(folder.fd, cfg["data_dir"], now=now)
+        taken = lease.take(folder.fd, cfg["data_dir"], now=now)
+        _renew_marker(folder.fd, cfg)
+        return taken
     except lease.LeaseError as e:
         raise SourcesError(str(e), "lease") from None
     except OSError as e:
         raise SourcesError(f"the lease of the sources folder cannot be written: {e.strerror}", "folder") from None
+
+
+def _renew_marker(fd: int, cfg: dict) -> None:
+    """A writer holds the sources lock and this host's lease: a marker that names the device this project had is rewritten for the one it has, with the old id in `renewed_from`. A courtesy: the rule of _remounted
+    holds without it, so a failure, or a text too long for _marker_data's 1024 bytes, leaves the marker as it is and never stops the write."""
+    data = _marker_data(fd)
+    if data is None or data.get("project") == project_key(cfg["project"]) or not _remounted(data, cfg["project"]):
+        return
+    if len(_marker_text(cfg["project"], data.get("project")).encode("utf-8")) > 1024:
+        return
+    try:
+        _rewrite_marker(fd, cfg["project"], renewed_from=data.get("project"))
+    except OSError:
+        return
+    print("sources: the marker now names the project folder's new device number (same path, same inode; limit L21)", file=sys.stderr)
 
 
 def _refuse_intake(e: "intake.IntakeError") -> "SourcesError":

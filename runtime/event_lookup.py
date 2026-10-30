@@ -174,7 +174,7 @@ def events(ctx: dict, sender) -> tuple:
     for source in listed:
         try:
             snapshot = item_refs.read_index(ctx, source["id"], channel=CHANNEL, sender=sender, kinds=("calendar",), clock=clock)
-        except item_refs.ItemRefError:
+        except (item_refs.ItemRefError, sources.SourcesError):      # a refused folder (sources-identity) counts as a snapshot refused: the lookup says "stale", it does not lose the reply
             refused += 1
             continue
         known = {e["n"]: e for e in snapshot["entries"]}

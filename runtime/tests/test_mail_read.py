@@ -613,7 +613,7 @@ def test_a_list_names_a_box_only_by_a_form_that_selects_it(world, snaps, clock):
 def test_a_failed_refresh_by_words_adds_the_note_of_the_old_snapshot(world, snaps, clock):
     boxes(world, snaps)
     snaps.later(minutes=15)
-    snaps.providers.fail = tsm.Failure()
+    snaps.providers.fail = tsm.Failure("failed", "exit 1")
     cfg = ops_core.context(world["path"])["cfg"]
     reply, _ = ask(world, {"match": "refund"}, "read the refund e-mail")
     assert shown_text(reply).splitlines()[-1] == phrases.text("NW_ITEMS_OLD", cfg, time="07:12"), "the time the snapshot was read, as `items` writes the note"

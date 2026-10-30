@@ -183,8 +183,8 @@ def _read_index(ctx: dict, source_id: str, channel, sender):
         if e.code == "not_readable":
             raise core.OpsError(phrases.en("NW_REF_NOT_READABLE"), 1) from None
         return None, e.code
-    except sources.SourcesError:
-        return None, "integrity"
+    except sources.SourcesError as e:
+        return None, ops_items.reason_of(e.code) or "integrity"
 
 
 def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sender) -> dict:
@@ -205,9 +205,13 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
     names = source_names.catalog(ctx)
     name_of = lambda source_id: (names.get(source_id) or {}).get("name") or source_id  # noqa: E731
     found, failed, old, counts = [], [], [], {}
+    told = {}      # a reason only the computer solves -> the plain names of the boxes it holds for (ops_items.reason_lines)
     for source in boxes:
         refresh_failed = not by_number and phone and ops_items._refresh_failed(project, ctx, source["id"])      # the old snapshot is read as it is; the failure was said on stderr with a closed word
         snapshot, why = _read_index(ctx, source["id"], channel, sender)
+        reason = turn_gate.failed_reason(source["id"]) or (why if why in ops_items.REASON_KEYS else None)
+        if reason:
+            told.setdefault(reason, []).append(name_of(source["id"]))
         if snapshot is None:
             failed.append(name_of(source["id"]))
             counts[source["id"]] = None
@@ -233,20 +237,20 @@ def _find(ctx: dict, project: str, spec: dict, account, day_read, channel, sende
     hits = [c for c in found if "entry" in c]
     for c in hits:
         c["selectable"] = _selectable(c, boxes, counts)
-    notes = {**({"failed_boxes": failed} if failed else {}), **({"old_at": min(old)} if old else {})}
+    notes = {**({"failed_boxes": failed} if failed else {}), **({"old_at": min(old)} if old else {}), **({"told": told} if told else {})}
     if by_number:
         if not hits:
             past = [c for c in found if "past_end" in c]
             if past:
                 return {"status": "past-end", "number": spec["number"], "count": past[0]["past_end"], "box": name_of(past[0]["source"]["id"])}
-            return {"status": "unavailable"}
+            return {"status": "unavailable", **({"told": told} if told else {})}
         if failed:      # a box that could not be read might hold the number too: the message of another box is not shown in its place
-            return {"status": "box-failed", "number": spec["number"], "failed_boxes": failed}
+            return {"status": "box-failed", "number": spec["number"], "failed_boxes": failed, **({"told": told} if told else {})}
         if len(hits) > 1:
             return {"status": "which-box", "number": spec["number"], "options": [_summary(c) for c in hits], **notes}
         return {**_show(ctx, hits[0], phone), **notes}
     if not hits:
-        return {"status": "none", **notes} if len(failed) < len(boxes) else {"status": "unavailable"}
+        return {"status": "none", **notes} if len(failed) < len(boxes) else {"status": "unavailable", **({"told": told} if told else {})}
     hits.sort(key=lambda c: (c["entry"].get("received") or ""), reverse=True)
     if len(hits) == 1 and not failed:
         return {**_show(ctx, hits[0], phone), **notes}
@@ -325,6 +329,8 @@ def _notes(outcome: dict, cfg: dict) -> str:
         moment = ops_items._local(outcome["old_at"])
         if moment is not None:
             out += "\n" + t("NW_ITEMS_OLD", time=moment.strftime("%H:%M"))
+    for line in ops_items.reason_lines(outcome.get("told") or {}, cfg):      # a box only the computer can fix is told by its reason, after the note
+        out += "\n" + line
     return out
 
 
@@ -357,7 +363,7 @@ def render(outcome: dict, cfg: dict, project: str = "", ctx: dict = None, channe
     if status == "past-end":
         return t("MR_PAST_END", box=outcome["box"], count=outcome["count"], n=outcome["number"])
     if status == "box-failed":
-        return t("MR_BOX_FAILED", boxes=", ".join(outcome["failed_boxes"]), n=outcome["number"])
+        return "\n".join([t("MR_BOX_FAILED", boxes=", ".join(outcome["failed_boxes"]), n=outcome["number"]), *ops_items.reason_lines(outcome.get("told") or {}, cfg)])
     if status == "day-unread":
         return t("MR_DAY_UNREAD")
     if status == "ask":
@@ -368,7 +374,7 @@ def render(outcome: dict, cfg: dict, project: str = "", ctx: dict = None, channe
         return t(outcome["key"], **outcome["fields"])
     if status == "missing":
         return ops_items.reply(project, ctx, {"missing": {"kind": "mail", "account": outcome["account"]}}, channel)
-    return t("MR_UNAVAILABLE")
+    return "\n".join(ops_items.reason_lines(outcome.get("told") or {}, cfg)) or t("MR_UNAVAILABLE")
 
 
 def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extras: dict) -> str:

@@ -42,6 +42,11 @@ semana") keeps the events of that day or range, read with the time engine, and i
 (an event created, changed or removed; a message archived, moved or trashed) the sources of that account are marked (`mark_changed`, called where the effect is recorded) and the next list on a
 phone reads the provider again whatever the age of the snapshot, so a list never shows what the person has just changed.
 
+A source that cannot be read for a reason only the computer solves (sources-identity) is told once and by its reason, on a phone: `reason_of` turns the refusal's closed word (the folder: `foreign`, `folder`, `path`; the
+authorization: a mail or calendar read whose provider answered `not-configured`) into `folder` or `authorization`, and the reply puts one sentence for each reason after the list and its note
+(`NW_ITEMS_REFUSED_FOLDER`, `NW_ITEMS_REFUSED_AUTH`; two sources with one reason are one sentence, with both names): "trying again here will not help". Every other failure keeps the plain sentence (a retry may
+work). The sentence never holds a path, an id, a command or a provider's text (L62); the terminal and the page keep `<id>: <why>`.
+
 It reads only what a reference reads, with the same rights: the terminal, the conversation and the page, and a messaging sender whose profile lists the group `ask-mail`
 (item_refs.may_read); the MCP mode has no row. The lines are another person's words, so the reply is private: it goes to the chat that asked, and the conversation stores a neutral
 word for it (runtime/ops_natural.py). Every value is read back through the closed shapes of runtime/item_refs.py; the text of an event is read only after the index and the
@@ -272,7 +277,28 @@ def _account_of(row: dict):
 _CHECKED = {}          # (project, source id) -> the UTC time a read for a line last succeeded: a time and no content, in memory; a new version is not made when the listing did not change
 _DIRTY = set()          # (project, source id) of a source whose account had an effect carried out since it was last read: the next list on a phone reads it whatever the age of the snapshot
 CHANGING = ("archive", "move", "trash")          # the actions of a mailbox effect that change what a mailbox lists
-CLOSED_WHY = ("folder", "path", "type", "size", "credential", "convert", "integrity", "notion", "usage", "unattended", "missing", "drive", "mail", "calendar")          # sources.SourcesError codes
+CLOSED_WHY = ("folder", "path", "type", "size", "credential", "convert", "integrity", "notion", "usage", "unattended", "missing", "drive", "mail", "calendar", "foreign", "lease")          # sources.SourcesError codes
+REASON_KEYS = {"folder": "NW_ITEMS_REFUSED_FOLDER", "authorization": "NW_ITEMS_REFUSED_AUTH"}          # the refusals a person cannot cure from a phone, each with its own sentence
+
+
+def reason_of(why, provider_kind=None):
+    """The closed word for a refusal only the computer solves, or None (a read that may work if tried again). Words in, a word out: a provider's text never passes through here. Pure."""
+    if why in ("foreign", "folder", "path"):
+        return "folder"
+    if why in sources.SNAPSHOT_TYPES and provider_kind == "not-configured":
+        return "authorization"
+    return None
+
+
+def _reason_field(source_id) -> dict:
+    """{"reason": word} when this line's read of the source failed for a reason only the computer solves (turn_gate.failed_reason), else {}."""
+    word = turn_gate.failed_reason(source_id)
+    return {"reason": word} if word else {}
+
+
+def reason_lines(told: dict, cfg: dict) -> list:
+    """One sentence for each reason in `told` ({reason: [plain names]}), the names joined: two sources that need the same step are one sentence."""
+    return [phrases.text(REASON_KEYS[r], cfg, name=", ".join(names)) for r, names in told.items()]
 
 
 def _now():
@@ -315,6 +341,7 @@ def _refresh_failed(project: str, ctx: dict, source_id: str, force: bool = False
         why = getattr(e, "why", None)
         print(f"items: refresh of {source_id} failed ({why if why in CLOSED_WHY else 'error'})", file=sys.stderr)
         turn_gate.mark_failed(source_id)
+        turn_gate.note_reason(source_id, reason_of(why, getattr(e, "provider_kind", None)))
         return True
     _CHECKED[key] = _now()
     _DIRTY.discard(key)
@@ -387,7 +414,13 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
             try:
                 snapshot = item_refs.read_index(ctx, row["id"], channel=channel, sender=sender, kinds=(row["type"],), clock=SNAPSHOT_CLOCK)
             except item_refs.ItemRefError as e:
-                refused.append({"source": row["id"], "why": str(e)})
+                refused.append({"source": row["id"], "why": str(e), **_reason_field(row["id"])})
+                continue
+            except sources.SourcesError as e:      # the folder itself is refused: a reason only the computer solves is a row, any other fault is raised as before
+                reason = reason_of(e.code)
+                if reason is None:
+                    raise
+                refused.append({"source": row["id"], "why": str(e), "reason": reason})
                 continue
             nodate, unknown = 0, False
             if row["type"] == "mail":
@@ -426,7 +459,7 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
             checked = _CHECKED.get((ctx["cfg"]["project"], row["id"])) if phone else None
             later = checked is not None and (_local(snapshot["read_at"]) or checked) < checked
             found.append({"source": row["id"], "type": row["type"], "account": _account_of(row), "read_at": snapshot["read_at"], "items": rows,
-                          **({"old": True} if old else {}), **({"checked_at": checked.isoformat()} if later else {}),
+                          **({"old": True, **_reason_field(row["id"])} if old else {}), **({"checked_at": checked.isoformat()} if later else {}),
                           **({"nodate": nodate} if nodate else {}), **({"unread_unknown": True} if unknown else {}),
                           **({"window": _window(ctx, row, snapshot)} if not rows else {})})
         if count:
@@ -626,8 +659,16 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
                 lines.append(t("NW_ITEMS_PREVIEW", text=i["preview"]))
         if len(entry["items"]) > limit:
             lines.append(t("NW_ITEMS_MORE", n=len(entry["items"]) - limit))
+    told = {}      # a reason only the computer solves -> the plain names of the sources it holds for: one sentence for each reason, after the list and its note
     for entry in out["refused"]:
+        if phone and entry.get("reason"):
+            told.setdefault(entry["reason"], []).append(names.get(entry["source"], entry["source"]))
+            continue
         lines.append(t("NW_ITEMS_REFUSED_PHONE", name=names.get(entry["source"], entry["source"])) if phone else f"{entry['source']}: {entry['why']}")
+    if phone:
+        for entry in out["sources"]:
+            if entry.get("reason"):
+                told.setdefault(entry["reason"], []).append(names[entry["source"]])
     if out.get("match_empty"):      # CB-1: a `match` with no content word filtered nothing: this is the whole list, said once
         lines.append(t("NW_ITEMS_MATCH_EMPTY"))
     if sum(e.get("nodate", 0) for e in out["sources"]):      # CB-1: messages with no time in the index are left out of a day filter, counted and said once
@@ -636,6 +677,7 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
     moment = _local(old[0]) if old else None
     if moment is not None:      # one note for the whole list: the time of the oldest snapshot whose new read failed, in the machine's zone as the snapshots are
         lines.append(t("NW_ITEMS_OLD", time=moment.strftime("%H:%M")))
+    lines.extend(reason_lines(told, cfg))
     return "\n".join(lines) or t("NW_ITEMS_NONE")
 
 

@@ -365,7 +365,7 @@ def test_the_phone_list_names_a_source_it_could_not_read_in_one_sentence_and_the
     ops_sources.source_mail(world["path"], "caixa-outlook", "outlook:box=inbox;days=7;max=50")
     snaps.later(hours=30)
     ops_sources.source_mail(world["path"], "caixa-gmail", "gmail:box=inbox;days=7;max=50")      # read now: fresh; the Outlook one is older than 26 hours
-    snaps.providers.fail = tsm.Failure()
+    snaps.providers.fail = tsm.Failure("failed", "exit 1")
     on_phone = ask(world, "lista meus emails")
     assert phrases.text("NW_ITEMS_REFUSED_PHONE", PT, name="Outlook") in on_phone.splitlines()
     assert on_phone.splitlines()[0].startswith("Gmail (") and pk.said(on_phone, "NW_ITEMS_REFUSED_PHONE", PT, name="Outlook")

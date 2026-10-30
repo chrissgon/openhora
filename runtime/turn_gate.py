@@ -67,6 +67,9 @@ do it, each for one purpose; before S41-6 each held a budget of its own (the cal
                                checks that cost the line nothing (`mail_refresh` asks after its cooldown: a source that is cooling must not spend the one mail-lookup grant).
   mark_failed(source_id)       the line's read of `source_id` failed: remembered for this turn only (a no-op outside a turn), so that a second list of the same line, whose read the gate refuses, still
   failed_in_turn(source_id)    says the snapshot is old (`ops_items._refresh_failed` returns it); False outside a turn and for a source whose read did not fail in this turn.
+  note_reason(source_id, reason)
+  failed_reason(source_id)     the closed word of why that read failed, when only the computer cures it ("folder" or "authorization", `ops_items.reason_of`): `note_reason` keeps it for this turn (nothing outside a
+                               turn or for a falsy reason) and `failed_reason` returns it, None outside a turn. A word only, never a provider's text.
 
 What stays with each path: the age of a snapshot and the phone-only condition of the fresh lists (`ops_items`), the per-source lock and the 120 s cooldown of the mail lookup (`mail_refresh`): they are not
 per-turn rules. A refreshed snapshot is read for one line and never a task's input (L53): nothing here touches `task_copies`.
@@ -541,7 +544,7 @@ def number_believed(line, number) -> bool:
 # --- section 3: one refresh per turn (L52, L53) --------------------------------------------------------------------------------------------------------
 
 REFRESH_PURPOSES = ("calendar-miss", "list-fresh", "mail-lookup")
-_TURN = threading.local()      # the budget of the line this thread runs: {"sources": set of source ids, "mail_lookup": bool, "failed": set of source ids whose read failed}, or nothing
+_TURN = threading.local()      # the budget of the line this thread runs: {"sources": set of source ids, "mail_lookup": bool, "failed": set of source ids whose read failed, "reasons": {source id: closed word}}, or nothing
 
 
 @contextlib.contextmanager
@@ -549,7 +552,7 @@ def turn():
     """The refresh budget of one line on this thread. The outermost `with` creates it and clears it on exit, whatever the way out; an inner one (the same line, the same thread) reuses it."""
     outer = getattr(_TURN, "budget", None) is None
     if outer:
-        _TURN.budget = {"sources": set(), "mail_lookup": False, "failed": set()}
+        _TURN.budget = {"sources": set(), "mail_lookup": False, "failed": set(), "reasons": {}}
     try:
         yield
     finally:
@@ -582,6 +585,19 @@ def failed_in_turn(source_id) -> bool:
     """Whether the line's read of `source_id` failed in this turn: False outside a turn."""
     budget = getattr(_TURN, "budget", None)
     return budget is not None and source_id in budget["failed"]
+
+
+def note_reason(source_id, reason) -> None:
+    """Remember the closed word of why the line's read of `source_id` failed; nothing outside a turn or for a falsy reason."""
+    budget = getattr(_TURN, "budget", None)
+    if budget is not None and reason and isinstance(source_id, str) and source_id:
+        budget["reasons"][source_id] = reason
+
+
+def failed_reason(source_id):
+    """The word `note_reason` kept for `source_id` in this turn, or None (also outside a turn)."""
+    budget = getattr(_TURN, "budget", None)
+    return None if budget is None else budget["reasons"].get(source_id)
 
 
 # --- section 4: provenance by origin per argument (L55, L60, L61) --------------------------------------------------------------------------------------------
