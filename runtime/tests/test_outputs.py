@@ -1460,9 +1460,8 @@ def cancel_by(world, how, request, monkeypatch):
         st.load("ops_routines")._close_stops(ctx, 1)
         return None
     say = st.load("ops_say")
-    fake_ops = type("Ops", (), {"request": staticmethod(lambda project, text, **kw: {"request": request}),
-                                "route": staticmethod(lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})})
-    monkeypatch.setattr(say, "_ops", lambda: fake_ops)
+    monkeypatch.setattr(st.load("ops"), "request", lambda project, text, **kw: {"request": request})      # 44-C2: ops_say reaches the two through ops_facade, which reads ops.<name> at the call
+    monkeypatch.setattr(st.load("ops"), "route", lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})
     monkeypatch.setattr(say, "_planning_may_start", lambda ctx: (True, ""))
     monkeypatch.setattr(say, "state_reply", lambda project, nxt, cfg=None: "a direct reply")
     say._say_route(world["path"], ctx, "what is the plan?", 10**9, "terminal")

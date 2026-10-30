@@ -6,9 +6,10 @@
 """The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router.
 
 A sibling of runtime/ops.py, which exposes `say` and `chat_memory` under their names; no shell imports this file. The
-names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation or a helper that
-stays in runtime/ops.py is reached at call time through `_ops()`, never imported at module level, so that the two
-files do not import each other.
+names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation of the facade (`status`,
+`progress`, `answer`, `request`, `route`, the call of a row of the table) is reached through `ops_facade.function(name)` (runtime/ops_facade.py),
+and the one helper of the route that stays in runtime/ops.py (`_route_request`, until 44-C3) through `_ops()`, at call time, never imported at
+module level, so that the two files do not import each other.
 
 A line typed while the router is answering another request of the project is not refused: it is stored with its reply
 pending (the queue below) and `route_queued` answers it when the route lock is free (a run of a task never holds it);
@@ -32,6 +33,9 @@ import time
 import unicodedata
 
 import ops_core as core
+import ops_facade
+import ops_models
+import ops_runs
 import autonomy
 import greeting
 import lab
@@ -59,7 +63,7 @@ import ops_todo
 
 
 def _ops():
-    """runtime/ops.py, found at call time: the operations `say` calls and the helpers of the route stay there."""
+    """runtime/ops.py, found at call time: the helper of the route that `_drain_route` calls stays there (44-C3 moves it)."""
     return importlib.import_module("ops")
 
 
@@ -492,7 +496,7 @@ def state_reply(project: str, proposed: str | None = None, cfg: dict | None = No
     agent proposes. The sentences are the phrase table's, in the project's language (`cfg`, read from the project when not given)."""
     cfg = cfg if cfg is not None else core._config_of(project)
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    state, progress = _ops().status(project), _ops().progress(project)["progress"]
+    state, progress = ops_facade.function("status")(project), ops_facade.function("progress")(project)["progress"]
     held = {h["task_id"]: h["reason"] for h in state.get("held") or []}
     lines = []
     open_requests = [r for r in state["requests"] if r["state"] not in ("done", "cancelled")]
@@ -878,7 +882,7 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int,
         refused = operations.refusal(name, channel, policy, kind, sender=sender)
         if refused:
             return phone_refusal.said(refused, channel, ctx["cfg"]), None, None, False, None
-    function = getattr(_ops(), row["call"])
+    function = ops_facade.function(row["call"])
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
         if channel == "messaging":
@@ -921,13 +925,13 @@ def _planning_may_start(ctx: dict) -> tuple:
     cfg, store = ctx["cfg"], ctx["store"]
     agents = cfg["area_agents"]
     meta = skill_meta.declared(os.path.join(core.ROOT, "skills", router.ROUTER_SKILL))
-    billing = _ops()._route(ctx, router.ROUTER_SKILL, meta, core._keys())["billing"]
+    billing = ops_models.route(ctx, router.ROUTER_SKILL, meta, core._keys())["billing"]
     now = datetime.datetime.now(datetime.timezone.utc)
     standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
-    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _ops()._midnight_utc()),
+    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, ops_runs._midnight_utc()),
                                                  importlib.import_module("ops_ask").run_owners(ctx)), core._metered_models())
     facts = autonomy.facts(plan.PLANNING, agents, standing_rows, now)
-    spent = autonomy.spend(runs, plan.PLANNING, cfg["raw"].get("max_cost_usd_per_run", _ops().PER_RUN_USD))
+    spent = autonomy.spend(runs, plan.PLANNING, cfg["raw"].get("max_cost_usd_per_run", ops_runs.PER_RUN_USD))
     ok, why = autonomy.may_start(plan.PLANNING, agents, facts, spent, billing)
     if not ok and plan.PLANNING not in agents:
         why = "no planning agent is configured (area_agents has no entry named planning)"
@@ -948,7 +952,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         pending_items.drop_key(_binding_key(ctx, sender), "router")
     if answer_to is not None:
         request_id = core._stored(ctx, ctx["store"].pending_get, answer_to)["task_id"]
-        _ops().answer(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
+        ops_facade.function("answer")(project, answer_to, said, actor=ops_actor.label(ctx["cfg"], channel, sender))
     else:
         messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if line_id is None or m["id"] < line_id]      # None: the line is not stored yet (S1), so every message so far is before it
         closed = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list) if t["parent_id"] is None and t["state"] == "cancelled"
@@ -957,9 +961,9 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
                    if t["parent_id"] is None and t["state"] in ("planned", "done", "cancelled") and t["id"] not in closed}
         remembered = chat_memory(messages, settled, closed)
         text = f"{remembered}\n\n{MEMORY_TAIL}\n{said}" if remembered else said
-        request_id = _ops().request(project, text, title=plan.title_of(said), after=after)["request"]
+        request_id = ops_facade.function("request")(project, text, title=plan.title_of(said), after=after)["request"]
     already = any(e["kind"] == "route" and e["id"] == request_id for e in _queue_read(ctx, peek=True))
-    routed = _ops().route(project, request_id, channel=channel)
+    routed = ops_facade.function("route")(project, request_id, channel=channel)
     if routed.get("queued"):  # the router was taken after the check: the request waits for the end of its run
         if not already:  # an entry that was queued before keeps the group that created it (never widened by a line)
             _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`

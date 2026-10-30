@@ -351,12 +351,26 @@ def test_the_set_of_callers_that_open_a_card_is_the_one_listed_here():
     assert sorted(callers["swap"]) == [("ops_card_revise.py", "_mail"), ("ops_event_revise.py", "revise")], callers["swap"]      # `_mail` opens through `natural_write`: `_opened`
 
 
+def seam_calls(tree) -> list:
+    """[(enclosing function name, source of the argument)] of every `ops_facade.function(...)` call (the seam, 44-C2)."""
+    found = []
+
+    def walk(node, scope):
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else scope
+            if isinstance(child, ast.Call) and ast.unparse(child.func) == "ops_facade.function":
+                found.append((scope, ast.unparse(child.args[0])))
+            walk(child, inner)
+    walk(tree, "<module>")
+    return found
+
+
 def test_the_modules_that_open_a_card_for_a_line_name_no_typed_function_directly():
-    """The typed operations are reached by name (`getattr(ops, row["call"])`) in `_call_operation` and in the event card's revision (`getattr(ops, name)` under `swap`, checked by `_refused`)."""
-    tree = parse("ops_event_revise.py")
-    assert [scope for scope, _line in calls_in(tree, "getattr")] == ["open_new"]
-    tree = parse("ops_natural_writes.py")
-    assert [scope for scope, _line in calls_in(tree, "getattr") if scope == "_call_operation"] == ["_call_operation"], "the one place a typed operation is called by name for a line"
+    """The typed operations are reached by name through the seam (`ops_facade.function(row["call"])`, 44-C2: it reads `ops.<name>` at the call, as `getattr(ops, ...)` did) in `_call_operation` and in
+    the event card's revision (`ops_facade.function(name)` under `swap`, checked by `_refused`); the only other call of the seam in these two modules names `pending` (a read of the card just opened)."""
+    assert seam_calls(parse("ops_event_revise.py")) == [("open_new", "name")]
+    assert [call for call in seam_calls(parse("ops_natural_writes.py")) if call[1] != "'pending'"] == [("_call_operation", "row['call']")], "the one place a typed operation is called by name for a line"
+    assert sorted(seam_calls(parse("ops_natural_writes.py"))) == [("_call_operation", "row['call']"), ("_card_lines", "'pending'")]
 
 
 # --- the origins the real resolvers give --------------------------------------------------------------------------------------------------------------------------

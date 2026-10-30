@@ -131,8 +131,8 @@ def test_the_state_of_a_project_with_work_open_names_every_part_in_portuguese(tw
         {"id": 10, "title": "Tidy", "state": "failed"}]}, {"id": 11, "title": "Later", "state": "requested", "tasks": []}],
         "held": [{"task_id": 8, "reason": "paused"}]}
     progress = {"progress": {"waiting_for_you": [{"kind": "plan", "title": "Launch", "pending_id": 12}, {"kind": "effect", "title": "Post", "pending_id": 13}]}}
-    fake = type("Ops", (), {"status": staticmethod(lambda project: state), "progress": staticmethod(lambda project: progress)})
-    monkeypatch.setattr(ops_say, "_ops", lambda: fake)
+    monkeypatch.setattr(ops, "status", lambda project: state)      # 44-C2: ops_say reaches the two reads through ops_facade, which reads ops.<name> at the call
+    monkeypatch.setattr(ops, "progress", lambda project: progress)
     def expected(cfg):
         """The lines of the answer, as the phrase keys that say them (the status words and the kind words are the table's own)."""
         word = lambda status: phrases.status(status, cfg)      # noqa: E731
@@ -176,16 +176,15 @@ def test_the_planning_agent_that_may_not_start_is_told_in_the_language(two, monk
 
 def test_the_line_of_a_router_that_could_not_run_and_the_queued_request_are_in_the_language(two, monkeypatch):
     ctx = ops_core.context(two["path"])
-    fake = type("Ops", (), {"request": staticmethod(lambda project, text, **kw: {"request": 3}),
-                            "route": staticmethod(lambda project, request_id, channel=None: {"failure": {"reason": "boom"}, "run_id": None})})
-    monkeypatch.setattr(ops_say, "_ops", lambda: fake)
+    monkeypatch.setattr(ops, "request", lambda project, text, **kw: {"request": 41})      # 44-C2: through ops_facade, which reads ops.<name> at the call; 41 is no id the real operation would give here
+    monkeypatch.setattr(ops, "route", lambda project, request_id, channel=None: {"failure": {"reason": "boom"}, "run_id": None})
     monkeypatch.setattr(ops_say, "_planning_may_start", lambda ctx: (True, ""))
     pk.assert_said(ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0], "ROUTER_FAILED", None, failure="boom")
     speak(two, "pt-BR")
     ctx = ops_core.context(two["path"])
     pk.assert_said(ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0], "ROUTER_FAILED", PT_CFG, failure="boom")
-    fake.route = staticmethod(lambda project, request_id, channel=None: {"queued": True})
-    pk.assert_said(ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0], "QUEUED_REQUEST", PT_CFG, request=3)
+    monkeypatch.setattr(ops, "route", lambda project, request_id, channel=None: {"queued": True})
+    pk.assert_said(ops_say._say_route(two["path"], ctx, "plan it", 10 ** 9, "terminal")[0], "QUEUED_REQUEST", PT_CFG, request=41)
 
 
 def test_the_placeholder_a_reader_that_did_not_ask_is_shown_is_in_the_language(two):

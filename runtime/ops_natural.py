@@ -33,7 +33,7 @@ minutes, one per channel and sender, never logged, never in the store), where th
 choice of a file for a question to `ask`. The next line of that sender that answers the draft completes it; any other line drops the draft and is handled as
 new. A reminder's words are in the draft and in the `reminders` table once made, and nowhere else (limit L51): the conversation stores a neutral word.
 
-Sibling of runtime/ops_say.py, which calls `peek`, `recognises` and `run`; the order in which a line is taken (the answer to a draft, a number after a list, a write form, a tier-1 form: what `take` was) is the table of runtime/turn_order.py, dispatched by runtime/ops_turn.py, whose rows call the helpers here; it reaches ops.py and ops_say.py at call time, never at import. Standard library
+Sibling of runtime/ops_say.py, which calls `peek`, `recognises` and `run`; the order in which a line is taken (the answer to a draft, a number after a list, a write form, a tier-1 form: what `take` was) is the table of runtime/turn_order.py, dispatched by runtime/ops_turn.py, whose rows call the helpers here; it reaches an operation of ops.py through ops_facade.py (at call time) and ops_say.py at call time, never at import. Standard library
 only. Runs on Python 3.9: python3 runtime/ops_natural.py --help
 """
 from __future__ import annotations
@@ -52,6 +52,7 @@ import item_refs
 import line_stage
 import messaging_guard as guard
 import ops_core as core
+import ops_facade
 import natural
 import operations
 import ops_actor
@@ -82,10 +83,6 @@ ROUTINE_BRAKES = {"routine-pause": "CMD_ROUTINE_PAUSED"}      # S20: no typed fo
 # The parameter that names the decision or the act in the arguments of a call, for every operation that a model or the router may choose and that is vetted against the line (`turn_gate.number_believed`)
 VETTED = {"approve": "pending_id", "reject": "pending_id", "release": "pending_id", "cancel": "request_id", "stop-task": "task_id", "retry": "task_id",
           "attachment-add": "attachment_id", "attachment-discard": "attachment_id", "routine-pause": "routine_id"}
-
-
-def _ops():
-    return importlib.import_module("ops")
 
 
 def _say():
@@ -353,7 +350,7 @@ def _slots_of(operation: dict) -> dict:
 def _call(project: str, row: dict, found: dict, channel, sender):
     """Call the operation of a row as `_say_command` calls a typed command: the channel is `messaging` or `chat` (recorded as the carrying channel), and a
     messaging call names the sender."""
-    function = getattr(_ops(), row["call"])
+    function = ops_facade.function(row["call"])
     found = dict(found)
     if row.get("channel_arg"):
         found["channel"] = channel if channel == "messaging" else "chat"
@@ -687,7 +684,7 @@ def _decision(project: str, ctx: dict, name: str, args: dict, channel, sender, e
     if number is None or name == "go-ahead":
         return t("NAT_DECISION_TYPED", command=command) if command else phone_sentence(ctx, name)
     try:
-        item = _ops().pending(project, pending_id=number)
+        item = ops_facade.function("pending")(project, pending_id=number)
     except core.OpsError:
         item = None
     if item is None or item.get("status", "open") != "open":

@@ -41,7 +41,7 @@ one sentence and no new card (the person asks for a new e-mail). A change asked 
 
 Privacy (limit L63): nothing is logged, printed or stored here but the one decision in memory for the length of RETAIN seconds; the calls are counted in the interpreter's limits.
 
-A sibling of runtime/ops.py, which exposes the three names. Standard library only. Runs on Python 3.9: python3 runtime/ops_card_revise.py --help
+A sibling of runtime/ops.py, which exposes the three names; it reaches `reject`, `natural_write` and `natural_forget` of ops.py through ops_facade.py, at call time. Standard library only. Runs on Python 3.9: python3 runtime/ops_card_revise.py --help
 """
 from __future__ import annotations
 
@@ -62,6 +62,7 @@ import natural_writes  # noqa: E402
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_facade  # noqa: E402
 import ops_grants  # noqa: E402
 import ops_interpret  # noqa: E402
 import ops_natural  # noqa: E402
@@ -98,10 +99,6 @@ def decided(project, channel, sender, line: str):
 def forget_all() -> None:
     with _lock:
         _decided.clear()
-
-
-def _ops():
-    return importlib.import_module("ops")
 
 
 def _recognised(ctx: dict, line: str, sender) -> bool:
@@ -198,7 +195,7 @@ def drop(project: str, pending_id, channel, sender) -> None:
     """End a card the revision opened and cannot use (a card is never left to be approved by mistake); tried twice. Never raises."""
     for _ in range(2):
         try:
-            _ops().reject(project, pending_id, note=NOTE, channel=channel, sender=sender)
+            ops_facade.function("reject")(project, pending_id, note=NOTE, channel=channel, sender=sender)
             return
         except Exception:      # noqa: BLE001 - nothing of the fault is kept
             continue
@@ -217,7 +214,7 @@ def swap(project: str, ctx: dict, old_id, open_new, matches, done_key: str, chan
     (`matches(new_id)`), so that the worst case is no open card at all and never two: a card that cannot be ended (it was decided meanwhile) stops the change before anything is
     opened and says what happened; a new card that cannot be opened or is not what was asked is ended and the person is told to ask again. `open_new()` returns the id of the new card."""
     try:
-        _ops().reject(project, old_id, note=NOTE, channel=channel, sender=sender)
+        ops_facade.function("reject")(project, old_id, note=NOTE, channel=channel, sender=sender)
     except core.OpsError:
         return say(ctx, "RV_DECIDED") if _closed(ctx, old_id) else say(ctx, "RV_FAILED", old_id)
     try:
@@ -261,9 +258,9 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
         return say(ctx, "RV_FAILED", pending_id)      # nothing was ended and nothing opened: the card stays as it was
 
     def open_new():
-        opened = _ops().natural_write(project, "", channel=channel, sender=sender, seed=seed)
+        opened = ops_facade.function("natural_write")(project, "", channel=channel, sender=sender, seed=seed)
         if not isinstance(opened.get("resend"), int):
-            _ops().natural_forget(project, sender, channel)
+            ops_facade.function("natural_forget")(project, sender, channel)
         return opened.get("resend")
 
     def matches(new_id) -> bool:

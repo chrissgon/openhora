@@ -59,14 +59,20 @@ RUNTIME = REPO / "runtime"
 # ops_runs.<name>, a top-level import, and ops_contained calls ops_models.route) and one cycle edge is new (ops_runs -> ops_ask, the one call in `_agents_of_the_day`, since
 # ops_ask imports ops_runs): -5 edges and calls, +1; the file's own AST count on the head rebased onto 44-B 3b is 64 lazy calls, 52 edges, 1 debt.
 # The dispatcher's edge to `ops` stays as CYCLE_ENTRY.
+# 44-C2 (the seam and the reads): six edges to `ops` are gone (ops_card_revise, ops_event_revise, ops_instructions, ops_natural, ops_natural_writes, ops_reads: seven calls) and one is
+# new (ops_facade -> ops, the seam `function(name)`, one call, CYCLE_FACADE): the siblings call an operation of the facade through ops_facade.function(name) and the reads read what moved
+# (SERVICE and the held tasks to ops_reads, the held record to ops_runs). ops_event_revise -> ops was the one debt edge: debt 1 -> 0. The file's own AST count on the head: 58 lazy
+# calls, 47 edges, 0 debt. What reaches `ops` at call time is now dispatcher (the entry), ops_facade (the seam), ops_say (`_drain_route`, 44-C3) and ops_runs (the run body and the round, 44-C4).
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 64
-LAZY_EDGES_BUDGET = 52
-PLAIN_DEBT_BUDGET = 1
+LAZY_CALLS_BUDGET = 58
+LAZY_EDGES_BUDGET = 47
+PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
-CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
-             "(test_runtime_rules); package 44-C moves the functions the siblings need")
+CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches a helper of ops.py at call time (test_runtime_rules); the router's run "
+             "that ops_say reads moves in 44-C3, and the run body and the round that ops_runs reads move in 44-C4 (OPEN-C2)")
+CYCLE_FACADE = ("cycle: the one seam through which a sibling calls an operation of the table, or a public entry of the facade, by name at call time "
+                "(OPEN-S8 keeps the facade); a private helper never goes through it (test_ops_facade)")
 CYCLE_ENTRY = ("cycle: dispatcher.bootstrap loads by path the operations layer of the checkout a project's configuration names and returns the module "
                "to the scheduled job; it calls no function of it and stays (SPEC-44C)")
 DEBT = ("debt: closes no cycle on its own today; package 44-B makes it a top-level import, or writes here the reason it stays lazy "
@@ -80,8 +86,6 @@ LIGHT_REGISTRY = ("light-start: the registry is pure and loads before the gate; 
                   "test_registry_rows.py pins that importing the registry never loads turn_gate")
 LIGHT_GATE = ("light-start: the gate is a low layer that imports no layer above it, and test_turn_gate_provenance pins its top-level imports to a closed list (the standard "
               "library, natural, natural_time, natural_writes, registry_data); the route, the operations table and the widening are read when a function needs them")
-DEBT_OPS = ("debt: points at ops and no top-level path from ops leads back today, but the sibling calls an operation of the facade at call time; "
-            "package 44-C moves the function the sibling needs")
 
 # (module, reason, targets): one row per module and kind of reason, the targets in one string.
 ROWS = (
@@ -93,19 +97,14 @@ ROWS = (
     ("natural_writes", CYCLE, "turn_gate"),
     ("ops_cancel", CYCLE, "board"),
     ("ops_card_revise", CYCLE, "ops_event_revise"),
-    ("ops_card_revise", CYCLE_OPS, "ops"),
-    ("ops_event_revise", DEBT_OPS, "ops"),
+    ("ops_facade", CYCLE_FACADE, "ops"),
     ("ops_file_read", CYCLE, "ops_file_ask ops_file_trash"),
     ("ops_instructions", CYCLE, "ops_routines"),
-    ("ops_instructions", CYCLE_OPS, "ops"),
     ("ops_interpret", CYCLE, "ops_card_revise"),
     ("ops_items", CYCLE, "event_lookup"),
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
-    ("ops_natural", CYCLE_OPS, "ops"),
     ("ops_natural_writes", CYCLE, "event_lookup"),
-    ("ops_natural_writes", CYCLE_OPS, "ops"),
-    ("ops_reads", CYCLE_OPS, "ops"),
     ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps"),
     ("ops_runs", CYCLE_OPS, "ops"),
     ("ops_say", CYCLE, "ops_ask ops_turn"),

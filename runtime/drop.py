@@ -8,7 +8,7 @@ has no image provider.
 
 A file handed over is copied into <project>/.workbench-local/drop/<task id>/ (DROP_DIR). It enters the run copy of
 that task, at the same relative path, and of no other task (runtime/workcopy.py, limit L2); the run's prompt lists
-it (ops.task_prompt, handed=); whatever a run leaves in the drop folder is dropped on the way back (the folder is
+it (ops_runs.task_prompt, handed=); whatever a run leaves in the drop folder is dropped on the way back (the folder is
 staged for the path rule), so a run cannot change what the person handed over.
 
   hand_over(project, task, source, web_allowed)   copy one file into the task's folder; refused, each with its own

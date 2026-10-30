@@ -76,6 +76,12 @@ class Reads:
             {"kind": "plan", "title": "Plano do mercado", "pending_id": 30}]}}
 
 
+def stand_in_reads(monkeypatch):
+    """44-C2: ops_say reaches `status` and `progress` through ops_facade, which reads ops.<name> at the call: the two reads are patched there."""
+    monkeypatch.setattr(ops, "status", Reads.status)
+    monkeypatch.setattr(ops, "progress", Reads.progress)
+
+
 def digest_lines(cfg):
     """The status of `Reads` as the lines a phone is told, in the language of `cfg`: (phrase key, fields) per line. A title code wrote whole, and the two that name the platform's
     internals, are said as the words of the table; a field that holds another sentence is that sentence said in the same language."""
@@ -97,7 +103,7 @@ def digest_said(text, cfg):
 
 
 def test_a_status_says_the_titles_code_wrote_in_the_language_and_the_internal_ones_as_what_they_mean(monkeypatch):
-    monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
+    stand_in_reads(monkeypatch)
     shown = ops_say.state_reply("project", cfg=PT)
     assert digest_said(shown, PT), shown
     for stored in ("Mail: send from your account", "Files: save the file you sent", "The route was not recognised", "The router asks"):
@@ -106,13 +112,13 @@ def test_a_status_says_the_titles_code_wrote_in_the_language_and_the_internal_on
 
 
 def test_the_same_status_in_english_says_the_plain_titles_too(monkeypatch):
-    monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
+    stand_in_reads(monkeypatch)
     shown = ops_say.state_reply("project", cfg={})
     assert digest_said(shown, {}) and "router" not in shown.lower(), shown
 
 
 def test_vacuity_without_the_plain_titles_the_internal_words_come_back_and_the_oracle_sees_them(monkeypatch):
-    monkeypatch.setattr(ops_say, "_ops", lambda: Reads)
+    stand_in_reads(monkeypatch)
     monkeypatch.setattr(ops_say, "PLAIN_TITLES", {})
     old = ops_say.state_reply("project", cfg=PT)
     assert not digest_said(old, PT) and "roteador" in old.lower() and "rota" in old.lower()

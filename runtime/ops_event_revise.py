@@ -20,7 +20,7 @@ around it is taken off); the time span replaces the start, on the day of the car
 A card that changes an event found in a snapshot is made again with the same event (`<source>#<n>`, the same calendar) and the part the person named replaced, and the new card is refused unless it names the same event id on the same calendar (a snapshot refreshed meanwhile numbers the events differently); the event of the calendar is not touched by
 a card that creates one, and the calendar is never searched.
 
-The new card is opened by the operation the person's own command would run (`event_create`, `event_change`), checked equal to the old card in everything the line did not name, and then the
+The new card is opened by the operation the person's own command would run (`event_create`, `event_change`, reached through ops_facade.py), checked equal to the old card in everything the line did not name, and then the
 old card is ended as rejected, so its hash is never approvable again. Nothing is written to a calendar here; the new card is approved by its own hash.
 
 Privacy (limit L63): the line is read by the model service exactly as the interpreter reads it. Nothing is logged, printed or stored here.
@@ -44,6 +44,7 @@ import mail_revise  # noqa: E402
 import natural_time  # noqa: E402
 import ops_card_revise as base  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_facade  # noqa: E402
 import ops_grants  # noqa: E402
 import ops_interpret  # noqa: E402
 import ops_natural  # noqa: E402
@@ -233,7 +234,6 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admissio
 
 def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, channel, sender) -> dict:
     """See the module's text."""
-    ops = importlib.import_module("ops")
     admission = None if interpreter.precheck(line) is not None else turn_gate.admit(ctx, sender)
     if admission is None:
         return {"pass": True}
@@ -279,7 +279,7 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
               args["end"] if "end" in args else event["end"])
 
     def open_new():
-        return getattr(ops, name)(project, **{k: v for k, v in args.items() if v is not None}, channel=channel, sender=sender).get("pending")
+        return ops_facade.function(name)(project, **{k: v for k, v in args.items() if v is not None}, channel=channel, sender=sender).get("pending")
 
     def matches(new_id) -> bool:
         try:
