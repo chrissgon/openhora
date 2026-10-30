@@ -1058,16 +1058,40 @@ class Bridge(shell_kit.Jobs):
                 continue
         return False
 
+    def asks_last(self, listed: list, chat: str, last) -> bool:
+        """Whether the last message sent to this chat is a question that waits for the line, so that a bare word may be its answer and brings no card back (ACEITE-37, limit L64). It is known from
+        the ledger, never from the text of a message: the record of the last message is a file card (kind `attachment`: "what do I do with it?"; a router question's card, kind `question`, is read by
+        `question_waits`, and a plan's question by `plan_waits`), or the operations layer says a numbered list of events or of files, the question "which one?", is the last thing it said to this sender
+        (`list_waits`). A reminder that was delivered, a greeting and any other plain sentence are no question."""
+        rec = self.ledger.by_message(chat, last) if last else None
+        if rec is not None and rec.get("kind") == "attachment":
+            return True
+        return self.list_waits(listed, chat)
+
+    def list_waits(self, listed: list, chat: str) -> bool:
+        """Whether the operations layer holds a numbered list it showed this sender that the next line may answer (a list of events: "which one do you want to cancel?"; a list of files). An operations
+        object without the read (a test's) has none."""
+        found = getattr(self.ops, "list_waits", None)
+        if found is None:
+            return False
+        for target in listed:
+            try:
+                if found(target["path"], self.key(chat)):
+                    return True
+            except self.ops.OpsError:
+                continue
+        return False
+
     def word_again(self, listed: list, chat: str, word: dict, last) -> bool:
         """A card word with no reply that `word_last` did not take (the kind `decision-card-again`, ACEITE-37, limit L64). It decides nothing: one open card is sent again, with a new message id, new
         buttons and the hash of the decision as it is now, and stays the last message, so that its button or the next word decides it; several get the numbered list. False, and the line goes on as
-        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question, and an act the one card does not offer."""
+        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question (a router question, a file card that is the last message, a numbered list of events or of files that waits), and an act the one card does not offer."""
         if word["n"] is not None:
             return False
         found = self.word_cards(listed, chat)
         if not found or (last and any(str(c[1]["message_id"]) == last for c in found)):
             return False
-        if self.plan_waits(listed, chat) or self.question_waits(listed, chat):
+        if self.plan_waits(listed, chat) or self.question_waits(listed, chat) or self.asks_last(listed, chat, last):
             return False
         if len(found) > 1:
             self.send_list(chat, found)
@@ -1200,7 +1224,7 @@ class Bridge(shell_kit.Jobs):
             if len(found) > 1:
                 self.send_list(chat, found)
             elif found:
-                self.resend(found[0][0], chat, found[0][1]["pending_id"])
+                self.resend(found[0][0], chat, found[0][1]["pending_id"], force=True)      # forced: a card sent again less than RESEND_EVERY ago (`word_again`) would make a plain resend return True with nothing sent, and the person silence (ACEITE-37)
             else:
                 return False
             return True

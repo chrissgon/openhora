@@ -56,7 +56,7 @@ def test_the_table_is_a_tuple_of_rows_with_unique_names_and_every_row_has_code_a
 
 
 def read_as_claimers(names) -> tuple:
-    """The names of the rows of the stage `bridge`, the row `frame` read as the seven claimers it took over (the names of the kit and the golden), in the order of the kinds."""
+    """The names of the rows of the stage `bridge`, the row `frame` read as the claimers it took over (seven since S41-8, and the eighth kind of ACEITE-37; the names of the kit and the golden), in the order of the kinds."""
     return tuple(claimer for name in names for claimer in (FRAME_TRACE if name == FRAME_ROW else (name,)))
 
 
@@ -262,7 +262,7 @@ def test_every_row_is_load_bearing_disabling_it_changes_a_scenario(name, tmp_pat
 
 
 def test_the_row_frame_is_load_bearing_and_each_of_its_kinds_is_too(tmp_path):
-    """The row `frame` stands for seven claimers: with the whole row disabled, a line each of them takes in the golden changes an outcome (the corpus names those lines by the kit's names for the
+    """The row `frame` stands for seven claimers and the eighth kind of ACEITE-37: with the whole row disabled, a line each of them takes in the golden changes an outcome (the corpus names those lines by the kit's names for the
     claimers). One kind at a time, and the order of two neighbouring kinds, are runtime/tests/test_frame_dispatch.py."""
     for claimer in FRAME_TRACE:
         scenarios = lines_of(claimer, 8)

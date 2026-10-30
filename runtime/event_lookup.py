@@ -372,6 +372,14 @@ def _drop(ctx: dict, sender) -> None:
         _LISTS.pop(_slot(ctx, CHANNEL, sender), None)
 
 
+def list_open(ctx: dict, sender, now) -> bool:
+    """Whether the sender's list of events is still the last thing said to them: the checks of `_live` as they stand BEFORE the line that comes next is read (no line has been read since the list), and
+    nothing is dropped or counted. The bridge asks it (ACEITE-37): a bare word right after "which one do you want to cancel?" may be its answer."""
+    with _lock:
+        found = _LISTS.get(_slot(ctx, CHANNEL, sender))
+    return found is not None and not ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 0 or _last_pending(ctx) > found["pending"])
+
+
 def _live(ctx: dict, sender, now):
     """The sender's record while it is the last thing said to them: not older than the window, no line since the one that is being read, no decision card made since."""
     with _lock:

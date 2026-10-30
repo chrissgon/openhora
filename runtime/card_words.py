@@ -10,6 +10,11 @@ number or an ordinal ("aprovo o 2", "approve the second"), or the word for all (
 matter. There is never an open tail: "pode marcar o dentista" and "pode marcar amanha as 3" are not forms, they are requests. A line that is both an approve and a reject form
 is None; a slash line, an empty line and a line of more than `LINE_WORDS_MAX` words are None.
 
+A line in QUESTION FORM is never a card word (ACEITE-37, the maintainer, 2026-10-30): "sim?", "pode?", "nao?" (the line ends in a question mark, however much punctuation follows it) and a line that asks
+for the act with "can you", "could you" or "would you" ("can you approve", "could you cancel") ask something and decide nothing; they go on to the model as any free line. `question_form(line)` says it,
+`card_shape(line)` is the reading without that rule (the shape of an approve or a reject form, asked or not), for the readers that must keep treating such a line as card-shaped (they are named in the
+function's text), and `card_word` is the shape unless the line is a question. "sim!", "sim.", "SIM", "ok", "pode" and "yes" stay forms.
+
 The lists are this module's own data: the two languages the runtime has tables for (`en`, `pt-BR`), read together, because a person may write in either whatever the project's
 language is (the same rule the natural-request tables follow). The approve and reject phrases of the maintainer's own list (2026-10-20): "sim", "ok", "aprovo", "aprova", "pode",
 "pode marcar", "pode mandar", "pode salvar", "manda ver", "aprovado" (+ "pode aprovar"); "yes", "ok", "approve", "approved", "go ahead"; "nao", "rejeito", "rejeita", "cancela",
@@ -55,6 +60,8 @@ WORDS = {
                      ["setimo", "setima"], ["oitavo", "oitava"], ["nono", "nona"], ["decimo", "decima"]],
     },
 }
+QUESTION_LEADS = ("can you", "could you", "would you")      # a line that asks for the act in these words is a question, whatever follows ("can you approve")
+QUESTION_MARK = re.compile(r"[?\uff1f][^\w]*$")      # a question mark followed by nothing but punctuation and blanks: "sim?", "pode ?", "nao?!"
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 LISTS = ("approve", "reject", "all", "articles", "polite")
 
@@ -175,8 +182,24 @@ def reply_line(text):
     return first or ""
 
 
+def question_form(line) -> bool:
+    """Whether the line asks instead of saying: it ends in a question mark (a trailing run of punctuation after it does not hide it), or it asks for the act with one of QUESTION_LEADS as whole words."""
+    if not isinstance(line, str):
+        return False
+    if QUESTION_MARK.search(line.strip()):
+        return True
+    flat = f" {normal(line)} "
+    return any(f" {lead} " in flat for lead in QUESTION_LEADS)
+
+
 def card_word(line):
-    """{"op": "approve" | "reject", "n": position | None, "all": bool} when the whole line is one closed form, else None (see the module's text)."""
+    """{"op": "approve" | "reject", "n": position | None, "all": bool} when the whole line is one closed form that is not a question, else None (see the module's text)."""
+    return None if question_form(line) else card_shape(line)
+
+
+def card_shape(line):
+    """What `card_word` answers without the question rule: the closed form the line has, asked or not. The readers that keep the line away from something other than the card words (the change of
+    a card in runtime/ops_card_revise.py, the claim of a research answer in runtime/research_reply.py) use it, so that "sim?" is still no change and no claim."""
     if not isinstance(line, str) or not line.strip() or line.lstrip().startswith("/"):
         return None
     flat = normal(line)

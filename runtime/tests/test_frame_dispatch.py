@@ -1,15 +1,16 @@
 """The frame: one dispatcher over the pending kinds (package S41-8; PLAN-BRAIN section 3, "one dispatcher decides a sim or a correction across all pending kinds"; limits L64 and L65).
 
-WHAT IS CHECKED. The seven claimers that answered what is open (a question about a reminder, an expired one, a question about a write, the OK of a plan, the words that decide a card, the stop of a
-search, the change of the card that waits) are the kinds of the one row `frame`: `turn_order.FRAME_KINDS`, with code in `messaging_turn.KINDS` (`applies` and `take`). This file proves, on the
+WHAT IS CHECKED. The eight kinds that answer what is open (a question about a reminder, an expired one, a question about a write, the OK of a plan, the words that decide a card, the stop of a
+search, a bare word on a card that is not the last message (ACEITE-37, which never was a claimer), the change of the card that waits) are the kinds of the one row `frame`: `turn_order.FRAME_KINDS`, with code in `messaging_turn.KINDS` (`applies` and `take`). This file proves, on the
 entry corpus and never by reading, what S41-8 must keep:
 
 (1) The dispatcher: the first kind that applies and takes ends the frame and is named by `turn.frame_kind`; a `take` that returns False after its side effect (the write kind) lets the next kind read the
 line; the discarded-question mark is cleared before any kind reads; the order is read from `turn_order.kinds()` at each call.
 (2) Every kind is load-bearing: with its `applies` made to read nothing, at least one scenario that the golden has the claimer take no longer has the golden's outcome.
-(3) The order of adjacent kinds. For each of the six pairs, the corpus has scenarios where both kinds apply to the line (a probe reads every kind's `applies` on the live turn): where the order is seen,
-the first kind wins in the golden and swapping the two changes an outcome; for the two pairs whose order no outcome sees (the question about a reminder and the expired one, which are disjoint by the
-`drafted` mark; the OK of a plan and the card words, which share a word and never a record), the corpus shows that they are disjoint, and the swap is shown to change nothing (a finding, stated: if a
+(3) The order of adjacent kinds. For each of the seven pairs, the corpus has scenarios where both kinds apply to the line (a probe reads every kind's `applies` on the live turn): where the order is seen,
+the first kind wins in the golden and swapping the two changes an outcome; for the three pairs whose order no outcome sees (the question about a reminder and the expired one, which are disjoint by the
+`drafted` mark; the OK of a plan and the card words, which share a word and never a record; the card sent again and the change of the card, which both read a word but whose `take`s need a card that is not
+the last message and a card that is, a swap the corpus shows to change nothing), the corpus shows that, and the swap is shown to change nothing (a finding, stated: if a
 later package lets the two overlap in outcome, the test fails and the order must be reconsidered with L64 and L65 in hand).
 (4) The corpus lines the spec names: a "no" with a card last while a search runs rejects the card and leaves the search running (the card words go before the brake); a "stop" stops the search and leaves the
 card open; a greeting that is also a yes ("beleza", "tudo bem", "ok, beleza") OKs a plan that is the last message, and a greeting in question form ("oi, tudo bem?", "tudo bem?") never does: it is the greeting
@@ -184,6 +185,16 @@ def test_the_two_reminder_questions_are_disjoint_by_the_mark_and_their_swap_is_n
     assert len([s for s in scenarios if s["prestate"] == "reminder_and_expired" and "reminder-draft" in reads[s["id"]] and "reminder-expired" not in reads[s["id"]]]) >= 3
     assert any(KIT["reminder-draft"] in recorded[s["id"]]["trace"] for s in scenarios if s["prestate"] == "reminder_and_expired")
     assert not to.changed(swapping("reminder-draft", "reminder-expired"), scenarios, tmp_path), "the two kinds never read the same line, so their order is no outcome"
+
+
+def test_the_card_sent_again_and_the_change_of_the_card_both_read_a_word_and_their_swap_changes_no_scenario(tmp_path):
+    """ACEITE-37. The change of the card (`decision-card-revise`) reads "sim" too, so the two kinds are not disjoint by `applies`; their `take`s are: the card sent again needs a card that is NOT the last
+    message, the change needs the card that IS the last message or the one replied to, and the card words have taken the bare word of the last card before either. On every scenario either takes,
+    putting them in each other's places changes none."""
+    scenarios = candidates("decision-card-again", "decision-card-revise", extra=ek.ACEITE37_PRESTATES)
+    assert len(scenarios) >= 10
+    assert any({"decision-card-again", "decision-card-revise"} <= set(applying(s, tmp_path)) for s in scenarios), "both kinds read the same line in the corpus"
+    assert not to.changed(swapping("decision-card-again", "decision-card-revise"), scenarios, tmp_path)
 
 
 def plan_and_card_candidates() -> list:

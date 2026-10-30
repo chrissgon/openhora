@@ -333,9 +333,13 @@ def research_run_take(bridge, turn, stopper):
 
 # decision-card-again: a bare word on a card that is not the last message decides nothing and the card is sent again (ACEITE-37, limit L64): after the stop of a search, which still reads a no first
 def decision_card_again_applies(bridge, turn):
-    """The word of `decision_card_word_applies`, on a line that replies to nothing, on a platform whose acts are not replies, that is no phrase about the file just sent ("pode salvar"): the word, else None."""
+    """The word of `decision_card_word_applies`, on a line that replies to nothing, on a platform whose acts are not replies, that is no phrase about the file just sent ("pode salvar") and that
+    answers no question the chat has open about a reminder or a write (the kinds before this one read them: `turn.drafted` says a reminder question was open when the line came, and the mark
+    `remind.discarded` says this very line dropped a reminder or a write question): the word, else None. The open questions that are records or lists are read by `Bridge.word_again`."""
     word = decision_card_word_applies(bridge, turn)
     if word is None or turn.update.get("reply_to") or turn.email or natural_writes.file_line(turn.first_line) is not None:
+        return None
+    if turn.drafted or turn.chat in bridge.remind.discarded:
         return None
     return word
 

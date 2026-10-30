@@ -311,7 +311,8 @@ def prestate_owner_no_interpret(w):
 # Each is a world of the owner on buttons with an open card (or more) and a message sent after it, so that the card is no longer the last message: `aceite37_card_not_last` is the card, then "oi" answered
 # by the greeting (scenario 37 of ACEITE-SECRETARIA); the others add, after that, what the rows of the table read (a plan that waits, a search that runs, a question, a file, a reminder, a write).
 ACEITE37_PRESTATES = ("aceite37_card_not_last", "aceite37_two_cards_not_last", "aceite37_plan_and_card_not_last", "aceite37_research_and_card_not_last", "aceite37_question_and_card_not_last",
-                      "aceite37_file_and_card_not_last", "aceite37_reminder_and_card_not_last", "aceite37_write_and_card_not_last")
+                      "aceite37_file_and_card_not_last", "aceite37_reminder_and_card_not_last", "aceite37_write_and_card_not_last",
+                      "aceite37_file_card_last", "aceite37_event_list_and_card", "aceite37_file_list_and_card")
 PRESTATES = (*PRESTATES, *ACEITE37_PRESTATES)
 
 
@@ -356,6 +357,21 @@ def prestate_aceite37_reminder_and_card_not_last(w):
 def prestate_aceite37_write_and_card_not_last(w):
     prestate_card_last(w)
     prestate_write_draft_title(w)
+
+
+def prestate_aceite37_file_card_last(w):
+    prestate_card_last(w)
+    prestate_attachment_held(w)      # the file's card ("what do I do with it?") is the last message and the decision card is not
+
+
+def prestate_aceite37_event_list_and_card(w):
+    prestate_card_last(w)
+    prestate_event_list_shown(w)      # "more than one event fits, which one?" is the last message and the decision card is not
+
+
+def prestate_aceite37_file_list_and_card(w):
+    prestate_card_last(w)
+    prestate_file_list_shown(w)      # the list of files is the last message and the decision card is not
 # --- end of the ACEITE-37 block ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 

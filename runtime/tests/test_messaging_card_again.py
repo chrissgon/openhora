@@ -337,3 +337,203 @@ def test_vacuity_with_the_kind_off_the_word_goes_on_to_say(world, monkeypatch):
 def test_the_sentence_is_the_one_both_languages_were_given():
     assert phrases.text("WORD_CARD_AGAIN", None) == SENTENCE
     assert phrases.text("WORD_CARD_AGAIN", {"language": "pt-BR"}).startswith("Nada foi decidido")
+
+
+# --- an open question keeps the word (the maintainer, 2026-10-30): a file card or a list that is the last thing said, a question about a reminder or a write ----------------------------------------
+
+
+LIST_QUESTION = "More than one event fits. Which one do you want to cancel?"
+
+
+def file_card_last(world, kind="attachment"):
+    """The card of a held file ("what do I do with it?") is the last message: a record of kind `attachment` (the real flow is the golden rows `aceite-37.file.02` and `.file.03`)."""
+    world.bridge.ledger.add({"project": world.projects[0]["id"], "pending_id": None, "kind": kind, "content_sha256": "", "chat": SENDER, "message_id": "att-1", "actions": {},
+                             "sent_at": "2026-10-11T10:00:00+00:00", "whole": True, "approvable": False, "blocked": None, "effect_word": None})
+    world.bridge.last_sent[SENDER] = "att-1"
+
+
+def list_asked(world):
+    """The operations layer holds a numbered list it just showed this sender, and the list is the last message."""
+    world.fake.list_waits = lambda path, sender: True
+    world.bridge.reply(SENDER, LIST_QUESTION)
+
+
+@pytest.mark.parametrize("word", [NO, "cancela"])
+def test_a_reject_word_after_a_file_card_is_not_taken_and_a_second_one_rejects_nothing(world, word):
+    stale(world)
+    file_card_last(world)
+    count = len(records(world))
+    world.say(word)
+    assert nothing_decided(world) and len(records(world)) == count and went_on(world)
+    world.say(word)
+    assert nothing_decided(world)      # the second word is about the model's answer to the first: it may bring the card back (timing), it never decides it
+
+
+def test_vacuity_with_the_file_card_not_a_question_the_same_words_bring_the_card_back_and_reject_it(world):
+    stale(world)
+    file_card_last(world, kind="reminder")      # a record that is no question: the last message is a delivered reminder
+    count = len(records(world))
+    world.say(NO)
+    assert nothing_decided(world) and len(records(world)) == count + 1
+    world.say(NO)
+    assert rejections(world) == [1]
+
+
+@pytest.mark.parametrize("word", [NO, "cancela"])
+def test_a_reject_word_after_a_list_question_is_not_taken_and_a_second_one_rejects_nothing(world, word):
+    stale(world)
+    list_asked(world)
+    count = len(records(world))
+    world.say(word)
+    assert nothing_decided(world) and len(records(world)) == count and went_on(world)
+    world.say(word)
+    assert nothing_decided(world)      # the second word is about the model's answer to the first: it may bring the card back (timing), it never decides it
+
+
+def test_vacuity_with_no_list_waiting_the_same_words_bring_the_card_back_and_reject_it(world):
+    stale(world)
+    world.fake.list_waits = lambda path, sender: False
+    world.bridge.reply(SENDER, LIST_QUESTION)
+    count = len(records(world))
+    world.say(NO)
+    assert nothing_decided(world) and len(records(world)) == count + 1
+    world.say(NO)
+    assert rejections(world) == [1]
+
+
+def test_after_a_reminder_a_greeting_or_a_plain_sentence_the_card_still_comes_back(world):
+    stale(world)      # the greeting "oi" was answered after the card
+    world.bridge.reply(SENDER, "A reminder: water the plants.")
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == 2 and world.texts()[-1] == phrases.text("WORD_CARD_AGAIN", None)
+
+
+def test_a_question_about_a_reminder_that_is_open_keeps_the_word_and_no_card_is_sent(world):
+    stale(world)
+    world.bridge.remind.drafts[SENDER] = {"at": world.bridge.monotonic(), "day": None, "doubt": False, "how": "trigger", "line": "remind me to call the dentist", "message_id": None, "need": "time",
+                                       "project": world.projects[0]["id"], "readings": [], "text": "call the dentist"}
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == 1
+
+
+def test_the_guard_of_the_reminder_question_alone_keeps_the_word(world, monkeypatch):
+    """With the kind that answers the question switched off, only the guard of the kind `decision-card-again` is left to keep the word."""
+    stale(world)
+    world.bridge.remind.drafts[SENDER] = {"at": world.bridge.monotonic(), "day": None, "doubt": False, "how": "trigger", "line": "remind me to call the dentist", "message_id": None, "need": "time",
+                                          "project": world.projects[0]["id"], "readings": [], "text": "call the dentist"}
+    monkeypatch.setattr(messaging_turn.KINDS["reminder-draft"], "applies", lambda *args, **kwargs: None)
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == 1
+
+
+def test_vacuity_with_the_guard_of_the_reminder_question_blind_the_card_comes_back(world, monkeypatch):
+    stale(world)
+    world.bridge.remind.drafts[SENDER] = {"at": world.bridge.monotonic(), "day": None, "doubt": False, "how": "trigger", "line": "remind me to call the dentist", "message_id": None, "need": "time",
+                                          "project": world.projects[0]["id"], "readings": [], "text": "call the dentist"}
+    monkeypatch.setattr(messaging_turn.KINDS["reminder-draft"], "applies", lambda *args, **kwargs: None)
+    monkeypatch.setattr(messaging_turn.Turn, "drafted", property(lambda self: False))
+    world.say("sim")
+    assert len(records(world)) == 2
+
+
+def test_a_question_about_a_write_that_is_open_keeps_the_word_and_no_card_is_sent(world):
+    stale(world)
+    world.fake.natural_draft = lambda *args, **kwargs: True
+    world.fake.natural_needs = lambda *args, **kwargs: None      # the word answers nothing the question asked: the question is dropped and the line goes on
+    world.fake.natural_forget = lambda *args, **kwargs: None
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == 1 and went_on(world)
+
+
+def test_vacuity_with_the_mark_of_the_dropped_question_blind_the_card_comes_back(world):
+    class Blind(set):
+        def __contains__(self, item):
+            return False
+    stale(world)
+    world.fake.natural_draft = lambda *args, **kwargs: True
+    world.fake.natural_needs = lambda *args, **kwargs: None
+    world.fake.natural_forget = lambda *args, **kwargs: None
+    world.bridge.remind.discarded = Blind()
+    world.say("sim")
+    assert len(records(world)) == 2
+
+
+def test_vacuity_with_no_question_about_a_write_the_same_word_brings_the_card_back(world):
+    stale(world)
+    world.say("sim")
+    assert len(records(world)) == 2
+
+
+# --- a line in question form decides no card, on the card that is last and on the re-send --------------------------------------------------------------------------------------------------------
+
+
+QUESTIONS = ["sim?", "pode?", "nao?", "can you approve", "could you cancel"]
+
+
+@pytest.mark.parametrize("line", QUESTIONS)
+def test_a_question_decides_nothing_on_the_card_that_is_the_last_message_and_goes_on(world, line):
+    world.items[1] = plan(1)
+    world.bridge.tick()
+    world.say(line)
+    assert nothing_decided(world) and went_on(world, 1)
+
+
+@pytest.mark.parametrize("line", QUESTIONS)
+def test_a_question_does_not_bring_the_card_back(world, line):
+    stale(world)
+    world.say(line)
+    assert nothing_decided(world) and len(records(world)) == 1 and went_on(world)
+
+
+def test_vacuity_with_the_question_rule_off_the_question_decides_the_card_that_is_last(world, monkeypatch):
+    world.items[1] = plan(1)
+    world.bridge.tick()
+    monkeypatch.setattr(messaging_turn.card_words, "card_word", messaging_turn.card_words.card_shape)
+    world.say("sim?")
+    assert approvals(world) == [(1, H1)]
+
+
+def test_vacuity_with_the_question_rule_off_the_question_brings_the_card_back(world, monkeypatch):
+    stale(world)
+    monkeypatch.setattr(messaging_turn.card_words, "card_word", messaging_turn.card_words.card_shape)
+    world.say("sim?")
+    assert len(records(world)) == 2
+
+
+def test_a_line_in_question_form_gets_the_acknowledgement_a_card_word_does_not():
+    ack = st.load("messaging_ack")
+    sender = ack.Ack(lambda chat, stage: None)
+    assert sender.wanted("sim?") is True and sender.wanted("sim") is False and sender.wanted("sim!") is False
+
+
+# --- the list that follows a re-sent card: never silence -------------------------------------------------------------------------------------------------------------------------------------
+
+
+def silence_setup(world):
+    stale(world)
+    world.say("sim")      # card 1 is sent again, forced: it is marked as sent again just now
+    assert len(records(world)) == 2
+    world.items[2] = plan(2)
+    world.bridge.tick()
+    world.say("oi")
+    assert wait_for(lambda: world.texts()[-1] == "Noted.")
+    world.say("sim")      # two cards open, none last: the list
+    assert pk.said(world.texts()[-1].split("\n")[0], "WORD_LIST_HEAD")
+    world.items[2]["status"] = "rejected"      # the list is no longer true: one card is left
+
+
+def test_a_list_that_became_one_card_sends_that_card_even_when_it_was_sent_again_a_moment_ago(world):
+    silence_setup(world)
+    count, texts = len(records(world)), len(world.texts())
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == count + 1 and len(world.texts()) > texts
+    assert records(world)[-1]["pending_id"] == 1
+
+
+def test_vacuity_with_the_resend_not_forced_the_person_gets_silence(world, monkeypatch):
+    silence_setup(world)
+    real = bridge.Bridge.resend
+    monkeypatch.setattr(bridge.Bridge, "resend", lambda self, project, chat, pending_id, force=False: real(self, project, chat, pending_id, False))
+    count, texts = len(records(world)), len(world.texts())
+    world.say("sim")
+    assert len(records(world)) == count and len(world.texts()) == texts
