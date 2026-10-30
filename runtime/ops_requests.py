@@ -6,8 +6,8 @@
 """The router's run on a request: the request that waits for its route, the router skill run once on it (or once on each delivery of a
 request that lists several), and the pending decision that run opens (44-C3).
 
-A sibling of runtime/ops.py, which exposes `route` (the operation) and `_reroute` (the route of a delivery after its brief, 44-C4)
-under their names and calls the pieces here as `ops_requests.<name>`; no shell imports this file. The names every module of the layer
+A sibling of runtime/ops.py, which exposes `route` (the operation), and of runtime/ops_round.py, which holds `_reroute` (the route of a delivery
+after its brief, moved in 44-C4b); both call the pieces here as `ops_requests.<name>`; no shell imports this file. The names every module of the layer
 shares are read as `core.<name>` (runtime/ops_core.py). What a run takes in and gives back (`task_prompt`, `_budget`, `_note`,
 `_reported_usage`, `_skill_loaded`, `_count`, `_key_in_environment`) and the use it records (`_use_start`) are read as
 `ops_runs.<name>`, the routing of the run as `ops_models.route`. The conversation reaches `_route_request` at call time,

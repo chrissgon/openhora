@@ -17,7 +17,7 @@ goes through it, it moves to the sibling that owns its job. The four calls that 
 names) or the name `ops_event_revise._arguments` returns (`event_create` or `event_change`).
 
 This file imports no module of the runtime, so every sibling may import it at module level. It is the one lazy edge to `ops` that a
-sibling keeps (with the dispatcher's entry and the helpers of the run body and the round that ops_runs still reads in ops.py, 44-C4).
+sibling keeps (with the dispatcher's entry: no other module reads `ops` at call time since 44-C4b).
 
 Standard library only. Runs on Python 3.9: python3 runtime/ops_facade.py --help
 """

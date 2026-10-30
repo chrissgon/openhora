@@ -6,7 +6,7 @@ through `ops_facade.function(name)`, which reads `ops.<name>` at the moment of t
       callable and not a module (`function("ops_runs")` would hand a sibling's module to a caller): a private
       helper or a constant never goes through the seam, it lives in the sibling that owns its job; a call that passes a variable is one of a closed list (the table's
       own `row["call"]`, and the name `ops_event_revise._arguments` returns), and the module is imported as `import ops_facade`, so that no call is missed;
-  (c) the modules that reach `ops` at call time are exactly EXPECTED_IMPORTERS (the dispatcher's entry, the seam, and the module that still reads a helper of ops.py).
+  (c) the modules that reach `ops` at call time are exactly EXPECTED_IMPORTERS (the dispatcher's entry and the seam).
 Offline; no model, no network; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_facade.py
@@ -26,9 +26,9 @@ operations = st.load("operations")
 
 RUNTIME = Path(__file__).resolve().parents[1]
 
-# (c): the modules whose function bodies load `ops` by name. dispatcher: the entry (CYCLE_ENTRY). ops_facade: the seam. ops_runs: the run body and the round are still
-# helpers of ops.py (44-C4, OPEN-C2). ops_say left the set in 44-C3: `_route_request` lives in ops_requests, which `_drain_route` loads by name.
-EXPECTED_IMPORTERS = {"dispatcher", "ops_facade", "ops_runs"}
+# (c): the modules whose function bodies load `ops` by name. dispatcher: the entry (CYCLE_ENTRY). ops_facade: the seam. ops_say left the set in 44-C3: `_route_request` lives
+# in ops_requests, which `_drain_route` loads by name; ops_runs left it in 44-C4b: the run body is in ops_task_run (44-C4a) and the round in ops_round, loaded by name.
+EXPECTED_IMPORTERS = {"dispatcher", "ops_facade"}
 MISSING = object()      # what `lookup` returns for a name ops does not have
 
 # (b): a call whose argument is not a literal. (module, the argument's source): the three dispatches of a row of the table, and the operation `ops_event_revise` opens.
@@ -183,7 +183,7 @@ def importers_of_ops(sources: dict) -> set:
     return {module for module, target in lazy if target == "ops"}
 
 
-def test_the_modules_that_reach_ops_are_the_entry_the_seam_and_the_helpers_the_round_still_reads():
+def test_the_modules_that_reach_ops_are_the_entry_and_the_seam():
     importers = importers_of_ops(tib.read_sources(RUNTIME))
     assert importers == EXPECTED_IMPORTERS, f"a module that reaches ops: {sorted(importers ^ EXPECTED_IMPORTERS)}; call an operation through ops_facade.function(...), move a helper to its job's sibling"
 

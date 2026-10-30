@@ -235,7 +235,8 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
                "ops_items.py": {"ops_core", "ops_actor", "ops_sources"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models", "ops_ask", "ops_natural", "ops_runs", "ops_steps"},
                "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions", "ops_models", "ops_runs"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"},
                "ops_requests.py": {"ops_core", "ops_cancel", "ops_flows", "ops_instructions", "ops_language", "ops_models", "ops_runs", "ops_say", "ops_sources", "ops_waits"},
-               "ops_task_run.py": {"ops_core", "ops_cancel", "ops_instructions", "ops_language", "ops_models", "ops_runs", "ops_sources"}}
+               "ops_task_run.py": {"ops_core", "ops_cancel", "ops_instructions", "ops_language", "ops_models", "ops_runs", "ops_sources"},
+               "ops_round.py": {"ops_core", "ops_facade", "ops_language", "ops_models", "ops_requests", "ops_runs", "ops_steps", "ops_waits"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()
@@ -246,7 +247,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
                 at_top.add(node.module or "")
         assert {n for n in at_top if n == "ops" or n.startswith("ops_")} <= may, name
     assert set(allowed) == {"ops_say.py", "ops_natural.py", "ops_reads.py", "ops_config.py", "ops_contained.py", "ops_runs.py", "ops_models.py", "ops_natural_mail.py", "ops_natural_writes.py",
-                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py", "ops_turn.py", "ops_requests.py", "ops_task_run.py"}, "the guard covers each of its files"
+                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py", "ops_turn.py", "ops_requests.py", "ops_task_run.py", "ops_round.py"}, "the guard covers each of its files"
 
 
 # The size budget (CONS-1B, counting rule of SPEC-HOTSPOTS). ops.py held 3,514 lines before the move; after it, 2,676. The budget keeps
@@ -266,7 +267,10 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
 # 44-C4a (the start and the body of a run and the gate to the new ops_task_run.py: MANDATORY_LINE, PREPARE_ERRORS, _prepare_run, _run_start, _run_body, _ending, _effect_kind, _effect_or_review,
 # _tmp_files, _gate_payload, _git, _request_run_dirs, _code_state, _reader, EMPTY_CHANGESET, _changeset_of, _project_bytes, _dependencies): 414 code lines moved, 2,154 -> 1,740, and the budget with
 # them (2,186 -> 1,772); the headroom stays 32.
-OPS_PY_BUDGET = 1772
+# 44-C4b (the dispatcher's round and the releases to the new ops_round.py: _release, _approved_plan, _brief_delivery, _after_release, _reroute, _not_rerouted_decision, _not_rerouted, _backlog_subtasks,
+# DISPATCH_BUDGET, STOPPING_FAILURES, STOPPING_REASONS, _proven_on, _snapshot, _mode_releases, _deliveries_acceptance, _stops_the_round, _configuration_moved, _credential_stop, _image_stop, _ticks):
+# 344 code lines moved, 1,740 -> 1,396, and the budget with them (1,772 -> 1,428); the headroom stays 32.
+OPS_PY_BUDGET = 1428
 SIBLING_BUDGET = 1200
 REEXPORT_MARKER = "# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---"
 
