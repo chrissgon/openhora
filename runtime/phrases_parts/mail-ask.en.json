@@ -1,0 +1,31 @@
+{
+ "package": "mail-ask",
+ "table": {
+  "UNDERSTOOD_MAIL_ASK": "answer about {which} (a model reads that e-mail in an isolated run, up to US$ {cap})",
+  "UNDERSTOOD_MAIL_SUMMARY": "summarize {which}, because showing the original text is not enabled here (a model reads that e-mail in an isolated run, up to US$ {cap})",
+  "MA_WHICH_N": "e-mail {n}",
+  "MA_WHICH_WORDS": "the e-mail with “{words}”",
+  "MA_WHICH_DAY": "the e-mail of “{day}”",
+  "MA_WHICH_WORDS_DAY": "the e-mail with “{words}” of “{day}”",
+  "MA_NOT_BUILT": "I cannot answer questions about e-mails yet: the reader is not installed.",
+  "MA_NOT_PROVEN": "I cannot answer questions about e-mails yet: the reader has not passed its first full test.",
+  "MA_DAY_LIMIT": "I already answered {count} questions about e-mails today, which is the limit for a day.",
+  "MA_DAY_LIMIT_ONE": "I already answered 1 question about an e-mail today, which is the limit for a day.",
+  "MA_BUSY": "I am already answering another question; try again in a moment.",
+  "MA_STORED": "(answered about an e-mail)",
+  "MA_REQUEST_TEXT": "question about an e-mail",
+  "MA_READ": "Read: {line} ({box}).",
+  "MA_FAILED": "I could not answer about the e-mail now. Try again in a few minutes.",
+  "MA_TIMEOUT": "The question about the e-mail took too long and was stopped.",
+  "MA_CAP": "The question about the e-mail reached its cost limit and was stopped.",
+  "MA_NOT_FOUND": "The e-mail does not hold the answer.",
+  "MA_NO_TEXT": "That e-mail has no text for me to read.",
+  "MA_WITHHELD": "That e-mail looks like it holds a password or a key, so I did not hand it to the reader.",
+  "MA_LONG": "I read only the first 4,000 characters of this e-mail.",
+  "MA_SUMMARY_QUESTION": "Summarize what this e-mail says.",
+  "MA_NUMBER_CHECK": "Check this: {values} is not in the e-mail.",
+  "MA_PICK": "Say “summarize {n} from {box}”, with the number and the box of the one you want.",
+  "MA_WHICH_SAY_TWO": "Say “summarize {n} from {first_box}” or “from {second_box}”.",
+  "MA_WHICH_SAY_ONE": "Say “summarize {n} from {box}” to read the one in {box}."
+ }
+}

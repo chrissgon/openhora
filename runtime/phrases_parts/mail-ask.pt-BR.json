@@ -1,0 +1,31 @@
+{
+ "package": "mail-ask",
+ "table": {
+  "UNDERSTOOD_MAIL_ASK": "responder sobre {which} (um modelo lê esse e-mail numa execução isolada, até US$ {cap})",
+  "UNDERSTOOD_MAIL_SUMMARY": "resumir {which}, porque mostrar o texto original não está liberado por aqui (um modelo lê esse e-mail numa execução isolada, até US$ {cap})",
+  "MA_WHICH_N": "o e-mail {n}",
+  "MA_WHICH_WORDS": "o e-mail com “{words}”",
+  "MA_WHICH_DAY": "o e-mail de “{day}”",
+  "MA_WHICH_WORDS_DAY": "o e-mail com “{words}” de “{day}”",
+  "MA_NOT_BUILT": "Ainda não consigo responder sobre e-mails: o leitor não está instalado.",
+  "MA_NOT_PROVEN": "Ainda não consigo responder sobre e-mails: o leitor ainda não passou no primeiro teste completo.",
+  "MA_DAY_LIMIT": "Já respondi {count} perguntas sobre e-mails hoje, que é o limite do dia.",
+  "MA_DAY_LIMIT_ONE": "Já respondi 1 pergunta sobre um e-mail hoje, que é o limite do dia.",
+  "MA_BUSY": "Já estou respondendo outra pergunta; tente de novo em instantes.",
+  "MA_STORED": "(respondido sobre um e-mail)",
+  "MA_REQUEST_TEXT": "pergunta sobre um e-mail",
+  "MA_READ": "Lido: {line} ({box}).",
+  "MA_FAILED": "Não consegui responder sobre o e-mail agora. Tente de novo em alguns minutos.",
+  "MA_TIMEOUT": "A pergunta sobre o e-mail demorou demais e foi interrompida.",
+  "MA_CAP": "A pergunta sobre o e-mail chegou ao limite de custo e foi interrompida.",
+  "MA_NOT_FOUND": "O e-mail não traz a resposta.",
+  "MA_NO_TEXT": "Esse e-mail não tem texto para eu ler.",
+  "MA_WITHHELD": "Esse e-mail parece conter uma senha ou chave, então não o entreguei ao leitor.",
+  "MA_LONG": "Li só os primeiros 4.000 caracteres deste e-mail.",
+  "MA_SUMMARY_QUESTION": "Resuma o que este e-mail diz.",
+  "MA_NUMBER_CHECK": "Confira: {values} não aparece no e-mail.",
+  "MA_PICK": "Diga “resuma o {n} do {box}”, com o número e a caixa do que você quer.",
+  "MA_WHICH_SAY_TWO": "Diga “resuma o {n} do {first_box}” ou “do {second_box}”.",
+  "MA_WHICH_SAY_ONE": "Diga “resuma o {n} do {box}” para ler o que está no {box}."
+ }
+}

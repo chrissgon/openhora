@@ -1548,6 +1548,9 @@ from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
 from ops_file_ask import (  # noqa: E402,F401
     file_ask,
 )
+from ops_mail_ask import (  # noqa: E402,F401
+    mail_ask,
+)
 from ops_mail_read import (  # noqa: E402,F401
     mail_read,
 )

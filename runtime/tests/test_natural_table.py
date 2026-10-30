@@ -90,7 +90,7 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
         assert natural.class_of(name) == ("R" if name == "sources" else "G"), name
     for name in ("approve", "reject", "release", "answer", "go-ahead"):
         assert natural.class_of(name) == "D"
-    for name in R - {"research", "file-ask"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
+    for name in R - {"research", "file-ask", "mail-ask"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
         assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body", "tasks-read")), name
@@ -106,6 +106,11 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
     assert row["model"] is True and row["channels"] == ("terminal", "page", "messaging") and "mcp" not in row["channels"]
     assert operations.GROUPS["ask-files"] == {"operations": ("file-ask",), "kind": None}
     assert [g for g, spec in operations.GROUPS.items() if "file-ask" in spec["operations"]] == ["ask-files"]
+    # MAIL-SUMMARY: `mail-ask` is the third read that calls a model, and hands ONE e-mail of the snapshots to the same quarantined reader. It has no group of its own: it is listed under `ask`, and on a messaging
+    # app `operations.PAIRED` asks for `ask-mail` beside it. It is in no default policy and has no row on the MCP mode.
+    row = operations.by_name("mail-ask")
+    assert row["model"] is True and row["channels"] == ("terminal", "page", "messaging") and "mcp" not in row["channels"]
+    assert [g for g, spec in operations.GROUPS.items() if "mail-ask" in spec["operations"]] == ["ask"] and operations.PAIRED == {"mail-ask": (("messaging",), "ask-mail")}
     assert operations.GROUPS["read-files"] == {"operations": ("file-read",), "kind": None}
     for name, cls in natural.CLASSES.items():      # an operation that is only the terminal's is never run from a line
         if operations.by_name(name)["channels"] == ("terminal",):

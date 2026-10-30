@@ -300,6 +300,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         return importlib.import_module("ops_file_ask").reply(project, ctx, args, said, channel, sender, extras)
     if name == "mail-read":      # CB-3: the text of one message of the mail snapshots; code writes the reply, no model reads it, and the conversation keeps a neutral word (runtime/ops_mail_read.py)
         return importlib.import_module("ops_mail_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "mail-ask":      # MAIL-SUMMARY: a question about one message of the mail snapshots; its text goes only to the quarantined reader, code checks its quotes and writes the reply (runtime/ops_mail_ask.py)
+        return importlib.import_module("ops_mail_ask").reply(project, ctx, args, said, channel, sender, extras)
     if name == "todo-list":      # CB-5: the open tasks of the person's own to-do list, read live; code writes the reply and the conversation keeps a neutral word (runtime/ops_todo.py)
         return importlib.import_module("ops_todo").reply_list(project, ctx, args, channel, sender, extras)
     if name == "research":      # R2-F1: a question of general information answered by a web search; code runs the research skill, writes the reply and the conversation keeps a neutral word (runtime/ops_research.py)

@@ -74,9 +74,11 @@ RUNTIME = REPO / "runtime"
 # is new (ops_runs -> ops_round, the one call in `_round_module()`: ops_round imports ops_runs for the held record, the children and the pieces of a run, so ops_runs cannot import it back):
 # -1 call and edge, +1 call and edge. The file's own AST count on the head: 59 lazy calls, 48 edges, 0 debt. What reaches `ops` at call time is now the dispatcher (the entry) and ops_facade
 # (the seam) only.
+# MAIL-SUMMARY (`mail-ask`): one cycle edge is new (ops_natural -> ops_mail_ask, the one call in `run`, as its siblings ops_file_ask and ops_mail_read: ops_mail_ask imports ops_natural
+# for `_error` and ops_mail_read, which imports ops_natural, so ops_natural cannot import it at the top): +1 call, +1 edge. The file's own AST count on the head: 60 lazy calls, 49 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 59
-LAZY_EDGES_BUDGET = 48
+LAZY_CALLS_BUDGET = 60
+LAZY_EDGES_BUDGET = 49
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
@@ -112,7 +114,7 @@ ROWS = (
     ("ops_interpret", CYCLE, "ops_card_revise"),
     ("ops_items", CYCLE, "event_lookup"),
     ("ops_models", CYCLE, "ops_routines"),
-    ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
+    ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_ask ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),
     ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_round ops_routines ops_steps ops_task_run"),
     ("ops_say", CYCLE, "ops_ask ops_requests ops_turn"),

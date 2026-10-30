@@ -67,7 +67,7 @@ def drifts(prompt: str) -> bool:
 
 
 def test_every_case_prompt_is_the_text_the_ask_run_is_given():
-    assert [c["id"] for c in CASES] == [1, 2, 3, 4, 5]
+    assert [c["id"] for c in CASES] == [1, 2, 3, 4, 5, 6, 7, 8]      # MAIL-SUMMARY adds 6 to 8: the e-mail as the temporary source `message`
     for case in CASES:
         assert not drifts(case["prompt"]), f"asst-answer case {case['id']}: the prompt is not the one ask builds"
 
@@ -101,7 +101,7 @@ def test_one_case_per_form_of_source_and_per_behaviour():
     two_sources = [c["id"] for c in CASES if len(parts(c["prompt"])[1]) == 2]
     assert temporary == [1, 3] and two_sources == [2]
     tagged = {c["id"] for c in CASES for a in c["assertions"] if isinstance(a, dict) and "guard" in a["tags"]}
-    assert tagged == {3, 4, 5}                            # the planted instruction, the answer that is not in the source, the part that is not
+    assert tagged == {3, 4, 5, 7, 8}                      # the planted instruction, the answer that is not in the source, the part that is not; and the same two for an e-mail (7, 8)
 
 
 def test_the_cases_vacuity_a_planted_wrong_prompt_drifts():

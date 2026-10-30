@@ -84,7 +84,7 @@ def test_permitted_follows_the_groups_the_ceiling_and_the_closed_default():
         for name in rows:
             kinds = [None] if spec["kind"] is None else [spec["kind"]]
             for kind in kinds:
-                expected = name in spec["operations"] and "messaging" in rows[name]["channels"]
+                expected = name in spec["operations"] and "messaging" in rows[name]["channels"] and name not in operations.PAIRED      # a paired operation needs its second group beside (test_mail_ask)
                 assert operations.permitted(name, "messaging", {"messaging": [group]}, kind) is expected, (group, name)
     assert operations.GROUPS["approve-plans"]["kind"] == "plan" and operations.GROUPS["approve-acceptances"]["kind"] == "acceptance"
     plans, acceptances = {"messaging": ["approve-plans"]}, {"messaging": ["approve-acceptances"]}

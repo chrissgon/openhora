@@ -906,6 +906,9 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
         return _invalid("E_OP_UNKNOWN")
     if _open_note(name, obj, line, ops):          # BL7-4 (C): a draft of a note with no recipient, message, day or subject is open writing, not a mail card
         return _clarify("private-route") if turn_gate.private_line(line) else {"kind": "route", "error": None}
+    summary = name == "mail-read" and allowed is not None and name not in allowed and "mail-ask" in allowed and "mail-ask" in ops      # MAIL-SUMMARY: may not see the text as written, may have it read: the same slots, and the plan says so
+    if summary:
+        name, obj = "mail-ask", dict(obj, op="mail-ask")
     if allowed is None or name not in allowed:
         return {"kind": "refuse_policy", "error": None, "op": name}
     row = ops[name]["slots"]
@@ -922,6 +925,8 @@ def _check_op(obj, line, frame, ops, refused, now_local, zone, allowed) -> dict:
     args, error = _check_slots(name, plain, line)
     if error:
         return _invalid(error)
+    if summary:
+        args = dict(args, summary=True)      # the plan says "summarize ... because showing the original text is not enabled here", and the question the reader gets is the summary's
     if name in EVENT_OPS and "day" in slots and not {"target", "event"} & (set(slots) | set(inherit)):
         return _clarify("no-target", slot="target", op=name)          # a day and no event named: the runtime asks again (`natural`'s IX_ASK_AGAIN), and so does the measure
     ground, sender = None, None

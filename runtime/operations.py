@@ -55,7 +55,7 @@ do, so that the generated tables and the shells cannot differ). A row:
                result that says the model did not answer is not a failure of the operation, and is still printed)
   natural      what a line in the person's own words may do with the operation: the REGISTRY (PLAN-BRAIN section 4.2, package CB-0). A pure literal on every row:
                  class     R, N, W, D, E, G or work (the classes below: the one literal that says what a line may do with the operation)
-                 since     the catalog version the row is served from (1 or 2; see LINE_CATALOG)
+                 since     the catalog version the row is served from (1, 2 or 3; see LINE_CATALOG)
                  order     the place of the row in the served catalog and in `natural.NATURAL` (1 to 99 today, unique, frozen: the model reads the catalog in this order, and the
                            order is part of the hash an enabling entry pins; a new row takes the next number)
                  privacy   own (the platform's own state), account (the person's mail, calendar, files or tasks) or off-host (the line or the person's data leaves to a third
@@ -771,6 +771,20 @@ OPERATIONS = (
                  "about": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
                  "slots": {"message": {"kind": "int", "param": "number", "since": 2}, "target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day", "since": 2},
                            "service": {"kind": "word", "param": "account", "since": 2}}}},
+    # MAIL-SUMMARY: a question about ONE message of the mail snapshots, answered by the quarantined reader of `file-ask` (runtime/ops_mail_ask.py): the message is named as `mail-read` names it,
+    # its whole snapshot text goes only to one contained run of the answer skill (container, web off, nothing brought back) and the answer comes back to the chat that asked with the quotes code
+    # checked. No group of its own: a messaging sender needs `ask` and `ask-mail` together (PAIRED below). `since` 3: a typed command, the page and the tests reach it now; a line in words only
+    # after the catalog is raised to 3 (the flip, a pull request of its own).
+    {"name": "mail-ask", "call": "mail_ask",
+     "args": ({"name": "question", "kind": "str", "required": True}, {"name": "message", "kind": "str", "label": "<source>#<n>"}, {"name": "number", "kind": "int"}, {"name": "match", "kind": "str"},
+              {"name": "day", "kind": "str"}, {"name": "account", "kind": "choice", "choices": ("google", "microsoft")}),
+     "channels": ("terminal", "page", "messaging"), "model": True, "job": True, "channel_arg": True,
+     "help": "answer a question about ONE message of the newest snapshot of a mail source (a summary, a date, an amount): the message's text goes to one isolated run of the answer skill, web off, that can act on nothing, and code checks its quotes; named as mail-read names it: --message <source>#<n> or --number <n>, --match <words> with --day <day>, --account google|microsoft; two boxes with the number, or several matches, are listed and the reply never picks one; a messaging sender needs the groups ask and ask-mail",
+     "natural": {"class": "R", "since": 3, "order": 101, "privacy": "off-host", "cost": "model",
+                 "what": "answer a question about one e-mail of the mail snapshots, or summarize it (the number is written in the line; the words are the target span; the day is the day span; the service word only when the line says Gmail or Outlook; the question is the whole line)",
+                 "about": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount): message is its number as the line writes it, target the words of its sender or subject or a pasted list line whole, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read).",
+                 "slots": {"message": {"kind": "int", "param": "number", "since": 3}, "target": {"kind": "span", "param": "match", "since": 3}, "day": {"kind": "span", "param": "day", "since": 3},
+                           "service": {"kind": "word", "param": "account", "since": 3}}}},
     # FA-1: a question about what ONE file of the person's own Drive or OneDrive says, answered by the quarantined reader (runtime/ops_file_ask.py): the file is found by the search of `file-read`,
     # its converted text goes only to one contained run of the answer skill (container, web off, nothing brought back) and the answer comes back to the chat that asked with the passages code
     # checked. The text goes to a model, so the group `ask-files` is a group of its own, in no default policy, widened only with `accept-config --widen`, never on the MCP mode (this row does not list it).
@@ -1044,7 +1058,7 @@ GROUPS = {
     "approve-effect-send": {"operations": ("approve",), "kind": "effect:send"},           # an e-mail from the project's outbox (effect_send.py APPROVAL_GROUP)
     "approve-effect-publish": {"operations": ("approve",), "kind": "effect:publish"},     # a post (effect_publish.py APPROVAL_GROUP)
     "approve-networked-plans": {"operations": ("approve",), "kind": "plan:networked"},    # a plan that holds a step reaching the network (P9, limit L36): on top of approve-plans
-    "ask": {"operations": ("ask",), "kind": None},   # an answer from the full text of the project's sources: in no default (a messaging sender gets it only from a profile or channel entry accepted with --widen), never on the MCP mode
+    "ask": {"operations": ("ask", "mail-ask"), "kind": None},   # an answer from the full text of the project's sources: in no default (a messaging sender gets it only from a profile or channel entry accepted with --widen), never on the MCP mode
     # NR-2 (the maintainer's decision of 2026-10-18, superseding the RT-1 rule for its holders): the sender may ask about the mail and calendar sources of the project from a
     # messaging app, and those sources join the automatic selection of their questions. It adds a capability to `ask` and never grants `ask` (KIND_ONLY): a profile lists both.
     # In no default; the accepted file widens it only with accept-config --widen like every other group.
@@ -1147,6 +1161,10 @@ POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's co
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 MESSAGING_ONLY_GROUPS = ("read-limited", "ask-mail", "interpret", "send-files", "confirm-reads-off", "interpret-fallback")          # valid on a messaging app alone (the page and the MCP mode list `read`; the page and the terminal name a mail source with @<id> as they always did)
+# An operation that two groups grant together (MAIL-SUMMARY): {operation: (the channels it holds on, the second group)}. On those channels `policy_allows` also asks for the second group, so that
+# `mail-ask` (listed under `ask`) needs `ask-mail` beside it on a messaging app: the text of one e-mail goes to the model only for a sender who may ask about mail. Every path that asks whether an
+# operation is permitted (`refusal`, `guard`, the interpreter's `_allowed`) goes through `policy_allows`, so they agree. Nothing new is granted: both groups exist and say what they say.
+PAIRED = {"mail-ask": (("messaging",), "ask-mail")}
 KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off", "interpret-fallback")                           # groups that add a capability to an operation another group grants: they never grant the operation when no kind is asked (policy_allows)
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
@@ -1420,6 +1438,8 @@ def policy_allows(op_name: str, channel: str, policy, kind: str | None = None, s
     groups = effective_groups(channel, policy, sender)
     if groups is None:
         return True
+    if op_name in PAIRED and channel in PAIRED[op_name][0] and PAIRED[op_name][1] not in groups:
+        return False
     for name in groups:
         group = GROUPS.get(name)
         if name in KIND_ONLY and kind is None:
