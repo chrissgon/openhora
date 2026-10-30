@@ -522,7 +522,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 |---|---|
 | The MCP mode offers no approval of any kind: `approve`, `reject`, `cancel` and `retry` are not tools and are refused when typed into `say` (decision D8, extended on 2026-10-07) | `runtime/operations.py`, `runtime/ops.py` (`say`), `runtime/tests/test_mcp.py` |
 | `chat.py` imports are guarded by `test_chat.py`, those of `cli.py` by `test_runtime_rules.py` and the layer map | `runtime/tests/test_chat.py`, `scripts/tests/test_layer_map.py` |
-| The conversation's memory becomes the request's text, so it reaches every task of the request, not only the router's run | `ops.say`, `ops.task_prompt` |
+| The conversation's memory becomes the request's text, so it reaches every task of the request, not only the router's run | `ops.say`, `ops_runs.task_prompt` |
 | One conversation per project (`CONVERSATION = "project"`) | `runtime/ops_say.py` |
 | The messaging bridge is not restarted when it exits, a line that arrives while a run holds the project is answered busy and not queued (only the page queues), and a paused listen provider is a log line: `GET /projects` has no state for it | [messaging.md](messaging.md), "Known limits and improvements"; `runtime/service_bridge.py`, `runtime/ops_say.py` (`QUEUING_CHANNELS`) |
 | Nothing reads the `messaging` field of `GET /projects` today: not the page, not the demo | [messaging.md](messaging.md), "Dependencies" |

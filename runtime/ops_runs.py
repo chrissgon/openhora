@@ -7,12 +7,16 @@
 (`dispatch`), and the processes the round starts.
 
 A sibling of runtime/ops.py, which exposes `run_next`, `run_task`, `dispatch` and `reap` under their names; no shell
-imports this file. The names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py); the
-helpers of a run that stay in runtime/ops.py (`_prepare_run`, `_run_start`, `_run_body`, `_snapshot`, ...) are reached at
-call time through `_ops()`, never imported at module level.
+imports this file. The names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py). The pieces
+a run takes in and gives back live here (44-C1): the text of a run (`task_prompt`), the reason recorded on a run (`_note`), the
+usage a run reports (`_count`, `_skill_loaded`, `_reported_usage`), the runtime's own key around a run (`_key_in_environment`),
+the spend limit and the day's caps (`_budget`, `_agents_of_the_day`, `_midnight_utc`, `PER_RUN_USD`), `code_task` and the push of the
+documents a run returned; runtime/ops.py re-exports them for the shells and the tests. The helpers of a run that stay in
+runtime/ops.py (`_prepare_run`, `_run_start`, `_run_body`, `_snapshot`, ...) are reached at call time through `_ops()`, never
+imported at module level (44-C4 moves them).
 
 Every task run is its own OS process: `run-task --project <dir> --task <id>` (runtime/cli.py). The lab's session ends
-every container of its process and `ops._key_in_environment` writes the environment, so two runs in one process would
+every container of its process and `_key_in_environment` writes the environment, so two runs in one process would
 end each other. A run holds the task's lock (task-<id>.lock) from before its claim to after its finish: a task that is
 `running` in the store whose lock can be taken is an orphan (`_recover`). Admission, the claim and the run row happen
 under the claim lock (`_start`), by one pure function, runtime/parallel.py `admit`. The dispatcher decides a list of
@@ -24,6 +28,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import importlib
 import json
@@ -45,6 +50,7 @@ import parallel
 import skill_meta
 import upkeep
 import router
+import workcopy
 
 REFUSED_CURSOR = "dispatch:refused"    # the store's cursor: {task id: {"reason", "at"}}, the children that were refused or crashed
 REPORTED_CURSOR = "dispatch:reported"  # the store's cursor: {"low": run id, "seen": [run ids]}, the finished runs already reported
@@ -60,6 +66,13 @@ SPAWNED = []                           # [(project, task id, Popen)] this proces
 SPAWNED_LOCK = threading.RLock()       # every access holds it (re-entrant: a signal handler may arrive while it is held)
 STOPPING = threading.Event()           # set: no child starts any more (stop_runs, a signal on a waiting round)
 
+# What a run takes in and gives back (moved from runtime/ops.py by 44-C1, no change of logic).
+NOTE_LIMIT = 1000        # characters of a failure's reason kept on a task and on a run row
+HANDED_LINE = "The user handed over these files for this task. They are in the project at:"
+# One line per document the mirror imported from the platform since the task's last run (decision of 2026-10-06).
+EDITED_LINE = "The person edited {path} on the platform since the last run; its content is theirs."
+PER_RUN_USD = 0.5          # what a floor run of unknown cost counts at, when runtime.json names no max_cost_usd_per_run
+
 
 def _ops():
     """runtime/ops.py, found at call time: the helpers of a run and of the round stay there."""
@@ -70,19 +83,170 @@ def _same(a: str, b: str) -> bool:
     return os.path.realpath(a) == os.path.realpath(b)
 
 
+# --- what enters a run and what comes back (moved from runtime/ops.py by 44-C1, no change of logic; the limits themselves: runtime/workcopy.py, L1 to L6) ---
+
+
+def _note(value) -> str:
+    """A reason on one record: control characters out, cut to NOTE_LIMIT characters."""
+    return core.CONTROL.sub(" ", str(value or "")).strip()[:NOTE_LIMIT] or "no reason given"
+
+
+def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "",
+                language_line: str = "") -> str:
+    """The text of one run: the request in the person's words, the task's own text, and, on a run made after
+    an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
+    for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
+    the "For this task: " paragraph, so the prompt is the plain request. handed lists the relative paths of the
+    files the person handed over to this task (the file drop): one paragraph after the task's text names them;
+    absent or empty, the prompt is unchanged. edited lists the documents the mirror imported from the platform
+    since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
+    the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
+    the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
+    instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
+    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text. language_line is the paragraph
+    that says which language the artifacts are written in (runtime/language.py), right after the task's paragraph and before the
+    instructions; the call sites of a task run and of the router's run always give it, "" leaves it out."""
+    parts = [request_text.strip()]
+    if (task_text or "").strip():
+        parts += ["", "For this task: " + task_text.strip()]
+    if language_line:
+        parts += ["", language_line]
+    if instructions:
+        parts += ["", instructions]
+    if handed:
+        parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
+    if sourced:
+        parts += ["", *sourced]
+    if edited:
+        parts += ["", *[EDITED_LINE.format(path=rel) for rel in edited]]
+    if answered:
+        parts += ["", "In an earlier run of this task you stopped and asked the user. Your replies and the user's "
+                      "answers are below, oldest first. Each answer is the user's decision: record it where the "
+                      "skill says decisions are recorded, and do not ask it again."]
+        for n, item in enumerate(answered, 1):
+            parts += ["", f"--- your reply {n} ---", (item.get("body") or "").strip(), "",
+                      f"--- the user's answer {n} ---", (item.get("answer") or "").strip()]
+    return "\n".join(parts) + "\n"
+
+
+def _count(value):
+    """A count the lab reported, or None when it reported none."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _skill_loaded(timing: dict, skill: str):
+    """Whether the run touched the skill: it is in `skills_loaded` (its SKILL.md was read) or in `skills_used` (a tool
+    named its folder: a script run, a reference read, a listing; R12). None when the adapter reported neither list.
+    No rule reads it yet."""
+    lists = [timing.get(key) for key in ("skills_loaded", "skills_used") if isinstance(timing.get(key), list)]
+    return any(skill in names for names in lists) if lists else None
+
+
+def _reported_usage(reported, routing: dict) -> dict:
+    """The usage a failed run's attempts reported (lab.reported_usage), as the arguments that record it: tokens always, the
+    cost only on a metered credential (only a metered run has a billed cost, as for a run that ended). Nothing when none
+    was reported, so a failed run with a reported cost keeps it and the reservation does not stand in for it (A-57)."""
+    reported = reported or {}
+    out = {}
+    if reported.get("total_tokens") is not None:
+        out["tokens"] = int(reported["total_tokens"])
+    if reported.get("cost_usd") is not None and routing.get("billing") == "metered":
+        out["cost_usd"] = float(reported["cost_usd"])
+    return out
+
+
+@contextlib.contextmanager
+def _key_in_environment(routing: dict, keys):
+    """Around a run on the runtime's own key: the variable the gate file names for the model holds that key, and afterwards
+    what was there before (the earlier value, or no variable). Nothing for a run on the lab's key, which the lab passes
+    itself."""
+    key = keys[routing["model"]]
+    if key["source"] != "runtime" or key["value"] is None:
+        yield
+        return
+    name = lab.reference(routing["model"])["pass_env"][0]
+    with core._ENV_LOCK:  # the table of what is injected, with the variable itself: a child the dispatcher starts reads both
+        before = os.environ.get(name)
+        os.environ[name] = key["value"]
+        core.ENV_INJECTED[name] = before
+    try:
+        yield
+    finally:
+        with core._ENV_LOCK:
+            core.ENV_INJECTED.pop(name, None)
+            if before is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = before
+
+
+def code_task(meta: dict) -> bool:
+    """A code task: its skill is of a code area (workcopy.CODE_AREAS, the areas of the code-change flow's skills).
+    Only a code task whose copy holds versioned files is held to clean tracked files and makes a change set
+    (choice K4); a document task runs on a project whose tracked files carry uncommitted changes (a project
+    initialised by core-project-init always has two), and a versioned file it changed is listed in `kept`."""
+    return meta.get("area") in workcopy.CODE_AREAS
+
+
+def _push_after_run(ctx: dict, out: dict) -> dict:
+    """Write to the documents platform the documents a run returned. Never fails the task: a failure is listed."""
+    rels = [r["path"] for r in out.get("returned") or [] if r.get("class") == "document"]
+    if not rels:
+        return documents.result()
+    try:
+        return documents.push(ctx, rels)
+    except Exception as e:  # a failed push never fails the task; the next sync tries again
+        return {**documents.result(), "failed": [{"path": rel, "reason": f"{type(e).__name__}: {e}"} for rel in rels]}
+
+
+def _midnight_utc() -> str:
+    """The start of today, local time, as UTC ISO-8601: where a day's caps start counting."""
+    local = datetime.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    return local.astimezone(datetime.timezone.utc).isoformat()
+
+
+def _budget(ctx: dict, agent, routing: dict, keys=None):
+    """lab.run_skill's max_cost: the spend limit of a run on a metered credential, or one no manifest could bill (autonomy.run_budget
+    of the agent's day; the per-run limit when the agent has no caps or less is left, a start by hand not being capped); None else."""
+    per_run = ctx["cfg"]["raw"].get("max_cost_usd_per_run", PER_RUN_USD)
+    found = _agents_of_the_day(ctx, keys).get(agent)
+    return None if routing["billing"] not in (None, "metered") else (found and autonomy.run_budget(found["entry"], found["spent"], per_run)) or per_run
+
+
+def _agents_of_the_day(ctx: dict, keys=None) -> dict:
+    """Each area agent's facts, a day's spend and entry, from the store and the configuration: {name: {"facts",
+    "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use; keys: the Keys found). The
+    spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the rule of its model: a run on a metered model is metered). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
+    (its task is a request, so its agent is None) counts against the planning agent, an answer run (ask) against the owner of the answer skill
+    (ops_ask.run_owners). {} without area agents."""
+    store, cfg = ctx["store"], ctx["cfg"]
+    agents_checked = cfg["area_agents"]
+    if not agents_checked:
+        return {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
+    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _midnight_utc()), importlib.import_module("ops_ask").run_owners(ctx)),
+                                 core._metered_models())
+    per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, keys or core._keys())
+    return {name: {"facts": autonomy.facts(name, agents_checked, standing_rows, now), "entry": entry,
+                   "spent": autonomy.spend(runs, name, per_run), "split": autonomy.spend_split(runs, name, per_run),
+                   "in_use": in_use}
+            for name, entry in agents_checked.items()}
+
+
 # --- what a task is, for the rules of the slots -------------------------------------------------------------------------
 
 
 def skill_facts(skill, cache: dict) -> tuple:
     """(footprint, code) of a skill: the files its tasks may write (runtime/parallel.py footprint) and whether its tasks are
-    code tasks (ops.code_task). A skill that cannot be read has an empty footprint and is no code task; the run fails to
+    code tasks (code_task). A skill that cannot be read has an empty footprint and is no code task; the run fails to
     start with its reason later. Kept in `cache` for one call."""
     if skill not in cache:
         found = (frozenset(), False)
         if skill:
             folder = os.path.join(core.ROOT, "skills", skill)
             try:
-                found = (parallel.footprint(folder), bool(_ops().code_task(skill_meta.declared(folder))))
+                found = (parallel.footprint(folder), bool(code_task(skill_meta.declared(folder))))
             except skill_meta.SkillError:
                 pass
         cache[skill] = found
@@ -221,7 +385,7 @@ def run_task(project: str, task_id: int, requested=None, checked: bool = True) -
         out = {**_ops()._run_body(ctx, started), "recovered": recovered["tasks"]}
         if documents.enabled(cfg):
             with core._write_lock(cfg, wait=None):
-                out["documents"] = _ops()._push_after_run(ctx, out)
+                out["documents"] = _push_after_run(ctx, out)
         return out
 
 
@@ -263,7 +427,7 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
             running = [r for r in running_and_effects(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
             if checked and prepared is not None and task.get("agent") in cfg["area_agents"]:
-                found = ops._agents_of_the_day(ctx, keys).get(task["agent"])
+                found = _agents_of_the_day(ctx, keys).get(task["agent"])
                 if found is not None:
                     ok, why = autonomy.may_start(task["agent"], cfg["area_agents"], found["facts"], found["spent"],
                                                  prepared["routing"]["billing"])
@@ -284,7 +448,7 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
             except ops.PREPARE_ERRORS as e:
                 failure = e
         if failure is not None:
-            core._stored(ctx, store.task_fail_orphans, [claim["id"]], [], ops._note(f"the run could not start: {failure}"))
+            core._stored(ctx, store.task_fail_orphans, [claim["id"]], [], _note(f"the run could not start: {failure}"))
             raise core.OpsError(f"task {claim['id']} ({claim['skill']}) could not start: {failure}", 1)
         return {**started, "unattended": checked}   # a task the dispatcher starts is unattended; run-next is the person's own start
 

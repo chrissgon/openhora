@@ -40,13 +40,12 @@ and its run: the skill, the model, the cost, the tokens), which is what the dail
 (<data_dir>/contained-runs/<n>/) holds the prompt and the brief for the project's retention (`run_retention_days`) like every contained run, outside git. Nothing here logs, prints or
 stores the question or the answer; an error prints the name of its type only.
 
-Sibling of runtime/ops.py, which exposes `research` under its name. The shared names come from ops_core, read as `core.<name>`; what stays in runtime/ops.py is reached at call time
-through `_ops()`. Standard library only. Runs on Python 3.9: python3 runtime/ops_research.py --help
+Sibling of runtime/ops.py, which exposes `research` under its name. The shared names come from ops_core, read as `core.<name>`; the pieces of a run (`task_prompt`, `_midnight_utc`, `_note`, `_reported_usage`, `_skill_loaded`, `_count`) are read as
+`ops_runs.<name>` (runtime/ops_runs.py). Standard library only. Runs on Python 3.9: python3 runtime/ops_research.py --help
 """
 from __future__ import annotations
 
 import contextlib
-import importlib
 import os
 import shutil
 import sys
@@ -80,11 +79,6 @@ TASK_TEXT = ("answer the question above with a web search, as your skill does. T
              "docs/workbench/research/answer.md and keep the answer short: at most five lines under Answer in brief, each with its source number. "
              "Write the brief and the reply in the language of the question.")
 FAILURES = {"timeout": "RS_TIMEOUT"}      # a failure kind with a sentence of its own; every other one is RS_FAILED
-
-
-def _ops():
-    """runtime/ops.py, found at call time."""
-    return importlib.import_module("ops")
 
 
 def _outcome(reply: str, status: str, **more) -> dict:
@@ -134,7 +128,7 @@ def _scope() -> dict:
 def _today(ctx: dict) -> int:
     """How many research runs were started today (local day), whatever their end."""
     store = ctx["store"]
-    rows = core._stored(ctx, store.runs_since, _ops()._midnight_utc())
+    rows = core._stored(ctx, store.runs_since, ops_runs._midnight_utc())
     return sum(1 for row in rows if row.get("skill") == SKILL and row.get("task_id") == row.get("request_id"))      # a run on a REQUEST: a task of a flow or of an agent that runs the same skill is not counted
 
 
@@ -173,7 +167,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
         return _outcome(t("RS_NO_WEB"), "no-web")
     try:
         identity = lab.skill_identity(SKILL)
-        prompt = _ops().task_prompt(question, TASK_TEXT, [])      # the question and the fixed task text: no standing instructions and nothing else of the project (the run is on the open network)
+        prompt = ops_runs.task_prompt(question, TASK_TEXT, [])      # the question and the fixed task text: no standing instructions and nothing else of the project (the run is on the open network)
     except lab.LabError:
         return _outcome(t("RS_FAILED"), "failed")
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
@@ -220,7 +214,7 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
 
     def fail(kind: str, reason: str, word: str, counts=None, image=None, reported=None) -> dict:
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
-                      error=_ops()._note(reason), **_ops()._reported_usage(reported, routing)) or _outcome(t(word), "failed" if word == "RS_FAILED" else word[3:].lower(), ran=True, **base)
+                      error=ops_runs._note(reason), **ops_runs._reported_usage(reported, routing)) or _outcome(t(word), "failed" if word == "RS_FAILED" else word[3:].lower(), ran=True, **base)
 
     try:
         result = ops_contained.execute(ctx, SKILL, meta, keys, routing, prompt, timeout=limits["timeout_seconds"], dest=dest, prepared_dir=prepared_dir,
@@ -244,11 +238,11 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     else:
         shown = t(words[parsed["status"]])
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
-    every = _ops()._reported_usage(lab.reported_usage(dest), routing)
+    every = ops_runs._reported_usage(lab.reported_usage(dest), routing)
     cancelled = finish(status="ok", attempts=counts["attempts"],
                        cost_usd=every.get("cost_usd", number_of("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
-                       skill_loaded=_ops()._skill_loaded(timing, SKILL), image_digest=result["image_digest"], redactions=_ops()._count(counts.get("redactions")))
+                       skill_loaded=ops_runs._skill_loaded(timing, SKILL), image_digest=result["image_digest"], redactions=ops_runs._count(counts.get("redactions")))
     if cancelled:
         return cancelled
     if not _still_may(project, channel, sender):

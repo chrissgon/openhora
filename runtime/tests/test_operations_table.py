@@ -50,7 +50,8 @@ effects = st.load("effects")
 # The modules of the operations layer whose public functions are each an operation's `call` or listed in NOT_OPERATIONS; a package that adds a module adds its name through expected/ (HOT-1).
 PUBLIC_MODULES = extend("operations_table.PUBLIC_MODULES", ["ops", "ops_say", "ops_reads", "ops_core", "ops_config", "ops_sources", "ops_steps", "ops_flows", "ops_routines", "ops_instructions", "ops_contained", "ops_ask", "ops_cancel", "ops_attachments", "ops_reminders", "ops_calendar", "ops_files", "ops_mail_send", "ops_mailbox", "ops_items", "ops_file_read", "ops_research", "ops_file_trash"])
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
-NOT_OPERATIONS = extend("operations_table.NOT_OPERATIONS", {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
+# 44-C1: task_prompt and code_task are defined in ops_runs, which is not a public module of the table; ops re-exports them.
+NOT_OPERATIONS = extend("operations_table.NOT_OPERATIONS", {"store_module", "context", "chat_memory", "state_question", "state_reply", "queued_ids",
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
                   "write_checkpoints", "own_key_name",
                   # ops_say.py and ops_ask.py (NR-2): the line of a request, whether a plain line is a natural request, whether the asker holds ask-mail
