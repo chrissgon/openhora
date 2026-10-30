@@ -18,7 +18,6 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import datetime
-import importlib
 import json
 import os
 import platform as platform_module

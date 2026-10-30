@@ -11,7 +11,8 @@ imports this file. The names every module of the layer shares are read as `core.
 a run takes in and gives back live here (44-C1): the text of a run (`task_prompt`), the reason recorded on a run (`_note`), the
 usage a run reports (`_count`, `_skill_loaded`, `_reported_usage`), the runtime's own key around a run (`_key_in_environment`),
 the spend limit and the day's caps (`_budget`, `_agents_of_the_day`, `_midnight_utc`, `PER_RUN_USD`), `code_task` and the push of the
-documents a run returned; the record of the tasks a round held (`HELD_CURSOR`, `HELD_KEPT`, `_now_iso`, `_record_held`; 44-C2); runtime/ops.py
+documents a run returned; the record of the tasks a round held (`HELD_CURSOR`, `HELD_KEPT`, `_now_iso`, `_record_held`; 44-C2); the use of a skill
+that a run records with scripts/evidence.py (`USE_ID`, `RECORDER_TIMEOUT`, `_recorder`, `_record`, `_use_start`; 44-C3); runtime/ops.py
 re-exports them for the shells and the tests. The helpers of a run that stay in
 runtime/ops.py (`_prepare_run`, `_run_start`, `_run_body`, `_snapshot`, ...) are reached at call time through `_ops()`, never
 imported at module level (44-C4 moves them).
@@ -68,6 +69,8 @@ SPAWNED_LOCK = threading.RLock()       # every access holds it (re-entrant: a si
 STOPPING = threading.Event()           # set: no child starts any more (stop_runs, a signal on a waiting round)
 
 # What a run takes in and gives back (moved from runtime/ops.py by 44-C1, no change of logic).
+USE_ID = re.compile(r"[0-9a-f]{8}")   # a use's id, as the recorder prints it (moved by 44-C3)
+RECORDER_TIMEOUT = 60    # seconds the recorder may take (moved by 44-C3)
 NOTE_LIMIT = 1000        # characters of a failure's reason kept on a task and on a run row
 HANDED_LINE = "The user handed over these files for this task. They are in the project at:"
 # One line per document the mirror imported from the platform since the task's last run (decision of 2026-10-06).
@@ -233,6 +236,36 @@ def _agents_of_the_day(ctx: dict, keys=None) -> dict:
                    "spent": autonomy.spend(runs, name, per_run), "split": autonomy.spend_split(runs, name, per_run),
                    "in_use": in_use}
             for name, entry in agents_checked.items()}
+
+
+# --- a use, with the existing recorder (moved from runtime/ops.py by 44-C3, no change of logic; scripts/evidence.py) ---------------
+
+
+def _recorder() -> str:
+    return core.EVIDENCE or os.path.join(core.ROOT, "scripts", "evidence.py")
+
+
+def _record(args: list) -> "subprocess.CompletedProcess":
+    return subprocess.run([sys.executable, _recorder(), "record", *args], capture_output=True, text=True,
+                          timeout=RECORDER_TIMEOUT, check=False)
+
+
+def _use_start(ctx: dict, run_id: int, skill: str, routing: dict):
+    """Record the start of a use of the skill with the recorder, with the model and adapter of the routing (the
+    gate file's ids, never a model's own account), and keep its id in the cursor use:<run id>. Returns the id, or
+    None when the use could not be recorded: that never stops a run."""
+    try:
+        done = _record(["--start", "--skill-dir", os.path.join(core.ROOT, "skills", skill), "--project", ctx["cfg"]["project"],
+                        "--model", routing["model"], "--adapter", routing["adapter"]])
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"the use of run {run_id} could not be recorded: {type(e).__name__}", file=sys.stderr)
+        return None
+    use = done.stdout.strip()
+    if done.returncode != 0 or not USE_ID.fullmatch(use):
+        print(f"the use of run {run_id} could not be recorded: {done.stderr.strip()[-500:]}", file=sys.stderr)
+        return None
+    core._stored(ctx, ctx["store"].cursor_set, f"use:{run_id}", use)
+    return use
 
 
 # --- what a task is, for the rules of the slots -------------------------------------------------------------------------

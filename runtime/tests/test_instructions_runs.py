@@ -34,6 +34,7 @@ instructions = st.load("instructions")
 operations = st.load("operations")
 ops = st.load("ops")
 ops_instructions = st.load("ops_instructions")
+ops_runs = st.load("ops_runs")
 router = st.load("router")
 routines = st.load("routines")
 language = st.load("language")
@@ -468,8 +469,8 @@ def test_the_proposal_tells_a_channel_that_cannot_write_where_to_accept_it_and_t
 
 def test_the_router_refuses_a_broken_file_before_a_use_of_the_skill_is_recorded(chat_tree, monkeypatch):
     uses = []
-    real = ops._use_start
-    monkeypatch.setattr(ops, "_use_start", lambda *a, **k: uses.append(a) or real(*a, **k))
+    real = ops_runs._use_start      # 44-C3: the router's run (ops_requests) and the task's run (ops) call the recorder in ops_runs, so this is the binding they reach
+    monkeypatch.setattr(ops_runs, "_use_start", lambda *a, **k: uses.append(a) or real(*a, **k))
     put(chat_tree, "a" * 4001)
     out = say(chat_tree, "Which market first?")
     assert router_failed_with(out["reply"], "the project's instructions are too long") and uses == []

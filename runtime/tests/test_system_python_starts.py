@@ -19,8 +19,9 @@ REPO = st.REPO
 # source opens with it (`[sys.executable`); a mention elsewhere (a report, a message) starts nothing. "<skill scripts>" stands for the scripts of skills the runtime runs isolated: the checkers a runtime manifest names (the third test) and the backlog reader;
 # "<handlers>" for every file of runtime/handlers/ (the first test).
 STARTS = {
-    "runtime/ops.py": ["scripts/evidence.py", "<handlers>"],
-    "runtime/ops_runs.py": ["runtime/cli.py"],  # the dispatcher starts `run-task` for each task it runs, one process each
+    "runtime/ops.py": ["<handlers>"],
+    # the recorder of a use (scripts/evidence.py) moved here from ops.py in 44-C3; the dispatcher starts `run-task` for each task it runs, one process each
+    "runtime/ops_runs.py": ["scripts/evidence.py", "runtime/cli.py"],
     "runtime/plan.py": ["scripts/select_skills.py"],
     "runtime/isolated.py": ["<skill scripts>"],  # a manifest's checkers and the backlog reader, through run_script
     "runtime/handlers/published_posts.py": ["runtime/cli.py"],

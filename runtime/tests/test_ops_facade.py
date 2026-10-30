@@ -2,10 +2,11 @@
 through `ops_facade.function(name)`, which reads `ops.<name>` at the moment of the call. Three rules, each pinned here with the test of its own failure:
   (a) a patch on `ops.<name>` is what `function(name)` returns (the seam keeps nothing): that is what lets the golden kit's spies, the sentinel of the L54 walk
       (test_ops_natural.py, `spy_all`) and the sentinels of the effect paths keep reaching what production calls;
-  (b) every literal argument of `ops_facade.function(...)` in runtime/ and runtime/handlers/ is a public name of `ops` (no leading `_`, not UPPER_CASE): a private
+  (b) every literal argument of `ops_facade.function(...)` in runtime/ and runtime/handlers/ is a public name of `ops` (no leading `_`, not UPPER_CASE) that holds a
+      callable and not a module (`function("ops_runs")` would hand a sibling's module to a caller): a private
       helper or a constant never goes through the seam, it lives in the sibling that owns its job; a call that passes a variable is one of a closed list (the table's
       own `row["call"]`, and the name `ops_event_revise._arguments` returns), and the module is imported as `import ops_facade`, so that no call is missed;
-  (c) the modules that reach `ops` at call time are exactly EXPECTED_IMPORTERS (the dispatcher's entry, the seam, and the two modules that still read a helper of ops.py).
+  (c) the modules that reach `ops` at call time are exactly EXPECTED_IMPORTERS (the dispatcher's entry, the seam, and the module that still reads a helper of ops.py).
 Offline; no model, no network; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_facade.py
@@ -26,8 +27,9 @@ operations = st.load("operations")
 RUNTIME = Path(__file__).resolve().parents[1]
 
 # (c): the modules whose function bodies load `ops` by name. dispatcher: the entry (CYCLE_ENTRY). ops_facade: the seam. ops_runs: the run body and the round are still
-# helpers of ops.py (44-C4, OPEN-C2). ops_say: `_drain_route` reads the router's run, `_route_request`, in ops.py (44-C3 moves it, and this set loses ops_say).
-EXPECTED_IMPORTERS = {"dispatcher", "ops_facade", "ops_runs", "ops_say"}
+# helpers of ops.py (44-C4, OPEN-C2). ops_say left the set in 44-C3: `_route_request` lives in ops_requests, which `_drain_route` loads by name.
+EXPECTED_IMPORTERS = {"dispatcher", "ops_facade", "ops_runs"}
+MISSING = object()      # what `lookup` returns for a name ops does not have
 
 # (b): a call whose argument is not a literal. (module, the argument's source): the three dispatches of a row of the table, and the operation `ops_event_revise` opens.
 DYNAMIC_ARGUMENTS = {("ops_natural", "row['call']"), ("ops_natural_writes", "row['call']"), ("ops_say", "row['call']"), ("ops_event_revise", "name")}
@@ -98,8 +100,9 @@ def calls_of_the_seam(source: str) -> tuple:
     return calls, problems
 
 
-def seam_problems(sources: dict, names_of_ops) -> list:
-    """What breaks the rule in `sources` ({module: text}): a literal that is not a public name of ops, a name ops does not have, or a variable argument outside DYNAMIC_ARGUMENTS."""
+def seam_problems(sources: dict, lookup) -> list:
+    """What breaks the rule in `sources` ({module: text}): a literal that is not a public name of ops, a name ops does not have, a name that holds a module or
+    something that cannot be called, or a variable argument outside DYNAMIC_ARGUMENTS. `lookup(name)` is what ops holds under the name, or MISSING."""
     found = []
     for module, text in sorted(sources.items()):
         calls, problems = calls_of_the_seam(text)
@@ -110,8 +113,12 @@ def seam_problems(sources: dict, names_of_ops) -> list:
                     found.append(f"{module}:{line}: ops_facade.function({argument}): a variable argument is allowed only where DYNAMIC_ARGUMENTS lists it")
             elif not public(literal):
                 found.append(f"{module}:{line}: ops_facade.function({literal!r}) is not a public name of ops: a helper or a constant lives in the sibling that owns its job")
-            elif not names_of_ops(literal):
+            elif lookup(literal) is MISSING:
                 found.append(f"{module}:{line}: ops_facade.function({literal!r}): ops has no such name")
+            elif isinstance(lookup(literal), types.ModuleType):
+                found.append(f"{module}:{line}: ops_facade.function({literal!r}) is a module of ops, not an operation: a sibling imports a module itself")
+            elif not callable(lookup(literal)):
+                found.append(f"{module}:{line}: ops_facade.function({literal!r}) holds something that cannot be called")
     return found
 
 
@@ -124,7 +131,7 @@ def runtime_sources() -> dict:
 
 def test_every_argument_of_the_seam_in_the_runtime_is_a_public_name_of_ops():
     sources = runtime_sources()
-    assert seam_problems(sources, lambda name: hasattr(ops, name)) == []
+    assert seam_problems(sources, lambda name: getattr(ops, name, MISSING)) == []
     # the reader is not blind: the siblings that moved to the seam are found, with their literals and the four variables
     found = {module: calls_of_the_seam(text)[0] for module, text in sources.items() if "ops_facade.function" in text}
     assert {"ops_natural", "ops_natural_writes", "ops_say", "ops_card_revise", "ops_event_revise", "ops_instructions"} <= set(found)
@@ -145,7 +152,8 @@ def test_the_variable_calls_name_only_the_calls_of_the_table_and_the_two_operati
 
 
 def test_vacuity_a_planted_private_or_constant_name_or_unlisted_variable_or_other_import_form_fails_the_rule():
-    has = lambda name: name in ("pending", "answer")      # noqa: E731
+    held = {"pending": lambda: 1, "answer": lambda: 2, "ops_runs": types.ModuleType("ops_runs"), "version": "1.2", "Klass": type("Klass", (), {})}
+    has = lambda name: held.get(name, MISSING)      # noqa: E731
     clean = {"m": "import ops_facade\ndef f():\n    return ops_facade.function('pending')(1) or ops_facade.function(\"answer\")\n"}
     assert seam_problems(clean, has) == []
     private = {"m": "import ops_facade\ndef f():\n    return ops_facade.function('_x')\n"}
@@ -154,6 +162,11 @@ def test_vacuity_a_planted_private_or_constant_name_or_unlisted_variable_or_othe
     assert len(seam_problems(constant, has)) == 1
     absent = {"m": "import ops_facade\ndef f():\n    return ops_facade.function('nothing_here')\n"}
     assert "no such name" in seam_problems(absent, has)[0]
+    module = {"m": "import ops_facade\ndef f():\n    return ops_facade.function('ops_runs')\n"}      # public by name, a module by value: only the lookup tells it apart
+    assert public("ops_runs") and len(seam_problems(module, has)) == 1 and "module" in seam_problems(module, has)[0]
+    not_callable = {"m": "import ops_facade\ndef f():\n    return ops_facade.function('version')\n"}
+    assert len(seam_problems(not_callable, has)) == 1 and "cannot be called" in seam_problems(not_callable, has)[0]
+    assert seam_problems({"m": "import ops_facade\ndef f():\n    return ops_facade.function('Klass')\n"}, has) == []      # a class is callable
     variable = {"m": "import ops_facade\ndef f(name):\n    return ops_facade.function(name)\n"}
     assert "variable argument" in seam_problems(variable, has)[0]
     assert seam_problems({"ops_event_revise": "import ops_facade\ndef f(name):\n    return ops_facade.function(name)\n"}, has) == []      # the listed one passes
@@ -170,7 +183,7 @@ def importers_of_ops(sources: dict) -> set:
     return {module for module, target in lazy if target == "ops"}
 
 
-def test_the_modules_that_reach_ops_are_the_entry_the_seam_and_the_two_helpers_still_read():
+def test_the_modules_that_reach_ops_are_the_entry_the_seam_and_the_helpers_the_round_still_reads():
     importers = importers_of_ops(tib.read_sources(RUNTIME))
     assert importers == EXPECTED_IMPORTERS, f"a module that reaches ops: {sorted(importers ^ EXPECTED_IMPORTERS)}; call an operation through ops_facade.function(...), move a helper to its job's sibling"
 

@@ -233,7 +233,8 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural", "ops_cancel", "ops_file_read", "ops_interpret", "ops_natural_writes", "ops_todo", "ops_facade", "ops_models", "ops_runs"}, "ops_natural.py": {"ops_core", "ops_actor", "ops_items", "ops_reminders", "ops_facade"}, "ops_turn.py": {"ops_natural", "ops_say", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret"},
                "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural", "ops_facade"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural", "ops_file_trash", "ops_items", "ops_natural_mail", "ops_natural_writes", "ops_todo"}, "ops_natural_calendar.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_files.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_mail.py": {"ops_core"},
                "ops_items.py": {"ops_core", "ops_actor", "ops_sources"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models", "ops_ask", "ops_natural", "ops_runs", "ops_steps"},
-               "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions", "ops_models", "ops_runs"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
+               "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions", "ops_models", "ops_runs"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"},
+               "ops_requests.py": {"ops_core", "ops_cancel", "ops_flows", "ops_instructions", "ops_language", "ops_models", "ops_runs", "ops_say", "ops_sources", "ops_waits"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()
@@ -244,7 +245,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
                 at_top.add(node.module or "")
         assert {n for n in at_top if n == "ops" or n.startswith("ops_")} <= may, name
     assert set(allowed) == {"ops_say.py", "ops_natural.py", "ops_reads.py", "ops_config.py", "ops_contained.py", "ops_runs.py", "ops_models.py", "ops_natural_mail.py", "ops_natural_writes.py",
-                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py", "ops_turn.py"}, "the guard covers each of its files"
+                            "ops_natural_calendar.py", "ops_natural_files.py", "ops_items.py", "ops_interpret.py", "ops_turn.py", "ops_requests.py"}, "the guard covers each of its files"
 
 
 # The size budget (CONS-1B, counting rule of SPEC-HOTSPOTS). ops.py held 3,514 lines before the move; after it, 2,676. The budget keeps
@@ -258,7 +259,10 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
 # PER_RUN_USD, _midnight_utc, _budget, _agents_of_the_day and their constants): 156 code lines moved, 2,655 -> 2,499, and the budget with them (2,687 -> 2,531); the headroom stays 32.
 # 44-C2 (the seam and the reads: SERVICE, _held_listed to ops_reads; HELD_CURSOR, HELD_KEPT, _now_iso, _record_held to ops_runs): 55 code lines moved, 2,499 -> 2,444, and the budget with them
 # (2,531 -> 2,476); the headroom stays 32.
-OPS_PY_BUDGET = 2476
+# 44-C3 (the router's run on a request to the new ops_requests.py: _routable, _route_request, _router_call, _checked, _combined, _route_run, _not_recognised, _item_text, _route_deliveries,
+# ROUTE_KEPT; the recorder of a use to ops_runs.py: USE_ID, RECORDER_TIMEOUT, _recorder, _record, _use_start): 290 code lines moved, 2,444 -> 2,154, and the budget with them (2,476 -> 2,186);
+# the headroom stays 32.
+OPS_PY_BUDGET = 2186
 SIBLING_BUDGET = 1200
 REEXPORT_MARKER = "# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---"
 

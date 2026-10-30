@@ -19,7 +19,7 @@ Two kinds of run, two ways to end them:
   each shared object checked again before its removal (runtime/orphans.py `remove_runs`). The descendants are never signalled
   by pid: a pid read from a listing can be another process by the time it is used.
 
-  The router's run happens inside the calling process (runtime/ops.py `_router_call`), so nothing is signalled: `watch` runs a
+  The router's run happens inside the calling process (runtime/ops_requests.py `_router_call`), so nothing is signalled: `watch` runs a
   thread beside the lab call that reads the request's stop request every STOP_POLL seconds and ends the lab's runs of this
   process (lab.stop_runs), which is safe because the lab guard makes the router the only lab session of the process.
 
