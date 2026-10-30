@@ -55,14 +55,20 @@ RUNTIME = REPO / "runtime"
 # ops_reminders, reminders; ops_natural_writes -> account_start, natural_writes_calendar) and the dead accessor `ops_natural.natural_writes()` (no caller) is gone with its edge,
 # ops_natural -> natural_writes; 3 stay lazy as `light-start:` (turn_gate -> interpreter_route, operations, policy_widening: LIGHT_GATE, a test pins the gate's top-level imports
 # to a closed list); none closed a cycle: 68 lazy calls, 56 edges, 1 debt. What is left as debt is the one edge to `ops` that 44-C moves.
+# 44-C1 (the pieces of a run moved to ops_runs): five edges to `ops` are gone (ops_ask, ops_cancel, ops_contained, ops_file_ask, ops_research, one call each: they call
+# ops_runs.<name>, a top-level import, and ops_contained calls ops_models.route) and one cycle edge is new (ops_runs -> ops_ask, the one call in `_agents_of_the_day`, since
+# ops_ask imports ops_runs): -5 edges and calls, +1; the file's own AST count on the head rebased onto 44-B 3b is 64 lazy calls, 52 edges, 1 debt.
+# The dispatcher's edge to `ops` stays as CYCLE_ENTRY.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 68
-LAZY_EDGES_BUDGET = 56
+LAZY_CALLS_BUDGET = 64
+LAZY_EDGES_BUDGET = 52
 PLAIN_DEBT_BUDGET = 1
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
 CYCLE_OPS = ("cycle: ops imports its siblings at module level, so a sibling reaches an operation of ops at call time "
              "(test_runtime_rules); package 44-C moves the functions the siblings need")
+CYCLE_ENTRY = ("cycle: dispatcher.bootstrap loads by path the operations layer of the checkout a project's configuration names and returns the module "
+               "to the scheduled job; it calls no function of it and stays (SPEC-44C)")
 DEBT = ("debt: closes no cycle on its own today; package 44-B makes it a top-level import, or writes here the reason it stays lazy "
         "(`light-start:`)")
 LIGHT_ENTRY = ("light-start: the dispatcher is the entry the scheduler starts with the system interpreter; it imports no sibling, checks the project's configuration "
@@ -79,20 +85,16 @@ DEBT_OPS = ("debt: points at ops and no top-level path from ops leads back today
 
 # (module, reason, targets): one row per module and kind of reason, the targets in one string.
 ROWS = (
-    ("dispatcher", CYCLE_OPS, "ops"),
+    ("dispatcher", CYCLE_ENTRY, "ops"),
     ("dispatcher", LIGHT_ENTRY, "lab"),
     ("event_lookup", CYCLE, "event_series"),
     ("interpreter_route", LIGHT_LAB, "lab"),
     ("mail_compose", CYCLE, "interpreter_enable ops_interpret"),
     ("natural_writes", CYCLE, "turn_gate"),
-    ("ops_ask", CYCLE_OPS, "ops"),
     ("ops_cancel", CYCLE, "board"),
-    ("ops_cancel", CYCLE_OPS, "ops"),
     ("ops_card_revise", CYCLE, "ops_event_revise"),
     ("ops_card_revise", CYCLE_OPS, "ops"),
-    ("ops_contained", CYCLE_OPS, "ops"),
     ("ops_event_revise", DEBT_OPS, "ops"),
-    ("ops_file_ask", CYCLE_OPS, "ops"),
     ("ops_file_read", CYCLE, "ops_file_ask ops_file_trash"),
     ("ops_instructions", CYCLE, "ops_routines"),
     ("ops_instructions", CYCLE_OPS, "ops"),
@@ -104,8 +106,7 @@ ROWS = (
     ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_natural_writes", CYCLE_OPS, "ops"),
     ("ops_reads", CYCLE_OPS, "ops"),
-    ("ops_research", CYCLE_OPS, "ops"),
-    ("ops_runs", CYCLE, "ops_file_ask ops_routines ops_steps"),
+    ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_routines ops_steps"),
     ("ops_runs", CYCLE_OPS, "ops"),
     ("ops_say", CYCLE, "ops_ask ops_turn"),
     ("ops_say", CYCLE_OPS, "ops"),

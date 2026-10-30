@@ -5,16 +5,15 @@
 # ///
 """The contained run (stage 7): one run of one skill of an area agent's pack, in the eval container, for a caller that is not a task (a
 handler's agent run). A sibling of runtime/ops.py, which exposes `contained_run` under its name; the code moved here from ops.py with no
-change of logic (package INSTRUCTIONS, to keep ops.py within its size budget). The helpers that stay in ops.py (`_route`,
-`_budget`, `_key_in_environment`, `_note`) are reached at call time through `_ops()`, never imported at module level, so that the two
-files do not import each other. contracts/runtime.md, "The contained run", is the contract.
+change of logic (package INSTRUCTIONS, to keep ops.py within its size budget). The pieces of a run it uses (`_budget`,
+`_key_in_environment`, `_note`) are read as `ops_runs.<name>` (runtime/ops_runs.py), and the routing of a run is `ops_models.route`; this file
+imports neither runtime/ops.py nor, at call time, any helper of it. contracts/runtime.md, "The contained run", is the contract.
 
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
 import contextlib
-import importlib
 import json
 import os
 import re
@@ -23,16 +22,13 @@ import sys
 
 import ops_core as core
 import ops_instructions
+import ops_models
+import ops_runs
 import lab
 import manifest
 import plan
 import skill_meta
 import workcopy
-
-
-def _ops():
-    """runtime/ops.py, found at call time."""
-    return importlib.import_module("ops")
 
 
 
@@ -81,7 +77,7 @@ def routed(ctx: dict, skill: str) -> tuple:
     try:
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
         keys = core._keys()
-        routing = _ops()._route(ctx, skill, meta, keys)
+        routing = ops_models.route(ctx, skill, meta, keys)
         if routing["key_missing"]:
             raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
     except (skill_meta.SkillError, lab.LabError, KeyError, ValueError, OSError) as e:
@@ -110,7 +106,7 @@ def execute(ctx: dict, skill: str, meta: dict, keys, routing: dict, prompt: str,
         except workcopy.CopyError as e:
             raise core.OpsError(f"the copy could not be built: {e}", 1) from None
     try:
-        with core._LAB_GUARD, lab.session(), _ops()._key_in_environment(routing, keys), around or contextlib.nullcontext():  # the lab's process-wide session: one at a time
+        with core._LAB_GUARD, lab.session(), ops_runs._key_in_environment(routing, keys), around or contextlib.nullcontext():  # the lab's process-wide session: one at a time
             return lab.run_skill(skill, prompt, entered["files"], dest, web=bool(open_web), model=routing["model"],
                                  timeout=timeout, retries=0, platforms=list(platforms or ()), max_cost=max_cost)
     except lab.LabError as e:
@@ -161,7 +157,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
     try:
         result = execute(ctx, skill, meta, keys, routing, prompt, platforms=platforms, timeout=timeout, dest=dest,
-                         prepared_dir=prepared_dir, max_cost=_ops()._budget(ctx, None, routing, keys))
+                         prepared_dir=prepared_dir, max_cost=ops_runs._budget(ctx, None, routing, keys))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     changes = result["changes"] or {}
@@ -185,7 +181,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
         raise core.OpsError(f"the reply could not be written to {out_dir}: {e.strerror}", 1) from None
     failure = result["failure"]
     return {"status": result["status"], "failure": None if failure is None else
-            {"kind": failure["kind"], "reason": _ops()._note(failure["reason"])},
+            {"kind": failure["kind"], "reason": ops_runs._note(failure["reason"])},
             "model": result["model"], "adapter": result["adapter"],
             "ignored_changes": ignored, "run_dir": dest}
 

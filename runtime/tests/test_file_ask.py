@@ -672,8 +672,10 @@ def forbidden_imports(source: str) -> list:
 def test_the_module_imports_nothing_that_writes_sends_approves_or_reaches_a_messenger():
     source = (Path(ops_file_ask.__file__)).read_text(encoding="utf-8")
     assert forbidden_imports(source) == []
-    assert "ops" in {n for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "import_module" and node.args and isinstance(node.args[0], ast.Constant)
-                     for n in [node.args[0].value]}, "the scan reads the calls too"
+    # 44-C1: the module no longer reaches `ops` at call time (it reads ops_runs.<name>), so it holds no import_module call for the scan to read;
+    # that the scan reads a call-time import is pinned by the vacuity test below, on a planted call.
+    imported = {a.name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Import) for a in node.names}
+    assert "ops_runs" in imported, "the scan reads the real file's imports: the pieces of a run are read from ops_runs"
 
 
 def test_vacuity_the_import_scan_sees_a_planted_import_a_planted_call_and_an_effect_module():

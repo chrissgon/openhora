@@ -246,21 +246,12 @@ import skill_meta  # noqa: E402
 import state_merge  # noqa: E402
 import workcopy  # noqa: E402
 
-NOTE_LIMIT = 1000        # characters of a failure's reason kept on a task and on a run row
 USE_ID = re.compile(r"[0-9a-f]{8}")
 VERDICTS = ("worked", "corrected", "failed")
 RECORDER_TIMEOUT = 60
 ROUTE_KEPT = "a route-only run returns no file"
-HANDED_LINE = "The user handed over these files for this task. They are in the project at:"
-# One line per document the mirror imported from the platform since the task's last run (decision of 2026-10-06).
-EDITED_LINE = "The person edited {path} on the platform since the last run; its content is theirs."
 MANDATORY_LINE = ("This delivery is a mandatory milestone: the next task accepts it only with your approval written in "
                   "the document. Write it there, then release.")
-
-
-def _note(value) -> str:
-    """A reason on one record: control characters out, cut to NOTE_LIMIT characters."""
-    return core.CONTROL.sub(" ", str(value or "")).strip()[:NOTE_LIMIT] or "no reason given"
 
 
 def _sha256(path: str):
@@ -279,61 +270,7 @@ def _read(path: str):
         return None
 
 
-# --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
-
-
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "",
-                language_line: str = "") -> str:
-    """The text of one run: the request in the person's words, the task's own text, and, on a run made after
-    an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
-    for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
-    the "For this task: " paragraph, so the prompt is the plain request. handed lists the relative paths of the
-    files the person handed over to this task (the file drop): one paragraph after the task's text names them;
-    absent or empty, the prompt is unchanged. edited lists the documents the mirror imported from the platform
-    since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
-    the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
-    the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
-    instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
-    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text. language_line is the paragraph
-    that says which language the artifacts are written in (runtime/language.py), right after the task's paragraph and before the
-    instructions; the call sites of a task run and of the router's run always give it, "" leaves it out."""
-    parts = [request_text.strip()]
-    if (task_text or "").strip():
-        parts += ["", "For this task: " + task_text.strip()]
-    if language_line:
-        parts += ["", language_line]
-    if instructions:
-        parts += ["", instructions]
-    if handed:
-        parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
-    if sourced:
-        parts += ["", *sourced]
-    if edited:
-        parts += ["", *[EDITED_LINE.format(path=rel) for rel in edited]]
-    if answered:
-        parts += ["", "In an earlier run of this task you stopped and asked the user. Your replies and the user's "
-                      "answers are below, oldest first. Each answer is the user's decision: record it where the "
-                      "skill says decisions are recorded, and do not ask it again."]
-        for n, item in enumerate(answered, 1):
-            parts += ["", f"--- your reply {n} ---", (item.get("body") or "").strip(), "",
-                      f"--- the user's answer {n} ---", (item.get("answer") or "").strip()]
-    return "\n".join(parts) + "\n"
-
-
 # --- what comes back: runtime/workcopy.py (limits L7, L8, L12, L14) -------------------------------------------
-
-
-def _count(value):
-    """A count the lab reported, or None when it reported none."""
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-
-
-def _skill_loaded(timing: dict, skill: str):
-    """Whether the run touched the skill: it is in `skills_loaded` (its SKILL.md was read) or in `skills_used` (a tool
-    named its folder: a script run, a reference read, a listing; R12). None when the adapter reported neither list.
-    No rule reads it yet."""
-    lists = [timing.get(key) for key in ("skills_loaded", "skills_used") if isinstance(timing.get(key), list)]
-    return any(skill in names for names in lists) if lists else None
 
 
 def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
@@ -387,31 +324,6 @@ def _route(ctx: dict, skill: str, meta: dict, keys, task=None, requested=None) -
     billing of the credential the run would use (core._model_billing: "subscription", "metered", "free", or None when no
     manifest says), which the daily caps count by, and the autonomy of the pair ("proven", "consent" or "supervised")."""
     return ops_models.route(ctx, skill, meta, keys, task, requested)
-
-
-@contextlib.contextmanager
-def _key_in_environment(routing: dict, keys):
-    """Around a run on the runtime's own key: the variable the gate file names for the model holds that key, and afterwards
-    what was there before (the earlier value, or no variable). Nothing for a run on the lab's key, which the lab passes
-    itself."""
-    key = keys[routing["model"]]
-    if key["source"] != "runtime" or key["value"] is None:
-        yield
-        return
-    name = lab.reference(routing["model"])["pass_env"][0]
-    with core._ENV_LOCK:  # the table of what is injected, with the variable itself: a child the dispatcher starts reads both
-        before = os.environ.get(name)
-        os.environ[name] = key["value"]
-        core.ENV_INJECTED[name] = before
-    try:
-        yield
-    finally:
-        with core._ENV_LOCK:
-            core.ENV_INJECTED.pop(name, None)
-            if before is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = before
 
 
 # --- the operations ----------------------------------------------------------------------------------------
@@ -471,17 +383,6 @@ def run_task(project: str, task_id: int, model: str | None = None) -> dict:
     return ops_runs.run_task(project, task_id, requested=ops_models.check_word(model))
 
 
-def _push_after_run(ctx: dict, out: dict) -> dict:
-    """Write to the documents platform the documents a run returned. Never fails the task: a failure is listed."""
-    rels = [r["path"] for r in out.get("returned") or [] if r.get("class") == "document"]
-    if not rels:
-        return documents.result()
-    try:
-        return documents.push(ctx, rels)
-    except Exception as e:  # a failed push never fails the task; the next sync tries again
-        return {**documents.result(), "failed": [{"path": rel, "reason": f"{type(e).__name__}: {e}"} for rel in rels]}
-
-
 # What can go wrong before a run has its row: a skill the runtime knows nothing of, a lab that refuses, a store that does.
 PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
 
@@ -504,7 +405,7 @@ def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
     """The run's start, under the claim lock: its spend limit (before the run's own row: its reservation is not in the
     day's spend yet) and the run row. Returns what _run_body takes."""
     routing, identity = prepared["routing"], prepared["identity"]
-    budget = _budget(ctx, task.get("agent"), routing, prepared["keys"])
+    budget = ops_runs._budget(ctx, task.get("agent"), routing, prepared["keys"])
     run_id = core._stored(ctx, ctx["store"].task_run_start, task["id"], skill=task["skill"], model=routing["model"],
                           adapter=routing["adapter"], skill_version=identity["version"],
                           skill_sha256=identity["content_sha256"], web=routing["web"],
@@ -525,9 +426,9 @@ def _run_body(ctx: dict, started: dict) -> dict:
 
     def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
         done = core._stored(ctx, store.task_run_finish, run_id, status="failed", failure=kind, task_state="failed",
-                attempts=attempts, image_digest=digest, run_dir=dest, error=_note(reason), task_note=_note(reason),
-                redactions=redactions, **_reported_usage(reported, routing))
-        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a stopped run is cancelled whatever it found (R18)
+                attempts=attempts, image_digest=digest, run_dir=dest, error=ops_runs._note(reason), task_note=ops_runs._note(reason),
+                redactions=redactions, **ops_runs._reported_usage(reported, routing))
+        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": ops_runs._note(reason)}   # a stopped run is cancelled whatever it found (R18)
         return out
 
     out["use"] = _use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
@@ -562,12 +463,12 @@ def _run_body(ctx: dict, started: dict) -> dict:
         earlier = [r for r in core._stored(ctx, store.task_runs_list, task["id"]) if r["id"] != run_id]
         edited = [rel for rel in documents.imported_since(cfg, earlier[-1]["started_at"] if earlier else None)
                   if rel in entered_rels and skill_meta.matches(meta["inputs"], rel)]
-        prompt = task_prompt(request_text, task["text"], answered,
+        prompt = ops_runs.task_prompt(request_text, task["text"], answered,
                              handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
                              sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)],
                              instructions=started["instructions"], language_line=ops_language.run_line(cfg, task))
         code = None
-        if entered.get("tracked") and code_task(meta):
+        if entered.get("tracked") and ops_runs.code_task(meta):
             code = _code_state(ctx, task)
             if code.get("refused"):
                 return fail("internal", code["refused"])
@@ -596,7 +497,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
         finish = (lambda copy, _root: [deps_sets.remove(copy, r["produces"]) for r in installed]) if installed else None
         if current is None and not installed and not gate:
             prepare = None
-        with lab.session(), _key_in_environment(routing, keys):
+        with lab.session(), ops_runs._key_in_environment(routing, keys):
             result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], model=routing["model"],
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
                                    max_cost=budget)
@@ -611,13 +512,13 @@ def _run_body(ctx: dict, started: dict) -> dict:
     if result["status"] != "ok":
         failure = result["failure"]
         return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")), result.get("reported"))
+                    ops_runs._count(counts.get("redactions")), result.get("reported"))
     left = result["changes"]["created"] + result["changes"]["modified"]
     bound = manifest.bound_among(known, left)
     made = _changeset_of(ctx, task, run_id, dest, result, entered, code, bound) if code is not None else None
     with core._write_lock(cfg, wait=None):  # held from the check of the stop request to the finish: the stop request is written under it (L41)
         if ops_cancel.stop_requested(ctx, task["id"]):   # a stopped run returns nothing
-            return fail("stopped", "stopped before it returned anything", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
+            return fail("stopped", "stopped before it returned anything", counts["attempts"], result["image_digest"], ops_runs._count(counts.get("redactions")), lab.reported_usage(dest))
         returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
                                                            versioned=(made or {}).get("versioned", ()),
                                                            tracked=entered.get("tracked") or () if code is None else (),
@@ -630,18 +531,18 @@ def _run_body(ctx: dict, started: dict) -> dict:
             out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
         number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
         # Only a metered run has a cost that is billed, whatever the model; a subscription or free run keeps none (costs.py recomputes it).
-        every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
+        every = ops_runs._reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
         finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
                       cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                       tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                      skill_loaded=_skill_loaded(timing, skill),
-                      image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
+                      skill_loaded=ops_runs._skill_loaded(timing, skill),
+                      image_digest=result["image_digest"], run_dir=dest, redactions=ops_runs._count(counts.get("redactions")))
         if ending == "blocked":
             # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
             # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
             # and `retry` makes the task ready again.
             sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
-            done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=_note(sentence or body), **finish)
+            done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=ops_runs._note(sentence or body), **finish)
             out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
             return out
         mandatory = ending == "done" and bool(known.get("mandatory_milestone"))
@@ -680,19 +581,6 @@ def _run_body(ctx: dict, started: dict) -> dict:
         done = core._stored(ctx, store.task_run_finish, run_id, task_state="waiting", pending=decision, **finish)
         out.update(status="ok", ending=ending, task_state="waiting", pending_id=done["pending_id"], returned=returned, kept=kept)
         return out
-
-
-def _reported_usage(reported, routing: dict) -> dict:
-    """The usage a failed run's attempts reported (lab.reported_usage), as the arguments that record it: tokens always, the
-    cost only on a metered credential (only a metered run has a billed cost, as for a run that ended). Nothing when none
-    was reported, so a failed run with a reported cost keeps it and the reservation does not stand in for it (A-57)."""
-    reported = reported or {}
-    out = {}
-    if reported.get("total_tokens") is not None:
-        out["tokens"] = int(reported["total_tokens"])
-    if reported.get("cost_usd") is not None and routing.get("billing") == "metered":
-        out["cost_usd"] = float(reported["cost_usd"])
-    return out
 
 
 def _effect_kind(gate, requires):
@@ -911,14 +799,6 @@ def _request_run_dirs(ctx: dict, request_id: int) -> list:
         if t["parent_id"] is not None:
             runs += [r for r in core._stored(ctx, ctx["store"].task_runs_list, t["id"]) if r["status"] == "ok" and r["run_dir"]]
     return [r["run_dir"] for r in sorted(runs, key=lambda r: r["id"], reverse=True)]
-
-
-def code_task(meta: dict) -> bool:
-    """A code task: its skill is of a code area (workcopy.CODE_AREAS, the areas of the code-change flow's skills).
-    Only a code task whose copy holds versioned files is held to clean tracked files and makes a change set
-    (choice K4); a document task runs on a project whose tracked files carry uncommitted changes (a project
-    initialised by core-project-init always has two), and a versioned file it changed is listed in `kept`."""
-    return meta.get("area") in workcopy.CODE_AREAS
 
 
 def _code_state(ctx: dict, task: dict) -> dict:
@@ -1766,7 +1646,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, 
             raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
         identity = lab.skill_identity(skill)
         with core._claim_lock(cfg):  # the budget and the run row are one step: two starts cannot pass the same cap
-            budget = _budget(ctx, plan.PLANNING, routing, keys)
+            budget = ops_runs._budget(ctx, plan.PLANNING, routing, keys)
             run_id = core._stored(ctx, store.route_run_start, request["id"], skill=skill, model=routing["model"],
                                   adapter=routing["adapter"], skill_version=identity["version"],
                                   skill_sha256=identity["content_sha256"], web=False, reroute=reroute,
@@ -1780,9 +1660,9 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, 
 
     def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
         done = core._stored(ctx, store.route_run_finish, run_id, status="failed", failure=kind, attempts=attempts,
-                image_digest=digest, run_dir=dest, error=_note(reason), redactions=redactions,
-                **_reported_usage(reported, routing))
-        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a request being cancelled: cancelled (R18)
+                image_digest=digest, run_dir=dest, error=ops_runs._note(reason), redactions=redactions,
+                **ops_runs._reported_usage(reported, routing))
+        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": ops_runs._note(reason)}   # a request being cancelled: cancelled (R18)
         return {"out": out, "failed": True}
 
     held, why = ops_instructions.for_run(cfg["project"])   # the standing instructions; a file that fails a check stops the run, before a use is recorded
@@ -1800,12 +1680,12 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.router_line(cfg, request)) \
+        prompt = ops_runs.task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.router_line(cfg, request)) \
             + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
-        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys), ops_cancel.watch(ctx, request["id"]):
+        with core._LAB_GUARD, lab.session(), ops_runs._key_in_environment(routing, keys), ops_cancel.watch(ctx, request["id"]):
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
                                    max_cost=budget)
     except lab.LabError as e:
@@ -1819,9 +1699,9 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, 
     if result["status"] != "ok":
         failure = result["failure"]
         return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")), result.get("reported"))
+                    ops_runs._count(counts.get("redactions")), result.get("reported"))
     if ops_cancel.stop_requested(ctx, request["id"]):   # the request is being cancelled: its reply is not read, nothing is opened
-        return fail("stopped", "cancelled while the router answered", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
+        return fail("stopped", "cancelled while the router answered", counts["attempts"], result["image_digest"], ops_runs._count(counts.get("redactions")), lab.reported_usage(dest))
     # Nothing a route-only run left comes back: the router's run sees only the router installed, so what it would
     # write (a line about a skill it finds missing) is wrong here by construction.
     facts = {"staged": result["staged"]}
@@ -1831,12 +1711,12 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, 
     body, masked = workcopy.masked_reply(result["response"])
     body = body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore")
     number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
-    every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
+    every = ops_runs._reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
     finish = dict(status="ok", attempts=counts["attempts"],
                   cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                   tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                  skill_loaded=_skill_loaded(timing, skill),
-                  image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
+                  skill_loaded=ops_runs._skill_loaded(timing, skill),
+                  image_digest=result["image_digest"], run_dir=dest, redactions=ops_runs._count(counts.get("redactions")))
     common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
               "routing": routing, "use": out["use"], "body_masked": masked}
     return {"out": out, "failed": False, "response": result["response"], "body": body, "finish": finish,
@@ -2287,45 +2167,9 @@ def reject(project: str, pending_id: int, note: str | None = None, channel: str 
 
 DISPATCH_BUDGET = 2700     # seconds after which a round starts no new run (the worker's limit is 240 minutes)
 HANDLER_TIMEOUT = 1800     # seconds a handler's verb may take
-PER_RUN_USD = 0.5          # what a floor run of unknown cost counts at, when runtime.json names no max_cost_usd_per_run
 # A run that failed so: the next run of the round would fail the same way, so the round stops.
 STOPPING_FAILURES = ("auth", "settings")
 STOPPING_REASONS = ("container:", "config:")  # a LabError of these kinds, recorded as an internal failure
-
-
-def _midnight_utc() -> str:
-    """The start of today, local time, as UTC ISO-8601: where a day's caps start counting."""
-    local = datetime.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-    return local.astimezone(datetime.timezone.utc).isoformat()
-
-
-def _budget(ctx: dict, agent, routing: dict, keys=None):
-    """lab.run_skill's max_cost: the spend limit of a run on a metered credential, or one no manifest could bill (autonomy.run_budget
-    of the agent's day; the per-run limit when the agent has no caps or less is left, a start by hand not being capped); None else."""
-    per_run = ctx["cfg"]["raw"].get("max_cost_usd_per_run", PER_RUN_USD)
-    found = _agents_of_the_day(ctx, keys).get(agent)
-    return None if routing["billing"] not in (None, "metered") else (found and autonomy.run_budget(found["entry"], found["spent"], per_run)) or per_run
-
-
-def _agents_of_the_day(ctx: dict, keys=None) -> dict:
-    """Each area agent's facts, a day's spend and entry, from the store and the configuration: {name: {"facts",
-    "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use; keys: the Keys found). The
-    spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the rule of its model: a run on a metered model is metered). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
-    (its task is a request, so its agent is None) counts against the planning agent, an answer run (ask) against the owner of the answer skill
-    (ops_ask.run_owners). {} without area agents."""
-    store, cfg = ctx["store"], ctx["cfg"]
-    agents_checked = cfg["area_agents"]
-    if not agents_checked:
-        return {}
-    now = datetime.datetime.now(datetime.timezone.utc)
-    standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
-    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _midnight_utc()), ops_ask.run_owners(ctx)),
-                                 core._metered_models())
-    per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, keys or core._keys())
-    return {name: {"facts": autonomy.facts(name, agents_checked, standing_rows, now), "entry": entry,
-                   "spent": autonomy.spend(runs, name, per_run), "split": autonomy.spend_split(runs, name, per_run),
-                   "in_use": in_use}
-            for name, entry in agents_checked.items()}
 
 
 def _proven_on(ctx: dict, routed, task: dict, run) -> bool:
@@ -2362,8 +2206,8 @@ def _snapshot(ctx: dict, keys) -> dict:
     out = {**parallel_part,
            "ready": [{**t, "code": ops_runs.task_facts(t, cache)[1], "footprint": ops_runs.task_facts(t, cache)[0]}
                      for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
-           "reviews": [], "agents": _agents_of_the_day(ctx, keys), "model": {}, "billing": {},
-           "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
+           "reviews": [], "agents": ops_runs._agents_of_the_day(ctx, keys), "model": {}, "billing": {},
+           "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", ops_runs.PER_RUN_USD)}
     for item in core._stored(ctx, store.pending_list):
         task = by_id.get(item["task_id"])
         if item["kind"] != "review" or task is None or not task.get("skill"):
@@ -2806,6 +2650,23 @@ from ops_file_ask import (  # noqa: E402,F401
 )
 from ops_mail_read import (  # noqa: E402,F401
     mail_read,
+)
+from ops_runs import (  # noqa: E402,F401  (44-C1: the pieces of a run; the callers in this file read them as ops_runs.<name>)
+    EDITED_LINE,
+    HANDED_LINE,
+    NOTE_LIMIT,
+    PER_RUN_USD,
+    _agents_of_the_day,
+    _budget,
+    _count,
+    _key_in_environment,
+    _midnight_utc,
+    _note,
+    _push_after_run,
+    _reported_usage,
+    _skill_loaded,
+    code_task,
+    task_prompt,
 )
 from ops_todo import (  # noqa: E402,F401
     todo_add,

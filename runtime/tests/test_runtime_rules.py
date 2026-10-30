@@ -233,7 +233,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     allowed = {"ops_say.py": {"ops_core", "ops_actor", "ops_natural", "ops_cancel", "ops_file_read", "ops_interpret", "ops_natural_writes", "ops_todo"}, "ops_natural.py": {"ops_core", "ops_actor", "ops_items", "ops_reminders"}, "ops_turn.py": {"ops_natural", "ops_say", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret"},
                "ops_natural_writes.py": {"ops_core", "ops_actor", "ops_natural"}, "ops_interpret.py": {"ops_core", "ops_actor", "ops_natural", "ops_file_trash", "ops_items", "ops_natural_mail", "ops_natural_writes", "ops_todo"}, "ops_natural_calendar.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_files.py": {"ops_core", "ops_actor", "ops_natural_writes"}, "ops_natural_mail.py": {"ops_core"},
                "ops_items.py": {"ops_core", "ops_actor", "ops_sources"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models", "ops_ask", "ops_natural", "ops_runs"},
-               "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
+               "ops_config.py": {"ops_core", "ops_models", "ops_google_folders", "ops_steps"}, "ops_contained.py": {"ops_core", "ops_instructions", "ops_models", "ops_runs"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()
@@ -254,7 +254,9 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
 # The count is the lines of ops.py OUTSIDE its top-level `import` and `from ... import` statements: most changes to the file were a re-export line,
 # and a re-export is not code to move out. The budget is that count on the file as migrated (2,655 lines: the file's 2,744 lines before the move to
 # one name per line, less its imports, plus the marker line) plus 32, the headroom the old rule had (2,776 lines for a file of 2,744).
-OPS_PY_BUDGET = 2687
+# 44-C1 (the pieces of a run to ops_runs.py: task_prompt, _note, _count, _skill_loaded, _reported_usage, _key_in_environment, code_task, _push_after_run,
+# PER_RUN_USD, _midnight_utc, _budget, _agents_of_the_day and their constants): 156 code lines moved, 2,655 -> 2,499, and the budget with them (2,687 -> 2,531); the headroom stays 32.
+OPS_PY_BUDGET = 2531
 SIBLING_BUDGET = 1200
 REEXPORT_MARKER = "# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---"
 

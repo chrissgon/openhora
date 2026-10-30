@@ -52,6 +52,7 @@ import lab  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_flows  # noqa: E402
+import ops_runs  # noqa: E402
 import ops_waits  # noqa: E402
 import run_stop  # noqa: E402
 
@@ -161,9 +162,8 @@ def _running(ctx: dict, request_id: int) -> bool:
 
 def _usage(ctx: dict, row: dict) -> dict:
     """What a run row's folder reported, as the store takes it: {"tokens", "cost_usd" (a metered credential only), "run_dir"}."""
-    ops = importlib.import_module("ops")
     dest = row.get("run_dir") or os.path.join(ctx["cfg"]["data_dir"], core.RUNS_DIR, str(row["id"]))
-    got = ops._reported_usage(lab.reported_usage(dest), {"billing": row.get("billing")})
+    got = ops_runs._reported_usage(lab.reported_usage(dest), {"billing": row.get("billing")})
     return {**got, **({"run_dir": dest} if os.path.isdir(dest) else {})}
 
 

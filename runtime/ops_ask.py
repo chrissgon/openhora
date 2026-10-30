@@ -8,8 +8,8 @@
 One contained run of the answer skill reads the copies, and the reply is cited and checked by code, on any channel that may ask.
 
 A sibling of runtime/ops.py, which exposes `ask` under its name. The names every module of the layer shares are read as
-`core.<name>` (runtime/ops_core.py); an operation or a helper that stays in runtime/ops.py is reached at call time through `_ops()`,
-never imported at module level. contracts/runtime.md, "The answer from sources", is the contract; the order of one `ask`:
+`core.<name>` (runtime/ops_core.py); the pieces of a run (`task_prompt`, `_budget`, `_agents_of_the_day`, `_note`, `_reported_usage`, `_skill_loaded`, `_count`)
+are read as `ops_runs.<name>` (runtime/ops_runs.py). contracts/runtime.md, "The answer from sources", is the contract; the order of one `ask`:
 
   1. The channel's policy is asked again (ops_actor.guard for a messaging sender, operations.refusal for the page and the MCP mode), and
      the question is checked: not empty, at most ASK_TEXT_MAX characters.
@@ -41,7 +41,6 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import os
 import shutil
 import sys
@@ -69,11 +68,6 @@ import sources
 import turn_gate
 import workcopy
 import ops_runs
-
-
-def _ops():
-    """runtime/ops.py, found at call time."""
-    return importlib.import_module("ops")
 
 
 ASK_TIMEOUT = 300                     # seconds one answer run may last (the gate file's timeout is a task's)
@@ -305,19 +299,19 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
     if sum(sizes.values()) > ask_select.ASK_BYTES_MAX:
         return _outcome(phrases.text("ASK_TOO_LARGE", cfg, kib=ask_select.ASK_BYTES_MAX // 1024,
                                      named=_sized([{"id": i, "bytes": n} for i, n in sizes.items()])), refusal=ask_select.TOO_LARGE)
-    prompt = ops_instructions.contained_prompt(cfg["project"], _ops().task_prompt(said, ASK_TASK_TEXT, [], sourced=got["lines"]))
+    prompt = ops_instructions.contained_prompt(cfg["project"], ops_runs.task_prompt(said, ASK_TASK_TEXT, [], sourced=got["lines"]))
     given = [{"source": r["source"], "version": r["version"]} for r in got["records"]]
     try:
         identity = lab.skill_identity(skill)
     except lab.LabError as e:
         raise core.OpsError(f"{skill} could not be started: {e}", 3) from None
     with core._claim_lock(cfg):                       # the caps, the budget and the run row are one step
-        found = _ops()._agents_of_the_day(ctx, keys).get(agent)
+        found = ops_runs._agents_of_the_day(ctx, keys).get(agent)
         ok, why = autonomy.may_start(agent, cfg["area_agents"], found["facts"], found["spent"], routing["billing"]) \
             if found else (False, "stopped")
         if not ok:
             return _outcome(phrases.text("NOT_STARTED", cfg, agent=agent, why=why), refusal="not-started")
-        budget = _ops()._budget(ctx, agent, routing, keys)
+        budget = ops_runs._budget(ctx, agent, routing, keys)
         started = core._stored(ctx, store.answer_run_start, skill=skill, model=routing["model"], adapter=routing["adapter"],
                                skill_version=identity["version"], skill_sha256=identity["content_sha256"],
                                billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=TITLE, text=said)
@@ -331,9 +325,9 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
         return _outcome(phrases.text("ASK_CANCELLED", cfg), refusal="cancelled", ran=True, **base) if done["cancelled"] else None
 
     def fail(kind: str, reason: str, counts=None, image=None, reported=None, no_env=False) -> dict:
-        said = phrases.text("ASK_NO_ENV", cfg) if no_env else phrases.text("ASK_FAILED", cfg, kind=kind, reason=_ops()._note(reason))
+        said = phrases.text("ASK_NO_ENV", cfg) if no_env else phrases.text("ASK_FAILED", cfg, kind=kind, reason=ops_runs._note(reason))
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
-                      error=_ops()._note(reason), **_ops()._reported_usage(reported, routing)) or \
+                      error=ops_runs._note(reason), **ops_runs._reported_usage(reported, routing)) or \
             _outcome(said, refusal="failed", ran=True, **base)
 
     try:
@@ -363,12 +357,12 @@ def _answer(ctx, said, skill, meta, keys, routing, agent, actor, attended, picke
     if picked["skipped"]:
         text += "\n\n" + phrases.text("SKIPPED", cfg, named=_sized(picked["skipped"]))
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
-    every = _ops()._reported_usage(lab.reported_usage(dest), routing)
+    every = ops_runs._reported_usage(lab.reported_usage(dest), routing)
     cancelled = finish(status="ok", attempts=counts["attempts"],
                        cost_usd=every.get("cost_usd", number_of("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
-                       skill_loaded=_ops()._skill_loaded(timing, skill), image_digest=result["image_digest"],
-                       redactions=_ops()._count(counts.get("redactions")))
+                       skill_loaded=ops_runs._skill_loaded(timing, skill), image_digest=result["image_digest"],
+                       redactions=ops_runs._count(counts.get("redactions")))
     if not cancelled and not _still_may_ask(ctx["cfg"]["project"], channel, sender, mail):
         return _outcome(phrases.text("WITHHELD", cfg), ran=True, refusal="withheld", **base)     # the run is recorded: it was made and spent
     return cancelled or _outcome(text, ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
