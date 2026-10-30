@@ -1021,6 +1021,12 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     PROFILES, a calendar of two accounts, the research skill and the stand-in run, the stand-in model, the guards on the providers, and, for a messaging line, the real bridge over the
     stand-in messenger. Nothing is delivered yet."""
     w = World()
+    started = []      # the arguments of every start of a use that reached ops_runs._record (below)
+
+    def no_recorder_started():
+        assert started == [], (f"{len(started)} start(s) of the real recorder of a use were reached in a world: the stub of ops_runs._use_start is on the wrong target "
+                               f"(44-C3 found 303 starts with the stub removed)")
+    w.closers.append(no_recorder_started)      # appended first, so it runs last: the other closers undo their patches before it can fail the test
     recorder = Recorder()
     CURRENT.append(recorder)
     w.closers.append(CURRENT.pop)
@@ -1034,6 +1040,14 @@ def open_world(scenario, tmp_path, monkeypatch) -> World:
     reset_globals()
     w.closers.append(reset_globals)
     monkeypatch.setattr(plan_confirm, "ACTIVE", True)
+    real_record = ops_runs._record
+
+    def record(args):
+        if "--start" not in args:
+            return real_record(args)      # a verdict is not the start of a use: it is as it was
+        started.append(list(args))      # the check of this world: nothing may reach the recorder with a start, because the stub below absorbs the call of `_use_start`
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="no recorder in the entry replay")      # and a start that does reach it starts no process
+    monkeypatch.setattr(ops_runs, "_record", record)
     monkeypatch.setattr(ops_runs, "_use_start", lambda *args, **kwargs: None)      # the record of a field use runs scripts/evidence.py of the tree the run reads: none in the world, and it must say nothing (44-C3: the recorder lives in ops_runs, and ops.py and ops_requests call it there)
     now = [1000.0]
     monkeypatch.setattr(pending_items, "clock", lambda: now[0])
