@@ -39,7 +39,8 @@ name, are copied by code from the old card's document, and the new card is check
 case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". A line that asks to change who receives an e-mail is read by the model like any other
 (the answer {"recipient": "<address>"}, `mail_revise.recipient_answer`); code opens a new card (`_recipient`) only when the card has one recipient and the address is the one new address the person typed
 whole in the line outside its quoted texts (`mail_revise.typed_recipient`); the sender, the subject and the body are the old card's, checked equal. A name, several addresses, an add, a remove or a copy,
-an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open. A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
+an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open. So does a line that types a whole new address outside its quoted texts beside a request for
+a change of the text, when the model answers only the text (`mail_revise.typed_new_address`): the request for the recipient would be dropped, so nothing is changed and the person says it in two lines. A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
 
 Privacy (limit L63): nothing is logged, printed or stored here but the one decision in memory for the length of RETAIN seconds; the calls are counted in the interpreter's limits.
 
@@ -249,6 +250,8 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     turn_gate.record(ok)
     if asked is not None:
         return _recipient(project, ctx, pending_id, asked, line, mail, channel, sender)
+    if revised is not None and mail_revise.typed_new_address(line, mail["to"], mail["subject"], mail["body"]) is not None:
+        return say(ctx, "RV_RECIPIENTS", pending_id)      # a text answer beside a new address the person typed: the recipient cannot be applied by it, and the rest is not applied alone
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):

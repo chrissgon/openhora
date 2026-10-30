@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+import mail_card_recipient_proof as proof
 import standin_tree as st
 import test_mail_revise_flow as f
 from test_mail_revise_flow import clock, forget, world  # noqa: F401  (the fixtures of the revise flow: the own-account mail world, the clock and the forgetting of drafts)
@@ -152,6 +153,7 @@ def test_limit_63_the_contract_says_a_typed_address_and_no_other():
     assert old_sentence not in text, "the contract no longer promises that a revision cannot change the recipient"
     assert "mail_revise.typed_recipient" in text and "`ops_card_revise._recipient`" in text and "{\"recipient\": \"<address>\"}" in text and "(for a change of the text, strict JSON with exactly the two keys," in text
     assert "the card's subject and body reach the provider for it" in text, "the privacy price of the model call is stated in the limit"
+    assert "`mail_revise.typed_new_address`" in text and "passes no `fallback=`" in text and "a quotation mark left open leaves the address undecided" in text, "the refusal beside a text answer, the missing fallback and the quote rule are stated"
     assert (old_sentence in f"planted {old_sentence} text") is True, "vacuity: the check above sees the old sentence when it is there"
 
 
@@ -199,7 +201,14 @@ def test_an_address_the_line_does_not_type_opens_no_card(world, clock, monkeypat
     ('troca para "x@y.example"', "x@y.example"),      # validate: allow english-only -- the Portuguese line under test
     ('coloque "x@y.example" no fim', "x@y.example"),      # validate: allow english-only -- the Portuguese line under test
     ("troca o destinatário:\nx@y.example", "x@y.example"),      # an address only after a colon and a line break is a text block  # validate: allow english-only -- the Portuguese line under test
-], ids=["two-first", "two-second", "no-dot", "no-domain", "fullwidth-at", "zero-width", "quoted", "quoted-at-the-end", "text-block"])
+    ("troca para a@y.example x@", "a@y.example"),      # a good address beside a bad `@`: the line is not plain addresses, so none is taken  # validate: allow english-only -- the Portuguese line under test
+    ("troca para 'x@y.example'", "x@y.example"),      # single quotes quote too  # validate: allow english-only -- the Portuguese line under test
+    ("troca para \u00abx@y.example\u00bb", "x@y.example"),      # angle quotes quote too  # validate: allow english-only -- the Portuguese line under test
+    ("troca para \u201cx@y.example\u201d", "x@y.example"),      # curved quotes quote too  # validate: allow english-only -- the Portuguese line under test
+    ('troca para "x@y.example', "x@y.example"),      # a quotation mark left open: undecided, refused  # validate: allow english-only -- the Portuguese line under test
+    ("troca para \u00abx@y.example", "x@y.example"),      # an angle quote left open: undecided, refused  # validate: allow english-only -- the Portuguese line under test
+], ids=["two-first", "two-second", "no-dot", "no-domain", "fullwidth-at", "zero-width", "quoted", "quoted-at-the-end", "text-block", "good-beside-bad-at", "single-quotes", "angle-quotes", "curved-quotes",
+        "unclosed-straight", "unclosed-angle"])
 def test_what_is_not_one_whole_new_address_is_refused(world, clock, monkeypatch, line, answer):
     model, old, sha = f.live_card(world, monkeypatch, revise=R(answer))
     got = f.revise(world, old, sha, line)
@@ -365,6 +374,15 @@ def test_nothing_of_the_line_is_logged(world, clock, monkeypatch, caplog, capsys
     ("outra@example.com", 'troca para "outra@example.com"', [OLD], None),      # validate: allow english-only -- the Portuguese line under test
     ("outra@example.com", "troca para outra@", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
     (OLD, f"troca para {OLD} e outra@example.com", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("a@y.example", "troca para a@y.example x@", [OLD], None),      # a good address beside a bad `@` (a mutant that drops the bad one and keeps the good one survived the table before)  # validate: allow english-only -- the Portuguese line under test
+    ("a@y.example", "troca para @a a@y.example", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", "troca para 'x@y.example'", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", "troca para \u00abx@y.example\u00bb", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", "troca para \u2018x@y.example\u2019", [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", 'troca para "x@y.example', [OLD], None),      # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", "troca para x@y.example\"", [OLD], None),      # a stray closing mark: undecided too  # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", "don't send it, troca para x@y.example", [OLD], "x@y.example"),      # an apostrophe inside a word is no quotation mark  # validate: allow english-only -- the Portuguese line under test
+    ("x@y.example", 'troca para x@y.example e coloque "Abraços" no fim', [OLD], "x@y.example"),      # a closed quoted text elsewhere in the line does not hide the address  # validate: allow english-only -- the Portuguese line under test
 ])
 def test_typed_recipient_table(answer, line, to, expected):
     assert mail_revise.typed_recipient(answer, line, to) == expected
@@ -390,3 +408,69 @@ def test_keeps_body_table_and_the_vacuity_of_the_table():
     assert mail_revise.keeps_body("Olá, tudo bem?") is True      # validate: allow english-only -- the Portuguese text under test
     assert mail_revise.keeps_body("texto exato: x y z") is False      # validate: allow english-only -- the Portuguese text under test
     assert mail_revise.typed_recipient("outra@example.com", "troca para outra@example.com", [OLD]) != mail_revise.typed_recipient("evil@elsewhere.example", "troca para outra@example.com", [OLD]), "vacuity: the table sees a wrong answer"      # validate: allow english-only -- the Portuguese line under test
+
+
+# --- a typed address that a text answer cannot apply: nothing is dropped silently ---------------------------------------------------------------------------
+
+
+def text_answer(subject, body=f.CLOSED):
+    return json.dumps({"subject": subject, "body": body}, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("line, subject", [
+    ("troca para x@y.example e muda o assunto para Sexta", "Sexta"),      # validate: allow english-only -- the Portuguese line under test
+    ("troca para x@y.example", "Outro"),      # validate: allow english-only -- the Portuguese line under test
+])
+def test_a_text_answer_beside_a_new_typed_address_changes_nothing_and_says_the_recipients_sentence(world, clock, monkeypatch, line, subject):
+    """The model answered only a change of the text. A new recipient can never be applied by it (`validate` refuses an address the card does not hold), so applying the rest alone would drop the
+    request for the recipient without a word: code says the recipients sentence, nothing changes, the person says it in two lines."""
+    model, old, sha = f.live_card(world, monkeypatch, revise=text_answer(subject))
+    before = json.dumps(document(world, old), sort_keys=True)
+    got = f.revise(world, old, sha, line)
+    assert f.reply_is(got, RV_RECIPIENTS, old), got
+    assert len(model.of("revise")) == 1 and f.open_cards(world) == [old] and pending_ids(world) == [old] and json.dumps(document(world, old), sort_keys=True) == before
+    f.nothing_sent(world)
+    # vacuity: the same answer with no new address in the line is the change it asks for
+    twin = f.revise(world, old, sha, "muda o assunto para " + subject)      # validate: allow english-only -- the Portuguese line under test
+    assert isinstance(twin["resend"], int) and f.says(twin["say"], "RV_DONE_MAIL") and document(world, twin["resend"])["subject"] == subject
+
+
+def test_a_text_answer_beside_an_address_the_card_already_holds_or_a_quoted_one_is_applied(world, clock, monkeypatch):
+    held = "Escreva para pat@example.com se precisar."      # validate: allow english-only -- the Portuguese text under test
+    model, old, sha = card_with(world, monkeypatch, held, None, revise=text_answer(f.SUBJECT, held + "\nRevisado."))
+    for line in ("ajuste o tom e mantenha pat@example.com", "ajuste o tom e mantenha joana.silva@clinica.example"):      # an address in the card's text, and the card's recipient      # validate: allow english-only -- the Portuguese lines under test
+        got = f.revise(world, old, sha, line)
+        assert isinstance(got["resend"], int) and f.says(got["say"], "RV_DONE_MAIL"), (line, got)
+        old, sha = got["resend"], ops.pending(world["path"], got["resend"])["payload_sha256"]
+        model.answers["revise"] = text_answer(f.SUBJECT, held + "\nRevisado.\nMais.")
+    quoted = f.revise(world, old, sha, 'ajuste o tom e escreva "x@y.example"')      # validate: allow english-only -- the Portuguese line under test
+    assert f.says(quoted["say"], "RV_FAILED") or f.says(quoted["say"], "RV_DONE_MAIL"), "a quoted address is text, never a recipient: it is not the recipients sentence"
+    assert not f.says(quoted["say"], RV_RECIPIENTS)
+
+
+@pytest.mark.parametrize("line, to, subject, body, expected", [
+    ("troca para x@y.example", [OLD], "S", "B", "x@y.example"),      # validate: allow english-only -- the Portuguese line under test
+    ("troca para X@Y.example", [OLD], "S", "B", "X@y.example"),      # validate: allow english-only -- the Portuguese line under test
+    (f"mantenha {OLD}", [OLD], "S", "B", None),
+    ("mantenha pat@example.com", [OLD], "S", "fale com pat@example.com", None),
+    ("mantenha pat@example.com", [OLD], "fale com PAT@example.com", "B", None),
+    ('escreva "x@y.example"', [OLD], "S", "B", None),
+    ("escreva 'x@y.example'", [OLD], "S", "B", None),
+    ("escreva \u00abx@y.example\u00bb", [OLD], "S", "B", None),
+    ("coloque no fim:\nx@y.example", [OLD], "S", "B", None),      # a text block
+    ('escreva "x@y.example', [OLD], "S", "B", "x@y.example"),      # a mark left open hides nothing from this check: it errs towards the sentence
+    ("troca para a@y.example x@", [OLD], "S", "B", "a@y.example"),      # a bad `@` beside a good address: the good one is still seen
+    ("ajuste o tom", [OLD], "S", "B", None),
+])
+def test_typed_new_address_table(line, to, subject, body, expected):
+    assert mail_revise.typed_new_address(line, to, subject, body) == expected
+
+
+def test_every_line_of_the_paid_proof_reaches_the_model_in_the_product(world, clock, monkeypatch):
+    """The proof spends a call only on a line the product sends to the model: `card_revise_check` gives "mail" for each (the gate does not depend on the card's text)."""
+    model, old, sha = f.live_card(world, monkeypatch)
+    refused = [line for _, _, line, _, _ in proof.LINES if f.check(world, old, sha, line) != "mail"]
+    assert refused == [], refused
+    for line in ("copia leo.vega@example.com", "please make it shorter", "troca o horário para 16h"):      # the three lines the first version of the proof held, which the product never sent to the model      # validate: allow english-only -- the Portuguese lines under test
+        assert f.check(world, old, sha, line) != "mail", line
+    assert model.of("revise") == []

@@ -17,6 +17,7 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   clean(line)                              the instruction as one line (white space collapsed), or None when it is empty or longer than INSTRUCTION_MAX
   literals(line)                           the texts the instruction puts between quotation marks ("..." or the curved pair), in order
   recipient_words(line)                    whether the instruction, outside its quoted texts, asks in words to change who receives the e-mail (it only opens the gate, `ops_card_revise._taken`)
+  typed_new_address(line, to, subject, body)  a whole address the line types outside its quoted texts that the card does not hold, else None (a text answer beside it is refused)
   recipient_answer(text)                   the model's answer of the form {"recipient": "..."} (exactly that key, a text), else None
   typed_recipient(answer, line, to)        the new recipient AS THE PERSON TYPED IT in the line, else None (the card has one recipient; the one new address of the line outside its quoted texts is the answer)
   keeps_body(body)                         whether a new card with this body keeps it as it is (a body that starts with the marker of a literal text would lose it)
@@ -222,6 +223,18 @@ def recipient_words(line: str) -> bool:
     return bool(set(re.findall(r"[a-z]+", folded)) & RECIPIENT_WORDS) or any(re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", folded) for p in RECIPIENT_PHRASES)
 
 
+# Every way the person marks a text as quoted (the line "troca para 'x@y.example'" types no recipient): double, curved, angle and single quotation marks. A single quote opens only after a
+# non-word character and closes only before one, so "don't" is no quotation. A mark that stays open leaves the address undecided: `typed_recipient` refuses it.
+QUOTE_PAIRS = re.compile(r"\"[^\"]*\"|\u201c[^\u201d]*\u201d|\u00ab[^\u00bb]*\u00bb|\u2018[^\u2019]*\u2019|(?<!\w)'[^']*'(?!\w)")
+QUOTE_MARKS = re.compile(r"[\"\u201c\u201d\u00ab\u00bb\u2018]|(?<!\w)'")
+
+
+def _unquoted(line: str) -> tuple:
+    """(the instruction without every quoted text and without its text block, whether every quotation mark in it was closed)."""
+    rest = QUOTE_PAIRS.sub(" ", split_block(line)[0])
+    return rest, QUOTE_MARKS.search(rest) is None
+
+
 def recipient_answer(text):
     """The text of the model's answer of the form {"recipient": "..."} (white space around it cut), or None when the answer is not of that form: exactly that one key, a text."""
     if not isinstance(text, str):
@@ -239,7 +252,8 @@ def typed_recipient(answer: str, line: str, to: list):
     the card's recipient the one address it holds is the model's answer. Reads only the person's line: nothing of the card's text, a message or a file reaches it. The current recipient typed alone is returned as it is (the caller says RV_ALREADY)."""
     if len(to) != 1 or not answer:
         return None
-    tokens = natural_writes_mail.tokenize(_outside(line))
+    rest, closed = _unquoted(line)
+    tokens = natural_writes_mail.tokenize(rest) if closed else None
     if tokens is None:
         return None
     typed = {t.value.lower(): t.value for t in tokens if t.kind == "addr"}
@@ -248,6 +262,17 @@ def typed_recipient(answer: str, line: str, to: list):
     if answer.lower() == current and not new and current in typed:
         return typed[current]
     return new[answer.lower()] if set(new) == {answer.lower()} else None
+
+
+def typed_new_address(line: str, to: list, subject: str, body: str):
+    """A whole address the person typed outside the quoted texts of the line that the card does not hold (not a recipient of the card, not in its subject or its body), else None. A new
+    recipient can never be applied by a text answer (`mail_compose.validate` refuses an address the card does not hold), so a text answer beside such an address would drop the request
+    for the recipient and apply the rest alone: code says the recipients sentence instead. A line with a bad `@` is read by the plain address pattern, so a good address beside it is still seen."""
+    rest, _ = _unquoted(line)
+    tokens = natural_writes_mail.tokenize(rest)
+    found = [t.value for t in tokens if t.kind == "addr"] if tokens is not None else ADDRESS.findall(unicodedata.normalize("NFKC", rest))
+    known = {a.lower() for a in list(to) + _own_addresses(subject, body)}
+    return next((a for a in found if a.lower() not in known), None)
 
 
 def keeps_body(body: str) -> bool:
