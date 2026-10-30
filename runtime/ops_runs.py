@@ -11,7 +11,8 @@ imports this file. The names every module of the layer shares are read as `core.
 a run takes in and gives back live here (44-C1): the text of a run (`task_prompt`), the reason recorded on a run (`_note`), the
 usage a run reports (`_count`, `_skill_loaded`, `_reported_usage`), the runtime's own key around a run (`_key_in_environment`),
 the spend limit and the day's caps (`_budget`, `_agents_of_the_day`, `_midnight_utc`, `PER_RUN_USD`), `code_task` and the push of the
-documents a run returned; runtime/ops.py re-exports them for the shells and the tests. The helpers of a run that stay in
+documents a run returned; the record of the tasks a round held (`HELD_CURSOR`, `HELD_KEPT`, `_now_iso`, `_record_held`; 44-C2); runtime/ops.py
+re-exports them for the shells and the tests. The helpers of a run that stay in
 runtime/ops.py (`_prepare_run`, `_run_start`, `_run_body`, `_snapshot`, ...) are reached at call time through `_ops()`, never
 imported at module level (44-C4 moves them).
 
@@ -771,6 +772,33 @@ def _reported(ctx: dict) -> list:
     return out
 
 
+# --- why a ready task did not start: the record of the round (moved from runtime/ops.py by 44-C2, no change of logic) ---
+
+HELD_CURSOR = "dispatch:held"   # the store's cursor that holds the last round's held tasks (JSON), per project
+HELD_KEPT = 20                  # tasks kept in the record: a cursor value is at most 4 KiB
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _record_held(ctx: dict, held: list, missing=()) -> None:
+    """Keep the last round's held tasks, [{"task_id", "agent", "reason"}], as the cursor HELD_CURSOR with the time they
+    began to be held (at), and `missing`, the variables of the credential that were not found (names only). At most
+    HELD_KEPT tasks; "more" counts the rest. A round that holds the same tasks for the same reasons writes nothing: a
+    write moves the store's change counter, and every open page reloads for it."""
+    kept, more, names = held[:HELD_KEPT], max(0, len(held) - HELD_KEPT), list(missing)[:HELD_KEPT]
+    try:
+        before = json.loads(core._stored(ctx, ctx["store"].cursor_get, HELD_CURSOR) or "null")
+    except ValueError:
+        before = None
+    if isinstance(before, dict) and before.get("held") == kept and before.get("more") == more \
+            and (before.get("missing") or []) == names:
+        return
+    record = {"at": _now_iso(), "held": kept, "more": more, "missing": names}
+    core._stored(ctx, ctx["store"].cursor_set, HELD_CURSOR, json.dumps(record, separators=(",", ":")))
+
+
 def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     """One round of the dispatcher (see ops.dispatch). Returns {"handlers", "released", "started", "ran", "held",
     "stopped"}; "started" lists the children this round started, "ran" the runs that ended since the last report."""
@@ -786,7 +814,7 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
             # a step task is the runtime's own (no agent, no model): it needs no area agent, so it is neither held for the lack of one
             # nor left unstarted by it
             steps_module = importlib.import_module("ops_steps")
-            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"),
+            _record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"),
                                     "reason": steps_module.held_reason(ctx, t) if t.get("step_kind") else dispatcher.NO_AGENT}
                                    for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
             if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
@@ -846,7 +874,7 @@ def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dic
     finally:
         _restore_handlers(previous)
         try:
-            ops._record_held(ctx, state["held"], state["missing"])
+            _record_held(ctx, state["held"], state["missing"])
         except core.OpsError:
             pass
 
@@ -899,7 +927,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
                 out["stopped"] = f"task {task_id} could not be started: {e}"
                 break
             mine.append(proc)
-            out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
+            out["started"].append({"task_id": task_id, "started_at": _now_iso()})
             started += 1
             continue
         model, checked = snapshot["model"].get(task_id), state["checked"]
@@ -922,7 +950,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             out["stopped"] = f"task {task_id} could not be started: {e}"
             break
         mine.append(proc)
-        out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
+        out["started"].append({"task_id": task_id, "started_at": _now_iso()})
         started += 1
     if blocked:
         state["held"] = dispatcher.held_of(snapshot, decided, blocked)

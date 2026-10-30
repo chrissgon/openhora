@@ -8,9 +8,10 @@ the stop of the runs a process started, the conversation's commands as rows (`co
 proof, the costs, the connections, the service's start check and the project's artifacts.
 
 A sibling of runtime/ops.py, which exposes each of them under its name; no shell imports this file. The names every
-module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation or a helper that stays in
-runtime/ops.py is reached at call time through `_ops()`, never imported at module level, so that the two files do not
-import each other. The conversation's name comes from runtime/ops_say.py, which imports nothing of this file.
+module of the layer shares are read as `core.<name>` (runtime/ops_core.py); the helpers these reads need live in the siblings that
+own their jobs (the day's caps and the held record in runtime/ops_runs.py), and no helper of runtime/ops.py is reached from here (44-C2). The
+conversation's name comes from runtime/ops_say.py, which imports nothing of this file. `SERVICE`, the service's facts, lives here and
+runtime/ops.py re-exports it.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import importlib
+import json
 import os
 import platform as platform_module
 import re
@@ -47,13 +49,10 @@ import skill_meta
 import ops_ask
 import ops_natural
 import ops_runs
+import ops_steps
 
 SERVICE_TEXT = 300  # characters of one verdict of service_check: an exception's text is bounded
-
-
-def _ops():
-    """runtime/ops.py, found at call time: the helpers of the dispatcher's round and the service's facts stay there."""
-    return importlib.import_module("ops")
+SERVICE = {}                   # the local service's facts, by project folder: set by service_check in the service's process only
 
 
 def with_routing(ctx: dict, requests: list) -> list:
@@ -138,6 +137,35 @@ SECRET_RESOLVER = ("providers", "secrets", "resolver.py")
 CONFIGURED_PROVIDER = {"integration:vcs": "code", "integration:issue-tracker": "task_board", "integration:documents": "documents"}
 
 
+def _held_listed(ctx: dict, rows: list) -> list:
+    """The held tasks `status` and `agents` show: [{"task_id", "agent", "reason", "at", "next", "commands"}] for the ready tasks
+    among rows (the store's tasks). While the local service dispatches nothing, every ready task is held with `dispatch
+    off`; otherwise the last round's record, kept only for tasks still ready. `next` is the sentence that gets past the
+    reason, or None; `commands` is the same as fields, [{"name", "command"}], for the two reasons a command gets past
+    (ops_reads.held_commands), else []."""
+    ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
+    if not ready:
+        return []
+    project = ctx["cfg"]["project"]
+    service = SERVICE.get(os.path.realpath(project))
+    if service is not None and service["dispatch"] == "off":
+        return [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.DISPATCH_OFF, "at": service["at"],
+                 "next": core._command("run-next", project, uv=True), "commands": []} for t in ready]
+    try:
+        record = json.loads(core._stored(ctx, ctx["store"].cursor_get, ops_runs.HELD_CURSOR) or "null")
+    except ValueError:
+        record = None
+    if not isinstance(record, dict):
+        return []
+    ids = {t["id"] for t in ready}
+    out = []
+    for h in record.get("held") or []:
+        if h.get("task_id") in ids:
+            out.append({**h, "at": record.get("at"), "next": held_next(project, h["reason"], record.get("missing")),
+                        "commands": held_commands(project, h["reason"], record.get("missing"))})
+    return out
+
+
 def agents(project: str) -> dict:
     """The area agents of the configuration with their use of today: {"agents": [{"name", "pack", "enabled", "mode",
     "acting_mode", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded", "usd_reserved",
@@ -172,8 +200,8 @@ def agents(project: str) -> dict:
     "steps": {"agent": "runtime", "mode": "autonomous" or "stopped"}: the brake of the step tasks (ops_steps.steps_mode; `set-mode --agent
     runtime`), beside the agents, whether or not the project has any. A project without area_agents: {"agents": [], "steps"}."""
     ctx = core.context(project)
-    day = _ops()._agents_of_the_day(ctx)
-    brake = {"agent": "runtime", "mode": _ops().ops_steps.steps_mode(ctx)}
+    day = ops_runs._agents_of_the_day(ctx)
+    brake = {"agent": "runtime", "mode": ops_steps.steps_mode(ctx)}
     if not day:
         return {"agents": [], "steps": brake}
     try:
@@ -182,7 +210,7 @@ def agents(project: str) -> dict:
         listed = []
     rows = core._stored(ctx, ctx["store"].tasks_list)
     ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
-    held = _ops()._held_listed(ctx, rows)
+    held = _held_listed(ctx, rows)
     holders = core._stored(ctx, ctx["store"].task_slot_holders)
     out = []
     for name, found in day.items():
@@ -481,7 +509,7 @@ def costs(project: str, since: str | None = None) -> dict:
         except ValueError:
             raise core.OpsError("since is a day: YYYY-MM-DD", 2) from None
     try:
-        used = _ops()._agents_of_the_day(ctx)
+        used = ops_runs._agents_of_the_day(ctx)
     except (lab.LabError, core.OpsError, KeyError, ValueError, OSError):  # a broken gate file leaves the day's use out; costs read the store
         used = None
     folder = os.path.realpath(os.path.join(cfg["data_dir"], core.RUNS_DIR)) + os.sep
@@ -610,7 +638,7 @@ def connections(project: str) -> dict:
             "image": {"name": seen.get("name"), "present": present,
                       "evidence": (seen["digest"] in evidence) if present else None},
             "platform": _platform_row(platform_module.machine(), sys.platform, seen.get("evidence_platform")),
-            "service": dict(_ops().SERVICE[os.path.realpath(cfg["project"])]) if os.path.realpath(cfg["project"]) in _ops().SERVICE else None}
+            "service": dict(SERVICE[os.path.realpath(cfg["project"])]) if os.path.realpath(cfg["project"]) in SERVICE else None}
 
 
 def _price_warnings(ctx: dict) -> list:
@@ -641,7 +669,7 @@ def service_check(project: str, dispatch_every=None) -> dict:
     the modules or the lab that did not load, start the command that starts the service with the secret store's
     library (uv run --with keyring==..., operations.service_line). It starts nothing and makes no network call."""
     ctx = core.context(project, check_config=False)
-    found = dispatcher.inspect(_ops())
+    found = dispatcher.inspect(core)
     seen = lab.image()
     if seen.get("problem"):
         image = f"the eval image cannot be looked up: {seen['problem']}"
@@ -666,9 +694,9 @@ def service_check(project: str, dispatch_every=None) -> dict:
               "image": image,
               "dispatch": ("not a service" if dispatch_every is None else
                            f"every {dispatch_every:g} s" if dispatch_every else "off"),
-              "problems": problems, "start": operations.service_line(core.ROOT, [ctx["cfg"]["project"]], uv=True), "at": _ops()._now_iso()}
+              "problems": problems, "start": operations.service_line(core.ROOT, [ctx["cfg"]["project"]], uv=True), "at": ops_runs._now_iso()}
     if dispatch_every is not None:
-        _ops().SERVICE[os.path.realpath(ctx["cfg"]["project"])] = dict(report)
+        SERVICE[os.path.realpath(ctx["cfg"]["project"])] = dict(report)
     return report
 
 

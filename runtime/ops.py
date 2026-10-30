@@ -1484,7 +1484,7 @@ def status(project: str) -> dict:
                           for d in core._stored(ctx, ctx["store"].documents_list)],
             "board": ({"left_out_final": len(core._stored(ctx, lambda _conn: board.left_out(ctx, rows)))}
                       if board.enabled(ctx["cfg"]) else None),
-            "held": _held_listed(ctx, rows)}
+            "held": ops_reads._held_listed(ctx, rows)}
 
 
 def config(project: str) -> dict:
@@ -2367,62 +2367,7 @@ def _image_stop():
     return None
 
 
-# --- why a ready task did not start (WP-9.14, A-10) ---------------------------------------------------------------
-
-HELD_CURSOR = "dispatch:held"   # the store's cursor that holds the last round's held tasks (JSON), per project
-HELD_KEPT = 20                  # tasks kept in the record: a cursor value is at most 4 KiB
-SERVICE = {}                    # the local service's facts, by project folder: set by service_check in the service's process only
-
-
-def _now_iso() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-
-def _record_held(ctx: dict, held: list, missing=()) -> None:
-    """Keep the last round's held tasks, [{"task_id", "agent", "reason"}], as the cursor HELD_CURSOR with the time they
-    began to be held (at), and `missing`, the variables of the credential that were not found (names only). At most
-    HELD_KEPT tasks; "more" counts the rest. A round that holds the same tasks for the same reasons writes nothing: a
-    write moves the store's change counter, and every open page reloads for it."""
-    kept, more, names = held[:HELD_KEPT], max(0, len(held) - HELD_KEPT), list(missing)[:HELD_KEPT]
-    try:
-        before = json.loads(core._stored(ctx, ctx["store"].cursor_get, HELD_CURSOR) or "null")
-    except ValueError:
-        before = None
-    if isinstance(before, dict) and before.get("held") == kept and before.get("more") == more \
-            and (before.get("missing") or []) == names:
-        return
-    record = {"at": _now_iso(), "held": kept, "more": more, "missing": names}
-    core._stored(ctx, ctx["store"].cursor_set, HELD_CURSOR, json.dumps(record, separators=(",", ":")))
-
-
-def _held_listed(ctx: dict, rows: list) -> list:
-    """The held tasks `status` and `agents` show: [{"task_id", "agent", "reason", "at", "next", "commands"}] for the ready tasks
-    among rows (the store's tasks). While the local service dispatches nothing, every ready task is held with `dispatch
-    off`; otherwise the last round's record, kept only for tasks still ready. `next` is the sentence that gets past the
-    reason, or None; `commands` is the same as fields, [{"name", "command"}], for the two reasons a command gets past
-    (ops_reads.held_commands), else []."""
-    ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
-    if not ready:
-        return []
-    project = ctx["cfg"]["project"]
-    service = SERVICE.get(os.path.realpath(project))
-    if service is not None and service["dispatch"] == "off":
-        return [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.DISPATCH_OFF, "at": service["at"],
-                 "next": core._command("run-next", project, uv=True), "commands": []} for t in ready]
-    try:
-        record = json.loads(core._stored(ctx, ctx["store"].cursor_get, HELD_CURSOR) or "null")
-    except ValueError:
-        record = None
-    if not isinstance(record, dict):
-        return []
-    ids = {t["id"] for t in ready}
-    out = []
-    for h in record.get("held") or []:
-        if h.get("task_id") in ids:
-            out.append({**h, "at": record.get("at"), "next": ops_reads.held_next(project, h["reason"], record.get("missing")),
-                        "commands": ops_reads.held_commands(project, h["reason"], record.get("missing"))})
-    return out
-
+# --- the handlers' ticks of a round ---------------------------------------------------------------------------------
 
 def _ticks(ctx: dict, project: str) -> dict:
     """The tick of every handler whose `dispatch` is true and whose agent is enabled; a failure is recorded, never
@@ -2651,9 +2596,15 @@ from ops_file_ask import (  # noqa: E402,F401
 from ops_mail_read import (  # noqa: E402,F401
     mail_read,
 )
-from ops_runs import (  # noqa: E402,F401  (44-C1: the pieces of a run; the callers in this file read them as ops_runs.<name>)
+from ops_reads import (  # noqa: E402,F401  (44-C2: the service's facts and the held tasks of `status`; this file reads them as ops_reads.<name>)
+    SERVICE,
+    _held_listed,
+)
+from ops_runs import (  # noqa: E402,F401  (44-C1: the pieces of a run; 44-C2: the held record; the callers in this file read them as ops_runs.<name>)
     EDITED_LINE,
     HANDED_LINE,
+    HELD_CURSOR,
+    HELD_KEPT,
     NOTE_LIMIT,
     PER_RUN_USD,
     _agents_of_the_day,
@@ -2662,7 +2613,9 @@ from ops_runs import (  # noqa: E402,F401  (44-C1: the pieces of a run; the call
     _key_in_environment,
     _midnight_utc,
     _note,
+    _now_iso,
     _push_after_run,
+    _record_held,
     _reported_usage,
     _skill_loaded,
     code_task,

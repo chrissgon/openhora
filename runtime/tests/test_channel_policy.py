@@ -453,7 +453,7 @@ def test_a_line_that_routes_a_request_already_queued_by_the_page_keeps_the_group
     ctx = ops_core.context(path)
     answer_to = ctx["store"].acceptance_open(ctx["conn"], task_id=request, what="deliveries", title="Q", body="b", payload={})["pending_id"]
     monkeypatch.setattr(ops_say, "_planning_may_start", lambda c: (True, ""))
-    monkeypatch.setattr(ops_say, "_ops", lambda: types.SimpleNamespace(answer=lambda *a, **k: None, route=ops.route))
+    monkeypatch.setattr(ops, "answer", lambda *a, **k: None)      # 44-C2: ops_say reaches `answer` through ops_facade, which reads ops.answer at the call; `route` is the real one
     with ops_core._route_lock(ctx["cfg"]):
         ops_say.queue_route(ctx, request)                                   # the page asked for the route: group request
         ops_say._say_route(path, ctx, "same request", 10**6, "page", answer_to=answer_to)   # a line routes the same request

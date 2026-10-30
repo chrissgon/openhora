@@ -31,7 +31,7 @@ drops the draft and is handled as new, as is a line that starts a request of its
 
 The conversation stores a neutral word for the line, the questions and the replies (`stored_line`, `extras["stored"]`); a messaging line is not stored at all.
 
-Sibling of runtime/ops_natural.py (which calls `open_line` and `answer`) and runtime/ops_say.py (`natural_write`). Reaches ops.py at call time. Standard library only.
+Sibling of runtime/ops_natural.py (which calls `open_line` and `answer`) and runtime/ops_say.py (`natural_write`). Reaches an operation of ops.py through ops_facade.py, at call time. Standard library only.
 Runs on Python 3.9: python3 runtime/ops_natural_writes.py --help
 """
 from __future__ import annotations
@@ -50,6 +50,7 @@ import natural_writes_calendar
 import operations
 import ops_actor
 import ops_core as core
+import ops_facade
 import ops_natural
 import phone_refusal
 import phrases
@@ -251,7 +252,7 @@ def _call_operation(project: str, op: str, args: dict, channel, sender):
     """The operation's own function, as the typed command calls it: the carrying channel (the conversation's shell is the terminal's equal) and, on a messaging app, the
     sender, inside `ops_actor.carried_by`."""
     row = operations.by_name(op)
-    function = getattr(importlib.import_module("ops"), row["call"])
+    function = ops_facade.function(row["call"])
     found = dict(args)
     car = carrier(channel)
     found["channel"] = car
@@ -266,7 +267,7 @@ def _card_lines(ctx: dict, project: str, started: dict, channel) -> str:
     if channel not in ("chat", "terminal"):
         return ""
     try:
-        item = importlib.import_module("ops").pending(project, pending_id=started["pending"])
+        item = ops_facade.function("pending")(project, pending_id=started["pending"])
     except core.OpsError:
         return ""
     command = core._command("approve", ctx["cfg"]["project"], pending_id=started["pending"], sha256=item.get("payload_sha256") or "<hash>")

@@ -8,8 +8,8 @@ receives, the check a routine's task makes, and the proposal that follows an ans
 and its checks).
 
 A sibling of runtime/ops.py, which exposes `instructions_read`, `instructions_set`, `instructions_add` and
-`answer_proposing` under their names; no shell imports this file. An operation that stays in runtime/ops.py is reached at
-call time, never imported at module level.
+`answer_proposing` under their names; no shell imports this file. An operation that stays in runtime/ops.py (`answer`) is reached
+through ops_facade.py, at call time, never imported at module level.
 
   instructions   (read, with the terminal, the page, the MCP mode and messaging) the path, whether the file is there, its
                  sha256, its characters, the cap, the problem if any, and the text. It writes nothing.
@@ -43,6 +43,7 @@ import re
 import sys
 
 import ops_core as core
+import ops_facade
 import instructions as standing
 import operations
 import phrases
@@ -64,10 +65,6 @@ BASE = re.compile(r"none|[0-9a-f]{64}")
 NOT_HERE = "the standing instructions are written from the terminal or from the page, by default, and no channel policy widens it yet (limit L40)"
 ROUTINE_CHANGED = ("the project's instructions changed after the routine {name} was approved: approve the routine again "
                    "(routine-approve --id {id}; the preview names the project's instructions)")
-
-
-def _ops():
-    return importlib.import_module("ops")
 
 
 # --- what a run's prompt receives ---------------------------------------------------------------------------------------------
@@ -238,7 +235,7 @@ def answer_proposing(project: str, pending_id: int, text: str, with_comments: bo
     ({"line", ...}) when one is offered. The answer is recorded first; nothing here can undo it."""
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-    out = _ops().answer(project, pending_id, text, with_comments=with_comments, channel=channel, sender=sender)
+    out = ops_facade.function("answer")(project, pending_id, text, with_comments=with_comments, channel=channel, sender=sender)
     if item["kind"] == "question" and channel in DISPLAYS:
         offered = proposal(ctx, _request_of(ctx, item["task_id"]), text, channel)
         if offered:
