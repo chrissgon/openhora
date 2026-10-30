@@ -479,3 +479,42 @@ def test_a_word_that_is_a_verb_of_the_gate_in_the_name_of_another_event_still_co
     doc = {"event": {"title": "evento social"}, "before": None}
     assert event_revise.names_another("muda o sign day para as 10h", {"time": "as 10h"}, doc) is True      # validate: allow english-only -- the Portuguese line under test
     assert event_revise.names_another("muda o evento social para as 10h", {"time": "as 10h"}, doc) is False      # validate: allow english-only -- the Portuguese line under test
+
+
+# Part A of card-false-refusal (2026-10-30): the model named an operation the sender may not ask, on a line that names no other object. The operation was the model's reading, not the person's request.
+REPORTED = "Mude o titulo para: Corte de Cabelo com Matheus"      # validate: allow english-only -- the line under test (the maintainer's report of 2026-10-30)
+MILK = "adiciona comprar leite nas tarefas"      # validate: allow english-only -- the line under test
+
+
+def asked_what_to_change(world, monkeypatch, text, line=REPORTED):
+    """(the reply, the old card, whether the turn that follows has a decision of this line) when the model answers `text` to `line` on the open card of a new event."""
+    build(world, monkeypatch, text)
+    old, sha = create(world)
+    got = revise(world, old, sha, line)
+    return got, old, ops_card_revise.decided(world["path"], "messaging", OWNER, line)
+
+
+def test_a_refusal_of_another_op_on_a_line_that_names_no_object_asks_what_to_change(world, monkeypatch):
+    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Matheus"}))
+    assert got == {"say": phrases.text("EV_CHANGE_WHAT", PT), "resend": old}, got
+    assert open_cards(world) == [old] and status(world, old) == "open" and kept is None, "the card is still open and nothing was remembered of the line"
+
+
+@pytest.mark.parametrize("ops_named", [["event-change", "todo-add"], ["todo-add", "routine-change"]])
+def test_a_refusal_from_a_clarify_with_fewer_than_two_allowed_ops_asks_what_to_change(world, monkeypatch, ops_named):
+    got, old, kept = asked_what_to_change(world, monkeypatch, json.dumps({"v": 1, "kind": "clarify", "ops": ops_named}))
+    assert got == {"say": phrases.text("EV_CHANGE_WHAT", PT), "resend": old}, got
+    assert open_cards(world) == [old] and kept is None
+
+
+def test_a_refusal_of_a_line_that_names_another_object_is_still_said(world, monkeypatch):
+    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "comprar leite"}), MILK)
+    assert got == {"pass": True} and open_cards(world) == [old], got
+    assert kept is not None and kept["kind"] == "refuse_policy", "the decision is kept: the turn that follows says the refusal, true of this request"
+
+
+def test_vacuity_a_line_that_names_an_object_passes_so_the_oracle_of_the_first_test_fails_on_a_plant(world, monkeypatch):
+    monkeypatch.setattr(event_revise.event_lookup, "names_other_object", lambda said: True)      # the plant: the guard thinks every line names an object
+    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Matheus"}))
+    assert got == {"pass": True} and got != {"say": phrases.text("EV_CHANGE_WHAT", PT), "resend": old}, "the first test's expectation would fail"
+    assert kept is not None
