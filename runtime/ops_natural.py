@@ -54,6 +54,7 @@ import messaging_guard as guard
 import ops_core as core
 import ops_facade
 import natural
+import natural_writes_mail
 import operations
 import ops_actor
 import ops_items
@@ -69,6 +70,7 @@ DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spe
 RENDER_MAX = 1800            # characters of a read written for a messaging app
 RENDER_LONG = 6000           # ... and for any other channel
 LIST_MAX = 12                # rows of a list a read writes
+MAIL_NUMBER_MAX = 9999        # the largest message number `mail-read` and `mail-ask` take (runtime/ops_mail_read.py NUMBER_MAX; test_mail_ask_binding.py holds the two equal): a larger one is asked again here, before a plan
 FIELD_MAX = 120              # characters of one value in a row
 monotonic = time.monotonic   # the clock of a question's age (a test replaces it)
 BRIDGE_FORMS = {"attachment-add": "/add {attachment_id}", "attachment-discard": "/discard {attachment_id}"}   # the commands a messaging app has for these
@@ -289,12 +291,27 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
         args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
-    if name == "mail-read" and not confirmed and args.get("number") is not None and not (args.get("message") or args.get("account") or args.get("service")) and not ops_items._named_account(said):
-        listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it
-        if listed:
-            args = dict(args, message=f"{listed}#{args['number']}")
+    if name in ("mail-read", "mail-ask") and args.get("number") is None and not args.get("message") and isinstance(args.get("match"), str):
+        digits = natural_writes_mail.target_words(args["match"], natural._tables(None))      # MAIL-SUMMARY-FLIP review: a model that gave the words "o 3" for the number 3 gave a number: the binding, the moved-list check, the pin and the range apply to it
+        if len(digits) == 1 and re.fullmatch(r"[0-9]+", digits[0]):
+            args = dict({key: value for key, value in args.items() if key != "match"}, number=int(digits[0]))
+    if name in ("mail-read", "mail-ask") and args.get("number") is not None and (type(args["number"]) is not int or not 1 <= args["number"] <= MAIL_NUMBER_MAX):
+        return phrases.text("MR_ASK", cfg)      # MAIL-SUMMARY-FLIP review: a number no message can have (0, 12345) is asked again here, before a plan and a yes that would end in a typed-command error (L62)
+    if name in ("mail-read", "mail-ask") and not confirmed and args.get("number") is not None and not args.get("message"):
+        line_account = ops_items._named_account(said).get("account")
+        if not (args.get("account") or args.get("service") or line_account):
+            listed = item_refs.listed_source(ctx, channel, sender, clock=ops_items.SNAPSHOT_CLOCK)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it (MAIL-ASK-BINDING: a summary of "the 3" after a list is that list's 3, never another box's)
+            if listed:
+                args = dict(args, message=f"{listed}#{args['number']}")
+            elif item_refs.list_moved(ctx, channel, sender, clock=ops_items.SNAPSHOT_CLOCK):
+                return phrases.text("ML_LIST_MOVED", cfg)      # the list on screen was of a snapshot that has renumbered its messages: the number no longer means what the person saw, and a plan that names no box would pick another box's message
+        else:      # a box is named: it wins over the list, unless it is the box of a list that has since been renumbered (its number would name another message than the one on screen)
+            moved = item_refs.list_moved(ctx, channel, sender, clock=ops_items.SNAPSHOT_CLOCK)
+            named = line_account or (args.get("account") if args.get("account") in ("google", "microsoft") else None)
+            if moved and (named is None or ops_items._source_account(ctx, moved) == named):
+                return phrases.text("ML_LIST_MOVED", cfg)
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
-        if name == "mail-ask":      # MAIL-SUMMARY: the plan binds the mailbox snapshots the number or the words name, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`)
+        if name == "mail-ask" and (args.get("number") is not None or args.get("message")):      # MAIL-SUMMARY: the plan binds the snapshots a NUMBER names, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`); words and a pasted list line are matched when the yes is given (the snapshot is read again if it is older than ten minutes, the one message that matches is read and the footer names it, several are listed and nothing runs), so they pin nothing
             args = dict(args, pin=importlib.import_module("ops_mail_ask").pin(ctx, args, said, channel, sender))
         asked = {"choices": ops_items.account_choices(ctx, args, channel, sender), "named": ops_items.account_named_words(ctx, args)} if name == "items" else {}      # mail-list-account: a list of mail with no account asks which one, in place of "Shall I go ahead?"
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"), **asked)

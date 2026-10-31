@@ -1,0 +1,6 @@
+{
+ "package": "mail-summary-flip",
+ "table": {
+  "ML_LIST_MOVED": "The list I showed has changed since: ask for the list again, then tell me the number."
+ }
+}

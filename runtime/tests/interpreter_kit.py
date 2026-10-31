@@ -48,7 +48,7 @@ def build_catalog() -> dict:
     ops += [_row(op, "G") for op in natural.NATURAL if op in OPERATIONAL]
     refused = [{"op": op, "class": "D", "what": _words(op)} for op in natural.NATURAL if op in D_OPS]
     refused += [{"op": op, "class": "G", "what": _words(op)} for op in natural.NATURAL if op in WIDENING]
-    return {"v": operations.LINE_CATALOG, "ops": ops, "refused": refused}      # CB-9: the version of the served catalog (2)
+    return {"v": operations.LINE_CATALOG, "ops": ops, "refused": refused}      # the version of the served catalog (3 since MAIL-SUMMARY-FLIP)
 
 
 CATALOG = build_catalog()

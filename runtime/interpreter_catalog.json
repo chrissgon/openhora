@@ -401,7 +401,18 @@
     "service": "word",
     "target": "span"
    },
-   "what": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file."
+   "what": "Choose this only to show the whole text of ONE e-mail as written: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. A summary or a question about it is mail-ask. Not a list and not a file."
+  },
+  {
+   "class": "R",
+   "op": "mail-ask",
+   "slots": {
+    "day": "span",
+    "message": "int",
+    "service": "word",
+    "target": "span"
+   },
+   "what": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount): message is its number as the line writes it, target the words of its sender or subject or a pasted list line whole, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read)."
   },
   {
    "class": "R",
@@ -443,7 +454,7 @@
    "class": "work",
    "op": "ask",
    "slots": {},
-   "what": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks."
+   "what": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks."
   },
   {
    "class": "G",
@@ -657,5 +668,5 @@
    "what": "Execute an effect inside a standing approval."
   }
  ],
- "v": 2
+ "v": 3
 }

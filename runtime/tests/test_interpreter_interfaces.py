@@ -41,7 +41,7 @@ INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-q
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "mail-read", "todo-list", "file-ask"]      # CB-9: the three reads of catalog version 2
+         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "mail-read", "todo-list", "file-ask", "mail-ask"]      # CB-9: the three reads of catalog version 2; MAIL-SUMMARY-FLIP: mail-ask, of version 3
 NOTICES = ["remind", "reminder-forget", "reminder-restore"]
 WRITES = ["cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"]
 EFFECTS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
@@ -87,11 +87,11 @@ def gated_problems(doc: dict) -> list:
 def snapshot_problems(snap: dict) -> list:
     """Everything wrong with a catalog snapshot, by the test's own lists (read from natural.NATURAL only for the text of `what` and the slots)."""
     out = []
-    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 2:
+    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 3:
         out.append("keys")
     names = [r["op"] for r in snap.get("ops", [])]
     refused = [r["op"] for r in snap.get("refused", [])]
-    if len(names) != 70:
+    if len(names) != 71:
         out.append("ops count %d" % len(names))
     if len(refused) != 21:
         out.append("refused count %d" % len(refused))
@@ -180,12 +180,12 @@ def test_vacuity_a_flipped_kind_a_wrong_group_and_a_dropped_row_fail_the_checker
 
 # --- the served catalog ----------------------------------------------------------------------------------------------------------------------------
 
-def test_the_served_file_equals_generate_and_the_counts_are_70_and_21():
+def test_the_served_file_equals_generate_and_the_counts_are_71_and_21():
     snap = load(RUNTIME / "interpreter_catalog.json")
     assert snap == catalog.generate()
     assert catalog.sha256(snap) == catalog.sha256(catalog.generate())
     assert snapshot_problems(snap) == []
-    assert len(snap["ops"]) == 70 and len(snap["refused"]) == 21 and snap["v"] == 2
+    assert len(snap["ops"]) == 71 and len(snap["refused"]) == 21 and snap["v"] == 3
 
 
 def test_the_file_is_written_in_the_stated_form():
@@ -247,7 +247,7 @@ def test_generate_follows_the_classification_it_is_given():
             r["kind"] = "operational"          # a planted reclassification moves the op from refused to ops
     moved = catalog.generate(gated=rows)
     assert "deps" in [r["op"] for r in moved["ops"]] and "deps" not in [r["op"] for r in moved["refused"]]
-    assert len(moved["ops"]) == 71 and len(moved["refused"]) == 20
+    assert len(moved["ops"]) == 72 and len(moved["refused"]) == 20
     assert catalog.sha256(moved) != catalog.sha256(catalog.generate())
 
 

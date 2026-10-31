@@ -2,7 +2,7 @@
 
 `mail-ask` names ONE message of the mail snapshots as `mail-read` does (its number, words of its sender or subject, a line of a list this platform printed, the newest), hands its whole snapshot text to
 ONE run of the stand-in answer skill as the temporary source `message`, and the reply is checked by code (runtime/ask_reply.py). The operation is carried out as the interpreter ends a line, through
-`ops_natural.run`. The row is of catalog version 3 while `LINE_CATALOG` is 2: a typed command, the page and these tests reach it, a person's line does not (the last tests pin that). No model, no
+`ops_natural.run`. The row is of catalog version 3 and, since package MAIL-SUMMARY-FLIP, `LINE_CATALOG` is 3: a typed command, the page, a person's line (through the interpreter) and these tests reach it. No model, no
 network, no secret store: the run is the stand-in adapter of runtime/tests/standin_tree.py, whose reply each test writes by hand. Every expectation is a literal of this file; every name, address and
 sum is invented, and every oracle that searches, counts or compares has a vacuity case that fails on a planted wrong result.
 
@@ -12,7 +12,7 @@ sum is invented, and every oracle that searches, counts or compares has a vacuit
   the copy: the whole body reaches the reader (not the phone's 1,500), one temporary source, nothing registered; a credential holds the message back
   the reply: a quote is checked, an instruction in the message is shown as not followed and acts on nothing, a number the message does not hold is named
   what is kept: nothing of the message, the question or the subject in any file, the store or the logs; the run folder keeps the counts
-  the interpreter: a sender who may have a message summarized but not shown gets a plan that says so; a person's line does not reach the operation before the flip
+  the interpreter: a sender who may have a message summarized but not shown gets a plan that says so; a person's line reaches the operation since the flip (and did not at version 2)
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_mail_ask.py
 """
@@ -22,6 +22,7 @@ import ast
 import datetime
 import inspect
 import json
+import os
 import re
 import textwrap
 import time
@@ -119,7 +120,7 @@ def desk(world, monkeypatch, request):  # noqa: F811
     monkeypatch.setattr(ops_items, "SNAPSHOT_CLOCK", lambda: snaps.now)
     ops_items._CHECKED.clear()
     monkeypatch.setattr(ops_natural, "_clock", lambda: NOW)
-    monkeypatch.setattr(plan_confirm, "ALWAYS", registry.always(3))      # the derived set once the catalog reaches the row's version (the flip is not this package's)
+    monkeypatch.setattr(plan_confirm, "ALWAYS", registry.always(3))      # the derived set at catalog version 3, the one served since MAIL-SUMMARY-FLIP (pinned here so that these tests do not follow a later version)
     snaps.providers.mail["gmail"] = getattr(request, "param", None) or gmail()
     snaps.providers.mail["outlook"] = outlook()
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
@@ -773,7 +774,7 @@ def test_an_unproven_reader_says_so_before_any_message_is_read(desk, monkeypatch
 
 @pytest.fixture
 def served(monkeypatch):
-    """The interpreter over the catalog of version 3 (the flip is not this package's): the served catalog, its hash and the table of the lines pinned to that version, for these tests only."""
+    """The interpreter over the catalog of version 3 (the one served since MAIL-SUMMARY-FLIP; the fixture keeps the tests independent of what a later package serves): the catalog, its hash and the table of the lines pinned to that version."""
     catalog = interpreter_catalog.generate(3)
     classes, table_of = natural.views(3)
     monkeypatch.setattr(interpreter, "SERVED", catalog)
@@ -823,29 +824,47 @@ def test_the_summary_plan_and_the_reader_question_in_one_run(desk, monkeypatch, 
     assert found(done) and left.seen[0]["prompt"].startswith(table("MA_SUMMARY_QUESTION")) and "show me" not in left.seen[0]["prompt"]
 
 
-# --- 20. a person's line does not reach the operation yet ---------------------------------------------------------------------------------------
+# --- 20. a person's line reaches the operation since the flip (and did not at version 2) ---------------------------------------------------------
 
 
-def test_the_row_is_a_version_3_row_that_no_line_reaches_while_the_catalog_is_2():
-    assert operations.LINE_CATALOG == 2
+def test_the_row_is_a_version_3_row_that_a_line_reaches_since_the_flip():
+    assert operations.LINE_CATALOG == 3
     rec = registry.row("mail-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 3, 101, "off-host", "model")
     assert set(rec["slots"]) == {"message", "target", "day", "service"} and all(spec["since"] == 3 for spec in rec["slots"].values())
     assert len(rec["about"]) <= 300 and "(mail-read)" in rec["about"]
-    assert "mail-ask" not in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table only since the flip"
-    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_cb9"], "the served catalog is untouched"
+    assert "mail-ask" in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table since the flip"
+    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_mail_ask"] == interpreter.SERVED_SHA256, "the served catalog is the flip's"
     assert "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]] and "mail-ask" in [row["op"] for row in interpreter_catalog.generate(3)["ops"]]
-    assert "mail-ask" not in [row["op"] for row in interpreter.SERVED["ops"]]
-    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is False, "a line reaches only the operations of the served catalog"
+    assert "mail-ask" in [row["op"] for row in interpreter.SERVED["ops"]]
+    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is True, "a line reaches the operations of the served catalog"
 
 
-def test_the_interpreter_does_not_choose_the_operation_and_does_not_substitute_it_before_the_flip():
+def test_vacuity_at_version_2_no_line_reaches_the_operation(monkeypatch):
+    classes, table_of = natural.views(2)
+    monkeypatch.setattr(natural, "CLASSES", classes)
+    monkeypatch.setattr(natural, "NATURAL", table_of)
+    assert "mail-ask" not in natural.NATURAL and natural.CLASSES["mail-ask"] == "R"
+    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is False, "the oracle of the test above sees the table of the version before the flip"
+
+
+def test_the_interpreter_chooses_and_substitutes_the_operation_since_the_flip_and_did_not_at_version_2(monkeypatch):
     obj = {"v": 1, "kind": "op", "op": "mail-ask", "slots": {"message": "2"}}
-    unknown = interpreter.check(obj, "resume o 2", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
-    assert unknown["kind"] == "clarify" and unknown["error"] == "E_OP_UNKNOWN", "an operation the served catalog does not hold"
     read = {"v": 1, "kind": "op", "op": "mail-read", "slots": {"message": "2"}}
-    decision = interpreter.check(read, "show me e-mail 2 please", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
-    assert decision["kind"] == "refuse_policy" and decision["op"] == "mail-read", "no substitution: the catalog the model reads does not hold the row"
+    with monkeypatch.context() as at_version_2:      # the lines and the catalog of the version before the flip
+        classes, table_of = natural.views(2)
+        at_version_2.setattr(natural, "CLASSES", classes)
+        at_version_2.setattr(natural, "NATURAL", table_of)
+        version2 = interpreter_catalog.generate(2)
+        at_version_2.setattr(interpreter, "SERVED_SHA256", interpreter_catalog.sha256(version2))      # `check` refuses a catalog that is not the served one
+        unknown = interpreter.check(obj, "resume o 2", None, version2, NOW, "America/Sao_Paulo", {"mail-ask"})
+        assert unknown["kind"] == "clarify" and unknown["error"] == "E_OP_UNKNOWN", "an operation the catalog of version 2 does not hold"
+        decision = interpreter.check(read, "show me e-mail 2 please", None, version2, NOW, "America/Sao_Paulo", {"mail-ask"})
+        assert decision["kind"] == "refuse_policy" and decision["op"] == "mail-read", "no substitution at version 2: the catalog the model read did not hold the row"
+    chosen = interpreter.check(obj, "resume o 2", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
+    assert chosen["kind"] == "op" and chosen["op"] == "mail-ask" and chosen["args"] == {"number": 2}, "the served catalog holds the row"
+    summarized = interpreter.check(read, "show me e-mail 2 please", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
+    assert summarized["kind"] == "op" and summarized["op"] == "mail-ask" and summarized["args"] == {"number": 2, "summary": True}
 
 
 def test_the_help_the_cli_and_the_page_know_the_operation():
@@ -896,6 +915,62 @@ def test_a_list_line_pasted_into_the_question_is_taken_out_of_it_so_a_subject_ne
 
 
 @pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", BAIT_SUBJECT, INVOICE)]], indirect=True)
+def test_a_line_that_holds_a_pasted_list_line_whose_span_is_not_that_line_gets_the_summary_question(desk, monkeypatch):
+    """Review of MAIL-SUMMARY-FLIP: the model gave the target `Aurora Team` for "Summarize the e-mail: Aurora Team · <subject> · today 17:14": the span is no list line, so nothing was taken out and the stranger's subject sat above the task text."""
+    left = Leftovers(monkeypatch)
+    answer(desk, INVOICE_FOUND)
+    line = f"Summarize the e-mail: Aurora Team · {BAIT_SUBJECT} · today 17:14"
+    reply, _ = ask(desk, {"match": "Aurora Team"}, line)
+    assert reply.split("\n\n")[0] == "The invoice is ready [message]." and reads(desk) == 1
+    prompt = ran(left)[0]["prompt"]
+    assert prompt.startswith(table("MA_SUMMARY_QUESTION")) and BAIT_SUBJECT not in prompt and "APPROVED" not in prompt
+    assert "Subject: " + BAIT_SUBJECT in ran(left)[0]["copy"][COPY], "the subject still reaches the reader as data, in the copy"
+    ask(desk, {"match": "Aurora Team"}, "What did Aurora Team ask for?")      # no " · " in the line: words are the person's own and the line stays whole
+    assert ran(left)[1]["prompt"].startswith("What did Aurora Team ask for?\n")
+    monkeypatch.setattr(ops_mail_ask, "_question", lambda said, args, cfg: said.strip() if not ops_mail_read._list_line(args.get("match") or "") else table("MA_SUMMARY_QUESTION"))      # planted: the rule before the review
+    ask(desk, {"match": "Aurora Team"}, line)
+    assert BAIT_SUBJECT in ran(left)[-1]["prompt"].split("For this task:")[0], "the oracle sees the stranger's words in the question slot"
+
+
+NBSP = "\u00a0"
+DOT_SHAPES = [
+    ("Aurora Team · Hello", f"Summarize the e-mail: Aurora Team · Hello · {BAIT_SUBJECT} · today 17:14"),      # the span is a list line of a message whose subject is "Hello"; the line goes on with a subject that holds a dot
+    ("Aurora Team · Hello · today 17:14", f"Summarize: Aurora Team · Hello · today 17:14 and also Eve Roth · {BAIT_SUBJECT} · today 17:15"),      # a second pasted list line
+    ("Aurora Team", f"Summarize the e-mail: Aurora Team{NBSP}·{NBSP}{BAIT_SUBJECT}{NBSP}·{NBSP}today 17:14"),      # a no-break space around the dot
+    (f"Aurora Team{NBSP}·{NBSP}Hello{NBSP}·{NBSP}today 17:14", f"Summarize the e-mail: Aurora Team{NBSP}·{NBSP}Hello{NBSP}·{NBSP}today 17:14 {BAIT_SUBJECT}"),      # the span too
+]
+
+
+def test_the_dot_itself_marks_a_pasted_line_so_no_stranger_subject_stays_above_the_task_text():
+    """Review round 2: three shapes kept the subject in the question: a span that is a list line but a line that goes on with a subject that holds a dot, a second pasted list line, and a no-break space around the dot.
+    The mark is the middle dot itself, tested again once the span is taken out."""
+    for span, line in DOT_SHAPES:
+        question = ops_mail_ask._question(line, {"match": span}, CFG)
+        assert question == table("MA_SUMMARY_QUESTION"), (span, question)
+        assert BAIT_SUBJECT not in question
+    assert ops_mail_ask._question("What did Aurora Team ask for?", {"match": "Aurora Team"}, CFG) == "What did Aurora Team ask for?", "no dot: the person's own words stay whole"
+    clean = f"Summarize the e-mail: Aurora Team · Hello · today 17:14"
+    assert ops_mail_ask._question(clean, {"match": "Aurora Team · Hello · today 17:14"}, CFG) == "Summarize the e-mail:", "the clean shape still takes the span out"
+    def planted(said, args, cfg):      # the rule of the first review: the dot with spaces, no test after the removal
+        if " · " not in said:
+            return said.strip()
+        return table("MA_SUMMARY_QUESTION") if ops_mail_read._list_line(args.get("match") or "") is None else said.strip()
+    assert BAIT_SUBJECT in planted(DOT_SHAPES[0][1], {"match": DOT_SHAPES[0][0]}, CFG), "the oracle sees the stranger's words stay"
+    assert BAIT_SUBJECT in planted(DOT_SHAPES[2][1], {"match": DOT_SHAPES[2][0]}, CFG)
+
+
+@pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", "Hello", INVOICE)]], indirect=True)
+def test_the_reader_gets_the_summary_question_in_those_shapes_end_to_end(desk, monkeypatch):
+    left = Leftovers(monkeypatch)
+    answer(desk, INVOICE_FOUND)
+    for number, (span, line) in enumerate(DOT_SHAPES[:3]):
+        reply, _ = ask(desk, {"match": span}, line)
+        assert reads(desk) == number + 1, (number, reply)
+        prompt = ran(left)[number]["prompt"]
+        assert prompt.startswith(table("MA_SUMMARY_QUESTION")) and BAIT_SUBJECT not in prompt and "Eve Roth" not in prompt, number
+
+
+@pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", BAIT_SUBJECT, INVOICE)]], indirect=True)
 def test_vacuity_the_whole_line_as_the_question_puts_the_subject_above_the_task_text(desk, monkeypatch):
     monkeypatch.setattr(ops_mail_ask, "_question", lambda said, args, cfg: said.strip())
     left = Leftovers(monkeypatch)
@@ -934,6 +1009,35 @@ def test_vacuity_a_plan_with_no_pin_reads_the_other_message(desk, monkeypatch):
     plan = extras["plan_confirm"]
     reply = ops.say(desk["path"], "sim", channel="messaging", sender=KEYS["both"], plan_ok={"item": plan["item"], "sha256": plan["sha256"]})["reply"]
     assert reads(desk) == 1 and reply != table("MA_CHANGED") and "Eve Roth" in reply.split("\n\n")[-1], "the oracle sees a yes that read another message"
+
+
+def test_words_are_matched_when_the_yes_is_given_so_a_plan_by_words_pins_nothing_and_a_refresh_between_does_not_stop_the_yes(desk):
+    """Review of MAIL-SUMMARY-FLIP: a line by words on a snapshot older than the refresh age, with one new mail, pinned version 1; the yes refreshed it and the reply was MA_CHANGED. Words are matched at the moment
+    of the yes, on the snapshot it reads: the ONE message that matches is read (and only a message that matches those words), the footer names it; several matches are listed and nothing runs."""
+    args = {"match": "Appointment confirmed"}
+    said = "summarize the e-mail Appointment confirmed"
+    _asked, extras = ask(desk, args, said, confirmed=False)
+    plan = extras["plan_confirm"]
+    desk["snaps"].providers.mail["gmail"] = [tsm.message(1, "2026-10-17T10:00:00Z", "Eve Roth <eve@other.example>", "Different subject", "Other words entirely.", id="n1")] + gmail()
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    reply = ops.say(desk["path"], "sim", channel="messaging", sender=KEYS["both"], plan_ok={"item": plan["item"], "sha256": plan["sha256"]})["reply"]
+    assert reply != table("MA_CHANGED") and reads(desk) == 1 and "Appointment confirmed" in reply.split("\n\n")[-1], "the yes reads the message the words name, now number 3"
+    pinned = ops_mail_ask.pin(ops_core.context(desk["path"]), args, said, "messaging", KEYS["both"])      # what the plan used to carry
+    assert pinned and set(pinned) == {"inbox", "work"}
+    desk["snaps"].providers.mail["gmail"] = [tsm.message(1, "2026-10-17T11:00:00Z", "Fay Moss <fay@other.example>", "Newest", "Yet other words.", id="n2")] + desk["snaps"].providers.mail["gmail"]
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    planted, _ = ask(desk, dict(args, pin=pinned), said)
+    assert planted == table("MA_CHANGED"), "the oracle sees the stop a pinned plan by words causes"
+    twin = tsm.message(1, "2026-10-17T12:00:00Z", "Clinica Sorriso Leve <agenda@sorriso-leve.example>", "Appointment confirmed", "Another visit.", id="n3")
+    desk["snaps"].providers.mail["gmail"] = [twin] + desk["snaps"].providers.mail["gmail"]
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    two_matches, _ = ask(desk, args, said)
+    assert reads(desk) == 1 and two_matches != table("MA_CHANGED") and "Appointment confirmed" in two_matches and not found(two_matches), "two messages match the words: they are listed and nothing is read"
+    _asked_number, extras_number = ask(desk, {"number": 2, "account": "google"}, "summarize e-mail 2 of gmail", confirmed=False)
+    assert set(extras_number["plan_confirm"]) and ops_mail_ask.pin(ops_core.context(desk["path"]), {"number": 2, "account": "google"}, "summarize 2 of gmail", "messaging", KEYS["both"]), "a number still pins (the test above)"
 
 
 def test_the_pin_is_the_stored_versions_of_the_boxes_the_call_can_name_and_calls_no_provider(desk):
@@ -1019,6 +1123,11 @@ def test_the_day_is_counted_by_the_request_word_of_this_operation_inside_contain
     assert reads(desk) == 2 and found(again), "the oracle sees a run that the wrong word lets through"
 
 
+@pytest.mark.xfail(condition=not os.environ.get("GITHUB_ACTIONS"), strict=True,
+                   reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off until the "
+                          "maintainer's lab run is committed with its evidence. Locally (the hook) this is an expected failure, so a commit can be made; in CI (GITHUB_ACTIONS set) it runs and is RED until the "
+                          "evidence exists: the required `tests` check is the structural guard against merging before the lab. Strict and local: with the evidence in place the "
+                          "hook's run XPASSes and fails, so the evidence commit has to remove the condition (in CI the condition is false and the test just passes).")
 def test_the_real_standing_of_the_reader_lets_both_questions_start_with_no_stub():
     """H1: the reader's band is read from the recorded evidence of this checkout, with nothing stubbed. A case added to asst-answer that has no run yet turns the band to `needs a test` and file-ask off."""
     assert ops_file_ask._skill() == ("asst-answer", None)

@@ -178,7 +178,7 @@ def test_the_gap_list_is_the_thirteen_refused_operations_and_none_is_absent(gaps
     assert {op: row["class"] for op, row in gaps["gaps"]["by_op"].items()} == GAP_OPS
     assert all(refused[op] == cls and op not in offered for op, cls in GAP_OPS.items())
     assert gaps["gaps"]["by_kind"] == {"refused": 58} and gaps["gaps"]["lines"] == 58 and gaps["gaps"]["ops"] == 13
-    assert gaps["catalog"]["v"] == served["v"] == 2 and gaps["catalog"]["ops"] == len(served["ops"]) and gaps["catalog"]["refused"] == len(served["refused"])
+    assert gaps["catalog"]["v"] == 2 and served["v"] == 3 and gaps["catalog"]["ops"] == 70 == len(served["ops"]) - 1 and gaps["catalog"]["refused"] == 21 == len(served["refused"]), "the frozen gap list was drawn on the catalog of version 2; version 3 adds one served read (mail-ask) and no refused operation"
     assert {row["kind"] for row in gaps["gaps"]["by_op"].values()} == {"refused"}
 
 

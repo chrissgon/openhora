@@ -365,7 +365,7 @@ def test_the_row_of_the_registry_carries_the_three_slots_of_version_2():
     assert {slot: (spec["kind"], spec["param"], spec["since"]) for slot, spec in rec["slots"].items()} == {
         "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}
     assert {r["op"]: r for r in st.load("registry").rows(1)}["items"]["slots"] == {}
-    assert operations.LINE_CATALOG == 2, "CB-9 raised it"
+    assert operations.LINE_CATALOG == 3, "MAIL-SUMMARY-FLIP raised it, after CB-9"
 
 
 # --- a target that names a mailbox is a source or a question, never a word filter (CB-9, round 2) --------------------------------------------------------------------------------------
