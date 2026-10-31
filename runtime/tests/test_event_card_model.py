@@ -372,37 +372,90 @@ def test_target_is_another_reads_the_cards_title_and_the_title_before_a_change()
     assert event_revise.target_is_another({"target": "7"}, doc) is False and event_revise.target_is_another({}, doc) is False
 
 
-def test_a_bare_time_that_only_says_where_the_event_ends_reaches_the_model_and_every_other_reminder_stays_one(world, monkeypatch):
-    """L51: a reminder never reaches a prompt. Only a line whose words outside the time are a closed end or length list ("vai ate as 17h", "it ends at 5pm") is about the card."""
-    model = build(world, monkeypatch, op_text("event-change", {"time": "as 17h"}, time_iso="2026-10-24T17:00", weekday="sat"))
+CHANGES_AS_SAID = ["as 17h por favor", "17h obrigado", "melhor as 17h", "passa pra 17h", "coloca as 17h", "vai ate as 17h", "termina as 14h", "starts at 5pm", "5pm please", "it ends at 5pm"]      # validate: allow english-only -- the lines under test
+OTHERS_THAT_CODE_READ = ["tomar remedio as 22h", "pagar o boleto as 9h", "call Ana at 5pm", "me lembra de ligar para a Ana amanha as 9h", "cria tambem consulta sexta 15h"]      # validate: allow english-only -- the lines under test
+TYPED = ["aprovo", "sim", "/pending", "oi", "o que esta pendente?"]      # validate: allow english-only -- the lines under test
+
+
+def test_while_an_event_card_waits_a_reminder_a_bare_time_and_a_write_said_in_words_reach_the_model_and_a_typed_command_does_not(world, monkeypatch):
+    """The maintainer's rule: what a person asks is read by the model, with code rules only where the input is fully predictable. L51 as amended on 2026-10-28 stands: a reminder in words is read by the interpreter
+    on the daily route for a sender who holds `interpret`, so the card call goes to the same route."""
+    model = build(world, monkeypatch, None)
     old, sha = create(world)
     ctx = ops_core.context(world["path"])
-    ends = ["vai ate as 17h", "termina as 14h", "it ends at 5pm", "fica ate as 18h"]      # validate: allow english-only -- the lines under test
-    reminders = ["tomar remedio as 22h", "pagar o boleto as 9h", "call Ana at 5pm", "ele vai tomar remedio ate as 22h", "walk the dog at 7pm"]      # validate: allow english-only -- the lines under test
-    for line in ends + reminders:
-        assert turn_gate.new_request(line) == "bare", ("control: the gate reads this line as a reminder said with a bare time", line)
-    for line in ends:
+    for line in CHANGES_AS_SAID + OTHERS_THAT_CODE_READ:
+        assert turn_gate.new_request(line) in ("bare", "reminder", "write"), ("control: code reads this line by itself", line, turn_gate.new_request(line))
         assert ops_card_revise._recognised(ctx, line, OWNER) is True and ops_card_revise._recognised(ctx, line, OWNER, event=True) is False, line
         assert check(world, old, sha, line) == "event", line
-    for line in reminders:
-        assert ops_card_revise._recognised(ctx, line, OWNER, event=True) is True, line
-        assert check(world, old, sha, line) is None, line
+    for line in TYPED:
+        assert check(world, old, sha, line) is None, ("a typed command stays code's", line)
     assert model.calls == [], "the check calls no model"
-    assert ops_card_revise._recognised(ctx, "me lembra de ligar amanha as 9h", OWNER, event=True) is True, "a reminder with words stays a reminder on an event card"      # validate: allow english-only -- the line under test
 
 
-def test_vacuity_with_the_closed_list_planted_open_a_reminder_reaches_the_prompt(world, monkeypatch):
+def test_vacuity_with_the_exemption_planted_away_a_reminder_never_reaches_the_card_call(world, monkeypatch):
     build(world, monkeypatch, None)
     old, sha = create(world)
-    assert check(world, old, sha, "tomar remedio as 22h") is None      # validate: allow english-only -- the line under test
-    monkeypatch.setattr(ops_card_revise, "_closed_end", lambda line: True)      # the plant: every bare time is about the card
-    assert check(world, old, sha, "tomar remedio as 22h") == "event" and check(world, old, sha, "call Ana at 5pm") == "event", "the oracle above fails on the plant"      # validate: allow english-only -- the line under test
+    assert check(world, old, sha, "tomar remedio as 22h") == "event"      # validate: allow english-only -- the line under test
+    monkeypatch.setattr(ops_card_revise, "CODE_OWNED", ())      # the plant: no kind of line is let through (the behaviour before this change)
+    assert check(world, old, sha, "tomar remedio as 22h") is None and check(world, old, sha, "starts at 5pm") is None, "the oracle above fails on the plant"      # validate: allow english-only -- the lines under test
 
 
-def test_the_closed_list_of_an_end_or_a_length_reads_only_its_own_words():
-    closed = ops_card_revise._closed_end
-    assert closed("vai ate as 17h") and closed("it ends at 5pm") and closed("until 5pm") and closed("jusqu'a 17h") and closed("dura 2 horas")      # validate: allow english-only -- the lines under test
-    assert not closed("tomar remedio as 22h") and not closed("call Ana at 5pm") and not closed("5pm") and not closed("as 10h") and not closed("")      # validate: allow english-only -- the lines under test
+def test_a_reminder_the_card_call_reads_as_a_reminder_goes_on_with_its_decision_kept_and_a_change_said_as_a_bare_time_is_still_a_change(world, monkeypatch):
+    line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
+    model = build(world, monkeypatch, op_text("remind", {"text": "tomar remedio", "when": "as 22h"}, time_iso="2026-10-21T22:00", weekday="wed"))      # validate: allow english-only -- the model's answer under test
+    old, sha = create(world)
+    assert revise(world, old, sha, line) == {"pass": True} and open_cards(world) == [old] and status(world, old) == "open"
+    kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
+    assert kept is not None and kept["op"] in ("remind", "refuse"), "the decision is kept for the turn that follows (the owner of this world holds no `remind` group: the refusal is then said, and it is true of the request), so the model is not asked twice"
+    assert len(model.calls) == 1 and '"title":"evento social"' in model.calls[0], "the card went with the line to the same route"
+    ops_interpret.forget_all()
+    ops_card_revise.forget_all()
+    build(world, monkeypatch, op_text("event-change", {"time": "as 17h"}, time_iso="2026-10-24T17:00", weekday="sat"))
+    new = revise(world, old, sha, "melhor as 17h")["resend"]      # validate: allow english-only -- the line under test
+    assert new != old and card_has(body(world, new), "CARD_CAL_WHEN", when="Sat 24/10/2026 17:00-18:00 (America/Sao_Paulo)")
+
+
+@pytest.mark.parametrize("answer", ['{"v": 1, "kind": "route"}', '{"v": 1, "kind": "none"}', '{"v": 1, "kind": "answer", "answers_item": "i1"}', "this is not json"])
+def test_a_reminder_the_card_call_does_not_read_ends_on_the_path_it_would_have_taken_and_is_never_lost(world, monkeypatch, answer):
+    """A `route` on a private line comes back as the clarify `private-route`; for a line code owns it ends here as `{"pass": True}`, unread and unremembered, so the reminder path takes it. It is never the sentence
+    "I was not sure what you meant" for a reminder that code can make, and never a decision kept in memory that the turn that follows would read in its place."""
+    line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
+    build(world, monkeypatch, answer)
+    old, sha = create(world)
+    assert revise(world, old, sha, line) == {"pass": True} and open_cards(world) == [old]
+    assert ops_card_revise.decided(world["path"], "messaging", OWNER, line) is None, "nothing is kept: the line takes its own path"
+
+
+def test_a_refusal_on_a_reminder_that_code_owns_is_said_as_the_refusal_and_not_as_what_to_change(world, monkeypatch):
+    line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
+    build(world, monkeypatch, op_text("todo-add", {"title": "tomar remedio as 22h"}))      # validate: allow english-only -- the model's answer under test
+    old, sha = create(world)
+    assert revise(world, old, sha, line) == {"pass": True}
+    kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
+    assert kept is not None and kept["kind"] in ("refuse_policy", "op"), "the line goes on with the model's reading, as any line does; the sentence 'what to change?' (Part A) is for a line code does not own"
+
+
+def test_a_change_line_that_the_card_call_cannot_read_is_read_by_code_and_a_write_said_in_words_passes_on_as_a_new_event(world, monkeypatch):
+    build(world, monkeypatch, "this is not json")
+    old, sha = create(world)
+    moved = revise(world, old, sha, "muda para as 10h")["resend"]      # validate: allow english-only -- the line under test
+    assert moved != old and card_has(body(world, moved), "CARD_CAL_WHEN", when="Sat 24/10/2026 10:00-11:00 (America/Sao_Paulo)"), "code's own reading of a change (S13b) still serves a card call that cannot be read"
+    ops_interpret.forget_all()
+    ops_card_revise.forget_all()
+    line = "cria tambem consulta sexta 15h"      # validate: allow english-only -- the line under test
+    build(world, monkeypatch, op_text("event-create", {"title": "consulta", "time": "sexta 15h"}, time_iso="2026-10-23T15:00", weekday="fri"))      # validate: allow english-only -- the model's answer under test
+    other, other_sha = create(world)
+    assert revise(world, other, other_sha, line) == {"pass": True} and open_cards(world) == [moved, other]
+    kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
+    assert kept is not None and kept["op"] == "event-create", "a new event said while a card waits is carried to the path that makes its own card"
+
+
+def test_left_to_code_names_the_decisions_that_leave_a_line_to_code_and_only_for_a_line_code_owns():
+    left = event_revise.left_to_code
+    for decision in ({"kind": "route"}, {"kind": "none"}, {"kind": "answer"}, {"kind": "clarify", "why": "private-route"}, {"kind": "clarify", "why": "invalid"}, {"kind": "clarify", "why": "model"}):
+        assert left(decision, True) is True and left(decision, False) is False, decision
+    for decision in ({"kind": "clarify", "why": "time-ask"}, {"kind": "clarify", "why": "long-line"}, {"kind": "op", "op": "event-change"}, {"kind": "op", "op": "remind"}, {"kind": "refuse_policy"}):
+        assert left(decision, True) is False, decision
 
 
 def test_the_dev_check_function_is_the_same_as_the_products_own_gate(world, monkeypatch):
@@ -412,8 +465,10 @@ def test_the_dev_check_function_is_the_same_as_the_products_own_gate(world, monk
         card = row["card"]
         old, sha = create(world, title=card["title"], start=card["start"], end=card["end"], **({"location": card["location"]} if card.get("location") else {}))
         assert ops_card_revise.reaches_event_card(ctx, row["line"], OWNER) is (check(world, old, sha, row["line"]) == "event"), row["id"]
-    for line in ("tomar remedio as 22h", "/pending", "call Ana at 5pm"):      # validate: allow english-only -- the lines under test
+    for line in TYPED:
         assert ops_card_revise.reaches_event_card(ctx, line, OWNER) is False, line
+    for line in OTHERS_THAT_CODE_READ + CHANGES_AS_SAID:
+        assert ops_card_revise.reaches_event_card(ctx, line, OWNER) is True, line
 
 
 # --- 5b. the findings of the review of PR 680 ----------------------------------------------------------------------------------------------------------------
@@ -507,6 +562,90 @@ def test_a_bare_clock_the_engine_and_the_model_read_twelve_hours_apart_takes_the
     build(world, monkeypatch, op_text("event-change", {"time": "as 9h"}, time_iso="2026-10-24T21:00", weekday="sat"))
     p, p_sha = create(world, title="Jantar", start="2026-10-24T19:00", end="2026-10-24T20:00")
     assert card_has(body(world, revise(world, p, p_sha, "muda para as 9h")["resend"]), "CARD_CAL_WHEN", when="Sat 24/10/2026 09:00-10:00 (America/Sao_Paulo)"), "the oracle above fails on the plant"      # validate: allow english-only -- the line under test
+
+
+EVENING = {"event": {"title": "Jantar", "start": "2026-10-24T19:00", "end": "2026-10-24T20:00"}, "operation": "create", "account": "google", "before": None}
+ALLOWED = {"event-change"}
+
+
+def read_time(line, span, model_hhmm):
+    """The decision for a model that answers `span` and the Saturday clock `model_hhmm`, on a card at 19:00."""
+    answer = op_text("event-change", {"time": span}, time_iso="2026-10-24T" + model_hhmm, weekday="sat")
+    return event_revise.read_answer(answer, line, EVENING, NOW, "America/Sao_Paulo", ALLOWED)
+
+
+# What the person stated is never overridden by the model; the engine's reading, and `time_disagree`, stay as the checks left them.
+STATED = [
+    ("move it to 9am", "9am", "21:00", "2026-10-22T09:00"),
+    ("muda para as 21h", "as 21h", "09:00", "2026-10-21T21:00"),      # validate: allow english-only -- the line under test
+    ("muda para as 15h", "as 15h", "03:00", "2026-10-22T15:00"),      # validate: allow english-only -- the line under test
+    ("move it to 9pm", "9pm", "09:00", "2026-10-21T21:00"),
+    ("muda para 9h da noite", "9h da noite", "09:00", "2026-10-21T21:00"),      # validate: allow english-only -- the line under test
+    ("muda para as 09:00", "as 09:00", "21:00", "2026-10-22T09:00"),      # validate: allow english-only -- the line under test
+    ("muda para meia-noite", "meia-noite", "12:00", "2026-10-22T00:00"),      # validate: allow english-only -- the line under test
+    ("muda para meio-dia", "meio-dia", "00:00", "2026-10-22T12:00"),      # validate: allow english-only -- the line under test
+]
+
+
+@pytest.mark.parametrize("line, span, model_hhmm, engine", STATED)
+def test_a_time_the_person_stated_is_not_overridden_by_a_model_that_reads_it_twelve_hours_away(line, span, model_hhmm, engine):
+    decision = read_time(line, span, model_hhmm)
+    assert decision["kind"] == "op" and decision["time"] == {"local": engine, "source": "code"} and decision["time_disagree"] is True, decision
+
+
+@pytest.mark.parametrize("line, span, model_hhmm, taken", [("muda para as 9h", "as 9h", "21:00", "2026-10-24T21:00"), ("move it to 9:30", "9:30", "21:30", "2026-10-24T21:30"),      # validate: allow english-only -- the line under test
+                                                           ("muda para as 9", "as 9", "21:00", None), ("passa para 9h30", "9h30", "21:30", None)])      # validate: allow english-only -- the lines under test
+def test_a_closed_bare_clock_of_one_to_twelve_takes_the_models_reading(line, span, model_hhmm, taken):
+    decision = read_time(line, span, model_hhmm)
+    if taken is None:
+        assert decision.get("kind") in ("op", "clarify"), "the form is a closed one; whether the checks ask first is theirs"
+        return
+    assert decision["time"] == {"local": taken, "source": "model"} and decision["time_disagree"] is False
+
+
+def test_vacuity_with_the_form_check_planted_open_the_model_overrides_a_stated_time(monkeypatch):
+    assert read_time("move it to 9am", "9am", "21:00")["time"]["source"] == "code"
+    monkeypatch.setattr(event_revise, "_bare_clock", lambda span: True)      # the plant: every span is a bare clock
+    planted = read_time("move it to 9am", "9am", "21:00")
+    assert planted["time"] == {"local": "2026-10-24T21:00", "source": "model"}, "the oracle above fails on the plant: a stated 9am would become 21:00"
+    assert read_time("muda para as 21h", "as 21h", "09:00")["time"] == {"local": "2026-10-21T21:00", "source": "code"}, "the engine's hour, 21, is outside 1 to 12: even the planted form check does not apply the rule"      # validate: allow english-only -- the line under test
+
+
+def test_the_bare_clock_form_is_closed():
+    form = event_revise._bare_clock
+    for span in ("as 9h", "9h", "9:30", "9h30", "9", "as 12", "at 11", "alle 9", "às 9h"):      # validate: allow english-only -- the spans under test
+        assert form(span) is True, span
+    for span in ("9am", "9pm", "9 am", "as 09:00", "09h", "as 13h", "as 21h", "9h da noite", "9 horas", "9 Uhr", "9 heures", "meia-noite", "meio-dia", "noon", "", None, 9):      # validate: allow english-only -- the spans under test
+        assert form(span) is False, span
+
+
+def test_plant_the_brand_inside_a_new_place_read_from_the_whole_line_puts_the_card_on_another_account(world, monkeypatch):
+    line = "muda o local para o escritorio no Outlook"      # validate: allow english-only -- the line under test
+    build(world, monkeypatch, op_text("event-change", {"place": "escritorio no Outlook"}))
+    real = event_revise.event_lookup.account_named
+    monkeypatch.setattr(event_revise.event_lookup, "account_named", lambda said, title: real(line, title))      # the plant: the brand is read from the whole line, as before the fix
+    old, sha = create(world)
+    planted = revise(world, old, sha, line)["resend"]
+    assert pk.said(body(world, planted)[1], "CARD_ACCOUNT", CFG, account="microsoft"), "the plant puts the card on microsoft: the test of the fix (account google) fails on it"
+
+
+def test_plant_the_looser_text_rule_believes_consulta_ana_and_ana(world, monkeypatch):
+    words = event_revise._words
+    loose = lambda value, line_, old_: bool(words(value)) and words(value) - words(old_) <= words(line_) and bool(((words(value) - words(old_)) | (words(old_) - words(value))) & words(line_))
+    assert loose("Consulta Ana", "muda para as 10h", "Consulta para Ana") is True and event_revise._grounded("Consulta Ana", "muda para as 10h", "Consulta para Ana") is False      # validate: allow english-only -- the line under test
+    assert loose("Ana", "tira o almoco do titulo", "Almoco com a Ana") is True and event_revise._grounded("Ana", "tira o almoco do titulo", "Almoco com a Ana") is False      # validate: allow english-only -- the line under test
+    monkeypatch.setattr(event_revise, "_grounded", loose)      # the plant: the first version's rule
+    build(world, monkeypatch, op_text("event-change", {"title": "Consulta Ana", "time": "as 10h"}, time_iso="2026-10-24T10:00", weekday="sat"))
+    old, sha = create(world, title="Consulta para Ana")      # validate: allow english-only -- the card under test
+    assert card_has(body(world, revise(world, old, sha, "muda para as 10h")["resend"]), "CARD_CAL_TITLE", title="Consulta Ana"), "the plant renames the card: the test of the fix fails on it"      # validate: allow english-only -- the line under test
+
+
+def test_plant_a_day_that_is_never_another_changes_the_card_of_another_day(world, monkeypatch):
+    build(world, monkeypatch, op_text("event-change", {"title": "Festa", "target": "almoco", "day": "domingo"}))
+    monkeypatch.setattr(event_revise, "day_is_another", lambda spans, doc, now: False)      # the plant
+    old, sha = create(world, title="Almoco")      # validate: allow english-only -- the card under test
+    changed = revise(world, old, sha, "muda o titulo do almoco de domingo para Festa")      # validate: allow english-only -- the line under test
+    assert changed.get("resend") not in (None, old), "the plant changes Saturday's card for a line about Sunday's lunch: the test of the fix fails on it"
 
 
 def test_the_day_only_reading_is_for_a_plain_date_with_no_clock_and_no_doubt():

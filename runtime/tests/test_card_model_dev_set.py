@@ -17,7 +17,7 @@ import pytest
 
 SET = Path(__file__).resolve().parents[2] / "evals" / "interpreter" / "card-model-dev-v1.jsonl"
 LANGS = {"pt-BR": 40, "en": 24, "es": 8, "fr": 8, "de": 8, "it": 8}
-GROUPS = {"title": 20, "time": 11, "day": 13, "place": 10, "duration": 10, "mixed": 6, "another": 6, "other": 10, "none": 4, "bait": 6}
+GROUPS = {"title": 18, "time": 13, "day": 11, "place": 9, "duration": 9, "mixed": 6, "another": 6, "other": 7, "none": 4, "bait": 6, "reminder": 5, "newevent": 2}
 STAMP = "%Y-%m-%dT%H:%M"
 REPORT = ["Mude o titulo para: ", "Mude o titulo para ", "Mude o título para: ", "muda o título para ", "muda o titulo para: ", "troque o nome para ", "troque o nome para: "]      # validate: allow english-only -- the lines of the report
 
@@ -103,8 +103,9 @@ def test_vacuity_a_planted_wrong_set_is_found(plant):
 def test_every_line_that_is_not_a_change_names_the_operations_it_may_get_and_no_real_name_is_in_the_set():
     rows = items()
     others = [r for r in rows if r["gold"]["kind"] == "other"]
-    assert len(others) == 23 and all(isinstance(r["gold"].get("ops"), list) for r in others), "an `ops` list on each (20 outside the bait group, 3 inside it), an empty list for a line no operation is right for"
+    assert len(others) == 27 and all(isinstance(r["gold"].get("ops"), list) for r in others), "an `ops` list on each (24 outside the bait group, 3 inside it), an empty list for a line no operation is right for"
     assert all(r["gold"]["ops"] == [] for r in others if r["group"] == "none") and all(r["gold"]["ops"] == ["event-change"] for r in others if r["group"] == "another")
+    assert all(r["gold"]["ops"] == ["remind"] for r in others if r["group"] == "reminder") and all(r["gold"]["ops"] == ["event-create"] for r in others if r["group"] == "newevent")
     text = SET.read_text(encoding="utf-8")
     assert "Matheus" not in text and "Corte de Cabelo" not in text, "principle 8: the name of a real report line is not in the set"
 
@@ -114,3 +115,12 @@ def test_the_set_holds_the_bare_clock_lines_of_the_probe_in_pt_br_and_en():
     pt = [r for r in rows.values() if r["lang"] == "pt-BR" and r["line"] == "muda para as 9h" and r["card"]["start"].endswith("T19:00")]      # validate: allow english-only -- the line under test
     en = [r for r in rows.values() if r["lang"] == "en" and r["line"] == "move it to 9:30" and r["card"]["start"].endswith("T19:00")]
     assert len(pt) == 1 and len(en) == 1 and pt[0]["gold"]["start"].endswith("T21:00") and en[0]["gold"]["start"].endswith("T21:30"), "an evening card and a clock with no am or pm: the model's reading wins"
+
+
+def test_the_set_holds_the_six_real_changes_the_closed_list_had_dropped_and_the_reminders_and_new_events_said_while_a_card_waits():
+    rows = items()
+    lines = {r["line"] for r in rows}
+    for line in ("passa para as 14h30", "marca para as 18h", "começa às 9h30", "décale à 14h", "spostalo alle 16:00", "appelle-le Déjeuner équipe et mets-le à 13h"):      # validate: allow english-only -- the lines under test
+        assert line in lines, line
+    reminders = [r for r in rows if r["group"] == "reminder"]
+    assert {r["lang"] for r in reminders} == {"pt-BR", "en"} and len(reminders) == 5 and {r["lang"] for r in rows if r["group"] == "newevent"} == {"pt-BR", "en"}

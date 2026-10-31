@@ -285,16 +285,26 @@ def _day_only(span, line: str, doc: dict, now):
     return {"local": value.isoformat() + "T" + start[11:], "source": "code"}
 
 
+BARE_CLOCK = re.compile(r"(?:(?:as|a|ao|at|to|las|alle|um|le|la|para|pra)\s+)?(?:[1-9]|1[0-2])(?:(?::|h)(?:[0-5][0-9])?)?")      # a clock of 1 to 12 with no leading zero, no am or pm, no part of the day, no word for the hour: the only form that is ambiguous by itself; validate: allow english-only -- the small words of six languages
+
+
+def _bare_clock(span) -> bool:
+    return isinstance(span, str) and bool(BARE_CLOCK.fullmatch(mail_revise._fold(span).strip()))
+
+
 def _model_clock(decision: dict, obj, doc: dict, now) -> dict:
     """A bare clock with no am or pm ("muda para as 9h" on a card at 19:00): when the engine's reading and the model's `time_iso` differ by exactly 12 hours on the clock, the model's reading wins, because the
-    model saw the card; the day stays the card's (a line that names no day) or the engine's. Any other disagreement stays as the checks left it."""
+    model saw the card; the day stays the card's (a line that names no day) or the engine's. It applies only when the engine's hour is 1 to 12 and the span is a closed bare-clock form (`BARE_CLOCK`): a
+    time the person stated ("9am", "9pm", "as 21h", "as 09:00", "9h da noite", "meia-noite") is never overridden by the model. Any other disagreement stays as the checks left it, `time_disagree` included."""
     time_ = decision.get("time")
     if not (decision.get("time_disagree") and isinstance(time_, dict) and time_.get("source") == "code" and isinstance(obj, dict)):
+        return decision
+    if not _bare_clock((decision.get("spans") or {}).get("time")):
         return decision
     iso, local = obj.get("time_iso"), time_.get("local")
     if not (isinstance(iso, str) and isinstance(local, str) and interpreter.TIME_RE.fullmatch(iso) and interpreter.TIME_RE.fullmatch(local)):
         return decision
-    if abs((int(iso[11:13]) * 60 + int(iso[14:16])) - (int(local[11:13]) * 60 + int(local[14:16]))) != 720:
+    if abs((int(iso[11:13]) * 60 + int(iso[14:16])) - (int(local[11:13]) * 60 + int(local[14:16]))) != 720 or not 1 <= int(local[11:13]) <= 12:
         return decision
     named = event_lookup._day_named((decision.get("spans") or {}).get("time") or "", now)[0]
     day = str((doc["event"].get("start") or ""))[:10] if named == "none" else local[:10]
@@ -355,6 +365,17 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admissio
         return {"kind": "clarify", "error": "E_SHAPE", "why": "invalid", "slot": None, "ops": None}
 
 
+LEFT_TO_CODE_WHY = ("model", "invalid", "private-route")      # the reasons of a clarify that mean "the model did not read this line as a change of the card" (the generic ask-again); a question about a time stays asked
+
+
+def left_to_code(decision: dict, by_code: bool) -> bool:
+    """Whether a line that code owned before the model saw the card (`ops_card_revise.owned_by_code`: a reminder, a bare time, a write said in words) goes on to that path, unread and unremembered,
+    because the card call answered a `route`, a `none`, an `answer` or a clarify that is not a question about a time. A private line the model routes comes back as the clarify `private-route`: it ends
+    here, as the reminder path takes it, never as a lost line and never as the sentence "I was not sure what you meant" for a reminder that code can make."""
+    kind = decision.get("kind")
+    return bool(by_code) and (kind in ("route", "none", "answer") or (kind == "clarify" and decision.get("why") in LEFT_TO_CODE_WHY))
+
+
 def change_of(decision: dict, line: str, doc: dict, now, zone: str):
     """Pure (no call, no store, no clock of its own): what a decision that is not a question makes of the card. ("pass", None) when it is not a change of THIS card (the turn that follows reads it),
     ("say", the phrase key) when the person is asked or told, ("change", {"title", "place", "start", "end", "account", "time", "parts"}) with the parts that change (None for a part that stays).
@@ -411,9 +432,12 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     decision = card_decision(ctx, entry, line, sender, doc, admission)
     if decision is None:
         return {"pass": True}
+    by_code = base.owned_by_code(ctx, line, sender)
+    if left_to_code(decision, by_code):
+        return {"pass": True}      # a reminder, a bare time or a write said in words that the card call did not read as a change of the card: it takes the path it would have taken, unread and unremembered
     if decision.get("kind") == "clarify":
         return base.say(ctx, ops_interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
-    if decision.get("kind") == "refuse_policy" and not event_lookup.names_other_object(line):
+    if decision.get("kind") == "refuse_policy" and not by_code and not event_lookup.names_other_object(line):
         return base.say(ctx, "EV_CHANGE_WHAT", pending_id)      # the model named an operation the sender may not ask and the line names no other object: the operation was the model's reading, not the person's request, so no refusal is said of it; the card is sent again
     now = ops_natural._clock()
     verdict, made = change_of(decision, line, doc, now, ops_interpret._zone(now))

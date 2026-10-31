@@ -26,7 +26,7 @@ approved. The bridge decides which card a line may be about (runtime/messaging_b
 A line is a change of a card only when ALL of these hold: the channel is a messaging app and the sender holds the group `interpret` with the newest entry of
 runtime/interpreter_enable.json in force (a mail card also needs the entry to pin this checkout's revise prompt, an event card the entry to pin this checkout's event card text); the sender may prepare the same kind of card and may reject one; the
 line is one line of at most INSTRUCTION_MAX characters, not a command, not an approve or reject word, not a greeting or a question about the state, and, for a mail card, not a
-request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself); the card
+request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself, and a reminder, a bare time or a write said in words reaches the model that sees the card, which decides; only a typed command stays code's); the card
 is an OPEN effect decision whose content hash is the `sha256` the bridge gives (the hash of the card the person saw).
 
 For a mail card the model is called only when the line holds a word that asks for a change, a quoted text or a word that asks to change who receives the e-mail (limit L63): any other
@@ -102,28 +102,20 @@ def forget_all() -> None:
         _decided.clear()
 
 
-# The words of a line that says where an event ends or how long it lasts, folded, in the six languages: with the small words below and a time, nothing else. A closed list: a line with any other word
-# ("tomar remedio as 22h", "call Ana at 5pm") is a reminder said with a bare time, and a reminder never reaches a prompt (L51).
-END_WORDS = frozenset(("vai ate termina terminar acaba acabar dura durar fim fica ficar ends end ending until till lasts last finish finishes runs hasta jusqu finit termine dure bis endet dauert dauern ende "      # validate: allow english-only -- the closed words of six languages
-                       "fino finisce").split())
-SMALL_WORDS = frozenset("a as o os ao em no na de do da um uma it its the at to by for el la las los le les l und alle ore hora horas heures heure uhr stunden h il ele ela elle er es ca ce".split())
-
-
-def _closed_end(line: str) -> bool:
-    """Whether the words of the line outside its numbers are in the closed list of an end or a length, with at least one word of the list ("vai ate as 17h", "it ends at 5pm")."""
-    words = [w for w in re.findall(r"[a-z0-9]+", mail_revise._fold(line))]
-    rest = [w for w in words if not any(c.isdigit() for c in w)]
-    return bool(rest) and any(w in END_WORDS for w in rest) and all(w in END_WORDS or w in SMALL_WORDS for w in rest)
+CODE_OWNED = ("bare", "reminder", "write")      # what `turn_gate.new_request` says of a line code reads by itself that is NOT a typed command: a reminder (said with a bare time, or with its words) and a write said in words ("cria consulta sexta 15h")
 
 
 def _recognised(ctx: dict, line: str, sender, event: bool = False) -> bool:
-    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event a bare time that only says where the event ends or how long
-    it lasts ("vai ate as 17h", "it ends at 5pm": `_closed_end`) is about the card and reaches the model that sees the card; every other reminder said with a bare time stays a reminder (L51)."""
+    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event that waits the model sees the card and decides what the
+    person asked (the maintainer's rule of 2026-10-30), so a line that `turn_gate.new_request` reads as a reminder, a bare time or a write said in words ("tomar remedio as 22h", "vai ate as 17h",
+    "cria tambem consulta sexta 15h") reaches it too; only a typed command stays code's: a card word, a decision said in words, a closed form, a question about the state, a greeting. A line that is not
+    a change of the card passes on to the path it would have taken (`ops_event_revise.revise`); a reminder in words is read by the interpreter on the daily route for a sender who holds `interpret`
+    (L51 as amended on 2026-10-28), so the prompt of the card call goes to the same route."""
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
     # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
     # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
     new = turn_gate.new_request(line)
-    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new == "bare" and _closed_end(line)))
+    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new in CODE_OWNED))
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
 
 
@@ -136,6 +128,13 @@ def reaches_event_card(ctx: dict, text: str, sender) -> bool:
     if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
         return False
     return not _recognised(ctx, line, sender, event=True) or _is_event_change(line)
+
+
+def owned_by_code(ctx: dict, text: str, sender) -> bool:
+    """Whether code would have taken the line as its own before the model saw the card (a reminder, a bare time, a write said in words, a typed form) and it is not the change of an event: then a card
+    call that does not read it as a change leaves it to that path, unread and unremembered, so that no line is lost (`ops_event_revise.revise`)."""
+    line = mail_revise.clean(text)
+    return line is not None and _recognised(ctx, line, sender) and not _is_event_change(line)
 
 
 def _is_event_change(line: str) -> bool:

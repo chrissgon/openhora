@@ -197,7 +197,7 @@ def test_a_time_that_needs_a_question_is_asked_as_it_is_for_any_line_and_nothing
 
 
 def test_a_decision_that_is_not_a_change_of_an_event_goes_on_and_is_not_read_twice(world, monkeypatch):
-    model = build(world, monkeypatch, op_text("event-create", {"title": "Dentista", "time": "amanha as 9h"}, time_iso="2026-10-22T09:00", weekday="thu"))
+    model = build(world, monkeypatch, op_text("event-create", {"title": "dentista", "time": "amanha as 9h"}, time_iso="2026-10-22T09:00", weekday="thu"))      # a title that is a span of the line: a readable decision is kept and not read twice
     old, sha = create(world)
     line = "Agende dentista amanha as 9h"
     assert revise(world, old, sha, line) == {"pass": True}
@@ -247,7 +247,7 @@ def test_the_card_of_a_cancel_gets_the_sentence_that_it_cannot_be_changed_by_wor
     assert status(world, number) == "open" and model.calls == []
 
 
-@pytest.mark.parametrize("line", ["aprovo", "sim", "não", "/pending", "oi", "o que está pendente?", "me lembra de ligar amanhã às 9h"])      # validate: allow english-only -- the Portuguese lines under test
+@pytest.mark.parametrize("line", ["aprovo", "sim", "não", "/pending", "oi", "o que está pendente?"])      # validate: allow english-only -- the Portuguese lines under test
 def test_a_word_that_decides_a_card_a_command_and_a_request_code_recognises_are_not_a_change(world, monkeypatch, line):
     model = build(world, monkeypatch, op_text("event-change", {"title": "X"}))
     old, sha = create(world)
