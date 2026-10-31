@@ -259,7 +259,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `approve-effect-send` | `approve` | `effect:send` | `page`, `messaging` | - | approves an e-mail sent from the project's outbox, with its hash |
 | `approve-effect-publish` | `approve` | `effect:publish` | `page`, `messaging` | - | approves a post to a social platform, with its hash |
 | `approve-networked-plans` | `approve` | `plan:networked` | `messaging` | - | approves a plan that holds a script which reaches the network, with the plan's hash |
-| `ask` | `ask` | - | `page`, `messaging` | - | asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers) |
+| `ask` | `ask`, `mail-ask` | - | `page`, `messaging` | - | asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers) |
 | `ask-mail` | `ask` | `mail` | `messaging` | - | asks about the mail and calendar sources from a messaging app and has them read for questions that name no source: their text goes to a model and the answer passes the platform (adds to `ask`, never grants it) |
 | `go-ahead` | `go-ahead` | - | `page` | - | goes ahead on a task that waits for another request |
 | `reject-cancel` | `reject`, `cancel` | - | `page`, `mcp`, `messaging` | - | rejects a decision and cancels a request |

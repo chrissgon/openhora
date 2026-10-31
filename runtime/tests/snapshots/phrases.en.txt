@@ -452,6 +452,31 @@ LP_VALUE_CLOCK: at 13:00
 LP_VALUE_DAY: on Wed 21/10/2026
 LP_VALUE_ORDINAL: the one in position 4
 LP_VALUE_WEEKDAY: on Wed
+MA_BUSY: I am already answering another question; try again in a moment.
+MA_CAP: The question about the e-mail reached its cost limit and was stopped.
+MA_CHANGED: The mailbox was read again after you asked, so I did not read anything. Ask again.
+MA_DAY_LIMIT: I already answered 3 questions about e-mails today, which is the limit for a day.
+MA_DAY_LIMIT_ONE: I already answered 1 question about an e-mail today, which is the limit for a day.
+MA_FAILED: I could not answer about the e-mail now. Try again in a few minutes.
+MA_LONG: I read only the first 4,000 characters of this e-mail.
+MA_NOT_BUILT: I cannot answer questions about e-mails yet: the reader is not installed.
+MA_NOT_FOUND: The e-mail does not hold the answer.
+MA_NOT_PROVEN: I cannot answer questions about e-mails yet: the reader has not passed its first full test.
+MA_NO_TEXT: That e-mail has no text for me to read.
+MA_NUMBER_CHECK: Check this: <values> is not in the e-mail.
+MA_PICK: Say “summarize 3 from Inbox”, with the number and the box of the one you want.
+MA_READ: Read: one line of text (Inbox).
+MA_REQUEST_TEXT: question about an e-mail
+MA_STORED: (answered about an e-mail)
+MA_SUMMARY_QUESTION: Summarize what this e-mail says.
+MA_TIMEOUT: The question about the e-mail took too long and was stopped.
+MA_WHICH_DAY: the e-mail of “Wed 21/10/2026”
+MA_WHICH_N: e-mail 3
+MA_WHICH_SAY_ONE: Say “summarize 3 from Inbox” to read the one in Inbox.
+MA_WHICH_SAY_TWO: Say “summarize 3 from Inbox” or “from Archive”.
+MA_WHICH_WORDS: the e-mail with “move, review”
+MA_WHICH_WORDS_DAY: the e-mail with “move, review” of “Wed 21/10/2026”
+MA_WITHHELD: That e-mail looks like it holds a password or a key, so I did not hand it to the reader.
 MC_ASK_BODY: What should the e-mail to ana@mail.example say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with "exact text:".
 MC_REPLY_NOT_WORDED: I could not word this reply, so the card shows your own words as you wrote them. Check the text before you approve.
 MORE_LINE: And 3 more waiting. Send /pending to list them.
@@ -625,6 +650,8 @@ NW_ITEMS_OLD: (list from 13:00)
 NW_ITEMS_ORG: organized by Bruno Reis
 NW_ITEMS_PREVIEW: Start of the text: see you soon
 NW_ITEMS_RANGE_HEAD: Calendar work:
+NW_ITEMS_REFUSED_AUTH: I could not read Ana Lima: the authorization expired or is missing. The account has to be authorized again on the computer; trying again here will not help.
+NW_ITEMS_REFUSED_FOLDER: I could not read Ana Lima: this project's sources folder needs a step on the computer. Trying again here will not help.
 NW_ITEMS_REFUSED_PHONE: I could not read Ana Lima just now.
 NW_ITEMS_RL_DAY: for Wed 21/10/2026
 NW_ITEMS_RL_TODAY: for today, Wed 21/10/2026
@@ -984,10 +1011,12 @@ UNDERSTOOD_ITEMS_CALENDAR_MATCH: show the events of your calendar with “move, 
 UNDERSTOOD_ITEMS_MAIL: list your e-mails
 UNDERSTOOD_ITEMS_MAIL_MATCH: list your e-mails with “move, review”
 UNDERSTOOD_ITEMS_UNREAD: (only the unread ones)
+UNDERSTOOD_MAIL_ASK: answer about <which> (a model reads that e-mail in an isolated run, up to US$ 25)
 UNDERSTOOD_MAIL_READ_DAY: show the text of the e-mail of “Wed 21/10/2026”
 UNDERSTOOD_MAIL_READ_N: show the text of e-mail 3
 UNDERSTOOD_MAIL_READ_WORDS: show the text of the e-mail with “move, review”
 UNDERSTOOD_MAIL_READ_WORDS_DAY: show the text of the e-mail with “move, review” of “Wed 21/10/2026”
+UNDERSTOOD_MAIL_SUMMARY: summarize <which>, because showing the original text is not enabled here (a model reads that e-mail in an isolated run, up to US$ 25)
 UNDERSTOOD_ON_DAY:  for Wed 21/10/2026
 UNDERSTOOD_PENDING: list what waits for you
 UNDERSTOOD_PENDING_ONE: show decision #42
@@ -1030,6 +1059,7 @@ WD_WED: Wed
 WHOLE: (the whole text follows as a document)
 WHOLE_ABOVE: (the whole text is in the file above)
 WITHHELD: The answer was withheld: you may no longer ask on this channel.
+WORD_CARD_AGAIN: Nothing was decided: that card was no longer the last message, so I sent it again. Decide it there.
 WORD_LIST_HEAD: More than one decision waits. Say which one by its number, for example "approve 2":
 WORD_ONE_AT_A_TIME: I approve one decision at a time. Say which one, for example "approve 2".
 WRONG_HASH: The hash you typed is not the one of the card you saw. Send /pending.

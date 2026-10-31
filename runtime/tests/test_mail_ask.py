@@ -37,6 +37,9 @@ from test_ask import accept, write_config
 from test_calendar_write import Snapshots
 from test_ops_natural import world  # noqa: F401  (the real-operations world fixture)
 
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
+
 lab = st.load("lab")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -830,7 +833,7 @@ def test_the_row_is_a_version_3_row_that_no_line_reaches_while_the_catalog_is_2(
     assert set(rec["slots"]) == {"message", "target", "day", "service"} and all(spec["since"] == 3 for spec in rec["slots"].values())
     assert len(rec["about"]) <= 300 and "(mail-read)" in rec["about"]
     assert "mail-ask" not in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table only since the flip"
-    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d", "the served catalog is untouched"
+    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_cb9"], "the served catalog is untouched"
     assert "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]] and "mail-ask" in [row["op"] for row in interpreter_catalog.generate(3)["ops"]]
     assert "mail-ask" not in [row["op"] for row in interpreter.SERVED["ops"]]
     assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is False, "a line reaches only the operations of the served catalog"
