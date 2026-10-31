@@ -452,6 +452,31 @@ LP_VALUE_CLOCK: às 13:00
 LP_VALUE_DAY: na Wed 21/10/2026
 LP_VALUE_ORDINAL: o da posição 4
 LP_VALUE_WEEKDAY: na Wed
+MA_BUSY: Já estou respondendo outra pergunta; tente de novo em instantes.
+MA_CAP: A pergunta sobre o e-mail chegou ao limite de custo e foi interrompida.
+MA_CHANGED: Os e-mails foram lidos de novo depois da sua pergunta, então não li nada. Pergunte de novo.
+MA_DAY_LIMIT: Já respondi 3 perguntas sobre e-mails hoje, que é o limite do dia.
+MA_DAY_LIMIT_ONE: Já respondi 1 pergunta sobre um e-mail hoje, que é o limite do dia.
+MA_FAILED: Não consegui responder sobre o e-mail agora. Tente de novo em alguns minutos.
+MA_LONG: Li só os primeiros 4.000 caracteres deste e-mail.
+MA_NOT_BUILT: Ainda não consigo responder sobre e-mails: o leitor não está instalado.
+MA_NOT_FOUND: O e-mail não traz a resposta.
+MA_NOT_PROVEN: Ainda não consigo responder sobre e-mails: o leitor ainda não passou no primeiro teste completo.
+MA_NO_TEXT: Esse e-mail não tem texto para eu ler.
+MA_NUMBER_CHECK: Confira: <values> não aparece no e-mail.
+MA_PICK: Diga “resuma o 3 do Inbox”, com o número e a caixa do que você quer.
+MA_READ: Lido: one line of text (Inbox).
+MA_REQUEST_TEXT: pergunta sobre um e-mail
+MA_STORED: (respondido sobre um e-mail)
+MA_SUMMARY_QUESTION: Resuma o que este e-mail diz.
+MA_TIMEOUT: A pergunta sobre o e-mail demorou demais e foi interrompida.
+MA_WHICH_DAY: o e-mail de “Wed 21/10/2026”
+MA_WHICH_N: o e-mail 3
+MA_WHICH_SAY_ONE: Diga “resuma o 3 do Inbox” para ler o que está no Inbox.
+MA_WHICH_SAY_TWO: Diga “resuma o 3 do Inbox” ou “do Archive”.
+MA_WHICH_WORDS: o e-mail com “move, review”
+MA_WHICH_WORDS_DAY: o e-mail com “move, review” de “Wed 21/10/2026”
+MA_WITHHELD: Esse e-mail parece conter uma senha ou chave, então não o entreguei ao leitor.
 MC_ASK_BODY: O que o e-mail para ana@mail.example deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com "texto exato:".
 MC_REPLY_NOT_WORDED: Não consegui redigir esta resposta; o card mostra as suas próprias palavras, como você escreveu. Confira o texto antes de aprovar.
 MORE_LINE: E mais 3 esperando. Envie /pending para listar.
@@ -625,6 +650,8 @@ NW_ITEMS_OLD: (lista de 13:00)
 NW_ITEMS_ORG: organizado por Bruno Reis
 NW_ITEMS_PREVIEW: Início do texto: see you soon
 NW_ITEMS_RANGE_HEAD: Agenda work:
+NW_ITEMS_REFUSED_AUTH: Não consegui ler Ana Lima: a autorização expirou ou não existe. A conta precisa ser autorizada de novo no computador; tentar de novo por aqui não resolve.
+NW_ITEMS_REFUSED_FOLDER: Não consegui ler Ana Lima: a pasta de fontes deste projeto precisa de um ajuste no computador. Tentar de novo por aqui não resolve.
 NW_ITEMS_REFUSED_PHONE: Não consegui ler Ana Lima agora.
 NW_ITEMS_RL_DAY: de Wed 21/10/2026
 NW_ITEMS_RL_TODAY: de hoje, Wed 21/10/2026
@@ -984,10 +1011,12 @@ UNDERSTOOD_ITEMS_CALENDAR_MATCH: mostrar os eventos da sua agenda com “move, r
 UNDERSTOOD_ITEMS_MAIL: listar seus e-mails
 UNDERSTOOD_ITEMS_MAIL_MATCH: listar seus e-mails com “move, review”
 UNDERSTOOD_ITEMS_UNREAD: (só os não lidos)
+UNDERSTOOD_MAIL_ASK: responder sobre <which> (um modelo lê esse e-mail numa execução isolada, até US$ 25)
 UNDERSTOOD_MAIL_READ_DAY: mostrar o texto do e-mail de “Wed 21/10/2026”
 UNDERSTOOD_MAIL_READ_N: mostrar o texto do e-mail 3
 UNDERSTOOD_MAIL_READ_WORDS: mostrar o texto do e-mail com “move, review”
 UNDERSTOOD_MAIL_READ_WORDS_DAY: mostrar o texto do e-mail com “move, review” de “Wed 21/10/2026”
+UNDERSTOOD_MAIL_SUMMARY: resumir <which>, porque mostrar o texto original não está liberado por aqui (um modelo lê esse e-mail numa execução isolada, até US$ 25)
 UNDERSTOOD_ON_DAY:  de Wed 21/10/2026
 UNDERSTOOD_PENDING: listar o que espera por você
 UNDERSTOOD_PENDING_ONE: mostrar a decisão #42
@@ -1030,6 +1059,7 @@ WD_WED: qua
 WHOLE: (o texto inteiro segue como documento)
 WHOLE_ABOVE: (o texto inteiro está no arquivo acima)
 WITHHELD: A resposta foi retida: você não pode mais perguntar neste canal.
+WORD_CARD_AGAIN: Nada foi decidido: esse card já não era a última mensagem, então enviei de novo. Decida por ele.
 WORD_LIST_HEAD: Mais de uma decisão espera. Diga qual pelo número, por exemplo "aprovo o 2":
 WORD_ONE_AT_A_TIME: Aprovo uma decisão de cada vez. Diga qual, por exemplo "aprovo o 2".
 WRONG_HASH: O hash que você digitou não é o do card que você viu. Envie /pending.
