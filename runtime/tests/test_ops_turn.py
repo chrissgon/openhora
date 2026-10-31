@@ -230,16 +230,25 @@ def test_confirmed_walks_the_first_row_only_and_says_none_when_the_row_is_gone_o
 # --- the queue decision ------------------------------------------------------------------------------------------------------------------------------
 
 
+def question_form_here(said):
+    """The test's own literals for a line in question form (not `card_words`): a question glyph anywhere, or a lead as whole words."""
+    glyphs = "?\uff1f\ufe56\u2753\u2754\u2047\u2048\u2049\u203d"
+    leads = ("can you", "could you", "would you", "poderia", "consegue")
+    flat = " " + " ".join(said.lower().split()) + " "
+    return any(g in said for g in glyphs) or any(" " + lead + " " in flat for lead in leads)
+
+
 def old_handled(ctx, said, channel, sender, plan_before):
     """FROZEN. The expression `ops_say.say` computed `handled` with before package S41-3 (764c9a3:runtime/ops_say.py:187), copied with its callees read from `ops_say`: the queue decision of a plain
     line. It is never edited to follow `ops_turn.code_claims`: the test below says they are the same on every scenario.
-    ONE reviewed amendment (ACEITE-37, the maintainer, 2026-10-30): a bare no in question form ("nao?") with a plan that waits is no answer to the plan, so code no longer claims it; the clause below
-    carries that exception with its own literal, the question mark."""
+    TWO reviewed amendments. (ACEITE-37, the maintainer, 2026-10-30): a bare no in question form ("nao?") with a plan that waits is no answer to the plan, so code no longer claims it.
+    (PLAN-QUESTION-FORM, the maintainer, 2026-10-30): nor is a yes in question form ("sim?"), nor any word in question form; the clause below carries both with its own literals, `question_form_here`:
+    a question glyph anywhere, or one of the leads as whole words."""
     import importlib
     return (ops_say.asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, ops_say._natural_channel(channel), sender)
             or ops_say._greets(ctx, said, channel, sender)
             or (channel == "messaging" and ops_say.may_talk(ctx, channel, sender) and importlib.import_module("ops_file_trash").catches(ctx, said, channel, sender))
-            or (plan_before and natural.confirm_kind(said) is not None and not (natural.confirm_kind(said) == "no" and "?" in said)))      # ACEITE-37: the amendment above
+            or (plan_before and natural.confirm_kind(said) is not None and not question_form_here(said)))      # ACEITE-37 and PLAN-QUESTION-FORM: the amendments above
 
 
 def recording_claims(pairs, lock):
