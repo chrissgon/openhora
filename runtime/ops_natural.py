@@ -308,7 +308,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         else:      # a box is named: it wins over the list, unless it is the box of a list that has since been renumbered (its number would name another message than the one on screen)
             moved = item_refs.list_moved(ctx, channel, sender, clock=ops_items.SNAPSHOT_CLOCK)
             named = line_account or (args.get("account") if args.get("account") in ("google", "microsoft") else None)
-            if moved and (named is None or ops_items.source_account(ctx, moved) == named):
+            if moved and (named is None or ops_items._source_account(ctx, moved) == named):
                 return phrases.text("ML_LIST_MOVED", cfg)
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         if name == "mail-ask" and (args.get("number") is not None or args.get("message")):      # MAIL-SUMMARY: the plan binds the snapshots a NUMBER names, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`); words and a pasted list line are matched when the yes is given (the snapshot is read again if it is older than ten minutes, the one message that matches is read and the footer names it, several are listed and nothing runs), so they pin nothing

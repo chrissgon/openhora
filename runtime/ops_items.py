@@ -325,7 +325,7 @@ def remember_listed(ctx: dict, channel, sender, out: dict) -> None:
     item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"), clock=SNAPSHOT_CLOCK)
 
 
-def source_account(ctx: dict, source_id):
+def _source_account(ctx: dict, source_id):
     """The account ("google" | "microsoft") of a registered mail or calendar source, or None."""
     return (source_names.catalog(ctx).get(source_id) or {}).get("account")
 
