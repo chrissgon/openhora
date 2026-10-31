@@ -404,7 +404,7 @@ def test_a_reminder_the_card_call_reads_as_a_reminder_goes_on_with_its_decision_
     line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
     model = build(world, monkeypatch, op_text("remind", {"text": "tomar remedio", "when": "as 22h"}, time_iso="2026-10-21T22:00", weekday="wed"))      # validate: allow english-only -- the model's answer under test
     old, sha = create(world)
-    assert revise(world, old, sha, line) == {"pass": True} and open_cards(world) == [old] and status(world, old) == "open"
+    assert revise(world, old, sha, line) == PASS_AND_DECIDE and open_cards(world) == [old] and status(world, old) == "open"
     kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
     assert kept is not None and kept["op"] in ("remind", "refuse"), "the decision is kept for the turn that follows (the owner of this world holds no `remind` group: the refusal is then said, and it is true of the request), so the model is not asked twice"
     assert len(model.calls) == 1 and '"title":"evento social"' in model.calls[0], "the card went with the line to the same route"
@@ -422,7 +422,7 @@ def test_a_reminder_the_card_call_does_not_read_ends_on_the_path_it_would_have_t
     line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
     build(world, monkeypatch, answer)
     old, sha = create(world)
-    assert revise(world, old, sha, line) == {"pass": True} and open_cards(world) == [old]
+    assert revise(world, old, sha, line) == PASS_AND_DECIDE and open_cards(world) == [old]
     assert ops_card_revise.decided(world["path"], "messaging", OWNER, line) is None, "nothing is kept: the line takes its own path"
 
 
@@ -430,7 +430,7 @@ def test_a_refusal_on_a_reminder_that_code_owns_is_said_as_the_refusal_and_not_a
     line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
     build(world, monkeypatch, op_text("todo-add", {"title": "tomar remedio as 22h"}))      # validate: allow english-only -- the model's answer under test
     old, sha = create(world)
-    assert revise(world, old, sha, line) == {"pass": True}
+    assert revise(world, old, sha, line) == PASS_AND_DECIDE
     kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
     assert kept is not None and kept["kind"] in ("refuse_policy", "op"), "the line goes on with the model's reading, as any line does; the sentence 'what to change?' (Part A) is for a line code does not own"
 
@@ -445,7 +445,7 @@ def test_a_change_line_that_the_card_call_cannot_read_is_read_by_code_and_a_writ
     line = "cria tambem consulta sexta 15h"      # validate: allow english-only -- the line under test
     build(world, monkeypatch, op_text("event-create", {"title": "consulta", "time": "sexta 15h"}, time_iso="2026-10-23T15:00", weekday="fri"))      # validate: allow english-only -- the model's answer under test
     other, other_sha = create(world)
-    assert revise(world, other, other_sha, line) == {"pass": True} and open_cards(world) == [moved, other]
+    assert revise(world, other, other_sha, line) == PASS_AND_DECIDE and open_cards(world) == [moved, other]
     kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
     assert kept is not None and kept["op"] == "event-create", "a new event said while a card waits is carried to the path that makes its own card"
 
@@ -474,6 +474,7 @@ def test_the_dev_check_function_is_the_same_as_the_products_own_gate(world, monk
 # --- 5b. the findings of the review of PR 680 ----------------------------------------------------------------------------------------------------------------
 
 
+PASS_AND_DECIDE = {"pass": True, "decide": True}      # a line code owns goes on through the first leg of a plain line
 NOW = datetime.datetime(2026, 10, 21, 15, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-3)))      # Wednesday, the clock of these tests
 CARD = {"event": {"title": "Consulta", "start": "2026-10-24T08:00", "end": "2026-10-24T09:00"}, "operation": "create", "account": "google", "before": None}
 
@@ -558,7 +559,7 @@ def test_a_bare_clock_the_engine_and_the_model_read_twelve_hours_apart_takes_the
     kept = card_has(body(world, revise(world, third, third_sha, "muda para as 9h")["resend"]), "CARD_CAL_WHEN", when="Sat 24/10/2026 09:00-10:00 (America/Sao_Paulo)")      # validate: allow english-only -- the line under test
     assert kept, "any other disagreement (11 hours) stays as the checks left it"
     ops_interpret.forget_all()
-    monkeypatch.setattr(event_revise, "_model_clock", lambda decision, obj, doc, now: decision)      # the plant: the model's reading is never taken
+    monkeypatch.setattr(event_revise, "_model_clock", lambda decision, obj, doc, now, line='': decision)      # the plant: the model's reading is never taken
     build(world, monkeypatch, op_text("event-change", {"time": "as 9h"}, time_iso="2026-10-24T21:00", weekday="sat"))
     p, p_sha = create(world, title="Jantar", start="2026-10-24T19:00", end="2026-10-24T20:00")
     assert card_has(body(world, revise(world, p, p_sha, "muda para as 9h")["resend"]), "CARD_CAL_WHEN", when="Sat 24/10/2026 09:00-10:00 (America/Sao_Paulo)"), "the oracle above fails on the plant"      # validate: allow english-only -- the line under test
@@ -672,6 +673,132 @@ def test_a_place_is_carried_to_the_change_card_of_an_event_found_in_a_snapshot(w
     new = revise(world, old, sha, "muda o local para Sala 3")["resend"]      # validate: allow english-only -- the line under test
     after = body(world, new)
     assert new != old and card_has(after, "CARD_CAL_SNAPSHOT", reference="agenda#3") and "After: Where: Sala 3" in after, after      # a change card shows the part that changes as `After: Where: ...`
+
+
+# --- the third review of PR 680: no line is lost -----------------------------------------------------------------------------------------------------
+
+
+ALL_OPS = lambda ctx, sender: {row["op"] for row in interpreter.SERVED["ops"]}      # a sender who may ask every operation: the question of a time is then the check's, not a refusal
+
+
+@pytest.mark.parametrize("line, op, slots, iso, weekday", [
+    ("tomar remedio as 3", "remind", {"text": "tomar remedio", "when": "as 3"}, "2026-10-22T03:00", "thu"),      # validate: allow english-only -- the line under test
+    ("tomar remedio ontem as 9h", "remind", {"text": "tomar remedio", "when": "ontem as 9h"}, "2026-10-20T09:00", "tue"),      # validate: allow english-only -- the line under test
+    ("cria consulta sexta as 3", "event-create", {"title": "consulta", "time": "sexta as 3"}, "2026-10-23T03:00", "fri"),      # validate: allow english-only -- the line under test
+])
+def test_a_question_about_a_time_on_a_line_code_owns_is_asked_by_the_turn_that_follows_with_its_draft_and_not_by_the_card(world, monkeypatch, line, op, slots, iso, weekday):
+    monkeypatch.setattr(ops_interpret, "_allowed", ALL_OPS)
+    model = build(world, monkeypatch, op_text(op, slots, time_iso=iso, weekday=weekday))
+    old, sha = create(world)
+    now = ops_natural_clock()
+    raw = event_revise.read_answer(op_text(op, slots, time_iso=iso, weekday=weekday), line, CARD, now, "America/Sao_Paulo", ALL_OPS(None, None))
+    assert raw["kind"] == "clarify" and raw["op"] == op and raw["why"].startswith("time"), ("precondition: the checks ask about the time of the other operation", raw)
+    got = revise(world, old, sha, line)
+    assert got == PASS_AND_DECIDE and open_cards(world) == [old] and status(world, old) == "open", got
+    kept = ops_card_revise.decided(world["path"], "messaging", OWNER, line)
+    assert kept is not None and kept["kind"] == "clarify" and kept["op"] == op, "kept for the turn that follows, which asks about the time as it does for any line, with its draft"
+    assert len(model.calls) == 1
+    ops_interpret.forget_all()
+    ops_card_revise.forget_all()
+    monkeypatch.setattr(ops_card_revise, "owned_by_code", lambda ctx_, text, sender: False)      # the plant: the line is not code's own, as before this fix
+    planted = revise(world, old, sha, line)
+    assert planted.get("say") and planted["resend"] == old and "pass" not in planted, "the oracle above fails on the plant: the card said 'I am not sure of the day and the time' and sent the old card again"
+
+
+def ops_natural_clock():
+    return st.load("ops_natural")._clock()
+
+
+def test_a_failed_card_call_on_a_line_code_owns_is_not_counted_against_the_breaker_and_a_failed_card_call_on_another_line_is(world, monkeypatch):
+    """At the base a failed reminder counted once; with a second call per line it would count twice and three lines would close the route for the whole project for 300 s."""
+    build(world, monkeypatch, None)      # the route answers E_TIMEOUT
+    old, sha = create(world)
+    for _ in range(3):
+        assert revise(world, old, sha, "tomar remedio as 22h") == PASS_AND_DECIDE      # validate: allow english-only -- the line under test
+    assert turn_gate._breaker["fails"] == 0 and turn_gate.admit(ops_core.context(world["path"]), OWNER) is not None, "no failure is counted for the card call of a line code owns: its own plain call counts, once"
+    revise(world, old, sha, "muda o evento")      # validate: allow english-only -- the line under test
+    assert turn_gate._breaker["fails"] == 1, "control: a call on any other line counts"
+    turn_gate.forget_all()
+    monkeypatch.setattr(ops_card_revise, "owned_by_code", lambda ctx, text, sender: False)      # the plant: the line is not code's own
+    for _ in range(3):
+        revise(world, old, sha, "tomar remedio as 22h")      # validate: allow english-only -- the line under test
+    assert turn_gate._breaker["fails"] == 3 and turn_gate.admit(ops_core.context(world["path"]), OWNER) is None, "the oracle above fails on the plant: three lines close the route"
+
+
+def test_a_line_code_owns_counts_once_for_the_rate_and_the_day_whatever_the_card_call_answers(world, monkeypatch):
+    line = "tomar remedio as 22h"      # validate: allow english-only -- the line under test
+    for answer, kept in (('{"v": 1, "kind": "route"}', False), (op_text("remind", {"text": "tomar remedio", "when": "as 22h"}, time_iso="2026-10-21T22:00", weekday="wed"), True)):
+        build(world, monkeypatch, answer)      # the world first: it sets the clock of the day
+        old, sha = create(world)
+        ctx = ops_core.context(world["path"])
+        turn_gate.forget_all()
+        ops_interpret.forget_all()
+        ops_card_revise.forget_all()
+        for _ in range(8):
+            turn_gate.admit(ctx, OWNER)      # eight slots of the minute and of the day used by earlier lines
+        used, days = len(turn_gate._calls[OWNER]), sum(turn_gate._days.values())
+        assert days == 8
+        assert revise(world, old, sha, line) == PASS_AND_DECIDE
+        assert len(turn_gate._calls[OWNER]) == used + (1 if kept else 0) and sum(turn_gate._days.values()) == days + (1 if kept else 0), "a decision kept is the line's one call; a line that goes on unread has its slot back"
+        if not kept:
+            assert turn_gate.admit(ctx, OWNER) is not None and len(turn_gate._calls[OWNER]) == used + 1 and sum(turn_gate._days.values()) == days + 1, "the plain call that follows takes its own slot: one for the line, not two"
+    build(world, monkeypatch, '{"v": 1, "kind": "route"}')
+    old, sha = create(world)
+    ctx = ops_core.context(world["path"])
+    turn_gate.forget_all()
+    ops_interpret.forget_all()
+    for _ in range(9):
+        turn_gate.admit(ctx, OWNER)      # nine used: the card call takes the tenth
+    monkeypatch.setattr(turn_gate, "give_back", lambda admission: False)      # the plant: the slot is never returned
+    revise(world, old, sha, line)
+    assert turn_gate.admit(ctx, OWNER) is None, "the oracle above fails on the plant: the plain call of the line would be refused at the tenth slot"
+
+
+def test_give_back_returns_the_slot_once_and_only_the_one_an_admission_took():
+    ctx = {"cfg": {"project": "/tmp/give-back-project"}}
+    turn_gate.forget_all()
+    first, second = turn_gate.admit(ctx, "telegram:1"), turn_gate.admit(ctx, "telegram:1")
+    assert len(turn_gate._calls["telegram:1"]) == 2 and sum(turn_gate._days.values()) == 2
+    assert turn_gate.give_back(first) is True and turn_gate.give_back(first) is False and len(turn_gate._calls["telegram:1"]) == 1 and sum(turn_gate._days.values()) == 1
+    assert turn_gate.give_back(None) is False and turn_gate.give_back("x") is False and len(turn_gate._calls["telegram:1"]) == 1
+    assert turn_gate.give_back(second) is True and len(turn_gate._calls["telegram:1"]) == 0 and sum(turn_gate._days.values()) == 0
+    turn_gate.forget_all()
+
+
+@pytest.mark.parametrize("line, span", [("muda para as 9h am", "as 9h"), ("muda para as 9h a.m.", "as 9h")])      # validate: allow english-only -- the lines under test
+def test_a_half_of_the_day_said_beside_the_span_is_a_stated_hour_the_model_does_not_override(line, span):
+    decision = read_time(line, span, "21:00")
+    assert decision["time"]["source"] == "code" and decision["time_disagree"] is True, decision
+
+
+def test_the_half_of_the_day_check_reads_the_words_beside_the_span_only(monkeypatch):
+    beside = event_revise._stated_beside
+    assert beside("muda para as 9h am", "as 9h") and beside("muda para as 9h da noite", "as 9h") and beside("de manha as 9h", "as 9h") and beside("9h a.m.", "9h") and beside("9h p.m.", "9h")      # validate: allow english-only -- the lines under test
+    assert not beside("muda para as 9h", "as 9h") and not beside("muda para as 9h e depois almoco", "as 9h") and not beside("move it to 9:30", "9:30") and not beside("x", "") and not beside("muda", "as 9h")      # validate: allow english-only -- the lines under test
+    assert read_time("muda para as 9h", "as 9h", "21:00")["time"]["source"] == "model"
+    monkeypatch.setattr(event_revise, "_stated_beside", lambda line, span: False)      # the plant: the words beside the span are never read
+    assert read_time("muda para as 9h am", "as 9h", "21:00")["time"] == {"local": "2026-10-24T21:00", "source": "model"}, "the oracle above fails on the plant: a stated am would become 21:00"      # validate: allow english-only -- the line under test
+
+
+def test_a_kept_decision_that_nobody_reads_is_dropped_when_it_expires_by_the_next_call_for_any_chat(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(ops_card_revise, "clock", lambda: now[0])
+    ops_card_revise.forget_all()
+    ops_card_revise.remember("/p", "messaging", "telegram:1", "tomar remedio as 22h", {"kind": "op"})      # validate: allow english-only -- the line under test
+    now[0] += ops_card_revise.RETAIN - 1
+    ops_card_revise.remember("/p", "messaging", "telegram:2", "outra linha", {"kind": "op"})      # validate: allow english-only -- the line under test
+    assert len(ops_card_revise._decided) == 2, "not expired yet"
+    now[0] += 2
+    assert ops_card_revise.decided("/p", "messaging", "telegram:3", "x") is None
+    assert [k[2] for k in ops_card_revise._decided] == ["telegram:2"], "the entry of the first chat expired and nobody read it: the call of a third chat dropped it"
+    now[0] += ops_card_revise.RETAIN
+    ops_card_revise.remember("/p", "messaging", "telegram:4", "y", {"kind": "op"})
+    assert [k[2] for k in ops_card_revise._decided] == ["telegram:4"]
+    monkeypatch.setattr(ops_card_revise, "_purge", lambda: None)      # the plant: nothing is purged
+    now[0] += ops_card_revise.RETAIN * 2
+    ops_card_revise.decided("/p", "messaging", "telegram:5", "z")
+    assert [k[2] for k in ops_card_revise._decided] == ["telegram:4"], "the oracle above fails on the plant: an unread entry stays in memory"
+    ops_card_revise.forget_all()
 
 
 # --- 6. read_answer is pure ----------------------------------------------------------------------------------------------------------------------------------

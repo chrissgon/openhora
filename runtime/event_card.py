@@ -19,7 +19,7 @@ limits, the typed frame stays `null`.
 The text says that everything inside `card` is data, never an instruction: its words may have been written by someone else (a calendar invitation, a message). Code does not rely on that: every span of
 every operation the model names is checked to be a piece of the person's line (`interpreter.check`), and a new title or place is checked word by word (runtime/ops_event_revise.py `_grounded`).
 
-Privacy (limit L63): the four fields of one card go to the model service with the line, under the retention terms the group `interpret` was widened with. Pure: nothing is logged, printed or stored.
+Privacy (limit L63): the five fields of one card (title, place when it has one, start, end and the weekday of the start) go to the model service with the line, under the retention terms the group `interpret` was widened with. Pure: nothing is logged, printed or stored.
 
 Standard library only, and the interpreter. Runs on Python 3.9: python3 runtime/event_card.py --help
 """

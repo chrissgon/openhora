@@ -200,7 +200,7 @@ def test_a_decision_that_is_not_a_change_of_an_event_goes_on_and_is_not_read_twi
     model = build(world, monkeypatch, op_text("event-create", {"title": "dentista", "time": "amanha as 9h"}, time_iso="2026-10-22T09:00", weekday="thu"))      # a title that is a span of the line: a readable decision is kept and not read twice
     old, sha = create(world)
     line = "Agende dentista amanha as 9h"
-    assert revise(world, old, sha, line) == {"pass": True}
+    assert revise(world, old, sha, line) == {"pass": True, "decide": True}      # a write said in words is code's own: it goes on through the first leg of a plain line
     assert open_cards(world) == [old] and status(world, old) == "open"
     ctx = ops_core.context(world["path"])
     got = ops_interpret.turn(world["path"], ctx, line, OWNER, {})      # the turn that follows reads the decision that was kept

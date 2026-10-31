@@ -229,3 +229,40 @@ def test_a_reply_to_a_card_that_a_change_replaced_is_told_so_in_one_sentence_and
     revise.found = None
     world.say(LINE, reply_to=message_ids(world)[0])      # the layer says it is nothing: it goes on as it always did
     assert went_to_say(world)
+
+
+# --- the card call is a model call: the line a code-owned pass leaves goes on through the first leg, and the acknowledgement starts with the card call (card-model-sees, review 3) ------------
+
+
+def test_a_line_code_owns_goes_on_through_the_first_leg_of_a_plain_line_and_any_other_pass_goes_on_as_it_did(world):
+    mail_card(world)
+    Revise(world, result={"pass": True, "decide": True})
+    world.say("tomar remedio as 22h")      # validate: allow english-only -- the line under test
+    assert wait_for(lambda: world.calls("say")) and settle(world)
+    (call,) = world.calls("say")
+    assert call[2]["decide"] is True and call[2]["text"] == "tomar remedio as 22h", "the same first leg a plain line takes, which holds no model slot and answers a sender who holds `interpret` alone"      # validate: allow english-only -- the line under test
+
+
+def test_vacuity_a_pass_without_the_decide_flag_goes_on_as_the_plain_call_it_was(world):
+    mail_card(world)
+    Revise(world, result={"pass": True})
+    world.say("what time is it in Lisbon")
+    assert wait_for(lambda: world.calls("say")) and settle(world)
+    (call,) = world.calls("say")
+    assert "decide" not in call[2], "the oracle of the test above fails on this call: the flag is what moves the line to the first leg"
+
+
+def test_the_acknowledgement_timer_starts_before_the_card_call(world):
+    mail_card(world)
+    events = []
+    revise = Revise(world, result={"say": "Done.", "resend": None})
+    real_change, real_begin = world.fake.card_revise, world.bridge.ack_begin
+
+    def change(*args, **kwargs):
+        events.append("card call")
+        return real_change(*args, **kwargs)
+    world.fake.card_revise = change
+    world.bridge.ack_begin = lambda project, chat, text: (events.append("ack begins"), real_begin(project, chat, text))[1]
+    world.say(LINE)
+    assert wait_for(lambda: revise.changes) and settle(world)
+    assert events[:2] == ["ack begins", "card call"], events

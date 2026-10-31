@@ -84,8 +84,16 @@ def _key(project, channel, sender) -> tuple:
     return os.path.realpath(str(project)), channel, sender
 
 
+def _purge() -> None:
+    """Drop every entry older than RETAIN, of every chat: an entry nobody reads would otherwise keep a private line in memory for as long as the process lives. Called with `_lock` held."""
+    now = clock()
+    for key in [k for k, (_, _, at) in _decided.items() if now - at >= RETAIN]:
+        del _decided[key]
+
+
 def remember(project, channel, sender, line: str, decision: dict) -> None:
     with _lock:
+        _purge()
         _decided[_key(project, channel, sender)] = (" ".join(line.split()), decision, clock())
 
 
@@ -93,6 +101,7 @@ def decided(project, channel, sender, line: str):
     """The decision `remember` kept for this very line of this sender in this project, once (the entry is dropped when it is read, whatever it held), or None. An entry older
     than RETAIN seconds is never returned."""
     with _lock:
+        _purge()
         got = _decided.pop(_key(project, channel, sender), None)
     return got[1] if got and got[0] == " ".join(line.split()) and clock() - got[2] < RETAIN else None
 

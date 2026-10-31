@@ -30,7 +30,7 @@ a card that creates one, and the calendar is never searched.
 The new card is opened by the operation the person's own command would run (`event_create`, `event_change`, reached through ops_facade.py), checked equal to the old card in everything the line did not name, and then the
 old card is ended as rejected, so its hash is never approvable again. Nothing is written to a calendar here; the new card is approved by its own hash.
 
-Privacy (limit L63): the line and the four fields of the card are read by the model service, on the daily route only and never a fallback. Nothing is logged, printed or stored here.
+Privacy (limit L63): the line and the five fields of the card (title, place when it has one, start, end and the weekday of the start) are read by the model service, on the daily route only and never a fallback. Nothing is logged, printed or stored here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/ops_event_revise.py --help
 """
@@ -292,15 +292,33 @@ def _bare_clock(span) -> bool:
     return isinstance(span, str) and bool(BARE_CLOCK.fullmatch(mail_revise._fold(span).strip()))
 
 
-def _model_clock(decision: dict, obj, doc: dict, now) -> dict:
+PART_OF_DAY = frozenset(("am", "pm", "noite", "tarde", "manha", "madrugada", "morning", "afternoon", "evening", "night", "noche", "manana", "matin", "soir", "apres", "midi", "abends", "morgens", "nachts",
+                         "mittags", "mattina", "pomeriggio", "sera", "notte"))      # validate: allow english-only -- the words of six languages that say which half of the day an hour is in
+
+
+def _stated_beside(line: str, span: str) -> bool:
+    """Whether the line says the half of the day around the span, in the three words after it or before it ("9h am", "9h da noite", "de manha as 9h", "9 abends"): then the hour is stated, not ambiguous.
+    "a.m." and "p.m." read as "a m" and "p m"."""
+    folded = " ".join(re.findall(r"[a-z0-9]+", mail_revise._fold(line)))
+    key = " ".join(re.findall(r"[a-z0-9]+", mail_revise._fold(span)))
+    at = folded.find(key) if key else -1
+    if at < 0:
+        return False
+    after, before = folded[at + len(key):].split()[:3], folded[:at].split()[-3:]
+    pairs = [" ".join(after[i:i + 2]) for i in range(len(after))]
+    return any(w in PART_OF_DAY for w in after + before) or any(p in ("a m", "p m") for p in pairs)
+
+
+def _model_clock(decision: dict, obj, doc: dict, now, line: str = "") -> dict:
     """A bare clock with no am or pm ("muda para as 9h" on a card at 19:00): when the engine's reading and the model's `time_iso` differ by exactly 12 hours on the clock, the model's reading wins, because the
     model saw the card; the day stays the card's (a line that names no day) or the engine's. It applies only when the engine's hour is 1 to 12 and the span is a closed bare-clock form (`BARE_CLOCK`): a
     time the person stated ("9am", "9pm", "as 21h", "as 09:00", "9h da noite", "meia-noite") is never overridden by the model. Any other disagreement stays as the checks left it, `time_disagree` included."""
     time_ = decision.get("time")
     if not (decision.get("time_disagree") and isinstance(time_, dict) and time_.get("source") == "code" and isinstance(obj, dict)):
         return decision
-    if not _bare_clock((decision.get("spans") or {}).get("time")):
-        return decision
+    span = (decision.get("spans") or {}).get("time")
+    if not _bare_clock(span) or _stated_beside(line, span):
+        return decision      # a form that is not bare, or a half of the day said beside it in the line ("9h am", "9h da noite"): the person stated the hour
     iso, local = obj.get("time_iso"), time_.get("local")
     if not (isinstance(iso, str) and isinstance(local, str) and interpreter.TIME_RE.fullmatch(iso) and interpreter.TIME_RE.fullmatch(local)):
         return decision
@@ -322,7 +340,7 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     strict = ops_interpret.decide(line, text, now, zone, allowed)
     if strict.get("kind") == "op" and strict.get("op") == "event-change":
         slots = obj.get("slots") if isinstance(obj, dict) else None
-        return dict(_model_clock(strict, obj, doc, now), parts=(_parts(slots, line, doc) if isinstance(slots, dict) else None) or {})
+        return dict(_model_clock(strict, obj, doc, now, line), parts=(_parts(slots, line, doc) if isinstance(slots, dict) else None) or {})
     if strict.get("kind") not in ("clarify",):
         if strict.get("kind") == "op" and strict.get("op") == "event-create" and event_lookup.verb_op(line) == "event-change":
             pass      # read below as a change
@@ -334,7 +352,7 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     if cleaned is not None:
         again = interpreter.check(cleaned[0], line, None, interpreter.SERVED, now, zone, allowed)
         if again.get("kind") == "op" and (again.get("spans") or again.get("time") or cleaned[1]):
-            return dict(_model_clock(again, obj, doc, now), parts=cleaned[1])
+            return dict(_model_clock(again, obj, doc, now, line), parts=cleaned[1])
         if again.get("kind") == "clarify" and str(again.get("why", "")).startswith("time"):
             day = _day_only(cleaned[0]["slots"].get("time"), line, doc, now)
             if day is None or target_is_another(cleaned[0]["slots"], doc) or day_is_another(cleaned[0]["slots"], doc, now):
@@ -344,7 +362,7 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     return coded if coded is not None else ops_interpret.lenient(line, text, strict, now, zone, allowed)      # what is not a change of the card is read as any line is (S16)
 
 
-def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admission):
+def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admission, by_code: bool = False):
     """The decision for a line sent after the card of an event, or None when no call could be made. The model is called once, as the interpreter calls it, with the card in view
     (runtime/event_card.py: the fixed text and the line `card:`), and its answer is read FOR the card (`read_answer`). The same checks decide, as for any line."""
     line_stage.publish("think")
@@ -355,7 +373,7 @@ def card_decision(ctx: dict, entry: dict, line: str, sender, doc: dict, admissio
         got = turn_gate.call(admission, entry, system, user, deadline_ms=interpreter.PROTOCOL["deadline_ms"], params=interpreter.PROTOCOL["params"])
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+    if got.get("code") != "E_GATE" and not (by_code and not got.get("ok")):      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker; a failed call on a line code owns is not counted either: the line makes its own plain call next, which counts once, as at the base
         turn_gate.record(bool(got.get("ok")))
     if not got.get("ok"):
         return None
@@ -424,17 +442,28 @@ def change_of(decision: dict, line: str, doc: dict, now, zone: str):
     return "change", {"title": title, "place": place, "start": start, "end": end, "account": account, "time": time_, "parts": parts}
 
 
+def _goes_on(by_code: bool, give_back=None, remembered: bool = False) -> dict:
+    """The answer of `revise` for a line that is not for this card. A line code owns goes on through the first leg of a plain line (`decide`: the interpreter's closed forms, then the agent), as it did
+    before the card call; when nothing of the card call is kept (`remembered` False) the slot the card call took in the rate and in the day is returned, so that the line counts once."""
+    if by_code and not remembered:
+        turn_gate.give_back(give_back)
+    return {"pass": True, "decide": True} if by_code else {"pass": True}
+
+
 def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, channel, sender) -> dict:
     """See the module's text."""
+    by_code = base.owned_by_code(ctx, line, sender)
     admission = None if interpreter.precheck(line) is not None else turn_gate.admit(ctx, sender)
     if admission is None:
-        return {"pass": True}
-    decision = card_decision(ctx, entry, line, sender, doc, admission)
+        return _goes_on(by_code)
+    decision = card_decision(ctx, entry, line, sender, doc, admission, by_code)
     if decision is None:
-        return {"pass": True}
-    by_code = base.owned_by_code(ctx, line, sender)
+        return _goes_on(by_code, admission)
     if left_to_code(decision, by_code):
-        return {"pass": True}      # a reminder, a bare time or a write said in words that the card call did not read as a change of the card: it takes the path it would have taken, unread and unremembered
+        return _goes_on(by_code, admission)      # a reminder, a bare time or a write said in words that the card call did not read as a change of the card: it takes the path it would have taken, unread and unremembered
+    if by_code and decision.get("kind") == "clarify" and decision.get("op") not in (None, "event-change"):
+        base.remember(project, channel, sender, line, decision)      # the model read the line as another operation and the checks ask about it (a time: "tomar remedio as 3"): the turn that follows asks it, as for any line, with its draft
+        return _goes_on(by_code, admission, remembered=True)
     if decision.get("kind") == "clarify":
         return base.say(ctx, ops_interpret.WHY_SENTENCE.get(decision.get("why")) or "IX_ASK_AGAIN", pending_id)
     if decision.get("kind") == "refuse_policy" and not by_code and not event_lookup.names_other_object(line):
@@ -443,7 +472,7 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
     verdict, made = change_of(decision, line, doc, now, ops_interpret._zone(now))
     if verdict == "pass":
         base.remember(project, channel, sender, line, decision)      # not a change of this card: the turn that follows reads the decision that was made
-        return {"pass": True}
+        return _goes_on(by_code, admission, remembered=True)
     if verdict == "say":
         return base.say(ctx, made, pending_id)
     title, place, start, end, account, time_, parts = (made[k] for k in ("title", "place", "start", "end", "account", "time", "parts"))

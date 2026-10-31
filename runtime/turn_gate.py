@@ -146,6 +146,7 @@ import sys
 import threading
 import time
 import unicodedata
+import weakref
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import natural  # noqa: E402  (the same folder: the decision numbers, which section 2 asks)
@@ -191,9 +192,13 @@ class Admission:
         return "<Admission used>" if self.used else "<Admission>"
 
 
+_taken = weakref.WeakKeyDictionary()      # admission -> (sender, the moment the rate slot was taken, the key of the day's count)
+
+
 def forget_all() -> None:
     """Drop the counts and close the breaker (a test, and a process that stops)."""
     with _lock:
+        _taken.clear()
         _calls.clear()
         _days.clear()
         _breaker.update(fails=0, until=0.0)
@@ -219,7 +224,27 @@ def admit(ctx: dict, sender, fallback=None):
         for old in [k for k in _days if k[1] != day[1]]:
             del _days[old]
         _days[day] = _days.get(day, 0) + 1
-    return Admission(_MINT, fallback_ok)
+        got = Admission(_MINT, fallback_ok)
+        _taken[got] = (sender or "", now, day)      # what `give_back` returns; kept here, not in the admission, which holds two flags and nothing of the line
+    return got
+
+
+def give_back(admission) -> bool:
+    """Return the rate slot and the day's count an admission took, once, so that a line that made two calls counts once (a code-owned line the card call did not read as a change, which then makes its
+    own plain call). True when something was returned. It does not touch the breaker: a failure of that call was not recorded either (`ops_event_revise.card_decision`)."""
+    if not isinstance(admission, Admission):
+        return False
+    with _lock:
+        taken = _taken.pop(admission, None)
+        if taken is None:
+            return False
+        sender, stamp, day = taken
+        window = _calls.get(sender)
+        if window is not None and stamp in window:
+            window.remove(stamp)
+        if _days.get(day, 0) > 0:
+            _days[day] -= 1
+    return True
 
 
 def record(ok: bool, route=None) -> None:
