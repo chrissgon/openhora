@@ -21,6 +21,7 @@ from test_mail_list_account import ASKING, accept, boxes, call, clock, listed, l
 
 item_refs = st.load("item_refs")
 ops_natural = st.load("ops_natural")
+ops_core = st.load("ops_core")
 ops_mail_read = st.load("ops_mail_read")
 ops_file_ask = st.load("ops_file_ask")
 
@@ -112,11 +113,87 @@ def test_a_list_whose_snapshot_moved_is_asked_for_again_and_no_plan_names_no_box
     assert len(mail_reads(snaps)) == before
 
 
+def flag_flip(snaps, unread):
+    """The same Gmail message with another read mark: the snapshot's version changes, the numbers of the messages do not."""
+    snaps.providers.mail["gmail"] = [tsm.message(1, "2026-10-17T09:00:00Z", "Bia Costa <bia@clinic.example>", "Appointment confirmed", "Your visit is confirmed.", unread=unread)]
+    snaps.later(minutes=1)
+    snaps.refresh("inbox")
+
+
+def test_the_refusal_lasts_for_every_line_since_the_list_until_a_new_list(two_boxes, snaps):
+    """Review round 2: retyping "resume o 3" after the refusal got the plan that names no box, pinned to the new versions of both boxes."""
+    listed(two_boxes, 0)
+    new_gmail_mail(snaps)
+    for line in range(3):
+        next_line(two_boxes)
+        reply, _extras = call(two_boxes, "resume o 3", {"number": 3}, name="mail-ask")
+        assert reply == MOVED and live(two_boxes) is None, line
+    listed(two_boxes, 0)      # a new list replaces the old one: its numbers are the ones on screen
+    next_line(two_boxes)
+    reply, args = ask_plan(two_boxes)
+    assert reply == PLAN_THREE and args["message"] == "inbox#3"
+    listed(two_boxes, 0)
+    new_gmail_mail(snaps)
+    snaps.listed += 601      # outside the window the memory is gone and so is the refusal
+    next_line(two_boxes)
+    assert ask_plan(two_boxes)[0] == PLAN_THREE
+
+
+def test_a_match_that_is_one_run_of_digits_is_the_number(two_boxes, snaps):
+    """Review round 2: `match: "o 3"` after a Gmail list had no binding, no moved check and no pin, and the read picked Outlook's "Weekly report 3"."""
+    listed(two_boxes, 0)
+    next_line(two_boxes)
+    reply, extras = call(two_boxes, "resume o 3", {"match": "o 3"}, name="mail-ask")      # validate: allow english-only -- the words of the line under test
+    args = live(two_boxes)["state"]["args"]
+    assert reply == PLAN_THREE and args["number"] == 3 and args["message"] == "inbox#3" and "match" not in args and set(args["pin"]) == {"inbox"}
+    new_gmail_mail(snaps)
+    next_line(two_boxes)
+    assert call(two_boxes, "resume o 3", {"match": "o 3"}, name="mail-ask")[0] == MOVED
+    assert call(two_boxes, "resume o 12345", {"match": "o 12345"}, name="mail-ask")[0] == WHICH, "the range applies to the number it became"
+    assert call(two_boxes, "read e-mail 3", {"match": "e-mail 3"}, name="mail-read")[0] == MOVED, "for mail-read too"
+    reply, _extras = call(two_boxes, "resume o Dana 3", {"match": "Dana 3"}, name="mail-ask")
+    assert reply.startswith("I understood: answer about the e-mail with"), "words that are not one run of digits stay words"
+
+
+def test_a_box_named_in_the_line_does_not_skip_the_moved_check_when_it_is_the_listed_box(two_boxes, snaps):
+    """Review round 2: "resume o 3 do gmail" on a renumbered Gmail snapshot skipped the check and pinned the new version."""
+    listed(two_boxes, 0)
+    new_gmail_mail(snaps)
+    next_line(two_boxes)
+    reply, _extras = call(two_boxes, "resume o 3 do gmail", {"number": 3, "account": "gmail"}, name="mail-ask")
+    assert reply == MOVED and live(two_boxes) is None
+    reply, _extras = call(two_boxes, "resume o 3 do outlook", {"number": 3, "account": "outlook"}, name="mail-ask")
+    assert reply == PLAN_THREE, "another box than the listed one is not the list that moved"
+    reply, _extras = call(two_boxes, "resume o 3 do gmail", {"number": 3, "account": "google"}, name="mail-read")
+    assert reply == MOVED, "for mail-read too, with the typed account"
+
+
+def test_a_flag_change_that_moves_the_version_but_not_the_numbers_is_not_a_moved_list(two_boxes, snaps):
+    """Review round 2, probed: a refresh that only changes a read flag makes a new snapshot version; the list on screen is still right."""
+    flag_flip(snaps, True)
+    listed(two_boxes, 0)
+    before = item_refs._latest(ops_core.context(two_boxes["path"]), "inbox")["version"]
+    flag_flip(snaps, False)
+    assert item_refs._latest(ops_core.context(two_boxes["path"]), "inbox")["version"] != before, "the probe: the version moved"
+    next_line(two_boxes)
+    reply, args = ask_plan(two_boxes, {"number": 1}, line="resume o 1")
+    assert reply.startswith("I understood: answer about e-mail 1") and args["message"] == "inbox#1", "bound, not refused"
+
+
+def test_vacuity_a_version_only_comparison_refuses_a_flag_change(two_boxes, snaps, monkeypatch):
+    flag_flip(snaps, True)
+    listed(two_boxes, 0)
+    flag_flip(snaps, False)
+    next_line(two_boxes)
+    monkeypatch.setattr(item_refs, "_numbering", lambda *a, **k: None)      # planted: the ids of the messages cannot be told, so only the version is compared
+    assert call(two_boxes, "resume o 1", {"number": 1}, name="mail-ask")[0] == MOVED, "the oracle sees the false refusal the numbering removes"
+
+
 def test_vacuity_the_moved_list_without_the_question_plans_another_boxs_message(two_boxes, snaps, monkeypatch):
     listed(two_boxes, 0)
     new_gmail_mail(snaps)
     next_line(two_boxes)
-    monkeypatch.setattr(item_refs, "list_moved", lambda ctx, channel, sender: False)      # planted: the question left out
+    monkeypatch.setattr(item_refs, "list_moved", lambda ctx, channel, sender, **k: None)      # planted: the question left out
     reply, args = ask_plan(two_boxes)
     assert reply == PLAN_THREE and "message" not in args and set(args["pin"]) == {"inbox", "work"}, "the oracle sees the plan that names no box and pins both"
 
@@ -155,7 +232,7 @@ def test_the_edges_of_the_range_are_planned(two_boxes, snaps):
 def test_vacuity_without_the_listed_source_the_same_line_is_not_bound(two_boxes, snaps, monkeypatch):
     listed(two_boxes, 0)
     next_line(two_boxes)
-    monkeypatch.setattr(item_refs, "listed_source", lambda ctx, channel, sender: None)      # planted: the memory of the list on screen is gone
+    monkeypatch.setattr(item_refs, "listed_source", lambda ctx, channel, sender, **k: None)      # planted: the memory of the list on screen is gone
     _reply, args = ask_plan(two_boxes)
     assert "message" not in args, "the oracle of the first test sees a plan that is not bound"
 

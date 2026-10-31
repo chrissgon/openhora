@@ -932,6 +932,44 @@ def test_a_line_that_holds_a_pasted_list_line_whose_span_is_not_that_line_gets_t
     assert BAIT_SUBJECT in ran(left)[-1]["prompt"].split("For this task:")[0], "the oracle sees the stranger's words in the question slot"
 
 
+NBSP = "\u00a0"
+DOT_SHAPES = [
+    ("Aurora Team · Hello", f"Summarize the e-mail: Aurora Team · Hello · {BAIT_SUBJECT} · today 17:14"),      # the span is a list line of a message whose subject is "Hello"; the line goes on with a subject that holds a dot
+    ("Aurora Team · Hello · today 17:14", f"Summarize: Aurora Team · Hello · today 17:14 and also Eve Roth · {BAIT_SUBJECT} · today 17:15"),      # a second pasted list line
+    ("Aurora Team", f"Summarize the e-mail: Aurora Team{NBSP}·{NBSP}{BAIT_SUBJECT}{NBSP}·{NBSP}today 17:14"),      # a no-break space around the dot
+    (f"Aurora Team{NBSP}·{NBSP}Hello{NBSP}·{NBSP}today 17:14", f"Summarize the e-mail: Aurora Team{NBSP}·{NBSP}Hello{NBSP}·{NBSP}today 17:14 {BAIT_SUBJECT}"),      # the span too
+]
+
+
+def test_the_dot_itself_marks_a_pasted_line_so_no_stranger_subject_stays_above_the_task_text():
+    """Review round 2: three shapes kept the subject in the question: a span that is a list line but a line that goes on with a subject that holds a dot, a second pasted list line, and a no-break space around the dot.
+    The mark is the middle dot itself, tested again once the span is taken out."""
+    for span, line in DOT_SHAPES:
+        question = ops_mail_ask._question(line, {"match": span}, CFG)
+        assert question == table("MA_SUMMARY_QUESTION"), (span, question)
+        assert BAIT_SUBJECT not in question
+    assert ops_mail_ask._question("What did Aurora Team ask for?", {"match": "Aurora Team"}, CFG) == "What did Aurora Team ask for?", "no dot: the person's own words stay whole"
+    clean = f"Summarize the e-mail: Aurora Team · Hello · today 17:14"
+    assert ops_mail_ask._question(clean, {"match": "Aurora Team · Hello · today 17:14"}, CFG) == "Summarize the e-mail:", "the clean shape still takes the span out"
+    def planted(said, args, cfg):      # the rule of the first review: the dot with spaces, no test after the removal
+        if " · " not in said:
+            return said.strip()
+        return table("MA_SUMMARY_QUESTION") if ops_mail_read._list_line(args.get("match") or "") is None else said.strip()
+    assert BAIT_SUBJECT in planted(DOT_SHAPES[0][1], {"match": DOT_SHAPES[0][0]}, CFG), "the oracle sees the stranger's words stay"
+    assert BAIT_SUBJECT in planted(DOT_SHAPES[2][1], {"match": DOT_SHAPES[2][0]}, CFG)
+
+
+@pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", "Hello", INVOICE)]], indirect=True)
+def test_the_reader_gets_the_summary_question_in_those_shapes_end_to_end(desk, monkeypatch):
+    left = Leftovers(monkeypatch)
+    answer(desk, INVOICE_FOUND)
+    for number, (span, line) in enumerate(DOT_SHAPES[:3]):
+        reply, _ = ask(desk, {"match": span}, line)
+        assert reads(desk) == number + 1, (number, reply)
+        prompt = ran(left)[number]["prompt"]
+        assert prompt.startswith(table("MA_SUMMARY_QUESTION")) and BAIT_SUBJECT not in prompt and "Eve Roth" not in prompt, number
+
+
 @pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", BAIT_SUBJECT, INVOICE)]], indirect=True)
 def test_vacuity_the_whole_line_as_the_question_puts_the_subject_above_the_task_text(desk, monkeypatch):
     monkeypatch.setattr(ops_mail_ask, "_question", lambda said, args, cfg: said.strip())
@@ -973,8 +1011,9 @@ def test_vacuity_a_plan_with_no_pin_reads_the_other_message(desk, monkeypatch):
     assert reads(desk) == 1 and reply != table("MA_CHANGED") and "Eve Roth" in reply.split("\n\n")[-1], "the oracle sees a yes that read another message"
 
 
-def test_words_name_the_message_whatever_the_version_so_a_plan_by_words_pins_nothing_and_a_refresh_between_does_not_stop_the_yes(desk):
-    """Review of MAIL-SUMMARY-FLIP: a line by words on a snapshot older than the refresh age, with one new mail, pinned version 1; the yes refreshed it and the reply was MA_CHANGED though the words name the message at any version."""
+def test_words_are_matched_when_the_yes_is_given_so_a_plan_by_words_pins_nothing_and_a_refresh_between_does_not_stop_the_yes(desk):
+    """Review of MAIL-SUMMARY-FLIP: a line by words on a snapshot older than the refresh age, with one new mail, pinned version 1; the yes refreshed it and the reply was MA_CHANGED. Words are matched at the moment
+    of the yes, on the snapshot it reads: the ONE message that matches is read (and only a message that matches those words), the footer names it; several matches are listed and nothing runs."""
     args = {"match": "Appointment confirmed"}
     said = "summarize the e-mail Appointment confirmed"
     _asked, extras = ask(desk, args, said, confirmed=False)
@@ -991,6 +1030,12 @@ def test_words_name_the_message_whatever_the_version_so_a_plan_by_words_pins_not
     desk["snaps"].refresh("inbox")
     planted, _ = ask(desk, dict(args, pin=pinned), said)
     assert planted == table("MA_CHANGED"), "the oracle sees the stop a pinned plan by words causes"
+    twin = tsm.message(1, "2026-10-17T12:00:00Z", "Clinica Sorriso Leve <agenda@sorriso-leve.example>", "Appointment confirmed", "Another visit.", id="n3")
+    desk["snaps"].providers.mail["gmail"] = [twin] + desk["snaps"].providers.mail["gmail"]
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    two_matches, _ = ask(desk, args, said)
+    assert reads(desk) == 1 and two_matches != table("MA_CHANGED") and "Appointment confirmed" in two_matches and not found(two_matches), "two messages match the words: they are listed and nothing is read"
     _asked_number, extras_number = ask(desk, {"number": 2, "account": "google"}, "summarize e-mail 2 of gmail", confirmed=False)
     assert set(extras_number["plan_confirm"]) and ops_mail_ask.pin(ops_core.context(desk["path"]), {"number": 2, "account": "google"}, "summarize 2 of gmail", "messaging", KEYS["both"]), "a number still pins (the test above)"
 
@@ -1081,8 +1126,8 @@ def test_the_day_is_counted_by_the_request_word_of_this_operation_inside_contain
 @pytest.mark.xfail(condition=not os.environ.get("GITHUB_ACTIONS"), strict=True,
                    reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off until the "
                           "maintainer's lab run is committed with its evidence. Locally (the hook) this is an expected failure, so a commit can be made; in CI (GITHUB_ACTIONS set) it runs and is RED until the "
-                          "evidence exists: the required `tests` check is the structural guard against merging before the lab. Strict: when the evidence makes it pass, the XPASS fails the suite and this mark is "
-                          "removed in the evidence commit.")
+                          "evidence exists: the required `tests` check is the structural guard against merging before the lab. Strict and local: with the evidence in place the "
+                          "hook's run XPASSes and fails, so the evidence commit has to remove the condition (in CI the condition is false and the test just passes).")
 def test_the_real_standing_of_the_reader_lets_both_questions_start_with_no_stub():
     """H1: the reader's band is read from the recorded evidence of this checkout, with nothing stubbed. A case added to asst-answer that has no run yet turns the band to `needs a test` and file-ask off."""
     assert ops_file_ask._skill() == ("asst-answer", None)
