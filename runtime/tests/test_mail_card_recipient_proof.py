@@ -31,6 +31,25 @@ def changed_answer(card, line):
     return json.dumps({"subject": card["subject"], "body": card["body"] + "\nRevisado. " + quoted}, ensure_ascii=False)      # validate: allow english-only -- an invented Portuguese answer
 
 
+def good_c(line, card):
+    """The answer of a model that does exactly what the line of group C asks, for each built-in line (and `changed_answer` for any other)."""
+    body, subject = card["body"], card["subject"]
+    made = {
+        'Após "Atenciosamente," coloque "Renato Bragança"': (subject, body + "\nRenato Bragança"),      # validate: allow english-only -- Portuguese lines under test
+        "muda o assunto para Reunião de sexta": ("Reunião de sexta", body),      # validate: allow english-only -- Portuguese lines under test
+        "ajuste o tom para mais formal": (subject, body.replace("Olá,", "Prezada,").replace("Preciso de uns", "Preciso de aproximadamente")),      # validate: allow english-only -- Portuguese lines under test
+        'troca a palavra "quinta" por "sexta"': (subject.replace("quinta", "sexta"), body.replace("quinta", "sexta")),      # validate: allow english-only -- Portuguese lines under test
+        'coloque "Abraços" no fim': (subject, body + "\nAbraços"),      # validate: allow english-only -- Portuguese lines under test
+        "corrige a ortografia": (subject, body.replace("reuniao", "reunião")),      # validate: allow english-only -- Portuguese lines under test
+        "reescreve o email de forma mais curta": (subject, body.replace(" Preciso de uns 30 minutos.", "")),      # validate: allow english-only -- Portuguese lines under test
+        "edit the subject to Meeting on Friday": ("Meeting on Friday", body),
+        "adiciona uma linha agradecendo no final": (subject, body.replace("Atenciosamente,", "Obrigado desde já.\n\nAtenciosamente,")),      # validate: allow english-only -- Portuguese lines under test
+    }
+    if line not in made:
+        return changed_answer(card, line)
+    return json.dumps({"subject": made[line][0], "body": made[line][1]}, ensure_ascii=False)
+
+
 class Standin:
     """A stand-in model: it answers each line as `answers(group, wanted, line, card, number)` says, and counts and records every call."""
 
@@ -49,7 +68,7 @@ def perfect(group, wanted, line, card, number):
         return json.dumps({"recipient": wanted})
     if group in ("B", "D"):
         return json.dumps({"recipient": ""})
-    return changed_answer(card, line)
+    return good_c(line, card)
 
 
 ENTRY = {"route": "or-deepseek-v4.1-flash", "route_sha256": "0" * 64}
@@ -338,3 +357,56 @@ def test_the_report_is_written_only_when_asked(tmp_path):
     assert proof.main(["--paid", "--runs", "1", "--out", str(tmp_path / "out")], complete=standin) == 0
     saved = json.loads((tmp_path / "out" / "mail-card-recipient-proof.json").read_text(encoding="utf-8"))
     assert saved["verdict"] == "passed" and saved["calls"] == 37 and saved["runs"] == 1
+
+
+# --- group C is judged on what the answer leaves of the card, and every C answer is kept in the report -------------------------------------------------------
+
+
+C_LINES = [(line, card) for group, _, line, card, _ in proof.LINES if group == "C"]
+
+
+@pytest.mark.parametrize("line, card", C_LINES, ids=[line[:30] for line, _ in C_LINES])
+def test_each_built_in_group_c_line_passes_with_the_change_it_asks_for_and_fails_with_garbage_or_the_loosening(line, card):
+    ok, how = proof.judge("C", None, good_c(line, card), line, card)
+    assert (ok, how) == (True, "text-change"), (line, how)
+    garbage = json.dumps({"subject": "banana", "body": "banana banana"})
+    assert proof.judge("C", None, garbage, line, card) in ((False, "off-target"), (False, "refused-by-accept")), "text that is not the card any more is a miss, whatever the line"
+    assert proof.judge("C", None, json.dumps({"subject": card["subject"], "body": card["body"]}), line, card) == (False, "unchanged")
+
+
+def test_the_loosening_of_after_x_put_y_is_seen_the_closing_replaced_by_the_name_is_a_miss_and_the_twin_that_keeps_it_passes():
+    line = 'Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the Portuguese line under test
+    card = proof.CARD
+    replaced = json.dumps({"subject": card["subject"], "body": card["body"].replace("Atenciosamente,", "Renato Bragança")}, ensure_ascii=False)      # validate: allow english-only -- the Portuguese answer under test
+    assert mail_revise.accept(replaced, proof.TO, card["subject"], card["body"], line) is not None, "the product takes it (known, in the backlog): the proof must see it"
+    assert proof.judge("C", None, replaced, line, card) == (False, "off-target")
+    assert proof.judge("C", None, good_c(line, card), line, card) == (True, "text-change")
+
+
+def test_a_valid_text_that_is_the_wrong_change_is_a_miss():
+    line = "muda o assunto para Reunião de sexta"      # validate: allow english-only -- the Portuguese line under test
+    card = proof.CARD
+    assert proof.judge("C", None, json.dumps({"subject": "banana", "body": "banana banana"}), line, card) == (False, "off-target")
+    assert proof.judge("C", None, json.dumps({"subject": "Reunião de sexta", "body": card["body"] + "\nExtra."}, ensure_ascii=False), line, card) == (False, "off-target"), "the body was not to change"      # validate: allow english-only -- the Portuguese answer under test
+    assert proof.judge("C", None, json.dumps({"subject": "Reunião de sexta", "body": card["body"]}, ensure_ascii=False), line, card) == (True, "text-change")      # validate: allow english-only -- the Portuguese answer under test
+
+
+def test_an_extra_group_c_line_gets_the_general_rule_changed_and_at_least_half_of_the_card_kept():
+    card = proof.CARD
+    assert proof.judge("C", None, changed_answer(card, "deixa mais curto"), "deixa mais curto", card) == (True, "text-change")      # validate: allow english-only -- a Portuguese line under test
+    assert proof.judge("C", None, json.dumps({"subject": "banana", "body": "banana banana"}), "deixa mais curto", card) == (False, "off-target")      # validate: allow english-only -- a Portuguese line under test
+
+
+def test_every_group_c_answer_is_kept_in_the_report_with_the_text_accept_leaves():
+    report = proof.run(Standin(perfect), ENTRY)
+    kept = report["group_c_answers"]
+    assert len(kept) == 27 and all(item["passed"] and item["judged"] == "text-change" and item["answer"] for item in kept)
+    assert {item["line"] for item in kept} == {line for line, _ in C_LINES}
+    abraco = next(item for item in kept if item["line"] == 'coloque "Abraços" no fim')      # validate: allow english-only -- the Portuguese line under test
+    assert abraco["as_accepted"]["body"].endswith("Abraços") and set(abraco["as_accepted"]) == {"subject", "body"}      # validate: allow english-only -- the Portuguese text under test
+    # a miss is kept too, with why: the report can be read again without paying again
+    def broken(group, wanted, line, card, number):
+        return json.dumps({"subject": "banana", "body": "banana banana"}) if group == "C" and number % 2 else perfect(group, wanted, line, card, number)
+    again = proof.run(Standin(broken), ENTRY)
+    assert len(again["group_c_answers"]) == 27 and any(not item["passed"] and item["judged"] in ("off-target", "refused-by-accept") and item["answer"] for item in again["group_c_answers"])
+    assert all(item["as_accepted"] is None for item in again["group_c_answers"] if item["judged"] == "refused-by-accept")

@@ -29,7 +29,7 @@ line is one line of at most INSTRUCTION_MAX characters, not a command, not an ap
 request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself); the card
 is an OPEN effect decision whose content hash is the `sha256` the bridge gives (the hash of the card the person saw).
 
-For a mail card the model is called only when the line holds a word that asks for a change, a quoted text or a word that asks to change who receives the e-mail (limit L63): any other
+For a mail card the model is called only when the line holds a word that asks for a change, a quoted text, a word that asks to change who receives the e-mail or a whole address outside quotation marks (limit L63): any other
 line, "lista os emails" or "obrigado" or a thought, is not an instruction for the card, reaches no model here and goes on as it always did. For a line that names another event than the
 card's ("muda o dentista para as 10h" on the card of "evento social") the event card is left alone and the line goes on.
 
@@ -164,7 +164,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     if _recognised(ctx, line, sender) and not (kind == "event" and _is_event_change(line)):
         return None
     raw = mail_revise.instruction(text)
-    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)
+    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw) or mail_revise.types_address(raw)      # an address in the line: the model reads the request
     if kind == "mail" and not asks:
         return None      # a line that asks for no change never reaches the model (limit L63): a request or a thought, not an instruction for this card
     entry = entry_of(ctx, channel, sender, revise=kind == "mail")

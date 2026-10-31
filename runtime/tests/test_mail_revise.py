@@ -224,3 +224,13 @@ def test_a_closing_the_person_asked_for_is_kept_though_the_validator_drops_a_clo
     assert asked == {"subject": QUINTA_SUBJECT, "body": QUINTA_BODY + "\nAbraços"}      # validate: allow english-only -- the Portuguese text under test
     # vacuity: with no quoted text in the line the closing the model adds is dropped, as before
     assert accept(qa(QUINTA_BODY + "\nAbraços"), "ajuste o tom", QUINTA_SUBJECT, QUINTA_BODY) == {"same": True, "holds": False}      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_a_replacement_matches_whole_words_only_so_15_is_not_replaced_inside_150():
+    line = 'troca "15" por "16"'
+    card = ("Orçamento", "O valor é R$ 150, com 15 minutos de prazo.")      # validate: allow english-only -- a Portuguese card under test
+    assert accept(answer("O valor é R$ 150, com 16 minutos de prazo.", "Orçamento"), line, *card) == {"subject": "Orçamento", "body": "O valor é R$ 150, com 16 minutos de prazo."}      # validate: allow english-only -- the Portuguese text under test
+    assert accept(answer("O valor é R$ 160, com 16 minutos de prazo.", "Orçamento"), line, *card) is None, "150 became 160: that is not the replacement of the word 15"      # validate: allow english-only -- the Portuguese text under test
+    # the card that holds the number only inside another number: nothing to replace, and the answer that changes it is refused (the base refused it too)
+    assert accept(answer("O valor é R$ 160.", "Orçamento"), line, "Orçamento", "O valor é R$ 150.") is None      # validate: allow english-only -- the Portuguese text under test
+    assert accept(answer("O valor é R$ 16.", "Orçamento"), line, "Orçamento", "O valor é R$ 15.") is not None, "vacuity: the same line on a card that holds the word 15 is a replacement"      # validate: allow english-only -- the Portuguese text under test

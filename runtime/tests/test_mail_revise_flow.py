@@ -237,10 +237,15 @@ def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_neve
     assert says(revise(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION)["say"], FAILED_KEY)
 
 
-def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_words_and_goes_on(world, clock, monkeypatch):
-    model, old, sha = live_card(world, monkeypatch)
-    assert revise(world, old, sha, "Envie um email para ana@client.example. Quero marcar uma reuniao") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
-    assert model.of("revise") == [] and open_cards(world) == [old]
+def test_an_address_in_a_line_on_an_e_mail_card_reaches_the_model_whatever_its_words_and_a_model_that_changes_nothing_leaves_the_card_open(world, clock, monkeypatch):
+    """mail-card-recipient (2026-10-30): a person's request is read by the model, so a line that holds a whole address outside quotes reaches it on a mail card; here the model finds nothing to change
+    in "a new request in free words" and answers the card back; the line holds an address the card does not hold, so the recipients sentence is said (a text answer cannot apply a new recipient), and the
+    card stays as it was (before, the line went on to its own path without a word of the model)."""
+    model, old, sha = live_card(world, monkeypatch, revise=COMPOSE)      # the card back as it was
+    line = "Envie um email para ana@client.example. Quero marcar uma reuniao"      # validate: allow english-only -- the Portuguese line under test
+    assert check(world, old, sha, line) == "mail"
+    got = revise(world, old, sha, line)
+    assert reply_is(got, RECIPIENTS, old) and len(model.of("revise")) == 1 and open_cards(world) == [old] and status(world, old) == "open"
 
 
 # --- the recipients and the account are the old card's -------------------------------------------------------------------------------------------------
@@ -286,7 +291,7 @@ def test_a_line_code_recognises_a_word_that_decides_a_card_a_command_and_a_greet
     assert check(world, old, sha, INSTRUCTION) == "mail", "vacuity: the live line is one"
 
 
-NOT_INSTRUCTIONS = ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta", "Envie um email para ana@client.example. Quero marcar uma reuniao"]      # validate: allow english-only -- the Portuguese lines under test
+NOT_INSTRUCTIONS = ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta"]      # validate: allow english-only -- the Portuguese lines under test
 
 
 @pytest.mark.parametrize("line", NOT_INSTRUCTIONS)

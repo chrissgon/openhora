@@ -17,6 +17,7 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   clean(line)                              the instruction as one line (white space collapsed), or None when it is empty or longer than INSTRUCTION_MAX
   literals(line)                           the texts the instruction puts between quotation marks ("..." or the curved pair), in order
   recipient_words(line)                    whether the instruction, outside its quoted texts, asks in words to change who receives the e-mail (it only opens the gate, `ops_card_revise._taken`)
+  types_address(line)                      whether the line holds a whole address outside its quoted texts (then a line on an e-mail card reaches the model, whatever its words)
   typed_new_address(line, to, subject, body)  a whole address the line types outside its quoted texts that the card does not hold, else None (a text answer beside it is refused)
   recipient_answer(text)                   the model's answer of the form {"recipient": "..."} (exactly that key, a text), else None
   typed_recipient(answer, line, to)        the new recipient AS THE PERSON TYPED IT in the line, else None (the card has one recipient; the one new address of the line outside its quoted texts is the answer)
@@ -264,6 +265,16 @@ def typed_recipient(answer: str, line: str, to: list):
     return new[answer.lower()] if set(new) == {answer.lower()} else None
 
 
+def types_address(line: str) -> bool:
+    """Whether the line holds a whole e-mail address outside its quoted texts and its text block, any address (even the card's own). On the card of an e-mail such a line reaches the model: the
+    person's request is read by the model (the maintainer's rule of 2026-10-30), so no list of phrases (one word for "to" and not its short spoken forms) decides whether it is about the recipients."""
+    rest, _ = _unquoted(line)
+    tokens = natural_writes_mail.tokenize(rest)
+    if tokens is not None:
+        return any(t.kind == "addr" for t in tokens)
+    return bool(ADDRESS.search(unicodedata.normalize("NFKC", rest)))
+
+
 def typed_new_address(line: str, to: list, subject: str, body: str):
     """A whole address the person typed outside the quoted texts of the line that the card does not hold (not a recipient of the card, not in its subject or its body), else None. A new
     recipient can never be applied by a text answer (`mail_compose.validate` refuses an address the card does not hold), so a text answer beside such an address would drop the request
@@ -333,14 +344,21 @@ def _kept_asked_close(got_body: str, text, items: list) -> str:
     return got_body
 
 
+def _whole(text: str):
+    """The pattern of `text` as a whole word or phrase: a word character at either end of it may not touch another word character ("15" is in "15 minutos" and not in "150")."""
+    return re.compile((r"(?<!\w)" if text[:1].isalnum() or text[:1] == "_" else "") + re.escape(text) + (r"(?!\w)" if text[-1:].isalnum() or text[-1:] == "_" else ""))
+
+
 def _replaces(items: list, old_all: str, new_all: str) -> bool:
-    """Whether the answer is the card with ONE quoted text of the line replaced by ANOTHER everywhere ("troca \"quinta\" por \"sexta\""): the replaced text is the card's own and is no longer there,
-    and nothing else changed. The guard that every text to ADD is in the answer stays: only a text the card already holds may be missing, and only beside the one that takes its place."""
-    held = [(t, b) for t, b in items if _flat(t) in _flat(old_all)]
-    added = [(t, b) for t, b in items if _flat(t) not in _flat(old_all)]
+    """Whether the answer is the card with ONE quoted text of the line replaced by ANOTHER everywhere ("troca \"quinta\" por \"sexta\""): the replaced text is the card's own, as a whole word or
+    phrase, and is no longer there, and nothing else changed. The guard that every text to ADD is in the answer stays: only a text the card already holds may be missing, and only beside the one
+    that takes its place. "15" replaced by "16" in "R$ 150" is no replacement (the base refused it too)."""
+    old = _flat(old_all)
+    held = [(t, b) for t, b in items if _whole(_flat(t)).search(old)]
+    added = [(t, b) for t, b in items if _flat(t) not in old]
     if len(held) != 1 or len(added) != 1:
         return False
-    return _flat(new_all) == _flat(old_all).replace(_flat(held[0][0]), _flat(added[0][0]))
+    return _flat(new_all) == _whole(_flat(held[0][0])).sub(lambda _: _flat(added[0][0]), old)
 
 
 def accept(text, to, subject: str, body: str, line: str):

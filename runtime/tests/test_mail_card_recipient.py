@@ -154,6 +154,7 @@ def test_limit_63_the_contract_says_a_typed_address_and_no_other():
     assert "mail_revise.typed_recipient" in text and "`ops_card_revise._recipient`" in text and "{\"recipient\": \"<address>\"}" in text and "(for a change of the text, strict JSON with exactly the two keys," in text
     assert "the card's subject and body reach the provider for it" in text, "the privacy price of the model call is stated in the limit"
     assert "`mail_revise.typed_new_address`" in text and "passes no `fallback=`" in text and "a quotation mark left open leaves the address undecided" in text, "the refusal beside a text answer, the missing fallback and the quote rule are stated"
+    assert "`mail_revise.types_address`" in text and "a whole e-mail address outside quotation marks" in text and "`turn_gate.new_request` reads as a new request for a time" in text, "what reaches the model: an address in the line, and the time lines that do not"
     assert (old_sentence in f"planted {old_sentence} text") is True, "vacuity: the check above sees the old sentence when it is there"
 
 
@@ -471,6 +472,48 @@ def test_every_line_of_the_paid_proof_reaches_the_model_in_the_product(world, cl
     model, old, sha = f.live_card(world, monkeypatch)
     refused = [line for _, _, line, _, _ in proof.LINES if f.check(world, old, sha, line) != "mail"]
     assert refused == [], refused
-    for line in ("copia leo.vega@example.com", "please make it shorter", "troca o horário para 16h"):      # the three lines the first version of the proof held, which the product never sent to the model      # validate: allow english-only -- the Portuguese lines under test
+    for line in ("please make it shorter", "troca o horário para 16h"):      # two of the three lines the first version of the proof held, which the product still does not send to the model      # validate: allow english-only -- the Portuguese lines under test
         assert f.check(world, old, sha, line) != "mail", line
+    assert f.check(world, old, sha, "copia leo.vega@example.com") == "mail", "the third holds an address: it reaches the model now"      # validate: allow english-only -- the Portuguese line under test
     assert model.of("revise") == []
+
+
+# --- the gate: an address in the line reaches the model on a mail card, whatever the words ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("line", [
+    "manda pra x@y.example", "envia pro x@y.example", "na verdade é pra x@y.example", "pra x@y.example", "x@y.example", "manda para o x@y.example",      # validate: allow english-only -- the Portuguese lines under test
+    "Envie um email para ana@client.example. Quero marcar uma reuniao",      # validate: allow english-only -- the Portuguese line under test
+    "copia leo.vega@example.com",      # validate: allow english-only -- the Portuguese line under test
+])
+def test_a_line_with_a_whole_address_outside_quotes_reaches_the_model_on_a_mail_card_whatever_its_words(world, clock, monkeypatch, line):
+    """The maintainer's rule (2026-10-30): a person's request is read by the model; code rules stay only where the input is fully predictable. A list of phrases (one word for "to" and not its short spoken forms) is not."""
+    model, old, sha = f.live_card(world, monkeypatch)
+    assert f.check(world, old, sha, line) == "mail", line
+    assert model.of("revise") == [], "the check calls no model"
+
+
+@pytest.mark.parametrize("line", [
+    "manda pra Ana", "envia pro João", "na verdade é pra Ana", "lista os emails", "obrigado", "mensagem:\nx@y.example", "manda pra x@", "o endereço é x@y",      # validate: allow english-only -- the Portuguese lines under test
+])
+def test_a_line_with_no_whole_address_and_no_word_that_asks_for_a_change_still_never_reaches_the_model(world, clock, monkeypatch, line):
+    model, old, sha = f.live_card(world, monkeypatch)
+    assert f.check(world, old, sha, line) is None, line
+    assert f.revise(world, old, sha, line) == {"pass": True} and model.of("revise") == [] and f.open_cards(world) == [old]
+
+
+def test_a_time_change_such_as_troca_15h_por_16h_stops_at_the_gate_because_the_code_guard_new_request_reads_it_as_a_new_request(world, clock, monkeypatch):
+    """Why `troca 15h por 16h` never reaches the model on a mail card: `turn_gate.new_request` (the code guard that holds the reminders' and closed forms' words) reads a time in it, so `_recognised`
+    is true and the line is the event family's, as "muda para as 10h" is. By design (S41-11), not a gap of this package. The twin without a time, "troca R$ 15 por R$ 16", reaches the model."""
+    model, old, sha = f.live_card(world, monkeypatch)
+    assert turn_gate.new_request("troca 15h por 16h") is not None and f.check(world, old, sha, "troca 15h por 16h") is None      # validate: allow english-only -- the Portuguese line under test
+    assert turn_gate.new_request("troca R$ 15 por R$ 16") is None and f.check(world, old, sha, "troca R$ 15 por R$ 16") == "mail"      # validate: allow english-only -- the Portuguese line under test
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("manda pra x@y.example", True), ("x@y.example", True), ("troca joana.silva@clinica.example por tom@y.example", True), ("manda pra x@y.example e a@", True),      # validate: allow english-only -- Portuguese lines under test
+    ('escreva "x@y.example"', False), ("escreva 'x@y.example'", False), ("coloque no fim:\nx@y.example", False), ("manda pra Ana", False), ("manda pra x@", False), ("manda pra @ana", False),      # validate: allow english-only -- Portuguese lines under test
+    ('escreva "x@y.example', True),      # a quotation mark left open hides nothing from this check: the line reaches the model
+])
+def test_types_address_table(line, expected):
+    assert mail_revise.types_address(line) is expected
