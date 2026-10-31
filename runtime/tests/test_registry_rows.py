@@ -92,10 +92,11 @@ def pinned_views() -> tuple:
             PINNED_HASHES["natural_slot_order_ed6ea6b"])
 
 
-# The two texts MAIL-SUMMARY-FLIP re-worded (the `about` of `mail-read` and of `ask`), as CB-9 served them: with these two back in a catalog of version 2, its hash is the one CB-9 pinned.
+# The texts MAIL-SUMMARY-FLIP re-worded (the `about` of `mail-read`, `ask` and, after the screen of the dev set, `routine-resume`), as CB-9 served them: with these back in a catalog of version 2, its hash is the one CB-9 pinned.
 OLD_V2_ABOUT = {
     "mail-read": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
     "ask": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.",
+    "routine-resume": "Choose this to resume a paused routine; id is the routine's number written in the line.",
 }
 
 
@@ -241,7 +242,7 @@ def record_problems(rows) -> list:
             out.append(f"{name}: privacy or cost")
         if not isinstance(rec["what"], str) or not rec["what"].strip():
             out.append(f"{name}: what")
-        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 300 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
+        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 450 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
             out.append(f"{name}: about")
         for slot, spec in rec["slots"].items():
             if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2, 3) or spec["since"] < rec["since"] or not spec["param"]:
@@ -274,7 +275,7 @@ def test_the_privacy_and_cost_classes_follow_the_columns_of_the_row():
 def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
     for rec in [registry.row(row["name"]) for row in operations.OPERATIONS]:      # every row, a row of a later version included
         for key in ("about", "what"):
-            assert 1 <= len(rec[key]) <= 300 and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
+            assert 1 <= len(rec[key]) <= (450 if key == "about" else 300) and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
         assert not re.search(r"\b(ignore|you must|you should|system prompt|respond with|reply with)\b", rec["about"], re.I), rec["op"]      # it describes the operation, it does not instruct
     about = {row["name"]: row["natural"]["about"].lower() for row in operations.OPERATIONS}
     for op, words in SEPARATES.items():
@@ -283,7 +284,7 @@ def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
 
 
 def test_vacuity_the_record_check_sees_each_planted_fault(monkeypatch):
-    for fault in ({"class": "X"}, {"since": 4}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 301}, {"about": "write to a@b.example"},
+    for fault in ({"class": "X"}, {"since": 4}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 451}, {"about": "write to a@b.example"},
                   {"about": "a number 12345678 in it"}, {"what": " "}):
         rows = [copy.deepcopy(row) for row in operations.OPERATIONS]
         rows[3]["natural"].update(fault)

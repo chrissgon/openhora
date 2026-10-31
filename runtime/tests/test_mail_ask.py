@@ -832,12 +832,33 @@ def test_the_row_is_a_version_3_row_that_a_line_reaches_since_the_flip():
     rec = registry.row("mail-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 3, 101, "off-host", "model")
     assert set(rec["slots"]) == {"message", "target", "day", "service"} and all(spec["since"] == 3 for spec in rec["slots"].values())
-    assert len(rec["about"]) <= 300 and "(mail-read)" in rec["about"]
+    assert len(rec["about"]) <= 450 and "(mail-read)" in rec["about"]
     assert "mail-ask" in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table since the flip"
     assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_mail_ask"] == interpreter.SERVED_SHA256, "the served catalog is the flip's"
     assert "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]] and "mail-ask" in [row["op"] for row in interpreter_catalog.generate(3)["ops"]]
     assert "mail-ask" in [row["op"] for row in interpreter.SERVED["ops"]]
     assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is True, "a line reaches the operations of the served catalog"
+
+
+def served_text(op, catalog=None):
+    return next(row["what"] for row in (catalog or interpreter.SERVED)["ops"] if row["op"] == op)
+
+
+def test_the_served_texts_tell_the_model_that_resume_without_a_routine_is_a_summary_and_that_a_pasted_line_is_taken_whole():
+    """Screen of the dev set (2026-10-31): `resume o 2` read as routine-resume, `resume o e-mail ...` as mail-read, a pasted line cut before its last piece; the model reads these two texts."""
+    routine = served_text("routine-resume")
+    assert "only when the line names a routine" in routine and "resume or resuma with no routine named means summarize (mail-ask)" in routine
+    mail = served_text("mail-ask")
+    assert "resume, resuma and resumo mean summarize" in mail and "every piece between the \u00b7 and its time included" in mail
+    assert served_text("mail-ask", interpreter_catalog.generate(3)) == mail and "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]]
+
+
+def test_vacuity_the_old_texts_lack_the_sentences_the_test_above_looks_for():
+    old_routine = "Choose this to resume a paused routine; id is the routine's number written in the line."
+    old_mail = ("Choose this to summarize ONE e-mail or to answer what it says (a date, an amount): message is its number as the line writes it, "
+                "target the words of its sender or subject or a pasted list line whole, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read).")
+    assert "only when the line names a routine" not in old_routine and "means summarize (mail-ask)" not in old_routine
+    assert "resume, resuma and resumo mean summarize" not in old_mail and "every piece between the \u00b7" not in old_mail
 
 
 def test_vacuity_at_version_2_no_line_reaches_the_operation(monkeypatch):
