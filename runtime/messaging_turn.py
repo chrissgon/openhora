@@ -247,6 +247,8 @@ def plan_confirm_applies(bridge, turn):
         return None
     if greeting.as_question(turn.first_line):
         return None      # L64H: a greeting in question form is never the OK of a plan; it goes on as any other line and gets the greeting
+    if card_words.question_form(turn.first_line):
+        return None      # L65, 2026-10-30: a yes or a no in question form ("sim?", "nao?", "poderia") asks something and answers nothing: it is neither the OK nor the refusal, and goes on as any other line
     return natural.confirm_kind(turn.first_line)
 
 
