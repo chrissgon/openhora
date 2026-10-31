@@ -376,6 +376,15 @@ def natural_draft(project: str, sender, channel: str = "messaging") -> bool:
     return ops_natural_writes.has_live(project, channel, sender)
 
 
+def list_waits(project: str, sender, channel: str = "messaging") -> bool:
+    """Whether the last thing said to this messaging sender is a numbered list that the next line may answer (a list of events or of files: "which one?"). Reads, changes nothing. The bridge asks
+    it before it sends a card again for a bare word (ACEITE-37). Not an operation of the table."""
+    if channel != "messaging":
+        return False
+    ctx = core.context(project)
+    return event_lookup.list_open(ctx, sender, ops_natural._clock()) or ops_file_read.list_open(ctx, channel, sender)
+
+
 def natural_forget(project: str, sender, channel: str = "messaging") -> None:
     """Drop the sender's open question about a write (a line that answers nothing drops it). Not an operation of the table."""
     ops_natural_writes.forget(channel, sender)

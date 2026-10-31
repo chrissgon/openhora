@@ -106,7 +106,7 @@ def _recognised(ctx: dict, line: str, sender) -> bool:
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
     # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
     # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
-    return (card_words.card_word(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or turn_gate.new_request(line) is not None
+    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or turn_gate.new_request(line) is not None
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
 
 
@@ -141,7 +141,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     if channel != CHANNEL or not isinstance(text, str) or text.lstrip().startswith("/") or not isinstance(sha256, str):
         return None
     line = mail_revise.clean(text)
-    if line is None or card_words.card_word(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
+    if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
         return None
     try:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)

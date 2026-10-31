@@ -259,7 +259,7 @@ def test_replace_rows_leaves_every_unnamed_line_identical_and_raises_on_an_unkno
         build.replace_rows(lines, [new, new])
 
 
-NOT_AUTHORED = ("talk-refusal-after-interpreter", "decide-without-slot", "route-pass", "typed-private-line")      # S41-11: a row added after the base corpus closed: its scenarios are the package s41-11's (runtime/tests/entry_ext/)
+NOT_AUTHORED = ("talk-refusal-after-interpreter", "decide-without-slot", "route-pass", "typed-private-line", "card-again")      # S41-11: a row added after the base corpus closed: its scenarios are the package s41-11's (runtime/tests/entry_ext/)
 
 
 @pytest.mark.skipif(RECORDING, reason="recording")
@@ -267,7 +267,7 @@ def test_every_scenario_is_well_formed_and_every_claimer_has_a_row_in_the_table(
     for scenario in corpus():
         assert ek.check_scenario(scenario) == [], scenario["id"]
     assert set(build.CLAIMERS) == set(ek.CLAIMER_NAMES) - set(NOT_AUTHORED) | set(ek.RETIRED_CLAIMER_NAMES), "the table of authored scenarios has one entry for every claimer name of the kit (the rows of NOT_AUTHORED have their scenarios in a package: entry_ext/), and keeps the entries of the retired rows (the corpus is closed)"
-    assert len(ek.CLAIMER_NAMES) == len(set(ek.CLAIMER_NAMES)) == 29 + 4 + 17
+    assert len(ek.CLAIMER_NAMES) == len(set(ek.CLAIMER_NAMES)) == 30 + 4 + 17
     assert not set(ek.RETIRED_CLAIMER_NAMES) & set(ek.CLAIMER_NAMES)
 
 

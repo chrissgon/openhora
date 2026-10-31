@@ -677,6 +677,14 @@ def begin_turn(ctx: dict, channel, sender) -> None:
                 found["seen"] += 1
 
 
+def list_open(ctx: dict, channel, sender) -> bool:
+    """Whether the sender's list of files is still the last thing said to them (the checks of `_live` before the next line is read; nothing is dropped or counted): ACEITE-37, the bridge asks it."""
+    now = ops_natural._clock()
+    with _lock:
+        found = _LISTS.get(_slot(ctx, channel, sender))
+    return found is not None and not ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 0 or event_lookup._last_pending(ctx) > found["pending"])
+
+
 def _live(ctx: dict, channel, sender):
     now = ops_natural._clock()
     with _lock:

@@ -111,6 +111,7 @@ FRAME_KINDS = (
     {"name": "plan-confirm", "what": "The OK or the refusal of a plan the operations layer asked (the question \"Posso?\"), or a correction: before the card words (D5, limits L64 and L65)."},
     {"name": "decision-card-word", "what": "An approve or reject word decides the one decision card it can, or lists the cards to choose from; the two-open guard PLAN_TWO_OPEN is a rule of this kind (S2, limit L64)."},
     {"name": "research-run", "what": "A stop word of the sender's own running research: after the card words, so that a \"no\" with a card as the last message still rejects the card (BL2b, limit L64)."},
+    {"name": "decision-card-again", "what": "A bare approve or reject word, with no reply, while no card a word could decide is the last message: it decides nothing, the card is sent again (several: the list), and no model reads the line. After the stop of a search, so that a no still stops it (ACEITE-37, limit L64)."},
     {"name": "decision-card-revise", "what": "A change of the card that waits, said in words (S13, limit L64)."},
 )
 

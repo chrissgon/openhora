@@ -92,7 +92,7 @@ def test_ops_turn_adds_no_module_level_import_that_joins_the_import_cycle():
     """Probe 5 of the review, as 44-B left it. `ops_say` reaches this module at call time (the one lazy edge between them); this module imports at module level the siblings it calls
     and the plain modules its rows use, never `ops` and never `ops_core`: that no path of these leads back to this module is `test_import_breakers.py` (no cycle at the top level)."""
     found = module_level_imports(RUNTIME / "ops_turn.py")
-    assert found == {"__future__", "sys", "drafts", "event_lookup", "greeting", "natural", "operations", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret", "ops_natural",
+    assert found == {"__future__", "sys", "card_words", "drafts", "event_lookup", "greeting", "natural", "operations", "ops_file_read", "ops_file_trash", "ops_instructions", "ops_interpret", "ops_natural",
                      "ops_say", "phone_delete", "phone_refusal", "phrases", "plan_confirm", "route_pass", "turn_gate", "turn_order"}, found
     assert not {"ops", "ops_core", "messaging_bridge", "messaging_turn"} & found
     say_top = module_level_imports(RUNTIME / "ops_say.py")
@@ -232,12 +232,14 @@ def test_confirmed_walks_the_first_row_only_and_says_none_when_the_row_is_gone_o
 
 def old_handled(ctx, said, channel, sender, plan_before):
     """FROZEN. The expression `ops_say.say` computed `handled` with before package S41-3 (764c9a3:runtime/ops_say.py:187), copied with its callees read from `ops_say`: the queue decision of a plain
-    line. It is never edited to follow `ops_turn.code_claims`: the test below says they are the same on every scenario."""
+    line. It is never edited to follow `ops_turn.code_claims`: the test below says they are the same on every scenario.
+    ONE reviewed amendment (ACEITE-37, the maintainer, 2026-10-30): a bare no in question form ("nao?") with a plan that waits is no answer to the plan, so code no longer claims it; the clause below
+    carries that exception with its own literal, the question mark."""
     import importlib
     return (ops_say.asks_natural(ctx, said, channel, sender) and not ops_natural.peek_model(ctx, said, ops_say._natural_channel(channel), sender)
             or ops_say._greets(ctx, said, channel, sender)
             or (channel == "messaging" and ops_say.may_talk(ctx, channel, sender) and importlib.import_module("ops_file_trash").catches(ctx, said, channel, sender))
-            or (plan_before and natural.confirm_kind(said) is not None))
+            or (plan_before and natural.confirm_kind(said) is not None and not (natural.confirm_kind(said) == "no" and "?" in said)))      # ACEITE-37: the amendment above
 
 
 def recording_claims(pairs, lock):

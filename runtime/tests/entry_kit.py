@@ -108,7 +108,7 @@ ACTIONS = (None, "yes", "no", "approve", "reject", "release", "invalid")      # 
 
 # The name of every claimer, as S41-2 (bridge) and S41-3 (operations) will name the rows of `turn_order.ORDER` (the two specs list them: they are asserted equal there).
 BRIDGE_NAMES = ("drop-unlisted", "drop-invalid-attachments", "ignore", "forwarded-refusal", "reply-to-card", "reminder-draft-answer", "reminder-expired-yes", "write-draft-answer",
-                "plan-confirm-word", "card-word", "research-stop", "card-revise", "project-switch", "help-in-words", "attachment-line", "attachment-arrived", "attachment-typed",
+                "plan-confirm-word", "card-word", "research-stop", "card-again", "card-revise", "project-switch", "help-in-words", "attachment-line", "attachment-arrived", "attachment-typed",
                 "remind-typed", "reminder-form", "reminders-list", "forget-typed", "tap", "usage", "help-typed", "project-typed", "pending-typed",
                 "decision-typed", "reply", "say")
 BRIDGE_SAY_NAMES = ("delete-refusal-before-queue", "closed-form-without-slot", "decide-without-slot", "say-queue")
@@ -124,7 +124,7 @@ NARROWED_CLAIMER_NAMES = ("reply-to-card", "reminder-form", "closed-form-without
 # S41-8: the seven claimers that answered what is open are the pending kinds of the one row `frame` of `turn_order.ORDER`. The golden names them as it was recorded, by the claimer, so the kit's
 # trace keeps those names (a kind's `take` is wrapped, below) and this table is the one place that says which kind of `turn_order.FRAME_KINDS` each name is.
 FRAME_KIT_NAMES = {"reminder-draft": "reminder-draft-answer", "reminder-expired": "reminder-expired-yes", "write-draft": "write-draft-answer", "plan-confirm": "plan-confirm-word",
-                   "decision-card-word": "card-word", "research-run": "research-stop", "decision-card-revise": "card-revise"}
+                   "decision-card-word": "card-word", "research-run": "research-stop", "decision-card-again": "card-again", "decision-card-revise": "card-revise"}
 
 # What is hidden when two outcomes are compared: every run of digits (an id, a position, a day, an hour, a count) and every word made only of hexadecimal characters that is six or more
 # long (a hash, the random identifier of a plan or of a folder, a project's key). A different WORD is never hidden: a phrase key that changes shows as a different text. One regex,
@@ -307,6 +307,78 @@ def vocabulary_problems(scenario):      # noqa: F811
 def prestate_owner_no_interpret(w):
     """No state is built: the world is the pre-state (`world_for`)."""
 # --- end of the S41-11 block -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# --- ACEITE-37: the pre-states of a bare word on a card that is not the last message, in this one block (the base corpus and golden use none of it) ------------------------------------------------
+# Each is a world of the owner on buttons with an open card (or more) and a message sent after it, so that the card is no longer the last message: `aceite37_card_not_last` is the card, then "oi" answered
+# by the greeting (scenario 37 of ACEITE-SECRETARIA); the others add, after that, what the rows of the table read (a plan that waits, a search that runs, a question, a file, a reminder, a write).
+ACEITE37_PRESTATES = ("aceite37_card_not_last", "aceite37_two_cards_not_last", "aceite37_plan_and_card_not_last", "aceite37_research_and_card_not_last", "aceite37_question_and_card_not_last",
+                      "aceite37_file_and_card_not_last", "aceite37_reminder_and_card_not_last", "aceite37_write_and_card_not_last",
+                      "aceite37_file_card_last", "aceite37_event_list_and_card", "aceite37_file_list_and_card", "aceite37_event_list_then_reminder")
+PRESTATES = (*PRESTATES, *ACEITE37_PRESTATES)
+
+
+def prestate_aceite37_card_not_last(w):
+    prestate_card_last(w)
+    w.b.say("oi")
+    settle(w)
+
+
+def prestate_aceite37_two_cards_not_last(w):
+    prestate_two_cards(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)
+
+
+def prestate_aceite37_plan_and_card_not_last(w):
+    prestate_plan_then_card(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)
+
+
+def prestate_aceite37_research_and_card_not_last(w):
+    prestate_research_and_card(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)
+
+
+def prestate_aceite37_question_and_card_not_last(w):
+    prestate_card_last(w)
+    prestate_router_question(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)
+
+
+def prestate_aceite37_file_and_card_not_last(w):
+    prestate_card_last(w)
+    prestate_attachment_held(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)
+
+
+def prestate_aceite37_reminder_and_card_not_last(w):
+    prestate_card_last(w)
+    prestate_reminder_draft(w)
+
+
+def prestate_aceite37_write_and_card_not_last(w):
+    prestate_card_last(w)
+    prestate_write_draft_title(w)
+
+
+def prestate_aceite37_file_card_last(w):
+    prestate_card_last(w)
+    prestate_attachment_held(w)      # the file's card ("what do I do with it?") is the last message and the decision card is not
+
+
+def prestate_aceite37_event_list_and_card(w):
+    prestate_card_last(w)
+    prestate_event_list_shown(w)      # "more than one event fits, which one?" is the last message and the decision card is not
+
+
+def prestate_aceite37_event_list_then_reminder(w):
+    prestate_card_last(w)
+    prestate_event_list_shown(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)      # a reminder delivered after the list: the list is no longer the last message and asks nothing
+
+
+def prestate_aceite37_file_list_and_card(w):
+    prestate_card_last(w)
+    prestate_file_list_shown(w)      # the list of files is the last message and the decision card is not
+# --- end of the ACEITE-37 block ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ACCOUNTS = {name: {**tcw.ACCOUNTS[name], "folders": DRIVE_ACCOUNTS[name]["folders"]} for name in tcw.ACCOUNTS}      # the calendar's accounts and the drives' folders, one entry each
 
 REMINDER_LINE = "me lembra de ligar para o dentista"      # validate: allow english-only -- the Portuguese line under test
@@ -778,7 +850,7 @@ def trace_claimers(monkeypatch):
     wrap(monkeypatch, bridge.remind.Reminders, "answer", bridge_event(0), "truthy", "reminder-draft-answer")
     wrap(monkeypatch, bridge.remind.Reminders, "late", bridge_event(0), "truthy", "reminder-expired-yes")
     wrap(monkeypatch, bridge.Bridge, "write_answers", bridge_event(0), "truthy", "write-draft-answer")
-    for kind in ("plan-confirm", "decision-card-word", "research-run", "decision-card-revise"):      # S41-8: the call of the kind, what `plan_line`, `word_line`, `research_stop_line` and `revise_line` were
+    for kind in ("plan-confirm", "decision-card-word", "research-run", "decision-card-again", "decision-card-revise"):      # S41-8: the call of the kind, what `plan_line`, `word_line`, `research_stop_line` and `revise_line` were
         wrap(monkeypatch, messaging_turn.KINDS[kind], "take", bridge_event(0), "truthy", FRAME_KIT_NAMES[kind])
     wrap(monkeypatch, bridge.Bridge, "project_line", bridge_event(0), "truthy", "project-switch")
     wrap(monkeypatch, bridge.Bridge, "greets", ("fact", "greets_false"), "false")      # "help" in words is the fixed help only when the line is no greeting

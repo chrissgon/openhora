@@ -52,11 +52,11 @@ def test_the_table_is_a_tuple_of_rows_with_unique_names_and_every_row_has_code_a
     for stage in turn_order.STAGES:
         found = turn_order.names(stage)
         assert isinstance(found, tuple) and found and found[-1] == FINAL[stage], f"the last row of {stage} is the one that always takes the line"
-    assert {row["name"] for row in turn_order.RETIRED} == {"s20-verb-lists", "write-form", "write-form-ops", "say-natural"} | set(FRAME_TRACE), "one claimer left before the table existed (S41-3), the seven of the frame left in S41-8; S41-11 adds its own, each with its replacement"
+    assert {row["name"] for row in turn_order.RETIRED} == {"s20-verb-lists", "write-form", "write-form-ops", "say-natural"} | (set(FRAME_TRACE) - {"card-again"}), "one claimer left before the table existed (S41-3), the seven of the frame left in S41-8; S41-11 adds its own, each with its replacement"
 
 
 def read_as_claimers(names) -> tuple:
-    """The names of the rows of the stage `bridge`, the row `frame` read as the seven claimers it took over (the names of the kit and the golden), in the order of the kinds."""
+    """The names of the rows of the stage `bridge`, the row `frame` read as the claimers it took over (seven since S41-8, and the eighth kind of ACEITE-37; the names of the kit and the golden), in the order of the kinds."""
     return tuple(claimer for name in names for claimer in (FRAME_TRACE if name == FRAME_ROW else (name,)))
 
 
@@ -65,7 +65,7 @@ def test_the_bridge_names_are_the_ones_of_the_entry_kit_in_the_same_order():
     assert turn_order.names("bridge-say") == ek.BRIDGE_SAY_NAMES
     assert read_as_claimers(turn_order.names("bridge")) + turn_order.names("bridge-say") == tuple(n for n in ek.CLAIMER_NAMES if n in ek.BRIDGE_NAMES + ek.BRIDGE_SAY_NAMES)
     assert len(turn_order.names("bridge")) == 23 and len(turn_order.names("bridge-say")) == 4, "31 rows before S41-8, the seven of the frame replaced by one, and S41-11 took `write-form` and `say-natural` out"
-    assert turn_order.names("bridge").count(FRAME_ROW) == 1 and len(FRAME_TRACE) == 7
+    assert turn_order.names("bridge").count(FRAME_ROW) == 1 and len(FRAME_TRACE) == 8
 
 
 def test_the_frame_kinds_are_unique_each_has_code_and_the_retired_claimers_name_the_frame():
@@ -73,13 +73,13 @@ def test_the_frame_kinds_are_unique_each_has_code_and_the_retired_claimers_name_
     the seven claimers they replace are retired with the frame as their replacement and a date (L63(3): a claimer is never dropped silently); the project switch, the help in words and the line about a
     file just sent are not answers to what is open and stay rows of their own."""
     names = [kind["name"] for kind in turn_order.FRAME_KINDS]
-    assert len(names) == len(set(names)) == 7 and turn_order.kinds() == tuple(names)
+    assert len(names) == len(set(names)) == 8 and turn_order.kinds() == tuple(names)
     assert all(kind["what"].strip() for kind in turn_order.FRAME_KINDS)
     assert set(messaging_turn.KINDS) == set(names), "every kind has its code, and no code is without a kind"
     assert all(callable(kind.applies) and callable(kind.take) for kind in messaging_turn.KINDS.values())
-    assert set(ek.FRAME_KIT_NAMES) == set(names) and len(set(ek.FRAME_KIT_NAMES.values())) == 7
+    assert set(ek.FRAME_KIT_NAMES) == set(names) and len(set(ek.FRAME_KIT_NAMES.values())) == 8
     retired = {row["name"]: row for row in turn_order.RETIRED}
-    for claimer in FRAME_TRACE:
+    for claimer in set(FRAME_TRACE) - {"card-again"}:      # ACEITE-37: the eighth kind never was a row, so it is not retired
         assert retired[claimer]["replaced_by"] == turn_order.FRAME_REPLACEMENT and "FRAME_KINDS" in turn_order.FRAME_REPLACEMENT and retired[claimer]["date"] == "2026-10-26"
         assert claimer not in turn_order.names("bridge"), f"{claimer} is no row any more"
     assert turn_order.names("bridge")[turn_order.names("bridge").index(FRAME_ROW) + 1:][:3] == ("project-switch", "help-in-words", "attachment-line")
@@ -117,7 +117,7 @@ def test_the_table_imports_only_the_standard_library():
 def test_the_dispatcher_imports_no_operations_module():
     """The layer map (scripts/tests/test_layer_map.py) says it too; the names are checked here, where the reader looks."""
     found = imported(RUNTIME / "messaging_turn.py")
-    assert found == {"__future__", "card_words", "command_words", "greeting", "messaging_inbound", "messaging_provider", "natural", "phone_delete", "turn_order"}, found
+    assert found == {"__future__", "card_words", "command_words", "greeting", "messaging_inbound", "messaging_provider", "natural", "natural_writes", "phone_delete", "turn_order"}, found
     assert not {name for name in found if name.startswith("ops") or name in ("operations", "shell_kit", "messaging_bridge")}
 
 
@@ -262,7 +262,7 @@ def test_every_row_is_load_bearing_disabling_it_changes_a_scenario(name, tmp_pat
 
 
 def test_the_row_frame_is_load_bearing_and_each_of_its_kinds_is_too(tmp_path):
-    """The row `frame` stands for seven claimers: with the whole row disabled, a line each of them takes in the golden changes an outcome (the corpus names those lines by the kit's names for the
+    """The row `frame` stands for seven claimers and the eighth kind of ACEITE-37: with the whole row disabled, a line each of them takes in the golden changes an outcome (the corpus names those lines by the kit's names for the
     claimers). One kind at a time, and the order of two neighbouring kinds, are runtime/tests/test_frame_dispatch.py."""
     for claimer in FRAME_TRACE:
         scenarios = lines_of(claimer, 8)

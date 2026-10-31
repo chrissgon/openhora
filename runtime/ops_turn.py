@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import sys
 
+import card_words
 import drafts
 import event_lookup
 import greeting
@@ -122,9 +123,16 @@ def greeting_row(project, ctx, said, channel, sender, extras, state):
     return None
 
 
+def _bare_plan_kind(said):
+    """"yes" or "no" for a bare word that answers the question "Posso?", else None. A no in question form ("nao?") asks something and drops nothing, so it is no no here (ACEITE-37, limit L64): it goes on to
+    the model, and the plan waits. A yes in question form keeps the sentence PLAN_NOT_LAST, which keeps the plan too."""
+    kind = natural.confirm_kind(said)
+    return None if kind == "no" and card_words.question_form(said) else kind
+
+
 def plan_bare_word(project, ctx, said, channel, sender, extras, state):
     if channel == "messaging" and plan_confirm.live(project, sender) is not None:      # D5: a bare yes or no that the bridge did not take as the answer to the question it was shown for (it was not the last message, or no reply to it): never an OK, and no model reads it
-        kind = natural.confirm_kind(said)
+        kind = _bare_plan_kind(said)
         if kind == "yes":
             extras["plan_keep"] = True
             return _plain(phrases.text("PLAN_NOT_LAST", ctx["cfg"]))
@@ -380,7 +388,7 @@ def _deletes_a_file(ctx, said, channel, sender, plan_before) -> bool:
 
 
 def _bare_plan_word(ctx, said, channel, sender, plan_before) -> bool:
-    return bool(plan_before and natural.confirm_kind(said) is not None)      # D5: a yes or a no with a live plan is answered by code (`plan-bare-word`), never queued
+    return bool(plan_before and _bare_plan_kind(said) is not None)      # D5: a yes or a no with a live plan is answered by code (`plan-bare-word`), never queued
 
 
 # `_form_or_draft` stands for TWO rows at once (`draft-answer`, `tier-1-form`) since S41-11 took `write-form-ops` out: it asks `ops_natural.peek`, which answers for both together (a decision said in
