@@ -725,7 +725,7 @@ _CORE_EN = (
         "MC_REPLY_NOT_WORDED": "I could not word this reply, so the card shows your own words as you wrote them. Check the text before you approve.",
         "MC_ASK_BODY": "What should the e-mail to {to} say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with \"exact text:\".",
         "RV_FAILED": "I could not make that change. Say it another way, or reject the card.",
-        "RV_RECIPIENTS": "I cannot change who receives an e-mail by editing its card. Reject this card and ask for a new e-mail to the right person.",
+        "RV_RECIPIENTS": "I can change who receives this e-mail only when this card has one recipient and the line holds just the request and the whole new address, with no name, copy or other change. The card stays as it was.",
         "RV_NOT_REVISABLE": "To change this card, reject it and ask again.",
         "RV_DONE_MAIL": "Done: here is the e-mail with your change. The previous card no longer works; approve or reject this one.",
         "RV_DONE_EVENT": "Done: here is the event with your change. The previous card no longer works; approve or reject this one.",

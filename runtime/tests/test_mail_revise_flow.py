@@ -8,7 +8,8 @@ Held here:
   * the live line of 2026-10-22 on the live card: the card ended with "Atenciosamente,", the line asks for a name after it, and a NEW card opens with the name after the closing, the same
     From, the same To; the old card can never be approved (its hash is refused) and nothing is sent;
   * a model answer that adds an address or a link, that does not hold a quoted text of the line, that is not valid, or a failed call: one plain sentence, the old card still open, no new card;
-  * a line that asks to change who receives the e-mail: one sentence, no model call, no new card; the recipients and the account of a new card are the old card's, always;
+  * a line that asks to change who receives the e-mail and that the model does not answer with the one address the person typed (a name, an add, a copy, a second change): one sentence, one model call, no new card;
+    the account and the recipients of a text change are the old card's, always (a recipient typed in the line has its own file, test_mail_card_recipient.py);
   * a line code recognises as a request, a word that decides the card, a changed card (another hash), a sender who is not read by the interpreter, and a prompt that is no longer the pinned
     one are not a change; a line that changes nothing and asks for nothing goes on;
   * nothing of the instruction, the subject or the body is logged or printed.
@@ -237,9 +238,22 @@ def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_neve
 
 
 def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_words_and_goes_on(world, clock, monkeypatch):
-    model, old, sha = live_card(world, monkeypatch)
+    """The old test of this name, true again with one difference: the line now reaches the model (one call) because it holds an address, the model answers an empty recipient, and the line goes on to its
+    own path with the card open and not a word about the recipients (mail-card-recipient, 2026-10-30)."""
+    model, old, sha = live_card(world, monkeypatch, revise=json.dumps({"recipient": ""}))
     assert revise(world, old, sha, "Envie um email para ana@client.example. Quero marcar uma reuniao") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
-    assert model.of("revise") == [] and open_cards(world) == [old]
+    assert len(model.of("revise")) == 1 and open_cards(world) == [old] and status(world, old) == "open"
+
+
+def test_an_address_in_a_line_on_an_e_mail_card_reaches_the_model_whatever_its_words_and_a_model_that_answers_the_card_back_gets_the_recipients_sentence(world, clock, monkeypatch):
+    """mail-card-recipient (2026-10-30): a person's request is read by the model, so a line that holds a whole address outside quotes reaches it on a mail card; here the model finds nothing to change
+    in "a new request in free words" and answers the card back; the line holds an address the card does not hold, so the recipients sentence is said (a text answer cannot apply a new recipient), and the
+    card stays as it was (before, the line went on to its own path without a word of the model)."""
+    model, old, sha = live_card(world, monkeypatch, revise=COMPOSE)      # the card back as it was
+    line = "Envie um email para ana@client.example. Quero marcar uma reuniao"      # validate: allow english-only -- the Portuguese line under test
+    assert check(world, old, sha, line) == "mail"
+    got = revise(world, old, sha, line)
+    assert reply_is(got, RECIPIENTS, old) and len(model.of("revise")) == 1 and open_cards(world) == [old] and status(world, old) == "open"
 
 
 # --- the recipients and the account are the old card's -------------------------------------------------------------------------------------------------
@@ -247,18 +261,21 @@ def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_w
 
 @pytest.mark.parametrize("line", ["Mande para outra@elsewhere.example em vez da Joana", "Mude o destinatário para a Ana", 'Troque o destinatário e coloque "Renato Bragança" no fim', "Add a Cc to the boss",      # validate: allow english-only -- the Portuguese and English lines under test
                                   "Change the recipient to Ana"])
-def test_a_line_that_asks_to_change_who_receives_the_e_mail_gets_one_sentence_and_no_model_call_and_no_card(world, clock, monkeypatch, line):
-    model, old, sha = live_card(world, monkeypatch)
+def test_a_line_about_who_receives_the_e_mail_that_the_model_answers_with_no_address_gets_one_sentence_and_no_card(world, clock, monkeypatch, line):
+    """L63 (2026-10-30): the model reads the line (one call); its answer `{"recipient": ""}` is a request code does not carry out, so the sentence is said and the old card stays open."""
+    model, old, sha = live_card(world, monkeypatch, revise=json.dumps({"recipient": ""}))
     got = revise(world, old, sha, line)
     assert reply_is(got, RECIPIENTS, old), got
-    assert model.of("revise") == [] and open_cards(world) == [old] and status(world, old) == "open"
+    assert len(model.of("revise")) == 1 and open_cards(world) == [old] and status(world, old) == "open"
     nothing_sent(world)
 
 
 def test_vacuity_a_quoted_word_that_looks_like_a_recipient_word_is_not_a_request_to_change_it(world, clock, monkeypatch):
     _, old, sha = live_card(world, monkeypatch, revise=hostile(CLOSED + "\nDestinatário: eu"))      # the quoted text is the person's own
-    assert mail_revise.asks_recipients('Após "Atenciosamente," coloque "Prezado destinatário"') is False      # validate: allow english-only -- the Portuguese line under test
-    assert mail_revise.asks_recipients("Mude o destinatário") is True
+    assert mail_revise.recipient_words('Após "Atenciosamente," coloque "Prezado destinatário"') is False      # validate: allow english-only -- the Portuguese line under test
+    assert mail_revise.recipient_words("Mude o destinatário") is True
+    assert mail_revise.typed_recipient("ana@y.example", 'Após "Atenciosamente," coloque "ana@y.example"', [ADDRESS]) is None, "an address inside a quoted text is text, never the new recipient"      # validate: allow english-only -- the Portuguese line under test
+    assert mail_revise.typed_recipient("ana@y.example", "Mude o destinatário para ana@y.example", [ADDRESS]) == "ana@y.example", "vacuity: the same address typed outside quotes is the new recipient"      # validate: allow english-only -- the Portuguese line under test
 
 
 def test_the_new_card_keeps_the_recipients_and_the_account_even_when_the_model_names_others(world, clock, monkeypatch):
@@ -282,7 +299,7 @@ def test_a_line_code_recognises_a_word_that_decides_a_card_a_command_and_a_greet
     assert check(world, old, sha, INSTRUCTION) == "mail", "vacuity: the live line is one"
 
 
-NOT_INSTRUCTIONS = ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta", "Envie um email para ana@client.example. Quero marcar uma reuniao"]      # validate: allow english-only -- the Portuguese lines under test
+NOT_INSTRUCTIONS = ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta"]      # validate: allow english-only -- the Portuguese lines under test
 
 
 @pytest.mark.parametrize("line", NOT_INSTRUCTIONS)

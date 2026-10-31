@@ -229,3 +229,32 @@ def test_a_reply_to_a_card_that_a_change_replaced_is_told_so_in_one_sentence_and
     revise.found = None
     world.say(LINE, reply_to=message_ids(world)[0])      # the layer says it is nothing: it goes on as it always did
     assert went_to_say(world)
+
+
+RECIPIENT_LINE = "troca o destinatário para outra.pessoa@example.com"      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_a_recipient_line_follows_the_same_rule_of_which_card(world):
+    """mail-card-recipient (limit L63): a line that asks for another recipient is asked of the card it is about by the same rule as any line (the bridge does not read the line, messaging_bridge.py
+    `revise_waiting`): a typed line after the card, and a reply to an older card, are asked of that card; a forward and a line after another message are not."""
+    mail_card(world, 7)
+    revise = Revise(world)
+    world.say(RECIPIENT_LINE)
+    assert wait_for(lambda: revise.changes) and revise.checks == [(7, HASH, RECIPIENT_LINE, "messaging", KEY)] and revise.changes == [(7, HASH, RECIPIENT_LINE, "messaging", KEY)]
+    assert settle(world)
+    world.items[9] = effect(9, sha="d" * 64)
+    world.bridge.tick()
+    first = message_ids(world)[0]
+    world.say(RECIPIENT_LINE, reply_to=first)      # a reply to the older card, which is no longer the last message
+    assert wait_for(lambda: len(revise.changes) == 2) and revise.checks[1][:2] == (7, HASH) and revise.changes[1][:2] == (7, HASH), "that card is the one asked, not the newer one"
+    assert settle(world)
+    asked = len(revise.checks)
+    world.say(RECIPIENT_LINE, forwarded=True)
+    assert len(revise.checks) == asked and len(revise.changes) == 2, "a forward is never asked"
+    revise.found = None
+    world.say("hello there")      # a message after the card: the card is no longer the last one
+    assert wait_for(lambda: world.texts()[-1] == "Noted.")
+    revise.found = "mail"
+    before = len(revise.checks)
+    world.say(RECIPIENT_LINE)
+    assert len(revise.checks) == before and len(revise.changes) == 2, "a line after another message is not asked either"

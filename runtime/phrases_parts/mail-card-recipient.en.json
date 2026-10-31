@@ -1,0 +1,6 @@
+{
+ "package": "mail-card-recipient",
+ "table": {
+  "RV_DONE_RECIPIENT": "Done: here is the e-mail to the new recipient. The previous card no longer works; approve or reject this one."
+ }
+}

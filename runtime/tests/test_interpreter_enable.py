@@ -52,7 +52,11 @@ BL73_STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: d
 CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
                "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge")      # the entry of package CB-9; the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
 assert len(CB9_STATUS_LINE) <= 600
-STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the newest entry (package LUNA-ENABLE): the entry of CB-9 and the outage path
+LUNA_STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the entry of package LUNA-ENABLE: the entry of CB-9 and the outage path
+assert len(LUNA_STATUS_LINE) <= 600
+RECIPIENT_STATUS_LINE = LUNA_STATUS_LINE + "; the revise prompt re-pinned 2026-10-30 (a recipient typed in the line)"      # the first entry of package mail-card-recipient: the entry of LUNA-ENABLE and the second answer form of the revise prompt
+assert len(RECIPIENT_STATUS_LINE) <= 600
+STATUS_LINE = LUNA_STATUS_LINE + "; revise prompt re-pinned 2026-10-30 (recipient in the line, 2nd text)"      # the newest entry: the first paid proof of the text above failed and rule 3 was reworded
 assert len(STATUS_LINE) <= 600
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
@@ -90,7 +94,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-28" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-30" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -118,15 +122,26 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    cb9 = doc["entries"][-2]
+    cb9, luna, first_recipient = doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-3] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-5] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
-    # LUNA-ENABLE: the newest entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
-    assert {key for key in entry if entry.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the newest entry changes the reason and the status line and adds `fallback`; every pin stands as decided"
-    assert entry["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": entry["fallback"][0]["measured"]}] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
-    assert "20261028T201315Z-daa387c8" in entry["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in entry["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in entry["fallback"][0]["measured"]
+    # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the text fields
+    assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28" and {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
+    assert luna["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": luna["fallback"][0]["measured"]}] and len(luna["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "20261028T201315Z-daa387c8" in luna["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in luna["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in luna["fallback"][0]["measured"]
+    # mail-card-recipient, first text: its entry copies every pin of the entry of LUNA-ENABLE, the outage path included, and re-pins the revise prompt; the interpreter's own hashes, the compose prompt and the fallback stand
+    assert first_recipient["status_line"] == RECIPIENT_STATUS_LINE and first_recipient["date"] == "2026-10-30"
+    assert {key for key in first_recipient if first_recipient.get(key) != luna.get(key)} == {"date", "reason", "status_line", "revise_prompt_sha256"}, "the entry changes the date, the reason, the status line and the revise prompt's pin, and nothing else"
+    assert {key: first_recipient[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and first_recipient["fallback"] == luna["fallback"]
+    assert first_recipient["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"] and len(first_recipient["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "Tudo que for um pedido do humano vamos sempre preferir o modelo responder" in first_recipient["reason"] and "interpreter's own hashes" in first_recipient["reason"]
+    # mail-card-recipient, second text: the first paid proof of the first text failed (principle 10: its figures are in the entry and the decision file), rule 3 was reworded, and the newest entry re-pins the prompt again and nothing else
+    assert entry["date"] == "2026-10-30" and {key for key in entry if entry.get(key) != first_recipient.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
+    assert {key: entry[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and entry["fallback"] == luna["fallback"] and entry["compose_prompt_sha256"] == luna["compose_prompt_sha256"]
+    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v2"] != first_recipient["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "failed" in entry["reason"] and "A 30/33, B 27/33, C 21/30, D 12/15" in entry["reason"] and PINNED_HASHES["revise_prompt_recipient"][:8] in entry["reason"], "the entry says that the first proof failed, with its figures and the prompt it measured"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
@@ -134,7 +149,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-28", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-30", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
 
@@ -185,7 +200,7 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-28" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-10-30" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 
