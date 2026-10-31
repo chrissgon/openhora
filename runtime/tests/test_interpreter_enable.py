@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -136,6 +137,19 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert {key for key in entry if entry.get(key) != luna.get(key)} == {"date", "reason", "status_line", "event_card_prompt_sha256"}, "the newest entry adds the event card pin; every other pin and the outage path stand as decided"
     assert entry["fallback"] == luna["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in luna
     assert "RESULT-CARD-MODEL" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
+
+
+@pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
+def test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges():
+    """The reason of the event card entry says "RESULT-CARD-MODEL-<date>" while the measurement is pending. This test is red until the date of the run is written there: the marker cannot merge unfilled."""
+    reason = committed()["entries"][-1]["reason"]
+    assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-CARD-MODEL-YYYY-MM-DD)"
+
+
+def test_the_marker_gate_reads_the_reason_and_the_dates_of_the_entries_are_in_order(tmp_path):
+    entries = committed()["entries"]
+    assert [e["date"] for e in entries] == sorted(e["date"] for e in entries), "`load` raises on an entry dated before the one above it, and the interpreter goes off for everyone"
+    assert "<date>" in variant(tmp_path, "pending.json", reason="Measured on this PR's head before merge (RESULT-CARD-MODEL-<date>).").read_text(encoding="utf-8"), "control: the marker form the gate refuses"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():

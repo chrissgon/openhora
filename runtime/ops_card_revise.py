@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import re
 import sys
 import threading
 import time
@@ -101,15 +102,40 @@ def forget_all() -> None:
         _decided.clear()
 
 
+# The words of a line that says where an event ends or how long it lasts, folded, in the six languages: with the small words below and a time, nothing else. A closed list: a line with any other word
+# ("tomar remedio as 22h", "call Ana at 5pm") is a reminder said with a bare time, and a reminder never reaches a prompt (L51).
+END_WORDS = frozenset(("vai ate termina terminar acaba acabar dura durar fim fica ficar ends end ending until till lasts last finish finishes runs hasta jusqu finit termine dure bis endet dauert dauern ende "      # validate: allow english-only -- the closed words of six languages
+                       "fino finisce").split())
+SMALL_WORDS = frozenset("a as o os ao em no na de do da um uma it its the at to by for el la las los le les l und alle ore hora horas heures heure uhr stunden h il ele ela elle er es ca ce".split())
+
+
+def _closed_end(line: str) -> bool:
+    """Whether the words of the line outside its numbers are in the closed list of an end or a length, with at least one word of the list ("vai ate as 17h", "it ends at 5pm")."""
+    words = [w for w in re.findall(r"[a-z0-9]+", mail_revise._fold(line))]
+    rest = [w for w in words if not any(c.isdigit() for c in w)]
+    return bool(rest) and any(w in END_WORDS for w in rest) and all(w in END_WORDS or w in SMALL_WORDS for w in rest)
+
+
 def _recognised(ctx: dict, line: str, sender, event: bool = False) -> bool:
-    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event a reminder said with a bare time ("vai ate as 17h",
-    "termina as 14h") is about the card: it reaches the model that sees the card."""
+    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event a bare time that only says where the event ends or how long
+    it lasts ("vai ate as 17h", "it ends at 5pm": `_closed_end`) is about the card and reaches the model that sees the card; every other reminder said with a bare time stays a reminder (L51)."""
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
     # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
     # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
     new = turn_gate.new_request(line)
-    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new == "bare"))
+    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new == "bare" and _closed_end(line)))
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
+
+
+def reaches_event_card(ctx: dict, text: str, sender) -> bool:
+    """Whether a plain line sent after the card of an event can reach the model that sees the card: the checks of `_taken` that read only the line (a card word, a question about the state, a greeting, and
+    something code takes as its own that is not the change itself). The measurement uses it to keep out a line the product never sends to a prompt; the test of the dev set holds it equal to `card_revise_check`."""
+    if not isinstance(text, str) or text.lstrip().startswith("/"):
+        return False
+    line = mail_revise.clean(text)
+    if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
+        return False
+    return not _recognised(ctx, line, sender, event=True) or _is_event_change(line)
 
 
 def _is_event_change(line: str) -> bool:

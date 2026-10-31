@@ -154,6 +154,23 @@ def target_is_another(spans: dict, doc: dict) -> bool:
     return any(not any(c.isdigit() for c in word) for word in _words(spans.get("target")) - own - STOP)
 
 
+def day_is_another(spans: dict, doc: dict, now) -> bool:
+    """Whether the model gave a `day` (the day the event is on now) that is not the card's own date: another event. A day the time engine cannot read counts as another: the line then goes on and is asked."""
+    span = spans.get("day")
+    if not isinstance(span, str) or not span.strip():
+        return False
+    try:
+        card_day = datetime.date.fromisoformat(str(doc["event"].get("start"))[:10])
+    except ValueError:
+        return False
+    kind, value = event_lookup._day_named(span, now)
+    if kind == "day":
+        return value != card_day
+    if kind == "weekday":
+        return value != card_day.weekday()
+    return True
+
+
 def _unchanged(old: dict, new: dict, place=None) -> bool:
     """Whether the parts of an event the line did not name are the old card's (an empty text is none); the place is the old card's unless the line gave a new one."""
     return ((new.get("location") or None) == (place or old.get("location") or None)
@@ -161,15 +178,22 @@ def _unchanged(old: dict, new: dict, place=None) -> bool:
 
 
 def _grounded(value, line: str, old) -> bool:
-    """Whether a text the line does not hold as written is the old text changed by the line: every word it adds is a word of the line, and a word it adds or takes out is one the line says."""
+    """Whether a text the line does not hold as written is the old text changed by the line: every word it adds and every word it takes out is a word of the line, and one of them is a word the line says
+    that is not a small word of `STOP` ("muda para as 10h" does not take "para" out of "Consulta para Ana")."""
     new, was, said = _words(value), _words(old), _words(line)
-    return bool(new) and new - was <= said and bool(((new - was) | (was - new)) & said)
+    added, removed = new - was, was - new
+    return bool(new) and added <= said and removed <= said and bool((added | removed) & (said - STOP))
+
+
+def _only_small_words(text) -> bool:
+    """Whether a span is made of the small words of `STOP` alone: no title, no place and no length."""
+    return not (_words(text) - STOP)
 
 
 def _text_part(value, line: str, old):
     """(the text without its quotation marks and stray punctuation, its origin) of a new title or place: a piece of the line is `line-span`; else `card-words` when `_grounded`; else None."""
     text = _unquote(value).strip(" :;,-") if isinstance(value, str) else ""
-    if not text or len(text) > 200:
+    if not text or len(text) > 200 or _only_small_words(text):
         return None
     if text in " ".join(line.split()):
         return text, "line-span"
@@ -187,21 +211,21 @@ def _parts(slots: dict, line: str, doc: dict):
             out[name], out[name + "_origin"] = got
     if ("duration" in slots) != ("end" in slots):
         return None
-    if "end" in slots and not (isinstance(slots["duration"], str) and isinstance(slots["end"], str) and interpreter._span_in_line(slots["duration"], line) and interpreter.TIME_RE.fullmatch(slots["end"])):
+    if "end" in slots and not (isinstance(slots["duration"], str) and isinstance(slots["end"], str) and not _only_small_words(slots["duration"]) and interpreter._span_in_line(slots["duration"], line) and interpreter.TIME_RE.fullmatch(slots["end"])):
         return None
     return dict(out, end=slots["end"]) if "end" in slots else out
 
 
 def _cleaned(obj, line: str, lookup, doc: dict):
     """(the model's object read as a change of the card, its parts), or None: an `event-change` or an `event-create` (only when the line's own leading verb is a verb that changes) keeps its
-    `time` and `target` slots and loses `event`, `calendar`, `service` and every other slot (its title, place and end are the parts, checked by `_parts`); a clarify of `event` is a change with no
+    `time`, `target` and `day` slots and loses `event`, `calendar`, `service` and every other slot (its title, place and end are the parts, checked by `_parts`); a clarify of `event` is a change with no
     slot. The check of the interpreter then decides, as for any line."""
     if not isinstance(obj, dict):
         return None
     if obj.get("kind") == "op" and obj.get("op") in ("event-change", "event-create") and isinstance(obj.get("slots"), dict):
         if obj["op"] == "event-create" and lookup.verb_op(line) != "event-change":
             return None
-        slots = {k: v for k, v in obj["slots"].items() if k in ("time", "target")}
+        slots = {k: v for k, v in obj["slots"].items() if k in ("time", "target", "day")}
         parts = _parts(obj["slots"], line, doc)
         if parts is None:
             return None
@@ -261,6 +285,24 @@ def _day_only(span, line: str, doc: dict, now):
     return {"local": value.isoformat() + "T" + start[11:], "source": "code"}
 
 
+def _model_clock(decision: dict, obj, doc: dict, now) -> dict:
+    """A bare clock with no am or pm ("muda para as 9h" on a card at 19:00): when the engine's reading and the model's `time_iso` differ by exactly 12 hours on the clock, the model's reading wins, because the
+    model saw the card; the day stays the card's (a line that names no day) or the engine's. Any other disagreement stays as the checks left it."""
+    time_ = decision.get("time")
+    if not (decision.get("time_disagree") and isinstance(time_, dict) and time_.get("source") == "code" and isinstance(obj, dict)):
+        return decision
+    iso, local = obj.get("time_iso"), time_.get("local")
+    if not (isinstance(iso, str) and isinstance(local, str) and interpreter.TIME_RE.fullmatch(iso) and interpreter.TIME_RE.fullmatch(local)):
+        return decision
+    if abs((int(iso[11:13]) * 60 + int(iso[14:16])) - (int(local[11:13]) * 60 + int(local[14:16]))) != 720:
+        return decision
+    named = event_lookup._day_named((decision.get("spans") or {}).get("time") or "", now)[0]
+    day = str((doc["event"].get("start") or ""))[:10] if named == "none" else local[:10]
+    if len(day) != 10:
+        return decision
+    return dict(decision, time={"local": day + iso[10:16], "source": "model"}, time_disagree=False)
+
+
 def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     """The decision for the model's text about a line sent after the card of an event: pure (no call, no clock, no store), so that the measurement reads the answers with the product's own code.
     The card names the event, so the slot `event` (a title, a day, a number the line does not hold), an answer `event-create`, extra slots and a clarify of `event` do not make the line a new
@@ -270,7 +312,7 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     strict = ops_interpret.decide(line, text, now, zone, allowed)
     if strict.get("kind") == "op" and strict.get("op") == "event-change":
         slots = obj.get("slots") if isinstance(obj, dict) else None
-        return dict(strict, parts=(_parts(slots, line, doc) if isinstance(slots, dict) else None) or {})
+        return dict(_model_clock(strict, obj, doc, now), parts=(_parts(slots, line, doc) if isinstance(slots, dict) else None) or {})
     if strict.get("kind") not in ("clarify",):
         if strict.get("kind") == "op" and strict.get("op") == "event-create" and event_lookup.verb_op(line) == "event-change":
             pass      # read below as a change
@@ -282,11 +324,11 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     if cleaned is not None:
         again = interpreter.check(cleaned[0], line, None, interpreter.SERVED, now, zone, allowed)
         if again.get("kind") == "op" and (again.get("spans") or again.get("time") or cleaned[1]):
-            return dict(again, parts=cleaned[1])
+            return dict(_model_clock(again, obj, doc, now), parts=cleaned[1])
         if again.get("kind") == "clarify" and str(again.get("why", "")).startswith("time"):
             day = _day_only(cleaned[0]["slots"].get("time"), line, doc, now)
-            if day is None:
-                return again
+            if day is None or target_is_another(cleaned[0]["slots"], doc) or day_is_another(cleaned[0]["slots"], doc, now):
+                return again      # a day alone on a line about another event would take THIS card's hour for the other event: asked
             return {"kind": "op", "error": None, "op": "event-change", "args": {}, "spans": dict(cleaned[0]["slots"]), "time": day, "inherited": [], "time_disagree": False, "parts": cleaned[1]}      # the slots kept are `time` and `target`: a day alone on a line about another event must not move this card
     coded = _from_code(line, now, zone, interpreter, event_lookup)
     return coded if coded is not None else ops_interpret.lenient(line, text, strict, now, zone, allowed)      # what is not a change of the card is read as any line is (S16)
@@ -318,13 +360,17 @@ def change_of(decision: dict, line: str, doc: dict, now, zone: str):
     ("say", the phrase key) when the person is asked or told, ("change", {"title", "place", "start", "end", "account", "time", "parts"}) with the parts that change (None for a part that stays).
     The order of the checks is the order in which a card is made: the measurement reads the same function."""
     spans, time_, parts = decision.get("spans") or {}, decision.get("time"), decision.get("parts") or {}
-    if (decision.get("kind") != "op" or decision.get("op") != "event-change" or target_is_another(spans, doc)
+    if (decision.get("kind") != "op" or decision.get("op") != "event-change" or target_is_another(spans, doc) or day_is_another(spans, doc, now)
             or (decision.get("from_code") and names_another(line, spans, doc))):
         return "pass", None
     title = parts.get("title") or (_unquote(spans["title"]) if spans.get("title") else None)
     if title is not None and (not title or title == doc["event"].get("title")):
         title = None
-    account = event_lookup.account_named(line, spans.get("title")) if doc["operation"] == "create" else None
+    seen = line
+    for key in ("title", "place"):
+        if parts.get(key):
+            seen = seen.replace(parts[key], " ")      # the brand of a service inside a new title or place ("o escritorio no Outlook") is not the account word of the line
+    account = event_lookup.account_named(seen, spans.get("title")) if doc["operation"] == "create" else None
     account = None if account == doc["account"] else account
     place = parts.get("place")
     place = None if place == doc["event"].get("location") else place
