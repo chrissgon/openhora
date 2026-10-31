@@ -20,6 +20,8 @@ from test_calendar_write import world  # noqa: F401  (the calendar world and its
 from test_mail_list_account import ASKING, accept, boxes, call, clock, listed, live, mail_reads, next_line, snaps  # noqa: F401  (fixtures and helpers of the list tests)
 
 item_refs = st.load("item_refs")
+ops_natural = st.load("ops_natural")
+ops_mail_read = st.load("ops_mail_read")
 ops_file_ask = st.load("ops_file_ask")
 
 PROFILES = {"asking": ["read", "talk", "ask", "ask-mail", "read-mail-body", "interpret"]}      # may ask a question about one e-mail (and read one: the last test); holds no confirm-reads-off
@@ -138,6 +140,10 @@ def test_a_number_no_message_can_have_is_asked_again_before_any_plan(two_boxes, 
     listed(two_boxes, 0)
     next_line(two_boxes)
     assert call(two_boxes, f"resume o {number}", {"number": number}, name="mail-ask")[0] == WHICH, "also right after a list, before the binding"
+
+
+def test_the_range_of_run_is_the_range_the_typed_command_takes():
+    assert ops_natural.MAIL_NUMBER_MAX == ops_mail_read.NUMBER_MAX == 9999
 
 
 def test_the_edges_of_the_range_are_planned(two_boxes, snaps):

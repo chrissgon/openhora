@@ -69,6 +69,7 @@ DRAFT_TTL = drafts.TTL       # seconds a question waits for its answer (this spe
 RENDER_MAX = 1800            # characters of a read written for a messaging app
 RENDER_LONG = 6000           # ... and for any other channel
 LIST_MAX = 12                # rows of a list a read writes
+MAIL_NUMBER_MAX = 9999        # the largest message number `mail-read` and `mail-ask` take (runtime/ops_mail_read.py NUMBER_MAX; test_mail_ask_binding.py holds the two equal): a larger one is asked again here, before a plan
 FIELD_MAX = 120              # characters of one value in a row
 monotonic = time.monotonic   # the clock of a question's age (a test replaces it)
 BRIDGE_FORMS = {"attachment-add": "/add {attachment_id}", "attachment-discard": "/discard {attachment_id}"}   # the commands a messaging app has for these
@@ -289,7 +290,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
         args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
-    if name in ("mail-read", "mail-ask") and args.get("number") is not None and (type(args["number"]) is not int or not 1 <= args["number"] <= importlib.import_module("ops_mail_read").NUMBER_MAX):
+    if name in ("mail-read", "mail-ask") and args.get("number") is not None and (type(args["number"]) is not int or not 1 <= args["number"] <= MAIL_NUMBER_MAX):
         return phrases.text("MR_ASK", cfg)      # MAIL-SUMMARY-FLIP review: a number no message can have (0, 12345) is asked again here, before a plan and a yes that would end in a typed-command error (L62)
     if name in ("mail-read", "mail-ask") and not confirmed and args.get("number") is not None and not (args.get("message") or args.get("account") or args.get("service")) and not ops_items._named_account(said):
         listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it (MAIL-ASK-BINDING: a summary of "the 3" after a list is that list's 3, never another box's)
