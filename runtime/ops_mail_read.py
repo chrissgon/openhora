@@ -36,7 +36,8 @@ way round it. By words a single hit is listed, not shown, with a note that a box
 "read 3 from Gmail" is made only for a message that no other box of that account holds (the account's name is the only box word a line carries); what the words cannot tell apart is done on the
 page (a phone) or with `--message <source>#<n>` (the terminal and the page). A day the time engine cannot read, or a message with no recorded time, is told as such (`MR_DAY_UNREAD`) and
 never guessed. After a failed refresh by words the reply carries the note of the old snapshot, as `items` does. KNOWN LIMIT: a list is not pinned to a snapshot version, so a refresh between a list
-(or the which-box sentence) and "read 3 from Gmail" can make the number name another message; the number is read from the newest snapshot, as every reference is (CB-3, finding 7; not fixed here).
+(or the which-box sentence) and "read 3 from Gmail" can make the number name another message; the number is read from the newest snapshot, as every reference is (CB-3, finding 7; not fixed here). N1 (mail-list-account): the sender's NEXT line, within `item_refs.LISTED_S`, that writes a number and names no account means the one mail source the last reply listed with rows, in a project with two or more mail sources
+(`ops_natural.run` binds `message=<source>#<n>` into the plan, so the plan's hash binds it); after a list of every account the which-box sentence stays.
 
 Sibling of runtime/ops.py, which exposes `mail_read` under its name. Standard library only. Runs on Python 3.9: python3 runtime/ops_mail_read.py --help
 """

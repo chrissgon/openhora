@@ -131,8 +131,12 @@ def _bare_plan_kind(said):
 
 
 def plan_bare_word(project, ctx, said, channel, sender, extras, state):
-    if channel == "messaging" and plan_confirm.live(project, sender) is not None:      # D5: a bare yes or no that the bridge did not take as the answer to the question it was shown for (it was not the last message, or no reply to it): never an OK, and no model reads it
+    live = plan_confirm.live(project, sender) if channel == "messaging" else None
+    if live is not None:      # D5: a bare yes or no that the bridge did not take as the answer to the question it was shown for (it was not the last message, or no reply to it): never an OK, and no model reads it
         kind = _bare_plan_kind(said)
+        if live["state"].get("choices") and (kind == "yes" or plan_confirm.choice_of(live, said) is not None):      # mail-list-account: the question asks for an account; a yes names none and a closed word names one, but it is not the last message: the question waits, nothing is read, no model
+            extras["plan_keep"] = True
+            return _plain(phrases.text("PLAN_NOT_LAST_ACCOUNT", ctx["cfg"]))
         if kind == "yes":
             extras["plan_keep"] = True
             return _plain(phrases.text("PLAN_NOT_LAST", ctx["cfg"]))

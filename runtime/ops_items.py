@@ -268,6 +268,60 @@ def items_args(said, now, previous=None, spans=None) -> dict:
     return out
 
 
+def without_named_account(ctx: dict, spans: dict, said) -> dict:
+    """The spans without a `target` that is only the plain name of a mail source whose account the line names too (a line that says "via" and that account's name, with the name as the target): the model's span and code's
+    reading agree, so it is the account and no word filter. Any other span is returned as it is: a lone "Gmail" or "Google" with no account read in the line stays a word filter, and so does "do
+    trabalho" unless a source's id or name holds it (`mailbox_target`)."""
+    target = spans.get("target") if isinstance(spans, dict) else None
+    named = _named_account(said).get("account")
+    if not isinstance(target, str) or not named:
+        return spans
+    words = [w for w in natural.normal(target).split() if w not in LEAD_WORDS]
+    hits = [e for e in source_names.catalog(ctx).values() if e["type"] == "mail" and e["account"] == named and natural.normal(LABEL["mail"][named]).split() == words]
+    return {k: v for k, v in spans.items() if k != "target"} if hits else spans
+
+
+def account_named_words(ctx: dict, args: dict):
+    """The piece ("from Outlook") that says which account a call for a list of mail is narrowed to, by its `source` (the catalog's name) or its `account` (the provider's plain name); None for any
+    other call or no narrowing."""
+    if args.get("kind") != "mail":
+        return None
+    table = source_names.catalog(ctx)
+    if args.get("source") in table:
+        name = table[args["source"]]["name"]
+    elif args.get("account"):
+        name = LABEL["mail"].get(args["account"])
+    else:
+        return None
+    return phrases.text("UNDERSTOOD_FROM_ACCOUNT", ctx["cfg"], name=name) if name else None
+
+
+ACCOUNT_OPTIONS_MAX = 8          # mail sources the account question lists (with "All" the options are at most 9, the frame's limit)
+
+
+def account_choices(ctx: dict, args: dict):
+    """The options of the account question of a list of mail, or None when the list needs none: [{"value": source id, "label": its plain name, "words": its service words}, ..., {"value": "*",
+    "label": "All"}]. A question is asked only for a list of mail with no account, source, number of messages (`count`: the newest across the accounts, already short) and no word filter (`match`: a
+    search across the accounts), in a project with two or more mail sources whose account is known, at most ACCOUNT_OPTIONS_MAX. The options are the project's catalog, never a model's, and
+    a source whose account is unknown is not one of them (it has no plain name)."""
+    if args.get("kind") != "mail" or args.get("account") or args.get("source") or args.get("count") or args.get("match") is not None:
+        return None
+    mail = [(i, e) for i, e in source_names.catalog(ctx).items() if e["type"] == "mail" and e["account"] is not None]
+    if not 2 <= len(mail) <= ACCOUNT_OPTIONS_MAX:
+        return None
+    return [{"value": i, "label": e["name"], "words": source_names.words(e)} for i, e in mail] + [{"value": "*", "label": phrases.text("PLAN_ALL_ACCOUNTS", ctx["cfg"])}]
+
+
+def remember_listed(ctx: dict, channel, sender, out: dict) -> None:
+    """After a list of items was read for a messaging sender: remember, for the line that comes right after, the one mail source the reply listed with rows (None when it listed two, none, or only
+    calendars), so that "read the 2nd" means that list (runtime/item_refs.py `remember_listed`, N1 of mail-list-account). The count of the project's mail sources decides whether it matters."""
+    if channel != "messaging":
+        return
+    shown = [e for e in out.get("sources") or [] if e["type"] == "mail"]
+    only = shown[0]["source"] if len(shown) == 1 and shown[0]["items"] else None
+    item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"))
+
+
 def _account_of(row: dict):
     """The account ("google" | "microsoft") a mail or calendar source belongs to, from the implementation its origin names; None when the origin is not one this runtime reads (BL5D: the
     reading lives in runtime/source_names.py `account_of`, which the phone names use too)."""
@@ -640,7 +694,10 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
         lines.append(t("NW_ITEMS_MATCH_HEAD_CAL", filter=_filter_pieces("calendar", filt, cfg)))
     if phone and any(e["type"] == "mail" for e in out["sources"]) and _filter_pieces("mail", filt, cfg, span):      # CB-1: a mail list that was narrowed names how, in the person's words
         lines.append(t("NW_ITEMS_MATCH_HEAD", filter=_filter_pieces("mail", filt, cfg, span)))
-    for entry in out["sources"]:
+    several = phone and sum(1 for e in out["sources"] if e["type"] == "mail") > 1      # mail-list-account: a reply that holds two or more mail sources is one message, each source after the first set off by a blank line and its name in bold
+    for place, entry in enumerate(out["sources"]):
+        if several and place:
+            lines.append("")
         if entry.get("unread_unknown"):      # CB-1: a box whose messages carry no flag lists nothing for an unread filter, and says why: the state is never guessed
             lines.append(t("NW_ITEMS_UNREAD_UNKNOWN", name=names[entry["source"]] if phone else entry["source"]))
             continue
@@ -649,7 +706,7 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
             continue
         if phone:
             checked = entry.get("checked_at")
-            lines.append(t("NW_ITEMS_HEAD_CHECKED" if checked else "NW_ITEMS_HEAD_PHONE", name=names[entry["source"]], when=_read_when(checked or entry["read_at"], cfg)))
+            lines.append(t("NW_ITEMS_HEAD_CHECKED" if checked else "NW_ITEMS_HEAD_PHONE", name=f"**{names[entry['source']]}**" if several else names[entry["source"]], when=_read_when(checked or entry["read_at"], cfg)))
         else:
             lines.append(t("NW_ITEMS_HEAD", source=entry["source"], read_at=entry["read_at"][:16].replace("T", " ")))
         for i in entry["items"][:limit]:

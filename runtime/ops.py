@@ -1441,6 +1441,7 @@ from ops_say import (  # noqa: E402,F401
     natural_needs,
     natural_reply,
     natural_write,
+    plan_choice,
     plan_drop,
     plan_live,
     reads_words,

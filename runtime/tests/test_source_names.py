@@ -380,7 +380,7 @@ def test_the_phone_list_names_a_source_it_could_not_read_in_one_sentence_and_the
 def test_the_phone_list_of_twins_uses_the_names_of_the_whole_catalog(world, snaps):
     two_mailboxes(world, snaps, language="en", extra=(("caixa-gmail-lidos", "gmail:box=starred;days=7;max=50"),))
     heads = [text.partition(" (read")[0] for text in ask(world, "list my emails").splitlines() if text.endswith("):")]
-    assert heads == [twin(EN, "Gmail", "SRC_BOX_INBOX"), twin(EN, "Gmail", "SRC_BOX_STARRED"), "Outlook"], "in the registry's order"
+    assert heads == [f"**{twin(EN, 'Gmail', 'SRC_BOX_INBOX')}**", f"**{twin(EN, 'Gmail', 'SRC_BOX_STARRED')}**", "**Outlook**"], "in the registry's order, each name in bold (mail-list-account: a reply of several mail sources)"
 
 
 # --- (g) the list of events -------------------------------------------------------------------------------------------------------------------------
