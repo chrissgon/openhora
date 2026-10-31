@@ -124,10 +124,10 @@ def greeting_row(project, ctx, said, channel, sender, extras, state):
 
 
 def _bare_plan_kind(said):
-    """"yes" or "no" for a bare word that answers the question "Posso?", else None. A no in question form ("nao?") asks something and drops nothing, so it is no no here (ACEITE-37, limit L64): it goes on to
-    the model, and the plan waits. A yes in question form keeps the sentence PLAN_NOT_LAST, which keeps the plan too."""
-    kind = natural.confirm_kind(said)
-    return None if kind == "no" and card_words.question_form(said) else kind
+    """"yes" or "no" for a bare word that answers the question "Posso?", else None. A word in question form ("nao?", "sim?", "poderia") asks something and answers nothing, so it is neither a yes nor a no
+    here (ACEITE-37 and PLAN-QUESTION-FORM, limits L64 and L65): it goes on to the model, and any other line ends a waiting plan. The messaging bridge reads the same rule before this row (`plan_confirm_applies`)
+    and cannot tell this row whether the question was the last message, so a "sim?" is not told PLAN_NOT_LAST either."""
+    return None if card_words.question_form(said) else natural.confirm_kind(said)
 
 
 def plan_bare_word(project, ctx, said, channel, sender, extras, state):

@@ -11,6 +11,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_plan_greeti
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import standin_tree as st
@@ -21,7 +23,7 @@ from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the c
 pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 QUESTIONS = ["oi, tudo bem?", "tudo bem?", "beleza?", "oi tudo bem? \U0001f642", "tudo bem\uff1f"]
-YES_WORDS = ["tudo bem", "beleza", "ok, beleza", "oi, tudo bem", "tudo bem? sim"]
+YES_WORDS = ["tudo bem", "beleza", "ok, beleza", "oi, tudo bem"]      # "tudo bem? sim" left on 2026-10-30: a question glyph anywhere makes a line a question form, and that is no OK (test_plan_question_form.py)
 
 
 def t(brig, key, **fields):
@@ -67,6 +69,7 @@ def test_vacuity_without_the_rule_a_greeting_question_runs_the_read(brig, monkey
     brig.ask()
     messaging_turn = st.load("messaging_turn")
     monkeypatch.setattr(messaging_turn.greeting, "as_question", lambda *args, **kwargs: False)
+    monkeypatch.setattr(messaging_turn, "card_words", SimpleNamespace(question_form=lambda line: False))      # the other rule that keeps a question from being the OK (PLAN-QUESTION-FORM)
     brig.say("tudo bem?")
     assert wait_for(lambda: reads(brig) == ["items"]), "the same counter that is empty above sees the read when the rule is gone"
 
