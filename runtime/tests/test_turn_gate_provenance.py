@@ -278,6 +278,25 @@ def test_the_revision_of_an_events_card_is_checked_before_the_old_card_is_ended(
         assert "bia@" not in capsys.readouterr().err
 
 
+def test_card_words_is_the_origin_of_a_waiting_event_cards_new_title_or_place_and_of_nothing_else():
+    """A new title or place of a waiting event card may hold words of the card's own text (runtime/ops_event_revise.py `_grounded`): `card-words` is allowed for a title and a location, a location may
+    also be the person's words, and no other key may have it."""
+    assert "card-words" in turn_gate.ORIGINS
+    assert sorted(key for key, origins in turn_gate.ALLOWED.items() if "card-words" in origins) == ["location", "title"]
+    changing = {"account": "google", "event": "agenda#2", "calendar": "personal", "title": "Dentist"}
+    base = {"account": "config", "event": "card-copy", "calendar": "card-copy"}
+    assert turn_gate.provenance("event-change", changing, dict(base, title="card-words")) == []
+    assert turn_gate.provenance("event-change", dict(changing, location="Main Street 4"), dict(base, title="card-words", location="card-words")) == []
+    assert turn_gate.provenance("event-change", dict(changing, location="Main Street 4"), dict(base, title="line-span", location="line-span")) == [], "a place may be the person's words"
+    assert turn_gate.provenance("event-change", dict(changing, notes="x"), dict(base, title="line-span", notes="card-words")) == ["notes: origin card-words not allowed"], "notes stay the card's own"
+    assert turn_gate.provenance("event-change", dict(changing, reminder_minutes=5), dict(base, title="line-span", reminder_minutes="line-span")) == ["reminder_minutes: origin line-span not allowed"]
+    for key, op, args, origins in (("file_name", "file-create", *GOOD["file-create"]), ("content", "file-create", *GOOD["file-create"]), ("to", "mail-send", *GOOD["mail-send"]),
+                                   ("start", "event-create", *GOOD["event-create"]), ("event", "event-change", *GOOD["event-change"])):
+        assert turn_gate.provenance(op, args, dict(origins, **{key: "card-words"})) == [f"{key}: origin card-words not allowed"], key
+    plant = dict(GOOD["event-create"][0]), dict(GOOD["event-create"][1])
+    assert turn_gate.provenance("event-create", plant[0], dict(plant[1], title="card-words")) == [], "control: a title may be card-words, so the refusals above are about the key"
+
+
 # --- every opener from a line (AST) ---------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -641,7 +660,7 @@ def test_what_the_oracle_still_asks_of_natural_writes_is_the_short_list_s41_11_m
 def test_the_gate_imports_no_layer_above_it():
     tree = parse("turn_gate.py")
     modules = {alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names} | {node.module for node in tree.body if isinstance(node, ast.ImportFrom)}
-    assert modules <= {"__future__", "collections", "contextlib", "importlib", "os", "re", "sys", "threading", "time", "unicodedata", "natural", "natural_time", "natural_writes", "registry_data"}, modules
+    assert modules <= {"__future__", "collections", "contextlib", "importlib", "os", "re", "sys", "threading", "time", "unicodedata", "weakref", "natural", "natural_time", "natural_writes", "registry_data"}, modules
 
 
 def test_the_walk_the_fuzzers_make_passes_through_the_gate_and_none_of_its_calls_is_refused(world, moment, monkeypatch):  # noqa: F811
