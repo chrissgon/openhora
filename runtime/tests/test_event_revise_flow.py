@@ -289,7 +289,7 @@ def test_a_snapshot_refreshed_meanwhile_never_makes_the_new_card_move_another_ev
 
 
 def test_a_line_that_names_another_event_leaves_the_card_alone_and_goes_on(world, monkeypatch):
-    model = build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
+    model = build(world, monkeypatch, op_text("event-change", {"time": "as 10h", "target": "o dentista"}, time_iso="2026-10-22T10:00", weekday="thu"))      # the model sees the card: it says the line is about another event (`target`)
     old, sha = create(world)
     assert revise(world, old, sha, "muda o dentista para as 10h") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
     assert open_cards(world) == [old] and status(world, old) == "open" and len(model.calls) == 1
@@ -404,7 +404,7 @@ def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_r
     assert old.get("op") != "event-change", "the answer, read as any line is read, is not a change of an event: it was asked again before"
 
 
-@pytest.mark.parametrize("shape", ["event-create", "invalid-json", "clarify-event", "event-slot-title"])
+@pytest.mark.parametrize("shape", ["event-create", "invalid-json", "clarify-event"])      # `event-slot-title` left: an answer with `time` and a dropped `event` is the model's reading of a change, and the card is shown (card-model-sees)
 def test_a_line_that_names_another_event_still_leaves_the_card_alone_in_every_shape(world, monkeypatch, shape):
     build(world, monkeypatch, SHAPES[shape])
     old, sha = haircut_card(world)

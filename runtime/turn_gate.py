@@ -85,11 +85,11 @@ came from, in `{"args", "origins"}`, and the card-opening paths ask the gate bef
   ORIGINS            the closed vocabulary: `line-span` (the person's words, in the line or in an answer), `line-number` (a number written in it), `time-engine` (a time the engine of NR-1 read: the interpreter's source "code"), `time-model` (a time the MODEL decided: its source "model"; allowed for a start and an end by the maintainer's decision of 2026-10-26, "Certo, pode ser assim": the card's approval is the protection, until a later v3 package adds time-engine tables for es/fr/de/it; one word of `ALLOWED`), `config` (a name of the
                      accepted `accounts`, their default, the account of a registered source), `picked` (an option code listed and the person chose), `listed` (a number of a list code showed this sender),
                      `grounded` (an item code found by searching with a span of the line: the event ranking, the mail index match, the file search: the ITEM, never an address), `index-from` (a reply's recipient
-                     from the index), `held` (a file this sender sent and the hold keeps), `card-copy` (a part copied by code from the card being revised), `composed` (the subject or the body of an e-mail worded by
+                     from the index), `held` (a file this sender sent and the hold keeps), `card-copy` (a part copied by code from the card being revised), `card-words` (a new title or place of a waiting event card made of the card's own words changed by the person's: runtime/ops_event_revise.py `_grounded`), `composed` (the subject or the body of an e-mail worded by
                      the compose or the revise call).
   ALLOWED            the origins each argument key may have. An address (`to`, `cc`, `bcc`) is `line-span`, `config`, `index-from` or `card-copy` and nothing else (L60); `composed` is the text of an e-mail
                      (`subject`, `body`, `text`) and nothing else; a time is `time-engine`, `time-model` or `card-copy`; a message, an event or a file is `line-number`, `listed`, `picked` or `grounded` (an event may also be
-                     `card-copy`); an account, a calendar and a folder are `config`, `picked`, `line-span` or `card-copy`; an attachment is `held`; a title, a content and a name are `line-span` or `card-copy`.
+                     `card-copy`); an account, a calendar and a folder are `config`, `picked`, `line-span` or `card-copy`; an attachment is `held`; a title, a content and a name are `line-span` or `card-copy`; a title is also `card-words`; a location is `line-span`, `card-words` or `card-copy`.
                      A key with no row is refused.
   OPS                the arguments each operation of a card opened from a line takes. Any other key is refused: a reply and a reply draft (a `mail-draft` with a `message`) have no recipient argument and no
                      subject, its recipient is the index's From, chosen by the effect (L60).
@@ -615,6 +615,7 @@ ORIGINS = (
     "index-from",     # a reply's recipient taken from the index's From of the message answered
     "held",           # a file this sender sent and the hold keeps
     "card-copy",      # copied by code from the card that is being revised
+    "card-words",     # a new title or place of a waiting event card: every added word is the person's, the rest the card's own (runtime/ops_event_revise.py `_grounded`)
     "composed",       # the subject or the body of an e-mail worded by the compose or the revise call (limits L63, slices S7 and S13)
 )
 _ADDRESSEES = ("line-span", "config", "index-from", "card-copy")      # L60: a recipient is never read from a body, a subject, a Reply-To or the index's other fields
@@ -627,7 +628,7 @@ _TIMES = ("time-engine", "time-model", "card-copy")      # `time-model` is allow
 ALLOWED = {
     "to": _ADDRESSEES, "cc": _ADDRESSEES, "bcc": _ADDRESSEES,
     "subject": _WORDED, "body": _WORDED, "text": _WORDED,
-    "title": _TEXTS, "content": _TEXTS, "name": _TEXTS, "file_name": _TEXTS,
+    "title": _TEXTS + ("card-words",), "content": _TEXTS, "name": _TEXTS, "file_name": _TEXTS,
     "event": _ITEMS + ("card-copy",), "message": _ITEMS, "messages": _ITEMS, "file": _ITEMS, "item": _ITEMS,      # `item`: a task of the list the sender was shown, or found by the words of the line (CB-5)
     "account": _NAMES, "calendar": _NAMES, "folder": _NAMES, "mail_folder": _NAMES, "list": _NAMES,      # `list`: a name of the accepted `task_lists` (CB-5)
     "start": _TIMES, "end": _TIMES,
@@ -635,7 +636,7 @@ ALLOWED = {
     "series": ("time-engine",), "occurrence": ("time-engine",),      # CB-7: which of the whole series and one occurrence a cancel is, and the local day of the occurrence: chosen by code from closed words (runtime/recurrence.py) and the person's date read by the time engine; the series' and the instance's ids are read from the provider and are no argument
     "attachment": ("held",),
     "state": ("line-span", "picked"),
-    "location": ("card-copy",), "notes": ("card-copy",), "reminder_minutes": ("card-copy",),      # carried over from the card an event's revision replaces
+    "location": ("line-span", "card-words", "card-copy"), "notes": ("card-copy",), "reminder_minutes": ("card-copy",),      # carried over from the card an event's revision replaces
 }
 # The arguments each operation of a card opened from a line takes (the keys of the operation's own function, as the resolvers of the families return them). Any other key is refused, so a
 # reply or a reply draft has no `to`: its recipient is the index's From, chosen by the effect (L60).

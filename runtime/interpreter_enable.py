@@ -24,6 +24,9 @@ route's band; a test compares the two readings.
   revise_active(language, path=None)
                                 the same as `active` and the newest entry also pins THIS checkout's e-mail revise prompt (`revise_prompt_sha256`, runtime/mail_revise.py), else
                                 None: a changed revise prompt turns the change of a card by words off and leaves the interpreter on (slice S13)
+  card_active(language, path=None)
+                                the same as `active` and the newest entry also pins THIS checkout's event card text (`event_card_prompt_sha256`, runtime/event_card.py), else
+                                None: a changed text turns the change of an event card by words off and leaves the interpreter on (limit L63)
   retention(path=None)          the retention text of the newest entry's route, or None (what a person is shown when they widen the group `interpret`)
   fallbacks(entry)              the routes the entry names as the outage path (S41-10): the closed list `[{"route", "route_sha256"}]` of at most two distinct daily routes other than the entry's own,
                                 each a `zdr` row whose hash equals this checkout's; any fault in the field, in one item or in the row it names gives [] (the fallback is off; the interpreter stays on)
@@ -43,6 +46,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import event_card  # noqa: E402  (the same folder: the sha256 of the event card's fixed text)
 import interpreter  # noqa: E402  (the same folder: the prompt, the served catalog and the protocol whose hashes an entry names)
 import interpreter_route  # noqa: E402  (the same folder: the daily routes and the hash of a route)
 import mail_compose  # noqa: E402  (the same folder: the sha256 of the e-mail compose prompt)
@@ -53,7 +57,7 @@ KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catalog_sha2
 BASES = ("maintainer-decision",)
 LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 HASH_KEYS = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
-OPTIONAL_KEYS = ("compose_prompt_sha256", "revise_prompt_sha256")      # an entry may also pin the e-mail compose prompt (slice S7) and the revise prompt (slice S13); an older entry does not
+OPTIONAL_KEYS = ("compose_prompt_sha256", "revise_prompt_sha256", "event_card_prompt_sha256")      # an entry may also pin the e-mail compose prompt (slice S7), the revise prompt (slice S13) and the event card text; an older entry does not
 FALLBACK_KEY = "fallback"      # S41-10: an entry may also name the outage path, one object or a list of at most two; `fallbacks` alone reads its value, and a fault in it never turns the entry off
 FALLBACK_ITEM_KEYS = ("route", "route_sha256", "measured")      # `measured`: the date and the result file of the measurement the maintainer decided on
 FALLBACK_MAX = 2
@@ -188,6 +192,17 @@ def revise_active(language, path=None):
         return None
     try:
         return got if got["entry"].get(OPTIONAL_KEYS[1]) == mail_revise.prompt_sha256() else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def card_active(language, path=None):
+    """The result of `active` when the newest entry also pins this checkout's event card text, else None. Every fault is "off"."""
+    got = active(language, path)
+    if got is None:
+        return None
+    try:
+        return got if got["entry"].get(OPTIONAL_KEYS[2]) == event_card.prompt_sha256() else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

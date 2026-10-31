@@ -24,6 +24,7 @@ from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401 
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 interpreter_enable = st.load("interpreter_enable")
+event_card = st.load("event_card")
 interpreter_route = st.load("interpreter_route")
 interpreter_evidence = st.load("interpreter_evidence")
 operations = st.load("operations")
@@ -52,8 +53,11 @@ BL73_STATUS_LINE = BL5B_STATUS_LINE + "; the prompt revised 2026-10-26 (BL7-3: d
 CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); "
                "the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge")      # the entry of package CB-9; the earlier lines were joined one after the other until the cap of 600 characters, so this one says it over
 assert len(CB9_STATUS_LINE) <= 600
-STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the newest entry (package LUNA-ENABLE): the entry of CB-9 and the outage path
+LUNA_STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the entry of package LUNA-ENABLE: the entry of CB-9 and the outage path
+assert len(LUNA_STATUS_LINE) <= 600
+STATUS_LINE = LUNA_STATUS_LINE + "; the event card shown to the model (2026-10-30)"      # the newest entry (package CARD-MODEL-SEES): the entry of LUNA-ENABLE and the event card text
 assert len(STATUS_LINE) <= 600
+EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
 
@@ -90,7 +94,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-28" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-30" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -118,15 +122,20 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    cb9 = doc["entries"][-2]
+    cb9, luna = doc["entries"][-3], doc["entries"][-2]
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-3] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-4] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
-    # LUNA-ENABLE: the newest entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
-    assert {key for key in entry if entry.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the newest entry changes the reason and the status line and adds `fallback`; every pin stands as decided"
-    assert entry["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": entry["fallback"][0]["measured"]}] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
-    assert "20261028T201315Z-daa387c8" in entry["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in entry["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in entry["fallback"][0]["measured"]
+    # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
+    assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28"
+    assert {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
+    assert luna["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": luna["fallback"][0]["measured"]}] and len(luna["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "20261028T201315Z-daa387c8" in luna["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in luna["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in luna["fallback"][0]["measured"]
+    # CARD-MODEL-SEES: the newest entry copies every pin and the outage path of the entry of LUNA-ENABLE and adds the pin of the event card text, and nothing else changes but the date text fields
+    assert {key for key in entry if entry.get(key) != luna.get(key)} == {"date", "reason", "status_line", "event_card_prompt_sha256"}, "the newest entry adds the event card pin; every other pin and the outage path stand as decided"
+    assert entry["fallback"] == luna["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in luna
+    assert "RESULT-CARD-MODEL" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
@@ -134,9 +143,20 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-28", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-30", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
+
+
+def test_the_event_card_is_on_only_while_the_newest_entry_pins_this_checkouts_text_and_a_changed_text_turns_only_it_off(tmp_path):
+    assert interpreter_enable.card_active("en")["entry"]["event_card_prompt_sha256"] == EVENT_CARD_PIN == event_card.prompt_sha256()
+    for name, change in (("wrong", {"event_card_prompt_sha256": "0" * 64}), ("missing", {"event_card_prompt_sha256": None})):
+        path = str(variant(tmp_path, name + ".json", **change))
+        assert interpreter_enable.card_active("en", path=path) is None, name
+        assert interpreter_enable.active("en", path=path) is not None and interpreter_enable.revise_active("en", path=path) is not None and interpreter_enable.compose_active("en", path=path) is not None, \
+            name + ": the interpreter and the e-mail paths stay on"
+    assert interpreter_enable.card_active("en", path=str(variant(tmp_path, "same.json"))) is not None, "control: the unchanged copy is on, so the two cases above are off because of the pin"
+    assert interpreter_enable.card_active("ja") is None, "a language the entry does not list is off"
 
 
 @pytest.mark.parametrize("name, change", [
@@ -144,7 +164,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     ("language", {"languages": ["ja"]}), ("unknown-route", {"route": "no-such-route"}), ("account-route", {"route": "acct-claude-sonnet-5.5"}),
     ("extra-key", {"extra": "key"}), ("missing-key", {"reason": None}), ("date-shape", {"date": "21/10/2026"}), ("date-not-a-day", {"date": "2026-02-30"}),
     ("basis", {"basis": "evidence"}), ("hash-shape", {"prompt_sha256": "5BEE55CE" + HASHES["prompt_sha256"][8:]}), ("languages-twice", {"languages": ["en", "en"]}),
-    ("compose-hash-shape", {"compose_prompt_sha256": "NOT-A-HASH"}),
+    ("compose-hash-shape", {"compose_prompt_sha256": "NOT-A-HASH"}), ("event-card-hash-shape", {"event_card_prompt_sha256": "NOT-A-HASH"}),
 ])
 def test_a_changed_entry_is_off_for_the_runtime_and_for_the_status_alike(tmp_path, name, change):
     path = variant(tmp_path, name + ".json", **change)
@@ -185,7 +205,7 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-28" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-10-30" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 

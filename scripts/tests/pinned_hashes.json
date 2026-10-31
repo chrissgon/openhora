@@ -1,6 +1,7 @@
 {
   "notes": {
     "compose_prompt_s7": "sha256 of the mail-compose prompt at slice S7; guards a security table or policy (the interpreter is on only for the decided hashes)",
+    "event_card_prompt": "sha256 of runtime/event_card_prompt.txt, the fixed text added to the interpreter's prompt on the card of an event; guards a security table or policy (the change of an event card by words is on only for the decided text)",
     "interface_favicon_svg": "sha256 of interface/favicon.svg as the page ships it; a review tripwire (a new drawing changes it on purpose)",
     "interface_mark_svg": "sha256 of interface/brand/openhora-mark.svg as the page ships it; a review tripwire (a new drawing changes it on purpose)",
     "interpreter_catalog_before_s8": "sha256 of the interpreter's catalog before slice S8; guards a security table or policy (the interpreter is on only for the decided hashes)",
@@ -33,6 +34,7 @@
   },
   "pins": {
     "compose_prompt_s7": "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf",
+    "event_card_prompt": "2ffb3618b9cc481763a7e3d99e5a12811df389909bf9a04e4bf16dc53f0301d0",
     "interface_favicon_svg": "75f49e4b62fcb62729826d25023066036536f97365cf644d387fbbcc521b2da4",
     "interface_mark_svg": "d00da3f5cbde96e252154f321d6c5b94d322518f014afc15b64874aca5bab242",
     "interpreter_catalog_before_s8": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
