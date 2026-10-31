@@ -312,7 +312,7 @@ def prestate_owner_no_interpret(w):
 # by the greeting (scenario 37 of ACEITE-SECRETARIA); the others add, after that, what the rows of the table read (a plan that waits, a search that runs, a question, a file, a reminder, a write).
 ACEITE37_PRESTATES = ("aceite37_card_not_last", "aceite37_two_cards_not_last", "aceite37_plan_and_card_not_last", "aceite37_research_and_card_not_last", "aceite37_question_and_card_not_last",
                       "aceite37_file_and_card_not_last", "aceite37_reminder_and_card_not_last", "aceite37_write_and_card_not_last",
-                      "aceite37_file_card_last", "aceite37_event_list_and_card", "aceite37_file_list_and_card")
+                      "aceite37_file_card_last", "aceite37_event_list_and_card", "aceite37_file_list_and_card", "aceite37_event_list_then_reminder")
 PRESTATES = (*PRESTATES, *ACEITE37_PRESTATES)
 
 
@@ -367,6 +367,12 @@ def prestate_aceite37_file_card_last(w):
 def prestate_aceite37_event_list_and_card(w):
     prestate_card_last(w)
     prestate_event_list_shown(w)      # "more than one event fits, which one?" is the last message and the decision card is not
+
+
+def prestate_aceite37_event_list_then_reminder(w):
+    prestate_card_last(w)
+    prestate_event_list_shown(w)
+    w.b.bridge.reply(OWNER, LATER_MESSAGE)      # a reminder delivered after the list: the list is no longer the last message and asks nothing
 
 
 def prestate_aceite37_file_list_and_card(w):

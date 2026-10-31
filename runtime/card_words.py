@@ -10,7 +10,7 @@ number or an ordinal ("aprovo o 2", "approve the second"), or the word for all (
 matter. There is never an open tail: "pode marcar o dentista" and "pode marcar amanha as 3" are not forms, they are requests. A line that is both an approve and a reject form
 is None; a slash line, an empty line and a line of more than `LINE_WORDS_MAX` words are None.
 
-A line in QUESTION FORM is never a card word (ACEITE-37, the maintainer, 2026-10-30): "sim?", "pode?", "nao?" (the line ends in a question mark, however much punctuation follows it) and a line that asks
+A line in QUESTION FORM is never a card word (ACEITE-37, the maintainer, 2026-10-30): "sim?", "pode?", "nao?" (a question glyph anywhere in the line: the question mark, its fullwidth and small forms, the red and white question ornaments, the double and exclamation-question marks, the interrobang) and a line that asks
 for the act with "can you", "could you" or "would you" ("can you approve", "could you cancel") or, in Portuguese, with "poderia" or "consegue" ("poderia aprovar", "consegue aprovar") ask something and decide nothing; they go on to the model as any free line. `question_form(line)` says it,
 `card_shape(line)` is the reading without that rule (the shape of an approve or a reject form, asked or not), for the readers that must keep treating such a line as card-shaped (they are named in the
 function's text), and `card_word` is the shape unless the line is a question. "sim!", "sim.", "SIM", "ok", "pode" and "yes" stay forms.
@@ -61,7 +61,7 @@ WORDS = {
     },
 }
 QUESTION_LEADS = ("can you", "could you", "would you", "poderia", "consegue")      # a line that asks for the act in these words is a question, whatever follows ("can you approve", "poderia aprovar"); "pode" is not one: "pode aprovar" is an imperative
-QUESTION_MARK = re.compile(r"[?\uff1f][^\w]*$")      # a question mark followed by nothing but punctuation and blanks: "sim?", "pode ?", "nao?!"
+QUESTION_GLYPHS = "?\uff1f\ufe56\u2753\u2754\u2047\u2048\u2049\u203d"      # the question mark and its look-alikes (fullwidth, small, the red and white ornaments, the double and the exclamation-question marks, the interrobang): any of them anywhere in the line
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 LISTS = ("approve", "reject", "all", "articles", "polite")
 
@@ -183,10 +183,10 @@ def reply_line(text):
 
 
 def question_form(line) -> bool:
-    """Whether the line asks instead of saying: it ends in a question mark (a trailing run of punctuation after it does not hide it), or it asks for the act with one of QUESTION_LEADS as whole words."""
+    """Whether the line asks instead of saying: it holds a question glyph (QUESTION_GLYPHS) anywhere, or it asks for the act with one of QUESTION_LEADS as whole words."""
     if not isinstance(line, str):
         return False
-    if QUESTION_MARK.search(line.strip()):
+    if any(glyph in line for glyph in QUESTION_GLYPHS):
         return True
     flat = f" {normal(line)} "
     return any(f" {lead} " in flat for lead in QUESTION_LEADS)

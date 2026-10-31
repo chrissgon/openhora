@@ -353,9 +353,12 @@ def file_card_last(world, kind="attachment"):
 
 
 def list_asked(world):
-    """The operations layer holds a numbered list it just showed this sender, and the list is the last message."""
+    """The operations layer holds a numbered list it just showed this sender, and the list is the last message: the line that asked for it is answered by the list through the real `say` job,
+    which is where the bridge notes that the message it just sent is a list."""
     world.fake.list_waits = lambda path, sender: True
-    world.bridge.reply(SENDER, LIST_QUESTION)
+    world.fake.answers["say"] = {"reply": LIST_QUESTION, "request_id": 2, "pending_id": None, "ran": True, "queued": False}
+    world.say("cancel my haircut")
+    assert wait_for(lambda: world.texts()[-1] == LIST_QUESTION and world.bridge.list_message.get(SENDER) and world.bridge.list_message.get(SENDER) == world.bridge.last_sent.get(SENDER))
 
 
 @pytest.mark.parametrize("word", [NO, "cancela"])
@@ -385,15 +388,15 @@ def test_a_reject_word_after_a_list_question_is_not_taken_and_a_second_one_rejec
     list_asked(world)
     count = len(records(world))
     world.say(word)
-    assert nothing_decided(world) and len(records(world)) == count and went_on(world)
+    assert nothing_decided(world) and len(records(world)) == count and went_on(world, 3)
     world.say(word)
     assert nothing_decided(world)      # the second word is about the model's answer to the first: it may bring the card back (timing), it never decides it
 
 
 def test_vacuity_with_no_list_waiting_the_same_words_bring_the_card_back_and_reject_it(world):
     stale(world)
+    list_asked(world)
     world.fake.list_waits = lambda path, sender: False
-    world.bridge.reply(SENDER, LIST_QUESTION)
     count = len(records(world))
     world.say(NO)
     assert nothing_decided(world) and len(records(world)) == count + 1
@@ -545,3 +548,33 @@ def test_vacuity_with_the_resend_not_forced_the_person_gets_silence(world, monke
     count, texts = len(records(world)), len(world.texts())
     world.say("sim")
     assert len(records(world)) == count and len(world.texts()) == texts
+
+
+@pytest.mark.parametrize("closing", ["a reminder delivered after the list", "a plain message after the list"])
+def test_a_list_that_is_no_longer_the_last_message_is_no_open_question(world, closing):
+    """A list stays in the operations layer's memory for 600 s, but it is the open question only while it is the last thing said (limit L64)."""
+    stale(world)
+    list_asked(world)
+    world.bridge.reply(SENDER, "A reminder: water the plants." if closing.startswith("a reminder") else "Here is something else.")
+    count = len(records(world))
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == count + 1
+
+
+def test_vacuity_with_the_list_still_last_the_same_word_brings_no_card(world):
+    stale(world)
+    list_asked(world)
+    count = len(records(world))
+    world.say("sim")
+    assert nothing_decided(world) and len(records(world)) == count and went_on(world, 3)
+
+
+def test_vacuity_with_the_mark_of_the_list_wrong_a_list_that_is_not_last_would_keep_the_word(world):
+    """The planted fact: the bridge believes the list is the message after it, so the later message counts as the list."""
+    stale(world)
+    list_asked(world)
+    world.bridge.reply(SENDER, "A reminder: water the plants.")
+    world.bridge.list_message[SENDER] = world.bridge.last_sent[SENDER]
+    count = len(records(world))
+    world.say("sim")
+    assert len(records(world)) == count      # the planted mark keeps the word: the check reads the mark, nothing else

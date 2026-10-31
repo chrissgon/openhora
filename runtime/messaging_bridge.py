@@ -328,6 +328,7 @@ class Bridge(shell_kit.Jobs):
         self.send_seq = {}                    # chat -> how many sends to it have started (memory only): `last_sent` is stored only by the send that started last
         self.send_lock = threading.Lock()     # guards `send_seq` and `last_sent`: the update thread and the job threads all send
         self.card_lists = {}                  # chat -> the numbered list of cards last sent: {"message_id", "at" (monotonic), "cards": [(project id, pending id, content hash)]} (memory only)
+        self.list_message = {}                # chat -> the id of the message that showed the chat a numbered list the operations layer still holds (memory only): a list is open only while it is the last message (ACEITE-37)
         self.last_message = {}                # chat -> the id of the last message sent to it (memory only): the question a draft asked is answered by a reply to it
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
@@ -1062,11 +1063,20 @@ class Bridge(shell_kit.Jobs):
         """Whether the last message sent to this chat is a question that waits for the line, so that a bare word may be its answer and brings no card back (ACEITE-37, limit L64). It is known from
         the ledger, never from the text of a message: the record of the last message is a file card (kind `attachment`: "what do I do with it?"; a router question's card, kind `question`, is read by
         `question_waits`, and a plan's question by `plan_waits`), or the operations layer says a numbered list of events or of files, the question "which one?", is the last thing it said to this sender
-        (`list_waits`). A reminder that was delivered, a greeting and any other plain sentence are no question."""
+        (`list_waits`) and the bridge sent that list as the chat's last message (`note_list`, `list_message`). A reminder that was delivered, a greeting and any other plain sentence are no question."""
         rec = self.ledger.by_message(chat, last) if last else None
         if rec is not None and rec.get("kind") == "attachment":
             return True
-        return self.list_waits(listed, chat)
+        return bool(last) and self.list_message.get(chat) == last and self.list_waits(listed, chat)      # the list is open only while it is the last message: a reminder delivered after it, or any later message, closes it
+
+    def note_list(self, project: dict, chat: str) -> None:
+        """After the reply to a line was sent: remember the id of the last message when the operations layer holds a numbered list it showed in it, else forget (ACEITE-37). `asks_last` is true only
+        while that message is still the last one."""
+        mark = self.last_sent.get(chat) if self.list_waits([project], chat) else None
+        if mark:
+            self.list_message[chat] = mark
+        else:
+            self.list_message.pop(chat, None)
 
     def list_waits(self, listed: list, chat: str) -> bool:
         """Whether the operations layer holds a numbered list it showed this sender that the next line may answer (a list of events: "which one do you want to cancel?"; a list of files). An operations
@@ -1085,7 +1095,7 @@ class Bridge(shell_kit.Jobs):
     def word_again(self, listed: list, chat: str, word: dict, last) -> bool:
         """A card word with no reply that `word_last` did not take (the kind `decision-card-again`, ACEITE-37, limit L64). It decides nothing: one open card is sent again, with a new message id, new
         buttons and the hash of the decision as it is now, and stays the last message, so that its button or the next word decides it; several get the numbered list. False, and the line goes on as
-        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question (a router question, a file card that is the last message, a numbered list of events or of files that waits), and an act the one card does not offer."""
+        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question (a router question, a file card that is the last message, a numbered list of events or of files that waits and is still the last message), and an act the one card does not offer."""
         if word["n"] is not None:
             return False
         found = self.word_cards(listed, chat)
@@ -1742,6 +1752,7 @@ class Bridge(shell_kit.Jobs):
                 self.keep_cards(chat, said, project)      # a doubt or a rolled day said with the card, in the same turn, is about that card: the card stays the last message (S2)
             else:
                 self.reply(chat, said, project)
+                self.note_list(project, chat)
         if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
@@ -1821,6 +1832,7 @@ class Bridge(shell_kit.Jobs):
                     said = self.t("FS_NOT_SENT", project=project)
                 if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
+                self.note_list(project, chat)
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:

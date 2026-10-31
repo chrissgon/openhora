@@ -39,3 +39,22 @@ def test_vacuity_with_no_list_shown_nothing_waits(world, monkeypatch):
     from test_event_lookup import build
     build(world, monkeypatch, events=MEETINGS)
     assert ops.list_waits(world["path"], OWNER) is False
+
+
+def test_one_line_counted_after_the_list_ends_it_even_with_no_pick_taken(world, monkeypatch):
+    """The count of the lines read since the list (`begin_turn`, at the start of every line of a messaging sender) is what makes the list end at once: a list read once is not the last thing said."""
+    meetings_listed(world, monkeypatch)
+    ctx = st.load("ops_core").context(world["path"])
+    assert ops.list_waits(world["path"], OWNER) is True
+    st.load("event_lookup").begin_turn(ctx, "messaging", OWNER)
+    assert ops.list_waits(world["path"], OWNER) is False
+
+
+def test_a_plain_listing_of_the_calendar_is_not_a_question(world, monkeypatch):
+    """"list my events" numbers its rows so that a number may pick one, but it asks nothing: only the list that asks "which one?" (it carries an operation) is waiting for the answer."""
+    from test_event_lookup import build
+    build(world, monkeypatch, events=MEETINGS)
+    ctx = st.load("ops_core").context(world["path"])
+    event_lookup = st.load("event_lookup")
+    event_lookup.remember_items(ctx, "messaging", OWNER, {"sources": [{"type": "calendar", "source": "agenda", "read_at": "t", "items": [{"n": 3, "line": "10:00 · x", "day": "2026-10-22"}]}]})
+    assert ops.list_waits(world["path"], OWNER) is False

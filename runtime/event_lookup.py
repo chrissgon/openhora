@@ -377,7 +377,7 @@ def list_open(ctx: dict, sender, now) -> bool:
     nothing is dropped or counted. The bridge asks it (ACEITE-37): a bare word right after "which one do you want to cancel?" may be its answer."""
     with _lock:
         found = _LISTS.get(_slot(ctx, CHANNEL, sender))
-    return found is not None and not ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 0 or _last_pending(ctx) > found["pending"])
+    return found is not None and found["op"] is not None and not ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 0 or _last_pending(ctx) > found["pending"])      # a list with no operation is a plain listing of the calendar ("list my events"), not the question "which one?"
 
 
 def _live(ctx: dict, sender, now):

@@ -36,6 +36,7 @@ ORACLE_ORDINALS = {"primeiro": 1, "primeira": 1, "segundo": 2, "terceiro": 3, "t
                    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
 ORACLE_POLITE = [("por", "favor"), ("pf",), ("please",), ("pls",), ("pode",), ("poderia",), ("consegue",), ("oi",), ("ola",), ("ei",), ("can", "you"), ("could", "you"), ("would", "you"),
                  ("hey",), ("hi",)]
+ORACLE_GLYPHS = ("?", "\uff1f", "\ufe56", "\u2753", "\u2754", "\u2047", "\u2048", "\u2049", "\u203d")      # the question mark and its look-alikes: any of them anywhere in the line makes it a question
 ORACLE_ASKS = [("can", "you"), ("could", "you"), ("would", "you"), ("poderia",), ("consegue",)]      # ACEITE-37: a line that asks for the act in these words is a question, not a form
 ACCENTS = {"\u00e3": "a", "\u00e1": "a", "\u00e0": "a", "\u00e2": "a", "\u00e9": "e", "\u00ea": "e", "\u00ed": "i", "\u00f3": "o", "\u00f4": "o", "\u00f5": "o", "\u00fa": "u", "\u00e7": "c"}
 
@@ -72,11 +73,8 @@ def position(tokens: list):
 
 
 def asks(line: str, tokens: list) -> bool:
-    """ACEITE-37: whether the raw line is in question form: a question mark with nothing but punctuation after it, or one of ORACLE_ASKS as whole words."""
-    tail = line.rstrip()
-    while tail and not tail[-1].isalnum() and tail[-1] != "?" and tail[-1] != "\uff1f":
-        tail = tail[:-1]
-    if tail.endswith("?") or tail.endswith("\uff1f"):
+    """ACEITE-37: whether the raw line is in question form: a question glyph anywhere in it, or one of ORACLE_ASKS as whole words."""
+    if any(glyph in line for glyph in ORACLE_GLYPHS):
         return True
     return any(tuple(tokens[at:at + size]) in ORACLE_ASKS for size in (1, 2) for at in range(len(tokens) - size + 1))
 
@@ -141,6 +139,7 @@ BAD = [
     "todas as tres", "agende corte de cabelo amanh\u00e3 \u00e0s 14h no outlook",
     "sim?", "pode?", "n\u00e3o?", "ok?", "approve?", "sim ?", "sim?!", "sim\uff1f", "aprova o 2?", "can you approve", "could you cancel", "would you approve", "can you sim",
     "poderia aprovar", "poderia cancelar", "consegue aprovar", "poderia", "consegue", "sim poderia",
+    "n\u00e3o\u2753", "sim\u2753", "sim\u2754", "sim? pode", "sim\u2049", "sim\u2047", "sim\u2048", "sim\ufe56", "sim\u203d", "sim\u2753\ufe0f", "? sim", "ok \u2753 pode", "aprova o 2\u2049",
 ]
 
 
@@ -194,6 +193,11 @@ def test_a_line_in_question_form_is_no_card_word_and_the_plain_forms_stay_forms(
     "ok", "pode" and "yes" stay forms, and the multi-word forms that were taken stay taken."""
     for line in ("sim?", "pode?", "n\u00e3o?", "SIM?", "sim ?", "sim?!", "sim?)", "approve?", "can you approve", "Could you cancel", "would you approve it", "poderia aprovar", "Poderia cancelar", "consegue aprovar", "consegue cancelar"):
         assert card_words.question_form(line) is True, line
+    for glyph in ("?", "\uff1f", "\ufe56", "\u2753", "\u2754", "\u2047", "\u2048", "\u2049", "\u203d"):      # every question glyph decides no card, at the end or in the middle of the line
+        for line in (f"sim{glyph}", f"n\u00e3o{glyph}", f"sim{glyph} pode", f"ok {glyph} pode", f"aprova o 2{glyph}"):
+            assert card_words.question_form(line) is True and card_words.card_word(line) is None and card_words.card_shape(line.replace(glyph, "")) is not None, line
+    for line in ("sim!", "sim.", "sim \U0001f44d", "sim!!", "n\u00e3o.", "ok :)"):      # the other marks and an emoji are no question
+        assert card_words.question_form(line) is False and card_words.card_word(line) is not None, line
     for line in ("sim?", "pode?", "n\u00e3o?", "can you approve", "could you cancel", "poderia aprovar", "poderia cancelar", "consegue aprovar"):
         assert card_words.card_word(line) is None, line
     for line in ("sim!", "sim.", "SIM", "ok", "pode", "yes"):
