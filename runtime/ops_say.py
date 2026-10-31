@@ -55,6 +55,7 @@ import router
 import skill_meta
 import turn_gate
 import event_lookup
+import item_refs
 import ops_cancel
 import ops_file_read
 import ops_interpret
@@ -226,6 +227,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
         event_lookup.begin_turn(ctx, channel, sender)      # S11: a list of events is valid for the line right after it
         ops_file_read.begin_turn(ctx, channel, sender)      # S17: so is a list of files
         ops_todo.begin_turn(ctx, channel, sender)      # CB-5: so is a list of tasks
+        item_refs.begin_turn(ctx, channel, sender)      # N1 of mail-list-account: so is the one mail source a reply listed (a number in the next line means it)
         if plan_ok is not None:
             confirmed = turns.confirmed(project, ctx, said, sender, can_send, plan_ok)      # the row `confirmed-plan`
             if confirmed is not None:
@@ -308,14 +310,26 @@ def _confirmed(project: str, ctx: dict, said: str, sender, plan_ok: dict, extras
         if not operations.permitted("status", "messaging", cfg["channels"], None, sender):
             return phone_refusal.said(operations.not_enabled("status", "messaging"), "messaging", cfg)
         return state_reply(project, cfg=cfg)
-    return ops_natural.run(project, ctx, state["op"], state["args"], state["said"], "messaging", sender, extras, when=state["when"], routed=state["routed"], confirmed=True)
+    args = plan_confirm.args_chosen(state, plan_ok["choice"]) if state.get("choices") else state["args"]      # the account question: the plan's call with the option the person chose (`take` checked it)
+    return ops_natural.run(project, ctx, state["op"], args, state["said"], "messaging", sender, extras, when=state["when"], routed=state["routed"], confirmed=True)
 
 
 def plan_live(project: str, sender):
-    """The sender's live plan ("Shall I go ahead?"), {"item", "sha256", "op"}, or None (the bridge asks it before it reads a line as new). Not an operation of the table."""
+    """The sender's live plan ("Shall I go ahead?"), {"item", "sha256", "op"}, or None (the bridge asks it before it reads a line as new). A plan that asks for an account also carries its
+    "choices" (the plain labels of the options) and its "question" (the sentence). Not an operation of the table."""
     core.context(project)
     item = plan_confirm.live(project, sender)
-    return None if item is None else {"item": item["id"], "sha256": item["state"]["sha256"], "op": item["state"]["op"]}
+    if item is None:
+        return None
+    state = item["state"]
+    return {"item": item["id"], "sha256": state["sha256"], "op": state["op"], **({"choices": [c["label"] for c in state["choices"]], "question": state["question"]} if state.get("choices") else {})}
+
+
+def plan_choice(project: str, sender, said: str):
+    """The index (from 0) of the option of the sender's live account question that a whole line names by a closed word (`plan_confirm.choice_of`), else None. Not an operation of the table."""
+    core.context(project)
+    item = plan_confirm.live(project, sender)
+    return None if item is None else plan_confirm.choice_of(item, said)
 
 
 def plan_drop(project: str, sender) -> bool:

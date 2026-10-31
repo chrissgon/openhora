@@ -242,14 +242,29 @@ def write_draft_take(bridge, turn, found):
 
 
 def plan_confirm_applies(bridge, turn):
-    """A yes or no word, as code reads it (`natural.confirm_kind`, the first line of an e-mail reply), in a plain line that is no forward: the word, else None."""
+    """A yes or no word, as code reads it (`natural.confirm_kind`, the first line of an e-mail reply), in a plain line that is no forward: the word, else None. For a question that asks for an account
+    (its ledger record holds `plan_picks`), also a whole line that names an option by a closed word (`plan_confirm.choice_of`): `pick:<index>`."""
     if turn.kind not in FREE or not turn.plain or turn.forwarded:
         return None
     if greeting.as_question(turn.first_line):
         return None      # L64H: a greeting in question form is never the OK of a plan; it goes on as any other line and gets the greeting
     if card_words.question_form(turn.first_line):
         return None      # L65, 2026-10-30: a yes or a no in question form ("sim?", "nao?", "poderia") asks something and answers nothing: it is neither the OK nor the refusal, and goes on as any other line
-    return natural.confirm_kind(turn.first_line)
+    word = natural.confirm_kind(turn.first_line)
+    if word:
+        return word
+    replied = turn.update.get("reply_to")      # mail-list-account: the question asks for an account, and a whole line that names one by a closed word is its answer ("pick:<index>")
+    rec = (turn.replied_record if isinstance(replied, str) else None) if replied else turn.last_record
+    if not rec or rec.get("kind") != "plan-confirm" or not rec.get("plan_picks"):
+        return None
+    target = next((p for p in turn.listed if p["id"] == rec.get("project")), None)
+    if target is None:
+        return None
+    try:
+        picked = bridge.ops.plan_choice(target["path"], bridge.key(turn.chat), turn.first_line)
+    except bridge.ops.OpsError:
+        return None
+    return None if picked is None else f"pick:{picked}"
 
 
 def plan_confirm_take(bridge, turn, word):

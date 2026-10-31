@@ -161,7 +161,7 @@ def test_the_command_given_is_one_the_runtime_accepts_and_the_list_then_works(wo
         words = shlex.split(command.partition(": ")[2])
         ops_sources.source_mail(world["path"], words[words.index("--source") + 1], words[words.index("--origin") + 1])
     listed = ask(world, "list my emails")
-    assert OLD in listed and OUTLOOK_MAIL in listed and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="Gmail") and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="Outlook") and "inbox" not in listed.lower()
+    assert OLD in listed and OUTLOOK_MAIL in listed and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="**Gmail**") and pk.said(listed, "NW_ITEMS_HEAD_PHONE", EN, name="**Outlook**") and "inbox" not in listed.lower()      # mail-list-account: two mail sources in one reply, each name in bold
 
 
 def test_the_calendar_command_and_an_account_named_in_the_line_narrow_the_examples(world, snaps, clock):
@@ -360,13 +360,13 @@ def test_two_sources_of_one_account_are_told_apart_by_their_box_and_then_by_a_nu
     boxes = [phrases.text("SRC_TWIN", None, name=gmail, detail=phrases.text(key, None)) for key in ("SRC_BOX_INBOX", "SRC_BOX_STARRED")]      # BL5D: the box tells twins apart
     assert len(heads) == len(boxes)
     for head, name in zip(heads, boxes):
-        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=name, when="at 07:12")
+        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=f"**{name}**", when="at 07:12")      # mail-list-account: the name of each source of a reply of several is bold
     ops_sources.source_mail(world["path"], "inbox-2", "gmail:box=inbox;days=3;max=50")
     heads = [line for line in ask(world, "list my emails").splitlines() if line.endswith("):")]
     numbered = [boxes[0] + " 1", boxes[0] + " 2", boxes[1]]      # equal after the detail: numbered in the registry's order (by id)
     assert len(heads) == len(numbered)
     for head, name in zip(heads, numbered):
-        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=name, when="at 07:12")
+        pk.assert_said(head, "NW_ITEMS_HEAD_PHONE", EN, name=f"**{name}**", when="at 07:12")
 
 
 def test_the_conversation_and_the_terminal_keep_the_source_id_the_utc_time_and_the_line_as_the_snapshot_prints_it(world, snaps, clock):

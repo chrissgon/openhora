@@ -906,22 +906,25 @@ class Bridge(shell_kit.Jobs):
         caps = self.messenger.capabilities()
         cfg = self.cfg(project, chat)
         text = said or self.t("NO_REPLY", project=project)
-        yes_no = bool(caps.get("buttons") and int(caps.get("max_buttons") or 0) >= 2 and len(text) <= int(caps.get("max_text") or 0))
+        labels = plan.get("choices") or []      # mail-list-account: a question that asks for an account has one button for each option in place of Yes and No (the plain names, the last one "All")
+        limit = int(caps.get("max_button_label") or 0)
+        yes_no = bool(caps.get("buttons") and int(caps.get("max_buttons") or 0) >= (len(labels) or 2) and len(text) <= int(caps.get("max_text") or 0) and (not limit or all(len(label) <= limit for label in labels)))
         actions, sent = {}, None
         if yes_no:
             seq = self.ledger.next_seq()
             yes, no = f"{seq}:plan-yes", f"{seq}:plan-no"
-            message = {"text": text, "actions": [{"id": yes, "label": phrases.text("NT_BTN_YES", cfg)}, {"id": no, "label": phrases.text("PLAN_BTN_NO", cfg)}], "link": None, "document": None}
+            buttons = [{"id": f"{seq}:plan-pick-{n}", "label": label} for n, label in enumerate(labels)] or [{"id": yes, "label": phrases.text("NT_BTN_YES", cfg)}, {"id": no, "label": phrases.text("PLAN_BTN_NO", cfg)}]
+            message = {"text": text, "actions": buttons, "link": None, "document": None}
             try:
                 sent = self.deliver(chat, message)
             except provider.MessengerError as e:
                 if e.kind != "deferred":
                     self.log(f"a question could not be sent ({e.kind})")
-            actions = {yes: "yes", no: "no"}
+            actions = {button["id"]: f"pick:{n}" for n, button in enumerate(buttons)} if labels else {yes: "yes", no: "no"}
             self.last_message[chat] = str(sent) if sent else None
         else:
             if caps.get("actions_need_reply"):
-                text = text + "\n" + phrases.text("PLAN_REPLY_HOW_EMAIL", cfg)
+                text = text + "\n" + phrases.text("PLAN_REPLY_HOW_ACCOUNT" if labels else "PLAN_REPLY_HOW_EMAIL", cfg)
             self.scope.replied = None
             if self.reply(chat, text, project) is True:
                 sent = getattr(self.scope, "replied", None)
@@ -931,7 +934,7 @@ class Bridge(shell_kit.Jobs):
         try:
             self.ledger.add({"project": project["id"], "pending_id": None, "kind": "plan-confirm", "content_sha256": "", "chat": chat, "message_id": str(sent), "actions": actions,
                              "sent_at": self.clock(), "whole": True, "approvable": False, "blocked": None, "effect_word": None,
-                             "plan_item": plan["item"], "plan_sha256": plan["sha256"], "plan_op": plan["op"]})
+                             "plan_item": plan["item"], "plan_sha256": plan["sha256"], "plan_op": plan["op"], **({"plan_picks": len(labels)} if labels else {})})      # the number of options only: no label and no source id in the ledger
         except OSError as e:
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
             self.ops.plan_drop(project["path"], self.key(chat))
@@ -956,14 +959,18 @@ class Bridge(shell_kit.Jobs):
             self.reply(chat, self.t("PLAN_GONE", project=target), target)
             return
         if last is not None and not self.still_last(chat, last):
-            self.reply(chat, self.t("PLAN_NOT_LAST", project=target), target)      # the plan waits; the person replies to the question, or asks again
+            self.reply(chat, self.t("PLAN_NOT_LAST_ACCOUNT" if rec.get("plan_picks") else "PLAN_NOT_LAST", project=target), target)      # the plan waits; the person replies to the question, or asks again
             return
-        self.start(target, chat, rec["plan_op"], self.line(target, chat, said, None, plan_ok={"item": rec["plan_item"], "sha256": rec["plan_sha256"]}, allow_as=rec["plan_op"]))
+        if rec.get("plan_picks") and word == "yes":
+            self.ask_plan(target, chat, live.get("question") or "", live)      # a yes names no account: the question again, with its buttons; nothing is read
+            return
+        pick = {"choice": int(word[5:])} if word.startswith("pick:") else {}      # the option the person chose; `take` checks it against the plan's options
+        self.start(target, chat, rec["plan_op"], self.line(target, chat, said, None, plan_ok={"item": rec["plan_item"], "sha256": rec["plan_sha256"], **pick}, allow_as=rec["plan_op"]))
 
     def plan_tapped(self, project: dict, chat: str, rec: dict, word: str) -> None:
         """A tap on the Yes or No button of a question: the same decision as the word (`plan_decide`); a button names its message, so it needs no last-message rule. The checks of `tapped`
         (the record is this chat's, the sender is listed) came before."""
-        self.plan_decide(project, chat, rec, word, phrases.text("NT_BTN_YES", self.cfg(project, chat)) if word == "yes" else "")
+        self.plan_decide(project, chat, rec, word, phrases.text("NT_BTN_YES", self.cfg(project, chat)) if word == "yes" or word.startswith("pick:") else "")
 
     def plan_waits(self, listed: list, chat: str) -> bool:
         """Whether a question of a plan whose plan still waits (live: inside its 600 s and neither taken nor dropped) has been sent to this chat (D5, the two-question guard of L64): then a bare word

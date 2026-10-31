@@ -1,0 +1,6 @@
+{
+  "package": "mail-list-account",
+  "add": {
+    "operations_table.NOT_OPERATIONS": ["account_choices", "account_named_words", "without_named_account", "remember_listed", "plan_choice"]
+  }
+}
