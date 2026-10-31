@@ -155,6 +155,7 @@ def test_limit_63_the_contract_says_a_typed_address_and_no_other():
     assert "the card's subject and body reach the provider for it" in text, "the privacy price of the model call is stated in the limit"
     assert "`mail_revise.typed_new_address`" in text and "passes no `fallback=`" in text and "a quotation mark left open leaves the address undecided" in text, "the refusal beside a text answer, the missing fallback and the quote rule are stated"
     assert "`mail_revise.types_address`" in text and "a whole e-mail address outside quotation marks" in text and "`turn_gate.new_request` reads as a new request for a time" in text, "what reaches the model: an address in the line, and the time lines that do not"
+    assert "`mail_revise.only_an_address`" in text and "when the model answers an empty recipient: that line is a new request in free words" in text, "a new request that holds an address goes on when the model finds nothing about the card"
     assert (old_sentence in f"planted {old_sentence} text") is True, "vacuity: the check above sees the old sentence when it is there"
 
 
@@ -517,3 +518,54 @@ def test_a_time_change_such_as_troca_15h_por_16h_stops_at_the_gate_because_the_c
 ])
 def test_types_address_table(line, expected):
     assert mail_revise.types_address(line) is expected
+
+
+# --- a new request in free words that holds an address goes on when the model finds nothing about the card ---------------------------------------------------
+
+
+NEW_REQUESTS = ["Envie um email para ana@client.example. Quero marcar uma reuniao", "manda pra x@y.example", "x@y.example", "na verdade é pra x@y.example"]      # validate: allow english-only -- Portuguese lines under test
+
+
+@pytest.mark.parametrize("line", NEW_REQUESTS)
+def test_a_line_that_reached_the_model_only_by_an_address_and_gets_an_empty_recipient_goes_on_and_the_card_is_untouched(world, clock, monkeypatch, line):
+    model, old, sha = f.live_card(world, monkeypatch, revise=R(""))
+    before = json.dumps(document(world, old), sort_keys=True)
+    assert mail_revise.only_an_address(line) is True and f.check(world, old, sha, line) == "mail"
+    got = f.revise(world, old, sha, line)
+    assert got == {"pass": True}, "no sentence about the recipients: the line goes on to the turn that reads it, as before this change"
+    assert len(model.of("revise")) == 1 and f.open_cards(world) == [old] and pending_ids(world) == [old] and json.dumps(document(world, old), sort_keys=True) == before
+    f.nothing_sent(world)
+
+
+@pytest.mark.parametrize("line", [
+    "troca o destinatário para a Ana",      # a word about the recipients      # validate: allow english-only -- the Portuguese line under test
+    "troca o destinatário para ana@client.example e muda o assunto",      # recipient word, change word, an address      # validate: allow english-only -- the Portuguese line under test
+    "adiciona ana@client.example",      # a change word      # validate: allow english-only -- the Portuguese line under test
+    "Envie o email para ana@client.example",      # an object of the card      # validate: allow english-only -- the Portuguese line under test
+    'escreva "x@y.example" para ana@client.example',      # a quoted text      # validate: allow english-only -- the Portuguese line under test
+], ids=["recipient-word", "recipient-change-address", "change-word", "object-of-the-card", "quoted-text"])
+def test_a_line_that_does_ask_about_the_card_keeps_the_recipients_sentence_on_an_empty_recipient(world, clock, monkeypatch, line):
+    """Vacuity of the test above: the same empty answer on a line that has a word about the card is the sentence, and the card is sent again."""
+    model, old, sha = f.live_card(world, monkeypatch, revise=R(""))
+    assert mail_revise.only_an_address(line) is False
+    got = f.revise(world, old, sha, line)
+    assert f.reply_is(got, RV_RECIPIENTS, old), got
+    assert f.open_cards(world) == [old] and pending_ids(world) == [old]
+
+
+def test_the_other_answers_to_a_line_that_reached_the_model_only_by_an_address_do_not_change(world, clock, monkeypatch):
+    """A non-empty recipient still needs the check of the typed address and opens a new card for approval; an answer that is the card back keeps the recipients sentence (a typed address the card does not hold)."""
+    model, old, sha = f.live_card(world, monkeypatch, revise=R("x@y.example"))
+    got = f.revise(world, old, sha, "x@y.example")
+    assert isinstance(got["resend"], int) and got["resend"] != old and f.says(got["say"], "RV_DONE_RECIPIENT") and document(world, got["resend"])["to"] == ["x@y.example"]
+    model2, old2, sha2 = f.live_card(world, monkeypatch, revise=text_answer(f.SUBJECT))
+    assert f.reply_is(f.revise(world, old2, sha2, "manda pra x@y.example"), RV_RECIPIENTS, old2)      # validate: allow english-only -- the Portuguese line under test
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("Envie um email para ana@client.example. Quero marcar uma reuniao", True), ("x@y.example", True), ("manda pra x@y.example", True),      # validate: allow english-only -- Portuguese lines under test
+    ("troca o destinatário para x@y.example", False), ("adiciona x@y.example", False), ("Envie o email para x@y.example", False), ('escreva "a" para x@y.example', False),      # validate: allow english-only -- Portuguese lines under test
+    ("manda pra Ana", False), ("obrigado", False),      # validate: allow english-only -- Portuguese lines under test
+])
+def test_only_an_address_table(line, expected):
+    assert mail_revise.only_an_address(line) is expected

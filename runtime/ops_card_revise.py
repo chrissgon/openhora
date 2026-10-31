@@ -39,7 +39,9 @@ name, are copied by code from the old card's document, and the new card is check
 case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". A line that asks to change who receives an e-mail is read by the model like any other
 (the answer {"recipient": "<address>"}, `mail_revise.recipient_answer`); code opens a new card (`_recipient`) only when the card has one recipient and the address is the one new address the person typed
 whole in the line outside its quoted texts (`mail_revise.typed_recipient`); the sender, the subject and the body are the old card's, checked equal. A name, several addresses, an add, a remove or a copy,
-an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open. So does a line that types a whole new address outside its quoted texts beside a request for
+an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open, except a line that reached the model only because it holds an address (`mail_revise.only_an_address`:
+no word that asks for a change, no word about the recipients, no object of the card, no quoted text) when the model answers an empty recipient: that is a new request in free words, not a request about this
+card, so it goes on to the turn that reads it ({"pass": True}), the card stays open and nothing is said about the recipients. So does a line that types a whole new address outside its quoted texts beside a request for
 a change of the text, when the model answers only the text (`mail_revise.typed_new_address`): the request for the recipient would be dropped, so nothing is changed and the person says it in two lines. A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
 
 Privacy (limit L63): nothing is logged, printed or stored here but the one decision in memory for the length of RETAIN seconds; the calls are counted in the interpreter's limits.
@@ -248,6 +250,8 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, revised, asked = False, None, None
     turn_gate.record(ok)
+    if asked == "" and mail_revise.only_an_address(line):
+        return {"pass": True}      # a new request in free words that holds an address, typed while the card waits: the model found nothing about this card, so the line goes on to the turn that reads it, as before
     if asked is not None:
         return _recipient(project, ctx, pending_id, asked, line, mail, channel, sender)
     if revised is not None and mail_revise.typed_new_address(line, mail["to"], mail["subject"], mail["body"]) is not None:

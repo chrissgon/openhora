@@ -18,6 +18,7 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   literals(line)                           the texts the instruction puts between quotation marks ("..." or the curved pair), in order
   recipient_words(line)                    whether the instruction, outside its quoted texts, asks in words to change who receives the e-mail (it only opens the gate, `ops_card_revise._taken`)
   types_address(line)                      whether the line holds a whole address outside its quoted texts (then a line on an e-mail card reaches the model, whatever its words)
+  only_an_address(line)                    whether the line reached the model only by an address (then an empty recipient answer lets it go on to its own turn, `ops_card_revise._mail`)
   typed_new_address(line, to, subject, body)  a whole address the line types outside its quoted texts that the card does not hold, else None (a text answer beside it is refused)
   recipient_answer(text)                   the model's answer of the form {"recipient": "..."} (exactly that key, a text), else None
   typed_recipient(answer, line, to)        the new recipient AS THE PERSON TYPED IT in the line, else None (the card has one recipient; the one new address of the line outside its quoted texts is the answer)
@@ -273,6 +274,12 @@ def types_address(line: str) -> bool:
     if tokens is not None:
         return any(t.kind == "addr" for t in tokens)
     return bool(ADDRESS.search(unicodedata.normalize("NFKC", rest)))
+
+
+def only_an_address(line: str) -> bool:
+    """Whether the line reached the model ONLY because it holds a whole address outside quotes (`types_address`): no word that asks for a change, no word about the recipients, no object of the
+    card and no quoted text. Such a line may be a new request in free words ("Envie um email para ana@..."), not a request about this card."""
+    return types_address(line) and not (asks_change(line) or recipient_words(line) or names_object(line) or bool(literals(line)))
 
 
 def typed_new_address(line: str, to: list, subject: str, body: str):

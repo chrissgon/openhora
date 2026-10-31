@@ -237,7 +237,15 @@ def test_an_address_the_cards_own_text_already_holds_may_stay_and_a_new_one_neve
     assert says(revise(world, new, ops.pending(world["path"], new)["payload_sha256"], INSTRUCTION)["say"], FAILED_KEY)
 
 
-def test_an_address_in_a_line_on_an_e_mail_card_reaches_the_model_whatever_its_words_and_a_model_that_changes_nothing_leaves_the_card_open(world, clock, monkeypatch):
+def test_an_address_in_a_line_that_asks_for_no_change_is_a_new_request_in_free_words_and_goes_on(world, clock, monkeypatch):
+    """The old test of this name, true again with one difference: the line now reaches the model (one call) because it holds an address, the model answers an empty recipient, and the line goes on to its
+    own path with the card open and not a word about the recipients (mail-card-recipient, 2026-10-30)."""
+    model, old, sha = live_card(world, monkeypatch, revise=json.dumps({"recipient": ""}))
+    assert revise(world, old, sha, "Envie um email para ana@client.example. Quero marcar uma reuniao") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
+    assert len(model.of("revise")) == 1 and open_cards(world) == [old] and status(world, old) == "open"
+
+
+def test_an_address_in_a_line_on_an_e_mail_card_reaches_the_model_whatever_its_words_and_a_model_that_answers_the_card_back_gets_the_recipients_sentence(world, clock, monkeypatch):
     """mail-card-recipient (2026-10-30): a person's request is read by the model, so a line that holds a whole address outside quotes reaches it on a mail card; here the model finds nothing to change
     in "a new request in free words" and answers the card back; the line holds an address the card does not hold, so the recipients sentence is said (a text answer cannot apply a new recipient), and the
     card stays as it was (before, the line went on to its own path without a word of the model)."""
