@@ -201,7 +201,7 @@ def test_vacuity_the_dev_reader_counts_both_files_and_each_item_once(tmp_path, m
 
 
 def test_the_operations_waiting_for_corpus_items_are_listed_and_still_have_none():
-    assert sorted(PENDING_CORPUS) == ["file-ask", "file-read", "file-trash", "mail-read", "research", "todo-add", "todo-done", "todo-list"] and all(PENDING_CORPUS.values())      # CB-9 adds the five rows of catalog version 2 (their dev lines are in dev-catalog-v1.jsonl, which this test does not count)
+    assert sorted(PENDING_CORPUS) == ["file-ask", "file-read", "file-trash", "mail-ask", "mail-read", "research", "todo-add", "todo-done", "todo-list"] and all(PENDING_CORPUS.values())      # CB-9 adds the five rows of catalog version 2 (their dev lines are in dev-catalog-v1.jsonl, which this test does not count); MAIL-SUMMARY-FLIP adds mail-ask (evals/interpreter/dev-mail-ask-v1.jsonl, not counted either)
     for op in PENDING_CORPUS:
         assert dev_counts().get(op, 0) < MIN_DEV and split_counts().get(op, 0) < MIN_TEST, op
 

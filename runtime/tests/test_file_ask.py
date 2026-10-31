@@ -446,7 +446,7 @@ def test_the_posso_is_asked_before_any_search_and_the_ok_runs_the_question(desk,
 
 
 def test_the_row_is_a_version_2_row_that_a_line_reaches_since_the_flip_and_version_1_does_not_serve_it(monkeypatch):
-    assert operations.LINE_CATALOG == 2
+    assert operations.LINE_CATALOG == 3
     rec = registry.row("file-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 2, 150, "off-host", "model")
     assert set(rec["slots"]) == {"file", "service"} and all(spec["since"] == 2 for spec in rec["slots"].values())

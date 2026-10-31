@@ -167,11 +167,11 @@ def test_the_header_check_of_the_cli_refuses_an_in_use_file_by_its_prompt_since_
 
 
 def test_the_served_catalog_is_no_longer_the_recorded_one_and_the_gate_does_not_read_it():
-    """The slices that added `file-read`, then the rows of catalog version 2 (CB-9), changed the served catalog; the gate replays the recorded copy, so the two differ and only the copy matters to it."""
+    """The slices that added `file-read`, then the rows of catalog version 2 (CB-9) and the row of version 3 (MAIL-SUMMARY-FLIP), changed the served catalog; the gate replays the recorded copy, so the two differ and only the copy matters to it."""
     assert interpreter.SERVED_SHA256 != RECORDED_CATALOG_SHA256
     recorded = {row["op"] for row in json.loads(RECORDED_CATALOG.read_text(encoding="utf-8"))["ops"]}
     served = {row["op"] for row in interpreter.SERVED["ops"]}
-    assert recorded < served and served - recorded == {"file-read", "research", "file-trash", "mail-read", "todo-list", "todo-add", "todo-done", "file-ask"}
+    assert recorded < served and served - recorded == {"file-read", "research", "file-trash", "mail-read", "todo-list", "todo-add", "todo-done", "file-ask", "mail-ask"}
 
 
 def test_vacuity_a_recorded_copy_that_lost_an_operation_changes_the_replay(monkeypatch, tmp_path, recorded_catalog):

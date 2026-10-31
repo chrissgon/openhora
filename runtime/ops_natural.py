@@ -289,8 +289,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
         args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
-    if name == "mail-read" and not confirmed and args.get("number") is not None and not (args.get("message") or args.get("account") or args.get("service")) and not ops_items._named_account(said):
-        listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it
+    if name in ("mail-read", "mail-ask") and not confirmed and args.get("number") is not None and not (args.get("message") or args.get("account") or args.get("service")) and not ops_items._named_account(said):
+        listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it (MAIL-ASK-BINDING: a summary of "the 3" after a list is that list's 3, never another box's)
         if listed:
             args = dict(args, message=f"{listed}#{args['number']}")
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)

@@ -2,7 +2,7 @@
 
 `mail-ask` names ONE message of the mail snapshots as `mail-read` does (its number, words of its sender or subject, a line of a list this platform printed, the newest), hands its whole snapshot text to
 ONE run of the stand-in answer skill as the temporary source `message`, and the reply is checked by code (runtime/ask_reply.py). The operation is carried out as the interpreter ends a line, through
-`ops_natural.run`. The row is of catalog version 3 while `LINE_CATALOG` is 2: a typed command, the page and these tests reach it, a person's line does not (the last tests pin that). No model, no
+`ops_natural.run`. The row is of catalog version 3 and, since package MAIL-SUMMARY-FLIP, `LINE_CATALOG` is 3: a typed command, the page, a person's line (through the interpreter) and these tests reach it. No model, no
 network, no secret store: the run is the stand-in adapter of runtime/tests/standin_tree.py, whose reply each test writes by hand. Every expectation is a literal of this file; every name, address and
 sum is invented, and every oracle that searches, counts or compares has a vacuity case that fails on a planted wrong result.
 
@@ -12,7 +12,7 @@ sum is invented, and every oracle that searches, counts or compares has a vacuit
   the copy: the whole body reaches the reader (not the phone's 1,500), one temporary source, nothing registered; a credential holds the message back
   the reply: a quote is checked, an instruction in the message is shown as not followed and acts on nothing, a number the message does not hold is named
   what is kept: nothing of the message, the question or the subject in any file, the store or the logs; the run folder keeps the counts
-  the interpreter: a sender who may have a message summarized but not shown gets a plan that says so; a person's line does not reach the operation before the flip
+  the interpreter: a sender who may have a message summarized but not shown gets a plan that says so; a person's line reaches the operation since the flip (and did not at version 2)
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_mail_ask.py
 """
@@ -773,7 +773,7 @@ def test_an_unproven_reader_says_so_before_any_message_is_read(desk, monkeypatch
 
 @pytest.fixture
 def served(monkeypatch):
-    """The interpreter over the catalog of version 3 (the flip is not this package's): the served catalog, its hash and the table of the lines pinned to that version, for these tests only."""
+    """The interpreter over the catalog of version 3 (the one served since MAIL-SUMMARY-FLIP; the fixture keeps the tests independent of what a later package serves): the catalog, its hash and the table of the lines pinned to that version."""
     catalog = interpreter_catalog.generate(3)
     classes, table_of = natural.views(3)
     monkeypatch.setattr(interpreter, "SERVED", catalog)
@@ -823,29 +823,47 @@ def test_the_summary_plan_and_the_reader_question_in_one_run(desk, monkeypatch, 
     assert found(done) and left.seen[0]["prompt"].startswith(table("MA_SUMMARY_QUESTION")) and "show me" not in left.seen[0]["prompt"]
 
 
-# --- 20. a person's line does not reach the operation yet ---------------------------------------------------------------------------------------
+# --- 20. a person's line reaches the operation since the flip (and did not at version 2) ---------------------------------------------------------
 
 
-def test_the_row_is_a_version_3_row_that_no_line_reaches_while_the_catalog_is_2():
-    assert operations.LINE_CATALOG == 2
+def test_the_row_is_a_version_3_row_that_a_line_reaches_since_the_flip():
+    assert operations.LINE_CATALOG == 3
     rec = registry.row("mail-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 3, 101, "off-host", "model")
     assert set(rec["slots"]) == {"message", "target", "day", "service"} and all(spec["since"] == 3 for spec in rec["slots"].values())
     assert len(rec["about"]) <= 300 and "(mail-read)" in rec["about"]
-    assert "mail-ask" not in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table only since the flip"
-    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_cb9"], "the served catalog is untouched"
+    assert "mail-ask" in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table since the flip"
+    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_mail_ask"] == interpreter.SERVED_SHA256, "the served catalog is the flip's"
     assert "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]] and "mail-ask" in [row["op"] for row in interpreter_catalog.generate(3)["ops"]]
-    assert "mail-ask" not in [row["op"] for row in interpreter.SERVED["ops"]]
-    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is False, "a line reaches only the operations of the served catalog"
+    assert "mail-ask" in [row["op"] for row in interpreter.SERVED["ops"]]
+    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is True, "a line reaches the operations of the served catalog"
 
 
-def test_the_interpreter_does_not_choose_the_operation_and_does_not_substitute_it_before_the_flip():
+def test_vacuity_at_version_2_no_line_reaches_the_operation(monkeypatch):
+    classes, table_of = natural.views(2)
+    monkeypatch.setattr(natural, "CLASSES", classes)
+    monkeypatch.setattr(natural, "NATURAL", table_of)
+    assert "mail-ask" not in natural.NATURAL and natural.CLASSES["mail-ask"] == "R"
+    assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is False, "the oracle of the test above sees the table of the version before the flip"
+
+
+def test_the_interpreter_chooses_and_substitutes_the_operation_since_the_flip_and_did_not_at_version_2(monkeypatch):
     obj = {"v": 1, "kind": "op", "op": "mail-ask", "slots": {"message": "2"}}
-    unknown = interpreter.check(obj, "resume o 2", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
-    assert unknown["kind"] == "clarify" and unknown["error"] == "E_OP_UNKNOWN", "an operation the served catalog does not hold"
     read = {"v": 1, "kind": "op", "op": "mail-read", "slots": {"message": "2"}}
-    decision = interpreter.check(read, "show me e-mail 2 please", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
-    assert decision["kind"] == "refuse_policy" and decision["op"] == "mail-read", "no substitution: the catalog the model reads does not hold the row"
+    with monkeypatch.context() as at_version_2:      # the lines and the catalog of the version before the flip
+        classes, table_of = natural.views(2)
+        at_version_2.setattr(natural, "CLASSES", classes)
+        at_version_2.setattr(natural, "NATURAL", table_of)
+        version2 = interpreter_catalog.generate(2)
+        at_version_2.setattr(interpreter, "SERVED_SHA256", interpreter_catalog.sha256(version2))      # `check` refuses a catalog that is not the served one
+        unknown = interpreter.check(obj, "resume o 2", None, version2, NOW, "America/Sao_Paulo", {"mail-ask"})
+        assert unknown["kind"] == "clarify" and unknown["error"] == "E_OP_UNKNOWN", "an operation the catalog of version 2 does not hold"
+        decision = interpreter.check(read, "show me e-mail 2 please", None, version2, NOW, "America/Sao_Paulo", {"mail-ask"})
+        assert decision["kind"] == "refuse_policy" and decision["op"] == "mail-read", "no substitution at version 2: the catalog the model read did not hold the row"
+    chosen = interpreter.check(obj, "resume o 2", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
+    assert chosen["kind"] == "op" and chosen["op"] == "mail-ask" and chosen["args"] == {"number": 2}, "the served catalog holds the row"
+    summarized = interpreter.check(read, "show me e-mail 2 please", None, interpreter.SERVED, NOW, "America/Sao_Paulo", {"mail-ask"})
+    assert summarized["kind"] == "op" and summarized["op"] == "mail-ask" and summarized["args"] == {"number": 2, "summary": True}
 
 
 def test_the_help_the_cli_and_the_page_know_the_operation():
@@ -1019,6 +1037,9 @@ def test_the_day_is_counted_by_the_request_word_of_this_operation_inside_contain
     assert reads(desk) == 2 and found(again), "the oracle sees a run that the wrong word lets through"
 
 
+@pytest.mark.xfail(strict=True, reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off "
+                   "until the maintainer's lab run (python3 evals/eval_run.py --skill asst-answer --cases 6,7,8 --baseline) is committed with its evidence. Strict: when the evidence makes this pass, "
+                   "the XPASS fails the suite and this mark is removed in the same commit. The pull request is a draft titled DO NOT MERGE until then.")
 def test_the_real_standing_of_the_reader_lets_both_questions_start_with_no_stub():
     """H1: the reader's band is read from the recorded evidence of this checkout, with nothing stubbed. A case added to asst-answer that has no run yet turns the band to `needs a test` and file-ask off."""
     assert ops_file_ask._skill() == ("asst-answer", None)
