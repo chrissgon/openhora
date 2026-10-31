@@ -22,6 +22,9 @@ import standin_tree as st
 from test_interpreter_echo import Echo, run as echo_run
 
 interpreter = st.load("interpreter")
+natural = st.load("natural")
+natural_writes_mail = st.load("natural_writes_mail")
+ops_mail_read = st.load("ops_mail_read")
 interpreter_measure = st.load("interpreter_measure")
 interpreter_pipeline = st.load("interpreter_pipeline")
 operations = st.load("operations")
@@ -120,12 +123,51 @@ def test_the_counts_by_language_by_operation_and_by_kind_of_line_are_literals():
     asked = [item for item in ITEMS if item["gold"]["op"] == "mail-ask"]
     pasted = [item for item in asked if " · " in item["line"]]
     by_number = [item for item in asked if "message" in item["gold"]["slots"]]
-    newest = [item for item in asked if any(span.startswith(("o último", "último", "le dernier", "dernier")) for span in item["gold"]["slots"].get("target", []))]
-    assert (len(pasted), len(by_number), len(newest)) == (5, 4, 3), "five pasted list lines, four by number, three for the newest"
-    assert len(asked) - len(pasted) - len(by_number) - len(newest) == 7, "four by a sender or subject, and three questions (a date, an amount, a due date)"
+    newest = [item for item in asked if any(span.startswith(("o último", "último")) for span in item["gold"]["slots"].get("target", []))]
+    assert (len(pasted), len(by_number), len(newest)) == (5, 4, 2), "five pasted list lines, four by number, two for the newest (the engine's table of the newest has Portuguese and English only)"
+    assert len(asked) - len(pasted) - len(by_number) - len(newest) == 8, "five by a sender or subject, and three questions (a date, an amount, a due date)"
     assert [item["gold"]["op"] for item in ITEMS if item["gold"]["op"] in ("mail-read", "items", "ask")].count("mail-read") == 3, "three lines that must stay mail-read"
     assert {item["gold"]["op"] for item in ITEMS if item["gold"]["op"] in ("items", "ask")} == {"items", "ask"}, "and two that must stay items or ask"
     assert all(" · " in item["line"] for item in pasted) and all(re.search(r"(hoje|ontem|segunda|today) [0-9]{2}:[0-9]{2}$", item["line"]) for item in pasted), "a pasted line is the form code prints: who · subject · when"
+
+
+# What each target-bearing item names, as words of the message's sender or subject: the test's own literals. `ops_mail_read._find` finds a message when `target_words(span)` is a subset of the words of
+# its address, subject or display name (`natural_writes_mail.match_words`, `_read_matches`); a span that keeps a function word of a language the engine has no table for ("von", "di", "le") asks for a word
+# the message does not carry. "newest" is read by `says_newest`, whose table has Portuguese and English phrases only.
+NAMES = {"dev-pt-br-61006": {"clinica", "leve"}, "dev-pt-br-61009": {"dana"}, "dev-pt-br-61010": {"banco", "alvorada"}, "dev-pt-br-61012": {"clinica", "leve"},
+         "dev-en-61002": {"marisol", "quenby", "roof", "repair"}, "dev-en-61003": {"dana", "whitlock"}, "dev-de-61000": {"lena", "brandt"}, "dev-it-61000": {"marta", "fontana"},
+         "dev-fr-61000": {"helene", "moreau"}}
+NEWEST = {"dev-pt-br-61007", "dev-pt-br-61008"}
+
+
+def findable(span: str, names: set, tables) -> bool:
+    """Whether `ops_mail_read._find` would find the message the line names with this target span: a list line, the newest, or words that are all in the message's own words."""
+    if ops_mail_read._list_line(span) is not None:
+        return True
+    if natural_writes_mail.says_newest(span, tables):
+        return True
+    words = natural_writes_mail.target_words(span, tables)
+    return bool(words) and set(words) <= names
+
+
+def test_every_accepted_target_is_one_the_engine_finds_the_message_with():
+    """Review of MAIL-SUMMARY-FLIP: `correct` means a gold span, so a gold span the engine cannot use makes a model that is right look right. Every accepted target is findable."""
+    tables = natural._tables(None)
+    targeted = [item for item in ITEMS if item["gold"]["op"] in ("mail-ask", "mail-read") and "target" in item["gold"]["slots"]]
+    assert {item["id"] for item in targeted} == set(NAMES) | NEWEST | {item["id"] for item in ITEMS if " · " in item["line"]}, "every targeted item is described above"
+    for item in targeted:
+        for span in item["gold"]["slots"]["target"]:
+            assert findable(span, NAMES.get(item["id"], set()), tables), (item["id"], span)
+        if item["id"] in NEWEST:
+            assert all(natural_writes_mail.says_newest(span, tables) for span in item["gold"]["slots"]["target"]), item["id"]
+
+
+def test_vacuity_a_span_with_a_function_word_of_a_language_without_a_table_is_not_findable():
+    tables = natural._tables(None)
+    for span in ("von Lena Brandt", "die E-Mail von Lena Brandt", "di Marta Fontana", "l'email di Marta Fontana", "le dernier", "d'Hélène Moreau"):      # validate: allow english-only -- the lines under test
+        names = {"lena", "brandt", "marta", "fontana", "helene", "moreau"}
+        assert not findable(span, names, tables), span
+    assert findable("Lena Brandt", {"lena", "brandt"}, tables) and findable("o último", set(), tables) and findable("da Dana", {"dana"}, tables)      # validate: allow english-only -- the lines under test
 
 
 def test_the_lines_are_new_and_hold_no_address_and_no_phone_like_run():

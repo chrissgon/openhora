@@ -2,7 +2,7 @@ One e-mail message from a mail snapshot, read at 2028-04-19 08:05 UTC. The heade
 
 From: Pennant Utilities
 Subject: Invoice 4471 is ready
-Received: 2028-04-18 17:30
+Received: Tue 18/04 17:30
 
 Hello,
 

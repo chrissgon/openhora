@@ -25,6 +25,8 @@ ops_file_ask = st.load("ops_file_ask")
 PROFILES = {"asking": ["read", "talk", "ask", "ask-mail", "read-mail-body", "interpret"]}      # may ask a question about one e-mail (and read one: the last test); holds no confirm-reads-off
 ONE_GMAIL = [tsm.message(1, "2026-10-17T09:00:00Z", "Bia Costa <bia@clinic.example>", "Appointment confirmed", "Your visit is confirmed.")]
 THREE_OUTLOOK = [tsm.message(n, f"2026-10-17T0{n}:00:00Z", f"Dan Reis <dan@work.example>", f"Weekly report {n}", f"Weekly numbers {n} attached.", source="outlook") for n in (1, 2, 3)]
+MOVED = "The list I showed has changed since: ask for the list again, then tell me the number."      # ML_LIST_MOVED
+WHICH = "Which e-mail? Say its number, or some words of its sender or subject."      # MR_ASK
 PLAN_THREE = "I understood: answer about e-mail 3 (a model reads that e-mail in an isolated run, up to US$ 0.25). Shall I go ahead?"
 
 
@@ -79,17 +81,69 @@ def test_a_box_named_in_the_line_or_the_call_wins_over_the_list_on_screen(two_bo
     assert args["message"] == "work#2", "a message the call names stays"
 
 
-def test_the_memory_is_for_the_next_line_only_and_for_the_version_listed(two_boxes, snaps):
+def test_the_memory_is_for_the_next_line_only_and_for_ten_minutes(two_boxes, snaps):
     listed(two_boxes, 0)
     next_line(two_boxes)
     next_line(two_boxes)
     assert "message" not in ask_plan(two_boxes)[1], "the second line after the list"
     listed(two_boxes, 0)
+    next_line(two_boxes)
+    snaps.listed += 601
+    assert "message" not in ask_plan(two_boxes)[1], "after 600 seconds"
+
+
+def new_gmail_mail(snaps):
     snaps.providers.mail["gmail"] = [tsm.message(2, "2026-10-17T09:30:00Z", "Cora Dias <cora@clinic.example>", "New invoice", "Please pay.")] + snaps.providers.mail["gmail"]
     snaps.later(minutes=1)
     snaps.refresh("inbox")      # the box has a newer snapshot than the one that was listed: the numbers moved
+
+
+def test_a_list_whose_snapshot_moved_is_asked_for_again_and_no_plan_names_no_box(two_boxes, snaps):
+    """Review of MAIL-SUMMARY-FLIP: the binding used to drop, the plan pinned the new versions of both boxes and Outlook's message 3 went to the model after a Posso? that named no box."""
+    listed(two_boxes, 0)
+    new_gmail_mail(snaps)
     next_line(two_boxes)
-    assert "message" not in ask_plan(two_boxes)[1], "a new version of the listed box"
+    before = len(mail_reads(snaps))      # the refresh above is the test's own
+    for name, line in (("mail-ask", "resume o 3"), ("mail-read", "read e-mail 3")):
+        reply, _extras = call(two_boxes, line, {"number": 3}, name=name)
+        assert reply == MOVED and live(two_boxes) is None, name
+    assert len(mail_reads(snaps)) == before
+
+
+def test_vacuity_the_moved_list_without_the_question_plans_another_boxs_message(two_boxes, snaps, monkeypatch):
+    listed(two_boxes, 0)
+    new_gmail_mail(snaps)
+    next_line(two_boxes)
+    monkeypatch.setattr(item_refs, "list_moved", lambda ctx, channel, sender: False)      # planted: the question left out
+    reply, args = ask_plan(two_boxes)
+    assert reply == PLAN_THREE and "message" not in args and set(args["pin"]) == {"inbox", "work"}, "the oracle sees the plan that names no box and pins both"
+
+
+def test_a_project_with_one_box_remembers_no_list_so_a_moved_snapshot_is_not_asked_about(world, snaps, clock):
+    boxes(world, snaps, mails=ONE_GMAIL, others=THREE_OUTLOOK, second=False, profiles=PROFILES)
+    _, extras = call(world, "list my e-mails")
+    accept(world, extras)
+    new_gmail_mail(snaps)
+    next_line(world)
+    reply, args = ask_plan(world)
+    assert reply == PLAN_THREE and "message" not in args, "the stated limit: one box, no list remembered, the number is never ambiguous"
+
+
+@pytest.mark.parametrize("number", [0, -1, 10000, 12345])
+def test_a_number_no_message_can_have_is_asked_again_before_any_plan(two_boxes, snaps, number):
+    """Review of MAIL-SUMMARY-FLIP: 0 and 12345 passed `interpreter.check`, and after a plan and a yes the phone got a typed-command error."""
+    for name in ("mail-ask", "mail-read"):
+        reply, extras = call(two_boxes, f"resume o {number}", {"number": number}, name=name)
+        assert reply == WHICH and "plan_confirm" not in extras and live(two_boxes) is None, (name, number)
+    listed(two_boxes, 0)
+    next_line(two_boxes)
+    assert call(two_boxes, f"resume o {number}", {"number": number}, name="mail-ask")[0] == WHICH, "also right after a list, before the binding"
+
+
+def test_the_edges_of_the_range_are_planned(two_boxes, snaps):
+    for number in (1, 9999):
+        reply, extras = call(two_boxes, f"resume o {number}", {"number": number}, name="mail-ask")
+        assert reply.startswith("I understood: answer about e-mail ") and "plan_confirm" in extras, number
 
 
 def test_vacuity_without_the_listed_source_the_same_line_is_not_bound(two_boxes, snaps, monkeypatch):

@@ -350,6 +350,20 @@ def listed_source(ctx: dict, channel, sender):
     return found["source"] if latest is not None and latest["version"] == found["version"] else None
 
 
+def list_moved(ctx: dict, channel, sender) -> bool:
+    """Whether the sender's list on screen was remembered, is the one the line being read follows (the first line since it, inside LISTED_S) and its source has a NEWER snapshot than the one that was
+    listed: the numbers moved, so the number of this line may name another message. `listed_source` is None then, as it is when nothing was remembered; this tells the two apart (MAIL-SUMMARY-FLIP review).
+    A project with one mail box remembers no list (`remember_listed`), so it is never "moved"."""
+    if channel != "messaging":
+        return False
+    with _LISTED_LOCK:
+        found = dict(_LISTED.get(_listed_key(ctx, sender)) or {})
+    if not found or found["seen"] != 1 or LISTED_CLOCK() - found["at"] > LISTED_S:
+        return False
+    latest = _latest(ctx, found["source"])
+    return latest is not None and latest["version"] != found["version"]
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     print(__doc__.strip(), file=sys.stdout if argv in (["--help"], ["-h"]) else sys.stderr)

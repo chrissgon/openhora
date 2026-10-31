@@ -2,7 +2,7 @@ One e-mail message from a mail snapshot, read at 2028-05-03 10:12 UTC. The heade
 
 From: Willow Hardware
 Subject: Your parcel is on its way
-Received: 2028-05-02 16:48
+Received: Tue 02/05 16:48
 
 Hello Mara,
 

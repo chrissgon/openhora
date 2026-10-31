@@ -22,6 +22,7 @@ import ast
 import datetime
 import inspect
 import json
+import os
 import re
 import textwrap
 import time
@@ -119,7 +120,7 @@ def desk(world, monkeypatch, request):  # noqa: F811
     monkeypatch.setattr(ops_items, "SNAPSHOT_CLOCK", lambda: snaps.now)
     ops_items._CHECKED.clear()
     monkeypatch.setattr(ops_natural, "_clock", lambda: NOW)
-    monkeypatch.setattr(plan_confirm, "ALWAYS", registry.always(3))      # the derived set once the catalog reaches the row's version (the flip is not this package's)
+    monkeypatch.setattr(plan_confirm, "ALWAYS", registry.always(3))      # the derived set at catalog version 3, the one served since MAIL-SUMMARY-FLIP (pinned here so that these tests do not follow a later version)
     snaps.providers.mail["gmail"] = getattr(request, "param", None) or gmail()
     snaps.providers.mail["outlook"] = outlook()
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
@@ -914,6 +915,24 @@ def test_a_list_line_pasted_into_the_question_is_taken_out_of_it_so_a_subject_ne
 
 
 @pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", BAIT_SUBJECT, INVOICE)]], indirect=True)
+def test_a_line_that_holds_a_pasted_list_line_whose_span_is_not_that_line_gets_the_summary_question(desk, monkeypatch):
+    """Review of MAIL-SUMMARY-FLIP: the model gave the target `Aurora Team` for "Summarize the e-mail: Aurora Team · <subject> · today 17:14": the span is no list line, so nothing was taken out and the stranger's subject sat above the task text."""
+    left = Leftovers(monkeypatch)
+    answer(desk, INVOICE_FOUND)
+    line = f"Summarize the e-mail: Aurora Team · {BAIT_SUBJECT} · today 17:14"
+    reply, _ = ask(desk, {"match": "Aurora Team"}, line)
+    assert reply.split("\n\n")[0] == "The invoice is ready [message]." and reads(desk) == 1
+    prompt = ran(left)[0]["prompt"]
+    assert prompt.startswith(table("MA_SUMMARY_QUESTION")) and BAIT_SUBJECT not in prompt and "APPROVED" not in prompt
+    assert "Subject: " + BAIT_SUBJECT in ran(left)[0]["copy"][COPY], "the subject still reaches the reader as data, in the copy"
+    ask(desk, {"match": "Aurora Team"}, "What did Aurora Team ask for?")      # no " · " in the line: words are the person's own and the line stays whole
+    assert ran(left)[1]["prompt"].startswith("What did Aurora Team ask for?\n")
+    monkeypatch.setattr(ops_mail_ask, "_question", lambda said, args, cfg: said.strip() if not ops_mail_read._list_line(args.get("match") or "") else table("MA_SUMMARY_QUESTION"))      # planted: the rule before the review
+    ask(desk, {"match": "Aurora Team"}, line)
+    assert BAIT_SUBJECT in ran(left)[-1]["prompt"].split("For this task:")[0], "the oracle sees the stranger's words in the question slot"
+
+
+@pytest.mark.parametrize("desk", [[tsm.message(1, "2026-10-17T09:00:00Z", "Aurora Team <no-reply@mail.aurora-labs.example>", BAIT_SUBJECT, INVOICE)]], indirect=True)
 def test_vacuity_the_whole_line_as_the_question_puts_the_subject_above_the_task_text(desk, monkeypatch):
     monkeypatch.setattr(ops_mail_ask, "_question", lambda said, args, cfg: said.strip())
     left = Leftovers(monkeypatch)
@@ -952,6 +971,28 @@ def test_vacuity_a_plan_with_no_pin_reads_the_other_message(desk, monkeypatch):
     plan = extras["plan_confirm"]
     reply = ops.say(desk["path"], "sim", channel="messaging", sender=KEYS["both"], plan_ok={"item": plan["item"], "sha256": plan["sha256"]})["reply"]
     assert reads(desk) == 1 and reply != table("MA_CHANGED") and "Eve Roth" in reply.split("\n\n")[-1], "the oracle sees a yes that read another message"
+
+
+def test_words_name_the_message_whatever_the_version_so_a_plan_by_words_pins_nothing_and_a_refresh_between_does_not_stop_the_yes(desk):
+    """Review of MAIL-SUMMARY-FLIP: a line by words on a snapshot older than the refresh age, with one new mail, pinned version 1; the yes refreshed it and the reply was MA_CHANGED though the words name the message at any version."""
+    args = {"match": "Appointment confirmed"}
+    said = "summarize the e-mail Appointment confirmed"
+    _asked, extras = ask(desk, args, said, confirmed=False)
+    plan = extras["plan_confirm"]
+    desk["snaps"].providers.mail["gmail"] = [tsm.message(1, "2026-10-17T10:00:00Z", "Eve Roth <eve@other.example>", "Different subject", "Other words entirely.", id="n1")] + gmail()
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    reply = ops.say(desk["path"], "sim", channel="messaging", sender=KEYS["both"], plan_ok={"item": plan["item"], "sha256": plan["sha256"]})["reply"]
+    assert reply != table("MA_CHANGED") and reads(desk) == 1 and "Appointment confirmed" in reply.split("\n\n")[-1], "the yes reads the message the words name, now number 3"
+    pinned = ops_mail_ask.pin(ops_core.context(desk["path"]), args, said, "messaging", KEYS["both"])      # what the plan used to carry
+    assert pinned and set(pinned) == {"inbox", "work"}
+    desk["snaps"].providers.mail["gmail"] = [tsm.message(1, "2026-10-17T11:00:00Z", "Fay Moss <fay@other.example>", "Newest", "Yet other words.", id="n2")] + desk["snaps"].providers.mail["gmail"]
+    desk["snaps"].later(days=1)
+    desk["snaps"].refresh("inbox")
+    planted, _ = ask(desk, dict(args, pin=pinned), said)
+    assert planted == table("MA_CHANGED"), "the oracle sees the stop a pinned plan by words causes"
+    _asked_number, extras_number = ask(desk, {"number": 2, "account": "google"}, "summarize e-mail 2 of gmail", confirmed=False)
+    assert set(extras_number["plan_confirm"]) and ops_mail_ask.pin(ops_core.context(desk["path"]), {"number": 2, "account": "google"}, "summarize 2 of gmail", "messaging", KEYS["both"]), "a number still pins (the test above)"
 
 
 def test_the_pin_is_the_stored_versions_of_the_boxes_the_call_can_name_and_calls_no_provider(desk):
@@ -1037,9 +1078,11 @@ def test_the_day_is_counted_by_the_request_word_of_this_operation_inside_contain
     assert reads(desk) == 2 and found(again), "the oracle sees a run that the wrong word lets through"
 
 
-@pytest.mark.xfail(strict=True, reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off "
-                   "until the maintainer's lab run (python3 evals/eval_run.py --skill asst-answer --cases 6,7,8 --baseline) is committed with its evidence. Strict: when the evidence makes this pass, "
-                   "the XPASS fails the suite and this mark is removed in the same commit. The pull request is a draft titled DO NOT MERGE until then.")
+@pytest.mark.xfail(condition=not os.environ.get("GITHUB_ACTIONS"), strict=True,
+                   reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off until the "
+                          "maintainer's lab run is committed with its evidence. Locally (the hook) this is an expected failure, so a commit can be made; in CI (GITHUB_ACTIONS set) it runs and is RED until the "
+                          "evidence exists: the required `tests` check is the structural guard against merging before the lab. Strict: when the evidence makes it pass, the XPASS fails the suite and this mark is "
+                          "removed in the evidence commit.")
 def test_the_real_standing_of_the_reader_lets_both_questions_start_with_no_stub():
     """H1: the reader's band is read from the recorded evidence of this checkout, with nothing stubbed. A case added to asst-answer that has no run yet turns the band to `needs a test` and file-ask off."""
     assert ops_file_ask._skill() == ("asst-answer", None)

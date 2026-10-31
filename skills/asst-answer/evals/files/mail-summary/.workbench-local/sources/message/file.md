@@ -2,7 +2,7 @@ One e-mail message from a mail snapshot, read at 2028-03-14 11:20 UTC. The heade
 
 From: Granite Hosting
 Subject: Your annual plan renews on 2028-04-02
-Received: 2028-03-13 09:41
+Received: Mon 13/03 09:41
 
 Hello Teodor,
 

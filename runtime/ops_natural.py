@@ -289,12 +289,16 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
         args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
+    if name in ("mail-read", "mail-ask") and args.get("number") is not None and (type(args["number"]) is not int or not 1 <= args["number"] <= importlib.import_module("ops_mail_read").NUMBER_MAX):
+        return phrases.text("MR_ASK", cfg)      # MAIL-SUMMARY-FLIP review: a number no message can have (0, 12345) is asked again here, before a plan and a yes that would end in a typed-command error (L62)
     if name in ("mail-read", "mail-ask") and not confirmed and args.get("number") is not None and not (args.get("message") or args.get("account") or args.get("service")) and not ops_items._named_account(said):
         listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; bound here, so the plan's hash binds it (MAIL-ASK-BINDING: a summary of "the 3" after a list is that list's 3, never another box's)
         if listed:
             args = dict(args, message=f"{listed}#{args['number']}")
+        elif item_refs.list_moved(ctx, channel, sender):
+            return phrases.text("ML_LIST_MOVED", cfg)      # the list on screen was of a snapshot that has moved: its numbers no longer mean what the person saw, and a plan that names no box would pick another box's message
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
-        if name == "mail-ask":      # MAIL-SUMMARY: the plan binds the mailbox snapshots the number or the words name, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`)
+        if name == "mail-ask" and (args.get("number") is not None or args.get("message")):      # MAIL-SUMMARY: the plan binds the snapshots a NUMBER names, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`); words and a pasted list line name the message whatever the version, so they pin nothing
             args = dict(args, pin=importlib.import_module("ops_mail_ask").pin(ctx, args, said, channel, sender))
         asked = {"choices": ops_items.account_choices(ctx, args, channel, sender), "named": ops_items.account_named_words(ctx, args)} if name == "items" else {}      # mail-list-account: a list of mail with no account asks which one, in place of "Shall I go ahead?"
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"), **asked)

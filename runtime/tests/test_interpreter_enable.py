@@ -191,6 +191,23 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
         interpreter_enable.load(str(path))      # dates out of order
 
 
+def test_the_committed_entries_are_in_date_order_and_an_entry_appended_with_an_earlier_date_turns_the_interpreter_off(tmp_path):
+    """Review of MAIL-SUMMARY-FLIP: packages that append an entry each (#674 and #680 are dated 2026-10-30, the flip 2026-10-31) must date it at least as late as the newest entry when they are rebased onto
+    the others: `load` raises on a file whose dates are not sorted, and `active` then answers None for every language, so the interpreter is off for everyone."""
+    doc = committed()
+    dates = [e["date"] for e in doc["entries"]]
+    assert dates == sorted(dates) and interpreter_enable.load()["entries"] == doc["entries"]
+    late = dict(doc["entries"][-1], date="2026-10-30")      # the day before the newest entry
+    path = tmp_path / "late.json"
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [late]}), encoding="utf-8")
+    with pytest.raises(interpreter_enable.EnableError):
+        interpreter_enable.load(str(path))
+    assert all(interpreter_enable.active(language, path=str(path)) is None for language in LANGUAGES)
+    same_day = dict(doc["entries"][-1])
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [same_day]}), encoding="utf-8")
+    assert interpreter_enable.load(str(path)) and interpreter_enable.active("en", path=str(path)) is not None, "the same day is in order"
+
+
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
