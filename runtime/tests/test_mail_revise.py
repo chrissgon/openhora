@@ -41,10 +41,11 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" not in every[-3], "the newest entry is the one of mail-card-recipient and the one before it the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
-    recipient, luna = every[-1], every[-2]
-    assert recipient["date"] == "2026-10-30" and recipient["revise_prompt_sha256"] == mail_revise.prompt_sha256() == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"], "the newest entry pins the recipient prompt; the older pin stays as it was decided"
-    every = every[:-2]
+    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" in every[-3] and "fallback" not in every[-4], "the newest two entries are those of mail-card-recipient and the one before them the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    second, first, luna = every[-1], every[-2], every[-3]
+    assert second["date"] == "2026-10-30" and second["revise_prompt_sha256"] == mail_revise.prompt_sha256() == PINNED_HASHES["revise_prompt_recipient_v2"] != first["revise_prompt_sha256"], "the newest entry pins the reworded recipient prompt (the first text failed its paid proof)"
+    assert first["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"], "the first recipient text stays as it was decided"
+    every = every[:-3]
     current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == luna["revise_prompt_sha256"], "the 2026-10-22 pin is the one the entry before the recipient prompt still carries"
@@ -67,6 +68,14 @@ def test_a_prompt_that_is_not_the_pinned_one_turns_the_change_off_and_the_vacuit
 def test_the_prompt_shows_no_address_and_no_link():
     text = (st.RUNTIME / "mail_revise_prompt.txt").read_text(encoding="utf-8")
     assert "@" not in text and "http" not in text
+
+
+def test_rule_3_of_the_reworded_prompt_says_the_three_things_the_first_paid_proof_found_missing():
+    text = (st.RUNTIME / "mail_revise_prompt.txt").read_text(encoding="utf-8")
+    assert 'as in "change A to B", the answer is B, the address that takes the place' in text
+    assert "Adding or copying someone keeps the current recipient, so it is never a replacement." in text
+    assert 'An address the instruction writes for another purpose than receiving the e-mail (a contact to mention) is never an answer: answer {"recipient": ""}.' in text
+    assert 'answer {"recipient": ""}' in text and "several addresses to receive it, adding someone, removing someone" in text
 
 
 def test_the_message_the_model_is_shown_is_four_parts_and_nothing_else():
@@ -173,3 +182,45 @@ def test_a_closing_the_card_ended_with_stays_when_the_model_keeps_it_and_one_the
     without = "Olá,\n\nPodemos marcar uma reunião?"      # validate: allow english-only -- a Portuguese card under test
     added = accept(answer(without + "\n\nAtenciosamente,"), line='Troque a primeira palavra por "Poderíamos"', body=without)      # validate: allow english-only -- a Portuguese text under test
     assert added == {"same": True, "holds": False}, "a closing with nothing after it is dropped as it is in a text the model writes: the card is unchanged"
+
+
+# --- a quoted text to replace, and a closing the person asked for (found by the first paid proof of mail-card-recipient; both were in the base) ------------------------------
+
+
+QUINTA_SUBJECT = "Reunião de quinta"      # validate: allow english-only -- a Portuguese card under test
+QUINTA_BODY = "Olá,\n\nPodemos marcar a reunião de quinta às 15h?\n\nAtenciosamente,"      # validate: allow english-only -- a Portuguese card under test
+REPLACE = 'troca a palavra "quinta" por "sexta"'      # validate: allow english-only -- the Portuguese line under test
+
+
+def qa(body, subject=QUINTA_SUBJECT):
+    return answer(body, subject)
+
+
+def test_a_line_that_replaces_one_quoted_text_by_another_is_accepted_when_the_card_is_the_same_with_only_that_replaced():
+    ok = accept(qa(QUINTA_BODY.replace("quinta", "sexta"), QUINTA_SUBJECT.replace("quinta", "sexta")), REPLACE, QUINTA_SUBJECT, QUINTA_BODY)
+    assert ok == {"subject": "Reunião de sexta", "body": QUINTA_BODY.replace("quinta", "sexta")}      # validate: allow english-only -- the Portuguese text under test
+
+
+@pytest.mark.parametrize("text", [
+    qa(QUINTA_BODY.replace("quinta", "sexta") + "\nAté lá.", QUINTA_SUBJECT.replace("quinta", "sexta")),      # replaced, and something else added      # validate: allow english-only -- the Portuguese text under test
+    qa(QUINTA_BODY.replace("quinta", "terça"), QUINTA_SUBJECT.replace("quinta", "terça")),      # replaced by a text the line did not quote      # validate: allow english-only -- the Portuguese text under test
+    qa(QUINTA_BODY.replace("de quinta ", "").replace("às", "sexta às"), QUINTA_SUBJECT.replace("quinta", "sexta")),      # the replaced text deleted in one place and the new one put in another      # validate: allow english-only -- the Portuguese text under test
+    qa(QUINTA_BODY.replace("quinta", "sexta").replace("Olá", "Oi"), QUINTA_SUBJECT.replace("quinta", "sexta")),      # replaced, and a greeting changed too      # validate: allow english-only -- the Portuguese text under test
+])
+def test_a_replacement_that_is_not_exactly_that_is_still_refused(text):
+    assert accept(text, REPLACE, QUINTA_SUBJECT, QUINTA_BODY) is None
+
+
+def test_a_quoted_text_to_add_is_still_required_and_a_removal_alone_is_not_a_replacement():
+    assert accept(qa(QUINTA_BODY + "\nAbraços"), 'coloque "Abraços" no fim', QUINTA_SUBJECT, QUINTA_BODY) is not None      # validate: allow english-only -- the Portuguese line under test
+    assert accept(qa(QUINTA_BODY + "\nAté lá."), 'coloque "Abraços" no fim', QUINTA_SUBJECT, QUINTA_BODY) is None, "the text to add is missing"      # validate: allow english-only -- the Portuguese line under test
+    assert accept(qa(QUINTA_BODY.replace(" às 15h", "")), 'tira "às 15h"', QUINTA_SUBJECT, QUINTA_BODY) is None, "a single quoted text the card holds and the answer drops is a removal, refused as before"      # validate: allow english-only -- the Portuguese line under test
+    assert accept(qa(QUINTA_BODY), REPLACE, QUINTA_SUBJECT, QUINTA_BODY) == {"same": True, "holds": False}, "nothing changed: not a change"
+
+
+def test_a_closing_the_person_asked_for_is_kept_though_the_validator_drops_a_closing_that_ends_a_body():
+    line = 'coloque "Abraços" no fim'      # validate: allow english-only -- the Portuguese line under test
+    asked = accept(qa(QUINTA_BODY + "\nAbraços"), line, QUINTA_SUBJECT, QUINTA_BODY)      # validate: allow english-only -- the Portuguese text under test
+    assert asked == {"subject": QUINTA_SUBJECT, "body": QUINTA_BODY + "\nAbraços"}      # validate: allow english-only -- the Portuguese text under test
+    # vacuity: with no quoted text in the line the closing the model adds is dropped, as before
+    assert accept(qa(QUINTA_BODY + "\nAbraços"), "ajuste o tom", QUINTA_SUBJECT, QUINTA_BODY) == {"same": True, "holds": False}      # validate: allow english-only -- the Portuguese line under test

@@ -157,7 +157,7 @@ def test_the_served_catalog_is_byte_identical_at_version_2_and_version_1_is_the_
     assert (len(generated["ops"]), len(generated["refused"])) == (SERVED_NOW, REFUSED_NOW) and generated["v"] == 2
     version1 = catalog.generate(version=1)
     entries = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-4]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1; the newest three (CB-9, LUNA-ENABLE and mail-card-recipient) pin version 2"
+    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-5]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1; the newest four (CB-9, LUNA-ENABLE and the two of mail-card-recipient) pin version 2"
     assert (len(version1["ops"]), len(version1["refused"])) == (SERVED_V1, REFUSED_V1) and version1["v"] == 1
     recorded = json.loads((REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a77f8a8f.json").read_text(encoding="utf-8"))
     assert sha(recorded) == sha(version1), "the copy the recorded answers replay against is what version 1 still generates, byte for byte"

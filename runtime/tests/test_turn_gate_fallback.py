@@ -597,7 +597,7 @@ def good_item(route=FIRST, **over):
 def test_a_valid_fallback_in_the_newest_entry_is_in_force_and_the_committed_entry_names_only_luna(tmp_path):
     committed = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]      # the newest entry (mail-card-recipient, 2026-10-30) carries the outage route LUNA-ENABLE (2026-10-28) named, as decided
     assert [item["route"] for item in committed[-1]["fallback"]] == [SECOND] and interpreter_enable.active("en")["fallback"] == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}]
-    assert interpreter_enable.fallbacks(committed[-1]) == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}] and committed[-2]["fallback"] == committed[-1]["fallback"] and all("fallback" not in earlier for earlier in committed[:-2])
+    assert interpreter_enable.fallbacks(committed[-1]) == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}] and committed[-3]["fallback"] == committed[-2]["fallback"] == committed[-1]["fallback"] and all("fallback" not in earlier for earlier in committed[:-3])
     for value in (good_item(), [good_item()], [good_item(), good_item(SECOND)]):
         path, entry_ = newest_with(tmp_path, value=value)
         found = interpreter_enable.active("en", path=path)

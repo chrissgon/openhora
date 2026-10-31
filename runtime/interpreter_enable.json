@@ -204,6 +204,27 @@
      "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
     }
    ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-30",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The first paid proof of the recipient prompt (ccba7675, 2026-10-30, 111 calls) failed: A 30/33, B 27/33, C 21/30, D 12/15. Rule 3 is reworded the smallest way: \"change A to B\" answers B; adding or copying someone is never a replacement; an address written for another purpose is never the recipient. Only revise_prompt_sha256 changes; the interpreter's own hashes, the compose prompt and the fallback stand. Not yet proved: a second paid run waits for the maintainer.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; revise prompt re-pinned 2026-10-30 (recipient in the line, 2nd text)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "282a02cf4d0419c13f9219127c8c4b8ef950702b6352ffdfb827a5cc1a44598f",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
   }
  ]
 }

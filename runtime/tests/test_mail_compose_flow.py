@@ -253,8 +253,8 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
-    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" not in every[-3], "the newest entry is the one of mail-card-recipient and the one before it the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
-    every = every[:-2]
+    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" in every[-3] and "fallback" not in every[-4], "the newest two entries are those of mail-card-recipient and the one before them the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    every = every[:-3]
     entries = every[:-5]      # without the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2), which carry every pin of the one before them but the interpreter prompt of BL5B and BL7-3
     pins = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
     for carried in every[-5:-3]:

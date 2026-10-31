@@ -54,7 +54,9 @@ CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; t
 assert len(CB9_STATUS_LINE) <= 600
 LUNA_STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the entry of package LUNA-ENABLE: the entry of CB-9 and the outage path
 assert len(LUNA_STATUS_LINE) <= 600
-STATUS_LINE = LUNA_STATUS_LINE + "; the revise prompt re-pinned 2026-10-30 (a recipient typed in the line)"      # the newest entry (package mail-card-recipient): the entry of LUNA-ENABLE and the second answer form of the revise prompt
+RECIPIENT_STATUS_LINE = LUNA_STATUS_LINE + "; the revise prompt re-pinned 2026-10-30 (a recipient typed in the line)"      # the first entry of package mail-card-recipient: the entry of LUNA-ENABLE and the second answer form of the revise prompt
+assert len(RECIPIENT_STATUS_LINE) <= 600
+STATUS_LINE = LUNA_STATUS_LINE + "; revise prompt re-pinned 2026-10-30 (recipient in the line, 2nd text)"      # the newest entry: the first paid proof of the text above failed and rule 3 was reworded
 assert len(STATUS_LINE) <= 600
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
@@ -120,20 +122,26 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    cb9, luna = doc["entries"][-3], doc["entries"][-2]
+    cb9, luna, first_recipient = doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-4] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-5] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
     # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the text fields
     assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28" and {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
     assert luna["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": luna["fallback"][0]["measured"]}] and len(luna["reason"]) <= interpreter_enable.TEXT_MAX
     assert "20261028T201315Z-daa387c8" in luna["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in luna["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in luna["fallback"][0]["measured"]
-    # mail-card-recipient: the newest entry copies every pin of the entry of LUNA-ENABLE, the outage path included, and re-pins the revise prompt; the interpreter's own hashes, the compose prompt and the fallback stand
-    assert {key for key in entry if entry.get(key) != luna.get(key)} == {"date", "reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the date, the reason, the status line and the revise prompt's pin, and nothing else"
+    # mail-card-recipient, first text: its entry copies every pin of the entry of LUNA-ENABLE, the outage path included, and re-pins the revise prompt; the interpreter's own hashes, the compose prompt and the fallback stand
+    assert first_recipient["status_line"] == RECIPIENT_STATUS_LINE and first_recipient["date"] == "2026-10-30"
+    assert {key for key in first_recipient if first_recipient.get(key) != luna.get(key)} == {"date", "reason", "status_line", "revise_prompt_sha256"}, "the entry changes the date, the reason, the status line and the revise prompt's pin, and nothing else"
+    assert {key: first_recipient[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and first_recipient["fallback"] == luna["fallback"]
+    assert first_recipient["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"] and len(first_recipient["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "Tudo que for um pedido do humano vamos sempre preferir o modelo responder" in first_recipient["reason"] and "interpreter's own hashes" in first_recipient["reason"]
+    # mail-card-recipient, second text: the first paid proof of the first text failed (principle 10: its figures are in the entry and the decision file), rule 3 was reworded, and the newest entry re-pins the prompt again and nothing else
+    assert entry["date"] == "2026-10-30" and {key for key in entry if entry.get(key) != first_recipient.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
     assert {key: entry[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and entry["fallback"] == luna["fallback"] and entry["compose_prompt_sha256"] == luna["compose_prompt_sha256"]
-    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
-    assert "Tudo que for um pedido do humano vamos sempre preferir o modelo responder" in entry["reason"] and "interpreter's own hashes" in entry["reason"]
+    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v2"] != first_recipient["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
+    assert "failed" in entry["reason"] and "A 30/33, B 27/33, C 21/30, D 12/15" in entry["reason"] and PINNED_HASHES["revise_prompt_recipient"][:8] in entry["reason"], "the entry says that the first proof failed, with its figures and the prompt it measured"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():

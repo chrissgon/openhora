@@ -24,7 +24,7 @@ reads the card and opens the new one is runtime/ops_card_revise.py. Nothing here
   message(language, subject, body, line)   the one user message the model is given: nothing else of the person, of the mailbox or of any third party
   accept(text, to, subject, body, line)    {"subject", "body"} for the model's text, {"same": True} when it is valid and changes nothing, or None. Code decides: `mail_compose.validate` (for a change of the text, strict JSON with exactly the two keys, no
                                            header line, no HTML, no code fence, no link, no address other than the recipients of the card and those the card's own text already
-                                           holds, nothing the card refuses), a change from the card as it was, and every quoted text of the instruction in the new subject or body
+                                           holds, nothing the card refuses), a change from the card as it was, and every quoted text of the instruction in the new subject or body (or the one replaced, in a "X by Y" line: `_replaces`)
   PARAMS, DEADLINE_MS                      the settings of the one model call, which is the gate's (`turn_gate.call`, runtime/turn_gate.py), on the daily route of the entry that pinned this prompt
 
 What the model sees: the language, the subject, the body of the card and the instruction line. Never the recipients, the sender's address, a message of the mailbox, a file
@@ -323,6 +323,26 @@ def _kept_close(got_body: str, text, old: str) -> str:
     return raw if tail.strip() and raw == got_body + tail and raw.endswith(tail) else got_body
 
 
+def _kept_asked_close(got_body: str, text, items: list) -> str:
+    """The validator drops a closing formula that ends a body with nothing after it (S12), also one the person asked for (put "Regards" at the end: "Regards" is a closing formula). When the model's body
+    ends with a text the line puts between quotation marks and the validator removed nothing else, the model's body is kept: the text asked for is the person's, written as given."""
+    raw = (_model_field(text, "body") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    for t, _ in items:
+        if raw.endswith(t) and raw != got_body and mail_compose.without_dangling_close(raw).strip() == got_body.strip():
+            return raw
+    return got_body
+
+
+def _replaces(items: list, old_all: str, new_all: str) -> bool:
+    """Whether the answer is the card with ONE quoted text of the line replaced by ANOTHER everywhere ("troca \"quinta\" por \"sexta\""): the replaced text is the card's own and is no longer there,
+    and nothing else changed. The guard that every text to ADD is in the answer stays: only a text the card already holds may be missing, and only beside the one that takes its place."""
+    held = [(t, b) for t, b in items if _flat(t) in _flat(old_all)]
+    added = [(t, b) for t, b in items if _flat(t) not in _flat(old_all)]
+    if len(held) != 1 or len(added) != 1:
+        return False
+    return _flat(new_all) == _flat(old_all).replace(_flat(held[0][0]), _flat(added[0][0]))
+
+
 def accept(text, to, subject: str, body: str, line: str):
     """{"subject", "body"} for the model's text, or None (see the module's text)."""
     allowed = list(to) + [a for a in _own_addresses(subject, body) if a not in to]
@@ -333,10 +353,11 @@ def accept(text, to, subject: str, body: str, line: str):
     if got is None:
         return None
     old = body.replace("\r\n", "\n").replace("\r", "\n").strip()
-    got = dict(got, body=_kept_close(got["body"], text, old))
     items = literal_items(line)
-    seen = lambda fixed, new_text, new_subject: all((_flat(t) in _flat(new_subject + "\n" + new_text)) if block else (unicodedata.normalize("NFC", t) in unicodedata.normalize("NFC", new_subject + "\n" + new_text))
-                                                    for t, block in items)
+    got = dict(got, body=_kept_asked_close(_kept_close(got["body"], text, old), text, items))
+    present = lambda t, block, whole: (_flat(t) in _flat(whole)) if block else (unicodedata.normalize("NFC", t) in unicodedata.normalize("NFC", whole))
+    seen = lambda fixed, new_text, new_subject: (all(present(t, block, new_subject + "\n" + new_text) for t, block in items)
+                                                 or _replaces(items, subject + "\n" + old, new_subject + "\n" + new_text))
     old_flat = _flat(old)
     # a model that writes again, at the end, the very text the card already ends with, has changed nothing the person asked for
     for t, _ in items:
