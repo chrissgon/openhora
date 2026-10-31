@@ -296,7 +296,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
         if name == "mail-ask":      # MAIL-SUMMARY: the plan binds the mailbox snapshots the number or the words name, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`)
             args = dict(args, pin=importlib.import_module("ops_mail_ask").pin(ctx, args, said, channel, sender))
-        asked = {"choices": ops_items.account_choices(ctx, args), "named": ops_items.account_named_words(ctx, args)} if name == "items" else {}      # mail-list-account: a list of mail with no account asks which one, in place of "Shall I go ahead?"
+        asked = {"choices": ops_items.account_choices(ctx, args, channel, sender), "named": ops_items.account_named_words(ctx, args)} if name == "items" else {}      # mail-list-account: a list of mail with no account asks which one, in place of "Shall I go ahead?"
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"), **asked)
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
         done = _typed(project, ctx, name, args, sender, extras, row)
@@ -395,7 +395,7 @@ def _read(project: str, ctx: dict, name: str, row: dict, args: dict, channel, se
         importlib.import_module("event_lookup").remember_items(ctx, channel, sender, out)
         ops_items.remember_listed(ctx, channel, sender, out)      # N1 of mail-list-account: the one mail source this reply listed is what the next line's number means
     if name == "items":      # S15: with nothing to list, the reply says what to add and where (a phone: no command)
-        return _clip(ops_items.reply(project, ctx, out, channel), channel)
+        return _clip(ops_items.reply(project, ctx, out, channel, budget=RENDER_MAX), channel)
     return _clip(_render(name, out, cfg, channel), channel)
 
 

@@ -31,7 +31,8 @@ import natural  # noqa: E402  (the same folder: the folding of a line)
 # The closed words of the account question (mail-list-account, limit L65): a whole line, folded (`natural.normal`), that names every account at once, in the six languages; a longer wording
 # ("both of them", "all of them") goes to the model. `ACCOUNT_LEADS` are the small words that may stand before ONE name ("o outlook", "from gmail"); "nos" is not one, so "nos dois" goes to the model.
 ALL_ACCOUNTS = frozenset(("todas", "todos", "as duas", "os dois", "ambas", "ambos", "all", "both", "las dos", "los dos", "toutes", "tous", "les deux", "alle", "beide", "tutte", "tutti", "entrambe", "entrambi"))
-ACCOUNT_LEADS = frozenset("o a os as the el la le il lo der die das do da de del du di no na em en in on of from".split())
+ACCOUNT_LEADS = frozenset("o a os as the el la le il lo der die das do da de del du di na em en in on of from".split())
+ACCOUNT_LEADS_BY_LANGUAGE = {"pt-BR": frozenset(("no",))}      # "no gmail" means "in Gmail" in Portuguese and a refusal elsewhere ("no outlook" in English): a lead only in a project of that language; in any other the line goes to the model
 NAME_WORDS = 5          # a longer tail than this is a request, not the name of a project
 LEADS = {      # a lead that can only mean "go to this project": a name that is no project of the sender gets the typed command's "No such project"
     "pt-BR": ["muda para o projeto", "mude para o projeto", "muda para projeto", "mude para projeto", "troca para o projeto", "troque para o projeto", "passa para o projeto",

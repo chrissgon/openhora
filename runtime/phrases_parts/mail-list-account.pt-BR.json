@@ -6,7 +6,8 @@
     "PLAN_NOT_LAST_ACCOUNT": "Para escolher a conta, toque em um botão da pergunta ou responda a ela, ou peça de novo.",
     "PLAN_REPLY_HOW_ACCOUNT": "Responda com o nome da conta.",
     "UNDERSTOOD_FROM_ACCOUNT": "do {name}",
-    "UNDERSTOOD_ALL_ACCOUNTS": "de todas as contas"
+    "UNDERSTOOD_ALL_ACCOUNTS": "de todas as contas",
+    "NW_ITEMS_CUT": "... mais {n} não couberam nesta mensagem"
   },
   "same_as_english": []
 }

@@ -6,6 +6,7 @@
     "PLAN_NOT_LAST_ACCOUNT": "To choose the account, tap a button on the question or reply to it, or ask again.",
     "PLAN_REPLY_HOW_ACCOUNT": "Reply with the name of the account.",
     "UNDERSTOOD_FROM_ACCOUNT": "from {name}",
-    "UNDERSTOOD_ALL_ACCOUNTS": "from all accounts"
+    "UNDERSTOOD_ALL_ACCOUNTS": "from all accounts",
+    "NW_ITEMS_CUT": "... {n} more did not fit in this message"
   }
 }

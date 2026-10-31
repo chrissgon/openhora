@@ -76,9 +76,9 @@ def configure(world, language="en", profiles=PROFILES):
     ops.accept_config(world["path"], shown["sha256"], widen=shown["widening_sha256"])
 
 
-def boxes(world, snaps, language="en", mails=None, others=None, second=True):
+def boxes(world, snaps, language="en", mails=None, others=None, second=True, profiles=PROFILES):
     """The policy, a Gmail source `inbox` (and, unless `second` is False, an Outlook source `work`) each read once; the provider's count of reads starts at zero."""
-    configure(world, language)
+    configure(world, language, profiles)
     snaps.providers.mail["gmail"] = [tsm.message(1, "2026-10-17T09:00:00Z", "Bia Costa <bia@clinic.example>", "Appointment confirmed", "Your visit is confirmed.")] if mails is None else mails
     snaps.providers.mail["outlook"] = [tsm.message(1, "2026-10-17T09:00:00Z", "Dan Reis <dan@work.example>", "Weekly report", "Weekly numbers attached.", source="outlook")] if others is None else others
     ops_sources.source_mail(world["path"], "inbox", "gmail:box=inbox;days=7;max=50")
@@ -240,10 +240,11 @@ def test_the_display_of_a_list_of_two_accounts_is_one_message_and_a_one_account_
 
 # --- the closed words ------------------------------------------------------------------------------------------------------------------------
 
-ONE = {"gmail": 0, "Gmail": 0, "GMAIL": 0, "outlook": 1, "google": 0, "hotmail": 1, "o outlook": 1, "no outlook": 1, "do gmail": 0, "the outlook": 1,
+ONE = {"gmail": 0, "Gmail": 0, "GMAIL": 0, "outlook": 1, "google": 0, "hotmail": 1, "o outlook": 1, "do gmail": 0, "the outlook": 1, "from gmail": 0,
        "1": 0, "2": 1, "3": 2, "o segundo": 1, "a última": 2, "o do outlook": 1,      # validate: allow english-only -- the Portuguese words under test
        "todas": 2, "os dois": 2, "as duas": 2, "ambos": 2, "ambas": 2, "both": 2, "all": 2, "los dos": 2, "toutes": 2, "les deux": 2, "alle": 2, "beide": 2, "tutte": 2, "entrambe": 2, "de todas": 2}
-NONE = ["nos dois", "o do trabalho", "sim", "ok", "não", "oi", "4", "0", "gmail?", "todas?", "outlook ?", "1?", "gmail por favor", "both of them", "all of them", "", "quero ver os e-mails"]      # validate: allow english-only -- the Portuguese words under test
+NONE = ["nos dois", "o do trabalho", "sim", "ok", "não", "oi", "4", "0", "gmail?", "todas?", "outlook ?", "1?", "gmail por favor", "both of them", "all of them", "", "quero ver os e-mails",      # validate: allow english-only -- the Portuguese words under test
+        "no gmail", "no outlook", "no 1", "no all", "no both", "no todas"]      # a refusal and a name: "no" is a lead only in a Portuguese project (see below)      # validate: allow english-only -- the Portuguese words under test
 
 
 def table_failures(world):
@@ -610,3 +611,125 @@ def test_the_line_counter_is_wired_in_say(world, snaps, clock, model):
     say(world, "thanks for that")
     out = say(world, "read 1")
     assert "message" not in live(world)["state"]["args"], "the second line after the list"
+
+
+# --- "no" is a lead only in Portuguese ------------------------------------------------------------------------------------------------------------
+
+
+def test_no_before_a_name_is_a_lead_only_in_a_portuguese_project(world, snaps, clock):
+    boxes(world, snaps, "pt-BR")
+    call(world, "lista os emails")
+    plan = live(world)
+    assert plan_confirm.choice_of(plan, "no outlook") == 1 and plan_confirm.choice_of(plan, "no gmail") == 0, "in Portuguese it means 'in Gmail'"      # validate: allow english-only -- the Portuguese words under test
+    assert plan_confirm.choice_of(plan, "no todas") is None and plan_confirm.choice_of(plan, "no all") is None, "and never names every account"      # validate: allow english-only -- the Portuguese words under test
+    assert plan_confirm.choice_of(plan, "de todas") == 2
+
+
+@pytest.mark.parametrize("language", ["en", "es", "fr", "de", "it"])
+def test_in_any_other_language_a_no_before_a_name_goes_to_the_model(world, snaps, clock, language):
+    boxes(world, snaps, language)
+    call(world, "list my e-mails")
+    plan = live(world)
+    assert [plan_confirm.choice_of(plan, line) for line in ("no outlook", "no gmail", "no 1", "no all", "no both", "no todas")] == [None] * 6
+
+
+def test_vacuity_with_no_as_a_lead_in_every_language_the_english_refusal_picks_an_account(world, snaps, clock, monkeypatch):
+    boxes(world, snaps)
+    call(world, "list my e-mails")
+    monkeypatch.setattr(plan_confirm.command_words, "ACCOUNT_LEADS", plan_confirm.command_words.ACCOUNT_LEADS | {"no"})      # planted
+    assert plan_confirm.choice_of(live(world), "no outlook") == 1
+
+
+# --- a sender who may not read mail is told no account ---------------------------------------------------------------------------------------------
+
+
+def test_a_sender_who_may_not_read_the_snapshots_gets_the_plain_question_and_no_account_names(world, snaps, clock):
+    boxes(world, snaps, profiles=dict(PROFILES, plain=["read", "talk", "interpret"]))
+    sender = SENDERS["plain"]
+    reply, extras = call(world, "list my e-mails", sender=sender)
+    assert reply == "I understood: list your e-mails. Shall I go ahead?" and "choices" not in extras["plan_confirm"] and "choices" not in live(world, sender)["state"]
+    assert "Gmail" not in reply and "Outlook" not in reply
+    reply, extras = call(world, "list my e-mails")
+    assert reply == EN_QUESTION, "the sender who may read is asked as before"
+
+
+def test_vacuity_with_the_reading_right_planted_the_same_sender_is_told_the_accounts(world, snaps, clock, monkeypatch):
+    boxes(world, snaps, profiles=dict(PROFILES, plain=["read", "talk", "interpret"]))
+    monkeypatch.setattr(item_refs, "may_read", lambda ctx, channel, sender=None: True)
+    reply, _ = call(world, "list my e-mails", sender=SENDERS["plain"])
+    assert reply == EN_QUESTION
+
+
+# --- a list that does not fit one message -----------------------------------------------------------------------------------------------------------
+
+
+def many(snaps, gmail_rows, outlook_rows, subject):
+    snaps.providers.mail["gmail"] = [tsm.message(i, "2026-10-17T09:00:00Z", f"Pessoa Numero{i} <p{i}@clinic.example>", subject.format(i), "b") for i in range(1, gmail_rows + 1)]
+    snaps.providers.mail["outlook"] = [tsm.message(i, "2026-10-17T09:00:00Z", f"Dan {i} <d{i}@work.example>", f"Report {i}", "b", source="outlook") for i in range(1, outlook_rows + 1)]
+    snaps.refresh("inbox")
+    snaps.refresh("work")
+    ops_items._CHECKED.clear()
+
+
+def rows_of(reply, heading):
+    """The numbered lines under a heading (up to the blank line)."""
+    block = reply.split(heading, 1)[1].split("\n\n", 1)[0]
+    return [line for line in block.splitlines() if line[:1].isdigit()]
+
+
+def test_a_list_of_all_accounts_that_would_be_cut_keeps_every_account_and_says_how_many_rows_did_not_fit(world, snaps, clock):
+    boxes(world, snaps)
+    many(snaps, 20, 5, "Assunto de tamanho comum numero {} da clinica")
+    reply, _ = call(world, "list my e-mails", sender=READER)
+    assert len(reply) <= 1800 and "…" not in reply, "whole rows only"
+    assert len(rows_of(reply, "**Gmail**")) == 19 and len(rows_of(reply, "**Outlook**")) == 5
+    assert "... 1 more did not fit in this message" in reply and reply.count("did not fit") == 1, "per account that was cut"
+
+
+def test_long_rows_share_the_room_so_the_second_account_keeps_its_heading_and_its_first_rows(world, snaps, clock):
+    boxes(world, snaps)
+    many(snaps, 20, 5, "Assunto muito longo " + "x" * 80 + " {}")
+    reply, _ = call(world, "list my e-mails", sender=READER)
+    assert len(reply) <= 1800 and "…" not in reply
+    gmail, outlook = rows_of(reply, "**Gmail**"), rows_of(reply, "**Outlook**")
+    assert len(gmail) == 11 and len(outlook) == 5 and gmail[0].startswith("1. ") and outlook[0].startswith("1. "), "the room is shared: the second account keeps its heading and its rows"
+    assert "... 9 more did not fit in this message" in reply and reply.count("did not fit") == 1
+
+
+def test_a_cut_list_in_portuguese_says_it_in_portuguese(world, snaps, clock):
+    boxes(world, snaps, "pt-BR")
+    many(snaps, 20, 5, "Assunto muito longo " + "x" * 80 + " {}")
+    reply, _ = call(world, "lista os emails", sender=READER)
+    assert "... mais " in reply and " não couberam nesta mensagem" in reply and "**Outlook**" in reply      # validate: allow english-only -- the Portuguese words under test
+
+
+def test_vacuity_a_render_that_ignores_the_budget_loses_the_second_account(world, snaps, clock, monkeypatch):
+    boxes(world, snaps)
+    many(snaps, 20, 5, "Assunto muito longo " + "x" * 80 + " {}")
+    real = ops_items.render
+    monkeypatch.setattr(ops_items, "render", lambda out, cfg, **kw: real(out, cfg, **dict(kw, budget=None)))      # planted: the old cut at 1,800 characters
+    reply, _ = call(world, "list my e-mails", sender=READER)
+    assert "**Outlook**" not in reply, "the hard cut removed the whole second account: the oracle above sees it"
+
+
+def test_a_reply_that_fits_and_a_one_account_reply_are_not_touched(world, snaps, clock):
+    boxes(world, snaps)
+    many(snaps, 3, 2, "Assunto {}")
+    reply, _ = call(world, "list my e-mails", sender=READER)
+    assert "did not fit" not in reply and len(rows_of(reply, "**Gmail**")) == 3 and len(rows_of(reply, "**Outlook**")) == 2
+    many(snaps, 20, 5, "Assunto muito longo " + "x" * 80 + " {}")
+    _, extras = call(world, "list my e-mails")
+    assert "did not fit" not in accept(world, extras, 0), "one account: the list is as it was (its own '... and N more' sentence)"
+
+
+def test_a_calendar_in_a_reply_with_two_mail_sources_keeps_its_text(world, snaps, clock):
+    """A call with no kind (the typed form) lists calendars and mail together: only the mail sources are set off and bold; the calendar's heading and rows are as they were."""
+    boxes(world, snaps)
+    snaps.calendar("agenda", "google", "primary", [tsm.event(1, id="ev1")])
+    ctx = ops_core.context(world["path"])
+    out = ops.items(world["path"], channel="terminal")
+    names = {i: e["name"] for i, e in source_names.catalog(ctx).items()}
+    text = ops_items.render(out, ctx["cfg"], phone=True, names=names)
+    calendar_block = ops_items.render({**out, "sources": [e for e in out["sources"] if e["type"] == "calendar"]}, ctx["cfg"], phone=True, names=names)
+    assert calendar_block in text and "**Agenda" not in text and "**Google" not in text, "the calendar text is byte for byte what it is alone"
+    assert text.count("**Gmail**") == 1 and "\n\n**Outlook**" in text

@@ -204,6 +204,7 @@ def ask(project: str, ctx: dict, name: str, args: dict, said: str, sender, extra
     head = phrases.text("PLAN_HEAD", cfg, what=understood(ctx, name, args, said) + (" " + named if named else ""))
     if choices:
         state["choices"] = list(choices)
+        state["language"] = cfg.get("language")      # the leads a line may carry before a name depend on it (`choice_of`)
         state["question"] = head + " " + phrases.text("PLAN_ASK_ACCOUNT", cfg, names=", ".join(c["label"] for c in choices[:-1]), all=choices[-1]["label"].lower())
     state["sha256"] = plan_sha256(key[0], sender, name, kept, when, routed, bound, choices)
     item = pending_items.new_item("plan-confirm", *key, state=state)
@@ -257,10 +258,11 @@ def choice_of(item: dict, said: str):
     if word in command_words.ALL_ACCOUNTS:      # first: "os dois" would lose its "os" below and name nothing
         return len(choices) - 1
     parts = word.split()
-    if len(parts) == 2 and parts[0] in command_words.ACCOUNT_LEADS:
+    only = command_words.ACCOUNT_LEADS_BY_LANGUAGE.get(item["state"].get("language"), frozenset())      # a lead of this project's language alone ("no" in Portuguese)
+    if len(parts) == 2 and parts[0] in command_words.ACCOUNT_LEADS | only:
+        if parts[1] in command_words.ALL_ACCOUNTS:      # "de todas"; but "no todas" names nothing
+            return None if parts[0] in only else len(choices) - 1
         word = parts[1]
-        if word in command_words.ALL_ACCOUNTS:
-            return len(choices) - 1
     options = [{"value": n, "label": c["label"], "words": c.get("words") or []} for n, c in enumerate(choices, 1)]      # numbered from 1: the value 0 would be a key the line "0" names
     found = _ops_natural()._writes()._option({"options": options, "multi": False, "need": "account"}, word)
     return None if found is None else found - 1

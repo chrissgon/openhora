@@ -35,7 +35,7 @@ def two(brig, monkeypatch):
     """The rig, with the project's two mail accounts stood in at `account_choices` (the options the real catalog gives in test_mail_list_account.py)."""
     everyone = phrases.text("PLAN_ALL_ACCOUNTS", brig.rig.cfg)
 
-    def choices(ctx, args):
+    def choices(ctx, args, channel=None, sender=None):
         if args.get("kind") != "mail" or args.get("account") or args.get("source") or args.get("count") or args.get("match") is not None:
             return None
         return [{"value": value, "label": label, "words": words} for value, label, words in OPTIONS] + [{"value": "*", "label": everyone}]

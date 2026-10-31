@@ -299,11 +299,14 @@ def account_named_words(ctx: dict, args: dict):
 ACCOUNT_OPTIONS_MAX = 8          # mail sources the account question lists (with "All" the options are at most 9, the frame's limit)
 
 
-def account_choices(ctx: dict, args: dict):
+def account_choices(ctx: dict, args: dict, channel=None, sender=None):
     """The options of the account question of a list of mail, or None when the list needs none: [{"value": source id, "label": its plain name, "words": its service words}, ..., {"value": "*",
     "label": "All"}]. A question is asked only for a list of mail with no account, source, number of messages (`count`: the newest across the accounts, already short) and no word filter (`match`: a
     search across the accounts), in a project with two or more mail sources whose account is known, at most ACCOUNT_OPTIONS_MAX. The options are the project's catalog, never a model's, and
-    a source whose account is unknown is not one of them (it has no plain name)."""
+    a source whose account is unknown is not one of them (it has no plain name). A caller who may not read the snapshots (`item_refs.may_read`, all or nothing for a sender) is told no account:
+    it gets the plain question, and nothing of the project's mailboxes."""
+    if not item_refs.may_read(ctx, channel, sender):
+        return None
     if args.get("kind") != "mail" or args.get("account") or args.get("source") or args.get("count") or args.get("match") is not None:
         return None
     mail = [(i, e) for i, e in source_names.catalog(ctx).items() if e["type"] == "mail" and e["account"] is not None]
@@ -680,9 +683,22 @@ def _phone_mail(row: dict, cfg: dict) -> str:
     return " · ".join(part for part in (row["mail"]["who"], row["mail"]["subject"], mailtext.when_text(row.get("received"), now, cfg)) if part)
 
 
-def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, names=None) -> str:
+def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, names=None, budget=None) -> str:
     """The reply for a phone (`phone`) or a terminal: one heading for each source, then `n. line` for the first items. `names` ({source id: plain name}, runtime/source_names.py) is what a phone
-    calls each source and what it says of one it could not read; without it a phone gets the names of `_names` (BL5D)."""
+    calls each source and what it says of one it could not read; without it a phone gets the names of `_names` (BL5D). With a `budget` (the characters one message of the app holds) a reply of two
+    or more mail sources that would not fit is written again with the same number of rows for each source, as many as fit (at least one), and each source that was cut says how many rows did not
+    fit (`NW_ITEMS_CUT`): the cut falls at a whole row and every account keeps its heading and its first rows. A reply that fits, and any other reply, is not touched."""
+    text = _render(out, cfg, limit, phone, names)
+    if not (budget and phone and sum(1 for e in out["sources"] if e["type"] == "mail") > 1) or len(text) <= budget:
+        return text
+    for rows in range(max(1, limit - 1), 0, -1):
+        text = _render(out, cfg, rows, phone, names, cut=True)
+        if len(text) <= budget:
+            break
+    return text
+
+
+def _render(out: dict, cfg: dict, limit: int, phone: bool, names=None, cut: bool = False) -> str:
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     names = {**_names(out["sources"], cfg), **(names or {})} if phone else {}
     lines = []
@@ -694,10 +710,13 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
         lines.append(t("NW_ITEMS_MATCH_HEAD_CAL", filter=_filter_pieces("calendar", filt, cfg)))
     if phone and any(e["type"] == "mail" for e in out["sources"]) and _filter_pieces("mail", filt, cfg, span):      # CB-1: a mail list that was narrowed names how, in the person's words
         lines.append(t("NW_ITEMS_MATCH_HEAD", filter=_filter_pieces("mail", filt, cfg, span)))
-    several = phone and sum(1 for e in out["sources"] if e["type"] == "mail") > 1      # mail-list-account: a reply that holds two or more mail sources is one message, each source after the first set off by a blank line and its name in bold
-    for place, entry in enumerate(out["sources"]):
-        if several and place:
+    several = phone and sum(1 for e in out["sources"] if e["type"] == "mail") > 1      # mail-list-account: a reply that holds two or more mail sources is one message, each mail source after the first set off by a blank line and its name in bold (a calendar in the same reply keeps its text as it was)
+    mail_before = 0
+    for entry in out["sources"]:
+        mail = entry["type"] == "mail"
+        if several and mail and mail_before:
             lines.append("")
+        mail_before += mail
         if entry.get("unread_unknown"):      # CB-1: a box whose messages carry no flag lists nothing for an unread filter, and says why: the state is never guessed
             lines.append(t("NW_ITEMS_UNREAD_UNKNOWN", name=names[entry["source"]] if phone else entry["source"]))
             continue
@@ -706,7 +725,7 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
             continue
         if phone:
             checked = entry.get("checked_at")
-            lines.append(t("NW_ITEMS_HEAD_CHECKED" if checked else "NW_ITEMS_HEAD_PHONE", name=f"**{names[entry['source']]}**" if several else names[entry["source"]], when=_read_when(checked or entry["read_at"], cfg)))
+            lines.append(t("NW_ITEMS_HEAD_CHECKED" if checked else "NW_ITEMS_HEAD_PHONE", name=f"**{names[entry['source']]}**" if several and mail else names[entry["source"]], when=_read_when(checked or entry["read_at"], cfg)))
         else:
             lines.append(t("NW_ITEMS_HEAD", source=entry["source"], read_at=entry["read_at"][:16].replace("T", " ")))
         for i in entry["items"][:limit]:
@@ -715,7 +734,7 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
             if i.get("preview"):
                 lines.append(t("NW_ITEMS_PREVIEW", text=i["preview"]))
         if len(entry["items"]) > limit:
-            lines.append(t("NW_ITEMS_MORE", n=len(entry["items"]) - limit))
+            lines.append(t("NW_ITEMS_CUT" if cut and mail else "NW_ITEMS_MORE", n=len(entry["items"]) - limit))
     told = {}      # a reason only the computer solves -> the plain names of the sources it holds for: one sentence for each reason, after the list and its note
     for entry in out["refused"]:
         if phone and entry.get("reason"):
@@ -738,12 +757,12 @@ def render(out: dict, cfg: dict, limit: int = SHOWN_MAX, phone: bool = False, na
     return "\n".join(lines) or t("NW_ITEMS_NONE")
 
 
-def reply(project: str, ctx: dict, out: dict, channel) -> str:
+def reply(project: str, ctx: dict, out: dict, channel, budget=None) -> str:
     """The reply of the natural request for the items: `render`, or, when there was nothing of the asked kind (or account) to list, what to add and where."""
     missing = out.get("missing")
     if not missing:
         phone = channel == ops_actor.MESSAGING
-        return render(out, ctx["cfg"], phone=phone, names={i: e["name"] for i, e in source_names.catalog(ctx).items()} if phone else None)
+        return render(out, ctx["cfg"], phone=phone, names={i: e["name"] for i, e in source_names.catalog(ctx).items()} if phone else None, budget=budget if phone else None)
     cfg, kind, account = ctx["cfg"], missing["kind"], missing["account"]
     tag = "MAIL" if kind == "mail" else "CAL"
     if channel == ops_actor.MESSAGING:      # a phone: what and where, never a command or a path (limit L62)
