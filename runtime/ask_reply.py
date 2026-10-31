@@ -217,7 +217,28 @@ def _trim(text: str, room: int, mark: str) -> str:
     return (head.rstrip() + " " + mark).strip()
 
 
-def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None, read_label=None, max_chars=None) -> dict:
+def _digit_runs(text: str) -> list:
+    """The runs of decimal digits of any script in `text` (ASCII, Arabic-Indic, full-width ...), each with its value as a string of ASCII digits (leading zeros ignored)."""
+    runs, current = [], ""
+    for char in text:
+        if char.isdecimal():
+            current += char
+        elif current:
+            runs.append(current)
+            current = ""
+    if current:
+        runs.append(current)
+    return [(run, "".join(str(unicodedata.decimal(c)) for c in run).lstrip("0") or "0") for run in runs]      # no int(): a run of thousands of digits is no error
+
+
+def absent_numbers(response: str, source: str) -> list:
+    """The runs of digits (any script) of a reply's prose that the source does not hold (leading zeros ignored, a full-width or Arabic-Indic digit is the digit it is), in order, none twice, as the prose
+    writes them. Quote lines are not read: code checked them. Pure."""
+    have = {value for _run, value in _digit_runs(source)}
+    return list(dict.fromkeys(run for line in parse(response)["prose"] for run, value in _digit_runs(line) if value not in have))
+
+
+def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None, read_label=None, max_chars=None, not_found="FA_NOT_FOUND") -> dict:
     """The reply the person is sent and what was found: {"text", "outcome": "found" | "partial" | "not-found" | "unchecked",
     "flags": [words], "verified": the number of quotes found in their sources}. `given` is [{"source", "version"}] of the copies
     the run received, `copies` {source id: the text of that copy}, `proven` whether the run was proven (autonomy "proven"). `cfg` carries
@@ -225,7 +246,7 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     own sentence, a text code wrote (the file's name, account and folder, no id and no version: L62), shown in the place of the line that lists the sources and versions read;
     left out (the default), every reply is byte for byte what it was. `max_chars` (FA-1) is the most characters the reply may have: what is over is taken from the model's prose (or, for a reply in
     another form, from its text), cut on a word with the sentence FA_CUT, so that the quotes code checked, the notes, the instruction lines and the footer are never the part that is cut; only when the
-    prose cannot give enough is the whole reply cut at the limit. Left out, nothing is cut."""
+    prose cannot give enough is the whole reply cut at the limit. Left out, nothing is cut. `not_found` (MAIL-SUMMARY) is the phrase key said for a `not-found` reply that has a `read_label`: the default is the file's own."""
     say = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     read = read_line(given, cfg)
     read_label = read_label if isinstance(read_label, str) and read_label else None
@@ -261,7 +282,7 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     if unverified:
         flags.append("INSTRUCTION_UNVERIFIED")
     if parsed["answer"] == "not-found":
-        first = say("FA_NOT_FOUND") if read_label else say("NOT_FOUND", read=read)      # with a read_label the line that lists ids and versions is not written at all
+        first = say(not_found) if read_label else say("NOT_FOUND", read=read)      # with a read_label the line that lists ids and versions is not written at all
         text = "\n\n".join([first] + ([instructions] if instructions else []) + ([footer_read] if read_label else []) + footer)
         if max_chars is not None and len(text) > max_chars:
             text = _trim(text, max_chars, say("FA_CUT"))

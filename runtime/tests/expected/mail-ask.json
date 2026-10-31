@@ -1,0 +1,35 @@
+{
+ "package": "mail-ask",
+ "add": {
+  "natural_table.R": [
+   "mail-ask"
+  ],
+  "registry_rows.MODEL_ROWS": [
+   "mail-ask"
+  ],
+  "registry_rows.OFF_HOST": [
+   "mail-ask"
+  ],
+  "registry_rows.SEPARATES": {
+   "mail-ask": "mail-read"
+  },
+  "messaging_policy.ON_MESSAGING": [
+   "mail-ask"
+  ],
+  "messaging_policy.NOT_PERMITTED_BY_DEFAULT": [
+   "mail-ask"
+  ],
+  "mcp.CHANNEL_ARG": [
+   "mail-ask"
+  ],
+  "operations_table.PUBLIC_MODULES": [
+   "ops_mail_ask"
+  ],
+  "operations_table.NOT_OPERATIONS": [
+   "contained"
+  ],
+  "interpreter_coverage.NOT_SERVED": [
+   "mail-ask"
+  ]
+ }
+}

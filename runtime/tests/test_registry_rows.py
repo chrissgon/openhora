@@ -212,7 +212,7 @@ def record_problems(rows) -> list:
             out.append(f"{name}: keys")
             continue
         orders.append((rec["since"], rec["order"]))
-        if rec["class"] not in CLASS_WORDS or rec["since"] not in (1, 2) or not isinstance(rec["order"], int) or isinstance(rec["order"], bool) or rec["order"] < 1:
+        if rec["class"] not in CLASS_WORDS or rec["since"] not in (1, 2, 3) or not isinstance(rec["order"], int) or isinstance(rec["order"], bool) or rec["order"] < 1:
             out.append(f"{name}: class, since or order")
         if rec["privacy"] not in PRIVACY_WORDS or rec["cost"] not in COST_WORDS:
             out.append(f"{name}: privacy or cost")
@@ -221,7 +221,7 @@ def record_problems(rows) -> list:
         if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 300 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
             out.append(f"{name}: about")
         for slot, spec in rec["slots"].items():
-            if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2) or spec["since"] < rec["since"] or not spec["param"]:
+            if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2, 3) or spec["since"] < rec["since"] or not spec["param"]:
                 out.append(f"{name}: slot {slot}")
     numbers = [order for _since, order in orders]
     if len(set(numbers)) != len(numbers):
@@ -260,7 +260,7 @@ def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
 
 
 def test_vacuity_the_record_check_sees_each_planted_fault(monkeypatch):
-    for fault in ({"class": "X"}, {"since": 3}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 301}, {"about": "write to a@b.example"},
+    for fault in ({"class": "X"}, {"since": 4}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 301}, {"about": "write to a@b.example"},
                   {"about": "a number 12345678 in it"}, {"what": " "}):
         rows = [copy.deepcopy(row) for row in operations.OPERATIONS]
         rows[3]["natural"].update(fault)

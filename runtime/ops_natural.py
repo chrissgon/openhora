@@ -289,6 +289,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             spans = {key: value for key, value in spans.items() if key != "target"}
         args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
     if name not in ("reject", "release") and plan_confirm.needed(ctx, name, channel, sender, confirmed) and not plan_confirm.incomplete(name, args):      # D5: the sentence of the call, and the person's OK, before it runs (a decision that is no open one gets its own sentence first: `_decision`)
+        if name == "mail-ask":      # MAIL-SUMMARY: the plan binds the mailbox snapshots the number or the words name, so that a yes reads the message that was meant (runtime/ops_mail_ask.py `pin`)
+            args = dict(args, pin=importlib.import_module("ops_mail_ask").pin(ctx, args, said, channel, sender))
         return plan_confirm.ask(project, ctx, name, args, said, sender, extras, when=when, routed=routed, words=extras.get("plan_words"))
     if channel == "messaging" and cls != "D":      # S20: a command with a typed form is run by it; a routine's brake is called here
         done = _typed(project, ctx, name, args, sender, extras, row)
@@ -300,6 +302,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         return importlib.import_module("ops_file_ask").reply(project, ctx, args, said, channel, sender, extras)
     if name == "mail-read":      # CB-3: the text of one message of the mail snapshots; code writes the reply, no model reads it, and the conversation keeps a neutral word (runtime/ops_mail_read.py)
         return importlib.import_module("ops_mail_read").reply(project, ctx, args, said, channel, sender, extras)
+    if name == "mail-ask":      # MAIL-SUMMARY: a question about one message of the mail snapshots; its text goes only to the quarantined reader, code checks its quotes and writes the reply (runtime/ops_mail_ask.py)
+        return importlib.import_module("ops_mail_ask").reply(project, ctx, args, said, channel, sender, extras)
     if name == "todo-list":      # CB-5: the open tasks of the person's own to-do list, read live; code writes the reply and the conversation keeps a neutral word (runtime/ops_todo.py)
         return importlib.import_module("ops_todo").reply_list(project, ctx, args, channel, sender, extras)
     if name == "research":      # R2-F1: a question of general information answered by a web search; code runs the research skill, writes the reply and the conversation keeps a neutral word (runtime/ops_research.py)

@@ -820,6 +820,12 @@ def target_words(span, tables, *, cap: int = TARGET_WORDS_MAX) -> list:
     return found if len(found) <= cap else []
 
 
+def says_newest(span, tables) -> bool:
+    """Whether a `target` span names the newest message: a phrase of the tables' mail `newest` list stands whole in its words ("o ultimo", "the latest one"). Pure."""
+    seen = " " + " ".join(_words_of(span)) + " "
+    return any(" " + " ".join(w for part in phrase for w in _words_of(part)) + " " in seen for table in _tables_with_mail(tables) for phrase in _data(table)["mail"]["newest"])
+
+
 def ground_words(span, tables) -> list:
     """BL7-5. `target_words` of a sender and a subject the interpreter grounded, with the cap GROUND_WORDS_MAX instead of TARGET_WORDS_MAX. `match_words` still needs EVERY word, so a
     longer set can only reach a subset of what a shorter set of the same words reaches: the cap decides between a search and a refusal, never how wide the search is."""

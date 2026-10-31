@@ -107,6 +107,8 @@ def test_the_default_policy_answers_as_before_for_every_row_channel_kind_and_pol
     assert grants_on_mcp and policies
     checked = 0
     for row in operations.OPERATIONS:
+        if row["name"] in operations.PAIRED:      # MAIL-SUMMARY: a row that two groups grant together has no "before"; test_mail_ask.py pins what it answers
+            continue
         for channel in CHANNELS:
             for kind in KINDS:
                 for policy in policies:
@@ -115,7 +117,7 @@ def test_the_default_policy_answers_as_before_for_every_row_channel_kind_and_pol
                     checked += 1
     assert checked > 5000
     for policy in grants_on_mcp:      # and on the other channels they answer as before even so
-        for row in operations.OPERATIONS:
+        for row in (r for r in operations.OPERATIONS if r["name"] not in operations.PAIRED):
             for channel in ("terminal", "chat", "page", "messaging", "bogus"):
                 for kind in KINDS:
                     assert operations.permitted(row["name"], channel, policy, kind) is before_permitted(row["name"], channel, policy, kind), (row["name"], channel, kind)

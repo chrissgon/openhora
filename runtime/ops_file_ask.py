@@ -81,7 +81,7 @@ FILE_ASK_BYTES_MAX = ask_select.ASK_BYTES_MAX      # the converted text handed t
 PHONE_CHARS = 3500         # characters of a reply on a messaging app (a message of it holds 4,096)
 OTHER_CHARS = 6000         # ... and on any other channel
 COPY_NAME = "file.md"      # the temporary copy's file name: fixed, never the file's own (the prompt names the copy, and a name is a word of the person's drive)
-STATUS_OF = {"FA_FAILED": "failed", "FA_TIMEOUT": "timeout", "FA_CAP": "cap", "ASK_NO_ENV": "no-env"}      # the status of an outcome by the phrase that says it
+STATUS_OF = {"FA_FAILED": "failed", "FA_TIMEOUT": "timeout", "FA_CAP": "cap", "MA_FAILED": "failed", "MA_TIMEOUT": "timeout", "MA_CAP": "cap", "ASK_NO_ENV": "no-env"}      # the status of an outcome by the phrase that says it
 KEPT = ("timing.json", costs.METER)      # what a run folder keeps of an `outputs` folder: the counts that costs are read from (no word of the file); the reply is not kept: its quotes are the file's words
 STALE_PREPARED_SECONDS = 6 * 3600      # a prepared folder this old belongs to no live run (the longest run is 900 seconds): a crash left it, with the file's text in it
 FAILURE_REASONS = {"timeout": "the question ran out of time", "refused": "the model service refused the run", "auth": "the model service refused the credential", "adapter": "the model service failed",
@@ -174,11 +174,11 @@ def _skill() -> tuple:
     return (name, None) if _passed(name) else (None, "FA_NOT_PROVEN")
 
 
-def _made_today(ctx: dict) -> int:
+def _made_today(ctx: dict, request: str = "FA_REQUEST_TEXT") -> int:
     """How many questions about a file were started today (local day), whatever their end: the runs on a request whose text is the neutral word of this operation (an `ask` run's request holds
-    the question, never that word)."""
+    the question, never that word). `request` is the phrase key of that word: `mail-ask` counts its own (MAIL-SUMMARY), apart from this operation's."""
     store = ctx["store"]
-    words = set(phrases.every("FA_REQUEST_TEXT"))
+    words = set(phrases.every(request))
     count = 0
     for row in core._stored(ctx, store.runs_since, ops_runs._midnight_utc()):
         if row.get("task_id") == row.get("request_id") and core._stored(ctx, store.task_get, row["request_id"]).get("text") in words:
@@ -219,9 +219,9 @@ def _copy_text(got: dict, when: str) -> str:
     return head + "\n\n" + got["text"]
 
 
-def _write_copy(prepared_dir: str, text: str) -> tuple:
+def _write_copy(prepared_dir: str, text: str, source: str = SOURCE_ID) -> tuple:
     """(path, relative path in the run's copy) of the one temporary source, written 0600 in 0700 folders under `prepared_dir`."""
-    rel = f"{sources.SOURCES_REL}/{SOURCE_ID}/{COPY_NAME}"
+    rel = f"{sources.SOURCES_REL}/{source}/{COPY_NAME}"
     path = os.path.join(prepared_dir, *rel.split("/"))
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -230,9 +230,9 @@ def _write_copy(prepared_dir: str, text: str) -> tuple:
     return path, rel
 
 
-def _prompt(cfg: dict, question: str, rel: str, version) -> str:
+def _prompt(cfg: dict, question: str, rel: str, version, source: str = SOURCE_ID) -> str:
     """The run's prompt: the question in the person's words, the measured task text of `ask` byte for byte, the sources line naming the one copy, then the person's standing instructions as `ask` adds them."""
-    lines = [ops_sources.SOURCES_LINE, f"- {rel} (source {SOURCE_ID}, version {version or 'current'})"]
+    lines = [ops_sources.SOURCES_LINE, f"- {rel} (source {source}, version {version or 'current'})"]
     return ops_instructions.contained_prompt(cfg["project"], ops_runs.task_prompt(question, ops_ask.ASK_TASK_TEXT, [], sourced=lines))
 
 
@@ -307,7 +307,7 @@ def sweep(ctx: dict) -> None:
     its `finally`). A run's folder is touched only when it is under `<data_dir>/contained-runs/`. Never raises, never prints a name."""
     cfg, store = ctx["cfg"], ctx["store"]
     try:
-        words = set(phrases.every("FA_REQUEST_TEXT"))
+        words = set(phrases.every("FA_REQUEST_TEXT")) | set(phrases.every("MA_REQUEST_TEXT"))      # a question about a file and one about an e-mail (MAIL-SUMMARY)
         since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=cfg["run_retention_days"])).strftime("%Y-%m-%dT%H:%M:%SZ")
         base = os.path.realpath(os.path.join(cfg["data_dir"], core.CONTAINED_DIR))
         for row in core._stored(ctx, store.runs_since, since):
@@ -330,16 +330,20 @@ def sweep(ctx: dict) -> None:
 
 # --- the question --------------------------------------------------------------------------------------------------------------------------------
 
+FILE_KIT = {"request": "FA_REQUEST_TEXT", "failed": "FA_FAILED", "timeout": "FA_TIMEOUT", "cap": "FA_CAP", "day": "FA_DAY_LIMIT", "day_one": "FA_DAY_LIMIT_ONE", "not_found": "FA_NOT_FOUND", "source": SOURCE_ID,
+            "label": lambda cfg, got: _read_label(cfg, got), "still_may": lambda project, channel, sender: _still_may(project, channel, sender)}      # lambdas: the vacuity tests patch the names
 
-def _failure_word(result: dict, cap: float) -> str:
-    """The phrase key for a run that failed: the timeout, the cost cap (a reported cost at the cap), else the general sentence."""
+
+def _failure_word(result: dict, cap: float, kit: dict = None) -> str:
+    """The phrase key for a run that failed: the timeout, the cost cap (a reported cost at the cap), else the general sentence. `kit` names the keys of the operation (FILE_KIT by default)."""
+    kit = kit or FILE_KIT
     failure = result.get("failure") or {}
     if failure.get("kind") == "timeout":
-        return "FA_TIMEOUT"
+        return kit["timeout"]
     spent = (result.get("reported") or {}).get("cost_usd")
     if isinstance(spent, (int, float)) and not isinstance(spent, bool) and spent >= cap:
-        return "FA_CAP"
-    return "FA_FAILED"
+        return kit["cap"]
+    return kit["failed"]
 
 
 def _unreadable(cfg: dict, match: dict, code: str) -> dict:
@@ -362,11 +366,21 @@ def _read_and_ask(project: str, ctx: dict, match: dict, question: str, channel, 
         return _out(t("FA_TOO_LARGE", name=got["name"], account=reader._label_of(cfg, got["account"])), "too-large")
     when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     text = _copy_text(got, when)
+    return contained(project, ctx, got, text, question, channel, sender, skill, notes, FILE_KIT)
+
+
+def contained(project: str, ctx: dict, got: dict, text: str, question: str, channel, sender, skill: str, notes: str, kit: dict) -> dict:
+    """The contained run of the reader on ONE copy (`text`: the data line and the source's text) of what `got` names: the route, the run row, the run, the check of its reply, what a run leaves.
+    Shared by the question about a file and the question about an e-mail (MAIL-SUMMARY, runtime/ops_mail_ask.py): `kit` holds the phrase keys, the source id, the footer's label and the check
+    of the asker's right that differ (FILE_KIT is this operation's). The bounds and the day's count are the configuration's key `file_ask`, each kind counted apart by its request word."""
+    cfg = ctx["cfg"]
+    t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
+    limits = cfg["file_ask"]
     try:
         meta, keys, routing = ops_contained.routed(ctx, skill)
         identity = lab.skill_identity(skill)
     except (core.OpsError, lab.LabError):
-        return _out(t("FA_FAILED"), "failed")
+        return _out(t(kit["failed"]), "failed")
     store = ctx["store"]
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
         ops_runs._recover(ctx, holding_route=True)
@@ -374,14 +388,14 @@ def _read_and_ask(project: str, ctx: dict, match: dict, question: str, channel, 
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
             with core._claim_lock(cfg):      # the day's count and the run row are one step
-                made = _made_today(ctx)
+                made = _made_today(ctx, kit["request"])
                 if made >= limits["max_per_day"]:
-                    return _out(t("FA_DAY_LIMIT_ONE") if made == 1 else t("FA_DAY_LIMIT", count=made), "limit")
+                    return _out(t(kit["day_one"]) if made == 1 else t(kit["day"], count=made), "limit")
                 started = core._stored(ctx, store.answer_run_start, skill=skill, model=routing["model"], adapter=routing["adapter"], skill_version=identity["version"],
                                        skill_sha256=identity["content_sha256"], billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=store.ANSWER_TITLE,
-                                       text=t("FA_REQUEST_TEXT"))      # the neutral word: the line names a file
+                                       text=t(kit["request"]))      # the neutral word: the line names a file or an e-mail
             try:
-                return _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, routing, started, dest, prepared_dir, notes)
+                return _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, routing, started, dest, prepared_dir, notes, kit)
             finally:
                 purge(dest)
         finally:
@@ -390,7 +404,7 @@ def _read_and_ask(project: str, ctx: dict, match: dict, question: str, channel, 
                 os.rmdir(dest)      # a refusal before the run leaves the folder it claimed empty: it goes (a folder with a run in it stays)
 
 
-def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, routing, started, dest, prepared_dir, notes) -> dict:
+def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, routing, started, dest, prepared_dir, notes, kit) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["file_ask"]
@@ -407,23 +421,25 @@ def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, 
                       **ops_runs._reported_usage(reported, routing)) or _out(t(word), STATUS_OF[word], ran=True, **base)
 
     try:
-        path, rel = _write_copy(prepared_dir, text)
-        prompt = _prompt(cfg, question, rel, got["version"])
+        path, rel = _write_copy(prepared_dir, text, kit["source"])
+        prompt = _prompt(cfg, question, rel, got["version"], kit["source"])
         result = ops_contained.execute(ctx, skill, meta, keys, routing, prompt, timeout=limits["timeout_seconds"], dest=dest, prepared_dir=prepared_dir,
                                        max_cost=limits["max_cost_usd"], sourced=[(path, rel)], around=ops_cancel.watch(ctx, request_id))
     except core.OpsError as e:
-        word = "ASK_NO_ENV" if getattr(e, "lab_kind", None) == "docker" else "FA_FAILED"      # the kind a lab failure carries when Docker is not running (RESEARCH-NO-DOCKER, #593): the sentence of `ask`
+        word = "ASK_NO_ENV" if getattr(e, "lab_kind", None) == "docker" else kit["failed"]      # the kind a lab failure carries when Docker is not running (RESEARCH-NO-DOCKER, #593): the sentence of `ask`
         return fail("internal", word)
     except Exception as e:      # the run row never stays `running`; the error is recorded by its type only, never its text (it can hold the question or the file)
-        print(f"file-ask: internal error {type(e).__name__}", file=sys.stderr)
-        return fail("internal", "FA_FAILED")
+        print(f"{kit.get('op', OP)}: internal error {type(e).__name__}", file=sys.stderr)
+        return fail("internal", kit["failed"])
     counts, timing = result["counts"], result["timing"]
     if result["status"] != "ok":
         failure = result["failure"]
-        return fail(failure["kind"], _failure_word(result, limits["max_cost_usd"]), counts, result["image_digest"], result.get("reported"))
+        return fail(failure["kind"], _failure_word(result, limits["max_cost_usd"], kit), counts, result["image_digest"], result.get("reported"))
     body, _masked = workcopy.masked_reply(result["response"])
-    checked = ask_reply.check(body, [{"source": SOURCE_ID, "version": got["version"] or "current"}], {SOURCE_ID: text}, routing["autonomy"] == "proven", skill, routing["model"], cfg,
-                              read_label=_read_label(cfg, got), max_chars=_room(channel, notes))      # what is over is taken from the model's prose, never from the quotes code checked
+    after = kit["after"](cfg, body, got) if kit.get("after") and ask_reply.parse(body)["answer"] in ("found", "partial") else ""      # a note that follows the checked reply (mail-ask: a number the e-mail does not hold), counted in the room
+    copy = kit["verify"](text, got) if kit.get("verify") else text      # what a quote is checked against: the platform's own data line is not the source's words (mail-ask)
+    checked = ask_reply.check(body, [{"source": kit["source"], "version": got["version"] or "current"}], {kit["source"]: copy}, routing["autonomy"] == "proven", skill, routing["model"], cfg,
+                              read_label=kit["label"](cfg, got), max_chars=_room(channel, notes + after), not_found=kit["not_found"])      # what is over is taken from the model's prose, never from the quotes code checked
     shown, _masked = workcopy.masked_reply(checked["text"])
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
     every = ops_runs._reported_usage(lab.reported_usage(dest), routing)
@@ -432,9 +448,9 @@ def _run(project, ctx, got, text, question, channel, sender, skill, meta, keys, 
                        image_digest=result["image_digest"], redactions=ops_runs._count(counts.get("redactions")))
     if cancelled:
         return cancelled
-    if not _still_may(project, channel, sender):
+    if not kit["still_may"](project, channel, sender):
         return _out(t("WITHHELD"), "withheld", ran=True, **base)      # the run is recorded: it was made and spent
-    return _out(shown + notes, "answer", ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
+    return _out(shown + notes + after, "answer", ran=True, answer=checked["outcome"], flags=checked["flags"], **base)
 
 
 def _ask(project: str, ctx: dict, wanted: str, account, question: str, said, channel, sender, remember: bool = False) -> dict:
