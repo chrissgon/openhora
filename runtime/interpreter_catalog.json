@@ -412,7 +412,7 @@
     "service": "word",
     "target": "span"
    },
-   "what": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount); in Portuguese and Spanish resume, resuma and resumo mean summarize: message is its number as the line writes it, target the words of its sender or subject or a pasted list line whole, every piece between the · and its time included, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read)."
+   "what": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount); in Portuguese and Spanish resume, resuma and resumo mean summarize: message is its number as the line writes it (resume o 2 is message 2), target the words of its sender or subject or a pasted list line whole, every piece between the · and its time included, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read)."
   },
   {
    "class": "R",
@@ -462,7 +462,7 @@
    "slots": {
     "id": "int"
    },
-   "what": "Choose this to resume a paused routine, only when the line names a routine (resume routine 2, retoma a rotina 2); id is the routine's number written in the line. In Portuguese and Spanish, resume or resuma with no routine named means summarize (mail-ask)."
+   "what": "Choose this to resume a paused routine, only when the line names a routine (resume routine 2, retoma a rotina 2); id is the routine's number written in the line. Never for resume o 2 or resume el 2: in Portuguese and Spanish resume means summarize, so that is mail-ask with message 2."
   },
   {
    "class": "G",

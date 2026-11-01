@@ -847,9 +847,9 @@ def served_text(op, catalog=None):
 def test_the_served_texts_tell_the_model_that_resume_without_a_routine_is_a_summary_and_that_a_pasted_line_is_taken_whole():
     """Screen of the dev set (2026-10-31): `resume o 2` read as routine-resume, `resume o e-mail ...` as mail-read, a pasted line cut before its last piece; the model reads these two texts."""
     routine = served_text("routine-resume")
-    assert "only when the line names a routine" in routine and "resume or resuma with no routine named means summarize (mail-ask)" in routine
+    assert "only when the line names a routine" in routine and "Never for resume o 2 or resume el 2" in routine and "so that is mail-ask with message 2" in routine
     mail = served_text("mail-ask")
-    assert "resume, resuma and resumo mean summarize" in mail and "every piece between the \u00b7 and its time included" in mail
+    assert "resume, resuma and resumo mean summarize" in mail and "every piece between the \u00b7 and its time included" in mail and "(resume o 2 is message 2)" in mail
     assert served_text("mail-ask", interpreter_catalog.generate(3)) == mail and "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]]
 
 
@@ -857,8 +857,11 @@ def test_vacuity_the_old_texts_lack_the_sentences_the_test_above_looks_for():
     old_routine = "Choose this to resume a paused routine; id is the routine's number written in the line."
     old_mail = ("Choose this to summarize ONE e-mail or to answer what it says (a date, an amount): message is its number as the line writes it, "
                 "target the words of its sender or subject or a pasted list line whole, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read).")
-    assert "only when the line names a routine" not in old_routine and "means summarize (mail-ask)" not in old_routine
-    assert "resume, resuma and resumo mean summarize" not in old_mail and "every piece between the \u00b7" not in old_mail
+    assert "only when the line names a routine" not in old_routine and "Never for resume o 2 or resume el 2" not in old_routine
+    assert "resume, resuma and resumo mean summarize" not in old_mail and "every piece between the \u00b7" not in old_mail and "(resume o 2 is message 2)" not in old_mail
+    first_round_routine = old_routine[:-1] + ", only when the line names a routine (resume routine 2, retoma a rotina 2). In Portuguese and Spanish, resume or resuma with no routine named means summarize (mail-ask)."
+    first_round_mail = old_mail.replace("it says (a date, an amount):", "it says (a date, an amount); in Portuguese and Spanish resume, resuma and resumo mean summarize:")
+    assert "Never for resume o 2 or resume el 2" not in first_round_routine and "(resume o 2 is message 2)" not in first_round_mail, "the texts of the first round lack the second round's sentences"
 
 
 def test_vacuity_at_version_2_no_line_reaches_the_operation(monkeypatch):

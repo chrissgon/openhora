@@ -36,11 +36,11 @@
    "state": "retired"
   },
   {
-   "catalog_sha256": "4b684ee9422f989078c923a1386d9046048f76d7be8e4a2fd9d52807d4ee9833",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
    "date": "2026-10-31",
    "state": "served"
   }
  ],
- "served": "4b684ee9422f989078c923a1386d9046048f76d7be8e4a2fd9d52807d4ee9833",
+ "served": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
  "v": 1
 }
