@@ -63,6 +63,7 @@ EVENT_CARD_STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the m
 assert len(EVENT_CARD_STATUS_LINE) <= 600
 STATUS_LINE = EVENT_CARD_STATUS_LINE + "; revise prompt re-pinned 2026-11-01 (a question about the recipient)"      # the newest entry (package mail-card-recipient, third text): the entry of CARD-MODEL-SEES and the re-pinned revise prompt
 assert len(STATUS_LINE) <= 600
+MAIL_CARD_RECIPIENT_REASON = "The e-mail revise prompt (rule 3) gained a sentence: a question about who receives the e-mail asks for no change, even when it writes an address, and a polite request with a question mark is still a request. Two earlier paid proofs failed. Measured on this PR's head 8430a9ae, RESULT-MAIL-CARD-RECIPIENT-2026-11-01: 3 of 12 rows of the bar not met, one call of 102 in group D changed the recipient; enabled below the bar by the maintainer's decision of 2026-11-01. Only revise_prompt_sha256 changes."      # the newest entry (package mail-card-recipient): the text decided after the third proof; the test below fixes it
 EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
@@ -156,8 +157,8 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert {key for key in entry if entry.get(key) != card_entry.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
     assert entry["fallback"] == card_entry["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and entry["compose_prompt_sha256"] == card_entry["compose_prompt_sha256"]
     assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v3"] != card_entry["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
-    assert "Two paid proofs failed" in entry["reason"] and PINNED_HASHES["revise_prompt_recipient"][:8] in entry["reason"] and PINNED_HASHES["revise_prompt_recipient_v2"][:8] in entry["reason"] and "blind D 49 of 54" in entry["reason"], "the entry says that both earlier proofs failed, with the prompts it measured and the figure of the second"
-    assert "a question about who receives the e-mail asks for no change" in entry["reason"] and "RESULT-MAIL-CARD-RECIPIENT-" in entry["reason"] and "Measured on this PR's head before merge" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
+    assert entry["reason"] == MAIL_CARD_RECIPIENT_REASON, "the newest entry carries the text the maintainer decided on 2026-11-01, after the third proof (RESULT-MAIL-CARD-RECIPIENT-2026-11-01)"
+    assert "Two earlier paid proofs failed" in entry["reason"] and "a question about who receives the e-mail asks for no change" in entry["reason"] and "RESULT-MAIL-CARD-RECIPIENT-2026-11-01" in entry["reason"] and "<date>" not in entry["reason"] and "enabled below the bar by the maintainer's decision of 2026-11-01" in entry["reason"] and "3 of 12 rows of the bar not met" in entry["reason"]
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
