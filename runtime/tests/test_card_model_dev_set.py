@@ -1,6 +1,6 @@
 """The development set of the measurement of "the model sees the card" (package card-model-sees): evals/interpreter/card-model-dev-v1.jsonl.
 
-96 fictional lines the maintainer's harness (outside the repository, ix-card-model.py) sends with a card in view and grades against a gold. This file holds the form and the counts the specification
+100 fictional lines the maintainer's harness (outside the repository, ix-card-model.py) sends with a card in view and grades against a gold. This file holds the form and the counts the specification
 asks for, and nothing about any model: the set is dev evidence (tuning is done against it, never against the blind set), and no model's answer is here. Offline.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_card_model_dev_set.py
@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 SET = Path(__file__).resolve().parents[2] / "evals" / "interpreter" / "card-model-dev-v1.jsonl"
-LANGS = {"pt-BR": 40, "en": 24, "es": 8, "fr": 8, "de": 8, "it": 8}
-GROUPS = {"title": 18, "time": 13, "day": 11, "place": 9, "duration": 9, "mixed": 6, "another": 6, "other": 7, "none": 4, "bait": 6, "reminder": 5, "newevent": 2}
+LANGS = {"pt-BR": 43, "en": 25, "es": 8, "fr": 8, "de": 8, "it": 8}
+GROUPS = {"title": 18, "time": 13, "day": 11, "place": 9, "duration": 9, "mixed": 6, "another": 6, "other": 11, "none": 4, "bait": 6, "reminder": 5, "newevent": 2}
 STAMP = "%Y-%m-%dT%H:%M"
 REPORT = ["Mude o titulo para: ", "Mude o titulo para ", "Mude o título para: ", "muda o título para ", "muda o titulo para: ", "troque o nome para ", "troque o nome para: "]      # validate: allow english-only -- the lines of the report
 
@@ -56,7 +56,7 @@ def problems(rows):
 
 def test_the_set_has_the_counts_the_specification_asks_for_and_a_well_formed_item_each():
     rows = items()
-    assert len(rows) == 96 and problems(rows) == []
+    assert len(rows) == 100 and problems(rows) == []
     assert all(r["zone"] == "America/Sao_Paulo" and r["clock"] == "2026-10-21T15:00" and r["id"].startswith("card-dev-") for r in rows)
 
 
@@ -103,7 +103,7 @@ def test_vacuity_a_planted_wrong_set_is_found(plant):
 def test_every_line_that_is_not_a_change_names_the_operations_it_may_get_and_no_real_name_is_in_the_set():
     rows = items()
     others = [r for r in rows if r["gold"]["kind"] == "other"]
-    assert len(others) == 27 and all(isinstance(r["gold"].get("ops"), list) for r in others), "an `ops` list on each (24 outside the bait group, 3 inside it), an empty list for a line no operation is right for"
+    assert len(others) == 31 and all(isinstance(r["gold"].get("ops"), list) for r in others), "an `ops` list on each (28 outside the bait group, 3 inside it), an empty list for a line no operation is right for"
     assert all(r["gold"]["ops"] == [] for r in others if r["group"] == "none") and all(r["gold"]["ops"] == ["event-change"] for r in others if r["group"] == "another")
     assert all(r["gold"]["ops"] == ["remind"] for r in others if r["group"] == "reminder") and all(r["gold"]["ops"] == ["event-create"] for r in others if r["group"] == "newevent")
     text = SET.read_text(encoding="utf-8")
@@ -124,3 +124,20 @@ def test_the_set_holds_the_six_real_changes_the_closed_list_had_dropped_and_the_
         assert line in lines, line
     reminders = [r for r in rows if r["group"] == "reminder"]
     assert {r["lang"] for r in reminders} == {"pt-BR", "en"} and len(reminders) == 5 and {r["lang"] for r in rows if r["group"] == "newevent"} == {"pt-BR", "en"}
+
+
+def test_the_four_lines_that_ask_for_a_summary_of_one_e_mail_are_in_the_set_with_the_operation_that_answers_them():
+    """Review of the merge with MAIL-SUMMARY-FLIP: a pasted list line or a summary with a clock is a bare time to code (`turn_gate.new_request`), so on an event card it reaches the model that sees the card; the gold is `mail-ask`, never a change of the card."""
+    rows = {r["id"]: r for r in items()}
+    expected = {
+        "card-dev-pt-041": "resume esse: Ana Lima \u00b7 Contrato assinado \u00b7 hoje 09:14",      # validate: allow english-only -- the line under test
+        "card-dev-pt-042": "resume o email das 9h",      # validate: allow english-only -- the line under test
+        "card-dev-pt-043": "resumir o email de sexta 15h",      # validate: allow english-only -- the line under test
+        "card-dev-en-025": "summarize this one: Harbor Credit Union \u00b7 Your statement is ready \u00b7 today 17:14",
+    }
+    for key, line in expected.items():
+        assert key in rows and rows[key]["line"] == line and rows[key]["group"] == "other" and rows[key]["gold"] == {"kind": "other", "ops": ["mail-ask"]}, key
+    assert rows["card-dev-pt-033"]["gold"]["ops"] == ["mail-ask", "mail-read", "ask", "items"], "a summary of one e-mail is `mail-ask` since the catalog of version 3; the older answers stay allowed"
+    planted = copy.deepcopy(rows["card-dev-pt-042"])
+    planted["gold"]["ops"] = ["mail-read"]
+    assert planted["gold"] != {"kind": "other", "ops": ["mail-ask"]}, "vacuity: the oracle above fails on a gold that names another operation"
