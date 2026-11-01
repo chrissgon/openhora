@@ -479,6 +479,7 @@ MA_WHICH_WORDS_DAY: the e-mail with “move, review” of “Wed 21/10/2026”
 MA_WITHHELD: That e-mail looks like it holds a password or a key, so I did not hand it to the reader.
 MC_ASK_BODY: What should the e-mail to ana@mail.example say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with "exact text:".
 MC_REPLY_NOT_WORDED: I could not word this reply, so the card shows your own words as you wrote them. Check the text before you approve.
+ML_LIST_MOVED: The list I showed has changed since: ask for the list again, then tell me the number.
 MORE_LINE: And 3 more waiting. Send /pending to list them.
 MR_ASK: Which e-mail? Say its number, or some words of its sender or subject.
 MR_BODY_CUT: … (text cut)
@@ -619,6 +620,7 @@ NW_ITEMS_CMD_CAL: Your calendar has not been added to this project yet. Add it o
 NW_ITEMS_CMD_CAL_ACCOUNT: Your Example Calendar calendar has not been added to this project yet. Add it once, in the terminal, then ask again:\n/pending, /help
 NW_ITEMS_CMD_MAIL: Your mailbox has not been added to this project yet. Add it once, in the terminal, then ask again:\n/pending, /help
 NW_ITEMS_CMD_MAIL_ACCOUNT: Your Example Calendar mailbox has not been added to this project yet. Add it once, in the terminal, then ask again:\n/pending, /help
+NW_ITEMS_CUT: ... 3 more did not fit in this message
 NW_ITEMS_EMPTY_CAL: No event in the Ana Lima between 1 and 3 (open).
 NW_ITEMS_EMPTY_CAL_AT: No event in the Ana Lima Wed 21/10/2026 13:00 (open).
 NW_ITEMS_EMPTY_CAL_MATCH: No eventopen in the Ana Lima (open).
@@ -776,7 +778,9 @@ PHONE_WHERE: on the platform's page
 PHONE_WHERE_LINK: on the platform's page: https://page.example/p/1
 PHONE_WRITE_AGAIN: I could not read that as a clear request to your accounts, so nothing was done. Say it again with the details: what, and when or to whom.
 PLANNING_NOT_STARTED: The planning agent may not start now: it is the only free slot. Nothing was run.
+PLAN_ALL_ACCOUNTS: All
 PLAN_ASK: Shall I go ahead?
+PLAN_ASK_ACCOUNT: Which account? Ana Lima, Bruno Reis or <all>.
 PLAN_BTN_NO: No
 PLAN_DROPPED: All right, I did nothing.
 PLAN_ESTIMATE: Estimate: 3 runs
@@ -784,7 +788,9 @@ PLAN_GONE: That question has expired: ask again.
 PLAN_HEAD: I understood: move the review to Friday.
 PLAN_NEXT: Approve with /approve 2
 PLAN_NOT_LAST: To confirm, reply yes to the question that ends in “Shall I go ahead?”, or ask again.
+PLAN_NOT_LAST_ACCOUNT: To choose the account, tap a button on the question or reply to it, or ask again.
 PLAN_NOT_PLANNED: Not planned 3: the first item. The router's reply:
+PLAN_REPLY_HOW_ACCOUNT: Reply with the name of the account.
 PLAN_REPLY_HOW_EMAIL: Reply yes to this message to confirm.
 PLAN_STEP: step 2
 PLAN_STORED: (a plan was shown and waits for an OK)
@@ -992,6 +998,7 @@ TOO_LONG_LINE: Too long to approve here: approve it on the platform's page.
 TOO_MANY: A question reads at most 10 sources, and you named 3.
 UNCHECKED: This answer is not in the expected form; check it against the sources.
 UNDERSTOOD_AGENTS: show the agents and their use today
+UNDERSTOOD_ALL_ACCOUNTS: from all accounts
 UNDERSTOOD_ARTIFACT: show the file “docs/notes.md”
 UNDERSTOOD_ARTIFACTS: list the project's files
 UNDERSTOOD_ASK: answer your question from the project's sources (a model reads them)
@@ -1005,6 +1012,7 @@ UNDERSTOOD_FILE_ASK: answer about the file “photo.png” in your Drive or OneD
 UNDERSTOOD_FILE_READ: show the file “photo.png” from your Drive or OneDrive
 UNDERSTOOD_FLOWS: list the flows
 UNDERSTOOD_FLOW_CHECK: check the flow “weekly report”
+UNDERSTOOD_FROM_ACCOUNT: from Ana Lima
 UNDERSTOOD_INSTRUCTIONS: show your standing instructions
 UNDERSTOOD_ITEMS: list your e-mails and events
 UNDERSTOOD_ITEMS_CALENDAR: show the events of your calendar

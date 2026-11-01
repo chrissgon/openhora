@@ -479,6 +479,7 @@ MA_WHICH_WORDS_DAY: o e-mail com “move, review” de “Wed 21/10/2026”
 MA_WITHHELD: Esse e-mail parece conter uma senha ou chave, então não o entreguei ao leitor.
 MC_ASK_BODY: O que o e-mail para ana@mail.example deve dizer? Eu redijo o texto e você o vê no card. Para enviar suas palavras exatamente como escreveu, comece com "texto exato:".
 MC_REPLY_NOT_WORDED: Não consegui redigir esta resposta; o card mostra as suas próprias palavras, como você escreveu. Confira o texto antes de aprovar.
+ML_LIST_MOVED: A lista que mostrei mudou desde então: peça a lista de novo e depois diga o número.
 MORE_LINE: E mais 3 esperando. Envie /pending para listar.
 MR_ASK: Qual e-mail? Diga o número dele, ou algumas palavras do remetente ou do assunto.
 MR_BODY_CUT: … (texto cortado)
@@ -619,6 +620,7 @@ NW_ITEMS_CMD_CAL: A sua agenda ainda não foi adicionada a este projeto. Adicion
 NW_ITEMS_CMD_CAL_ACCOUNT: A sua agenda do Example Calendar ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
 NW_ITEMS_CMD_MAIL: A sua caixa de e-mail ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
 NW_ITEMS_CMD_MAIL_ACCOUNT: A sua caixa de e-mail do Example Calendar ainda não foi adicionada a este projeto. Adicione uma vez, no terminal, e peça de novo:\n/pending, /help
+NW_ITEMS_CUT: ... mais 3 não couberam nesta mensagem
 NW_ITEMS_EMPTY_CAL: Nenhum evento na Ana Lima entre 1 e 3 (open).
 NW_ITEMS_EMPTY_CAL_AT: Nenhum evento na Ana Lima Wed 21/10/2026 13:00 (open).
 NW_ITEMS_EMPTY_CAL_MATCH: Nenhum eventoopen na Ana Lima (open).
@@ -776,7 +778,9 @@ PHONE_WHERE: na página da plataforma
 PHONE_WHERE_LINK: na página da plataforma: https://page.example/p/1
 PHONE_WRITE_AGAIN: Não consegui ler isso como um pedido claro para as suas contas, então nada foi feito. Diga de novo com os detalhes: o quê, e quando ou para quem.
 PLANNING_NOT_STARTED: O agente de planejamento não pode começar agora: it is the only free slot. Nada foi executado.
+PLAN_ALL_ACCOUNTS: Todas
 PLAN_ASK: Posso?
+PLAN_ASK_ACCOUNT: De qual conta? Ana Lima, Bruno Reis ou <all>.
 PLAN_BTN_NO: Não
 PLAN_DROPPED: Certo, não fiz nada.
 PLAN_ESTIMATE: Estimativa de execuções: 3
@@ -784,7 +788,9 @@ PLAN_GONE: Essa pergunta expirou: peça de novo.
 PLAN_HEAD: Entendi: move the review to Friday.
 PLAN_NEXT: Aprove com /approve 2
 PLAN_NOT_LAST: Para confirmar, responda “sim” à pergunta que termina em “Posso?”, ou peça de novo.
+PLAN_NOT_LAST_ACCOUNT: Para escolher a conta, toque em um botão da pergunta ou responda a ela, ou peça de novo.
 PLAN_NOT_PLANNED: Não planejado 3: the first item. Resposta do roteador:
+PLAN_REPLY_HOW_ACCOUNT: Responda com o nome da conta.
 PLAN_REPLY_HOW_EMAIL: Responda “sim” a esta mensagem para confirmar.
 PLAN_STEP: etapa 2
 PLAN_STORED: (um plano foi mostrado e aguarda um OK)
@@ -992,6 +998,7 @@ TOO_LONG_LINE: Longo demais para aprovar aqui: aprove na página da plataforma.
 TOO_MANY: Uma pergunta lê no máximo 10 fontes, e você indicou 3.
 UNCHECKED: Esta resposta não está na forma esperada; confira com as fontes.
 UNDERSTOOD_AGENTS: mostrar os agentes e o uso de hoje
+UNDERSTOOD_ALL_ACCOUNTS: de todas as contas
 UNDERSTOOD_ARTIFACT: mostrar o arquivo “docs/notes.md”
 UNDERSTOOD_ARTIFACTS: listar os arquivos do projeto
 UNDERSTOOD_ASK: responder à sua pergunta a partir das fontes do projeto (um modelo as lê)
@@ -1005,6 +1012,7 @@ UNDERSTOOD_FILE_ASK: responder sobre o arquivo “photo.png” do seu Drive ou O
 UNDERSTOOD_FILE_READ: mostrar o arquivo “photo.png” do seu Drive ou OneDrive
 UNDERSTOOD_FLOWS: listar os fluxos
 UNDERSTOOD_FLOW_CHECK: verificar o fluxo “weekly report”
+UNDERSTOOD_FROM_ACCOUNT: do Ana Lima
 UNDERSTOOD_INSTRUCTIONS: mostrar suas instruções fixas
 UNDERSTOOD_ITEMS: listar seus e-mails e eventos
 UNDERSTOOD_ITEMS_CALENDAR: mostrar os eventos da sua agenda

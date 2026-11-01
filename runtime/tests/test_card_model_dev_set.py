@@ -10,7 +10,9 @@ from __future__ import annotations
 import collections
 import copy
 import datetime
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -18,8 +20,15 @@ import pytest
 SET = Path(__file__).resolve().parents[2] / "evals" / "interpreter" / "card-model-dev-v1.jsonl"
 LANGS = {"pt-BR": 43, "en": 25, "es": 8, "fr": 8, "de": 8, "it": 8}
 GROUPS = {"title": 18, "time": 13, "day": 11, "place": 9, "duration": 9, "mixed": 6, "another": 6, "other": 11, "none": 4, "bait": 6, "reminder": 5, "newevent": 2}
+REAL_REPORT_NAME_SHA256 = "03cd7125d00648ea0eccf11c4f52ce7746ab5a26445c17f9c3e4476ef9929a7c"      # sha256 of the lowercased first name of a real report line: principle 8 keeps the name out of the tree, the test keeps it out of the set
+PLANTED_WORD_SHA256 = "de4a586a63dba62528de7a4e2b804e42ded24dee10b60bbff2e1a8a8e199318e"      # sha256 of the fictional word "zorvald", the plant of the vacuity case
 STAMP = "%Y-%m-%dT%H:%M"
 REPORT = ["Mude o titulo para: ", "Mude o titulo para ", "Mude o título para: ", "muda o título para ", "muda o titulo para: ", "troque o nome para ", "troque o nome para: "]      # validate: allow english-only -- the lines of the report
+
+
+def words_with_hash(text, digest):
+    """The words of `text` (lowercased, split on anything that is not a letter, accents kept) whose sha256 is `digest`."""
+    return [w for w in re.findall(r"[^\W\d_]+", text.lower()) if hashlib.sha256(w.encode("utf-8")).hexdigest() == digest]
 
 
 def items():
@@ -107,7 +116,14 @@ def test_every_line_that_is_not_a_change_names_the_operations_it_may_get_and_no_
     assert all(r["gold"]["ops"] == [] for r in others if r["group"] == "none") and all(r["gold"]["ops"] == ["event-change"] for r in others if r["group"] == "another")
     assert all(r["gold"]["ops"] == ["remind"] for r in others if r["group"] == "reminder") and all(r["gold"]["ops"] == ["event-create"] for r in others if r["group"] == "newevent")
     text = SET.read_text(encoding="utf-8")
-    assert "Matheus" not in text and "Corte de Cabelo" not in text, "principle 8: the name of a real report line is not in the set"
+    assert not words_with_hash(text, REAL_REPORT_NAME_SHA256) and "Corte de Cabelo" not in text, "principle 8: the name of a real report line is not in the set (compared by hash: the name is not written in the repository)"
+
+
+def test_vacuity_a_text_that_holds_a_word_of_the_planted_hash_is_reported_by_the_name_check():
+    assert words_with_hash("Corte de Cabelo com Zorvald, as 10h", PLANTED_WORD_SHA256) == ["zorvald"], "the plant is found whatever its case"
+    assert words_with_hash("Corte de Cabelo com Ana, as 10h", PLANTED_WORD_SHA256) == [], "a text without the word is clean"
+    assert PLANTED_WORD_SHA256 != REAL_REPORT_NAME_SHA256, "the vacuity case does not prove against the real hash alone"
+    assert words_with_hash(SET.read_text(encoding="utf-8"), PLANTED_WORD_SHA256) == [], "the same check runs on the real set"
 
 
 def test_the_set_holds_the_bare_clock_lines_of_the_probe_in_pt_br_and_en():

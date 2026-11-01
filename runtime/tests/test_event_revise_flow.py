@@ -482,7 +482,7 @@ def test_a_word_that_is_a_verb_of_the_gate_in_the_name_of_another_event_still_co
 
 
 # Part A of card-false-refusal (2026-10-30): the model named an operation the sender may not ask, on a line that names no other object. The operation was the model's reading, not the person's request.
-REPORTED = "Mude o titulo para: Corte de Cabelo com Matheus"      # validate: allow english-only -- the line under test (the maintainer's report of 2026-10-30)
+REPORTED = "Mude o titulo para: Corte de Cabelo com Tiago"      # validate: allow english-only -- the line under test (the maintainer's report of 2026-10-30)
 MILK = "adiciona comprar leite nas tarefas"      # validate: allow english-only -- the line under test
 
 
@@ -495,7 +495,7 @@ def asked_what_to_change(world, monkeypatch, text, line=REPORTED):
 
 
 def test_a_refusal_of_another_op_on_a_line_that_names_no_object_asks_what_to_change(world, monkeypatch):
-    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Matheus"}))
+    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Tiago"}))
     assert got == {"say": phrases.text("EV_CHANGE_WHAT", PT), "resend": old}, got
     assert open_cards(world) == [old] and status(world, old) == "open" and kept is None, "the card is still open and nothing was remembered of the line"
 
@@ -515,6 +515,6 @@ def test_a_refusal_of_a_line_that_names_another_object_is_still_said(world, monk
 
 def test_vacuity_a_line_that_names_an_object_passes_so_the_oracle_of_the_first_test_fails_on_a_plant(world, monkeypatch):
     monkeypatch.setattr(event_revise.event_lookup, "names_other_object", lambda said: True)      # the plant: the guard thinks every line names an object
-    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Matheus"}))
+    got, old, kept = asked_what_to_change(world, monkeypatch, op_text("todo-add", {"content": "Corte de Cabelo com Tiago"}))
     assert got == {"pass": True} and got != {"say": phrases.text("EV_CHANGE_WHAT", PT), "resend": old}, "the first test's expectation would fail"
     assert kept is not None
