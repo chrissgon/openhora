@@ -36,7 +36,7 @@ REPO = Path(__file__).resolve().parents[2]
 FILE = REPO / "runtime" / "interpreter_enable.json"
 ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
-          "catalog_sha256": PINNED_HASHES["interpreter_catalog_cb9"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}      # CB-9: the catalog of version 2
+          "catalog_sha256": PINNED_HASHES["interpreter_catalog_mail_ask"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}      # MAIL-SUMMARY-FLIP: the catalog of version 3
 RECORDED = dict(HASHES, prompt_sha256=PINNED_HASHES["interpreter_prompt_5bee"], catalog_sha256=PINNED_HASHES["interpreter_catalog_blite"])      # the prompt and the catalog every entry before BL5B was decided on (rule 9 of BL5B changed the prompt)
 FIRST = dict(RECORDED, catalog_sha256=PINNED_HASHES["interpreter_catalog_before_s8"])      # the entry decided before slice S8 added `file-read` to the catalog
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
@@ -56,7 +56,10 @@ CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; t
 assert len(CB9_STATUS_LINE) <= 600
 LUNA_STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the entry of package LUNA-ENABLE: the entry of CB-9 and the outage path
 assert len(LUNA_STATUS_LINE) <= 600
-STATUS_LINE = LUNA_STATUS_LINE + "; the event card shown to the model (2026-10-30)"      # the newest entry (package CARD-MODEL-SEES): the entry of LUNA-ENABLE and the event card text
+MAIL_ASK_STATUS_LINE = (CB9_STATUS_LINE.split("; the catalog moved to version 2")[0] + "; the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; "
+               "the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision")      # the entry of package MAIL-SUMMARY-FLIP: the catalog of version 3, the outage path as the entry before it
+assert len(MAIL_ASK_STATUS_LINE) <= 600
+STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the model (2026-10-30)"      # the newest entry (package CARD-MODEL-SEES): the entry of MAIL-SUMMARY-FLIP and the event card text
 assert len(STATUS_LINE) <= 600
 EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
@@ -95,7 +98,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-30" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-31" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -122,21 +125,29 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     bl73 = by_line[BL73_STATUS_LINE]
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
-    assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    cb9, luna = doc["entries"][-3], doc["entries"][-2]
+    cb9, luna, mail_ask = doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
+    assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != cb9["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the entry of CB-9 names the catalog of version 2"
+    assert mail_ask["catalog_sha256"] == entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_mail_ask"] != luna["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry of the flip and the newest name the catalog of version 3, served with the row mail-ask; the entry before them still names version 2"
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-4] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-5] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
     # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
     assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28"
     assert {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
     assert luna["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": luna["fallback"][0]["measured"]}] and len(luna["reason"]) <= interpreter_enable.TEXT_MAX
     assert "20261028T201315Z-daa387c8" in luna["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in luna["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in luna["fallback"][0]["measured"]
-    # CARD-MODEL-SEES: the newest entry copies every pin and the outage path of the entry of LUNA-ENABLE and adds the pin of the event card text, and nothing else changes but the date text fields
-    assert {key for key in entry if entry.get(key) != luna.get(key)} == {"date", "reason", "status_line", "event_card_prompt_sha256"}, "the newest entry adds the event card pin; every other pin and the outage path stand as decided"
-    assert entry["fallback"] == luna["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in luna
-    assert "RESULT-CARD-MODEL" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
+    # MAIL-SUMMARY-FLIP: its entry copies every pin and the outage path of the entry before it and changes the catalog hash, the date and the two texts, and nothing else
+    assert mail_ask["status_line"] == MAIL_ASK_STATUS_LINE and mail_ask["date"] == "2026-10-31"
+    assert {key for key in mail_ask if mail_ask.get(key) != luna.get(key)} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of the flip changes the catalog hash, the date and the texts; prompt, protocol, route, e-mail prompts and the outage path stand as decided"
+    assert mail_ask["fallback"] == luna["fallback"] and len(mail_ask["reason"]) <= interpreter_enable.TEXT_MAX and len(mail_ask["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "MAIL-SUMMARY-FLIP" in mail_ask["reason"] and "mail-ask" in mail_ask["reason"] and "version 3" in mail_ask["reason"]
+    assert "Measured on this PR's head before merge" in mail_ask["reason"] and "only after the maintainer's decision on that measurement" in mail_ask["reason"]
+    # CARD-MODEL-SEES: the newest entry copies every pin and the outage path of the entry of the flip and adds the pin of the event card text, and nothing else changes but the date text fields
+    assert {key for key in entry if entry.get(key) != mail_ask.get(key)} - {"date"} == {"reason", "status_line", "event_card_prompt_sha256"}, "the newest entry adds the event card pin; every other pin and the outage path stand as decided"
+    assert entry["date"] >= mail_ask["date"], "an entry is dated no earlier than the one above it: `load` raises otherwise"
+    assert entry["fallback"] == mail_ask["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in mail_ask
+    assert "RESULT-CARD-MODEL" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
@@ -157,7 +168,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-30", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-31", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
 
@@ -216,10 +227,27 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
         interpreter_enable.load(str(path))      # dates out of order
 
 
+def test_the_committed_entries_are_in_date_order_and_an_entry_appended_with_an_earlier_date_turns_the_interpreter_off(tmp_path):
+    """Review of MAIL-SUMMARY-FLIP: packages that append an entry each (#674 and #680 are dated 2026-10-30, the flip 2026-10-31) must date it at least as late as the newest entry when they are rebased onto
+    the others: `load` raises on a file whose dates are not sorted, and `active` then answers None for every language, so the interpreter is off for everyone."""
+    doc = committed()
+    dates = [e["date"] for e in doc["entries"]]
+    assert dates == sorted(dates) and interpreter_enable.load()["entries"] == doc["entries"]
+    late = dict(doc["entries"][-1], date="2026-10-30")      # the day before the newest entry
+    path = tmp_path / "late.json"
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [late]}), encoding="utf-8")
+    with pytest.raises(interpreter_enable.EnableError):
+        interpreter_enable.load(str(path))
+    assert all(interpreter_enable.active(language, path=str(path)) is None for language in LANGUAGES)
+    same_day = dict(doc["entries"][-1])
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [same_day]}), encoding="utf-8")
+    assert interpreter_enable.load(str(path)) and interpreter_enable.active("en", path=str(path)) is not None, "the same day is in order"
+
+
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-30" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-10-31" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 

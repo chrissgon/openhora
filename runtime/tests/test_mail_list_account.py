@@ -560,7 +560,7 @@ def test_the_memory_is_for_the_next_line_only_and_for_ten_minutes_and_for_the_ve
     snaps.later(minutes=1)
     snaps.refresh("inbox")      # the source has a newer version than the one that was listed: the numbers moved
     next_line(world)
-    assert read_plan(world)[1] == {"number": 1}, "a new version of the listed source"
+    assert call(world, "read e-mail 1", {"number": 1}, name="mail-read")[0] == "The list I showed has changed since: ask for the list again, then tell me the number.", "a new version of the listed source: the list is asked for again (MAIL-SUMMARY-FLIP review), no plan names no box"
 
 
 def test_a_project_with_one_mail_source_keeps_no_memory_of_a_list(world, snaps, clock):

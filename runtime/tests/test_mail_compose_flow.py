@@ -253,8 +253,8 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
-    assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" not in every[-2] and "fallback" in every[-2] and "fallback" not in every[-3], "the newest entry pins the event card text (CARD-MODEL-SEES) and the one before it is the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
-    every = every[:-2]
+    assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" not in every[-2] and "fallback" in every[-1] and "fallback" in every[-2] and "fallback" in every[-3] and "fallback" not in every[-4], "the newest entry pins the event card text (CARD-MODEL-SEES), the one before it is the entry of MAIL-SUMMARY-FLIP and the one before that the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    every = every[:-3]
     entries = every[:-5]      # without the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2), which carry every pin of the one before them but the interpreter prompt of BL5B and BL7-3
     pins = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
     for carried in every[-5:-3]:

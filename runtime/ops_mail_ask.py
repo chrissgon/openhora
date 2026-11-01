@@ -18,8 +18,8 @@ The order of one question, each step before the next:
      is granted: a policy that already holds both groups needs no change, and any other project's policy is the person's to widen with `accept-config --widen`. The page follows the table; the terminal is
      never narrowed.
   2. "Shall I go ahead?" (the same `run`, plan_confirm.ALWAYS: a read with a cost, whose privacy is off-host, always asks, and `confirm-reads-off` does not remove it). No provider is called before it. The
-     sentence is code's: the person's own span and the cap of the run, no word of the message. The plan carries `pin` ({box: snapshot version}, read from the store): a yes reads a message of that
-     snapshot or nothing (MA_CHANGED), so the number the person was asked about is the message that is read.
+     sentence is code's: the person's own span and the cap of the run, no word of the message. The plan of a call that names the message by NUMBER carries `pin` ({box: snapshot version}, read from the store): a yes reads a message of that
+     snapshot or nothing (MA_CHANGED), so the number the person was asked about is the message that is read. Words and a pasted list line are matched when the yes is given, so no `pin`: the snapshot is read again if it is older than ten minutes, the ONE message that matches is read and the footer names it, several are listed and nothing runs.
   3. The reader: `ops_file_ask._skill()`, as for a file: the answer skill, with no side effect, that has passed its first full test on the reference model, else MA_NOT_BUILT or MA_NOT_PROVEN.
   4. The naming and the text: `ops_mail_read._run(..., whole=True)`, the snapshot's own cleaned body of that one message (the credential scan, the links replaced and the cut at 4,000 characters were done
      when the snapshot was made), the whole of it and not the phone's 1,500. This module scans it once more (limit L14) and hands nothing to the reader on a hit: MA_WITHHELD.
@@ -136,19 +136,23 @@ def pin(ctx: dict, args: dict, said, channel, sender) -> dict:
 
 def _question(said: str, args: dict, cfg: dict) -> str:
     """The question the reader gets. The person's whole line, except that a line pasted from a list takes its span out: a subject is a stranger's words, and the question sits right above "answer the
-    question above". Nothing is left of it, or the span cannot be found in the line as it is written: the summary's own question."""
+    question above". The mark of a list line is the middle dot itself (a no-break space around it, a second pasted line or a subject that holds a dot of its own are the same): a line that holds one gets
+    the summary's own question unless its span is a list line that can be found in it AND, once the span is taken out, no dot and some word are left."""
     summary = phrases.text("MA_SUMMARY_QUESTION", cfg)
     if args.get("summary"):
         return summary
     span, question = args.get("match"), said.strip()
-    if isinstance(span, str) and span.strip() and named._list_line(span) is not None:
-        pattern = r"\s+".join(re.escape(word) for word in span.split())
-        if re.search(pattern, question) is None:
-            return summary
-        question = " ".join(re.sub(pattern, " ", question).split())
-        if not any(c.isalnum() for c in question):
-            return summary
-    return question
+    if "\u00b7" not in question:
+        return question      # words are the person's own: the line stays whole
+    if not (isinstance(span, str) and span.strip() and named._list_line(span) is not None):
+        return summary      # a pasted list line the span is not (a model gave "Aurora Team" for it): the stranger's subject would stay right above the task text
+    pattern = r"\s+".join(re.escape(word) for word in span.split())
+    if re.search(pattern, question) is None:
+        return summary      # the span as written differs from the line
+    rest = " ".join(re.sub(pattern, " ", question).split())
+    if "\u00b7" in rest or not any(c.isalnum() for c in rest):
+        return summary      # another dot is left (a subject with a dot of its own, a second pasted line), or nothing but the list line was said
+    return rest
 
 
 def _copy_text(got: dict, when: str) -> str:
