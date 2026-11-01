@@ -16,6 +16,7 @@ the private chat is the question, or the line replies to it, and it is not forwa
   understood(ctx, name, args, said)               the sentence's `{what}` piece, by code
   live / take / drop (project, sender)            the sender's live plan; `take` pops it only for its id AND its sha256 (the bridge's `plan_ok`), within PLAN_TTL
   frame_parts(item)                               the typed frame's `plan-confirm` item and its `last` (the plan's own words, for a correction: "no, for tomorrow")
+  choice_of / args_chosen / choice_item / option_names / restate / again   the account question of a list of mail (`ask(choices=...)`): the option a closed line names, the call for an option, the frame's `choice` item and its names, the new plan for a model's reading, the question again
   stop_form(line), STOP_WORDS                     whether a whole line is a stop word of the closed lists (the research brake: ops_research.stop)
 
 What is asked (the maintainer's decisions of 2026-10-24):
@@ -41,6 +42,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import card_words  # noqa: E402
 import command_words  # noqa: E402
 import interpreter  # noqa: E402
 import natural  # noqa: E402
@@ -67,6 +69,7 @@ SENTENCES = {      # the phrase key of each operation's sentence; the ones that 
     "flow-check": "UNDERSTOOD_FLOW_CHECK", "connections": "UNDERSTOOD_CONNECTIONS", "items": "UNDERSTOOD_ITEMS", "file-read": "UNDERSTOOD_FILE_READ", "file-ask": "UNDERSTOOD_FILE_ASK", "research": "UNDERSTOOD_RESEARCH",
     "mail-read": "UNDERSTOOD_MAIL_READ_N", "mail-ask": "UNDERSTOOD_MAIL_ASK", "todo-list": "UNDERSTOOD_TODO_LIST", "ask": "UNDERSTOOD_ASK", "cancel": "UNDERSTOOD_CANCEL", "stop-task": "UNDERSTOOD_STOP_TASK", "retry": "UNDERSTOOD_RETRY", "routine-pause": "UNDERSTOOD_ROUTINE_PAUSE",
     "attachment-add": "UNDERSTOOD_ATTACHMENT_ADD", "attachment-discard": "UNDERSTOOD_ATTACHMENT_DISCARD", "reject": "UNDERSTOOD_REJECT", "release": "UNDERSTOOD_RELEASE"}
+ALL_VALUE = "*"      # the value of the last option of the account question (every account: no `source` in the call)
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")      # the English abbreviation the operations layer writes (phrases.localize_dates turns it into the language's)
 
 # The stop words of a research that is running: the closed lists, and `stop_form`, live in runtime/command_words.py (a pure reading of one line, which the messaging bridge may import: the layer map
@@ -107,10 +110,11 @@ def _key(project: str, sender) -> tuple:
     return (_ops_natural().project_key(project), "messaging", sender or "")
 
 
-def plan_sha256(project_key: str, sender, name: str, args: dict, when, routed, said: str) -> str:
-    """The hash a plan is bound to: the operation, its arguments, the sender, the project and the line (hashed, so the line is never in the document)."""
+def plan_sha256(project_key: str, sender, name: str, args: dict, when, routed, said: str, choices=None) -> str:
+    """The hash a plan is bound to: the operation, its arguments, the sender, the project and the line (hashed, so the line is never in the document). A plan that asks for an account also
+    binds the values of its options, in order; a plain plan's hash does not carry the key at all."""
     return hashlib.sha256(interpreter.canonical({"v": 1, "project": project_key, "sender": sender or "", "op": name, "args": args, "when": when, "routed": bool(routed),
-                                                 "said": hashlib.sha256(said.encode("utf-8")).hexdigest()})).hexdigest()
+                                                 "said": hashlib.sha256(said.encode("utf-8")).hexdigest(), **({"choices": [c["value"] for c in choices]} if choices else {})})).hexdigest()
 
 
 def _clip(value) -> str:
@@ -182,9 +186,12 @@ def understood(ctx: dict, name: str, args: dict, said: str) -> str:
 NUMBER_OF = {"pending": ("pending_id", "UNDERSTOOD_PENDING_ONE"), "routines": ("routine_id", "UNDERSTOOD_ROUTINE_ONE")}      # the reads that take an optional number
 
 
-def ask(project: str, ctx: dict, name: str, args: dict, said: str, sender, extras: dict, *, when=None, routed: bool = False, words=None, state_question: bool = False) -> str:
+def ask(project: str, ctx: dict, name: str, args: dict, said: str, sender, extras: dict, *, when=None, routed: bool = False, words=None, state_question: bool = False, choices=None, named=None) -> str:
     """Keep the plan of this call for this sender (replacing their live plan) and return the question: "I understood: <what>. Shall I go ahead?". `extras["plan_confirm"]` is
-    {item, sha256, op} for the bridge's question; `extras["stored"]` is what the conversation keeps instead of the question (a neutral word)."""
+    {item, sha256, op} for the bridge's question; `extras["stored"]` is what the conversation keeps instead of the question (a neutral word). With `choices` (the account question of a list
+    of mail, from `ops_items.account_choices`: [{value, label, words}], the last one `ALL_VALUE`) the question is "I understood: <what>. Which account? <names> or all." in place of "Shall
+    I go ahead?", the options are part of the plan's hash, `extras["plan_confirm"]` also carries their labels, and the person's choice is the OK of the plan (`take`). `named` is the piece
+    ("from Outlook") that says which account a call that names one is about."""
     cfg = ctx["cfg"]
     key = _key(project, sender)
     kept = dict(args)
@@ -194,12 +201,17 @@ def ask(project: str, ctx: dict, name: str, args: dict, said: str, sender, extra
     carried = [value for value in spans.values() if natural.normal(value) not in natural.normal(said)]
     bound = said + "".join(" " + value for value in carried)
     state = {"op": name, "args": kept, "when": when, "routed": bool(routed), "said": bound, "words": spans, "state_question": bool(state_question), "sha256": None}
-    state["sha256"] = plan_sha256(key[0], sender, name, kept, when, routed, bound)
+    head = phrases.text("PLAN_HEAD", cfg, what=understood(ctx, name, args, said) + (" " + named if named else ""))
+    if choices:
+        state["choices"] = list(choices)
+        state["language"] = cfg.get("language")      # the leads a line may carry before a name depend on it (`choice_of`)
+        state["question"] = head + " " + phrases.text("PLAN_ASK_ACCOUNT", cfg, names=", ".join(c["label"] for c in choices[:-1]), all=choices[-1]["label"].lower())
+    state["sha256"] = plan_sha256(key[0], sender, name, kept, when, routed, bound, choices)
     item = pending_items.new_item("plan-confirm", *key, state=state)
     pending_items.put(item)
-    extras["plan_confirm"] = {"item": item["id"], "sha256": state["sha256"], "op": name}
+    extras["plan_confirm"] = {"item": item["id"], "sha256": state["sha256"], "op": name, **({"choices": [c["label"] for c in choices]} if choices else {})}
     extras["stored"] = phrases.text("PLAN_STORED", cfg)
-    return phrases.text("PLAN_HEAD", cfg, what=understood(ctx, name, args, said)) + " " + phrases.text("PLAN_ASK", cfg)
+    return state["question"] if choices else head + " " + phrases.text("PLAN_ASK", cfg)
 
 
 def _age(item: dict) -> float:
@@ -213,13 +225,17 @@ def live(project: str, sender):
 
 
 def take(project: str, sender, plan_ok):
-    """Pop the sender's live plan when `plan_ok` ({"item", "sha256"}) names its id AND the hash the plan's own state gives now; else None and nothing is popped. A plan whose state
-    changed since the question was drawn no longer has the hash the question carries."""
+    """Pop the sender's live plan when `plan_ok` ({"item", "sha256"}, and "choice" for a question that asks for an account) names its id AND the hash the plan's own state gives now; else None
+    and nothing is popped. A plan whose state changed since the question was drawn no longer has the hash the question carries. The "choice" is the index of one of the plan's options: a question
+    with options takes none other, and a plan without options takes no choice at all."""
     item = live(project, sender)
     if item is None or not isinstance(plan_ok, dict) or plan_ok.get("item") != item["id"]:
         return None
     s = item["state"]
-    want = plan_sha256(_key(project, sender)[0], sender, s["op"], s["args"], s["when"], s["routed"], s["said"])
+    choices, picked = s.get("choices"), plan_ok.get("choice")
+    if (choices and (type(picked) is not int or not 0 <= picked < len(choices))) or (not choices and picked is not None):
+        return None      # a question that asks for an account is answered by one of its options, and any other plan by none: nothing is popped
+    want = plan_sha256(_key(project, sender)[0], sender, s["op"], s["args"], s["when"], s["routed"], s["said"], choices)
     given = plan_ok.get("sha256")
     if not isinstance(given, str) or not hmac.compare_digest(given, want) or not hmac.compare_digest(s["sha256"], want):
         return None
@@ -229,6 +245,65 @@ def take(project: str, sender, plan_ok):
 def drop(project: str, sender) -> bool:
     """Forget the sender's plan (a no, or any other line); True when one was there."""
     return bool(pending_items.drop_key(_key(project, sender), "plan-confirm"))
+
+
+def choice_of(item: dict, said: str):
+    """The index (from 0) of the option of an account question that a whole line names by a closed word, else None (also for a plan with no options). Pure over the plan: a number, the name or a
+    service word of one option, with at most one small lead word before it ("o outlook"), the forms of runtime/list_pick.py ("o segundo", "a ultima", "o do outlook"), or a word that names every
+    account (`command_words.ALL_ACCOUNTS`), which is the last option. A line in question form ("gmail?", "todas?") is no answer: it asks, and goes to the model as any free line. A yes word names no option."""
+    choices = (item.get("state") or {}).get("choices")
+    if not choices or not isinstance(said, str) or card_words.question_form(said):
+        return None
+    word = natural.normal(said)
+    if word in command_words.ALL_ACCOUNTS:      # first: "os dois" would lose its "os" below and name nothing
+        return len(choices) - 1
+    parts = word.split()
+    only = command_words.ACCOUNT_LEADS_BY_LANGUAGE.get(item["state"].get("language"), frozenset())      # a lead of this project's language alone ("no" in Portuguese)
+    if len(parts) == 2 and parts[0] in command_words.ACCOUNT_LEADS | only:
+        if parts[1] in command_words.ALL_ACCOUNTS:      # "de todas"; but "no todas" names nothing
+            return None if parts[0] in only else len(choices) - 1
+        word = parts[1]
+    options = [{"value": n, "label": c["label"], "words": c.get("words") or []} for n, c in enumerate(choices, 1)]      # numbered from 1: the value 0 would be a key the line "0" names
+    found = _ops_natural()._writes()._option({"options": options, "multi": False, "need": "account"}, word)
+    return None if found is None else found - 1
+
+
+def args_chosen(state: dict, index: int) -> dict:
+    """The arguments of a plan's call for the option at `index`: the plan's own with that source, or the plan's own unchanged for the last option (every account)."""
+    value = state["choices"][index]["value"]
+    return dict(state["args"]) if value == ALL_VALUE else {**state["args"], "source": value}
+
+
+def choice_item(item: dict):
+    """The typed frame's `choice` item of a plan that asks for an account, without its id (the options are numbered 1 to their count; their names come with the frame's configuration, `option_names`);
+    None for any other plan."""
+    choices = item["state"].get("choices")
+    if not choices:
+        return None
+    return {"kind": "choice", "need": "option", "op": item["state"]["op"], "options": len(choices), "age_s": int(max(0, _age(item))), "values": [{"n": n} for n in range(1, len(choices) + 1)]}
+
+
+def option_names(item) -> dict:
+    """{"1": name, ...}: the plain names of the options of a plan that asks for an account, as the typed frame is built with them; {} for any other plan or none."""
+    return {str(n): c["label"] for n, c in enumerate(((item or {}).get("state") or {}).get("choices") or [], 1)}
+
+
+def restate(project: str, ctx: dict, item: dict, option: int, sender, extras: dict) -> str:
+    """The question of a NEW plan for a free answer a model read as option number `option` (from 1; the interpreter checked it against the frame): the sender's plan with that account named
+    ("I understood: list your e-mails from Outlook. Shall I go ahead?"), kept in place of the one that asked. A model's reading runs nothing: the person's own yes does (`take`)."""
+    state, cfg = item["state"], ctx["cfg"]
+    chosen = state["choices"][option - 1]
+    named = phrases.text("UNDERSTOOD_ALL_ACCOUNTS", cfg) if chosen["value"] == ALL_VALUE else phrases.text("UNDERSTOOD_FROM_ACCOUNT", cfg, name=chosen["label"])
+    return ask(project, ctx, state["op"], args_chosen(state, option - 1), state["said"], sender, extras, when=state["when"], routed=state["routed"], words=state["words"], named=named)
+
+
+def again(item: dict, ctx: dict, extras: dict) -> str:
+    """The question of the plan that asks for an account, again, for the bridge to send with its buttons: the plan stays as it is (same item, same hash) and nothing is read."""
+    state = item["state"]
+    extras["plan_keep"] = True
+    extras["plan_confirm"] = {"item": item["id"], "sha256": state["sha256"], "op": state["op"], "choices": [c["label"] for c in state["choices"]]}
+    extras["stored"] = phrases.text("PLAN_STORED", ctx["cfg"])
+    return state["question"]
 
 
 def frame_parts(item: dict) -> tuple:

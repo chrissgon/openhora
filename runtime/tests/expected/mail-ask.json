@@ -27,9 +27,6 @@
   ],
   "operations_table.NOT_OPERATIONS": [
    "contained"
-  ],
-  "interpreter_coverage.NOT_SERVED": [
-   "mail-ask"
   ]
  }
 }

@@ -431,7 +431,7 @@ def test_the_conversation_keeps_a_neutral_word_for_every_reply_of_the_read(world
 
 def test_the_read_is_not_a_write_a_line_reaches_it_only_since_the_flip_and_the_write_family_never_opens_it(world, snaps, clock, monkeypatch):
     boxes(world, snaps)
-    assert operations.LINE_CATALOG == 2 and "mail-read" in natural.NATURAL and natural.CLASSES["mail-read"] == "R"
+    assert operations.LINE_CATALOG == 3 and "mail-read" in natural.NATURAL and natural.CLASSES["mail-read"] == "R"
     with monkeypatch.context() as at_version_1:
         classes1, table1 = natural.views(1)
         at_version_1.setattr(natural, "CLASSES", classes1)

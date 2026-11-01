@@ -669,6 +669,8 @@ ROUTER_ANSWERS = ("um evento", "an event, 13:00, the Linden clinic", "sim, um ev
 OVERRIDES.update({collapse(line): json.dumps({"v": 1, "kind": "answer", "answers_item": "i1"}) for line in ROUTER_ANSWERS})
 OVERRIDES.update({collapse(RESEARCH_LINE): op_text("research", {"question": RESEARCH_LINE}), collapse(FILE_LIST_LINE): op_text("file-read", {"file": WANTED}),
                   collapse(EVENT_LIST_LINE): op_text("event-cancel")})
+OVERRIDES.update({collapse("troca o título para Dentista"): op_text("event-change", {"title": "Dentista"}),      # validate: allow english-only -- the lines under test (card-model-sees: the model sees the card, decision 2026-10-30; re-recorded with the maintainer's approval of 2026-11-01)
+                  collapse("adia para sexta"): op_text("event-change", {"time": "sexta"}, time_iso="2026-10-23T10:00", weekday="fri")})      # the replay clock is Sunday 2026-10-18, so the Friday is 23/10
 
 
 # --- the stand-in messenger, in this process ----------------------------------------------------------------------------------------------------------

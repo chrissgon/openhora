@@ -231,13 +231,16 @@ def frame_for(age_s, plan=None):
     if plan is not None:
         item, last = plan_confirm.frame_parts(plan)
         items.append(dict(item, id=plan_item_id(age_s)))
+        choice = plan_confirm.choice_item(plan)      # L65, the question of a list of mail: the options of a plan that asks for one are a `choice` item beside the plan's, so that a free answer ("nos dois") is read by the model and checked by code
+        if choice is not None:
+            items.append(dict(choice, id=f"i{len(items) + 1}"))
     if not items:
         return None
     for attempt in ((items, last), (items, dict(last, own_words={})) if last else None, (items[:1], None) if age_s is not None else None):      # the plan with its words, the plan with none, the router's item alone
         if attempt is None:
             continue
         try:
-            return interpreter.typed_frame(attempt[0], attempt[1], {})
+            return interpreter.typed_frame(attempt[0], attempt[1], plan_confirm.option_names(plan))
         except ValueError:
             continue
     return None
@@ -453,6 +456,7 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     plan = extras.get("plan_frame")      # D5: the sender's live "Shall I go ahead?" (runtime/ops_say.py), a typed item of the frame beside the router's question
     frame = frame_for(age_s, plan)
     plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
+    choice_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "choice"), None)      # L65, the question of a list of mail: the options of the plan
     if decision is None:
         outage = (entry or {}).get("fallback") or None      # S41-10: the entry's outage routes in force; the gate asks the sender's group (`interpret-fallback`) before any line goes to one
         admission = (turn_gate.admit(ctx, sender, fallback=outage) if outage else turn_gate.admit(ctx, sender)) if entry is not None else None
@@ -464,6 +468,10 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         extras["interpreted"] = False
         extras["frame"] = "new"
         return None
+    if kind == "answer" and choice_id is not None and decision.get("item") == choice_id:      # L65, the question of a list of mail: the model read the free answer as an option; code checks it against the options and states a NEW plan that names it, whose OK is the person's own yes: a model's answer never runs a plan
+        return _said(plan_confirm.restate(project, ctx, plan, decision["option"], sender, extras), extras)
+    if choice_id is not None and (kind == "clarify" or (kind == "answer" and decision.get("item") == plan_id and decision.get("confirm") != "no")):      # the model could not place the answer, or answered "yes" on the plan's item: the question again, nothing read
+        return _said(plan_confirm.again(plan, ctx, extras), extras)
     if kind == "answer" and plan_id is not None and decision.get("item") == plan_id:
         if decision.get("confirm") == "no":      # D5: a model's no drops the plan; a model's yes never runs it (only code's reading of the person's yes does: runtime/ops_say.py `_confirmed`)
             plan_confirm.drop(project, sender)

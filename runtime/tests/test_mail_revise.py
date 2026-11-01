@@ -22,6 +22,7 @@ mail_revise = st.load("mail_revise")
 interpreter_enable = st.load("interpreter_enable")
 mail_compose = st.load("mail_compose")
 ops_card_revise = st.load("ops_card_revise")
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 TO = ["joana.silva@clinica.example"]
 SUBJECT = "Reunião amanhã"      # validate: allow english-only -- a Portuguese card under test
@@ -41,11 +42,11 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" in every[-3] and "fallback" not in every[-4], "the newest two entries are those of mail-card-recipient and the one before them the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
-    second, first, luna = every[-1], every[-2], every[-3]
-    assert second["date"] == "2026-10-30" and second["revise_prompt_sha256"] == mail_revise.prompt_sha256() == PINNED_HASHES["revise_prompt_recipient_v2"] != first["revise_prompt_sha256"], "the newest entry pins the reworded recipient prompt (the first text failed its paid proof)"
-    assert first["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"], "the first recipient text stays as it was decided"
-    every = every[:-3]
+    assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" in every[-2] and "event_card_prompt_sha256" not in every[-3] and all("fallback" in every[-n] for n in (1, 2, 3, 4)) and "fallback" not in every[-5], "the newest two entries pin the event card text (the newest is that of mail-card-recipient, the one before it that of CARD-MODEL-SEES), the one before them is the entry of MAIL-SUMMARY-FLIP and the one before that the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    third, card_entry, mail_ask, luna = every[-1], every[-2], every[-3], every[-4]
+    assert third["date"] == "2026-11-01" and third["revise_prompt_sha256"] == mail_revise.prompt_sha256() == PINNED_HASHES["revise_prompt_recipient_v3"] != card_entry["revise_prompt_sha256"], "the newest entry pins the recipient prompt with the sentence on a question (the first two texts failed their paid proofs)"
+    assert card_entry["revise_prompt_sha256"] == mail_ask["revise_prompt_sha256"] == luna["revise_prompt_sha256"], "the entries before the recipient prompt carry the 2026-10-22 pin"
+    every = every[:-4]
     current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == luna["revise_prompt_sha256"], "the 2026-10-22 pin is the one the entry before the recipient prompt still carries"
@@ -55,7 +56,7 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     assert pinned == [first_revise, every[-2], newest] and every[-2]["revise_prompt_sha256"] == first_revise["revise_prompt_sha256"], "the entry of R2-F1 between them keeps the older pin"
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
     assert [e["catalog_sha256"] for e in every[-1:]] == [every[-2]["catalog_sha256"]], "S13b names the catalog of R2-F1; the current hash of the checkout is the one of the entry of R2-A, below"
-    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [current["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
+    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [current["catalog_sha256"]] == [PINNED_HASHES["interpreter_catalog_cb9"]] and [json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"][-1]["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
     assert interpreter_enable.revise_active("pt-BR") is not None and interpreter_enable.compose_active("pt-BR") is not None
 
 
@@ -65,9 +66,18 @@ def test_a_prompt_that_is_not_the_pinned_one_turns_the_change_off_and_the_vacuit
     assert interpreter_enable.revise_active("en") is None and interpreter_enable.active("en") is not None
 
 
+PLACEHOLDER = "name@host.example"      # the one address the prompt shows: the placeholder of the examples of rule 3 (the third text, 2026-11-01), never a real address
+
+
+def shows_an_address_or_a_link(text):
+    return "@" in text.replace(PLACEHOLDER, "") or "http" in text
+
+
 def test_the_prompt_shows_no_address_and_no_link():
     text = (st.RUNTIME / "mail_revise_prompt.txt").read_text(encoding="utf-8")
-    assert "@" not in text and "http" not in text
+    assert text.count(PLACEHOLDER) == 3, "the three examples of the sentence on a question about the recipient"
+    assert shows_an_address_or_a_link(text) is False
+    assert shows_an_address_or_a_link(text + " a@b.example") is True and shows_an_address_or_a_link(text + " https://x.example") is True, "vacuity: a real address or a link in the prompt is seen"
 
 
 def test_rule_3_of_the_reworded_prompt_says_the_three_things_the_first_paid_proof_found_missing():

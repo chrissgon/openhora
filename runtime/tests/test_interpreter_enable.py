@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from test_ops_natural import KEY, OWNER, PROFILES, SENDERS, world  # noqa: F401 
 PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 interpreter_enable = st.load("interpreter_enable")
+event_card = st.load("event_card")
 interpreter_route = st.load("interpreter_route")
 interpreter_evidence = st.load("interpreter_evidence")
 operations = st.load("operations")
@@ -34,7 +36,7 @@ REPO = Path(__file__).resolve().parents[2]
 FILE = REPO / "runtime" / "interpreter_enable.json"
 ROUTE = "or-deepseek-v4.1-flash"
 HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
-          "catalog_sha256": PINNED_HASHES["interpreter_catalog_cb9"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}      # CB-9: the catalog of version 2
+          "catalog_sha256": PINNED_HASHES["interpreter_catalog_mail_ask"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}      # MAIL-SUMMARY-FLIP: the catalog of version 3
 RECORDED = dict(HASHES, prompt_sha256=PINNED_HASHES["interpreter_prompt_5bee"], catalog_sha256=PINNED_HASHES["interpreter_catalog_blite"])      # the prompt and the catalog every entry before BL5B was decided on (rule 9 of BL5B changed the prompt)
 FIRST = dict(RECORDED, catalog_sha256=PINNED_HASHES["interpreter_catalog_before_s8"])      # the entry decided before slice S8 added `file-read` to the catalog
 LANGUAGES = ["pt-BR", "en", "es", "fr", "de", "it"]
@@ -54,10 +56,14 @@ CB9_STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; t
 assert len(CB9_STATUS_LINE) <= 600
 LUNA_STATUS_LINE = CB9_STATUS_LINE + "; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision"      # the entry of package LUNA-ENABLE: the entry of CB-9 and the outage path
 assert len(LUNA_STATUS_LINE) <= 600
-RECIPIENT_STATUS_LINE = LUNA_STATUS_LINE + "; the revise prompt re-pinned 2026-10-30 (a recipient typed in the line)"      # the first entry of package mail-card-recipient: the entry of LUNA-ENABLE and the second answer form of the revise prompt
-assert len(RECIPIENT_STATUS_LINE) <= 600
-STATUS_LINE = LUNA_STATUS_LINE + "; revise prompt re-pinned 2026-10-30 (recipient in the line, 2nd text)"      # the newest entry: the first paid proof of the text above failed and rule 3 was reworded
+MAIL_ASK_STATUS_LINE = (CB9_STATUS_LINE.split("; the catalog moved to version 2")[0] + "; the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; "
+               "the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision")      # the entry of package MAIL-SUMMARY-FLIP: the catalog of version 3, the outage path as the entry before it
+assert len(MAIL_ASK_STATUS_LINE) <= 600
+EVENT_CARD_STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the model (2026-11-01)"      # the entry of package CARD-MODEL-SEES: the entry of MAIL-SUMMARY-FLIP and the event card text
+assert len(EVENT_CARD_STATUS_LINE) <= 600
+STATUS_LINE = EVENT_CARD_STATUS_LINE + "; revise prompt re-pinned 2026-11-01 (a question about the recipient)"      # the newest entry (package mail-card-recipient, third text): the entry of CARD-MODEL-SEES and the re-pinned revise prompt
 assert len(STATUS_LINE) <= 600
+EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
 
 
@@ -94,7 +100,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-30" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-11-01" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -121,27 +127,50 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     bl73 = by_line[BL73_STATUS_LINE]
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
     assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
-    assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the newest names the catalog of version 2"
-    cb9, luna, first_recipient = doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
+    cb9, luna, mail_ask, card_entry = doc["entries"][-5], doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
+    assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != cb9["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the entry of CB-9 names the catalog of version 2"
+    assert mail_ask["catalog_sha256"] == card_entry["catalog_sha256"] == entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_mail_ask"] != luna["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry of the flip and the two after it name the catalog of version 3, served with the row mail-ask; the entry before them still names version 2"
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-5] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-6] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
-    # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the text fields
-    assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28" and {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
+    # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
+    assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28"
+    assert {key for key in luna if luna.get(key) != cb9.get(key)} == {"reason", "status_line", "fallback"}, "the entry of LUNA-ENABLE changes the reason and the status line and adds `fallback`; every pin stands as decided"
     assert luna["fallback"] == [{"route": "or-gpt-6-luna", "route_sha256": LUNA_ROUTE_SHA256, "measured": luna["fallback"][0]["measured"]}] and len(luna["reason"]) <= interpreter_enable.TEXT_MAX
     assert "20261028T201315Z-daa387c8" in luna["fallback"][0]["measured"] and "20261028T214447Z-751dcc45" in luna["fallback"][0]["measured"] and "2026-10-28-luna-enable-fallback" in luna["fallback"][0]["measured"]
-    # mail-card-recipient, first text: its entry copies every pin of the entry of LUNA-ENABLE, the outage path included, and re-pins the revise prompt; the interpreter's own hashes, the compose prompt and the fallback stand
-    assert first_recipient["status_line"] == RECIPIENT_STATUS_LINE and first_recipient["date"] == "2026-10-30"
-    assert {key for key in first_recipient if first_recipient.get(key) != luna.get(key)} == {"date", "reason", "status_line", "revise_prompt_sha256"}, "the entry changes the date, the reason, the status line and the revise prompt's pin, and nothing else"
-    assert {key: first_recipient[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and first_recipient["fallback"] == luna["fallback"]
-    assert first_recipient["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient"] != luna["revise_prompt_sha256"] and len(first_recipient["reason"]) <= interpreter_enable.TEXT_MAX
-    assert "Tudo que for um pedido do humano vamos sempre preferir o modelo responder" in first_recipient["reason"] and "interpreter's own hashes" in first_recipient["reason"]
-    # mail-card-recipient, second text: the first paid proof of the first text failed (principle 10: its figures are in the entry and the decision file), rule 3 was reworded, and the newest entry re-pins the prompt again and nothing else
-    assert entry["date"] == "2026-10-30" and {key for key in entry if entry.get(key) != first_recipient.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
-    assert {key: entry[key] for key in PINS if key != "revise_prompt_sha256"} == {key: luna[key] for key in PINS if key != "revise_prompt_sha256"} and entry["fallback"] == luna["fallback"] and entry["compose_prompt_sha256"] == luna["compose_prompt_sha256"]
-    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v2"] != first_recipient["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX
-    assert "failed" in entry["reason"] and "A 30/33, B 27/33, C 21/30, D 12/15" in entry["reason"] and PINNED_HASHES["revise_prompt_recipient"][:8] in entry["reason"], "the entry says that the first proof failed, with its figures and the prompt it measured"
+    # MAIL-SUMMARY-FLIP: its entry copies every pin and the outage path of the entry before it and changes the catalog hash, the date and the two texts, and nothing else
+    assert mail_ask["status_line"] == MAIL_ASK_STATUS_LINE and mail_ask["date"] == "2026-10-31"
+    assert {key for key in mail_ask if mail_ask.get(key) != luna.get(key)} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of the flip changes the catalog hash, the date and the texts; prompt, protocol, route, e-mail prompts and the outage path stand as decided"
+    assert mail_ask["fallback"] == luna["fallback"] and len(mail_ask["reason"]) <= interpreter_enable.TEXT_MAX and len(mail_ask["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "MAIL-SUMMARY-FLIP" in mail_ask["reason"] and "mail-ask" in mail_ask["reason"] and "version 3" in mail_ask["reason"]
+    assert "Measured on this PR's head before merge" in mail_ask["reason"] and "only after the maintainer's decision on that measurement" in mail_ask["reason"]
+    # CARD-MODEL-SEES: its entry copies every pin and the outage path of the entry of the flip and adds the pin of the event card text, and nothing else changes but the date text fields
+    assert {key for key in card_entry if card_entry.get(key) != mail_ask.get(key)} - {"date"} == {"reason", "status_line", "event_card_prompt_sha256"}, "its entry adds the event card pin; every other pin and the outage path stand as decided"
+    assert card_entry["date"] >= mail_ask["date"], "an entry is dated no earlier than the one above it: `load` raises otherwise"
+    assert card_entry["fallback"] == mail_ask["fallback"] and card_entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in mail_ask
+    assert "RESULT-CARD-MODEL-2026-11-01" in card_entry["reason"] and "<date>" not in card_entry["reason"] and "enabled below that rule by the maintainer's decision of 2026-11-01" in card_entry["reason"] and "wrong_card 2 items of 140 against at most 1" in card_entry["reason"] and len(card_entry["reason"]) <= interpreter_enable.TEXT_MAX and len(card_entry["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert card_entry["status_line"] == EVENT_CARD_STATUS_LINE and card_entry["date"] == "2026-11-01"
+    # mail-card-recipient, third text: the newest entry copies every pin, the event card pin and the outage path of the entry before it and re-pins the revise prompt, and nothing else changes but the texts
+    assert entry["status_line"] == STATUS_LINE and entry["date"] == "2026-11-01" and entry["date"] >= card_entry["date"]
+    assert {key for key in entry if entry.get(key) != card_entry.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
+    assert entry["fallback"] == card_entry["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and entry["compose_prompt_sha256"] == card_entry["compose_prompt_sha256"]
+    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v3"] != card_entry["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "Two paid proofs failed" in entry["reason"] and PINNED_HASHES["revise_prompt_recipient"][:8] in entry["reason"] and PINNED_HASHES["revise_prompt_recipient_v2"][:8] in entry["reason"] and "blind D 49 of 54" in entry["reason"], "the entry says that both earlier proofs failed, with the prompts it measured and the figure of the second"
+    assert "a question about who receives the e-mail asks for no change" in entry["reason"] and "RESULT-MAIL-CARD-RECIPIENT-" in entry["reason"] and "Measured on this PR's head before merge" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
+
+
+@pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
+def test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges():
+    """The reason of the newest entry says "RESULT-MAIL-CARD-RECIPIENT-<date>" (the event card entry before it says "RESULT-CARD-MODEL-<date>", filled) while the measurement is pending. This test is red until the date of the run is written there: the marker cannot merge unfilled."""
+    reason = committed()["entries"][-1]["reason"]
+    assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-MAIL-CARD-RECIPIENT-YYYY-MM-DD)"
+
+
+def test_the_marker_gate_reads_the_reason_and_the_dates_of_the_entries_are_in_order(tmp_path):
+    entries = committed()["entries"]
+    assert [e["date"] for e in entries] == sorted(e["date"] for e in entries), "`load` raises on an entry dated before the one above it, and the interpreter goes off for everyone"
+    assert "<date>" in variant(tmp_path, "pending.json", reason="Measured on this PR's head before merge (RESULT-MAIL-CARD-RECIPIENT-<date>).").read_text(encoding="utf-8"), "control: the marker form the gate refuses"
 
 
 def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force_for_each_listed_language():
@@ -149,9 +178,20 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-30", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-11-01", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
+
+
+def test_the_event_card_is_on_only_while_the_newest_entry_pins_this_checkouts_text_and_a_changed_text_turns_only_it_off(tmp_path):
+    assert interpreter_enable.card_active("en")["entry"]["event_card_prompt_sha256"] == EVENT_CARD_PIN == event_card.prompt_sha256()
+    for name, change in (("wrong", {"event_card_prompt_sha256": "0" * 64}), ("missing", {"event_card_prompt_sha256": None})):
+        path = str(variant(tmp_path, name + ".json", **change))
+        assert interpreter_enable.card_active("en", path=path) is None, name
+        assert interpreter_enable.active("en", path=path) is not None and interpreter_enable.revise_active("en", path=path) is not None and interpreter_enable.compose_active("en", path=path) is not None, \
+            name + ": the interpreter and the e-mail paths stay on"
+    assert interpreter_enable.card_active("en", path=str(variant(tmp_path, "same.json"))) is not None, "control: the unchanged copy is on, so the two cases above are off because of the pin"
+    assert interpreter_enable.card_active("ja") is None, "a language the entry does not list is off"
 
 
 @pytest.mark.parametrize("name, change", [
@@ -159,7 +199,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     ("language", {"languages": ["ja"]}), ("unknown-route", {"route": "no-such-route"}), ("account-route", {"route": "acct-claude-sonnet-5.5"}),
     ("extra-key", {"extra": "key"}), ("missing-key", {"reason": None}), ("date-shape", {"date": "21/10/2026"}), ("date-not-a-day", {"date": "2026-02-30"}),
     ("basis", {"basis": "evidence"}), ("hash-shape", {"prompt_sha256": "5BEE55CE" + HASHES["prompt_sha256"][8:]}), ("languages-twice", {"languages": ["en", "en"]}),
-    ("compose-hash-shape", {"compose_prompt_sha256": "NOT-A-HASH"}),
+    ("compose-hash-shape", {"compose_prompt_sha256": "NOT-A-HASH"}), ("event-card-hash-shape", {"event_card_prompt_sha256": "NOT-A-HASH"}),
 ])
 def test_a_changed_entry_is_off_for_the_runtime_and_for_the_status_alike(tmp_path, name, change):
     path = variant(tmp_path, name + ".json", **change)
@@ -197,10 +237,27 @@ def test_entries_are_read_newest_last_and_an_older_entry_cannot_keep_a_changed_c
         interpreter_enable.load(str(path))      # dates out of order
 
 
+def test_the_committed_entries_are_in_date_order_and_an_entry_appended_with_an_earlier_date_turns_the_interpreter_off(tmp_path):
+    """Review of MAIL-SUMMARY-FLIP: packages that append an entry each (#674 and #680 are dated 2026-10-30, the flip 2026-10-31) must date it at least as late as the newest entry when they are rebased onto
+    the others: `load` raises on a file whose dates are not sorted, and `active` then answers None for every language, so the interpreter is off for everyone."""
+    doc = committed()
+    dates = [e["date"] for e in doc["entries"]]
+    assert dates == sorted(dates) and interpreter_enable.load()["entries"] == doc["entries"]
+    late = dict(doc["entries"][-1], date="2026-10-30")      # the day before the newest entry
+    path = tmp_path / "late.json"
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [late]}), encoding="utf-8")
+    with pytest.raises(interpreter_enable.EnableError):
+        interpreter_enable.load(str(path))
+    assert all(interpreter_enable.active(language, path=str(path)) is None for language in LANGUAGES)
+    same_day = dict(doc["entries"][-1])
+    path.write_text(json.dumps({"v": 1, "entries": doc["entries"] + [same_day]}), encoding="utf-8")
+    assert interpreter_enable.load(str(path)) and interpreter_enable.active("en", path=str(path)) is not None, "the same day is in order"
+
+
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-30" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-11-01" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 

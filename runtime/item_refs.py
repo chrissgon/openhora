@@ -52,6 +52,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import operations  # noqa: E402
@@ -290,6 +292,96 @@ def resolve(ctx: dict, value, *, channel, sender=None, kinds=None, evidence_base
                                        f"{snapshot['read_at']}), so {ref['source']}#{ref['n']} does not exist")
     shown = {key: snapshot[key] for key in ("source", "type", "implementation", "calendar", "box", "version", "read_at", "age") if key in snapshot}
     return {"kind": "item", **shown, "n": ref["n"], "count": count, "entry": snapshot["entries"][ref["n"] - 1]}
+
+
+# --- the list on screen (N1 of mail-list-account) --------------------------------------------------------------------------------------------------
+# After a reply that listed exactly one mail source with rows, in a project with two or more mail sources, the sender's NEXT line, within LISTED_S seconds, that writes a number and names no account
+# means that source: the same window and "next line" rule as the events a list showed (runtime/event_lookup.py). No text and no number is kept: the project, the sender, the source id, its version, a
+# clock reading and a counter. In memory only; a restart forgets it and the which-box question comes back.
+
+LISTED_S = 600          # seconds after the list in which the next line's number means that list
+LISTED_CLOCK = time.monotonic          # the clock the window is read against; a test replaces it
+_LISTED = {}          # (project path, sender) -> {"at", "source", "version", "seen"}
+_LISTED_LOCK = threading.Lock()
+
+
+def _listed_key(ctx: dict, sender) -> tuple:
+    return (os.path.realpath(ctx["cfg"]["project"]), sender or "")
+
+
+def _latest(ctx: dict, source_id: str):
+    """The store's record of the newest version of a source, or None (a store that cannot be read remembers and finds nothing: the which-box question is the safe answer)."""
+    try:
+        return sources._stored(ctx, "source_latest", source_id)
+    except sources.SourcesError:
+        return None
+
+
+def _numbering(ctx: dict, source_id: str, sender, clock=None):
+    """The ids of the messages of the newest snapshot of a mail source, in their numbers, or None when they cannot be read or one message has no id: what tells a snapshot that renumbered the messages from
+    one that only changed a flag (a read mark changes the snapshot's version, not the numbers; the review of MAIL-SUMMARY-FLIP)."""
+    try:
+        snapshot = read_index(ctx, source_id, channel="messaging", sender=sender, kinds=("mail",), clock=clock)
+    except (ItemRefError, sources.SourcesError):
+        return None
+    ids = tuple(entry.get("id") for entry in snapshot["entries"])
+    return None if any(i is None for i in ids) else ids
+
+
+def remember_listed(ctx: dict, sender, source_id, mail_count: int, clock=None) -> None:
+    """Called after a list of items was read for a messaging sender: forget what the sender's earlier list was and, when the reply listed exactly one mail source (`source_id`) in a project with
+    two or more (`mail_count`), keep that source, the version of its newest snapshot and the ids of its messages in their numbers (`clock` is the seam of the snapshot's age)."""
+    latest = _latest(ctx, source_id) if source_id and mail_count > 1 else None
+    ids = _numbering(ctx, source_id, sender, clock) if latest is not None else None
+    with _LISTED_LOCK:
+        _LISTED.pop(_listed_key(ctx, sender), None)
+        if latest is not None:
+            _LISTED[_listed_key(ctx, sender)] = {"at": LISTED_CLOCK(), "source": source_id, "version": latest["version"], "ids": ids, "seen": 0}
+
+
+def begin_turn(ctx: dict, channel, sender) -> None:
+    """Called by `ops_say.say` at the start of every line of a messaging sender: the list is for the line right after it, so a line counts."""
+    if channel != "messaging":
+        return
+    with _LISTED_LOCK:
+        found = _LISTED.get(_listed_key(ctx, sender))
+        if found is not None:
+            found["seen"] += 1
+
+
+def _same_numbering(ctx: dict, sender, found: dict, latest, clock=None) -> bool:
+    """Whether the newest snapshot (`latest`, the store's record) numbers the messages as the list on screen did: the same version, or a newer one with the same ids in the same order (a flag
+    changed). A list whose ids were not kept, or a snapshot that cannot be read, is a list that moved: the safe answer."""
+    if latest["version"] == found["version"]:
+        return True
+    return found.get("ids") is not None and _numbering(ctx, found["source"], sender, clock) == found["ids"]
+
+
+def listed_source(ctx: dict, channel, sender, clock=None):
+    """The source id the sender's list on screen is, for the line being read now, or None: it is the first line since the list (`begin_turn` counted it), the list is not older than LISTED_S, and
+    the source's newest snapshot still numbers the messages as the list did (`_same_numbering`)."""
+    if channel != "messaging":
+        return None
+    with _LISTED_LOCK:
+        found = dict(_LISTED.get(_listed_key(ctx, sender)) or {})
+    if not found or found["seen"] != 1 or LISTED_CLOCK() - found["at"] > LISTED_S:
+        return None
+    latest = _latest(ctx, found["source"])
+    return found["source"] if latest is not None and _same_numbering(ctx, sender, found, latest, clock) else None
+
+
+def list_moved(ctx: dict, channel, sender, clock=None):
+    """The source id of the sender's list on screen when that list was remembered, is not older than LISTED_S, and its source now numbers the messages differently (`listed_source` is None then, as it
+    is when nothing was remembered: this tells the two apart), else None. It holds for EVERY line since the list inside the window, not only the first, until a new list replaces it
+    (MAIL-SUMMARY-FLIP review: retyping the number must not get the plan that names no box). A project with one mail box remembers no list, so it is never "moved"."""
+    if channel != "messaging":
+        return None
+    with _LISTED_LOCK:
+        found = dict(_LISTED.get(_listed_key(ctx, sender)) or {})
+    if not found or found["seen"] < 1 or LISTED_CLOCK() - found["at"] > LISTED_S:
+        return None
+    latest = _latest(ctx, found["source"])
+    return found["source"] if latest is not None and not _same_numbering(ctx, sender, found, latest, clock) else None
 
 
 def main(argv=None) -> int:

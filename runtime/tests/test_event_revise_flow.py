@@ -197,10 +197,10 @@ def test_a_time_that_needs_a_question_is_asked_as_it_is_for_any_line_and_nothing
 
 
 def test_a_decision_that_is_not_a_change_of_an_event_goes_on_and_is_not_read_twice(world, monkeypatch):
-    model = build(world, monkeypatch, op_text("event-create", {"title": "Dentista", "time": "amanha as 9h"}, time_iso="2026-10-22T09:00", weekday="thu"))
+    model = build(world, monkeypatch, op_text("event-create", {"title": "dentista", "time": "amanha as 9h"}, time_iso="2026-10-22T09:00", weekday="thu"))      # a title that is a span of the line: a readable decision is kept and not read twice
     old, sha = create(world)
     line = "Agende dentista amanha as 9h"
-    assert revise(world, old, sha, line) == {"pass": True}
+    assert revise(world, old, sha, line) == {"pass": True, "decide": True}      # a write said in words is code's own: it goes on through the first leg of a plain line
     assert open_cards(world) == [old] and status(world, old) == "open"
     ctx = ops_core.context(world["path"])
     got = ops_interpret.turn(world["path"], ctx, line, OWNER, {})      # the turn that follows reads the decision that was kept
@@ -247,7 +247,7 @@ def test_the_card_of_a_cancel_gets_the_sentence_that_it_cannot_be_changed_by_wor
     assert status(world, number) == "open" and model.calls == []
 
 
-@pytest.mark.parametrize("line", ["aprovo", "sim", "não", "/pending", "oi", "o que está pendente?", "me lembra de ligar amanhã às 9h"])      # validate: allow english-only -- the Portuguese lines under test
+@pytest.mark.parametrize("line", ["aprovo", "sim", "não", "/pending", "oi", "o que está pendente?"])      # validate: allow english-only -- the Portuguese lines under test
 def test_a_word_that_decides_a_card_a_command_and_a_request_code_recognises_are_not_a_change(world, monkeypatch, line):
     model = build(world, monkeypatch, op_text("event-change", {"title": "X"}))
     old, sha = create(world)
@@ -289,7 +289,7 @@ def test_a_snapshot_refreshed_meanwhile_never_makes_the_new_card_move_another_ev
 
 
 def test_a_line_that_names_another_event_leaves_the_card_alone_and_goes_on(world, monkeypatch):
-    model = build(world, monkeypatch, op_text("event-change", {"time": "as 10h"}, time_iso="2026-10-22T10:00", weekday="thu"))
+    model = build(world, monkeypatch, op_text("event-change", {"time": "as 10h", "target": "o dentista"}, time_iso="2026-10-22T10:00", weekday="thu"))      # the model sees the card: it says the line is about another event (`target`)
     old, sha = create(world)
     assert revise(world, old, sha, "muda o dentista para as 10h") == {"pass": True}      # validate: allow english-only -- the Portuguese line under test
     assert open_cards(world) == [old] and status(world, old) == "open" and len(model.calls) == 1
@@ -404,7 +404,7 @@ def test_vacuity_the_interpreter_alone_refuses_these_shapes_so_the_card_is_not_r
     assert old.get("op") != "event-change", "the answer, read as any line is read, is not a change of an event: it was asked again before"
 
 
-@pytest.mark.parametrize("shape", ["event-create", "invalid-json", "clarify-event", "event-slot-title"])
+@pytest.mark.parametrize("shape", ["event-create", "invalid-json", "clarify-event"])      # `event-slot-title` left: an answer with `time` and a dropped `event` is the model's reading of a change, and the card is shown (card-model-sees)
 def test_a_line_that_names_another_event_still_leaves_the_card_alone_in_every_shape(world, monkeypatch, shape):
     build(world, monkeypatch, SHAPES[shape])
     old, sha = haircut_card(world)

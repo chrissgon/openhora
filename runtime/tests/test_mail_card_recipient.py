@@ -569,3 +569,64 @@ def test_the_other_answers_to_a_line_that_reached_the_model_only_by_an_address_d
 ])
 def test_only_an_address_table(line, expected):
     assert mail_revise.only_an_address(line) is expected
+
+
+# --- a question about the recipient that writes an address (prompt rule 3, third text) -----------------------------------------------------------------
+
+
+QUESTIONS = [
+    "is the recipient caio.lopes@empresa.example?",
+    "wasn't the right one ana.melo@empresa.example?",
+    "o destinatário é o caio.lopes@empresa.example?",      # validate: allow english-only -- the Portuguese line under test
+    "será que o destinatário certo não era ana.melo@empresa.example?",      # validate: allow english-only -- the Portuguese line under test
+]
+
+
+def old_card_stands(world, got, old, before):
+    """The oracle of this group: the person gets one sentence, the old card is the only card, open and byte for byte as it was, and no new card exists."""
+    return (isinstance(got, dict) and set(got) == {"say", "resend"} and got["resend"] == old and isinstance(got["say"], str)
+            and f.open_cards(world) == [old] and pending_ids(world) == [old] and json.dumps(document(world, old), sort_keys=True) == before)
+
+
+@pytest.mark.parametrize("line", QUESTIONS)
+def test_a_question_about_the_recipient_that_writes_an_address_ends_with_a_sentence_and_the_old_card_open_when_the_model_returns_the_text_unchanged(world, clock, monkeypatch, line):
+    """The third text of rule 3 asks the model to return the text as it is for a question about who receives the e-mail. Code's side, with a stand-in that answers so: the line reaches the model (it holds a
+    whole address outside quotes), the answer is the card back, and the person gets the recipients sentence (`RV_RECIPIENTS`, `typed_new_address`: the address is one the card does not hold)
+    with the old card open and no new card. Nothing is sent. The model's reading of the question is not proved here: the paid proof measures it."""
+    model, old, sha = f.live_card(world, monkeypatch, revise=text_answer(f.SUBJECT))
+    before = json.dumps(document(world, old), sort_keys=True)
+    assert f.check(world, old, sha, line) == "mail", "the line reaches the model"
+    got = f.revise(world, old, sha, line)
+    assert old_card_stands(world, got, old, before), got
+    assert f.reply_is(got, RV_RECIPIENTS, old), "the phrase key the person gets is RV_RECIPIENTS: " + got["say"]
+    assert len(model.of("revise")) == 1 and model.of("compose") == []
+    f.nothing_sent(world)
+
+
+def test_vacuity_the_oracle_of_the_question_group_fails_on_a_planted_wrong_result(world, clock, monkeypatch):
+    """The wrong result the third text prevents: the model answers a question as a change of the recipient. The same oracle then fails, so the test above can fail."""
+    line = QUESTIONS[0]
+    model, old, sha = f.live_card(world, monkeypatch, revise=R("caio.lopes@empresa.example"))
+    before = json.dumps(document(world, old), sort_keys=True)
+    got = f.revise(world, old, sha, line)
+    assert isinstance(got["resend"], int) and got["resend"] != old and f.says(got["say"], "RV_DONE_RECIPIENT"), "the planted answer does open a new card"
+    assert old_card_stands(world, got, old, before) is False
+    f.nothing_sent(world)
+
+
+def test_a_question_about_the_address_the_card_already_holds_ends_with_a_sentence_and_the_old_card_open(world, clock, monkeypatch):
+    """The address the question writes is the card's own recipient: `typed_new_address` finds nothing new and the unchanged text is the plain failure sentence (`RV_FAILED`), the old card open."""
+    model, old, sha = f.live_card(world, monkeypatch, revise=text_answer(f.SUBJECT))
+    before = json.dumps(document(world, old), sort_keys=True)
+    got = f.revise(world, old, sha, f"is the recipient {OLD}?")
+    assert old_card_stands(world, got, old, before) and f.reply_is(got, "RV_FAILED", old), got
+    f.nothing_sent(world)
+
+
+def test_a_polite_request_with_a_question_mark_still_opens_a_new_card_when_the_model_reads_it_as_a_request(world, clock, monkeypatch):
+    """No rule of code reads a question mark: the model's answer decides, and the same line with a recipient answer is a change of the recipient."""
+    line = f"can you change the recipient to {NEW}?"
+    model, old, sha = f.live_card(world, monkeypatch, revise=R(NEW))
+    got = f.revise(world, old, sha, line)
+    assert isinstance(got["resend"], int) and got["resend"] != old and f.says(got["say"], "RV_DONE_RECIPIENT") and document(world, got["resend"])["to"] == [NEW]
+    f.nothing_sent(world)

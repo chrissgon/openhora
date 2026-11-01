@@ -93,12 +93,13 @@ def test_in_english_and_with_a_one_day_window(world, snaps, clock):
 def test_gmail_with_messages_and_an_empty_outlook_with_no_account_named(world, snaps, clock):
     register(world, snaps, gmail=[bia()], outlook=[])
     both = ask(world, "lista os emails")
-    source, item, empty = both.splitlines()
-    pk.assert_said(source, "NW_ITEMS_HEAD_PHONE", PT, name="Gmail", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    source, item, blank, empty = both.splitlines()      # mail-list-account: two mail sources in one reply, a blank line before the second and each name in bold
+    assert blank == ""
+    pk.assert_said(source, "NW_ITEMS_HEAD_PHONE", PT, name="**Gmail**", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
     assert item == "1. Bia Costa · Appointment confirmed · hoje 06:00"      # literal: the table's word for today sits inside an item line the kit does not match; validate: allow english-only -- the Portuguese word under test
     assert_empty_mail(empty)
     last = ask(world, "o ultimo email").splitlines()
-    pk.assert_said(last[0], "NW_ITEMS_HEAD_PHONE", PT, name="Gmail", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
+    pk.assert_said(last[0], "NW_ITEMS_HEAD_PHONE", PT, name="**Gmail**", when="às 07:12")      # validate: allow english-only -- the Portuguese words under test
     assert last[1] == "1. Bia Costa · Appointment confirmed · hoje 06:00"      # literal: the table's word for today sits inside an item line the kit does not match; validate: allow english-only -- the Portuguese word under test
     assert_empty_mail(last[-1])
 

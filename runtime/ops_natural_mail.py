@@ -371,6 +371,10 @@ def _messages(ctx: dict, slots: dict, channel, sender):
         if slots.get("_listed") is not None:      # BL5E: the list the person chose from must still be the newest snapshot
             _same_list(ctx, slots["_listed"], channel, sender)
         return _named_account(slots) or known[refs[0].partition("#")[0]], refs, None
+    if slots.get("numbers") and not slots.get("source") and not slots.get("refs") and not _named_account(slots):
+        listed = item_refs.listed_source(ctx, channel, sender)      # N1 of mail-list-account: the line right after a reply that listed ONE mail source means that list; otherwise the which-box question stays
+        if listed:
+            slots = dict(slots, source=listed)
     source_id, account, ask = _reference_source(ctx, slots)
     if ask:
         return None, None, ask

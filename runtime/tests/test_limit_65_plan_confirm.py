@@ -24,7 +24,7 @@ ops_file_read = st.load("ops_file_read")
 ARGS = {"cancel": {"request_id": 3}, "stop-task": {"task_id": 4}, "retry": {"task_id": 4}, "routine-pause": {"routine_id": 2}, "attachment-add": {"attachment_id": 5},
         "attachment-discard": {"attachment_id": 5}, "research": {"question": "weather in Lisbon"}, "ask": {}}
 READS = ("items", "sources", "agents")      # three reads of the table, and the rest by their sentences (test_plan_confirm.py)
-NEEDS_ITS_OWN_GROUP = ("file-ask",)      # CB-9: a served read that asks always (FA-1) and that the owner of this rig may not run: it needs the group `ask-files`, in no default; the question before its search is checked in test_file_ask.py
+NEEDS_ITS_OWN_GROUP = ("file-ask", "mail-ask")      # CB-9: a served read that asks always (FA-1) and that the owner of this rig may not run: it needs the group `ask-files`, in no default; the question before its search is checked in test_file_ask.py. MAIL-SUMMARY-FLIP: the same for `mail-ask`, which needs `ask` and `ask-mail` together; its question is checked in test_mail_ask.py
 
 
 def spies(rig, monkeypatch):

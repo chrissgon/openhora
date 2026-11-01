@@ -76,14 +76,14 @@ def test_the_orders_are_the_next_free_ones_and_unique():
 
 
 def test_the_served_catalog_holds_the_three_rows_since_the_flip_and_version_1_holds_none_of_them():
-    assert operations.LINE_CATALOG == 2
+    assert operations.LINE_CATALOG == 3
     assert all(op in natural.NATURAL and op in natural.CLASSES for op in NEW)
     assert all(op not in natural.views(1)[1] and op in natural.views(1)[0] for op in NEW), "at version 1 the rows exist for a typed command and a line does not reach them"
     served = {r["op"] for r in interpreter.SERVED["ops"]} | {r["op"] for r in interpreter.SERVED["refused"]}
     assert set(NEW) <= served
     one = interpreter_catalog.generate(version=1)
     assert not {r["op"] for r in one["ops"] + one["refused"]} & set(NEW)
-    generated = interpreter_catalog.generate(version=2)
+    generated = interpreter_catalog.generate(version=3)
     assert generated == interpreter.SERVED and interpreter_catalog.sha256(generated) == interpreter.SERVED_SHA256
     two = interpreter_catalog.generate(version=2)
     assert [r["op"] for r in two["ops"]][-3:] != [] and set(NEW) <= {r["op"] for r in two["ops"]}
@@ -102,7 +102,7 @@ def test_the_text_that_separates_the_confusables_names_what_each_row_is_not():
 
 
 def test_the_origins_of_each_slot_come_from_the_gate():
-    assert registry.origins("todo-add", "title") == ("line-span", "card-copy")
+    assert registry.origins("todo-add", "title") == ("line-span", "card-copy", "card-words")      # card-words (CARD-MODEL-SEES) is a title origin of the gate's one row for the key; only a waiting event card's revision supplies it
     assert registry.origins("todo-add", "service") == ("config", "picked", "line-span", "card-copy")
     assert registry.origins("todo-done", "item") == ("line-number", "listed", "picked", "grounded")
     assert registry.origins("todo-done", "target") == ("line-span",)
