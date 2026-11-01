@@ -921,10 +921,11 @@ RV_ALREADY: O e-mail já está assim.
 RV_DECIDED: Esse card já foi decidido antes de eu conseguir ajustá-lo, então nada foi alterado.
 RV_DONE_EVENT: Pronto: aqui está o evento com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.
 RV_DONE_MAIL: Pronto: aqui está o e-mail com o seu ajuste. O card anterior não vale mais; aprove ou rejeite este.
+RV_DONE_RECIPIENT: Pronto: aqui está o e-mail para o novo destinatário. O card anterior não vale mais; aprove ou rejeite este.
 RV_FAILED: Não consegui fazer esse ajuste. Diga de outro jeito ou rejeite o card.
 RV_LOST: Não consegui preparar o card ajustado e o anterior foi encerrado. Peça de novo.
 RV_NOT_REVISABLE: Para mudar este card, rejeite e peça de novo.
-RV_RECIPIENTS: Não consigo mudar quem recebe um e-mail ajustando o card. Rejeite este card e peça um novo e-mail para a pessoa certa.
+RV_RECIPIENTS: Só consigo trocar quem recebe quando este card tem um destinatário e a linha traz só o pedido e o novo endereço completo, sem nome, cópia ou outro ajuste. O card continua como estava.
 RV_REPLACED: Esse card foi substituído por um mais novo. Ajuste o card mais novo ou peça de novo.
 SEND_LINE: Envie one line of text
 SKIPPED: Não lidas, grandes demais para uma pergunta: Ana Lima.

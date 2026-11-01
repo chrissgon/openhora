@@ -179,10 +179,10 @@ def test_the_served_catalog_is_byte_identical_at_version_3_and_the_two_before_it
     version1 = catalog.generate(version=1)
     entries = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
     assert sha(version2) != PINNED_HASHES["interpreter_catalog_cb9"], "the catalog of version 2 is no longer what CB-9 served: two texts were re-worded"
-    assert sha(as_cb9_served(version2)) == PINNED_HASHES["interpreter_catalog_cb9"] == entries[-3]["catalog_sha256"] == entries[-4]["catalog_sha256"] != entry_catalog_sha(), "with those two texts put back it is: the entries of LUNA-ENABLE and CB-9 pin it; the newest two (MAIL-SUMMARY-FLIP and CARD-MODEL-SEES) pin version 3"
-    assert entries[-2]["catalog_sha256"] == entries[-1]["catalog_sha256"] == entry_catalog_sha(), "the entry of the flip and the newest one pin the same catalog"
+    assert sha(as_cb9_served(version2)) == PINNED_HASHES["interpreter_catalog_cb9"] == entries[-4]["catalog_sha256"] == entries[-5]["catalog_sha256"] != entry_catalog_sha(), "with those two texts put back it is: the entries of LUNA-ENABLE and CB-9 pin it; the newest three (MAIL-SUMMARY-FLIP, CARD-MODEL-SEES and mail-card-recipient) pin version 3"
+    assert entries[-3]["catalog_sha256"] == entries[-2]["catalog_sha256"] == entries[-1]["catalog_sha256"] == entry_catalog_sha(), "the entry of the flip and the two after it pin the same catalog"
     assert (len(version2["ops"]), len(version2["refused"])) == (SERVED_V2, REFUSED_V2) and version2["v"] == 2
-    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-5]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1"
+    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-6]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1"
     assert (len(version1["ops"]), len(version1["refused"])) == (SERVED_V1, REFUSED_V1) and version1["v"] == 1
     recorded = json.loads((REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a77f8a8f.json").read_text(encoding="utf-8"))
     assert sha(recorded) == sha(version1), "the copy the recorded answers replay against is what version 1 still generates, byte for byte"

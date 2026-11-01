@@ -1,0 +1,7 @@
+{
+ "package": "mail-card-recipient",
+ "table": {
+  "RV_DONE_RECIPIENT": "Pronto: aqui está o e-mail para o novo destinatário. O card anterior não vale mais; aprove ou rejeite este."
+ },
+ "same_as_english": []
+}

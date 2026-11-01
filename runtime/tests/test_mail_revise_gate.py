@@ -174,7 +174,7 @@ def test_after_three_earlier_changes_the_live_line_still_changes_the_card(world,
 # --- a line that names the card's object and asks nothing the gate reads ----------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line", ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta", "Envie um email para ana@client.example. Quero marcar uma reuniao"])      # validate: allow english-only -- the Portuguese lines under test
+@pytest.mark.parametrize("line", ["lista os emails", "obrigado", "pode enviar", "esquece", "qual o clima amanhã?", "também preciso marcar o dentista sexta"])      # validate: allow english-only -- the Portuguese lines under test
 def test_the_lines_that_ask_for_nothing_and_name_no_object_still_go_on_with_no_model_call(world, clock, monkeypatch, line):
     model, old, sha = card_with(world, monkeypatch, PLAIN)
     assert check(world, old, sha, line) is None and revise(world, old, sha, line) == {"pass": True}

@@ -921,10 +921,11 @@ RV_ALREADY: The e-mail already says that.
 RV_DECIDED: That card was already decided before I could change it, so nothing was changed.
 RV_DONE_EVENT: Done: here is the event with your change. The previous card no longer works; approve or reject this one.
 RV_DONE_MAIL: Done: here is the e-mail with your change. The previous card no longer works; approve or reject this one.
+RV_DONE_RECIPIENT: Done: here is the e-mail to the new recipient. The previous card no longer works; approve or reject this one.
 RV_FAILED: I could not make that change. Say it another way, or reject the card.
 RV_LOST: I could not prepare the changed card, and the previous one is closed. Ask again.
 RV_NOT_REVISABLE: To change this card, reject it and ask again.
-RV_RECIPIENTS: I cannot change who receives an e-mail by editing its card. Reject this card and ask for a new e-mail to the right person.
+RV_RECIPIENTS: I can change who receives this e-mail only when this card has one recipient and the line holds just the request and the whole new address, with no name, copy or other change. The card stays as it was.
 RV_REPLACED: That card was replaced by a newer one. Change the newer card, or ask again.
 SEND_LINE: Send one line of text
 SKIPPED: Not read, too large for one question: Ana Lima.
