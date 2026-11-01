@@ -104,7 +104,10 @@ HELP_WIDTH = 27
 # a later version works at once). The served catalog is byte for byte the one the newest enabling entry pins (runtime/interpreter_enable.json), so the interpreter stays on.
 # Package CB-9 (2026-10-28) raised it from 1 to 2, together with the served catalog and ONE new dated enabling entry (a draft pull request, decided by the maintainer after one measurement); at 1 the
 # catalog is the one of the entry before it (`interpreter_catalog.py --version 1 --print`).
-LINE_CATALOG = 2
+# Package MAIL-SUMMARY-FLIP (2026-10-31) raised it from 2 to 3: the row `mail-ask` and its slots are served, and the texts of `mail-read` and `ask` say when to choose `mail-ask`. A draft pull request that
+# no one merges before the maintainer's paid runs (the arm of the flip, the lab cases of `asst-answer`). The `about` texts of `mail-read` and `ask` changed with it, so `--version 2 --print` no longer
+# writes the catalog CB-9 served byte for byte (its hash stays pinned as history, `interpreter_catalog_cb9`); the catalog of version 1 is worded with `what` and is unchanged.
+LINE_CATALOG = 3
 
 OPERATIONS = (
     {"name": "request", "call": "request",
@@ -458,7 +461,7 @@ OPERATIONS = (
      "help": "answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask",
      "natural": {"class": "work", "since": 1, "order": 99, "privacy": "off-host", "cost": "model",
                  "what": "answer a question from the text of the project's sources (the question is the person's whole line)",
-                 "about": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.",
+                 "about": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks.",
                  "slots": {}}},
     {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "each area agent: its mode, its caps, what it used today and how many tasks wait for it",
@@ -768,7 +771,7 @@ OPERATIONS = (
      "help": "show the text of ONE message of the newest snapshot of a mail source, as the sender wrote it (the words are another person's, cleaned, links replaced, at most 4,000 characters, 1,500 on a phone): --message <source>#<n> or --number <n> names it by its number, --match <words> by words of its sender or subject (with --day <day> for the day it came), --account google|microsoft narrows the boxes; two boxes with the number, or several matches, are listed to choose from, and the reply never picks one. Nothing is written, sent or read by a model; a messaging sender needs the groups read-mail-body and ask-mail",
      "natural": {"class": "R", "since": 2, "order": 100, "privacy": "account", "cost": "provider",
                  "what": "show the text of one e-mail of the mail snapshots, by its number or by words of its sender or subject (the number is written in the line; the words are the target span; the day the e-mail came is the day span; the service word only when the line says Gmail or Outlook)",
-                 "about": "Choose this to show the whole text of ONE e-mail: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. Not a list and not a file.",
+                 "about": "Choose this only to show the whole text of ONE e-mail as written: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. A summary or a question about it is mail-ask. Not a list and not a file.",
                  "slots": {"message": {"kind": "int", "param": "number", "since": 2}, "target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day", "since": 2},
                            "service": {"kind": "word", "param": "account", "since": 2}}}},
     # MAIL-SUMMARY: a question about ONE message of the mail snapshots, answered by the quarantined reader of `file-ask` (runtime/ops_mail_ask.py): the message is named as `mail-read` names it,
@@ -782,7 +785,7 @@ OPERATIONS = (
      "help": "answer a question about ONE message of the newest snapshot of a mail source (a summary, a date, an amount): the message's text goes to one isolated run of the answer skill, web off, that can act on nothing, and code checks its quotes; named as mail-read names it: --message <source>#<n> or --number <n>, --match <words> with --day <day>, --account google|microsoft; two boxes with the number, or several matches, are listed and the reply never picks one; a messaging sender needs the groups ask and ask-mail",
      "natural": {"class": "R", "since": 3, "order": 101, "privacy": "off-host", "cost": "model",
                  "what": "answer a question about one e-mail of the mail snapshots, or summarize it (the number is written in the line; the words are the target span; the day is the day span; the service word only when the line says Gmail or Outlook; the question is the whole line)",
-                 "about": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount): message is its number as the line writes it, target the words of its sender or subject or a pasted list line whole, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read).",
+                 "about": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount); in Portuguese and Spanish resume, resuma and resumo mean summarize: message is its number as the line writes it (resume o 2 is message 2), target the words of its sender or subject or a pasted list line whole, every piece between the · and its time included, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read).",
                  "slots": {"message": {"kind": "int", "param": "number", "since": 3}, "target": {"kind": "span", "param": "match", "since": 3}, "day": {"kind": "span", "param": "day", "since": 3},
                            "service": {"kind": "word", "param": "account", "since": 3}}}},
     # FA-1: a question about what ONE file of the person's own Drive or OneDrive says, answered by the quarantined reader (runtime/ops_file_ask.py): the file is found by the search of `file-read`,
@@ -879,7 +882,7 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "help": "resume a paused routine; its approval stands and every fire still compares the hash",
      "natural": {"class": "G", "since": 1, "order": 59, "privacy": "own", "cost": "none",
                  "what": "resume a paused routine",
-                 "about": "Choose this to resume a paused routine; id is the routine's number written in the line.",
+                 "about": "Choose this to resume a paused routine, only when the line names a routine (resume routine 2, retoma a rotina 2); id is the routine's number written in the line. Never for resume o 2 or resume el 2: in Portuguese and Spanish resume means summarize, so that is mail-ask with message 2.",
                  "slots": {"id": {"kind": "int", "param": "routine_id", "since": 1}}}},
     {"name": "routine-cancel", "call": "routine_cancel", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "help": "cancel a routine for good (it is never deleted; its fires stay on record)",

@@ -19,6 +19,7 @@ mail_revise = st.load("mail_revise")
 interpreter_enable = st.load("interpreter_enable")
 mail_compose = st.load("mail_compose")
 ops_card_revise = st.load("ops_card_revise")
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 TO = ["joana.silva@clinica.example"]
 SUBJECT = "Reunião amanhã"      # validate: allow english-only -- a Portuguese card under test
@@ -38,8 +39,8 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     raw = (st.RUNTIME / "mail_revise_prompt.txt").read_bytes()
     assert mail_revise.prompt_sha256() == hashlib.sha256(raw).hexdigest()
     every = json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert "fallback" in every[-1] and "fallback" not in every[-2], "the newest entry is the outage-path entry of LUNA-ENABLE (it carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before it"
-    every = every[:-1]
+    assert "fallback" in every[-1] and "fallback" in every[-2] and "fallback" not in every[-3], "the newest entry is the one of MAIL-SUMMARY-FLIP and the one before it the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
+    every = every[:-2]
     current, carried, every = every[-1], every[-4], every[:-5]      # the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2) carry every pin of the one before them (BL5B and BL7-3 but their interpreter prompt); `carried` is B″-lite's
     newest, first_revise = every[-1], next(e for e in every if "revise_prompt_sha256" in e)      # the newest re-pins the prompt after the live test of S13b; the first pinned it (S13)
     assert newest["date"] == "2026-10-22" and newest["basis"] == "maintainer-decision" and newest["revise_prompt_sha256"] == mail_revise.prompt_sha256()
@@ -49,7 +50,7 @@ def test_the_prompt_is_pinned_by_the_newest_decision_and_every_older_pin_still_s
     assert pinned == [first_revise, every[-2], newest] and every[-2]["revise_prompt_sha256"] == first_revise["revise_prompt_sha256"], "the entry of R2-F1 between them keeps the older pin"
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256(), "the newest decision carries the compose pin too"
     assert [e["catalog_sha256"] for e in every[-1:]] == [every[-2]["catalog_sha256"]], "S13b names the catalog of R2-F1; the current hash of the checkout is the one of the entry of R2-A, below"
-    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [current["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
+    assert carried["revise_prompt_sha256"] == newest["revise_prompt_sha256"] and carried["compose_prompt_sha256"] == newest["compose_prompt_sha256"] and [current["catalog_sha256"]] == [PINNED_HASHES["interpreter_catalog_cb9"]] and [json.loads((st.RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"][-1]["catalog_sha256"]] == [interpreter_enable.checkout_hashes(newest["route"])["catalog_sha256"]]
     assert interpreter_enable.revise_active("pt-BR") is not None and interpreter_enable.compose_active("pt-BR") is not None
 
 

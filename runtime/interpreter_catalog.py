@@ -99,7 +99,7 @@ def served(path: Path = CATALOG_FILE) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="The catalog the interpreter is served: generate it, write it, check the served file against it.")
-    parser.add_argument("--version", type=int, choices=(1, 2), default=None, help="with --print: the catalog version to print (default: operations.LINE_CATALOG)")
+    parser.add_argument("--version", type=int, choices=(1, 2, 3), default=None, help="with --print: the catalog version to print (default: operations.LINE_CATALOG)")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="write runtime/interpreter_catalog.json from generate()")
     mode.add_argument("--check", action="store_true", help="exit 1 when the served file's hash differs from generate()'s")
