@@ -59,7 +59,7 @@ assert len(LUNA_STATUS_LINE) <= 600
 MAIL_ASK_STATUS_LINE = (CB9_STATUS_LINE.split("; the catalog moved to version 2")[0] + "; the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; "
                "the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision")      # the entry of package MAIL-SUMMARY-FLIP: the catalog of version 3, the outage path as the entry before it
 assert len(MAIL_ASK_STATUS_LINE) <= 600
-STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the model (2026-10-30)"      # the newest entry (package CARD-MODEL-SEES): the entry of MAIL-SUMMARY-FLIP and the event card text
+STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the model (2026-11-01)"      # the newest entry (package CARD-MODEL-SEES): the entry of MAIL-SUMMARY-FLIP and the event card text
 assert len(STATUS_LINE) <= 600
 EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
@@ -98,7 +98,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-10-31" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-11-01" and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -147,7 +147,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert {key for key in entry if entry.get(key) != mail_ask.get(key)} - {"date"} == {"reason", "status_line", "event_card_prompt_sha256"}, "the newest entry adds the event card pin; every other pin and the outage path stand as decided"
     assert entry["date"] >= mail_ask["date"], "an entry is dated no earlier than the one above it: `load` raises otherwise"
     assert entry["fallback"] == mail_ask["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in mail_ask
-    assert "RESULT-CARD-MODEL" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "RESULT-CARD-MODEL-2026-11-01" in entry["reason"] and "<date>" not in entry["reason"] and "enabled below that rule by the maintainer's decision of 2026-11-01" in entry["reason"] and "wrong_card 2 items of 140 against at most 1" in entry["reason"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
@@ -168,7 +168,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-10-31", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-11-01", language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
 
@@ -247,7 +247,7 @@ def test_the_committed_entries_are_in_date_order_and_an_entry_appended_with_an_e
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-10-31" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == "2026-11-01" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 
