@@ -22,7 +22,6 @@ import ast
 import datetime
 import inspect
 import json
-import os
 import re
 import textwrap
 import time
@@ -1147,11 +1146,6 @@ def test_the_day_is_counted_by_the_request_word_of_this_operation_inside_contain
     assert reads(desk) == 2 and found(again), "the oracle sees a run that the wrong word lets through"
 
 
-@pytest.mark.xfail(condition=not os.environ.get("GITHUB_ACTIONS"), strict=True,
-                   reason="MAIL-SUMMARY-FLIP: the cases 7 and 8 of asst-answer carry guard assertions that have no run yet, so the reader's band is `needs a test` and file-ask and mail-ask are off until the "
-                          "maintainer's lab run is committed with its evidence. Locally (the hook) this is an expected failure, so a commit can be made; in CI (GITHUB_ACTIONS set) it runs and is RED until the "
-                          "evidence exists: the required `tests` check is the structural guard against merging before the lab. Strict and local: with the evidence in place the "
-                          "hook's run XPASSes and fails, so the evidence commit has to remove the condition (in CI the condition is false and the test just passes).")
 def test_the_real_standing_of_the_reader_lets_both_questions_start_with_no_stub():
     """H1: the reader's band is read from the recorded evidence of this checkout, with nothing stubbed. A case added to asst-answer that has no run yet turns the band to `needs a test` and file-ask off."""
     assert ops_file_ask._skill() == ("asst-answer", None)
