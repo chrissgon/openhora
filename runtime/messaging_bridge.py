@@ -1196,21 +1196,25 @@ class Bridge(shell_kit.Jobs):
     def revise_now(self, project: dict, chat: str, card: dict, text: str, kind: str) -> None:
         """The body of the job of `revise_waiting`: the change, then the new card (sent as every card is) after one sentence, or one plain sentence and the old card still open; a line
         that proved not to be a change goes on as it would have (a write form to its family, any other line to the conversation)."""
-        shown = None
+        shown = acked = None
         try:
             try:
                 shown = indicator.Typing(self.messenger).begin(chat, text)
             except Exception:      # never a lost reply
                 shown = None
+            acked = self.ack_begin(project, chat, text)      # the acknowledgement starts with the card call, not with the plain call that may follow it: the card call is a model call too
             result = self.ops.card_revise(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
         except self.ops.OpsError:
             result = {"say": self.t("RV_FAILED", project=project), "resend": None}
         finally:
             if shown is not None:
                 shown.stop()
+            self.ack_end(acked)
         if result.get("pass"):
             if kind == "natural":
                 self.write_now(project, chat, text)
+            elif result.get("decide"):
+                self.line(project, chat, text, None, decide=True)()      # a line code owns (a reminder, a bare time, a write in words) goes on as it went before the card call: the first leg of a plain line, which takes no model slot, in this job so that the acknowledgement is not sent twice
             else:
                 self.line(project, chat, text, None)()
             return

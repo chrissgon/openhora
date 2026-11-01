@@ -10,13 +10,13 @@ A plain line sent right after a card (or as a reply to it) that changes a word o
 approved. The bridge decides which card a line may be about (runtime/messaging_bridge.py `revise_waiting`, called by the kind `decision-card-revise` of runtime/messaging_turn.py); this file decides what the line is for that card.
 
   card_revise_check(project, pending_id, sha256, text, channel, sender)   None (the line is not about this card: it goes on as it always did), "mail" (a new e-mail card the model
-                                                                          rewrites), "event" (an event card changed by the interpreter's verified decision) or "sentence" (a card
+                                                                          rewrites), "event" (an event card changed by the interpreter's verified decision, the model seeing the card) or "sentence" (a card
                                                                           of a write that cannot be changed by words yet, and a line that asks for a change: one sentence, RV_NOT_REVISABLE)
                                                                           or "replaced" (a card this feature ended and a line that asks for a change of it).
                                                                           Calls no model and changes nothing.
   card_revise(project, pending_id, sha256, text, channel, sender)         {"say": a sentence, "resend": the id of the new card or None} or {"pass": True} (the line is not a change
                                                                           of this card: the bridge goes on with it). Mail: runtime/mail_revise.py (one call to the model, validated
-                                                                          by code); event: runtime/ops_event_revise.py (one interpreter call, the verified spans). Then the family
+                                                                          by code); event: runtime/ops_event_revise.py (one interpreter call with the card in view, runtime/event_card.py; the verified spans and parts). Then the family
                                                                           opens the new card as it opens any card, and the old card is ended as rejected with a note that says it
                                                                           was replaced, so its hash is never approvable again. Nothing is sent, written or approved here.
   decided(project, channel, sender, line)                                 the interpreter's decision made for this line while it was checked as a change of a card and found to be
@@ -24,9 +24,9 @@ approved. The bridge decides which card a line may be about (runtime/messaging_b
                                                                           twice), or None
 
 A line is a change of a card only when ALL of these hold: the channel is a messaging app and the sender holds the group `interpret` with the newest entry of
-runtime/interpreter_enable.json in force (a mail card also needs the entry to pin this checkout's revise prompt); the sender may prepare the same kind of card and may reject one; the
+runtime/interpreter_enable.json in force (a mail card also needs the entry to pin this checkout's revise prompt, an event card the entry to pin this checkout's event card text); the sender may prepare the same kind of card and may reject one; the
 line is one line of at most INSTRUCTION_MAX characters, not a command, not an approve or reject word, not a greeting or a question about the state, and, for a mail card, not a
-request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself); the card
+request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself, and a reminder, a bare time or a write said in words reaches the model that sees the card, which decides; only a typed command stays code's); the card
 is an OPEN effect decision whose content hash is the `sha256` the bridge gives (the hash of the card the person saw).
 
 For a mail card the model is called only when the line holds a word that asks for a change, a quoted text or a word that asks to change who receives the e-mail (limit L63): any other
@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import re
 import sys
 import threading
 import time
@@ -83,8 +84,16 @@ def _key(project, channel, sender) -> tuple:
     return os.path.realpath(str(project)), channel, sender
 
 
+def _purge() -> None:
+    """Drop every entry older than RETAIN, of every chat: an entry nobody reads would otherwise keep a private line in memory for as long as the process lives. Called with `_lock` held."""
+    now = clock()
+    for key in [k for k, (_, _, at) in _decided.items() if now - at >= RETAIN]:
+        del _decided[key]
+
+
 def remember(project, channel, sender, line: str, decision: dict) -> None:
     with _lock:
+        _purge()
         _decided[_key(project, channel, sender)] = (" ".join(line.split()), decision, clock())
 
 
@@ -92,6 +101,7 @@ def decided(project, channel, sender, line: str):
     """The decision `remember` kept for this very line of this sender in this project, once (the entry is dropped when it is read, whatever it held), or None. An entry older
     than RETAIN seconds is never returned."""
     with _lock:
+        _purge()
         got = _decided.pop(_key(project, channel, sender), None)
     return got[1] if got and got[0] == " ".join(line.split()) and clock() - got[2] < RETAIN else None
 
@@ -101,13 +111,39 @@ def forget_all() -> None:
         _decided.clear()
 
 
-def _recognised(ctx: dict, line: str, sender) -> bool:
-    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card."""
+CODE_OWNED = ("bare", "reminder", "write")      # what `turn_gate.new_request` says of a line code reads by itself that is NOT a typed command: a reminder (said with a bare time, or with its words) and a write said in words ("cria consulta sexta 15h")
+
+
+def _recognised(ctx: dict, line: str, sender, event: bool = False) -> bool:
+    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event that waits the model sees the card and decides what the
+    person asked (the maintainer's rule of 2026-10-30), so a line that `turn_gate.new_request` reads as a reminder, a bare time or a write said in words ("tomar remedio as 22h", "vai ate as 17h",
+    "cria tambem consulta sexta 15h") reaches it too; only a typed command stays code's: a card word, a decision said in words, a closed form, a question about the state, a greeting. A line that is not
+    a change of the card passes on to the path it would have taken (`ops_event_revise.revise`); a reminder in words is read by the interpreter on the daily route for a sender who holds `interpret`
+    (L51 as amended on 2026-10-28), so the prompt of the card call goes to the same route."""
     # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
     # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
     # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
-    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or turn_gate.new_request(line) is not None
+    new = turn_gate.new_request(line)
+    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new in CODE_OWNED))
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
+
+
+def reaches_event_card(ctx: dict, text: str, sender) -> bool:
+    """Whether a plain line sent after the card of an event can reach the model that sees the card: the checks of `_taken` that read only the line (a card word, a question about the state, a greeting, and
+    something code takes as its own that is not the change itself). The measurement uses it to keep out a line the product never sends to a prompt; the test of the dev set holds it equal to `card_revise_check`."""
+    if not isinstance(text, str) or text.lstrip().startswith("/"):
+        return False
+    line = mail_revise.clean(text)
+    if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
+        return False
+    return not _recognised(ctx, line, sender, event=True) or _is_event_change(line)
+
+
+def owned_by_code(ctx: dict, text: str, sender) -> bool:
+    """Whether code would have taken the line as its own before the model saw the card (a reminder, a bare time, a write said in words, a typed form) and it is not the change of an event: then a card
+    call that does not read it as a change leaves it to that path, unread and unremembered, so that no line is lost (`ops_event_revise.revise`)."""
+    line = mail_revise.clean(text)
+    return line is not None and _recognised(ctx, line, sender) and not _is_event_change(line)
 
 
 def _is_event_change(line: str) -> bool:
@@ -116,10 +152,10 @@ def _is_event_change(line: str) -> bool:
 
 
 def entry_of(ctx: dict, channel, sender, revise: bool):
-    """The entry of interpreter_enable.json in force (that pins the revise prompt when `revise`), or None; None too unless the sender is read by the interpreter."""
+    """The entry of interpreter_enable.json in force (that pins the revise prompt when `revise`, else the event card text), or None; None too unless the sender is read by the interpreter."""
     if not ops_interpret.enabled(ctx, channel, sender):
         return None
-    got = (interpreter_enable.revise_active if revise else interpreter_enable.active)(ops_interpret._tag(ctx["cfg"]))
+    got = (interpreter_enable.revise_active if revise else interpreter_enable.card_active)(ops_interpret._tag(ctx["cfg"]))
     return got["entry"] if got else None
 
 
@@ -158,7 +194,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
         return None
     if kind == "sentence":
         return ("sentence", None, line, doc, None) if mail_revise.asks_change(line) and not _recognised(ctx, line, sender) else None
-    if _recognised(ctx, line, sender) and not (kind == "event" and _is_event_change(line)):
+    if _recognised(ctx, line, sender, event=kind == "event") and not (kind == "event" and _is_event_change(line)):
         return None
     raw = mail_revise.instruction(text)
     asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)

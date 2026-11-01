@@ -613,7 +613,7 @@ ENABLE_KEYS = ("basis", "date", "route", "route_sha256", "prompt_sha256", "catal
 
 ENABLE_LANGUAGES = ("pt-BR", "en", "es", "fr", "de", "it")
 ENABLE_HASHES = ("route_sha256", "prompt_sha256", "catalog_sha256", "protocol_sha256")
-ENABLE_OPTIONAL = ("compose_prompt_sha256", "revise_prompt_sha256")      # the e-mail compose prompt (slice S7) and revise prompt (slice S13) an entry may also pin
+ENABLE_OPTIONAL = ("compose_prompt_sha256", "revise_prompt_sha256", "event_card_prompt_sha256")      # the e-mail compose prompt (slice S7), the revise prompt (slice S13) and the event card text an entry may also pin
 ENABLE_FALLBACK = "fallback"      # S41-10: an entry may also name the outage routes; the runtime reads that field alone (runtime/interpreter_enable.py `fallbacks`) and a fault in it turns only the fallback off, so its value is not checked here
 
 

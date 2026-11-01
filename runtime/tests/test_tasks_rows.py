@@ -102,7 +102,7 @@ def test_the_text_that_separates_the_confusables_names_what_each_row_is_not():
 
 
 def test_the_origins_of_each_slot_come_from_the_gate():
-    assert registry.origins("todo-add", "title") == ("line-span", "card-copy")
+    assert registry.origins("todo-add", "title") == ("line-span", "card-copy", "card-words")      # card-words (CARD-MODEL-SEES) is a title origin of the gate's one row for the key; only a waiting event card's revision supplies it
     assert registry.origins("todo-add", "service") == ("config", "picked", "line-span", "card-copy")
     assert registry.origins("todo-done", "item") == ("line-number", "listed", "picked", "grounded")
     assert registry.origins("todo-done", "target") == ("line-span",)
