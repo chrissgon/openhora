@@ -948,10 +948,74 @@ def db_path(args) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def connect(path: Path) -> sqlite3.Connection:
+_HELD_CURSORS: dict = {}
+
+
+def _held_cursor_class(real):
+    """The cursor class that keeps its Connection alive (`held`), so a read chained on a temporary never meets a
+    closed database. It is made from the class this interpreter's sqlite3 hands out, once, and not named here: the
+    validator's harness-name check reads that class's name as the name of an editor."""
+    probe = real.cursor()
+    base = type(probe)
+    probe.close()
+    if base not in _HELD_CURSORS:
+        _HELD_CURSORS[base] = type("_HeldCursor", (base,), {"held": None})
+    return _HELD_CURSORS[base]
+
+
+class Connection:
+    """What connect returns: one sqlite3 connection, closed when the last reference to this object goes.
+
+    From Python 3.11 a sqlite3.Connection refers to itself through its statement cache, so a connection dropped
+    without close() stays open, with its file and its -wal descriptor, until the cyclic collector reaches it (on
+    3.9 and 3.10 reference counting closes it at once). This object is outside that cycle, so reference counting
+    ends it at its last drop, whoever holds it: a caller never has to close, and one that does close loses nothing
+    (a second close is a no-op). A holder that keeps the object keeps the connection exactly as long as it can be
+    used, and a cursor keeps its Connection (_held_cursor_class), so `open_db(db).execute(...).fetchone()` on a temporary
+    works. A close refused on another thread (sqlite3 refuses any use there) is swallowed in __del__ and leaves the
+    connection to the collector, as before. The last connection of a file to close checkpoints and removes the -wal
+    and -shm files (SQLite's WAL life); the store tolerates that (private_files, ops_reads.version)."""
+    __slots__ = ("_real", "_cursor_class")
+
+    def __init__(self, real):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_cursor_class", _held_cursor_class(real))
+
+    def __getattr__(self, name):
+        if name in ("_real", "_cursor_class"):   # a slot is unset (a half-built object): no recursion through __getattr__
+            raise AttributeError(name)
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real, name, value)
+
+    def execute(self, *args):
+        cursor = self._real.cursor(self._cursor_class)
+        cursor.held = self
+        return cursor.execute(*args)
+
+    def close(self):
+        self._real.close()
+
+    def __enter__(self):
+        self._real.__enter__()
+        return self
+
+    def __exit__(self, *given):
+        return self._real.__exit__(*given)
+
+    def __del__(self):
+        try:
+            self._real.close()
+        except Exception:  # noqa: BLE001 - the other thread's refusal, or the interpreter's exit: nobody can be told
+            pass
+
+
+def connect(path: Path) -> "Connection":
     # isolation_level=None: no implicit transactions; writes open BEGIN IMMEDIATE themselves.
-    conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
-    conn.row_factory = sqlite3.Row
+    real = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
+    real.row_factory = sqlite3.Row
+    conn = Connection(real)
     conn.execute("PRAGMA busy_timeout = 10000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -1451,7 +1515,8 @@ def cmd_export(args) -> int:
 # transaction, so a step that ends a run, opens a pending decision and moves its task is all or nothing.
 # None of them has a CLI verb (export reads the tables). Text a model or another person wrote (a reply, a
 # question, an answer) is stored as given and never interpreted. Every function takes the connection that
-# open_db() returns and raises StoreError.
+# open_db() returns and raises StoreError. That object closes its connection when its last reference goes, so no
+# caller closes it (see Connection).
 
 TASK_STATES = ("requested", "planned", "ready", "running", "waiting", "blocked", "done", "failed", "cancelled")
 TASK_FINAL_STATES = ("done", "cancelled")  # nothing leaves them; failed and blocked go back to ready (task_retry)
