@@ -86,6 +86,8 @@ def echo_object(item):
         return {"v": 1, "kind": "clarify", "slot": gold.get("slot") or "when"}
     if outcome == "refuse":
         return {"v": 1, "kind": "op", "op": D_OP if gold["class"] == "D" else G_OP, "slots": {}}
+    if outcome == "question":
+        return {"v": 1, "kind": "question", "about": gold["about"], **{k: gold[k] for k in ("field", "op") if k in gold}}
     return {"v": 1, "kind": outcome}          # route, none (a forwarded item never reaches the model)
 
 

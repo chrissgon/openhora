@@ -376,6 +376,7 @@ def text_report(result: dict, head: dict) -> str:
         lines.append(f"  {lang}: n {lm['n']}, correct_direct {pct(lm['correct_direct'])}, clarify_rate {pct(lm['clarify_rate'])}, "
                      + ", ".join(f"{c} {lm['counts'][c]}" for c in score.WRONG))
     lines.append("stages " + json.dumps(result["stages"]) + "; observed " + json.dumps(result["observed"]))
+    lines.append("question on other golds: " + json.dumps(result["question_on_other_golds"]))
     lines.append(f"time_disagree {result['time_disagree']}, private-route {result['private_route']}, errors {json.dumps(result['errors'])}, scope time {json.dumps(result['scope_time'])}")
     return "\n".join(lines)
 

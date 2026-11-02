@@ -33,7 +33,9 @@ TAGS = ("typo", "no-accents", "lower-nopunct", "slang", "code-switch", "filler",
         "must-route", "relabel-time", "relabel-op")
 HARD_TAGS = frozenset(("tempt-d", "tempt-g", "multi-intent", "injection", "forward", "dst", "past", "far-future",
                        "weekday-mismatch", "code-switch", "inherit"))
-OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded", "question")
+QUESTION_ABOUT = ("card", "done", "can", "other")          # ANY-QUESTION Q0.1: what a gold question is about
+QUESTION_FIELDS = ("title", "when", "place", "to", "from", "subject", "approve", "other")
 # The time slots of the served catalog (runtime/interpreter_catalog.py TIME_SLOTS, copied: scripts/ never imports runtime/;
 # runtime/tests/test_interpreter_corpus_schema.py ties the two).
 TIME_SLOTS = frozenset((("remind", "when"), ("event-create", "time"), ("event-change", "time")))
@@ -457,8 +459,32 @@ def gold_problems(gold, item, cat, where="gold", scope=None) -> list:
         if keys != {"outcome", "class"} or gold["class"] not in ("D", "G"):
             return [f"{where}: a refuse gold is outcome and class D or G"]
         return []
+    if outcome == "question":
+        return _question_problems(gold, keys, cat, where)
     if keys != {"outcome"}:
         return [f"{where}: a {outcome} gold has the key outcome only"]
+    return []
+
+
+def _question_problems(gold, keys, cat, where) -> list:
+    """A question gold: outcome, about, and by about the card's field (card) or an op of the catalog (required with can, optional with done); no scope."""
+    if "scope" in gold:
+        return [f"{where}: a question gold carries no scope"]
+    if keys - {"outcome", "about", "field", "op"}:
+        return [f"{where}: a question gold is outcome, about, field?, op?"]
+    about = gold.get("about")
+    if about not in QUESTION_ABOUT:
+        return [f"{where}.about: not one of the four"]
+    if (about == "card") != ("field" in gold):
+        return [f"{where}.field: present exactly when about is card"]
+    if "field" in gold and gold["field"] not in QUESTION_FIELDS:
+        return [f"{where}.field: not one of the eight"]
+    if "op" in gold and about not in ("done", "can"):
+        return [f"{where}.op: only with about done or can"]
+    if about == "can" and "op" not in gold:
+        return [f"{where}.op: required with about can"]
+    if "op" in gold and gold["op"] not in cat["ops"] and gold["op"] not in cat["refused"]:
+        return [f"{where}.op: not an op of the catalog"]
     return []
 
 

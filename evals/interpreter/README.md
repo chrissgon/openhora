@@ -11,7 +11,7 @@ format, and `scripts/interpreter_corpus_build.py`, the builders); the measuremen
 | File | What it is | Written by | Changes |
 |---|---|---|---|
 | `frame.schema.json` | the frame a line is read with: the open items and the last request (JSON Schema draft-07 subset, rules R1-R7) | package C0 | frozen with the corpus |
-| `taxonomy.json` | what the pipeline did (`observed`), the error categories worst first, the rules that map one to the other, the metrics, and at least 30 worked `examples` | C0 (rules), IX-1 (examples) | frozen with the corpus; its hash is in the decisions |
+| `taxonomy.json` | what the pipeline did (`observed`), the error categories worst first, the rules that map one to the other, the metrics, and at least 30 worked `examples` | C0 (rules), IX-1 (examples) | frozen with the corpus; its hash is in the decisions; the outcome `question` (package ANY-QUESTION Q0) added on 2026-11-02, its hash in `docs/decisions/2026-11-02-any-question-q0-harness.md` |
 | `thresholds.json` | the gate: per-category bounds overall and per language | C0 | frozen when IX-1's data merges; its hash is in the decisions |
 | `dev-relabelled.jsonl` | the three older corpora of `runtime/tests` relabelled to the outcome schema, by code (`relabel`) | IX-1 tooling | never by hand: `runtime/tests/test_interpreter_corpus_schema.py` rebuilds it and compares byte for byte |
 | `tier1-cover-v1.jsonl` | 199 items of the lines today's code claimers take that no corpus holds (the form lines of `test_natural_table.py` and `test_commands_in_words.py`, the entry corpus scenarios whose trace holds a row S41-11 retires): author `relabel`, tag `relabel-op`, ids `dev-<lang>-4NNNN`, no frame, the relabelling's clock and zone; the gold is the operation the claimer named (scope `op`, or the integer slot when it is the operation's whole slot set); with `dev-relabelled.jsonl` it is the corpus M41-5 measures | S41-11 PR 1 (`python3 scripts/interpreter_corpus.py tier1-cover`) | never by hand: `runtime/tests/test_tier1_cover.py` rebuilds it and compares byte for byte, until PR 2a deletes the builder with the claimers it runs; frozen data after that |
@@ -70,6 +70,15 @@ not scored) · `{"outcome": "route"}` · `{"outcome": "none"}` · `{"outcome": "
 `{"outcome": "forwarded"}`. An answer's `span` and `time`, like a slot's values, are **lists** of accepted values; a
 relabelled answer to a time slot carries `time` and no `span` (code labelled the reading only). Relabelled items
 may add `"scope": "op"` (only the op is known) or `"scope": "time"` (only the time reading); those are reported apart.
+
+The gold `question` (package ANY-QUESTION Q0) is `{"outcome": "question", "about": A}` plus, by `about`: `card` takes a
+required `field` (`title`, `when`, `place`, `to`, `from`, `subject`, `approve` or `other`) and no `op`; `done` takes no
+`field` and an optional `op` (an op of the served catalog, `ops` or `refused`); `can` takes no `field` and a required `op`
+(the same); `other` takes neither. It has no `scope`. What the pipeline observed (the word `question`, with the detail
+`about`, `field`, `op`) matches it when the three are equal (an absent key equals None); a question that does not match
+is `missed`, and one met by a card, a read, a route or a clarify falls under the rules already there. A question
+observed on an item whose gold is another outcome is counted apart (`question_on_other_golds` of the summary, by that
+gold).
 
 What `check` holds beyond the shapes: every op of a gold or a frame is an op of the served catalog
 (`runtime/interpreter_catalog.json`), every slot a slot of that op; every value is a piece of the line exactly as typed

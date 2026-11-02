@@ -11,7 +11,7 @@ LANGS = ["pt-BR", "en", "es", "fr", "de", "it"]
 SEVERITY = ["wrong_effect_unconfirmed", "wrong_card", "wrong_reminder_reading", "wrong_item_binding", "wrong_read", "wrong_route",
             "missed", "clarify", "correct"]
 OBSERVED = ["executed", "card", "confirm", "remind_confirm", "read", "answer", "clarify", "route", "none", "refuse_d", "refuse_g",
-            "refuse_policy", "forwarded", "outage"]
+            "refuse_policy", "forwarded", "outage", "question"]
 TAXONOMY = {"v": 1, "observed": OBSERVED, "severity": SEVERITY}
 THRESHOLDS = {"v": 1, "runs": 2, "per_item": "worst-of-runs", "wilson_z": 1.96, "router_line_cost_usd": 0.0857,
               "languages": LANGS,

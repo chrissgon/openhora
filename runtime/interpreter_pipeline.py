@@ -14,7 +14,8 @@ The stages, in order; the first that decides ends the item (`run_item`):
   3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.decision`: a decision said in words (S41-11: the
                   one closed reading code keeps, the D operations; the model never approves) or `greeting.help_form` (help in words)                                                     -> the operation
   4. model        `interpreter.build_messages`, `call(system, user)`, `interpreter.parse`, `interpreter.check` (the sender holds every group: `ALLOWED`)
-  5. mapping      the decision to `observed` (`observe`, `OBSERVED_OF`): a measurement-only table. It never gives `executed`: nothing is executed
+  5. mapping      the decision to `observed` (`observe`, `OBSERVED_OF`): a measurement-only table. It never gives `executed`: nothing is executed. A question maps to `question`
+                  (ANY-QUESTION Q0), with its about, field and op as the detail
 The forward is first because a forward is never a request, whatever its length.
 
 Resolution always succeeds here (an account, a calendar, a folder, a source, a file, a mail number, an attachment, a task, a routine or a request that a decision names
@@ -62,7 +63,7 @@ STAGES = ("forwarded", "precheck", "closed", "tier1", "typed", "model")
 # `refuse_g` otherwise; `remind` is the one N operation that shows its reading (`remind_confirm`). `executed` is not in the image.
 OBSERVED_OF = {"R": "read", "work": "read", "N": "confirm", "W": "confirm", "E": "card", "D": "refuse_d"}
 CALL_ERRORS = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_NETWORK", "E_RATE", "E_UPSTREAM", "E_HTTP", "E_PIN", "E_RESPONSE", "E_INTERNAL", "E_UNKNOWN")
-OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded", "question")
 CHANNELS = ("messaging", "page", "terminal", "chat")
 ITEM_WORD = "item"
 LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "ja": "ja", "mixed": "mx"}          # a language and the code its ids carry (evals/evidence_lines.py IX_LANG_CODES)
@@ -149,6 +150,8 @@ def observe(decision: dict) -> tuple:
         if decision.get("time"):
             detail["time"] = decision["time"]["local"]
         return "answer", detail
+    if kind == "question":
+        return "question", {"about": decision.get("about"), "field": decision.get("field"), "op": decision.get("op")}
     if kind == "clarify":
         if decision.get("slot") is not None:
             return "clarify", {"slot": decision["slot"]}

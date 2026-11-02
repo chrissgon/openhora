@@ -909,7 +909,7 @@ IX_LANGS = ("pt-BR", "en", "es", "fr", "de", "it", "ja", "mixed")
 # What the pipeline did with a line, and the categories of an item, worst first (taxonomy.json "observed" and "severity",
 # frozen at IX-1's merge: a test keeps the two equal while the file exists).
 IX_OBSERVED = ("executed", "card", "confirm", "remind_confirm", "read", "answer", "clarify", "route", "none", "refuse_d",
-               "refuse_g", "refuse_policy", "forwarded", "outage")
+               "refuse_g", "refuse_policy", "forwarded", "outage", "question")          # "question": ANY-QUESTION Q0, last as in the taxonomy
 IX_SEVERITY = ("wrong_effect_unconfirmed", "wrong_card", "wrong_reminder_reading", "wrong_item_binding", "wrong_read",
                "wrong_route", "missed", "clarify", "correct")
 IX_LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "ja": "ja", "mixed": "mx"}
@@ -918,7 +918,7 @@ IX_ROUTE_RE = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
 IX_UPSTREAM_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
 # The outcome word of the item's gold (corpus form 1.7: the key "outcome" of its gold): the class of the right answer, never its content. The
 # status script needs it for the items whose gold is `clarify` (the denominators of correct_direct and of the clarify rate).
-IX_GOLDS = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+IX_GOLDS = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded", "question")          # "question": ANY-QUESTION Q0
 # The codes the model call can fail with: providers/model/chat-http.py's stderr codes and the caller's E_UNKNOWN (runtime/interpreter_route.py).
 IX_ERRORS = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_NETWORK", "E_RATE", "E_UPSTREAM", "E_HTTP", "E_PIN", "E_RESPONSE",
              "E_INTERNAL", "E_UNKNOWN")

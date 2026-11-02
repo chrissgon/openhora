@@ -91,7 +91,7 @@ def cli(tmp_path, monkeypatch, capsys):
 
 
 SUMMARY_KEYS = {"items", "runs", "measures", "by_language", "parse_failure_rate", "calls", "p95_latency_ms", "median_cost_usd", "wrong_route_cost_usd", "stages", "observed",
-                "errors", "time_disagree", "private_route", "scope_time", "live_calls", "route", "test"}
+                "errors", "time_disagree", "private_route", "scope_time", "live_calls", "route", "test", "question_on_other_golds"}
 
 
 # --- a dev run --------------------------------------------------------------------------------------------------------------------------------------

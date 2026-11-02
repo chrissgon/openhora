@@ -17,7 +17,7 @@ both arms are scored by the same function, so that a comparison between them is 
   summary(rows, thresholds, ...)                    everything the harness prints: overall and per-language measures, parse failures, p95 latency, median cost, counters
 
 `detail` is {"op", "slots": {slot: span}, "time": "YYYY-MM-DDTHH:MM" | None} for an operation, {"item", "option", "confirm", "slot", "span", "time"} (the keys that
-apply) for an answer, {"class"} for a refusal, {"slot"} or {"ops"} for a clarification and {} otherwise.
+apply) for an answer, {"class"} for a refusal, {"slot"} or {"ops"} for a clarification, {"about", "field", "op"} (None for a key the decision does not carry) for a question (ANY-QUESTION Q0) and {} otherwise.
 
 The bands and the go decision are computed only by `python3 evals/eval_status.py interpreter --go` (package IX-E); the summary here is a convenience.
 Python 3.9, standard library only. `python3 runtime/interpreter_score.py --help` prints this text.
@@ -54,7 +54,7 @@ RANK = {name: n for n, name in enumerate(SEVERITY)}
 
 # What the pipeline did, as the outcome word of a gold that can match it.
 OUTCOME_OF = {"card": "op", "confirm": "op", "remind_confirm": "op", "read": "op", "executed": "op", "answer": "answer", "clarify": "clarify",
-              "route": "route", "none": "none", "forwarded": "forwarded", "refuse_d": "refuse", "refuse_g": "refuse"}
+              "route": "route", "none": "none", "forwarded": "forwarded", "refuse_d": "refuse", "refuse_g": "refuse", "question": "question"}
 CLASS_OF_REFUSAL = {"refuse_d": "D", "refuse_g": "G"}
 ANSWER_KEYS = ("option", "confirm", "slot", "span", "time")
 
@@ -134,6 +134,8 @@ def matches(gold: dict, observed: str, detail: dict, scope: str = "full") -> boo
         return _answer_matches(gold, detail)
     if outcome == "refuse":
         return gold.get("class") == CLASS_OF_REFUSAL[observed]
+    if outcome == "question":
+        return gold.get("about") == detail.get("about") and gold.get("field") == detail.get("field") and gold.get("op") == detail.get("op")
     return True          # clarify, route, none, forwarded: equal outcome (a clarification's informational slot or ops is not scored)
 
 
@@ -242,11 +244,22 @@ def summary(rows, thresholds: dict, sequential: bool = False, time_rows=(), extr
            "wrong_route_cost_usd": sum(1 for row in worst if row["category"] == "wrong_route") * thresholds["router_line_cost_usd"],
            "stages": _count(row["stage"] for row in rows), "observed": _count(row["observed"] for row in rows),
            "errors": _count(row["error"] for row in rows if row["error"]),
+           "question_on_other_golds": _question_on_other_golds(rows),
            "time_disagree": sum(1 for row in rows if row.get("time_disagree")),
            "private_route": sum(1 for row in rows if row.get("why") == "private-route"),
            "scope_time": _count(time_rows)}
     out.update(extra or {})
     return out
+
+
+def _question_on_other_golds(rows) -> dict:
+    """{gold outcome word: items} of the items whose gold is not `question` and one of whose runs observed `question` (one item counted once): the questions that stole a line
+    (ANY-QUESTION Q0; the bar rule 3 of its design reads it). `{}` when none."""
+    stolen = {}
+    for row in rows:
+        if row["gold"] != "question" and row["observed"] == "question":
+            stolen[row["item"]] = row["gold"]
+    return _count(stolen.values())
 
 
 def _count(values) -> dict:
