@@ -408,6 +408,7 @@ HEADER_FILE: Acme Launch · file #42
 HELP: Commands:\n\nRequests\n/pending — what waits for you\n/approve <id> — approve what the last card of <id> showed\n/reject <id> [note] — reject it, or dismiss a question\n/release <id> — release a delivery\n/answer <id> <text> — answer a question\n/ask <question> — answer a question from the project's sources\n\nFiles\n/add <n> — add a file you sent as a source\n/discard <n> — delete a file you sent\n\nReminders\n/remind <time> <text> — a reminder sent back to you once (15:00, 2026-10-20 09:30 or in 2h)\n/reminders — the reminders that wait\n/forget <n> — cancel a reminder\n\nProject\n/project [name] — choose the project your lines go to\n/help — this list\n\nEvery command above can also be asked for in your own words. Which of these are active depends on your permissions.
 INSTRUCTIONS: Instructions found in external content:
 INSTRUCTION_LINE: [42] "the review is on Friday" (not followed)
+INSTRUCTION_LINE_ONE: "the review is on Friday" (not followed)
 INSTRUCTION_UNVERIFIED: An instruction found in a source was left out: its quoted passage is not in that source.
 INSTR_PROPOSAL_ASK: Add this line to the project's instructions?
 INSTR_WHERE_ELSEWHERE: accept it on the page (Building > Instructions) or in the terminal
@@ -834,6 +835,7 @@ QUEUE_DROPPED_LINE: A queued line was not answered: it is the only free slot
 QUEUE_EXPIRED: Not answered: the project stayed busy for 30 minutes. Send it again.
 QUEUE_STOPPED: Not answered: the bridge stopped. Send it again.
 QUOTE_CHECKED: Checked quote [42]: "see you soon"
+QUOTE_CHECKED_ONE: Checked quote: "see you soon"
 QUOTE_IMITATED: A line of the answer imitated a checked quote and was left out.
 QUOTE_NOT_FOUND: This quote is not in 42:
 QUOTE_TOO_LONG: This quote is longer than 10 characters and was not checked (42):

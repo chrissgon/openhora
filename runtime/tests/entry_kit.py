@@ -1717,6 +1717,7 @@ EXT_DIR = HERE / "entry_ext"
 EXT_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 EXT_KEYS = SCENARIO_KEYS + ("model_text",)      # the corpus keys in the corpus order, then the stand-in model's answer for the scenario's text (optional)
 EXT_GOLDEN_KEYS = ("header", "package", "commit", "scenarios_sha256", "overrides_sha256", "count")
+EXT_GOLDEN_KEYS_CHANGED = EXT_GOLDEN_KEYS + ("changes",)      # M41-3: a row a reviewed decision moved is named here, as in the base golden: [{"commit", "ids", "cause"}]
 
 
 def ext_packages(folder=None) -> list:
@@ -1851,8 +1852,12 @@ def package_golden_problems(package, folder=None) -> list:
     header, rows = ext_golden(package, folder)
     scenarios = ext_scenarios(package, folder)
     problems = []
-    if list(header) != list(EXT_GOLDEN_KEYS) or header.get("header") is not True:
+    if list(header) not in (list(EXT_GOLDEN_KEYS), list(EXT_GOLDEN_KEYS_CHANGED)) or header.get("header") is not True:
         problems.append(f"{package}: the header keys are {list(header)}")
+    for change in header.get("changes", []):
+        if not (isinstance(change, dict) and set(change) == {"commit", "ids", "cause"} and change["ids"] and set(change["ids"]) <= {s["id"] for s in scenarios}
+                and isinstance(change["cause"], str) and change["cause"].strip() and isinstance(change["commit"], str) and len(change["commit"]) >= 7):
+            problems.append(f"{package}: a change of the header is not {{commit, ids of the scenarios, cause}}")
     if header.get("package") != package:
         problems.append(f"{package}: the header names the package {header.get('package')!r}")
     if [row.get("id") for row in rows] != [s["id"] for s in scenarios]:

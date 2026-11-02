@@ -27,7 +27,7 @@ The order of one question, each step before the next:
      registered, handed to one contained run of the answer skill with the web off; the prompt is the question and `ops_ask.ASK_TASK_TEXT` byte for byte. The question is the person's line, except that a
      list line pasted into it is taken out (a subject is a stranger's words, and the question sits right above the task text). The day's count is kept apart from `file-ask`'s by the request word
      MA_REQUEST_TEXT. The configuration's key `file_ask` bounds it (USD 0.25, 180 s, 20 a day by default).
-  6. The reply: `ask_reply.check` with the message's line as its footer (MA_READ: who, subject, when and box, never an id or a version); a quote is checked against the message's own words (its sender, its
+  6. The reply: `ask_reply.check` with the message's line as its footer (MA_READ: who, subject, when and box, never an id or a version); the reply carries no source id (no ` [message]` in the prose, `Checked quote: "..."`, an instruction line without its id: `ask_reply.check` with a `read_label` and one source, M41-3); a quote is checked against the message's own words (its sender, its
      subject and its text), not against the platform's data line. While the reply passes code's checks, any run of digits in its prose that the message's own words do not hold is named after it
      (MA_NUMBER_CHECK, `ask_reply.absent_numbers`): a warning, never a block, counted in the room of the reply.
   7. What is left of the run: nothing but the counts (`ops_file_ask.purge`; `sweep` covers a crash).

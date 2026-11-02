@@ -35,6 +35,7 @@ text) and records `entry_ext/<id>.golden.jsonl` with `--record-package <id>`; th
   WB_ENTRY_RECORD_AGAIN="yes, a reviewed decision" uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --re-record ID[,ID...] --cause TEXT    replaces the named rows of the
       base golden (a reviewed decision of the maintainer: every other row stays byte for byte, the header names the change in `changes`)
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-package <id>    records entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl
+  WB_ENTRY_RECORD_AGAIN="yes, a reviewed decision" uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record-package <id> --cause TEXT    records a package golden that exists again (M41-3): the rows that differ are named in the header's `changes`
   python3 runtime/tests/entry_corpus_build.py --record-added    refuses: the base golden is closed (use --record-package)
   uv run --with pytest==9.1.1 python3 runtime/tests/entry_corpus_build.py --check    fails when the committed corpus is not what this script writes, a scenario is not well formed, or a file of entry_ext/ has a problem
   uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python3 runtime/tests/entry_corpus_build.py --record    records the golden
@@ -508,10 +509,11 @@ def ext_problems() -> list:
     return entry_kit.ext_problems()
 
 
-def record_package(package: str, workers: int) -> int:
+def record_package(package: str, workers: int, cause: str = "") -> int:
     """Record the golden of one package: only `entry_ext/<package>.scenarios.jsonl` is run, through the replay in record mode with `WB_ENTRY_RECORD_SET=<package>`; the header holds the commit this tree
     is at, the hash of the scenarios file, the hash of the package's model texts and the count. Refuses when a file of entry_ext/ has a problem, and when the golden of the package exists (it is
-    recorded once; a later change is a reviewed decision)."""
+    recorded once; a later change is a reviewed decision). A reviewed decision (WB_ENTRY_RECORD_AGAIN and a `cause`, M41-3) records it again: the rows that differ are named, with the commit and the cause,
+    in an entry of the header's `changes` (the base golden's form), after the entries it already had."""
     import tempfile
     sys.path.insert(0, str(HERE))
     import entry_kit  # noqa: E402
@@ -525,6 +527,9 @@ def record_package(package: str, workers: int) -> int:
     golden = entry_kit.EXT_DIR / f"{package}.golden.jsonl"
     if golden.exists() and os.environ.get("WB_ENTRY_RECORD_AGAIN") != "yes, a reviewed decision":
         print(f"{golden.name} exists: it is recorded once, and changed only as a reviewed decision (runtime/README.md, 'The entry replay')", file=sys.stderr)
+        return 2
+    if golden.exists() and not cause.strip():
+        print("recording a package golden again needs a --cause (the entry of the header's `changes`)", file=sys.stderr)
         return 2
     folder = tempfile.mkdtemp(prefix="entry-golden-package-")
     env = dict(os.environ, WB_ENTRY_RECORD="1", WB_ENTRY_RECORD_DIR=folder, WB_ENTRY_RECORD_SET=package)
@@ -546,6 +551,14 @@ def record_package(package: str, workers: int) -> int:
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip()
     header = {"header": True, "package": package, "commit": commit, "scenarios_sha256": sha256_of(entry_kit.EXT_DIR / f"{package}.scenarios.jsonl"),
               "overrides_sha256": entry_kit.overrides_sha256(package), "count": len(scenarios)}
+    if golden.exists():
+        before = {row["id"]: row for row in read_rows(golden)[1:]}
+        moved = [s["id"] for s in scenarios if before.get(s["id"]) != rows[s["id"]]]
+        if not moved:
+            print(f"no row of {golden.name} differs: nothing written", file=sys.stderr)
+            return 1
+        header["changes"] = list(read_rows(golden)[0].get("changes", [])) + [{"commit": commit, "ids": moved, "cause": cause}]
+        print("rows moved: " + ", ".join(moved), file=sys.stderr)
     golden.write_text(json.dumps(header, ensure_ascii=False) + "\n" + "".join(json.dumps(rows[s["id"]], ensure_ascii=False) + "\n" for s in scenarios), encoding="utf-8")
     print(f"golden of {len(scenarios)} scenarios of {package} recorded at {commit[:9]}", file=sys.stderr)
     return 0
@@ -628,7 +641,7 @@ def main(argv=None) -> int:
     parser.add_argument("--record-added", action="store_true", help="refused: the base golden is closed; use --record-package")
     parser.add_argument("--record-package", metavar="ID", help="record entry_ext/<id>.golden.jsonl from entry_ext/<id>.scenarios.jsonl (HOT-1)")
     parser.add_argument("--re-record", default="", metavar="ID[,ID...]", help="replace the named rows of the base golden (L64H; needs WB_ENTRY_RECORD_AGAIN and --cause); every other row stays as it is")
-    parser.add_argument("--cause", default="", help="with --re-record: why the rows change (written into the header's `changes`)")
+    parser.add_argument("--cause", default="", help="with --re-record, or --record-package of a golden that exists: why the rows change (written into the header's `changes`)")
     parser.add_argument("--stats", action="store_true", help="print the number of scenarios by channel, source and claimer")
     parser.add_argument("--full", action="store_true", help="take every line of the sampled corpora (the same as WB_FULL_FUZZ=1); written to entry_corpus_full.jsonl, never committed")
     parser.add_argument("--workers", type=int, default=4, help="pytest-xdist workers of --record (default 4)")
@@ -645,7 +658,7 @@ def main(argv=None) -> int:
     if args.record:
         return record(args.workers)
     if args.record_package:
-        return record_package(args.record_package, args.workers)
+        return record_package(args.record_package, args.workers, args.cause)
     if args.re_record:
         return re_record(args.workers, subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(REPO), text=True).strip(), [i for i in args.re_record.split(",") if i], args.cause)
     if args.record_added:

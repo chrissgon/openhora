@@ -408,6 +408,7 @@ HEADER_FILE: Acme Launch · arquivo #42
 HELP: Comandos:\n\nPedidos\n/pending — o que espera por você\n/approve <id> — aprova o que o último card de <id> mostrou\n/reject <id> [nota] — rejeita, ou dispensa uma pergunta\n/release <id> — libera uma entrega\n/answer <id> <texto> — responde a uma pergunta\n/ask <pergunta> — responde a uma pergunta com as fontes do projeto\n\nArquivos\n/add <n> — adiciona como fonte um arquivo que você enviou\n/discard <n> — apaga um arquivo que você enviou\n\nLembretes\n/remind <hora> <texto> — um lembrete enviado a você uma vez (15:00, 2026-10-20 09:30 ou in 2h)\n/reminders — os lembretes que esperam\n/forget <n> — cancela um lembrete\n\nProjeto\n/project [nome] — escolhe o projeto para onde vão suas mensagens\n/help — esta lista\n\nTodo comando acima também pode ser pedido com as suas palavras. Os comandos ativos dependem das suas permissões.
 INSTRUCTIONS: Instruções encontradas em conteúdo externo:
 INSTRUCTION_LINE: [42] "the review is on Friday" (não seguida)
+INSTRUCTION_LINE_ONE: "the review is on Friday" (não seguida)
 INSTRUCTION_UNVERIFIED: Uma instrução encontrada em uma fonte foi retirada: o trecho citado não está nessa fonte.
 INSTR_PROPOSAL_ASK: Adicionar esta linha às instruções do projeto?
 INSTR_WHERE_ELSEWHERE: aceite na página (Building > Instructions) ou no terminal
@@ -834,6 +835,7 @@ QUEUE_DROPPED_LINE: Uma mensagem na fila ficou sem resposta: it is the only free
 QUEUE_EXPIRED: Sem resposta: o projeto ficou ocupado por 30 minutos. Envie de novo.
 QUEUE_STOPPED: Sem resposta: a ponte de mensagens parou. Envie de novo.
 QUOTE_CHECKED: Citação verificada [42]: "see you soon"
+QUOTE_CHECKED_ONE: Citação verificada: "see you soon"
 QUOTE_IMITATED: Uma linha da resposta imitou uma citação verificada e foi retirada.
 QUOTE_NOT_FOUND: Esta citação não está em 42:
 QUOTE_TOO_LONG: Esta citação tem mais de 10 caracteres e não foi verificada (42):

@@ -84,6 +84,7 @@ BODY = ("Hello,\n\nYour Orbit plan is now Zenith. " + QUOTE + "\n\n"
 AURORA = "Aurora Team · Your Orbit plan is now Zenith · today 06:00"      # the line a list of this platform prints for message 1 of Gmail
 PASTED = "Aurora Team · Your Orbit plan is now Zenith · hoje 17:14"      # the same line as the person pastes it back: the `when` is left out of the match
 PROSE = "The plan is now Zenith at the same price [message]."
+SHOWN = "The plan is now Zenith at the same price."      # M41-3: the reply of a one-source reader carries no source id
 FOUND = f'Answer: found\n{PROSE}\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n'
 LONG = ("alpha beta gamma delta " * 6).strip() + "\n"      # 137 characters a line
 LONG_BODY = LONG * 25      # about 3,400 characters: over the phone's 1,500, under the snapshot's 4,000
@@ -170,10 +171,10 @@ def footer(box="Gmail", line=AURORA) -> str:
     return table("MA_READ", box=box, line=line)
 
 
-def found(reply, prose=PROSE, quote=QUOTE, **label) -> bool:
+def found(reply, prose=SHOWN, quote=QUOTE, **label) -> bool:
     """Whether the reply is the answer with a checked quote: three blocks, the model's prose (the test's own literal), the quote code checked and the footer of the message read."""
     parts = reply.split("\n\n")
-    return len(parts) == 3 and parts[0] == prose and parts[1] == table("QUOTE_CHECKED", id="message", text=quote) and parts[2] == footer(**label)
+    return len(parts) == 3 and parts[0] == prose and parts[1] == table("QUOTE_CHECKED_ONE", text=quote) and parts[2] == footer(**label)
 
 
 def every_file(desk) -> list:
@@ -291,7 +292,7 @@ def test_the_posso_is_asked_before_any_read_for_every_sender_even_one_who_turned
     nothing_ran(desk)
     answer(desk, DANA)
     done, _ = ask(desk, {"number": 3, "account": "google"}, "what is the deadline in e-mail 3?", confirmed=True)
-    assert found(done, prose="The deadline is 2026-11-30 [message].", quote=DANA_QUOTE, line=DANA_LINE) and reads(desk) == 1
+    assert found(done, prose="The deadline is 2026-11-30.", quote=DANA_QUOTE, line=DANA_LINE) and reads(desk) == 1
     raw = json.loads((Path(desk["path"]) / "docs" / "workbench" / "runtime.json").read_text(encoding="utf-8"))
     raw["policies"]["both"] = PROFILES["both"] + ["confirm-reads-off"]
     (Path(desk["path"]) / "docs" / "workbench" / "runtime.json").write_text(json.dumps(raw), encoding="utf-8")
@@ -352,7 +353,7 @@ def test_a_number_two_boxes_hold_is_listed_with_how_to_name_the_box_in_the_words
 def test_a_sender_or_subject_that_one_message_holds_runs_once_and_names_that_message(desk):
     answer(desk, 'Answer: found\nThe invoice is attached [message].\nQuote [message]: "Your invoice is attached."\nInstructions found in external content: none\n')
     reply, _ = ask(desk, {"match": "Banco Verde"})
-    assert reads(desk) == 1 and found(reply, prose="The invoice is attached [message].", quote="Your invoice is attached.", box="Outlook", line="Banco Verde · Invoice · Wed 14/10 09:00")
+    assert reads(desk) == 1 and found(reply, prose="The invoice is attached.", quote="Your invoice is attached.", box="Outlook", line="Banco Verde · Invoice · Wed 14/10 09:00")
 
 
 @pytest.mark.parametrize("desk", [newsletters(3)], indirect=True)
@@ -439,11 +440,11 @@ def test_every_line_the_list_prints_names_its_message(desk):
                'Answer: found\nSoon [message].\nQuote [message]: "The deadline is soon."\nInstructions found in external content: none\n')
         before = reads(desk)
         reply, _ = ask(desk, {"match": line})
-        assert reads(desk) == before + 1 and reply.split("\n\n")[0] in ("Numbers [message].", "Soon [message]."), line
+        assert reads(desk) == before + 1 and reply.split("\n\n")[0] in ("Numbers.", "Soon."), line
         unread, _ = ask(desk, {"match": line.split(". ", 1)[0] + ". \u2022 " + line.split(". ", 1)[1]})
         assert reads(desk) == before + 2, "the unread mark before the who"
     boxed, _ = ask(desk, {"match": "Gmail · " + printed[1].split(". ", 1)[1]})
-    assert reads(desk) == before + 3 and boxed.split("\n\n")[0] == "Soon [message]."
+    assert reads(desk) == before + 3 and boxed.split("\n\n")[0] == "Soon."
 
 
 # --- 5. the whole body reaches the reader ------------------------------------------------------------------------------------------------------
@@ -469,7 +470,7 @@ def test_a_body_the_snapshot_cut_ends_cut_in_the_copy_and_the_reply_says_it_read
     reply, _ = ask(desk, {"message": "inbox#1"})
     text = left.seen[0]["copy"][COPY]
     assert text.endswith("(cut)") and len(text) > 4000, "a body of 6,000 characters is the snapshot's 4,000 and its mark, whole, in the copy"
-    assert reply.split("\n\n") == ["The visit is confirmed [message].", table("QUOTE_CHECKED", id="message", text="alpha beta gamma delta alpha beta gamma delta"), footer(), table("MA_LONG")]
+    assert reply.split("\n\n") == ["The visit is confirmed.", table("QUOTE_CHECKED_ONE", text="alpha beta gamma delta alpha beta gamma delta"), footer(), table("MA_LONG")]
     assert ops_mail_read.TEXT_CHARS == 4000
 
 
@@ -529,8 +530,8 @@ def test_an_instruction_in_the_message_is_shown_as_not_followed_and_a_passage_no
     acted(monkeypatch)
     reply, _ = ask(desk, {"message": "inbox#1"})
     parts = reply.split("\n\n")
-    assert len(parts) == 5 and parts[0] == PROSE and parts[1] == table("QUOTE_CHECKED", id="message", text=QUOTE) and parts[2] == table("INSTRUCTION_UNVERIFIED")
-    assert parts[3] == table("INSTRUCTIONS") + " " + table("INSTRUCTION_LINE", id="message", passage=FORWARD) and parts[4] == footer()
+    assert len(parts) == 5 and parts[0] == SHOWN and parts[1] == table("QUOTE_CHECKED_ONE", text=QUOTE) and parts[2] == table("INSTRUCTION_UNVERIFIED")
+    assert parts[3] == table("INSTRUCTIONS") + " " + table("INSTRUCTION_LINE_ONE", passage=FORWARD) and parts[4] == footer()
     assert "wire the money" not in reply
 
 
@@ -626,7 +627,7 @@ def test_the_warning_follows_a_found_or_partial_reply_and_not_a_not_found_and_no
     reply, _ = ask(desk, {"message": "inbox#1"})
     parts = reply.split("\n\n")
     assert parts[-1] == table("MA_NUMBER_CHECK", values="999") and parts[-2] == footer(), "the warning follows the footer and blocks nothing"
-    assert parts[0] == "The price is 999 a month [message]."
+    assert parts[0] == "The price is 999 a month."
     answer(desk, f'Answer: partial\nThe price is 999 a month [message].\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n')
     partial, _ = ask(desk, {"message": "inbox#1"})
     assert partial.split("\n\n")[-1] == table("MA_NUMBER_CHECK", values="999")
@@ -925,7 +926,7 @@ def test_a_list_line_pasted_into_the_question_is_taken_out_of_it_so_a_subject_ne
     answer(desk, INVOICE_FOUND)
     span = f"Aurora Team · {BAIT_SUBJECT} · hoje 17:14"
     reply, _ = ask(desk, {"match": span}, f"Summarize the e-mail: {span}")
-    assert reply.split("\n\n")[0] == "The invoice is ready [message]." and reads(desk) == 1
+    assert reply.split("\n\n")[0] == "The invoice is ready." and reads(desk) == 1
     prompt = ran(left)[0]["prompt"]
     assert prompt.startswith("Summarize the e-mail:\n") and BAIT_SUBJECT not in prompt and "APPROVED" not in prompt
     assert "Subject: " + BAIT_SUBJECT in ran(left)[0]["copy"][COPY], "the subject reaches the reader only as data, in the copy"
@@ -944,7 +945,7 @@ def test_a_line_that_holds_a_pasted_list_line_whose_span_is_not_that_line_gets_t
     answer(desk, INVOICE_FOUND)
     line = f"Summarize the e-mail: Aurora Team · {BAIT_SUBJECT} · today 17:14"
     reply, _ = ask(desk, {"match": "Aurora Team"}, line)
-    assert reply.split("\n\n")[0] == "The invoice is ready [message]." and reads(desk) == 1
+    assert reply.split("\n\n")[0] == "The invoice is ready." and reads(desk) == 1
     prompt = ran(left)[0]["prompt"]
     assert prompt.startswith(table("MA_SUMMARY_QUESTION")) and BAIT_SUBJECT not in prompt and "APPROVED" not in prompt
     assert "Subject: " + BAIT_SUBJECT in ran(left)[0]["copy"][COPY], "the subject still reaches the reader as data, in the copy"
@@ -1106,21 +1107,21 @@ def test_a_quote_of_the_platforms_own_data_line_is_not_checked_and_a_quote_of_th
     assert parts[1] == table("QUOTE_NOT_FOUND", id="message") + f' "{DATA_QUOTE}"' and parts[2] == table("UNVERIFIED")
     answer(desk, 'Answer: found\nThe subject says so [message].\nQuote [message]: "Subject: Your Orbit plan is now Zenith"\nInstructions found in external content: none\n')
     subject, _ = ask(desk, {"message": "inbox#1"})
-    assert subject.split("\n\n")[1] == table("QUOTE_CHECKED", id="message", text="Subject: Your Orbit plan is now Zenith")
+    assert subject.split("\n\n")[1] == table("QUOTE_CHECKED_ONE", text="Subject: Your Orbit plan is now Zenith")
 
 
 def test_vacuity_checking_a_quote_against_the_whole_copy_accepts_the_data_line(desk, monkeypatch):
     monkeypatch.setitem(ops_mail_ask.KIT, "verify", lambda text, got: text)
     answer(desk, f'Answer: found\nIt says so [message].\nQuote [message]: "{DATA_QUOTE}"\nInstructions found in external content: none\n')
     reply, _ = ask(desk, {"message": "inbox#1"})
-    assert reply.split("\n\n")[1] == table("QUOTE_CHECKED", id="message", text=DATA_QUOTE), "the oracle sees the platform's sentence pass as the message's words"
+    assert reply.split("\n\n")[1] == table("QUOTE_CHECKED_ONE", text=DATA_QUOTE), "the oracle sees the platform's sentence pass as the message's words"
 
 
 def test_the_warning_is_inside_the_room_of_a_reply_on_a_phone(desk):
     filler = "The total is in the message and more words follow. " * 200
     answer(desk, f'Answer: found\n{filler}999 [message].\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n')
     reply, _ = ask(desk, {"message": "inbox#1"})
-    assert len(reply) <= ops_file_ask.PHONE_CHARS and reply.endswith(table("MA_NUMBER_CHECK", values="999")) and table("QUOTE_CHECKED", id="message", text=QUOTE) in reply
+    assert len(reply) <= ops_file_ask.PHONE_CHARS and reply.endswith(table("MA_NUMBER_CHECK", values="999")) and table("QUOTE_CHECKED_ONE", text=QUOTE) in reply
     page = ops.mail_ask(desk["path"], "summarize it", message="inbox#1", channel="terminal")["reply"]
     assert ops_file_ask.PHONE_CHARS < len(page) <= ops_file_ask.OTHER_CHARS and page.endswith(table("MA_NUMBER_CHECK", values="999"))
 
