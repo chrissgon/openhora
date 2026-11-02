@@ -377,7 +377,7 @@ stateDiagram-v2
 | `plan` | code built a plan from a route or a named flow | `approved`: the tasks are created; `rejected`: the request is cancelled |
 | `question` | ending `question`; a stop of a step task (its payload names the kind and the step) | `answered`: the task is `ready`; the answer is written into the state file by code (a step task's answer is recorded on the decision only: the next run goes on after the stop) |
 | `review` | ending `done`, `draft_with_questions`, `unclassified`, or a `gate` whose effect could not be opened | `released`: the task is `done`, still a draft; `answered`: the task runs again with the text |
-| `effect` | ending `gate`, with the payload recovered, parsed, agreeing with the configuration and an unblocked change set | `approved` (only with its hash, then executed by code); `answered`: sent back; `rejected`: the task is cancelled, nothing sent |
+| `effect` | ending `gate`, with the payload recovered, parsed, agreeing with the configuration and an unblocked change set | `approved` (only with its hash, then executed by code); `answered`: sent back; `rejected`: the task is cancelled, nothing sent; its request is cancelled when no task of it is left that is not cancelled |
 | `acceptance` | a request written on the board; sub-tasks beyond the plan's limits (`subtasks`); a request a mode completed (`deliveries`) | `accepted`, `rejected` |
 | `your_document` | reserved: a task in which the person writes the document; the store accepts the kind and no operation opens it | none: `ops._actions` offers no word for it |
 

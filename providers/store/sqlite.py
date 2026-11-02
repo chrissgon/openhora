@@ -1799,8 +1799,13 @@ def _task(conn: sqlite3.Connection, task_id: int) -> dict:
 
 
 def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
-    """Inside a transaction: a request whose tasks are all done becomes done, a wait ends (cleared) when its
-    awaited row is done or cancelled, or when the task that waited is (a cancelled task waits for nothing), a planned task whose dependencies are all done and that has no open wait becomes ready.
+    """Inside a transaction: a request whose tasks are all done becomes done; a planned request whose tasks are all
+    cancelled and at least one of which was cancelled by a rejected `effect` becomes cancelled (the person turned the
+    effect down and nothing else of the request can move: a cancelled task is final; it is not listed as completed, and a
+    request whose only task was stopped by `task_stop` has no rejected effect and stays as it is). Because every
+    resolving transaction runs this, the same rule ends a request an earlier rejection left planned. A wait ends
+    (cleared) when its awaited row is done or cancelled, or when the task that waited is (a cancelled task waits for
+    nothing), a planned task whose dependencies are all done and that has no open wait becomes ready.
     Returns (ids made ready, ids of the requests completed)."""
     ready, completed = [], []
     for row in conn.execute("SELECT id FROM tasks WHERE state = 'planned' AND parent_id IS NULL ORDER BY id").fetchall():
@@ -1808,6 +1813,10 @@ def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
         if states and all(state == "done" for state in states):
             conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, row["id"]))
             completed.append(row["id"])
+        elif states and all(state == "cancelled" for state in states) and conn.execute(
+                "SELECT 1 FROM pending_decisions d JOIN tasks t ON t.id = d.task_id WHERE t.parent_id = ? "
+                "AND d.kind = 'effect' AND d.status = 'resolved' AND d.resolution = 'rejected'", (row["id"],)).fetchone():
+            conn.execute("UPDATE tasks SET state = 'cancelled', updated_at = ? WHERE id = ?", (now, row["id"]))
     conn.execute("UPDATE task_waits SET status = 'cleared', ended_at = ?, ended_by = 'runtime' WHERE status = 'open' "
                  "AND (awaited_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')) "
                  "OR task_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')))", (now,))
@@ -2096,8 +2105,9 @@ def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: st
     whose tasks are all done becomes done. A `plan` or an `acceptance` is never resolved here (plan_approve,
     plan_reject, acceptance_resolve). A question asked on a request (by the router, before any task exists) is
     only answered, and the request stays `requested`: a request is never given out to run. An `effect` is
-    `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled); both
-    revoke a `pending-execution` approval of it in the same transaction; it is approved through effect_done only.
+    `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled, and its
+    request too once no task of it is left that is not cancelled: `_refresh`); both revoke a `pending-execution`
+    approval of it in the same transaction; it is approved through effect_done only.
     `actor` (POL-2) is who acted, kept beside `by`: see migration 17.
     Returns {"pending_id", "task_id", "task_state", "ready": [ids], "completed": [request ids]}."""
     if resolution not in RESOLUTIONS and resolution not in EFFECT_RESOLUTIONS:
