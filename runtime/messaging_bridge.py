@@ -106,7 +106,9 @@ A table command typed on a phone (`/cancel 8`) is answered with a sentence in th
 Words that change a card (S13, limits L63 and L64). A plain line that is not such a word is about the card that waits when that card is the LAST message sent to the chat (or the line replies to
 it): `revise_waiting`, called by the kind `decision-card-revise` after the card words, asks the operations layer (`card_revise_check`) what the line is for that card; the change itself (`card_revise`) runs in a job, because it calls a model,
 and ends in one sentence and the new card, which is the last message and is decided by the same words and buttons, or in one plain sentence with the old card still open. The old card is ended
-by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path.
+by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path. A plain line that asks about the card
+(ANY-QUESTION) is answered by code and changes nothing: `waiting_card` reads the card that is the last message again at the moment `line` runs, and `line` leaves its number for the operations layer on the line's thread
+(runtime/line_card.py), which answers from the card's own lines and sends the card again.
 
 Every command in words (S20, limits L54 and L64). A command a sender can type can be asked for in words, and the words are the typed command. The operations layer reads the line (a closed form
 of the tier-1 tables, or the interpreter's decision) and hands the bridge the typed line it stands for (`result["typed"]`); `line` then handles it exactly as it handles the typed one
@@ -146,6 +148,7 @@ import traceback
 import card_words
 import command_words
 import greeting
+import line_card
 import messaging_ack as ack
 import messaging_attach as attach
 import messaging_cards as cards
@@ -1172,6 +1175,25 @@ class Bridge(shell_kit.Jobs):
 
     # --- words that change a waiting card (S13, limits L55 and L64) -------------------------------------------------------------
 
+    def waiting_card(self, project: dict, chat: str):
+        """The number of the decision card that is the LAST message sent to this chat, for a plain line that may ask about it (ANY-QUESTION), else None: `revise_waiting`'s own conditions read again at the
+        moment the line runs. None on a platform whose acts are replies (e-mail; limit L64), when the last message is not a decision card of this project sent whole to this chat, when it is not open,
+        or when its content is no longer the card's hash. Nothing is sent or written."""
+        try:
+            if self.messenger.capabilities().get("actions_need_reply"):
+                return None
+            last = self.last_sent.get(chat)
+            rec = self.ledger.by_message(chat, last) if last else None
+            if (rec is None or rec.get("project") != project["id"] or rec.get("kind") in NOT_DECISION or rec.get("pending_id") is None
+                    or rec.get("whole") is not True or rec.get("chat") != chat):
+                return None
+            item = self.ops.pending(project["path"], pending_id=rec["pending_id"])
+            if cards.content_sha256(item) != rec["content_sha256"] or item.get("status", "open") != "open":
+                return None
+            return rec["pending_id"]
+        except Exception:      # noqa: BLE001 - nothing of the fault is kept: no card is in view
+            return None
+
     def revise_waiting(self, card, replied, text: str, kind: str, listed: list, chat: str) -> bool:
         """A plain line that changes a word of the card that waits ("after Regards, put my name", "muda para as 10h"): True when it was taken. The kind `decision-card-revise` of
         runtime/messaging_turn.py read the line (a plain line, no command, no forward, not on a platform whose acts are replies) and found the record `card` of the message it is about: the one the line
@@ -1801,6 +1823,7 @@ class Bridge(shell_kit.Jobs):
         def call():
             if entry is not None:
                 self.leave(entry)
+            waiting = self.waiting_card(project, chat) if plan_ok is None and route_pass is None else None      # ANY-QUESTION: before the indicator and the acknowledgement, which can send a message
             try:
                 if entry is not None:
                     try:
@@ -1820,7 +1843,8 @@ class Bridge(shell_kit.Jobs):
                     acked = self.ack_begin(project, chat, seen)      # S19: one short sentence if the reply takes more than a moment
                     if plan_ok is None:
                         legs = ({"decide": True} if decide else {}) | ({"route_pass": route_pass} if route_pass is not None else {})
-                        result = self.run_op(project, "say", kind="interpret" if decide and self.reads_words(project, chat) else None, sender=chat, allow_as=self.needs(text, project, chat), text=text, **legs, **self.send_arguments())      # review C1-b: leg 1 asks the policy with the kind `interpret`, so that `interpret` alone reaches the decision (the refusal after it is the operations layer's, decision #6)
+                        with line_card.hold(waiting):
+                            result = self.run_op(project, "say", kind="interpret" if decide and self.reads_words(project, chat) else None, sender=chat, allow_as=self.needs(text, project, chat), text=text, **legs, **self.send_arguments())      # review C1-b: leg 1 asks the policy with the kind `interpret`, so that `interpret` alone reaches the decision (the refusal after it is the operations layer's, decision #6)
                     else:
                         result = self.run_op(project, "say", sender=chat, allow_as=allow_as, text=text, plan_ok=plan_ok, **self.send_arguments())
                 finally:
