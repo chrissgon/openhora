@@ -1,0 +1,7 @@
+{
+ "package": "m41-3-tap",
+ "table": {
+  "TAP_REPLACED": "This card was replaced by a newer one, so nothing was done. Use the newer card.",
+  "TAP_CLOSED": "This card was already decided or closed, so nothing was done."
+ }
+}
