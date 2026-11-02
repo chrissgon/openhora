@@ -53,7 +53,9 @@ import secrets
 import sqlite3
 import stat
 import sys
+import threading
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -963,19 +965,71 @@ def _held_cursor_class(real):
     return _HELD_CURSORS[base]
 
 
-class Connection:
-    """What connect returns: one sqlite3 connection, closed when the last reference to this object goes.
+_DROPPED: list = []    # the _Dropped refs of main-thread Connections that were dropped; appended by the interpreter, in C
+_PENDING: dict = {}    # id(ref) -> ref, for every main-thread Connection not yet drained: a ref must outlive its referent or its callback never runs
 
-    From Python 3.11 a sqlite3.Connection refers to itself through its statement cache, so a connection dropped
-    without close() stays open, with its file and its -wal descriptor, until the cyclic collector reaches it (on
-    3.9 and 3.10 reference counting closes it at once). This object is outside that cycle, so reference counting
-    ends it at its last drop, whoever holds it: a caller never has to close, and one that does close loses nothing
-    (a second close is a no-op). A holder that keeps the object keeps the connection exactly as long as it can be
-    used, and a cursor keeps its Connection (_held_cursor_class), so `open_db(db).execute(...).fetchone()` on a temporary
-    works. A close refused on another thread (sqlite3 refuses any use there) is swallowed in __del__ and leaves the
-    connection to the collector, as before. The last connection of a file to close checkpoints and removes the -wal
-    and -shm files (SQLite's WAL life); the store tolerates that (private_files, ops_reads.version)."""
-    __slots__ = ("_real", "_cursor_class")
+
+class _Dropped(weakref.ref):
+    """A weak reference to a main-thread Connection that carries the real connection and calls `_DROPPED.append` when the Connection dies."""
+    __slots__ = ("real",)
+
+
+def _on_main_thread() -> bool:
+    return threading.current_thread() is threading.main_thread()
+
+
+def close_dropped() -> None:
+    """Close the connections whose Connection was dropped since the last call. `connect` calls it first, so a connection made
+    on the main thread is closed by the next connect of the main thread (or by a call of this by name), in an ordinary frame.
+    It does nothing on another thread. Each entry is taken out of both lists BEFORE it is closed: an exception that is not an
+    sqlite3 error (the exception of a stop signal's handler, which can land while a close releases the lock of the
+    interpreter) goes out through the caller as a normal raise, nothing is retried, and the next call carries on with the rest.
+    A connection another thread made refuses its close (sqlite3 refuses any use there): it is left to the collector."""
+    if not _on_main_thread():
+        return
+    while _DROPPED:
+        ref = _DROPPED.pop()
+        _PENDING.pop(id(ref), None)
+        try:
+            ref.real.close()
+        except sqlite3.Error:
+            pass
+
+
+class Connection:
+    """What connect returns on the main thread: one sqlite3 connection, closed by the next connect after the last reference
+    to this object goes.
+
+    From Python 3.11 a sqlite3.Connection refers to itself through its statement cache, so a connection dropped without
+    close() stays open, with its file and its -wal descriptor, until the cyclic collector reaches it (on 3.9 and 3.10
+    reference counting closes it at once). This object is outside that cycle, so reference counting sees its last drop,
+    whoever holds it: a caller never has to close, and one that does close loses nothing (a second close is a no-op). A
+    holder that keeps the object keeps the connection for as long as it keeps it.
+
+    The close is not made in the drop. A close releases the lock of the interpreter, and a stop signal's handler that runs
+    then raises inside whatever frame is running, which in a destructor can only be printed and dropped: the stop would be
+    lost (runtime/messaging.py, runtime/mcp.py, runtime/ops_steps.py and the default SIGINT raise from their handlers). So
+    this class has no __del__, and no Python runs in a drop: a weak reference made in `_wrap` (a _Dropped, with
+    `_DROPPED.append` as its callback, a call in C) puts the real connection in a list, and the next `connect` on the main
+    thread (or `close_dropped()`) closes it in an ordinary frame, where a handler's exception is a normal raise. The cost,
+    on the main thread: the last connections stay open until the next connect (at most what was dropped since the last one:
+    2 for an operation's context()) or, when the thread connects no more, until the process ends, as they would with a
+    collector with nothing to do; and a connection dropped with a transaction open holds it until then. `write` always ends
+    its transaction (COMMIT or ROLLBACK, on BaseException too) and no main-thread path drops inside one it began. A
+    connection made on the main thread and dropped on another thread lands in the same list, and the main thread closes it:
+    sqlite3 wants its own thread.
+
+    A connection made on any other thread is a _ThreadConnection, which closes at its own drop: those threads run no signal
+    handler, and a request thread ends without a later connect to close for it.
+
+    What a drop keeps alive: `execute` returns a cursor that holds this object (_held_cursor_class), so
+    `open_db(db).execute(...).fetchone()` on a temporary works. Nothing else does. A cursor from `conn.cursor()`, a saved
+    `conn.commit`, and `executemany`, `executescript`, `iterdump` and `cursor` called on a temporary reach the real connection
+    through __getattr__ and do not hold this object: on another thread they meet `Cannot operate on a closed database` (they
+    worked at the base), on the main thread they work until the next connect. No production line does any of these. The
+    last connection of a file to close checkpoints and may remove the -wal and -shm files (SQLite's WAL life; some builds
+    keep them); the store tolerates both (private_files, ops_reads.version)."""
+    __slots__ = ("_real", "_cursor_class", "__weakref__")
 
     def __init__(self, real):
         object.__setattr__(self, "_real", real)
@@ -1004,18 +1058,37 @@ class Connection:
     def __exit__(self, *given):
         return self._real.__exit__(*given)
 
+
+class _ThreadConnection(Connection):
+    """A Connection made on a thread that is not the main one: it closes its connection at its own drop. A close that
+    sqlite3 refuses (the drop is on another thread than the one that made it) is swallowed and leaves the connection to the
+    collector, as before."""
+    __slots__ = ()
+
     def __del__(self):
         try:
             self._real.close()
-        except Exception:  # noqa: BLE001 - the other thread's refusal, or the interpreter's exit: nobody can be told
+        except Exception:  # noqa: BLE001 - a refusal on another thread, a half-built object, or the interpreter's exit: nobody can be told
             pass
 
 
+def _wrap(real) -> "Connection":
+    """The Connection for a real sqlite3 connection, by the thread that makes it (see Connection)."""
+    if not _on_main_thread():
+        return _ThreadConnection(real)
+    conn = Connection(real)
+    ref = _Dropped(conn, _DROPPED.append)
+    ref.real = real
+    _PENDING[id(ref)] = ref
+    return conn
+
+
 def connect(path: Path) -> "Connection":
+    close_dropped()   # the connections dropped on the main thread since the last connect: closed here, in an ordinary frame
     # isolation_level=None: no implicit transactions; writes open BEGIN IMMEDIATE themselves.
     real = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
     real.row_factory = sqlite3.Row
-    conn = Connection(real)
+    conn = _wrap(real)
     conn.execute("PRAGMA busy_timeout = 10000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -1110,7 +1183,7 @@ def missing_migrations(conn: sqlite3.Connection) -> list:
     return sorted(set(MIGRATIONS) - have)
 
 
-def open_ready(args) -> sqlite3.Connection:
+def open_ready(args) -> "Connection":
     """A connection to an existing database at the current schema version: the highest applied number is the script's, and none of the script's
     migrations is missing (a number below the highest that was never applied is a gap, and init fills it)."""
     path = db_path(args)
@@ -1515,8 +1588,8 @@ def cmd_export(args) -> int:
 # transaction, so a step that ends a run, opens a pending decision and moves its task is all or nothing.
 # None of them has a CLI verb (export reads the tables). Text a model or another person wrote (a reply, a
 # question, an answer) is stored as given and never interpreted. Every function takes the connection that
-# open_db() returns and raises StoreError. That object closes its connection when its last reference goes, so no
-# caller closes it (see Connection).
+# open_db() returns and raises StoreError. That object closes its connection soon after its last reference goes, so
+# no caller closes it (see Connection for the thread it closes on and what a drop keeps alive).
 
 TASK_STATES = ("requested", "planned", "ready", "running", "waiting", "blocked", "done", "failed", "cancelled")
 TASK_FINAL_STATES = ("done", "cancelled")  # nothing leaves them; failed and blocked go back to ready (task_retry)
@@ -1687,7 +1760,7 @@ ACCEPTANCE_WHATS = ("subtasks", "deliveries")  # payload["what"] of an acceptanc
 REROUTE_STATES = ("planned", "done")  # a request one of whose deliveries is routed again after its brief (stage 6)
 
 
-def open_db(path) -> sqlite3.Connection:
+def open_db(path) -> "Connection":
     """A connection to an existing database at the current schema version: what every function below takes."""
     return open_ready(argparse.Namespace(db=str(path)))
 

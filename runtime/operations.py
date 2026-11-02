@@ -519,7 +519,7 @@ OPERATIONS = (
                  "about": "The bytes of one image under docs/.",
                  "slots": {}}},
     {"name": "version", "call": "version", "args": (), "channels": ("page", "mcp"), "model": False,
-     "help": "the change signal of the project's store: a number that grows on every write, and when the file was last written",
+     "help": "the change signal of the project's store: a number that grows on every write, and about when the store was last written (the time can move with no write)",
      "natural": {"class": "G", "since": 1, "order": 94, "privacy": "own", "cost": "none",
                  "what": "the change signal of the store",
                  "about": "The change signal of the store.",
