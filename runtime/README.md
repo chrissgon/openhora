@@ -10,7 +10,10 @@ skeleton, and holds the stages built since: the limits that live in code, each w
 It is the one runtime. The first one, a script that ran one agent on social comments, was deleted with its
 duplicated tests on 2026-10-27 (T6, `docs/decisions/`): that agent runs as `handlers/social.py` and its siblings.
 Both keep their state in the same store (`providers/store/sqlite.py`): the tables of the task runtime are migrations
-2 to 9 of that file.
+2 to 9 of that file. `store.connect` returns an object that closes its connection after its last reference goes (on the main
+thread, at the next `connect`, so that a stop signal is not lost in the drop of a connection made there), so an operation's `context()`
+leaves at most what it last dropped open on any Python version, and no caller closes it
+(`tests/test_store_connections_close.py`).
 
 ## Modules
 

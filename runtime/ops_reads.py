@@ -74,8 +74,10 @@ def version(project: str) -> dict:
     again when it moved. It is the cheapest read there is: the configuration file and its hash, then on the store four
     statements (two pragmas of the connection, one plain SELECT of the cursor that holds the accepted configuration's hash,
     the header) with no transaction and so no write lock; no migration is run (every other operation runs one at its
-    start), and a configuration nobody accepted, or one that names another checkout, is refused as every operation refuses it. "changed_at" is the time the store's file
-    was last written (UTC, as the store writes times). A project whose store does not exist yet gets it made, as every
+    start), and a configuration nobody accepted, or one that names another checkout, is refused as every operation refuses it. "changed_at" is the later of the modification
+    times of the store file and its -wal, read when the call is made (UTC, as the store writes times). The number says whether
+    anything changed; this time is only close to it: the -wal is removed when the last connection to the file closes and made
+    again by the next one, so the time can move, and go back, with no write. Nothing decides on it. A project whose store does not exist yet gets it made, as every
     other operation does."""
     cfg = core._config_of(project)
     store = core.store_module()
@@ -93,7 +95,11 @@ def version(project: str) -> dict:
     finally:
         conn.close()
     core._accepted(cfg, accepted)
-    stamps = [os.stat(path).st_mtime for path in (db, db + "-wal") if os.path.exists(path)]
+    stamps = [os.stat(db).st_mtime]
+    try:
+        stamps.append(os.stat(db + "-wal").st_mtime)
+    except FileNotFoundError:      # the last close of another process removes the -wal at any moment: the store file stays
+        pass
     changed = datetime.datetime.fromtimestamp(max(stamps), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return {"version": number, "changed_at": changed}
 
