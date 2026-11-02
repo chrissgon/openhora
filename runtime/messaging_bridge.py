@@ -15,6 +15,10 @@ Senders. An update from a sender who is not in `messaging.senders.<platform>` of
 chat that is not private, is dropped with no reply and no log of who or what. A sender who is listed in several
 projects chooses with /project; the default is the first.
 
+Taps. Every tap that reaches the bridge leaves exactly one log line: a card kind, the decision number and the operation word the card gave the button ("a tap was
+received: effect card, decision 7, approve"; "... reminder card, yes" when the card has no decision), or "a tap was received on a card this chat no longer has". Never the
+chat, the sender, a title or text, or the action id. A tap from an unlisted chat leaves only the line of an unlisted sender.
+
 Reads. The bridge reads `pending` itself, outside the policy's `read` group, to build cards and to bind an approval to
 the card the person saw; `read` only decides what a person may ask for (/pending, `status`, and the like), and a policy
 without it also switches the notices off.
@@ -170,6 +174,10 @@ RETRY_SECONDS = 5
 ACK_ONCE_SECONDS = 120.0       # a line acknowledged by one part of its job is not acknowledged again by the next part (S19)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
+# One log line per tap that reaches the bridge (M41-3, package P2). Each holds a card kind, a decision number and a closed operation word, nothing of who or what.
+TAP_RECEIVED = "a tap was received: {kind} card, decision {pending}, {op}"
+TAP_OTHER = "a tap was received: {kind} card, {op}"      # a card with no decision number (a reminder, an attachment, a plan question)
+TAP_STALE = "a tap was received on a card this chat no longer has"
 # The sentences a person reads are the phrase table's (runtime/phrases.py, package LR-1): these names keep the English text (a test, a card and the docs read
 # them) and each place below says the sentence in the project's language. NOT_ACCEPTED_WHY and the other *_WHY texts are for the log, and stay English.
 STALE = phrases.en("STALE")
@@ -1394,11 +1402,14 @@ class Bridge(shell_kit.Jobs):
         card = self.ledger.by_action(chat, action_id)
         project = next((p for p in self.projects if card and p["id"] == card["project"]), None)
         if card is None or project is None or card.get("chat") != chat:      # a card is acted on only in the chat it was sent to, by that chat's sender
+            self.log(TAP_STALE)
             self.reply(chat, self.t("STALE", project=project, chat=chat), project)
             return
         if not self.listed_in(project, chat):
-            self.log(DROPPED)
+            self.log(DROPPED)      # an unlisted chat keeps only this line: no card kind, no decision number
             return
+        kind, pending, op = card.get("kind") or "decision", card.get("pending_id"), card["actions"].get(action_id)      # all three are words and numbers the bridge itself wrote into the ledger
+        self.log(TAP_RECEIVED.format(kind=kind, pending=pending, op=op) if pending is not None else TAP_OTHER.format(kind=kind, op=op))
         if card.get("kind") == "reminder":
             self.remind.tapped(project, chat, card)
             return
