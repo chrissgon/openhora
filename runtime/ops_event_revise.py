@@ -31,6 +31,8 @@ a card that creates one, and the calendar is never searched.
 The new card is opened by the operation the person's own command would run (`event_create`, `event_change`, reached through ops_facade.py), checked equal to the old card in everything the line did not name, and then the
 old card is ended as rejected, so its hash is never approvable again. Nothing is written to a calendar here; the new card is approved by its own hash.
 
+A question about the card (ANY-QUESTION: a decision of kind `question` with `about` `card`) is answered from the card's own lines as the sender may read them (runtime/ops_any_question.py) and the card is sent again; nothing is ended, opened or remembered. Any other question passes on to the turn that follows, like any decision that is not a change of the card.
+
 Privacy (limit L63): the line and the five fields of the card (title, place when it has one, start, end and the weekday of the start) are read by the model service, on the daily route only and never a fallback. Nothing is logged, printed or stored here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/ops_event_revise.py --help
@@ -51,12 +53,14 @@ import interpreter  # noqa: E402
 import line_stage  # noqa: E402
 import mail_revise  # noqa: E402
 import natural_time  # noqa: E402
+import ops_any_question  # noqa: E402
 import ops_card_revise as base  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_facade  # noqa: E402
 import ops_grants  # noqa: E402
 import ops_interpret  # noqa: E402
 import ops_natural  # noqa: E402
+import phrases  # noqa: E402
 import turn_gate  # noqa: E402
 
 STAMP = "%Y-%m-%dT%H:%M"
@@ -509,6 +513,8 @@ def revise(project: str, ctx: dict, pending_id, entry, line: str, doc: dict, cha
         return _goes_on(by_code, admission)
     if left_to_code(decision, by_code):
         return _goes_on(by_code, admission)      # a reminder, a bare time or a write said in words that the card call did not read as a change of the card: it takes the path it would have taken, unread and unremembered
+    if decision.get("kind") == "question" and decision.get("about") == "card":      # ANY-QUESTION: a question about this card is answered from the card's own lines and the card is sent again; nothing is ended, opened or remembered
+        return {"say": ops_any_question.card_answer(ctx, pending_id, decision.get("field"), sender) or phrases.text("QUESTION_CARD_NONE", ctx["cfg"]), "resend": pending_id}
     if by_code and decision.get("kind") == "clarify" and decision.get("op") not in (None, "event-change"):
         base.remember(project, channel, sender, line, decision)      # the model read the line as another operation and the checks ask about it (a time: "tomar remedio as 3"): the turn that follows asks it, as for any line, with its draft
         return _goes_on(by_code, admission, remembered=True)

@@ -523,8 +523,8 @@ def test_only_the_gate_creates_a_refresh_budget():
         if lines:
             held[path.name] = lines
     # phrases.py (TT-2) holds the tag of the scope the fixed sentences are said in for one person: a language, not a refresh budget (natural.py held the scope of a repeating line, CB-9, until
-    # CANDIDATE-OUT 2 deleted it)
-    assert set(held) == {"messaging_bridge.py", "ops_actor.py", "ops_core.py", "phrases.py", "turn_gate.py"}, f"a new thread-local or context variable needs a reading: is it a refresh budget? {held}"
+    # CANDIDATE-OUT 2 deleted it). line_card.py (ANY-QUESTION Q1) holds the number of the card the line is about, not a refresh budget.
+    assert set(held) == {"line_card.py", "messaging_bridge.py", "ops_actor.py", "ops_core.py", "phrases.py", "turn_gate.py"}, f"a new thread-local or context variable needs a reading: is it a refresh budget? {held}"
     for name in ("event_lookup.py", "ops_items.py", "mail_refresh.py", "ops_natural_mail.py"):
         assert name not in held and "_LOCAL" not in source_of(name), f"{name} holds no budget of its own"
 

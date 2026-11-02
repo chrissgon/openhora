@@ -30,6 +30,7 @@ The decision, always {"kind", "error"} plus, by kind:
   answer    item (the id), need, and what the item's need asks: slot / span / args, confirm, option, time, time_disagree
   clarify   slot | ops (code writes the question), why: model | time-ask | time-past | time-far | time-gap | time-fold | weekday | private-route | invalid | long-line
   route     none
+  question  about card | done | can | other, field (a card's part) | None, op | None: code answers it from the card's own lines or a fixed sentence; nothing is opened, ended or run (ANY-QUESTION)
   refuse    class D | G, op            refuse_policy   op
 BL7-4, three rules of the check, none of which can open a card or run anything: a plain no (a line that opens with a no word and holds no digit, date, clock or relative time) is the `answer` no
 of a plan item, from a model's `confirm: no` that names no slot and no span and from a model's `none`; a `mail-draft` with no recipient, target, message, day or subject in a line with a draft verb
@@ -122,13 +123,16 @@ INTS_RE = re.compile(r"[0-9]{1,9}(?:,[0-9]{1,9})*")
 ACCOUNT_WORDS_MAX = 3      # words in a row an account slot may hold: "google drive", "one drive", "google calendar" (S17)
 LINE_BREAKS = re.compile(r"\s+")           # every run of white space, line separators included (str `\s` holds U+0085, U+2028 and U+2029)
 
-KINDS = ("op", "answer", "clarify", "route", "none")
+KINDS = ("op", "answer", "clarify", "route", "none", "question")
+QUESTION_ABOUT = ("card", "done", "can", "other")          # ANY-QUESTION: what a question is about
+QUESTION_FIELDS = ("title", "when", "place", "to", "from", "subject", "approve", "other")          # the part of a card a question asks about
 # The keys of each kind: (required, optional). Anything else is refused.
 KEYS = {"op": ({"v", "kind", "op", "slots"}, {"time_iso", "weekday", "inherit"}),
         "answer": ({"v", "kind", "answers_item"}, {"slot", "span", "time_iso", "weekday", "confirm", "option"}),
         "clarify": ({"v", "kind"}, {"slot", "ops"}),
         "route": ({"v", "kind"}, set()),
-        "none": ({"v", "kind"}, set())}
+        "none": ({"v", "kind"}, set()),
+        "question": ({"v", "kind", "about"}, {"field", "op"})}
 FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm")
 FRAME_NEEDS = ("slot", "confirm", "option", "text")
 ITEM_KEYS = {"id", "kind", "op", "need", "slot", "options", "values", "words", "age_s"}
@@ -526,6 +530,21 @@ def _shape(obj):
             ops = obj["ops"]
             if not isinstance(ops, list) or not 2 <= len(ops) <= 3 or len(set(o for o in ops if isinstance(o, str))) != len(ops) or not all(isinstance(o, str) and OP_RE.fullmatch(o) for o in ops):
                 return "E_SHAPE"
+    elif kind == "question":
+        about = obj["about"]
+        if not isinstance(about, str) or about not in QUESTION_ABOUT:
+            return "E_SHAPE"
+        if "op" in obj and (not isinstance(obj["op"], str) or not OP_RE.fullmatch(obj["op"])):
+            return "E_SHAPE"
+        if about == "card":
+            if "op" in obj or not isinstance(obj.get("field"), str) or obj["field"] not in QUESTION_FIELDS:
+                return "E_SHAPE"
+        elif "field" in obj:
+            return "E_SHAPE"
+        elif about == "can" and "op" not in obj:
+            return "E_SHAPE"
+        elif about == "other" and "op" in obj:
+            return "E_SHAPE"
     if kind in ("op", "answer"):
         if ("time_iso" in obj) != ("weekday" in obj):
             return "E_SHAPE"
@@ -873,6 +892,10 @@ def check(obj, line, frame, catalog, now, zone, allowed) -> dict:
     if kind == "route":
         return _clarify("private-route") if turn_gate.private_line(line) else {"kind": "route", "error": None}
     ops, refused = _catalog_rows(catalog)
+    if kind == "question":          # ANY-QUESTION: no policy check here, a question does nothing; `can` reads the policy when it answers
+        if "op" in obj and obj["op"] not in ops and obj["op"] not in refused:
+            return _invalid("E_OP_UNKNOWN")
+        return {"kind": "question", "error": None, "about": obj["about"], "field": obj.get("field"), "op": obj.get("op")}
     if kind == "clarify":
         if "slot" in obj:
             if not any(obj["slot"] in row["slots"] for row in ops.values()):

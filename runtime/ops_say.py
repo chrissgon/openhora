@@ -56,6 +56,8 @@ import skill_meta
 import turn_gate
 import event_lookup
 import item_refs
+import line_card
+import ops_any_question
 import ops_cancel
 import ops_file_read
 import ops_interpret
@@ -203,6 +205,7 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
     `decide` and `route_pass` (S41-11, messaging only, passed by the bridge alone) are the two legs of a plain line of a sender whom the interpreter reads: with `decide` the line is walked through
     the whole stage `ops` with no route lock check and nothing stored before the decision; a line no row of code and no decision of the interpreter takes comes back as `{"to_agent": <pass id>}`
     (nothing stored, no plan dropped); with `route_pass` the interpreter row takes the pass in place of a second call.
+    `extras["waiting_card"]` (ANY-QUESTION) is the card the line is about, read from `line_card` (the bridge sets it on the line's thread): a question about it is answered from its own lines and changes nothing.
     `can_send` (S18) is what the messaging bridge says its app can carry as a file (the provider's capabilities: ops_file_read._limits); only the bridge passes it, and only a messaging
     call keeps it. A reply that carries a file hands it back in "attachment" ({"name", "kind", "data"}: bytes in memory, for the bridge to send and drop; never stored).
     A plain line on a messaging app that stands for a typed command (slice S20: "rejeite a pergunta 25" is `/reject 25`) hands the typed line back in "typed": for a command the
@@ -256,6 +259,8 @@ def say(project: str, text: str, channel: str | None = None, sender: str | None 
             extras["decide"] = True
         if route_pass is not None:
             extras["route_pass"] = route_pass
+        if channel == "messaging" and line_card.current() is not None:
+            extras["waiting_card"] = line_card.current()
         if can_send is not None and channel == "messaging":
             extras["can_send"] = can_send
         handed = False
@@ -310,6 +315,10 @@ def _confirmed(project: str, ctx: dict, said: str, sender, plan_ok: dict, extras
         if not operations.permitted("status", "messaging", cfg["channels"], None, sender):
             return phone_refusal.said(operations.not_enabled("status", "messaging"), "messaging", cfg)
         return state_reply(project, cfg=cfg)
+    if state.get("question_done") is not None:      # ANY-QUESTION: the plan of a question about how the person's cards ended; the OK reads the list, nothing else
+        if not operations.permitted("pending", "messaging", cfg["channels"], None, sender):
+            return phone_refusal.said(operations.not_enabled("pending", "messaging"), "messaging", cfg)
+        return ops_any_question.done_reply(ctx, state["question_done"]["op"], sender, extras)
     args = plan_confirm.args_chosen(state, plan_ok["choice"]) if state.get("choices") else state["args"]      # the account question: the plan's call with the option the person chose (`take` checked it)
     return ops_natural.run(project, ctx, state["op"], args, state["said"], "messaging", sender, extras, when=state["when"], routed=state["routed"], confirmed=True)
 

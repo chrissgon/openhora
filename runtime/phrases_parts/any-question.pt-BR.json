@@ -1,0 +1,25 @@
+{
+ "package": "any-question",
+ "table": {
+  "QUESTION_CARD_SAYS": "O card diz:\n{lines}\nNada foi mudado; o card está logo abaixo.",
+  "QUESTION_CARD_APPROVE": "É isto que a aprovação faz, como o card diz:\n{lines}\nRejeitar não faz nada. Nada foi mudado; o card está logo abaixo.",
+  "QUESTION_CARD_NONE": "O card não diz isso. Nada foi mudado; o card está logo abaixo.",
+  "QUESTION_NO_CARD": "Não vejo nenhum card esperando por você nesta conversa agora. Se quiser, pergunte o que está esperando por você.",
+  "QUESTION_CARD_WORD": "Para aprovar, toque em Aprovar ou responda “sim”, sem ponto de interrogação. Para rejeitar, toque em Rejeitar ou responda “não”. Nada foi decidido; o card está logo abaixo.",
+  "QUESTION_OTHER": "Consigo responder perguntas sobre seus e-mails, sua agenda, seus arquivos e sua lista de tarefas, sobre o trabalho da plataforma e sobre um card que espera por você. Para qualquer outra coisa, posso pesquisar na web: peça com “pesquise” e a sua pergunta.",
+  "CAN_YES": "Sim, consigo fazer isso por aqui: é só pedir. Nada é alterado antes da sua aprovação.",
+  "CAN_CARD": "Sim: um card é aprovado ou rejeitado pelos botões dele, ou respondendo “sim” ou “não” (sem ponto de interrogação) enquanto ele é a última mensagem.",
+  "UNDERSTOOD_DONE": "olhar seus cards dos últimos 7 dias e dizer como cada um terminou",
+  "DONE_HEAD": "Seus cards mais recentes (últimos 7 dias):",
+  "DONE_LINE": "#{number} {what}: {state}",
+  "DONE_NONE": "Não encontrei nenhum card assim nos últimos 7 dias.",
+  "DONE_STATE_OPEN": "esperando sua aprovação",
+  "DONE_STATE_APPROVED": "aprovado",
+  "DONE_STATE_REJECTED": "rejeitado, nada foi feito",
+  "DONE_STATE_REPLACED": "substituído por um card mais novo, nada foi feito",
+  "DONE_STATE_CANCELLED": "encerrado sem aprovação, nada foi feito"
+ },
+ "same_as_english": [
+  "DONE_LINE"
+ ]
+}

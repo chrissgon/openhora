@@ -49,6 +49,11 @@ The limits live in `turn_gate` (counts in memory, this slice's choice, not measu
 per local day, and an open breaker for BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row (`turn_gate.record`); no state lives in this file. When there is no call (entry off, a limit reached, a failed call, a zone that cannot be
 named) a line that is not private and a project in pt-BR or en go to the planning agent as before; any other gets the sentence IX_OUTAGE.
 
+A question (ANY-QUESTION). A decision `question` is answered by code and changes nothing; no word the model wrote reaches the person. About the card that is the last message (`extras["waiting_card"]`, set by
+`ops_say.say` from runtime/line_card.py): its own lines as the sender may read them (runtime/ops_any_question.py), and the card is sent again, unchanged. About whether something was done: the plan of a read ("Posso?") that
+shows the reminders, the state of the work, or the person's cards of the last 7 days and how each ended. About whether the assistant can do something: a fixed sentence or the policy's refusal. Anything else: QUESTION_OTHER. A card word
+in question form ("sim?") with a card waiting, read as a `none` or a question, gets how to decide it and the card again (limit L64); it decides nothing. A question never opens, ends, approves or runs anything (limit L55).
+
 Privacy (limit L63): no line, span, model text or exception message is logged, printed or kept here. The conversation stores the person's line only after the decision,
 and as a neutral word unless the line was sent to the planning agent (`extras["interpreted"]`, read by ops_say.say); this file stores nothing.
 
@@ -63,6 +68,7 @@ import re
 import sys
 from zoneinfo import ZoneInfo
 
+import card_words
 import event_lookup
 import interpreter
 import interpreter_enable
@@ -71,6 +77,7 @@ import line_stage
 import mail_compose
 import natural
 import operations
+import ops_any_question
 import ops_file_trash
 import ops_items
 import ops_natural
@@ -442,6 +449,40 @@ def _unchanged(decision: dict, state: dict, said: str) -> bool:
     return dict(decision.get("args") or {}) == dict(state["args"])
 
 
+def _question(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> str:
+    """The sentence for a decision `question` (ANY-QUESTION). Nothing is opened, ended, approved or run: a card is read and sent again, a read is a plan the person's own OK runs, the rest is a fixed sentence."""
+    cfg = ctx["cfg"]
+    about = decision["about"]
+    if about == "card":
+        waiting = extras.get("waiting_card")
+        got = ops_any_question.card_answer(ctx, waiting, decision["field"], sender) if waiting is not None else None
+        if got is None:
+            return phrases.text("QUESTION_NO_CARD", cfg)
+        extras["resend"] = waiting
+        extras["lead"] = got
+        extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)      # the reply may hold the card's private lines: the conversation keeps a word
+        return got
+    if about == "can":
+        op = decision["op"]
+        if op in {row["op"] for row in interpreter.SERVED["refused"]}:
+            return phrases.text("CAN_CARD", cfg) if op in ("approve", "reject") else ops_natural.phone_sentence(ctx, op)
+        if op in _allowed(ctx, sender):
+            return phrases.text("CAN_YES", cfg)
+        return _refusal(ctx, op, sender)
+    if about == "done":
+        op = decision.get("op")
+        if op in ("remind", "reminder-forget", "reminder-restore", "reminders"):
+            return ops_natural.run(project, ctx, "reminders", {}, said, CHANNEL, sender, extras, routed=True)
+        if op is not None and natural.class_of(op) != "E":
+            return ops_natural.run(project, ctx, "status", {}, said, CHANNEL, sender, extras, routed=True)
+        if not operations.permitted("pending", CHANNEL, cfg["channels"], None, sender):
+            return phone_refusal.said(operations.not_enabled("pending", CHANNEL), CHANNEL, cfg)
+        if plan_confirm.needed(ctx, "pending", CHANNEL, sender, False):
+            return plan_confirm.ask(project, ctx, "pending", {}, said, sender, extras, question_done={"op": op})
+        return ops_any_question.done_reply(ctx, op, sender, extras)
+    return phrases.text("QUESTION_OTHER", cfg)
+
+
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     """The reply tuple of a plain line read by the interpreter, or None when the line goes to the planning agent as today. `extras["interpreted"]` says what the
     conversation stores for the line: True (the default from here on) a neutral word, False the line itself (it was sent to the agent). With `extras["frame_age"]` (the sender
@@ -492,6 +533,13 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
                 extras["plan_previous"] = dict(state["args"])      # a CORRECTION's inheritance (it opens with a no): the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not; a new request inherits nothing (never logged, never sent anywhere)
         extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
+    if kind in ("none", "question") and extras.get("waiting_card") is not None and card_words.card_shape(said) is not None and card_words.question_form(said):
+        sentence = phrases.text("QUESTION_CARD_WORD", cfg)      # ANY-QUESTION (OPEN-4): "sim?" with a card waiting decides nothing (L64); the person is told how to decide it and the card goes again
+        extras["resend"] = extras["waiting_card"]
+        extras["lead"] = sentence
+        return _said(sentence, extras)
+    if kind == "question":
+        return _said(_question(project, ctx, decision, said, sender, extras), extras)
     if kind == "none":
         return _said(phrases.text("IX_NONE", cfg), extras)
     if kind == "refuse" and decision.get("class") != "D":
