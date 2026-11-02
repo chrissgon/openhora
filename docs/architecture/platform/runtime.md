@@ -829,7 +829,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `artifacts` | `artifacts` | terminal, page, mcp, messaging | no | the project's files under docs/ with their owner skill, size and time |
 | `artifact` | `artifact` | terminal, page, mcp, messaging | no | the text of one file under docs/ of the project, read-only |
 | `artifact_raw` | `artifact-raw` | page | no | the bytes of one image under docs/ of the project (png, jpeg, webp or svg, by its magic number), read-only; the service answers them with their media type |
-| `version` | `version` | page, mcp | no | the change signal of the project's store: a number that grows on every write, and when the file was last written |
+| `version` | `version` | page, mcp | no | the change signal of the project's store: a number that grows on every write, and about when the store was last written (the time can move with no write) |
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
 | `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds |
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
