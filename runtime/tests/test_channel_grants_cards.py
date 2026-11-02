@@ -323,7 +323,7 @@ def test_a_card_of_before_the_whole_flag_and_a_decision_no_longer_open_approve_n
         entry["whole"] = True
     world.items[7] = {**effect(), "status": "resolved"}
     world.say(None, action=action)
-    assert approve_calls(world) == [] and world.texts()[-1] == bridge.NOT_OPEN.format(number=7, status="resolved")
+    assert approve_calls(world) == [] and world.texts()[-1] == bridge.TAP_CLOSED
 
 
 def test_the_policy_is_read_when_the_person_taps_so_a_grant_taken_back_approves_nothing(world):

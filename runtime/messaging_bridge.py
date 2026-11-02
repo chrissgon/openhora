@@ -184,7 +184,8 @@ UNREADABLE_WHY = "its configuration cannot be read"
 EFFECT_REPLY = phrases.en("EFFECT_REPLY").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 TOO_LONG = phrases.en("TOO_LONG").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 WRONG_HASH = phrases.en("WRONG_HASH")
-NOT_OPEN = phrases.en("NOT_OPEN")
+TAP_REPLACED = phrases.en("TAP_REPLACED")
+TAP_CLOSED = phrases.en("TAP_CLOSED")
 NOT_OFFERED = phrases.en("NOT_OFFERED")
 REPLY_TO_CARD = phrases.en("REPLY_TO_CARD")
 FWD_NOT_A_REQUEST = phrases.en("FWD_NOT_A_REQUEST")
@@ -1310,7 +1311,7 @@ class Bridge(shell_kit.Jobs):
 
     def word_act(self, project: dict, chat: str, card: dict, op: str, last=None) -> bool:
         """Decide `card` with `op` as its button would: the same call (`act`: the policy for the sender, the hash of the card, the operation). False, with nothing said and
-        nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (NOT_OPEN,
+        nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (TAP_REPLACED or TAP_CLOSED,
         CHANGED and a new card) and nothing is decided. With `last` (a word with no reply: the id of the message it was read against) the last message is read again, the last thing before
         the act (`still_last`, L64H): another message sent since decides nothing, and the card is sent once more so that the next word decides it."""
         if card.get("chat") != chat or card.get("whole") is not True or op not in self.offers(card):
@@ -1320,7 +1321,7 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             return False
         if item.get("status", "open") != "open":
-            self.reply(chat, self.t("NOT_OPEN", project=project, number=item["id"], status=phrases.status(item.get("status"), self.cfg(project))), project)
+            self.reply(chat, self.t(self.closed_card_key(project, item), project=project), project)
         elif cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, self.t("CHANGED", project=project), project)
             self.renew(project, chat, item["id"], card)
@@ -1467,7 +1468,9 @@ class Bridge(shell_kit.Jobs):
         self.reply(chat, phone_errors.said(str(error), self.cfg(project, chat), failure=True), project, guard=True)
 
     def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
-        """approve, reject, release or answer one decision, bound to the card the person saw."""
+        """approve, reject, release or answer one decision, bound to the card the person saw. A tap (or a card word) on a card whose decision is no longer open says so in one plain sentence
+        (`closed_card_key`) and does nothing: for a reject or a release the refusal comes before `run_op`; a typed `/reject 64` has no card in hand and keeps its path."""
+        tapped = card is not None      # the card came with the act (a button or a card word), not from the ledger's newest card of the number a typed line named
         try:
             card = card or self.ledger.last_card(project["id"], pending_id, chat)
             if card is not None and card.get("chat") != chat:      # never another chat's card
@@ -1480,6 +1483,9 @@ class Bridge(shell_kit.Jobs):
                 self.reply(chat, self.t("ANSWERED", project=project, id=pending_id), project)
                 return
             item = self.ops.pending(project["path"], pending_id=pending_id)
+            if tapped and op in ("reject", "release") and item.get("status", "open") != "open":
+                self.reply(chat, self.t(self.closed_card_key(project, item), project=project), project)      # nothing is rejected or released: the refusal comes before run_op
+                return
             if op == "approve":
                 self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
@@ -1493,6 +1499,12 @@ class Bridge(shell_kit.Jobs):
             self.oops(chat, e, project)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
+
+    def closed_card_key(self, project: dict, item: dict) -> str:
+        """The phrase key for a tap on a card whose decision is no longer open: TAP_REPLACED when the card was replaced by a revised one (`card_replaced` of the operations layer, which an
+        operations object without it, a test's, does not have), else TAP_CLOSED. No number, no status word and no command in either sentence."""
+        replaced = getattr(self.ops, "card_replaced", None)
+        return "TAP_REPLACED" if callable(replaced) and replaced(item) else "TAP_CLOSED"
 
     def is_question(self, project: dict, pending_id: int) -> bool:
         """Whether the pending decision is a question, as it is now (S14: a question is turned down without the card it was asked on)."""
@@ -1571,7 +1583,7 @@ class Bridge(shell_kit.Jobs):
             say("NOT_OFFERED")
             return
         if item.get("status", "open") != "open":
-            say("NOT_OPEN", number=number, status=phrases.status(item.get("status"), settings))
+            say(self.closed_card_key(project, item))
             return
         if card["content_sha256"] != item.get("payload_sha256"):
             say("CHANGED")

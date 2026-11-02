@@ -959,6 +959,8 @@ STATE_WAITING: Waiting for you: Ana Lima, Bruno Reis.
 STATE_WAITS: What waits for you: 3.
 STATE_WAIT_ITEM: plan "Quarterly review" (decision 42)
 STILL_WORKING: Still working on the last message.
+TAP_CLOSED: This card was already decided or closed, so nothing was done.
+TAP_REPLACED: This card was replaced by a newer one, so nothing was done. Use the newer card.
 TITLE_BOX_ARCHIVE: Mailbox: archive messages
 TITLE_BOX_DRAFT: Mailbox: save a draft
 TITLE_BOX_MARK: Mailbox: mark messages as read or unread

@@ -19,6 +19,8 @@ approved. The bridge decides which card a line may be about (runtime/messaging_b
                                                                           by code); event: runtime/ops_event_revise.py (one interpreter call with the card in view, runtime/event_card.py; the verified spans and parts). Then the family
                                                                           opens the new card as it opens any card, and the old card is ended as rejected with a note that says it
                                                                           was replaced, so its hash is never approvable again. Nothing is sent, written or approved here.
+  card_replaced(item)                                                     True when the single-decision view `item` is a card this feature replaced (rejected with the note NOTE): the bridge says
+                                                                          TAP_REPLACED instead of TAP_CLOSED to a tap on it. Pure.
   decided(project, channel, sender, line)                                 the interpreter's decision made for this line while it was checked as a change of a card and found to be
                                                                           something else, once, for 60 seconds, for this project and sender (so the line is not read by the model
                                                                           twice), or None
@@ -177,6 +179,12 @@ def _shape(ctx: dict, item: dict) -> tuple:
     return "sentence", doc, None
 
 
+def card_replaced(item) -> bool:
+    """Whether the decision `item` (the single-decision view of `ops.pending`) is a card this feature replaced: rejected with the note NOTE. Pure; the bridge uses it to tell a tap on an old
+    card (TAP_REPLACED) from a tap on a card that was decided or closed some other way (TAP_CLOSED)."""
+    return isinstance(item, dict) and item.get("resolution") == "rejected" and item.get("answer") == NOTE
+
+
 def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     """(kind, entry, instruction, document, mail shape) when the line is about the card, else None (see the module's text)."""
     if channel != CHANNEL or not isinstance(text, str) or text.lstrip().startswith("/") or not isinstance(sha256, str):
@@ -193,7 +201,7 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     if item.get("status", "open") != "open":
         # a card this feature replaced, and a line that asks for a change of it: the person is told it was replaced (the bridge asks this only for a reply to the card)
         asked = mail_revise.asks_change(line) or bool(mail_revise.literals(mail_revise.instruction(text)))
-        return ("replaced", None, line, None, None) if asked and item.get("answer") == NOTE and item.get("resolution") == "rejected" else None
+        return ("replaced", None, line, None, None) if asked and card_replaced(item) else None
     kind, doc, mail = _shape(ctx, item)
     if not isinstance(doc, dict):
         return None

@@ -1,0 +1,8 @@
+{
+ "package": "m41-3-tap",
+ "table": {
+  "TAP_REPLACED": "Este card foi substituído por um mais novo, então nada foi feito. Use o card mais novo.",
+  "TAP_CLOSED": "Este card já foi decidido ou encerrado, então nada foi feito."
+ },
+ "same_as_english": []
+}

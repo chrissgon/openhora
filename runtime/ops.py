@@ -1504,8 +1504,8 @@ from source_names import (  # noqa: E402,F401      # BL5D: the plain names a pho
 from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
-# A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check and the change; the change opens a new card and sends nothing.
-from ops_card_revise import card_revise, card_revise_check  # noqa: E402,F401
+# A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check, the change and `card_replaced`; the change opens a new card and sends nothing.
+from ops_card_revise import card_replaced, card_revise, card_revise_check  # noqa: E402,F401
 # The person's own mailbox (runtime/ops_mailbox.py, package W3): a draft, archive, a move, read state, the trash; each one prepares a card and writes nothing.
 from ops_mailbox import mail_archive, mail_draft, mail_mark, mail_move, mail_trash  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
