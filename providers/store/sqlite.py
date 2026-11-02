@@ -984,12 +984,19 @@ def close_dropped() -> None:
     It does nothing on another thread. Each entry is taken out of both lists BEFORE it is closed: an exception that is not an
     sqlite3 error (the exception of a stop signal's handler, which can land while a close releases the lock of the
     interpreter) goes out through the caller as a normal raise, nothing is retried, and the next call carries on with the rest.
-    A connection another thread made refuses its close (sqlite3 refuses any use there): it is left to the collector."""
+    A connection another thread made refuses its close (sqlite3 refuses any use there): it is left to the collector. The order
+    is read the last entry, take it out of _PENDING, take it out of _DROPPED, close: a stop between the first two leaves it to
+    the next drain, a stop after them leaves only a local, so the connection goes to the collector."""
     if not _on_main_thread():
         return
     while _DROPPED:
-        ref = _DROPPED.pop()
+        # The order lets a stop at any line leave the entry recoverable or with the collector: it is read first and taken out of
+        # _PENDING while it is still in _DROPPED (a stop here is drained next time), then out of _DROPPED (a stop after leaves
+        # only the local, and the connection goes to the collector). `remove` takes this very entry even if the callback of
+        # another thread appended one meanwhile; `pop()` would take the newer one.
+        ref = _DROPPED[-1]
         _PENDING.pop(id(ref), None)
+        _DROPPED.remove(ref)
         try:
             ref.real.close()
         except sqlite3.Error:
@@ -1014,13 +1021,18 @@ class Connection:
     thread (or `close_dropped()`) closes it in an ordinary frame, where a handler's exception is a normal raise. The cost,
     on the main thread: the last connections stay open until the next connect (at most what was dropped since the last one:
     2 for an operation's context()) or, when the thread connects no more, until the process ends, as they would with a
-    collector with nothing to do; and a connection dropped with a transaction open holds it until then. `write` always ends
-    its transaction (COMMIT or ROLLBACK, on BaseException too) and no main-thread path drops inside one it began. A
+    collector with nothing to do; and a connection dropped with a transaction open would hold it, and the write lock of the
+    file, until then. `write` ends its transaction (COMMIT, or ROLLBACK on BaseException) and opens its try before BEGIN, so
+    an exception that lands right after BEGIN returns is rolled back too; what remains is a second stop that lands during
+    that ROLLBACK, and one that lands between the end of the body and COMMIT, which leave the lock held until the next
+    connect (the CLI's `cmd_export` has a raw BEGIN, in a process of its own). A
     connection made on the main thread and dropped on another thread lands in the same list, and the main thread closes it:
     sqlite3 wants its own thread.
 
     A connection made on any other thread is a _ThreadConnection, which closes at its own drop: those threads run no signal
-    handler, and a request thread ends without a later connect to close for it.
+    handler, and a request thread ends without a later connect to close for it. Its __del__ runs on whichever thread drops
+    it, so a thread connection handed to the main thread and dropped there can still lose a stop signal; no production
+    path hands one over.
 
     What a drop keeps alive: `execute` returns a cursor that holds this object (_held_cursor_class), so
     `open_db(db).execute(...).fetchone()` on a temporary works. Nothing else does. A cursor from `conn.cursor()`, a saved
@@ -1107,16 +1119,20 @@ def write(conn: sqlite3.Connection):
     with one cheap read that something was written (change_counter). One that changed nothing, such as a
     dispatcher tick with no task ready, and one that is rolled back leave it alone. After the largest value it
     starts again at 1: a reader compares two numbers for difference only."""
-    conn.execute("BEGIN IMMEDIATE")
-    changes = conn.total_changes
+    # The try opens before BEGIN: an exception that lands right after BEGIN returns (a stop signal's handler) must not leave
+    # the write lock held by a connection that is dropped open. A BEGIN that fails (database is locked) opened no
+    # transaction, so nothing is rolled back and its own error is the one raised.
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        changes = conn.total_changes
         yield
         if conn.total_changes != changes:
             raised = change_counter(conn) + 1
             # A pragma takes no parameter; the value is an integer computed here, never text from outside.
             conn.execute(f"PRAGMA user_version = {raised if raised <= CHANGE_COUNTER_MAX else 1}")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     conn.execute("COMMIT")
 

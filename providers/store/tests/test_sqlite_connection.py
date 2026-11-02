@@ -11,6 +11,7 @@ it does not, the modes of the side files a reopen makes, and the guard that `con
 from __future__ import annotations
 
 import ast
+import contextlib
 import gc
 import importlib.util
 import operator
@@ -19,6 +20,7 @@ import sqlite3
 import stat
 import sys
 import threading
+import types
 import weakref
 from pathlib import Path
 
@@ -394,7 +396,7 @@ def test_what_a_drop_does_not_keep_alive_on_another_thread(db):
     def chain():
         for name, call in (("executemany", lambda: store.open_db(db).executemany("SELECT ?", [(1,)])),
                            ("executescript", lambda: store.open_db(db).executescript("SELECT 1")),
-                           ("cursor", lambda: operator.methodcaller("cursor")(store.open_db(db)).execute("SELECT 1")),      # not written as an attribute: the validator reads the word as an editor's name
+                           ("cursor made on a temporary, used after its drop", lambda: operator.methodcaller("cursor")(store.open_db(db)).execute("SELECT 1")),      # not written as an attribute: the validator reads the word as an editor's name
                            ("iterdump", lambda: list(store.open_db(db).iterdump()))):
             try:
                 call()
@@ -412,7 +414,7 @@ def test_what_a_drop_does_not_keep_alive_on_another_thread(db):
     thread.start()
     thread.join()
     assert seen == [(n, "Cannot operate on a closed database.") for n in
-                    ("executemany", "executescript", "cursor", "iterdump", "kept cursor", "saved commit")]
+                    ("executemany", "executescript", "cursor made on a temporary, used after its drop", "iterdump", "kept cursor", "saved commit")]
 
 
 def test_what_a_drop_does_not_keep_alive_on_the_main_thread_works_until_the_next_connect(db, main):
@@ -444,3 +446,178 @@ def test_the_wal_and_shm_files_a_reopen_makes_are_private(tmp_path):
     finally:
         os.umask(old)
     assert all(seen), "each round saw at least one side file: the test cannot pass on nothing"
+
+
+# --- the callback is a call in C ------------------------------------------------------------------------------------------------
+
+def test_the_drop_callback_of_a_real_connection_is_a_builtin_method_of_the_list(db, main):
+    conn = store.connect(db)
+    ref = next(r for r in store._PENDING.values() if r.real is conn._real)
+    callback = ref.__callback__
+    assert isinstance(callback, types.BuiltinMethodType) and callback.__self__ is store._DROPPED, \
+        "a Python function here would run Python in the drop, where a stop signal's handler can land and be lost"
+    assert not isinstance(callback, types.FunctionType)
+
+
+# --- the drain's order ----------------------------------------------------------------------------------------------------------
+
+def test_a_stop_in_a_close_leaves_nothing_pinned(db, main):
+    bad, other = FakeReal(error=Stop("a planted stop")), FakeReal()
+    store._wrap(other)
+    store._wrap(bad)      # the drain takes the last one first
+    with pytest.raises(Stop):
+        store.close_dropped()
+    assert bad.closes == 1
+    assert all(r.real is not bad for r in store._PENDING.values()), "the entry that raised is not kept open by _PENDING"
+    assert all(r.real is not bad for r in store._DROPPED)
+    store.close_dropped()
+    assert other.closes == 1 and store._DROPPED == [] and store._PENDING == {}
+
+
+def test_a_stop_between_the_two_removals_leaves_the_entry_for_the_next_drain(db, main, monkeypatch):
+    real = FakeReal()
+    store._wrap(real)
+    pending = store._PENDING
+
+    class StopsAtPop(dict):
+        def pop(self, *a):
+            super().pop(*a)
+            raise Stop("a planted stop")      # after _PENDING let go, before _DROPPED did
+    monkeypatch.setattr(store, "_PENDING", StopsAtPop(pending))
+    with pytest.raises(Stop):
+        store.close_dropped()
+    assert real.closes == 0 and len(store._DROPPED) == 1, "still in _DROPPED: the next drain closes it"
+    monkeypatch.setattr(store, "_PENDING", pending)
+    store.close_dropped()
+    assert real.closes == 1 and store._DROPPED == []
+
+
+def test_the_drain_takes_the_entry_it_read_when_another_thread_appends_one_meanwhile(db, main, monkeypatch):
+    first, second = FakeReal(), FakeReal()
+    store._wrap(first)
+    holder = store.Connection(second)
+    late = store._Dropped(holder, store._DROPPED.append)      # the ref another thread's drop would append
+    late.real = second
+
+    class RacingList(list):
+        """Between the read of the last entry and its removal, another thread's callback appends an entry."""
+        raced = False
+
+        def remove(self, ref):
+            if not self.raced:
+                self.raced = True
+                self.append(late)
+                store._PENDING[id(late)] = late
+            list.remove(self, ref)
+
+        def pop(self, *a):      # the form this test rules out: it would take the newer entry and leave the one that was read
+            if not self.raced:
+                self.raced = True
+                self.append(late)
+                store._PENDING[id(late)] = late
+            return list.pop(self, *a)
+    monkeypatch.setattr(store, "_DROPPED", RacingList(store._DROPPED))
+    store.close_dropped()
+    assert first.closes == 1 and second.closes == 1, "both closed: the one that was read, and the one appended meanwhile"
+    assert store._DROPPED == [] and store._PENDING == {}
+
+
+# --- write: a stop right after BEGIN must not leave the write lock held ---------------------------------------------------------
+
+class StopsAfterBegin:
+    """A stand-in for a connection whose BEGIN IMMEDIATE returns and then a stop signal's handler raises (the handler runs
+    on the next bytecode check, right after the statement). It records every statement."""
+    def __init__(self, conn):
+        self.conn, self.statements = conn, []
+
+    def execute(self, sql, *args):
+        self.statements.append(sql)
+        out = self.conn.execute(sql, *args)
+        if sql == "BEGIN IMMEDIATE":
+            raise Stop("a planted stop")
+        return out
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+
+def old_write(conn):
+    """The body `write` had before this package's review: BEGIN outside the try."""
+    conn.execute("BEGIN IMMEDIATE")
+    changes = conn.total_changes
+    try:
+        yield
+        if conn.total_changes != changes:
+            raised = store.change_counter(conn) + 1
+            conn.execute(f"PRAGMA user_version = {raised}")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    conn.execute("COMMIT")
+
+
+def another_writer_can_write_at_once(db):
+    raw = sqlite3.connect(str(db), timeout=0, isolation_level=None)
+    try:
+        raw.execute("BEGIN IMMEDIATE")
+        raw.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        raw.close()
+
+
+def test_a_stop_right_after_begin_rolls_back_and_leaves_the_lock_free(db):
+    stand_in = StopsAfterBegin(store.connect(db))
+    with pytest.raises(Stop, match="a planted stop"):
+        with store.write(stand_in):
+            raise AssertionError("the body must not run")
+    assert stand_in.conn.in_transaction is False
+    assert stand_in.statements == ["BEGIN IMMEDIATE", "ROLLBACK"]
+    assert another_writer_can_write_at_once(db)
+
+
+def test_the_old_order_leaves_the_lock_held_after_a_stop_right_after_begin(db):
+    stand_in = StopsAfterBegin(store.connect(db))
+    with pytest.raises(Stop):
+        with contextlib.contextmanager(old_write)(stand_in):
+            pass
+    assert stand_in.conn.in_transaction is True and not another_writer_can_write_at_once(db), "the vacuity: this is the defect"
+    stand_in.conn.execute("ROLLBACK")
+
+
+def test_a_begin_that_fails_raises_its_own_error_and_rolls_nothing_back(db):
+    holder = sqlite3.connect(str(db), timeout=0, isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        conn = store.connect(db)
+        conn.execute("PRAGMA busy_timeout = 0")
+        statements = []
+
+        class Spy:
+            def execute(self, sql, *args):
+                statements.append(sql)
+                return conn.execute(sql, *args)
+
+            def __getattr__(self, name):
+                return getattr(conn, name)
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            with store.write(Spy()):
+                raise AssertionError("the body must not run")
+        assert statements == ["BEGIN IMMEDIATE"], "no ROLLBACK was attempted, so none could mask the error"
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+
+
+def test_write_still_commits_and_rolls_back_a_failing_body(db):
+    conn = store.connect(db)
+    with store.write(conn):
+        conn.execute("INSERT OR REPLACE INTO cursors (name, value, updated_at) VALUES ('a-word', 'kept', 'x')")
+    with pytest.raises(ValueError, match="a planted fault"):
+        with store.write(conn):
+            conn.execute("INSERT OR REPLACE INTO cursors (name, value, updated_at) VALUES ('another-word', 'lost', 'x')")
+            raise ValueError("a planted fault")
+    assert conn.in_transaction is False
+    assert dict(conn.execute("SELECT name, value FROM cursors WHERE name IN ('a-word', 'another-word')").fetchall()) == {"a-word": "kept"}
