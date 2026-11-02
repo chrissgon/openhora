@@ -49,7 +49,7 @@ EFFECTS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-re
 KINDS = {"operational", "widening", "internal"}
 SEVERITY = ["wrong_effect_unconfirmed", "wrong_card", "wrong_reminder_reading", "wrong_item_binding", "wrong_read", "wrong_route", "missed", "clarify", "correct"]
 OBSERVED = ["executed", "card", "confirm", "remind_confirm", "read", "answer", "clarify", "route", "none", "refuse_d", "refuse_g", "refuse_policy",
-            "forwarded", "outage"]
+            "forwarded", "outage", "question"]
 
 
 def load(path: Path):
@@ -316,8 +316,8 @@ def test_the_taxonomy_has_its_lists_rules_metrics_and_one_example_per_rule():
         assert r["category"] in SEVERITY
         assert r["observed"] == "any" or set(r["observed"]) <= set(OBSERVED)
     assert [m["name"] for m in doc["metrics"]] == ["N", "rate(c)", "correct_direct", "clarify_rate", "parse_failure_rate", "p95_latency_ms", "median_cost_usd",
-                                                    "wrong_route_cost_usd"]
-    assert len(doc["examples"]) == 32  # C0 wrote one per rule, first and in rule order; IX-1 added 23 when it froze the file
+                                                    "wrong_route_cost_usd", "question_on_other_golds"]
+    assert len(doc["examples"]) == 37  # C0 wrote one per rule, first and in rule order; IX-1 added 23 when it froze the file; ANY-QUESTION Q0 added 5
     nine = json.dumps(doc["examples"][:9], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     assert hashlib.sha256(nine).hexdigest() == PINNED_HASHES["interpreter_interfaces_c0_nine_examples"]  # C0's nine, unchanged
     for e in doc["examples"]:

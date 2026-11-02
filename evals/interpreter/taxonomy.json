@@ -14,7 +14,8 @@
   "refuse_g",
   "refuse_policy",
   "forwarded",
-  "outage"
+  "outage",
+  "question"
  ],
  "observed_meaning": {
   "executed": "a state change with no confirmation or card",
@@ -30,7 +31,8 @@
   "refuse_g": "a widening G was refused",
   "refuse_policy": "the policy refused the op",
   "forwarded": "the line was a forward and was answered as such",
-  "outage": "the model call failed"
+  "outage": "the model call failed",
+  "question": "a question the interpreter read: code answered it from the card's own lines or a fixed sentence, or stated the plan of a read"
  },
  "severity": [
   "wrong_effect_unconfirmed",
@@ -43,7 +45,7 @@
   "clarify",
   "correct"
  ],
- "matching": "equal outcome and op, the same slot-name set, each value natural.normal-equal to an accepted one (ints equal), time in gold.time when either side has one; answer: same item and keys; refuse: same class; or any `also` matches",
+ "matching": "equal outcome and op, the same slot-name set, each value natural.normal-equal to an accepted one (ints equal), time in gold.time when either side has one; answer: same item and keys; refuse: same class; or any `also` matches; question: the same about, field and op",
  "scopes": {
   "full": "every rule applies",
   "op": "only the rules on op identity",
@@ -168,6 +170,10 @@
   {
    "name": "wrong_route_cost_usd",
    "formula": "count(wrong_route) * router_line_cost_usd"
+  },
+  {
+   "name": "question_on_other_golds",
+   "formula": "count of items whose gold outcome is not question and one of whose runs observed question, by the gold outcome"
   }
  ],
  "examples": [
@@ -648,6 +654,73 @@
    "observed_detail": {
     "class": "D",
     "op": "approve"
+   },
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "question",
+    "about": "card",
+    "field": "when"
+   },
+   "observed": "question",
+   "observed_detail": {
+    "about": "card",
+    "field": "when",
+    "op": null
+   },
+   "category": "correct"
+  },
+  {
+   "gold": {
+    "outcome": "question",
+    "about": "done",
+    "op": "remind"
+   },
+   "observed": "question",
+   "observed_detail": {
+    "about": "done",
+    "field": null,
+    "op": "event-create"
+   },
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "op",
+    "op": "reminders",
+    "slots": {}
+   },
+   "observed": "question",
+   "observed_detail": {
+    "about": "done",
+    "field": null,
+    "op": "remind"
+   },
+   "category": "missed"
+  },
+  {
+   "gold": {
+    "outcome": "question",
+    "about": "can",
+    "op": "event-change"
+   },
+   "observed": "card",
+   "observed_detail": {
+    "op": "event-change",
+    "slots": {}
+   },
+   "category": "wrong_card"
+  },
+  {
+   "gold": {
+    "outcome": "none"
+   },
+   "observed": "question",
+   "observed_detail": {
+    "about": "other",
+    "field": null,
+    "op": null
    },
    "category": "missed"
   }
