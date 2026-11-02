@@ -1,0 +1,8 @@
+{
+ "package": "m41-3-quote",
+ "table": {
+  "QUOTE_CHECKED_ONE": "Citação verificada: \"{text}\"",
+  "INSTRUCTION_LINE_ONE": "\"{passage}\" (não seguida)"
+ },
+ "same_as_english": []
+}

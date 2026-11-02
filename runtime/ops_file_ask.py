@@ -24,7 +24,7 @@ whose reply is checked by code (runtime/ask_reply.py: a quote is shown as checke
   6. The bounds of the configuration's key `file_ask` (max_cost_usd, timeout_seconds, max_per_day, counted from the store), under the claim lock, with the route lock held for the run.
   7. The run: ONE temporary source, the converted text, written to the run's private prepared folder (never registered: no source, version, catalog row or `task_sources` row) and handed to
      `ops_contained.execute` as `sourced`; the prompt is the question and `ops_ask.ASK_TASK_TEXT` byte for byte (the form the answer skill is measured on), with the sources line naming that one copy.
-  8. The reply: `ask_reply.check` with a `read_label` (the file's name, account and folder, never an id or a version), cut to PHONE_CHARS on a messaging app; the policy is read again after the run.
+  8. The reply: `ask_reply.check` with a `read_label` (the file's name, account and folder, never an id or a version), cut to PHONE_CHARS on a messaging app; the policy is read again after the run. With a `read_label` and one source the reply carries no source id: no ` [file]` in the prose, `Checked quote: "..."` for a checked quote (QUOTE_CHECKED_ONE) and an instruction line without its id (M41-3).
   9. What is left of the run: the copy and everything the run wrote, the reply included (its quotes are the file's words), are removed from the run folder (`purge`), except the counts costs are read from;
      `sweep` (called by `ops_runs._recover`) does the same for the runs a crash left and removes a stale prepared folder.
 
