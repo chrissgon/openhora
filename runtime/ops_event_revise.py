@@ -21,7 +21,8 @@ is not clear) is asked as it is asked for any line, and every other decision goe
 object (`event_lookup.names_other_object`): the operation was the model's reading, not the person's request, so no refusal is said of it and the person is asked what to change. The answer is
 read for the card: the `title` and `place` slots are a piece of the line, or the card's own text changed by the line (every word added is a word of the line, and a word added or taken out is one
 the line says: origin `card-words`); `duration` with `end` is a new end, the model's count, which needs the words of the line that say it, after the start and within 24 hours; `time` is checked as
-any time is (a line that says only a day and no hour is read by the time engine and keeps the card's hour); `target`, words that are not the card's own title, says the line is about another event,
+any time is (a line that says only a day and no hour is read by the time engine and keeps the card's hour; a day alone or an hour beside another part that the engine cannot settle ("next tuesday", "quinta que vem",
+"passa pras 15h e muda o local para X") is the model's reading of the whole new start, taken only under four checks of `_model_time`: its form, the earlier decisions that keep a relative move asked, the hour the engine reads, and the day the line names, a weekday alone being 1 to 14 days ahead); `target`, words that are not the card's own title, says the line is about another event,
 and the card is left alone. The account word of the line (runtime/event_lookup.py `account_named`) changes the account of a card that CREATES an event (and then the calendar is the account's first,
 not the old account's), and nothing else. Nothing of the card can become an argument of another operation: every span of every operation is a piece of the line (`interpreter.check`).
 A card that changes an event found in a snapshot is made again with the same event (`<source>#<n>`, the same calendar) and the part the person named replaced, and the new card is refused unless it names the same event id on the same calendar (a snapshot refreshed meanwhile numbers the events differently); the event of the calendar is not touched by
@@ -285,6 +286,50 @@ def _day_only(span, line: str, doc: dict, now):
     return {"local": value.isoformat() + "T" + start[11:], "source": "code"}
 
 
+def _model_time(cleaned: dict, line: str, doc: dict, now, zone: str):
+    """{"local", "source": "model"}: the new start the model gave for a line after the card, when the checks asked only because code could not settle a day alone or an hour next to a part by itself ("move this to next
+    tuesday", "the Thursday after this one", an hour beside a place); None, and the line stays asked, unless ALL of these hold. This decides what a NEW card shows and nothing else: the card is approved by its own hash.
+      1. Form: the span is a piece of the line, `time_iso` is a real moment, `weekday` is its weekday, and the card's start is a plain `YYYY-MM-DDTHH:MM` (not all day).
+      2. Kept asked by earlier decisions: the line is not a distance from now and not a deadline set apart, and every hit of the time engine on it is a date, a slash date or a clock (an offset, a relative or a vague hit is asked).
+      3. What code reads clearly is code's: for each clock the engine finds, its reading is the hour of `time_iso` and the clock lies in the span; with no clock (a day alone) the hour is the card's own.
+      4. The day the line names: a plain day is that day; a weekday alone is that weekday, 1 to 14 days after today (today is asked); an hour alone keeps the card's day."""
+    slots = cleaned.get("slots") or {}
+    span, iso, weekday = slots.get("time"), cleaned.get("time_iso"), cleaned.get("weekday")
+    start = doc["event"].get("start")
+    if not (isinstance(span, str) and interpreter._span_in_line(span, line) and isinstance(iso, str) and interpreter._real_stamp(iso)
+            and isinstance(start, str) and len(start) == 16 and interpreter.TIME_RE.fullmatch(start)):
+        return None
+    if is_relative(line) or interpreter._deadline_set_apart(line):
+        return None
+    if interpreter.WEEKDAYS[datetime.datetime.strptime(iso, STAMP).weekday()] != weekday:
+        return None
+    seen = " ".join(line.split())
+    found = natural_time.find(seen)
+    hits = found["hits"]
+    if any(hit.get("kind") not in ("date", "slash", "clock") for hit in hits):
+        return None
+    clocks = [hit for hit in hits if hit.get("kind") == "clock"]
+    origin = found["origin"]
+    for hit in clocks:
+        piece = seen[origin[hit["s"]]:origin[hit["e"] - 1] + 1]
+        core = seen[origin[hit.get("s0", hit["s"])]:origin[hit["e"] - 1] + 1]
+        reading = (natural_time.parse(piece, interpreter._local_now(now, zone)) or {}).get("reading") or {}
+        if reading.get("time") != iso[11:16] or core not in " ".join(span.split()):
+            return None      # the hour the engine reads is the engine's, and it lies in the span
+    if not clocks and iso[11:16] != start[11:16]:
+        return None      # a day alone keeps the card's hour
+    kind, value = event_lookup._day_named(span, now)
+    date = datetime.date.fromisoformat(iso[:10])
+    today = interpreter._local_now(now, zone).date()
+    if kind == "day" and value != date:
+        return None
+    if kind == "weekday" and (date.weekday() != value or not 0 < (date - today).days <= 14):
+        return None
+    if kind == "none" and hits and all(hit.get("kind") == "clock" for hit in hits) and iso[:10] != start[:10]:
+        return None      # an hour alone keeps the card's day
+    return {"local": iso, "source": "model"}
+
+
 BARE_CLOCK = re.compile(r"(?:(?:as|a|ao|at|to|las|alle|um|le|la|para|pra)\s+)?(?:[1-9]|1[0-2])(?:(?::|h)(?:[0-5][0-9])?)?")      # a clock of 1 to 12 with no leading zero, no am or pm, no part of the day, no word for the hour: the only form that is ambiguous by itself; validate: allow english-only -- the small words of six languages
 
 
@@ -335,7 +380,8 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
     """The decision for the model's text about a line sent after the card of an event: pure (no call, no clock, no store), so that the measurement reads the answers with the product's own code.
     The card names the event, so the slot `event` (a title, a day, a number the line does not hold), an answer `event-create`, extra slots and a clarify of `event` do not make the line a new
     request. The title, the place and the end are the parts (`_parts`); what cannot be read from the model's answer is read by code from the line (`_from_code`, `_day_only`). The same checks decide,
-    as for any line."""
+    as for any line. A line whose time the checks ask about only with `time-ask` (a day alone the engine doubts or does not know, an hour beside a part) takes the model's start when `_model_time`'s four checks
+    hold (CARD-DAY-ALONE-ASKED); every other question about the time (`time-past`, `time-far`, `time-gap`, `time-fold`, `weekday`) stays asked."""
     obj = interpreter.parse(text)[0]
     strict = ops_interpret.decide(line, text, now, zone, allowed)
     if strict.get("kind") == "op" and strict.get("op") == "event-change":
@@ -355,6 +401,8 @@ def read_answer(text, line: str, doc: dict, now, zone: str, allowed) -> dict:
             return dict(_model_clock(again, obj, doc, now, line), parts=cleaned[1])
         if again.get("kind") == "clarify" and str(again.get("why", "")).startswith("time"):
             day = _day_only(cleaned[0]["slots"].get("time"), line, doc, now)
+            if day is None and again.get("why") == "time-ask":
+                day = _model_time(cleaned[0], line, doc, now, zone)      # the checks asked only because code could not settle the time: the model's start, under the four checks (the same guards follow)
             if day is None or target_is_another(cleaned[0]["slots"], doc) or day_is_another(cleaned[0]["slots"], doc, now):
                 return again      # a day alone on a line about another event would take THIS card's hour for the other event: asked
             return {"kind": "op", "error": None, "op": "event-change", "args": {}, "spans": dict(cleaned[0]["slots"]), "time": day, "inherited": [], "time_disagree": False, "parts": cleaned[1]}      # the slots kept are `time` and `target`: a day alone on a line about another event must not move this card
