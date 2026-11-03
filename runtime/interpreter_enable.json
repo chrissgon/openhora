@@ -289,7 +289,7 @@
     {
      "route": "or-gpt-6-luna",
      "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
-     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+     "measured": "2026-11-03: ix-test-v1 full step and question-dev-v1, 2 runs, at e1527213, events 20261103T184754Z-5dad949d (Luna) and 20261103T184655Z-19a743ea (primary), judged by the relative rule (rule 2 not met, kept by decision); docs/decisions/2026-11-03-reserve-route-kept.md; first measured 2026-10-28 (docs/decisions/2026-10-28-luna-enable-fallback.md)"
     }
    ]
   }
