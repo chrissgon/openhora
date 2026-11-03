@@ -61,8 +61,13 @@ MAIL_ASK_STATUS_LINE = (CB9_STATUS_LINE.split("; the catalog moved to version 2"
 assert len(MAIL_ASK_STATUS_LINE) <= 600
 EVENT_CARD_STATUS_LINE = MAIL_ASK_STATUS_LINE + "; the event card shown to the model (2026-11-01)"      # the entry of package CARD-MODEL-SEES: the entry of MAIL-SUMMARY-FLIP and the event card text
 assert len(EVENT_CARD_STATUS_LINE) <= 600
-STATUS_LINE = EVENT_CARD_STATUS_LINE + "; revise prompt re-pinned 2026-11-01 (a question about the recipient)"      # the newest entry (package mail-card-recipient, third text): the entry of CARD-MODEL-SEES and the re-pinned revise prompt
+RECIPIENT_STATUS_LINE = EVENT_CARD_STATUS_LINE + "; revise prompt re-pinned 2026-11-01 (a question about the recipient)"      # the entry of package mail-card-recipient, third text: the entry of CARD-MODEL-SEES and the re-pinned revise prompt
+assert len(RECIPIENT_STATUS_LINE) <= 600
+STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28) and 3 (MAIL-SUMMARY-FLIP, 2026-10-31); "
+               "the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-02: the kind question), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; "
+               "the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)")      # the newest entry (ANY-QUESTION Q3, the probe of the draft)
 assert len(STATUS_LINE) <= 600
+PROBE_DATE = "2026-11-02"      # the day the probe entry of ANY-QUESTION Q3 was written
 MAIL_CARD_RECIPIENT_REASON = "The e-mail revise prompt (rule 3) gained a sentence: a question about who receives the e-mail asks for no change, even when it writes an address, and a polite request with a question mark is still a request. Two earlier paid proofs failed. Measured on this PR's head 8430a9ae, RESULT-MAIL-CARD-RECIPIENT-2026-11-01: 3 of 12 rows of the bar not met, one call of 102 in group D changed the recipient; enabled below the bar by the maintainer's decision of 2026-11-01. Only revise_prompt_sha256 changes."      # the newest entry (package mail-card-recipient): the text decided after the third proof; the test below fixes it
 EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
@@ -101,7 +106,7 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     first, entry = doc["entries"][0], doc["entries"][-1]
     assert {key: first[key] for key in FIRST} == FIRST and first["date"] == "2026-10-21"      # the earlier entries stay as they were decided
     assert {key: entry[key] for key in HASHES} == HASHES      # the newest names every hash of this checkout
-    assert entry["basis"] == "maintainer-decision" and entry["date"] == "2026-11-01" and entry["route"] == ROUTE
+    assert entry["basis"] == "maintainer-decision" and entry["date"] == PROBE_DATE and entry["route"] == ROUTE
     assert entry["languages"] == LANGUAGES and entry["status_line"] == STATUS_LINE
     by_line = {e["status_line"]: e for e in doc["entries"]}
     assert "compose_prompt_sha256" not in by_line[S8_STATUS_LINE], "the entry of S8 pins no compose prompt"
@@ -127,13 +132,13 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert {key for key in bl5b if bl5b[key] != bl1[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL5B changes the prompt hash, the date, the reason and the status line, and nothing else"
     bl73 = by_line[BL73_STATUS_LINE]
     assert bl73["date"] == "2026-10-26" and {key for key in bl73 if bl73[key] != bl5b[key]} == {"date", "prompt_sha256", "reason", "status_line"}, "the entry of BL7-3 changes the prompt hash, the date, the reason and the status line, and nothing else"
-    assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
-    cb9, luna, mail_ask, card_entry = doc["entries"][-5], doc["entries"][-4], doc["entries"][-3], doc["entries"][-2]
+    assert bl73["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_3112"] != bl5b["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_1423"]
+    cb9, luna, mail_ask, card_entry = doc["entries"][-6], doc["entries"][-5], doc["entries"][-4], doc["entries"][-3]
     assert bl73["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_blite"] != cb9["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry before CB-9 names the catalog of version 1; the entry of CB-9 names the catalog of version 2"
     assert mail_ask["catalog_sha256"] == card_entry["catalog_sha256"] == entry["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_mail_ask"] != luna["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_cb9"], "the entry of the flip and the two after it name the catalog of version 3, served with the row mail-ask; the entry before them still names version 2"
     assert cb9["status_line"] == CB9_STATUS_LINE and cb9["date"] == "2026-10-28" and "fallback" not in cb9
     assert {key for key in cb9 if cb9[key] != bl73[key]} == {"date", "catalog_sha256", "reason", "status_line"}, "the entry of CB-9 changes the catalog hash, the date, the reason and the status line, and nothing else: prompt, protocol, route and e-mail prompts stand as decided"
-    assert doc["entries"][-6] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert doc["entries"][-7] == bl73 and "CB-9" in cb9["status_line"] and "CB-9" in cb9["reason"] and "version 2" in cb9["reason"] and len(cb9["reason"]) <= interpreter_enable.TEXT_MAX and len(cb9["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "Measured on this PR's head before merge" in cb9["reason"] and "only after the maintainer's decision on that measurement" in cb9["reason"]
     # LUNA-ENABLE: its entry copies every pin of the entry of CB-9 and adds the outage path, and nothing else changes but the date text fields
     assert luna["status_line"] == LUNA_STATUS_LINE and luna["date"] == "2026-10-28"
@@ -152,20 +157,27 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert card_entry["fallback"] == mail_ask["fallback"] and card_entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and "event_card_prompt_sha256" not in mail_ask
     assert "RESULT-CARD-MODEL-2026-11-01" in card_entry["reason"] and "<date>" not in card_entry["reason"] and "enabled below that rule by the maintainer's decision of 2026-11-01" in card_entry["reason"] and "wrong_card 2 items of 140 against at most 1" in card_entry["reason"] and len(card_entry["reason"]) <= interpreter_enable.TEXT_MAX and len(card_entry["status_line"]) <= interpreter_enable.TEXT_MAX
     assert card_entry["status_line"] == EVENT_CARD_STATUS_LINE and card_entry["date"] == "2026-11-01"
-    # mail-card-recipient, third text: the newest entry copies every pin, the event card pin and the outage path of the entry before it and re-pins the revise prompt, and nothing else changes but the texts
-    assert entry["status_line"] == STATUS_LINE and entry["date"] == "2026-11-01" and entry["date"] >= card_entry["date"]
-    assert {key for key in entry if entry.get(key) != card_entry.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the newest entry changes the reason, the status line and the revise prompt's pin, and nothing else"
-    assert entry["fallback"] == card_entry["fallback"] and entry["event_card_prompt_sha256"] == EVENT_CARD_PIN and entry["compose_prompt_sha256"] == card_entry["compose_prompt_sha256"]
-    assert entry["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v3"] != card_entry["revise_prompt_sha256"] and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
-    assert entry["reason"] == MAIL_CARD_RECIPIENT_REASON, "the newest entry carries the text the maintainer decided on 2026-11-01, after the third proof (RESULT-MAIL-CARD-RECIPIENT-2026-11-01)"
-    assert "Two earlier paid proofs failed" in entry["reason"] and "a question about who receives the e-mail asks for no change" in entry["reason"] and "RESULT-MAIL-CARD-RECIPIENT-2026-11-01" in entry["reason"] and "<date>" not in entry["reason"] and "enabled below the bar by the maintainer's decision of 2026-11-01" in entry["reason"] and "3 of 12 rows of the bar not met" in entry["reason"]
+    recipient = doc["entries"][-2]
+    # mail-card-recipient, third text: the entry of mail-card-recipient copies every pin, the event card pin and the outage path of the entry before it and re-pins the revise prompt, and nothing else changes but the texts
+    assert recipient["status_line"] == RECIPIENT_STATUS_LINE and recipient["date"] == "2026-11-01" and recipient["date"] >= card_entry["date"]
+    assert {key for key in recipient if recipient.get(key) != card_entry.get(key)} == {"reason", "status_line", "revise_prompt_sha256"}, "the entry of mail-card-recipient changes the reason, the status line and the revise prompt's pin, and nothing else"
+    assert recipient["fallback"] == card_entry["fallback"] and recipient["event_card_prompt_sha256"] == EVENT_CARD_PIN and recipient["compose_prompt_sha256"] == card_entry["compose_prompt_sha256"]
+    assert recipient["revise_prompt_sha256"] == PINNED_HASHES["revise_prompt_recipient_v3"] != card_entry["revise_prompt_sha256"] and len(recipient["reason"]) <= interpreter_enable.TEXT_MAX and len(recipient["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert recipient["reason"] == MAIL_CARD_RECIPIENT_REASON, "the newest entry carries the text the maintainer decided on 2026-11-01, after the third proof (RESULT-MAIL-CARD-RECIPIENT-2026-11-01)"
+    assert "Two earlier paid proofs failed" in recipient["reason"] and "a question about who receives the e-mail asks for no change" in recipient["reason"] and "RESULT-MAIL-CARD-RECIPIENT-2026-11-01" in recipient["reason"] and "<date>" not in recipient["reason"] and "enabled below the bar by the maintainer's decision of 2026-11-01" in recipient["reason"] and "3 of 12 rows of the bar not met" in recipient["reason"]
+    # ANY-QUESTION Q3, the probe of the draft: the newest entry copies every pin of the entry before it and re-pins the interpreter's prompt, and nothing else changes but the date and the texts
+    assert {key for key in entry if entry.get(key) != recipient.get(key)} == {"date", "prompt_sha256", "reason", "status_line"}, "the probe entry changes the prompt hash, the date, the reason and the status line, and nothing else"
+    assert entry["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != recipient["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_3112"]
+    assert entry["date"] >= recipient["date"] and entry["status_line"] == STATUS_LINE and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
+    assert "ANY-QUESTION Q3" in entry["reason"] and "rule 12" in entry["reason"] and "the outage path serves the new prompt unmeasured" in entry["reason"]
+    assert "Measured on this PR's head before merge (RESULT-ANY-QUESTION-<date>)" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
 def test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges():
-    """The reason of the newest entry says "RESULT-MAIL-CARD-RECIPIENT-<date>" (the event card entry before it says "RESULT-CARD-MODEL-<date>", filled) while the measurement is pending. This test is red until the date of the run is written there: the marker cannot merge unfilled."""
+    """The reason of the newest entry says "RESULT-ANY-QUESTION-<date>" (the entry before it says "RESULT-MAIL-CARD-RECIPIENT-2026-11-01", filled) while the measurement is pending. This test is red until the date of the run is written there: the marker cannot merge unfilled."""
     reason = committed()["entries"][-1]["reason"]
-    assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-MAIL-CARD-RECIPIENT-YYYY-MM-DD)"
+    assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-ANY-QUESTION-YYYY-MM-DD)"
 
 
 def test_the_marker_gate_reads_the_reason_and_the_dates_of_the_entries_are_in_order(tmp_path):
@@ -179,7 +191,7 @@ def test_the_checkout_has_the_hashes_the_entry_was_decided_on_and_it_is_in_force
     assert interpreter_evidence.hashes(interpreter_route.find(ROUTE))["protocol_sha256"] == HASHES["protocol_sha256"]
     for language in LANGUAGES:
         found = interpreter_enable.active(language)
-        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == "2026-11-01", language
+        assert found is not None and found["route"]["id"] == ROUTE and found["route"]["kind"] == "http" and found["entry"]["date"] == PROBE_DATE, language
     for language in ("ja", "pt-br", "en-GB", "", None):
         assert interpreter_enable.active(language) is None, language
 
@@ -258,7 +270,7 @@ def test_the_committed_entries_are_in_date_order_and_an_entry_appended_with_an_e
 def test_the_status_reads_the_same_committed_file_and_prints_the_decision_beside_the_route():
     status = status_module()
     read = status.enable_status(str(REPO), status.load_inputs())
-    assert read["present"] and read["in_force"] and read["date"] == "2026-11-01" and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
+    assert read["present"] and read["in_force"] and read["date"] == PROBE_DATE and read["route"] == ROUTE and read["languages"] == LANGUAGES and read["status_line"] == STATUS_LINE
     assert interpreter_enable.active("en") is not None
     assert f"  {ROUTE}: {STATUS_LINE}" in status.table(status.status(str(REPO)))
 

@@ -355,6 +355,22 @@ with the description as the body, not `route` (rule 10, and rule 8 now says "wri
 the interpreter is on with the new prompt (limit L63, part 2). It was measured on this pull request's head on blind set 2 (`blite-blind-2-v2-split.json`) and served by the maintainer's decision of 2026-10-26, below the gate on the pt-BR wrong-card rate (OPEN-BL7-C, recommendation (a); the figures are in `docs/decisions.md`).
 The recorded answers cannot measure this prompt: a replay says what the code does with answers given to the old prompt, never what the new prompt makes a model say.
 
+### The prompt in the ANY-QUESTION Q3 pull request (2026-11-02)
+
+The prompt of package ANY-QUESTION Q3 asks the model for the kind `question`, which the validator already checks (`interpreter.check`) and code answers (`runtime/ops_any_question.py`). Three insertions and nothing else:
+a row of the OUTPUT table (`question`: `about` card, done, can or other; `field` with card; `op` with can, and with done only when the line names what was done), rule 12 and four examples.
+Rule 12 teaches: a line that asks a question is never `none`; rules 4 and 9 come first (a line that answers an open item of the frame is that answer); a request worded as a question ("could you...?", "will you...?")
+is that request, read by the rules above; the question kinds come BEFORE "any other question that an op of the catalog answers is that op" (what the card says or what approving it does: about card; whether something the person asked for was
+done: about done; whether the assistant can do what an op does, with nothing to do in the line: about can; a question nothing here answers: about other); a question asks for nothing to be done, so it is never answered with an op that opens a card.
+The four examples (none is a line of a dev set; `runtime/tests/test_interpreter_messages.py` checks it): a request worded as a question (`remind`), a `done` question with an op, a `card` question about a copy (`field` to),
+a `can` question with an op. Its sha256 is `9e637e32...` (`interpreter_prompt` in `scripts/tests/pinned_hashes.json`; `interpreter_prompt_3112` keeps the hash of BL7-3, which every entry from BL7-3 to mail-card-recipient was decided on).
+
+The newest entry of `runtime/interpreter_enable.json` is a probe entry written by the draft: it pins the new prompt hash and copies every other pin of the entry before it, so the interpreter, the event card and the e-mail paths stay on at the head
+that is measured (without it the interpreter is off at that head, the card harness refuses it and 736 of the 1,235 golden rows change). Its reason holds the marker `RESULT-ANY-QUESTION-<date>`: the merge gate
+(`test_interpreter_enable.py`, run in CI) is red until the maintainer's decision on the measurement is written there, so the draft cannot merge before it. The recorded answers cannot measure this prompt (none is a `question` object, and
+their headers name the old prompt); the sitting is a new run: the screen on the daily route (the two question dev sets of Q2: main 50 and card 30, 1 run), then the sets of the bar, with the blind sets held outside the repository until measured once.
+The sitting is the maintainer's, on his "pode"; this package made no model call.
+
 ## The tier-1 cover set (S41-11, PR 1, 2026-10-28)
 
 S41-11 deletes the code claimers that take a line before any model (the closed forms of `natural.match`, the write families' `natural_writes.candidate`, the reminders' `natural.claim`). A line they take
