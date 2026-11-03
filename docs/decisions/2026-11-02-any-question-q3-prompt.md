@@ -30,4 +30,8 @@ the catalog, protocol, route, compose, revise and event card pins; the harness f
 
 **Not done by this package.** No model call, provider call, lab run or paid step; the screen and the sitting are the maintainer's, on his "pode". A re-wording after the screen is OPEN-Q3-2 (the maintainer's).
 
-**After the sitting.** A paragraph is added here with the result file (`RESULT-ANY-QUESTION-<YYYY-MM-DD>`) and the maintainer's decision, in the same commit that fills the probe entry's `date` and `reason`.
+## Outcome (2026-11-03)
+
+**What was measured.** The head `405bfd30` was measured on 2026-11-03 (result file `RESULT-ANY-QUESTION-2026-11-03`, outside the repository). Rules 1, 2, 3 and 5 of the bar were met, and so was the card harness. Rule 4 (regression) was not met on both routes against the same-day old prompt (`RESULT-ANY-QUESTION-BASE-2026-11-03`): on the sets R2 to R4 the daily route had 10 wrong items against 10, with `wrong_card` 1 against 4, and the reference route had 10 against 8. There was no effect without confirmation.
+
+**What the maintainer decided (2026-11-03).** He accepted the head as measured, below rule 4. The probe entry's `date` is now 2026-11-03 and its `reason` is filled with this result and "enabled below that rule by the maintainer's decision of 2026-11-03", as the entries of CARD-MODEL-SEES and mail-card-recipient were. The merge gate `test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges` is green now that the marker is filled. The prompt, `pinned_hashes.json`, the catalog and the sets are unchanged by this commit.

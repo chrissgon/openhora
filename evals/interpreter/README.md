@@ -365,11 +365,12 @@ done: about done; whether the assistant can do what an op does, with nothing to 
 The four examples (none is a line of a dev set; `runtime/tests/test_interpreter_messages.py` checks it): a request worded as a question (`remind`), a `done` question with an op, a `card` question about a copy (`field` to),
 a `can` question with an op. Its sha256 is `9e637e32...` (`interpreter_prompt` in `scripts/tests/pinned_hashes.json`; `interpreter_prompt_3112` keeps the hash of BL7-3, which every entry from BL7-3 to mail-card-recipient was decided on).
 
-The newest entry of `runtime/interpreter_enable.json` is a probe entry written by the draft: it pins the new prompt hash and copies every other pin of the entry before it, so the interpreter, the event card and the e-mail paths stay on at the head
-that is measured (without it the interpreter is off at that head, the card harness refuses it and 736 of the 1,235 golden rows change). Its reason holds the marker `RESULT-ANY-QUESTION-<date>`: the merge gate
-(`test_interpreter_enable.py`, run in CI) is red until the maintainer's decision on the measurement is written there, so the draft cannot merge before it. The recorded answers cannot measure this prompt (none is a `question` object, and
-their headers name the old prompt); the sitting is a new run: the screen on the daily route (the two question dev sets of Q2: main 50 and card 30, 1 run), then the sets of the bar, with the blind sets held outside the repository until measured once.
-The sitting is the maintainer's, on his "pode"; this package made no model call.
+The newest entry of `runtime/interpreter_enable.json` pins the new prompt hash and copies every other pin of the entry before it, so the interpreter, the event card and the e-mail paths stay on at the head
+that was measured (without it the interpreter is off at that head, the card harness refuses it and 736 of the 1,235 golden rows change). It was written by the draft as a probe entry; its reason now holds `RESULT-ANY-QUESTION-2026-11-03`
+and the maintainer's decision of 2026-11-03: the head `405bfd30` met rules 1, 2, 3 and 5 of the bar and the card harness, rule 4 was not met on both routes against the same-day old prompt (`RESULT-ANY-QUESTION-BASE-2026-11-03`), and it is enabled below that rule
+(`docs/decisions/2026-11-02-any-question-q3-prompt.md`, "Outcome"). The recorded answers cannot measure this prompt (none is a `question` object, and
+their headers name the old prompt); the sitting was a new run: the screen on the daily route (the two question dev sets of Q2: main 50 and card 30, 1 run), then the sets of the bar, with the blind sets held outside the repository until measured once.
+The sitting was the maintainer's, on his "pode"; the package that wrote the draft made no model call.
 
 ## The tier-1 cover set (S41-11, PR 1, 2026-10-28)
 

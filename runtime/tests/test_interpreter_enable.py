@@ -64,10 +64,10 @@ assert len(EVENT_CARD_STATUS_LINE) <= 600
 RECIPIENT_STATUS_LINE = EVENT_CARD_STATUS_LINE + "; revise prompt re-pinned 2026-11-01 (a question about the recipient)"      # the entry of package mail-card-recipient, third text: the entry of CARD-MODEL-SEES and the re-pinned revise prompt
 assert len(RECIPIENT_STATUS_LINE) <= 600
 STATUS_LINE = ("enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28) and 3 (MAIL-SUMMARY-FLIP, 2026-10-31); "
-               "the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-02: the kind question), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; "
+               "the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-03: the kind question, below rule 4); the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; "
                "the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)")      # the newest entry (ANY-QUESTION Q3, the probe of the draft)
 assert len(STATUS_LINE) <= 600
-PROBE_DATE = "2026-11-02"      # the day the probe entry of ANY-QUESTION Q3 was written
+PROBE_DATE = "2026-11-03"      # the day the probe entry of ANY-QUESTION Q3 was written
 MAIL_CARD_RECIPIENT_REASON = "The e-mail revise prompt (rule 3) gained a sentence: a question about who receives the e-mail asks for no change, even when it writes an address, and a polite request with a question mark is still a request. Two earlier paid proofs failed. Measured on this PR's head 8430a9ae, RESULT-MAIL-CARD-RECIPIENT-2026-11-01: 3 of 12 rows of the bar not met, one call of 102 in group D changed the recipient; enabled below the bar by the maintainer's decision of 2026-11-01. Only revise_prompt_sha256 changes."      # the newest entry (package mail-card-recipient): the text decided after the third proof; the test below fixes it
 EVENT_CARD_PIN = PINNED_HASHES["event_card_prompt"]
 LUNA_ROUTE_SHA256 = PINNED_HASHES["route_or_gpt_6_luna"]
@@ -170,12 +170,12 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert entry["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"] != recipient["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_3112"]
     assert entry["date"] >= recipient["date"] and entry["status_line"] == STATUS_LINE and len(entry["reason"]) <= interpreter_enable.TEXT_MAX and len(entry["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "ANY-QUESTION Q3" in entry["reason"] and "rule 12" in entry["reason"] and "the outage path serves the new prompt unmeasured" in entry["reason"]
-    assert "Measured on this PR's head before merge (RESULT-ANY-QUESTION-<date>)" in entry["reason"] and "only after the maintainer's decision on that measurement" in entry["reason"]
+    assert "RESULT-ANY-QUESTION-2026-11-03" in entry["reason"] and "<date>" not in entry["reason"] and "enabled below that rule by the maintainer's decision of 2026-11-03" in entry["reason"] and "rule 4 not met" in entry["reason"]
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
 def test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges():
-    """The reason of the newest entry says "RESULT-ANY-QUESTION-<date>" (the entry before it says "RESULT-MAIL-CARD-RECIPIENT-2026-11-01", filled) while the measurement is pending. This test is red until the date of the run is written there: the marker cannot merge unfilled."""
+    """The reason of the newest entry says "RESULT-ANY-QUESTION-2026-11-03" (filled, as the entry before it says "RESULT-MAIL-CARD-RECIPIENT-2026-11-01"); while a measurement is pending the marker "RESULT-ANY-QUESTION-<date>" stands and this test is red until the date of the run is written there: the marker cannot merge unfilled."""
     reason = committed()["entries"][-1]["reason"]
     assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-ANY-QUESTION-YYYY-MM-DD)"
 
