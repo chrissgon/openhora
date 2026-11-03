@@ -270,6 +270,28 @@
      "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
     }
    ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-03",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "9e637e3244b7938224fccf9570ba8277cbd4d9060bf538f0e3a2e55fee575bfa",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The outage route or-gpt-6-luna was measured at this prompt (9e637e32) and catalog (aed31af3), head e1527213, beside the primary or-deepseek-v4.1-flash on the same sets (RESULT-RESERVE-V3-2026-11-03): rules 1 and 4 met, rule 2 not met (correct_direct pt-BR 12.7 and en 11.9 points below the primary, against at most 10), no effect without confirmation; kept as the fallback below rule 2 by the maintainer's decision of 2026-11-03.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28) and 3 (MAIL-SUMMARY-FLIP, 2026-10-31); the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-03: the kind question, below rule 4); the outage path or-gpt-6-luna re-measured 2026-11-03, kept below rule 2; the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-11-03: ix-test-v1 full step and question-dev-v1, 2 runs, at e1527213, events 20261103T184754Z-5dad949d (Luna) and 20261103T184655Z-19a743ea (primary), judged by the relative rule (rule 2 not met, kept by decision); docs/decisions/2026-11-03-reserve-route-kept.md; first measured 2026-10-28 (docs/decisions/2026-10-28-luna-enable-fallback.md)"
+    }
+   ]
   }
  ]
 }
