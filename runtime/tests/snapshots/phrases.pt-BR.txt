@@ -149,6 +149,8 @@ ATT_WAITING_LINE: arquivo #42 Ana Lima: /add 42 ou /discard 42
 A_MESSAGING_APP: um aplicativo de mensagens
 BIDI_LEFT_OUT: Uma linha com controles de direção de texto foi retirada.
 BODY_NOT_NAMED: O agente de planejamento não indicou um fluxo nem uma skill para o pedido move the review
+CAN_CARD: Sim: um card é aprovado ou rejeitado pelos botões dele, ou respondendo “sim” ou “não” (sem ponto de interrogação) enquanto ele é a última mensagem.
+CAN_YES: Sim, consigo fazer isso por aqui: é só pedir. Nada é alterado antes da sua aprovação.
 CARD_ACCOUNT: Conta: ana@mail.example (ana@mail.example)
 CARD_BOX_ARCHIVE: Arquivar: 3 mensagem(ns)
 CARD_BOX_CODE: O código faz esta alteração na sua caixa de e-mail ana@mail.example depois da sua aprovação. Nada é enviado e nada é apagado.
@@ -292,6 +294,14 @@ CONFIG_PENDING: A configuração do projeto mudou e precisa ser aceita no termin
 CUT: (continua na página)
 DOCUMENT_LINE: O arquivo com o texto inteiro não chegou, então este card não pode ser aprovado aqui: aprove na página da plataforma, ou envie /pending para tentar o arquivo de novo.
 DOCUMENT_NOTE: O texto inteiro desta decisão, como arquivo. O card com os botões chega depois que este arquivo chegar.
+DONE_HEAD: Seus cards mais recentes (últimos 7 dias):
+DONE_LINE: #12 move the review to Friday: open
+DONE_NONE: Não encontrei nenhum card assim nos últimos 7 dias.
+DONE_STATE_APPROVED: aprovado
+DONE_STATE_CANCELLED: encerrado sem aprovação, nada foi feito
+DONE_STATE_OPEN: esperando sua aprovação
+DONE_STATE_REJECTED: rejeitado, nada foi feito
+DONE_STATE_REPLACED: substituído por um card mais novo, nada foi feito
 EFFECT_LABEL: Aprovar este conteúdo exato
 EFFECT_LINE: Aprove na página da plataforma.
 EFFECT_REPLY: Um efeito é aprovado onde o texto inteiro aparece, on the platform's page
@@ -825,8 +835,14 @@ PROJECT_NONE: Esse projeto não existe. Projetos: Acme Launch, Beta Site.
 PROJECT_NOW: Suas mensagens vão para Ana Lima. Projetos: Acme Launch, Beta Site.
 PROJECT_SET: Suas mensagens agora vão para Ana Lima.
 PROPOSES: O agente de planejamento propõe: 
+QUESTION_CARD_APPROVE: É isto que a aprovação faz, como o card diz:\n<lines>\nRejeitar não faz nada. Nada foi mudado; o card está logo abaixo.
+QUESTION_CARD_NONE: O card não diz isso. Nada foi mudado; o card está logo abaixo.
+QUESTION_CARD_SAYS: O card diz:\n<lines>\nNada foi mudado; o card está logo abaixo.
+QUESTION_CARD_WORD: Para aprovar, toque em Aprovar ou responda “sim”, sem ponto de interrogação. Para rejeitar, toque em Rejeitar ou responda “não”. Nada foi decidido; o card está logo abaixo.
 QUESTION_DISMISSED: Pergunta #42 dispensada.
 QUESTION_HAS_COMPANY: A pergunta 12 não foi dispensada: o pedido dela ainda tem outras decisões abertas.
+QUESTION_NO_CARD: Não vejo nenhum card esperando por você nesta conversa agora. Se quiser, pergunte o que está esperando por você.
+QUESTION_OTHER: Consigo responder perguntas sobre seus e-mails, sua agenda, seus arquivos e sua lista de tarefas, sobre o trabalho da plataforma e sobre um card que espera por você. Para qualquer outra coisa, posso pesquisar na web: peça com “pesquise” e a sua pergunta.
 QUEUED: Anotado: respondo a esta mensagem depois da atual.
 QUEUED_REQUEST: Registrado como pedido move the review. O agente de planejamento o encaminha quando a execução terminar.
 QUEUE_DEAD_LINE: Uma mensagem na fila ficou sem resposta: o serviço parou enquanto ela era encaminhada. Envie de novo.
@@ -1012,6 +1028,7 @@ UNDERSTOOD_ATTACHMENT_DISCARD: apagar o arquivo #42 que foi enviado
 UNDERSTOOD_CANCEL: cancelar o pedido #42
 UNDERSTOOD_CONNECTIONS: mostrar as conexões
 UNDERSTOOD_COSTS: mostrar os custos das execuções
+UNDERSTOOD_DONE: olhar seus cards dos últimos 7 dias e dizer como cada um terminou
 UNDERSTOOD_FILE_ASK: responder sobre o arquivo “photo.png” do seu Drive ou OneDrive (um modelo lê o arquivo numa execução isolada, até US$ 25)
 UNDERSTOOD_FILE_READ: mostrar o arquivo “photo.png” do seu Drive ou OneDrive
 UNDERSTOOD_FLOWS: listar os fluxos

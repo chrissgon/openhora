@@ -108,6 +108,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/language.py` | The language artifacts are written in: the tag rule, the order that decides it, and the words a run, a plan card and a refusal use. |
 | `runtime/lease.py` | Two hosts do not write the sources folder within one lease window, and no database or lock lives in a synced folder (package P-OPS, finding I4). |
+| `runtime/line_card.py` | The card the line is about (ANY-QUESTION): the one number the messaging bridge leaves for the operations layer, on the thread that runs the line. |
 | `runtime/line_stage.py` | The stage of the line being answered (slice S19): the one word the operations layer leaves for the messaging bridge to say what is being done. |
 | `runtime/list_pick.py` | A row of a list the platform just showed, named by an ordinal word or by a value the list shows (package LP-1, lane A3', scenario 38): "a última", "o primeiro", "a das 15h", "a do dia 23", "the second one", "o do banco". |
 | `runtime/mail_address.py` | What the runtime needs to know of an e-mail address, and nothing else (package EMAIL-SEND): the same rule as providers/_email.py `normalize_address`, written again because the runtime does not import a provider; a test holds the two equal on a table of addresses. |
@@ -146,6 +147,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
 | `runtime/ops_actor.py` | Who acted (package POL-2), in the operations layer: the sender of a messaging app, the profile the accepted configuration gives that sender, and the record of both with a decision. |
+| `runtime/ops_any_question.py` | The answers to a question the interpreter read (ANY-QUESTION): a card's own lines, and how the person's recent cards ended. |
 | `runtime/ops_ask.py` | The answer from sources (package AQ-1): `ask`, one question answered from the converted text of the sources that code selected. |
 | `runtime/ops_attachments.py` | The operations over the files a listed sender sent through a messaging app (package ATT-1): list what is held, hold a file the bridge fetched, add a held file as a version of a source, discard it. |
 | `runtime/ops_calendar.py` | The operations over the person's own calendar (package W1): create an event, change one, remove one. |
