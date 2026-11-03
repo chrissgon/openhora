@@ -149,6 +149,8 @@ ATT_WAITING_LINE: file #42 Ana Lima: /add 42 or /discard 42
 A_MESSAGING_APP: a messaging app
 BIDI_LEFT_OUT: A line with text-direction controls was left out.
 BODY_NOT_NAMED: The planning agent did not name a flow or a skill for request move the review
+CAN_CARD: Yes: a card is approved or rejected with its own buttons, or by replying “yes” or “no” (with no question mark) while it is the last message.
+CAN_YES: Yes, I can do that from here: just ask. Nothing is changed before you approve it.
 CARD_ACCOUNT: Account: ana@mail.example (ana@mail.example)
 CARD_BOX_ARCHIVE: Archive: 3 message(s)
 CARD_BOX_CODE: Code makes this change in your mailbox ana@mail.example after your approval. Nothing is sent and nothing is deleted.
@@ -292,6 +294,14 @@ CONFIG_PENDING: The project's configuration changed and must be accepted in the 
 CUT: (continues on the page)
 DOCUMENT_LINE: The file with the whole text did not arrive, so this card cannot be approved here: approve it on the platform's page, or send /pending to try the file again.
 DOCUMENT_NOTE: The whole text of this decision, as a file. The card with the buttons follows once this file has arrived.
+DONE_HEAD: Your latest cards (last 7 days):
+DONE_LINE: #12 move the review to Friday: open
+DONE_NONE: I found no such card in the last 7 days.
+DONE_STATE_APPROVED: approved
+DONE_STATE_CANCELLED: closed without approval, nothing was done
+DONE_STATE_OPEN: waiting for your approval
+DONE_STATE_REJECTED: rejected, nothing was done
+DONE_STATE_REPLACED: replaced by a newer card, nothing was done
 EFFECT_LABEL: Approve this exact content
 EFFECT_LINE: Approve it on the platform's page.
 EFFECT_REPLY: An effect is approved where its whole text is shown, on the platform's page
@@ -825,8 +835,14 @@ PROJECT_NONE: No such project. Projects: Acme Launch, Beta Site.
 PROJECT_NOW: Your lines go to Ana Lima. Projects: Acme Launch, Beta Site.
 PROJECT_SET: Your lines now go to Ana Lima.
 PROPOSES: The planning agent proposes: 
+QUESTION_CARD_APPROVE: This is what approving does, as the card says:\n<lines>\nRejecting it does nothing. Nothing was changed; the card is below.
+QUESTION_CARD_NONE: The card does not say that. Nothing was changed; the card is below.
+QUESTION_CARD_SAYS: The card says:\n<lines>\nNothing was changed; the card is below.
+QUESTION_CARD_WORD: To approve, tap Approve or reply “yes”, with no question mark. To reject, tap Reject or reply “no”. Nothing was decided; the card is below.
 QUESTION_DISMISSED: Question #42 dismissed.
 QUESTION_HAS_COMPANY: Question 12 was not dismissed: its request still has other decisions open.
+QUESTION_NO_CARD: I do not see a card waiting for you in this chat right now. If you want, ask me what waits for you.
+QUESTION_OTHER: I can answer questions about your e-mail, calendar, files and to-do list, about the platform's own work, and about a card that waits for you. For anything else I can search the web: ask with “research” and your question.
 QUEUED: Got it: I will answer this after the current one.
 QUEUED_REQUEST: Recorded as request move the review. The planning agent routes it when the run ends.
 QUEUE_DEAD_LINE: A queued line was not answered: the service stopped while it was routed. Send it again.
@@ -1012,6 +1028,7 @@ UNDERSTOOD_ATTACHMENT_DISCARD: delete file #42 that was sent
 UNDERSTOOD_CANCEL: cancel request #42
 UNDERSTOOD_CONNECTIONS: show the connections
 UNDERSTOOD_COSTS: show the costs of the runs
+UNDERSTOOD_DONE: look at your cards of the last 7 days and tell you how each one ended
 UNDERSTOOD_FILE_ASK: answer about the file “photo.png” in your Drive or OneDrive (a model reads the file in an isolated run, up to US$ 25)
 UNDERSTOOD_FILE_READ: show the file “photo.png” from your Drive or OneDrive
 UNDERSTOOD_FLOWS: list the flows
