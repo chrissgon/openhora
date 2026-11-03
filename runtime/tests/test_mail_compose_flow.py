@@ -253,13 +253,15 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
+    probe, every = every[-1], every[:-1]
+    assert {k for k in probe if probe.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "reason", "status_line"} and probe["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"], "ANY-QUESTION Q3: the probe entry changes only the interpreter prompt; the rest of this test reads the entries before it"
     assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" in every[-2] and "event_card_prompt_sha256" not in every[-3] and all("fallback" in every[-n] for n in (1, 2, 3, 4)) and "fallback" not in every[-5], "the newest two entries pin the event card text (the newest is that of mail-card-recipient, the one before it that of CARD-MODEL-SEES), the one before them is the entry of MAIL-SUMMARY-FLIP and the one before that the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
     every = every[:-4]
     entries = every[:-5]      # without the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2), which carry every pin of the one before them but the interpreter prompt of BL5B and BL7-3
     pins = ("route_sha256", "prompt_sha256", "protocol_sha256", "compose_prompt_sha256", "revise_prompt_sha256")
     for carried in every[-5:-3]:
         assert {k: carried[k] for k in pins} == {k: entries[-1][k] for k in pins}
-    for later, prompt in ((every[-3], PINNED_HASHES["interpreter_prompt_1423"]), (every[-2], PINNED_HASHES["interpreter_prompt"]), (every[-1], PINNED_HASHES["interpreter_prompt"])):      # BL5B, BL7-3 and CB-9: every pin but the interpreter prompt stands
+    for later, prompt in ((every[-3], PINNED_HASHES["interpreter_prompt_1423"]), (every[-2], PINNED_HASHES["interpreter_prompt_3112"]), (every[-1], PINNED_HASHES["interpreter_prompt_3112"])):      # BL5B, BL7-3 and CB-9: every pin but the interpreter prompt stands
         assert {k: later[k] for k in pins if k != "prompt_sha256"} == {k: entries[-1][k] for k in pins if k != "prompt_sha256"} and later["prompt_sha256"] == prompt != entries[-1]["prompt_sha256"]
     newest, s12, s7, first = entries[-1], entries[-4], entries[-5], entries[-6]      # entries[-3] and [-2] are the first pin of the revise prompt (S13) and the entry of R2-F1
     assert newest["compose_prompt_sha256"] == mail_compose.prompt_sha256() == s12["compose_prompt_sha256"] == entries[-2]["compose_prompt_sha256"] == entries[-3]["compose_prompt_sha256"]      # the decisions after S12 carry its compose pin
