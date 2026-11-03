@@ -253,6 +253,8 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
+    reserve, every = every[-1], every[:-1]
+    assert {k for k in set(reserve) | set(every[-1]) if reserve.get(k) != every[-1].get(k)} == {"reason", "status_line"}, "RESERVE-V3: the newest entry changes only the reason and the status line against the probe entry; the rest of this test reads the entries before them"
     probe, every = every[-1], every[:-1]
     assert {k for k in probe if probe.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "reason", "status_line"} and probe["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"], "ANY-QUESTION Q3: the probe entry changes only the interpreter prompt; the rest of this test reads the entries before it"
     assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" in every[-2] and "event_card_prompt_sha256" not in every[-3] and all("fallback" in every[-n] for n in (1, 2, 3, 4)) and "fallback" not in every[-5], "the newest two entries pin the event card text (the newest is that of mail-card-recipient, the one before it that of CARD-MODEL-SEES), the one before them is the entry of MAIL-SUMMARY-FLIP and the one before that the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
