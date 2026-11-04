@@ -13,6 +13,7 @@ Like the real service as far as its pages say, it takes no conditional write: a 
   fake.refuse_next = (status, reason)         # the next write is answered with that status and changes nothing
   fake.redirect_next = True                   # the next request is answered 307 to another address
   fake.fail_get_next = 500                    # the next read is answered with that status
+  fake.error_extra = {"details": [...]}       # fields merged into the `error` object of the next refused write or failed read (Google's `details` / `errors` with a `reason`)
   fake.page_cap                               # at most this many tasks in a page of a list (and a nextPageToken while more remain)
   fake.refresh_scope                          # what a refresh says the token carries (default: the five scopes)
 
@@ -60,6 +61,7 @@ class FakeGoogleTasks:
         self.refuse_next = None
         self.redirect_next = False
         self.fail_get_next = None
+        self.error_extra = None
         self.page_cap = None
         owner = self
 
@@ -98,7 +100,7 @@ class FakeGoogleTasks:
                     return self._send(307, None, {"Location": "http://127.0.0.1:1/elsewhere"})
                 if self.command == "GET" and owner.fail_get_next:
                     status, owner.fail_get_next = owner.fail_get_next, None
-                    return self._send(status, {"error": {"code": status, "message": "stand-in failure"}})
+                    return self._send(status, {"error": {"code": status, "message": "stand-in failure", **owner.take_extra()}})
                 status, answer, headers, apply = owner.api(entry)
                 if status == 405:
                     return self._send(405, answer)
@@ -167,6 +169,10 @@ class FakeGoogleTasks:
                 found.append((method, path))
         return found
 
+    def take_extra(self) -> dict:
+        extra, self.error_extra = self.error_extra or {}, None
+        return extra
+
     def api(self, entry):
         """(status, answer, headers, apply) where apply() changes the tasks (called after the answer is decided, before it is sent) and may return the answer."""
         method, path, query = entry["method"], entry["path"], entry["query"]
@@ -181,7 +187,7 @@ class FakeGoogleTasks:
         if method in ("POST", "PATCH") and self.refuse_next:
             status, reason = self.refuse_next
             self.refuse_next = None
-            return status, {"error": {"code": status, "message": reason}}, ({"Retry-After": "30"} if status in (429, 503) else {}), None
+            return status, {"error": {"code": status, "message": reason, **self.take_extra()}}, ({"Retry-After": "30"} if status in (429, 503) else {}), None
         if task_id is None and method == "GET":
             items = [dict(t) for t in self.tasks[list_id].values()]
             if query.get("showCompleted") == "false":

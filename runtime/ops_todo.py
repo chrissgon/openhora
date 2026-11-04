@@ -135,17 +135,20 @@ def _root() -> str:
 
 
 def _read_account(cfg: dict, account: str, only=None) -> dict:
-    """The open tasks of the account's lists: {"account", "failed": bool, "lists": [{"list": name, "truncated", "tasks": [{"id", "title"}]}]}. A list that cannot be read makes the account `failed`
-    (the others are still shown); nothing of an error but its closed code is kept. `only` narrows to one list name."""
-    out = {"account": account, "failed": False, "lists": []}
+    """The open tasks of the account's lists: {"account", "failed": bool, "code": the closed code of the first read that failed or None, "lists": [{"list": name, "truncated", "tasks": [{"id",
+    "title"}]}]}. A list that cannot be read makes the account `failed` (the others are still shown); nothing of an error but its closed code is kept, and one stderr line with that code and the
+    account (no title, no list name). `only` narrows to one list name."""
+    out = {"account": account, "failed": False, "code": None, "lists": []}
     for name, ident in _lists_of(cfg, account).items():
         if only is not None and name != only:
             continue
         try:
             rid = tasks_reader.default_list(_root(), account) if ident == "default" else ident
             got = tasks_reader.open_tasks(_root(), account, rid, SHOWN_MAX)
-        except tasks_reader.ReaderError:
+        except tasks_reader.ReaderError as e:
             out["failed"] = True
+            out["code"] = out["code"] or e.code
+            print(f"tasks: read of {account} failed ({e.code})", file=sys.stderr)
             continue
         out["lists"].append({"list": name, "truncated": got["truncated"], "tasks": [{"id": t["id"], "title": t["title"]} for t in got["tasks"]]})
     return out
@@ -172,7 +175,7 @@ def _may_read(ctx: dict, channel, sender) -> None:
 
 def todo_list(project: str, account: str | None = None, channel: str | None = None, sender: str | None = None) -> dict:
     """The operation `todo-list`. From a messaging app the sender's profile must hold the group `tasks-read`. Returns {"status": "ok" | "no-lists" | "unavailable", "services": [{"account",
-    "failed", "lists": [{"list", "truncated", "tasks": [{"n", "title"}]}]}], "count"}: the tasks are numbered per service, across its lists, and the list is remembered for this sender
+    "failed", "code", "lists": [{"list", "truncated", "tasks": [{"n", "title"}]}]}], "count"}: the tasks are numbered per service, across its lists, and the list is remembered for this sender
     (the number `todo:<n>` of `todo_done` answers it). The ids of the service are never in the result."""
     ctx = core.context(project)
     ops_actor.guard(ctx, OP_LIST, channel, sender)
@@ -194,7 +197,7 @@ def todo_list(project: str, account: str | None = None, channel: str | None = No
                 rows.append({"n": n, "title": task["title"]})
             shown.append({"list": item["list"], "truncated": item["truncated"], "tasks": rows})
         count += n
-        services.append({"account": name, "failed": read["failed"], "lists": shown})
+        services.append({"account": name, "failed": read["failed"], "code": read["code"], "lists": shown})
     _remember(ctx, channel, sender, kept)
     return {"status": "unavailable" if all(s["failed"] and not s["lists"] for s in services) else "ok", "services": services, "count": count}
 
@@ -220,7 +223,7 @@ def _fold(text) -> list:
 
 def _find(ctx: dict, channel, sender, account: str, item: str, only=None) -> dict:
     """The task `item` names among the open tasks of the account: {"status": "one", "entry"} | {"status": "several", "entries", "count"} | {"status": "none"} | {"status": "no-list"} |
-    {"status": "unavailable"}. `todo:<n>` is the n-th task of the account in the list this sender was shown (origin `listed`); words are every folded word found whole in a title among the
+    {"status": "unavailable", "code"}. `todo:<n>` is the n-th task of the account in the list this sender was shown (origin `listed`); words are every folded word found whole in a title among the
     open tasks of the lists read now (origin `grounded`). A list that was not read to the end (a service that did not answer) is never taken for a complete one: an `unavailable`
     is said when no list could be read."""
     found = ITEM.fullmatch(item) if isinstance(item, str) else None
@@ -242,7 +245,7 @@ def _find(ctx: dict, channel, sender, account: str, item: str, only=None) -> dic
     read = _read_account(ctx["cfg"], account, only)
     rows = _entries(read)
     if read["failed"] and not read["lists"]:
-        return {"status": "unavailable"}
+        return {"status": "unavailable", "code": read["code"]}
     fits = [row for row in rows if set(words) <= set(_fold(row["title"]))]
     if len(fits) > 1:
         return {"status": "several", "entries": fits[:MATCH_MAX], "count": len(fits), "origin": "grounded"}
@@ -291,18 +294,24 @@ def _label(cfg: dict, account: str) -> str:
     return phrases.text("OUT_TODO_GOOGLE" if account == "google" else "OUT_TODO_MICROSOFT", cfg)
 
 
+def _unavailable(cfg: dict, account: str, code) -> str:
+    """The sentence for a read that failed, by the closed code of the failure: the Tasks API off in the OAuth client's project, an account not connected for tasks, else the plain one."""
+    key = {"api_disabled": "TODO_API_OFF", "not_configured": "TODO_NOT_CONNECTED"}.get(code, "TODO_UNAVAILABLE")
+    return phrases.text(key, cfg, service=_label(cfg, account))
+
+
 def _render_list(cfg: dict, got: dict) -> str:
     """The sentence a chat is told for the outcome of `todo_list`, in the project's language."""
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     if got["status"] == "no-lists":
         return t("TODO_NO_LISTS")
     if got["status"] == "unavailable":
-        return "\n".join(t("TODO_UNAVAILABLE", service=_label(cfg, s["account"])) for s in got["services"])
+        return "\n".join(_unavailable(cfg, s["account"], s.get("code")) for s in got["services"])
     lines = []
     for service in got["services"]:
         label = _label(cfg, service["account"])
         if service["failed"]:
-            lines.append(t("TODO_UNAVAILABLE", service=label))
+            lines.append(_unavailable(cfg, service["account"], service.get("code")))
         for item in service["lists"]:
             if not item["tasks"]:
                 lines.append(t("TODO_EMPTY", service=label, list=item["list"]))
@@ -423,7 +432,7 @@ def _reply_done(project: str, ctx: dict, args: dict, wanted, channel, sender, ex
     if status == "no-list":
         return t("TODO_NO_LIST_SHOWN")
     if status == "unavailable":
-        return t("TODO_UNAVAILABLE", service=_label(cfg, account))
+        return _unavailable(cfg, account, got.get("code"))
     if status == "none":
         return t("TODO_NONE")
     if status == "several":

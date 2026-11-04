@@ -197,6 +197,40 @@ def test_a_redirect_is_not_followed_and_a_rejected_token_names_the_authorize_com
     assert [r["path"] for r in fake.requests if r["path"] != "/token"] == [fg.LISTS], "the redirect was not followed"
 
 
+REASON_BODIES = {      # the bodies Google answers a 403 with: the modern `details[].reason` and the legacy `errors[0].reason`
+    "disabled-details": ({"details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED", "domain": "googleapis.com"}]}, "api_disabled:", 1),
+    "disabled-legacy": ({"errors": [{"reason": "accessNotConfigured", "domain": "usageLimits"}]}, "api_disabled:", 1),
+    "scope-details": ({"details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}, "scope_missing:", 3),
+    "scope-legacy": ({"errors": [{"reason": "insufficientPermissions"}]}, "scope_missing:", 3),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REASON_BODIES))
+def test_a_403_names_its_cause_when_google_gives_the_reason(fake, tmp_path, name):
+    extra, prefix, code = REASON_BODIES[name]
+    fake.fail_get_next, fake.error_extra = 403, extra
+    proc = run(fake, tmp_path, "open", "--list", fg.DEFAULT_LIST)
+    assert proc.returncode == code and proc.stderr.strip().startswith(f"error: {prefix}"), proc.stderr
+    assert "stand-in failure" in proc.stderr, "Google's own message is kept after the prefix"
+    if prefix == "scope_missing:":
+        assert "google_auth.py authorize" in proc.stderr
+
+
+def test_any_other_403_keeps_the_old_sentence_and_exit_code(fake, tmp_path):
+    fake.fail_get_next, fake.error_extra = 403, {"details": [{"reason": "RATE_LIMIT_EXCEEDED"}]}
+    proc = run(fake, tmp_path, "open", "--list", fg.DEFAULT_LIST)
+    assert proc.returncode == 1 and "Google refused the request" in proc.stderr and "api_disabled" not in proc.stderr and "scope_missing" not in proc.stderr
+    fake.fail_get_next = 403
+    proc = run(fake, tmp_path, "lists")
+    assert proc.returncode == 1 and "Google refused the request" in proc.stderr
+
+
+def test_the_message_after_the_prefix_is_cut_at_160_characters(fake, tmp_path):
+    fake.fail_get_next, fake.error_extra = 403, {"message": "x" * 400, "details": [{"reason": "SERVICE_DISABLED"}]}
+    proc = run(fake, tmp_path, "lists")
+    assert "api_disabled:" in proc.stderr and "x" * 160 in proc.stderr and "x" * 161 not in proc.stderr
+
+
 def test_the_flags_of_a_verb_are_checked(fake, tmp_path):
     for args in (("open",), ("lists", "--list", "default"), ("--check", "lists"), (), ("open", "--list", "default", "--max", "0"), ("open", "--list", "default", "--max", "101")):
         assert run(fake, tmp_path, *args).returncode == 2, args

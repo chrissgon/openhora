@@ -167,6 +167,8 @@ def provider_call(root: str, implementation: str, verb: str, args, secrets=(), t
             raise StaleError(f"{verb}: the task moved ({said[:200]})") from None
         if e.exit_code == 1 and "ambiguous:" in said:
             raise effects.EffectError("provider", f"{verb}: {AMBIGUOUS_NOTE}") from None
+        if "api_disabled:" in said:      # the Tasks API is off in the OAuth client's project: the writer said so, and the phone is told (runtime/messaging_failure.py)
+            raise effects.EffectError("provider", f"{verb}: {said[said.index('api_disabled:'):][:200]}") from None
         raise effects.EffectError({"usage": "usage", "not-configured": "not-configured"}.get(e.kind, "provider"), f"{verb}: {e.reason}") from None
 
 

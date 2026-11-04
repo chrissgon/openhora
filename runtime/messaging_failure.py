@@ -14,6 +14,9 @@ sentences are free text, so a word list picks quota, size, name, network and aut
   from_step(kind, account, code, field, folder, cfg)   the sentence for a failed preparation (account_start.start)
   from_error(error, cfg, word=None, account=None)      the sentence for a failed approval (the bridge)
 
+A write the Google Tasks writer refused because the API is not enabled for the OAuth client's project ends in `api_disabled:` (providers/writer/google-tasks.py, runtime/effect_tasks.py): that
+text is checked first, before the rule for an authorization (code 3), so the person is told the one thing that fixes it.
+
 No command, no path and no hash is ever in a sentence (limit L62). Standard library only. Runs on Python 3.9: python3 runtime/messaging_failure.py --help
 """
 from __future__ import annotations
@@ -72,6 +75,8 @@ def from_step(kind, account, code, field, folder, cfg, said=None) -> str:
         return phrases.text("FAIL_REFUSED", cfg, service=service)
     if code == "gone":
         return phrases.text("FAIL_GONE", cfg)
+    if code == "event_gone":
+        return phrases.text("FAIL_EVENT_GONE", cfg)
     if code == "name_taken":
         return phrases.text("FAIL_NAME_TAKEN", cfg)
     if code in ("file_too_large", "too_large"):
@@ -86,6 +91,8 @@ def from_error(error, cfg, word=None, account=None) -> str:
     wrote). `word` is the effect's word (`files`, `calendar`, `mailbox`, `send`) and `account` its account, when the caller knows them."""
     text = str(error)
     service = _service(_family(None, word), account, cfg)
+    if "api_disabled:" in text:
+        return phrases.text("FAIL_TASKS_API_OFF", cfg)
     if UNKNOWN.search(text):
         return phrases.text("FAIL_UNKNOWN", cfg, place=phrases.text(PLACE_OF_WORD.get(word, "FAIL_LOOK_ANY"), cfg))
     if QUOTA.search(text):
