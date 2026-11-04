@@ -331,7 +331,8 @@ def remember_listed(ctx: dict, channel, sender, out: dict) -> None:
         return
     shown = [e for e in out.get("sources") or [] if e["type"] == "mail"]
     only = shown[0]["source"] if len(shown) == 1 and shown[0]["items"] else None
-    item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"), clock=SNAPSHOT_CLOCK)
+    item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"), clock=SNAPSHOT_CLOCK,
+                             mail_shown=any(e["items"] for e in shown))      # P3: a mail list with rows, one source or several, is on the screen: a bare number in the next line may mean it
 
 
 def _source_account(ctx: dict, source_id):
