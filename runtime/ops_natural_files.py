@@ -10,6 +10,10 @@ replace is `source_resolve.resolve` over the registered Drive and OneDrive sourc
 a file THIS sender sent: exactly one, or exactly one of the kind the line names, else the sender's files are listed (a file of someone else is never named).
 
 resolve(ctx, op, slots, channel, sender, said) -> {"args"} | {"ask"} | {"say"} (the interface of runtime/natural_writes.py).
+seed(op, decision, line)                the seed of `ops_natural_writes.open_line` for a new file the interpreter decided (file-create), built from the spans its check verified, or None: the closed
+                                        forms ("chamado <name>") are not asked. It carries `name`, `content` and `folder`; a `folder` span that is only a word for a service ("drive", "onedrive") is no folder: it
+                                        names the account when it names exactly one service and nothing when it is the bare "drive" (ops_file_read.GENERIC). A decision with no `content` gives None (the closed
+                                        forms read nothing either: the person is told it could not be prepared); one with no `name`, or a name the check of the file names refuses, is asked the name by `resolve`.
 
 Sibling of runtime/ops_natural_writes.py. Standard library only. Runs on Python 3.9: python3 runtime/ops_natural_files.py --help
 """
@@ -22,6 +26,7 @@ import files_document as fd
 import natural
 import ops_actor
 import ops_core as core
+import ops_file_read
 import ops_natural_writes
 import source_resolve
 import sources
@@ -49,7 +54,9 @@ def _create(ctx: dict, slots: dict):
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder
-    name = slots["name"]
+    name = slots.get("name")
+    if not name:          # a file the interpreter decided with no name (`seed`): the name is asked, as for a name with no extension
+        return w.ask_spec("name", "NW_ASK_FILE_NAME")
     if slots.get("gdoc") and not fd.extension_of(name):
         name = name + "." + fd.GDOC_WORD
     if fd.name_problem(name, fd.CREATE_EXTENSIONS + (fd.GDOC_WORD,)):
@@ -125,6 +132,30 @@ def _save(ctx: dict, slots: dict, channel, sender):
         args["folder"] = folder
         origins["folder"] = folder_origin
     return {"args": args, "origins": origins}
+
+
+def seed(op: str, decision: dict, line: str):
+    """The seed of a new file (see the module's text), or None when the operation is not a new file or the decision has no content."""
+    if op != "file-create":
+        return None
+    spans = decision.get("spans") or {}
+    content = spans.get("content")
+    if not content or not content.strip():
+        return None
+    slots = {"content": content}
+    name = (spans.get("name") or "").strip()
+    if name:
+        slots["name"] = name
+    folder = (spans.get("folder") or "").strip()
+    if folder:
+        if natural.ascii_normal(folder) in ops_file_read.GENERIC:
+            pass          # the bare "drive" is what a person calls their cloud folder: no folder and no account (the family asks which account when two have folders)
+        elif (service := ops_file_read._service_of(folder)) is not None:
+            slots["account"] = service          # "onedrive" names the account, not a folder
+        else:
+            slots["folder"] = folder
+    # provenance: the name, the content and the folder are spans of the line the interpreter's check verified; the account is a service word of the line
+    return turn_gate.Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("name", "content", "folder", "account") if key in slots})
 
 
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said):
