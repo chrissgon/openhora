@@ -410,6 +410,12 @@ def _refresh_failed(project: str, ctx: dict, source_id: str, force: bool = False
     return False
 
 
+def refresh_for_line(project: str, ctx: dict, source_id: str) -> bool:
+    """`_refresh_failed` for a caller outside this module (runtime/event_lookup.py, before it searches the snapshots for an event named by its words): the same age limit (FRESH_S), the same mark
+    of a changed calendar (`mark_changed`), the same budget of one read of a source for a line and the same closed stderr line. True when the read failed (the snapshot stays as it was)."""
+    return _refresh_failed(project, ctx, source_id)
+
+
 def _words_given(match):
     """The folded words of a `match` argument: None for none; the words of a typed `--match` text (`natural_writes_mail.target_words`: the articles and the mail nouns left out, [] when none is left or when
     a sentence is given); a list code made (`items_args`) is checked as the words it must be. A list of no word is a filter that holds no content word: the reply says so."""

@@ -1,0 +1,7 @@
+{
+  "package": "aceite-fix-3",
+  "table": {
+    "EV_POS_CANCEL_HOW": "Say the number from the list, for example: cancel {n}.",
+    "EV_POS_CHANGE_HOW": "Say the number from the list and the new time, for example: move {n} to Friday at 3 pm."
+  }
+}
