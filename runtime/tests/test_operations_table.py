@@ -64,6 +64,8 @@ NOT_OPERATIONS = extend("operations_table.NOT_OPERATIONS", {"store_module", "con
                   "reply",
                   # ops_items.py (S15c): the mark an approved calendar or mailbox effect leaves, so that the next list reads the provider again
                   "mark_changed",
+                  # ops_items.py (AF-3): the items list's freshness rule for a caller outside the module (event_lookup), beside the operation
+                  "refresh_for_line",
                   # ops_file_read.py (S17): the number said after a list of files, the line counter that ends the list, and the reset a test makes
                   "take", "begin_turn", "forget_lists",
                   # ops_file_read.py and ops_file_trash.py (R2-A): the grant asked again for a file, the reading of the line's file and account, and what the trash adds beside the operation
