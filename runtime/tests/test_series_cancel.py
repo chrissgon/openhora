@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import datetime
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -84,6 +86,12 @@ def clock_and_snapshots(world, monkeypatch, wall="2026-11-03 10:00"):
     monkeypatch.setattr(ops_interpret, "_zone", lambda now: ZONE)
     monkeypatch.setattr(ops_steps, "_now", lambda: moment.isoformat())      # the clock of a step's preparation (it reads an instance's start against it): the same moment
     world["clock"], world["snaps"] = clock, snaps
+    if "resolver" in world:      # the real writers (started as processes) decide "already started" with their own clock: they get this one
+        monkeypatch.setenv("WB_FROZEN_NOW", moment.isoformat())
+        resolver = world["resolver"]
+        if "WB_FROZEN_NOW" not in resolver.ENV_MINIMUM:
+            monkeypatch.setattr(resolver, "ENV_MINIMUM", resolver.ENV_MINIMUM + ("WB_FROZEN_NOW",))
+        monkeypatch.setattr(resolver, "interpreter_for", lambda script: [sys.executable, str(Path(__file__).with_name("frozen_clock_run.py"))])
     return snaps
 
 
