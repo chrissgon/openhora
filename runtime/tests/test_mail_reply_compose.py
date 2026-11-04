@@ -46,17 +46,46 @@ def test_a_body_without_its_leading_gerund_still_describes_the_text_by_the_word_
     assert described("e explicando que não posso ir", "responde a Marlene e explicando que não posso ir") is True      # validate: allow english-only -- "e" is skipped: the second word is the verb
 
 
+def test_the_dictation_of_row_6_and_10_of_the_acceptance_run_is_worded():
+    """OPEN-1, decided 2026-11-04: what follows a say verb is worded like a new e-mail; a colon, quotes and the literal marker still keep the person's words."""
+    line = "responde o email do reembolso dizendo que confirmo e que o valor cai na sexta"      # validate: allow english-only -- the Portuguese line of the acceptance run
+    assert described("que confirmo e que o valor cai na sexta", line) is True      # validate: allow english-only -- the Portuguese span under test
+    assert described("confirmo e que o valor cai na sexta", line) is True      # validate: allow english-only -- the span without the complementizer
+    assert described("vou ver amanhã", "salva um rascunho respondendo o email do contador dizendo que vou ver amanhã") is True      # validate: allow english-only -- the Portuguese line of row 10
+    assert described("texto exato: confirmo e que o valor cai na sexta", line) is False      # validate: allow english-only -- the marker starts the body
+    assert described("obrigado", "responde ao Pedro: \"obrigado\"") is False
+    assert described("confirmo", "responde ao Pedro dizendo: confirmo") is False      # validate: allow english-only -- a colon after the say verb is dictation
+
+
 @pytest.mark.parametrize("body, line", [
     ("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: `before` is "que", the body is the words as reported
     ("dizendo que aceito a proposta", "responde ao Carlos dizendo que aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: `first` is a say verb
-    ("tell him yes", "reply to Sam, tell him yes"),
     ("saying thanks for the invite", "reply to Sam saying thanks for the invite"),
     ("thanks for the invite", "reply to Sam saying thanks for the invite"),
-    ("thanks for the invite", "reply to Sam thanks for the invite"),
     ("ya la pagué", "responde al correo de Javier diciendo ya la pagué"),      # validate: allow english-only -- the Spanish line under test
     ("va bene", "rispondi alla mail di Paolo dicendo va bene"),      # validate: allow english-only -- the Italian line under test
 ])
-def test_reported_words_and_plain_words_are_the_text(body, line):
+def test_words_reported_after_a_say_verb_are_worded(body, line):
+    assert described(body, line) is True
+
+
+@pytest.mark.parametrize("body, line", [
+    ("tell him yes", "reply to Sam, tell him yes"),
+    ("thanks for the invite", "reply to Sam thanks for the invite"),
+    ("aceito a proposta", "responde ao Carlos aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: no say verb, no describing word
+])
+def test_plain_words_with_no_say_verb_and_no_describing_word_are_the_text(body, line):
+    assert described(body, line) is False
+
+
+@pytest.mark.parametrize("body, line", [
+    ("aceito a proposta", "responde ao Carlos dizendo: aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: a colon after the say verb is dictation
+    ("aceito a proposta", "responde ao Carlos dizendo \"aceito a proposta\""),      # validate: allow english-only -- the Portuguese line under test: a quote after the say verb is dictation
+    ("saying thanks", "reply to Sam: saying thanks"),
+    ("saying: yes, friday works", "reply to email 3 saying: yes, friday works"),      # the span carries the say verb and the colon
+    ("dizendo \"sim\"", "responde ao Carlos dizendo \"sim\""),      # validate: allow english-only -- the Portuguese line under test: the span carries the say verb and the quote
+])
+def test_a_say_verb_does_not_override_a_colon_or_a_quote(body, line):
     assert described(body, line) is False
 
 
@@ -71,11 +100,12 @@ SAY_VERBS = ("dizendo", "falando", "saying", "telling", "diciendo", "disant", "s
 
 
 @pytest.mark.parametrize("verb", SAY_VERBS)
-def test_a_say_verb_as_the_word_before_or_the_first_word_keeps_the_text_literal_even_when_a_describing_word_follows(verb):
-    assert described("politely we will pay on Monday", f"reply to Sam {verb} politely we will pay on Monday") is False, "the say verb is the word before: manner words are reported words"
-    assert described("thanking you with kindness", f"reply to Sam {verb} thanking you with kindness") is False
-    assert described(f"{verb} politely thanking you", f"reply to Sam {verb} politely thanking you") is False, "the say verb is the first word"
-    assert described(f"and {verb} politely thanking you", f"reply to Sam and {verb} politely thanking you") is False, "or the second, behind a joining word"
+def test_a_say_verb_as_the_word_before_or_the_first_word_has_the_text_worded_whatever_follows(verb):
+    assert described("we will pay on Monday", f"reply to Sam {verb} we will pay on Monday") is True
+    assert described("politely we will pay on Monday", f"reply to Sam {verb} politely we will pay on Monday") is True, "the say verb is the word before"
+    assert described("thanking you with kindness", f"reply to Sam {verb} thanking you with kindness") is True
+    assert described(f"{verb} politely thanking you", f"reply to Sam {verb} politely thanking you") is True, "the say verb is the first word"
+    assert described(f"and {verb} politely thanking you", f"reply to Sam and {verb} politely thanking you") is True, "or the second, behind a joining word"
 
 
 def test_every_listed_describing_verb_describes_the_text_as_the_first_word_and_as_the_word_before():
@@ -129,8 +159,8 @@ def test_a_body_that_is_not_text_or_not_in_the_line_never_raises_and_is_not_desc
     ("confermando la data", "rispondi a Paolo dicendo che confermando la data"),      # validate: allow english-only -- the Italian line under test
     ("che confermo gentilmente", "rispondi a Paolo dicendo che confermo gentilmente"),      # validate: allow english-only -- the Italian line under test
 ])
-def test_anything_reported_after_a_say_verb_and_a_complementizer_stays_literal_in_six_languages(body, line):
-    assert described(body, line) is False
+def test_anything_reported_after_a_say_verb_and_a_complementizer_is_worded_in_six_languages(body, line):
+    assert described(body, line) is True
 
 
 def test_the_same_words_without_the_say_verb_are_described():
@@ -212,25 +242,32 @@ def flagged(items):
     return [(item, body) for item, line, bodies in items for body in bodies if mail_reply_compose.described(body, line)]
 
 
-def test_no_reply_or_e_mail_body_gold_of_the_corpora_is_taken_for_a_description():
+def says(line):
+    """Whether the folded line holds a word of the say verbs (the only reason a corpus body may be worded since OPEN-1 of 2026-11-04)."""
+    return any(word in mail_reply_compose.SAY for word in natural.normal(line).split())
+
+
+def test_no_reply_or_e_mail_body_gold_of_the_corpora_is_worded_unless_its_line_holds_a_say_verb():
     items = corpus_bodies()
     blind = (CORPORA / "blite-blind-v2.jsonl").exists()
     assert len(items) == 44 + (3 if blind else 0), "dev 3, dev-long-v2 4, ix-test-v1 37 and, once BL7-0 has committed the blind set, its 3 (47 in all)"
-    assert flagged(items) == []
+    assert [item for item, body in flagged(items) if not says(next(line for i, line, _ in items if i == item))] == [], "a body is worded for a describing word or a say verb only"
+    assert len({item for item, body in flagged(items)}) >= 15, "the corpora's reports after a say verb are worded (17 lines on 2026-11-04; a colon or a quote keeps the rest literal)"
 
 
 def test_vacuity_a_described_that_flags_everything_makes_the_corpus_test_fail_and_one_that_ignores_a_say_verb_makes_the_say_verb_test_fail(monkeypatch):
     monkeypatch.setattr(mail_reply_compose, "described", lambda body, line: True)
-    assert len(flagged(corpus_bodies())) >= 44, "with the plant the corpus loop would fail"
-    assert mail_reply_compose.described("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta") is True      # validate: allow english-only -- the Portuguese line under test: the plant calls reported words a description
+    items = corpus_bodies()
+    assert [item for item, body in flagged(items) if not says(next(line for i, line, _ in items if i == item))], "with the plant the corpus loop would fail"
+    assert mail_reply_compose.described("obrigado", "responde ao Pedro: \"obrigado\"") is True      # validate: allow english-only -- the Portuguese line under test: the plant calls written words a description
     monkeypatch.undo()
     monkeypatch.setattr(mail_reply_compose, "SAY", frozenset())
-    assert mail_reply_compose.described("confirme a reunião de amanhã", "responde a Marlene dizendo que confirme a reunião de amanhã") is True, "without the say verbs the imperative is described: the finding-1 tests would fail"      # validate: allow english-only -- the Portuguese line under test
+    assert mail_reply_compose.described("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta") is False, "without the say verbs the reported words are the text: the say verb tests would fail"      # validate: allow english-only -- the Portuguese line under test
     monkeypatch.undo()
     monkeypatch.setattr(mail_reply_compose, "COMPLEMENTIZERS", frozenset())
-    assert mail_reply_compose.described("não vou, com jeitinho", "responde a Marlene dizendo que não vou, com jeitinho") is True, "without the complementizers the say verb two words back no longer protects"      # validate: allow english-only -- the Portuguese line under test
+    assert mail_reply_compose.described("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta") is False, "without the complementizers the say verb two words back no longer reaches the body"      # validate: allow english-only -- the Portuguese line under test
     monkeypatch.undo()
-    assert mail_reply_compose.described("não vou, com jeitinho", "responde a Marlene dizendo que não vou, com jeitinho") is False      # validate: allow english-only -- the Portuguese line under test
+    assert mail_reply_compose.described("aceito a proposta", "responde ao Carlos dizendo que aceito a proposta") is True      # validate: allow english-only -- the Portuguese line under test
 
 
 # --- validate for a reply ------------------------------------------------------------------------------------------------------------------------
