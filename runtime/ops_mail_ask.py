@@ -106,8 +106,9 @@ def _verify(text: str, got: dict) -> str:
 
 
 def _after(cfg: dict, body: str, got: dict) -> str:
-    """The note that follows a reply that passed code's checks: the runs of digits of the reply's prose that the message's own words do not hold (a warning; a calculation of the model's own is not blocked)."""
-    missing = ask_reply.absent_numbers(body, _own_words(got))
+    """The note that follows a reply that passed code's checks: the runs of digits of the reply's prose that neither the message's own words nor the time it arrived hold (a warning; a calculation of the model's own is not blocked).
+    The model's copy carries `Received: <when>` (`_copy_text`), a line code wrote, so a prose that gives the time the message arrived is not flagged on its minutes."""
+    missing = ask_reply.absent_numbers(body, _own_words(got) + "\nReceived: " + got["when"])
     return "\n\n" + phrases.text("MA_NUMBER_CHECK", cfg, values=", ".join(missing[:NUMBER_WARNINGS_MAX])) if missing else ""
 
 
