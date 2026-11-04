@@ -648,6 +648,13 @@ def describe(info: dict, cfg=None, zone=None) -> str:
     return phrases.text("NT_WHEN_FAR", cfg, wd=wd, dm=dm, time=info["time"]) + zone_part
 
 
+def reminder_line(r: dict, today: datetime.date, cfg=None) -> str:
+    """One listed reminder as a person reads it: "#3 tomorrow, Mon 19/10, at 13:00: call the florist". `r` is a row of the `reminders` operation (its `id`, its `due` as
+    "YYYY-MM-DD HH:MM" and, when the notices carry text, its `text`), `today` the day the list was made. The typed /reminders and the words path say it the same way."""
+    when = describe(info_of(r["due"][:10], r["due"][11:16], today), cfg)
+    return f"#{r['id']} {when}" + (f": {r['text']}" if "text" in r else "")
+
+
 def capital(text: str) -> str:
     return text[:1].upper() + text[1:]
 

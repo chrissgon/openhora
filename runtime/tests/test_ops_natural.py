@@ -454,3 +454,23 @@ def test_limit_54_amended_a_line_that_names_a_write_and_is_not_a_write_form_stil
     reached.clear()
     reply = say(world, "marca dentista quinta às 10h")["reply"]
     assert reached == [] and not pk.said(reply, "NAT_GATED", None), "a write form is read by the family, not sent to the terminal"
+
+
+# --- a reminder listed in words carries its moment as a person reads it, as the typed /reminders does ------------------------------------------------
+
+
+LISTED = {"now": "2026-10-18 12:00", "zone": "BRT", "not_sent": [{"id": 3, "due": "2026-10-17 09:00", "why": "late", "text": "Pay the rent"}],
+          "open": [{"id": 1, "due": "2026-10-18 15:00", "text": "Call the florist"}, {"id": 2, "due": "2026-10-19 13:00"}, {"id": 4, "due": "2026-12-04 09:30", "text": "Renew the card"}]}
+
+
+def test_the_reminders_asked_in_words_say_the_moment_as_the_typed_command_does_and_keep_the_number_to_cancel_by():
+    lines = ops_natural._reminders(LISTED, None).split("\n")
+    assert pk.said(lines[0], "RM_WAITING_HEAD", None, zone="BRT") and lines[1:4] == ["#1 today, Sun 18/10, at 15:00: Call the florist", "#2 tomorrow, Mon 19/10, at 13:00", "#4 Fri 04/12 at 09:30: Renew the card"]
+    assert pk.said(lines[4], "RM_NOT_SENT_HEAD", None) and lines[5].startswith("#3 Sat 17/10 at 09:00: Pay the rent (") and "2026-" not in "\n".join(lines)
+
+
+def test_the_reminders_asked_in_words_are_said_in_portuguese_when_the_project_is(world):      # noqa: F811
+    accept(world["path"], language="pt-BR")
+    lines = ops_natural._reminders(LISTED, ops_core.context(world["path"])["cfg"]).split("\n")
+    assert lines[1:4] == ["#1 hoje, dom 18/10, às 15:00: Call the florist", "#2 amanhã, seg 19/10, às 13:00", "#4 sex 04/12 às 09:30: Renew the card"]  # validate: allow english-only -- the day words of a time are the value under test
+    assert "2026-" not in "\n".join(lines)

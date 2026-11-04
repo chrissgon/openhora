@@ -38,6 +38,7 @@ only. Runs on Python 3.9: python3 runtime/ops_natural.py --help
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import importlib
 import inspect
@@ -506,8 +507,9 @@ def _render(name: str, out, cfg: dict, channel) -> str:
 def _reminders(out: dict, cfg: dict) -> str:
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     why = {"late": "RM_WHY_LATE", "sender removed": "RM_WHY_SENDER_REMOVED", "not permitted": "RM_WHY_NOT_PERMITTED"}
-    lines = [f"#{r['id']} {r['due']}" + (f" {r['text']}" if "text" in r else "") for r in out["open"]]
-    gone = [f"#{r['id']} {r['due']}" + (f" {r['text']}" if "text" in r else "") + f" ({t(why.get(r.get('why'), 'RM_WHY_OTHER'))})" for r in out["not_sent"]]
+    today = datetime.date.fromisoformat(out["now"][:10])
+    lines = [natural.reminder_line(r, today, cfg) for r in out["open"]]
+    gone = [natural.reminder_line(r, today, cfg) + f" ({t(why.get(r.get('why'), 'RM_WHY_OTHER'))})" for r in out["not_sent"]]
     if not lines and not gone:
         return t("RM_NONE_WAIT")
     head = [t("RM_WAITING_HEAD", zone=out["zone"]) if lines else t("RM_NONE_WAIT")]
@@ -579,7 +581,7 @@ def _forget_by_words(project: str, ctx: dict, row: dict, span: str, channel, sen
         return t("RM_FORGET_WORDS_NONE")
     if found.get("choose"):
         today = ops_reminders.now().date()
-        lines = [f"#{r['id']} " + natural.describe(natural.info_of(r["due"][:10], r["due"][11:16], today), cfg) + (f": {r['text']}" if "text" in r else "") for r in found["choose"]]
+        lines = [natural.reminder_line(r, today, cfg) for r in found["choose"]]
         return "\n".join([t("RM_FORGET_WORDS_WHICH")] + lines)
     sentence, draft = natural.forget_question([found], cfg, with_text)
     drafts.put(*_slot(channel, sender), dict(draft, project=project_key(ctx["cfg"]["project"]), at=monotonic(), message_id=None), "remind")
