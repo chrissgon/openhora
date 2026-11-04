@@ -39,6 +39,38 @@ def test_the_tag_is_taken_out_wherever_the_model_wrote_it_and_only_that_id_is():
     assert out["flags"] == ["UNKNOWN_SOURCE"], "an id the run was not given is still flagged"
 
 
+TAGGED = {"message": "Subject: [tag] Choir rehearsal\nRehearsal is on Monday at 7 pm in the main hall.\n"}
+
+
+def tagged(prose, copies=TAGGED, label=LABEL):
+    response = f'Answer: found\n{prose}\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n'
+    return reply.check(response, ONE, copies, True, "demo-answers", "m", None, read_label=label)
+
+
+def test_a_bracketed_word_the_one_source_copy_holds_is_the_messages_own_and_is_not_an_unknown_source():
+    out = tagged("The [tag] rehearsal is on Monday [message].")
+    assert out["flags"] == [] and "[tag]" in out["text"] and phrases.text("UNKNOWN_SOURCE", None, id="tag") not in out["text"]
+
+
+def test_a_bracketed_word_the_copy_does_not_hold_is_still_an_unknown_source_and_so_is_one_in_a_copy_without_it():
+    out = tagged("The [other] rehearsal is on Monday [message].")
+    assert out["flags"] == ["UNKNOWN_SOURCE"] and phrases.text("UNKNOWN_SOURCE", None, id="other") in out["text"]
+    assert tagged("The [tag] rehearsal is on Monday [message].", COPY)["flags"] == ["UNKNOWN_SOURCE"], "the copy without the tag: the note stays"
+
+
+def test_without_a_read_label_a_bracket_the_copy_holds_is_flagged_as_before():
+    response = f'Answer: found\nThe [tag] rehearsal is on Monday [message].\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n'
+    out = reply.check(response, ONE, TAGGED, True, "demo-answers", "m", None)
+    assert out["flags"] == ["UNKNOWN_SOURCE"]
+
+
+def test_with_several_sources_a_bracket_a_copy_holds_is_still_flagged():
+    given = ONE + [{"source": "file", "version": "v2"}]
+    response = f'Answer: found\nThe [tag] rehearsal is on Monday [message].\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n'
+    out = reply.check(response, given, {**TAGGED, "file": "Other text of the file."}, True, "demo-answers", "m", None, read_label=LABEL)
+    assert out["flags"] == ["UNKNOWN_SOURCE"]
+
+
 def test_the_portuguese_sentence_of_the_checked_quote_is_the_tables():
     out = one(FOUND, PT)
     assert out["text"].split("\n\n")[1] == f'Citação verificada: "{QUOTE}"'      # validate: allow english-only -- the Portuguese sentence under test
