@@ -305,7 +305,7 @@ TABLE = {
                 "create_verbs": ["create", "make", "save", "write"],
                 "replace_verbs": ["replace", "swap", "overwrite", "update"],
                 "save_verbs": ["save", "upload", "store", "put", "keep", "send", "drop"],
-                "nouns": ["file", "document", "note", "doc", "text file"],
+                "nouns": ["file", "document", "note", "doc", "text file", "spreadsheet"],
                 "named": ["named", "called", "with the name"],
                 "content": ["with the text", "with the content", "saying", "that says", "containing"],
                 "folder": ["in the folder", "to the folder", "into the folder", "in folder"],
