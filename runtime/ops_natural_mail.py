@@ -496,14 +496,15 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
     return turn_gate.Seed({"op": op, "by": "target", "slots": slots}, {key: "line-span" for key in ("body", "folder_name", "state") if key in slots})      # S41-7: spans of the line that the interpreter's check verified (the message itself is found by code in the index: `grounded`)
 
 
-def mail_number_seed(op: str, decision: dict, said: str):
+def mail_number_seed(op: str, decision: dict, said: str, ctx=None, channel=None, sender=None):
     """BL7-5 (gap G1). The seed of a mail operation on messages the model named by NUMBER when the closed forms read nothing in the line, or None: `{"op", "by": "numbers", "slots"}` with the
     slot `numbers` the closed forms' own shape would hold (`_messages` turns it into `<source>#<n>` of the newest snapshot, never a refresh, origin `line-number`). A seed only when all hold:
     the decision's spans hold no `target`, `day`, `to` or `subject` (a number is never joined with words, and no address or subject is dropped in silence); the numbers the model gave
     (`message` or `messages`) are not empty and are EXACTLY the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range) (`natural_writes_mail.free_numbers`, with the decision's text spans
     and word spans as the places that are not numbers), so a model that drops one, adds one or reads one from a time, a date, a quantity or a body gets none. A reply or a reply draft adds
     its `body` (worded when it DESCRIBES the text, as `mail_target_seed` does), a move its `folder_name`, a mark its `state` when the span reads one. Nothing here is an address, a
-    recipient or a message: the reference is resolved when the operation runs (`item_refs`: past the end, older than 26 hours, no right to read), and a reply goes to the index's From (L60)."""
+    recipient or a message. P3: with `ctx` given and the line the first one after a reply that listed mail (`item_refs.mail_list_on_screen`), a number after "o", "a", "os", "as", "the" or alone after the verb also counts
+    (`free_numbers(after_list=True)`); without `ctx`, or with no list on screen, the rule is the stricter one. The reference is resolved when the operation runs (`item_refs`: past the end, older than 26 hours, no right to read), and a reply goes to the index's From (L60)."""
     spans, args = decision.get("spans") or {}, decision.get("args") or {}
     if op not in REF_OPS + ("mail-draft",) or any(spans.get(slot) for slot in ("target", "day", "to", "subject")):
         return None
@@ -513,7 +514,8 @@ def mail_number_seed(op: str, decision: dict, said: str):
         return None
     row = natural.NATURAL[op]["slots"]
     texts = [str(spans[slot]) for slot, spec in row.items() if spec[0] in ("span", "word") and spans.get(slot)]
-    if sorted(set(numbers)) != sorted(nwm.free_numbers(said, texts)):
+    after_list = ctx is not None and item_refs.mail_list_on_screen(ctx, channel, sender)          # P3: a bare number is a message number only on the first line after a mail list
+    if sorted(set(numbers)) != sorted(nwm.free_numbers(said, texts, after_list=after_list)):
         return None
     tables = natural._tables(None)
     slots = {"numbers": numbers}

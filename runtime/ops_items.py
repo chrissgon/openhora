@@ -34,7 +34,7 @@ sender or subject hold every word (`natural_writes_mail.match_words`) and the ev
 week (the `day` span, else the line as before) keeps the messages whose `received` day, in the machine's zone, is inside it (a message with no `received` is left out and counted: `NW_ITEMS_MATCH_NODATE`);
 `unread` keeps the messages whose index `unread` is true (CB-2). On a phone, a source whose messages all have no flag is read once more under the turn's budget (the terminal and the page read no provider, S15); if they still have none, nothing is listed for it and the
 reply says the unread state is not known (`NW_ITEMS_UNREAD_UNKNOWN`), never a guess. A `match` that holds no content word filters nothing and the reply says so (`NW_ITEMS_MATCH_EMPTY`). Nothing reaches a
-model: the narrowing is code over the index, and a phone's header names it (`NW_ITEMS_MATCH_HEAD`). A day or a state the person stated and code cannot read is a sentence, never a list that looks filtered (`unreadable_filter`).
+model: the narrowing is code over the index, and a phone's header names it (`NW_ITEMS_MATCH_HEAD`). A day or a state the person stated and code cannot read is a sentence, never a list that looks filtered (`unreadable_filter`). A `state` that is only a count word ("último", "latest") is no state: it is dropped and the count is the line's own.
 
 S15c. A source that is registered and has nothing in its window is empty, never missing: `missing` is only for a kind (and account) with no source in the catalog, and a phone is told in one
 sentence what was looked at ("No e-mail in the Outlook inbox in the last 7 days (checked at 16:59)."). A calendar list asked for a day or a range ("de amanha", "de hoje", "de sexta", "desta
@@ -228,13 +228,22 @@ def _read_state(span):
     return got["slots"]["state"] if got else None
 
 
+def _count_words(span):
+    """True when every word of the `state` span, folded, is a count word of the mail list ("último", "últimos", "latest", "the last", with the articles) and at least one is not an article: "the last e-mail" is
+    a count, not a state (row 2 of the 2026-11-04 acceptance run). The words are read from `items_mail` (`LAST_ONE`, `LAST_MANY`, `LAST_EN`, `FILLER`), never copied. Pure."""
+    words = natural.normal(span).split()
+    counts = mailtext.LAST_ONE | mailtext.LAST_MANY | mailtext.LAST_EN
+    return bool(words) and all(w in counts or w in mailtext.FILLER for w in words) and any(w in counts for w in words)
+
+
 def unreadable_filter(spans, now):
     """The phrase key of the sentence that answers a day or a state the person stated and code cannot read, else None: a `day` span that names no day or week, a `state` span that is not "unread". A stated
-    filter is never dropped silently, and a list that looks filtered while it is not would be worse than a question (CB-1). Pure."""
+    filter is never dropped silently, and a list that looks filtered while it is not would be worse than a question (CB-1). A `state` span made only of count words ("último", "the last") is no state: it is
+    dropped here and the count stays what `items_mail.count_of` reads from the line. Pure."""
     spans = spans if isinstance(spans, dict) else {}
     if isinstance(spans.get("day"), str) and spans["day"].strip() and not _range_args(spans["day"], now):
         return "NW_ITEMS_MATCH_DAY"
-    if isinstance(spans.get("state"), str) and spans["state"].strip() and _read_state(spans["state"]) != "unread":
+    if isinstance(spans.get("state"), str) and spans["state"].strip() and _read_state(spans["state"]) != "unread" and not _count_words(spans["state"]):
         return "NW_ITEMS_MATCH_STATE"
     return None
 
@@ -322,7 +331,8 @@ def remember_listed(ctx: dict, channel, sender, out: dict) -> None:
         return
     shown = [e for e in out.get("sources") or [] if e["type"] == "mail"]
     only = shown[0]["source"] if len(shown) == 1 and shown[0]["items"] else None
-    item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"), clock=SNAPSHOT_CLOCK)
+    item_refs.remember_listed(ctx, sender, only, sum(1 for e in source_names.catalog(ctx).values() if e["type"] == "mail"), clock=SNAPSHOT_CLOCK,
+                             mail_shown=any(e["items"] for e in shown))      # P3: a mail list with rows, one source or several, is on the screen: a bare number in the next line may mean it
 
 
 def _source_account(ctx: dict, source_id):

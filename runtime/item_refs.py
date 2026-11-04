@@ -302,6 +302,7 @@ def resolve(ctx: dict, value, *, channel, sender=None, kinds=None, evidence_base
 LISTED_S = 600          # seconds after the list in which the next line's number means that list
 LISTED_CLOCK = time.monotonic          # the clock the window is read against; a test replaces it
 _LISTED = {}          # (project path, sender) -> {"at", "source", "version", "seen"}
+_MAIL_LISTED = {}          # (project path, sender) -> {"at", "seen"}: a list of mail (one source or several) is on the sender's screen, whether or not its source is kept above
 _LISTED_LOCK = threading.Lock()
 
 
@@ -328,15 +329,19 @@ def _numbering(ctx: dict, source_id: str, sender, clock=None):
     return None if any(i is None for i in ids) else ids
 
 
-def remember_listed(ctx: dict, sender, source_id, mail_count: int, clock=None) -> None:
+def remember_listed(ctx: dict, sender, source_id, mail_count: int, clock=None, mail_shown: bool = False) -> None:
     """Called after a list of items was read for a messaging sender: forget what the sender's earlier list was and, when the reply listed exactly one mail source (`source_id`) in a project with
-    two or more (`mail_count`), keep that source, the version of its newest snapshot and the ids of its messages in their numbers (`clock` is the seam of the snapshot's age)."""
+    two or more (`mail_count`), keep that source, the version of its newest snapshot and the ids of its messages in their numbers (`clock` is the seam of the snapshot's age). With `mail_shown`
+    (the reply listed mail, one source or several) it also keeps that a mail list is on the screen, which `mail_list_on_screen` answers; a reply with no mail leaves none."""
     latest = _latest(ctx, source_id) if source_id and mail_count > 1 else None
     ids = _numbering(ctx, source_id, sender, clock) if latest is not None else None
     with _LISTED_LOCK:
         _LISTED.pop(_listed_key(ctx, sender), None)
+        _MAIL_LISTED.pop(_listed_key(ctx, sender), None)
         if latest is not None:
             _LISTED[_listed_key(ctx, sender)] = {"at": LISTED_CLOCK(), "source": source_id, "version": latest["version"], "ids": ids, "seen": 0}
+        if mail_shown:
+            _MAIL_LISTED[_listed_key(ctx, sender)] = {"at": LISTED_CLOCK(), "seen": 0}
 
 
 def begin_turn(ctx: dict, channel, sender) -> None:
@@ -347,6 +352,9 @@ def begin_turn(ctx: dict, channel, sender) -> None:
         found = _LISTED.get(_listed_key(ctx, sender))
         if found is not None:
             found["seen"] += 1
+        on_screen = _MAIL_LISTED.get(_listed_key(ctx, sender))
+        if on_screen is not None:
+            on_screen["seen"] += 1
 
 
 def _same_numbering(ctx: dict, sender, found: dict, latest, clock=None) -> bool:
@@ -368,6 +376,17 @@ def listed_source(ctx: dict, channel, sender, clock=None):
         return None
     latest = _latest(ctx, found["source"])
     return found["source"] if latest is not None and _same_numbering(ctx, sender, found, latest, clock) else None
+
+
+def mail_list_on_screen(ctx: dict, channel, sender) -> bool:
+    """Whether the line being read is the first line since a reply that listed mail for the sender (one source or several; `remember_listed` kept it, `begin_turn` counted the line) and that list is
+    not older than LISTED_S. It says nothing of which source: a bare number in that line may be read as a message number (`natural_writes_mail.free_numbers(after_list=True)`), and the
+    which-box question stays for a project with two mail sources. Never true off a messaging app, for a second line, or when the reply listed no mail."""
+    if channel != "messaging":
+        return False
+    with _LISTED_LOCK:
+        found = dict(_MAIL_LISTED.get(_listed_key(ctx, sender)) or {})
+    return bool(found) and found["seen"] == 1 and LISTED_CLOCK() - found["at"] <= LISTED_S
 
 
 def list_moved(ctx: dict, channel, sender, clock=None):
