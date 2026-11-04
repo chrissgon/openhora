@@ -24,7 +24,8 @@ OneDrive path's last name) and by the alias. A folder none of the walked ones ca
 outside (`..`, the root, an item id) is refused and nothing is listed. Every reply names a folder by its real name (the service's own name when it could not be read), never the alias.
 
 The match (S17): the name span is cut into the words code folds as every name of the platform is (`natural.normal`: case, accents, punctuation), and a file fits when every word
-occurs in its name (the extension optional; a typed extension must be the file's when the file has one). A file whose whole name is the span (S8's rule) wins over files that only
+occurs in its name (the extension optional; a typed extension must be the file's when the file has one). The span is searched as it is first; only when nothing fits, `_search` tries the name alone on the same walk (`_bare_name`: the span without a leading object noun, "planilha" or "o arquivo",
+and a trailing service phrase, "do drive" or "no onedrive", that the interpreter may have kept in it; never an inner word), so a file whose real name starts with such a noun is still found by it. A file whose whole name is the span (S8's rule) wins over files that only
 contain its words. One match is read; several are listed (a number, name, folder path, account) and the sender's next line "o 2" picks one (`take`, below); none gets one sentence
 naming the configured folders searched, by the names the configuration gives them (never an id or a path), and that their subfolders were included.
 
@@ -340,6 +341,56 @@ def _folder_of_line(said: str, wanted: str):
     return _folder_from(said, wanted)
 
 
+def _view(tree: dict, view, account, said):
+    """The walked tree a try is looked in: the whole tree, or, for the name alone (`_bare_name`) when the account was not decided, the files of the one account the cut service phrase
+    names in the line ("drive" alone names none)."""
+    if view is None or account is not None:
+        return tree
+    named = _accounts_of_line(said, view[1])
+    return dict(tree, files=[f for f in tree["files"] if f["service"] in named]) if len(named) == 1 else tree
+
+
+def _tail_phrases(tables) -> list:
+    """The service phrases of the tables (every account), as tuples of folded words, the longest first."""
+    return sorted({p for account in SERVICES for p in _phrases(tables, account) if p}, key=len, reverse=True)
+
+
+def _bare_name(span: str) -> str:
+    """`span` without the words around the file's name that are not part of it: a leading noun for the object of the tables' files list ("o arquivo", "a planilha") with the
+    articles before it, and a trailing service phrase of the tables with the word that introduces it ("do drive", "no onedrive", "do meu google drive"). The cut words are
+    still in the line, so the account they name is read from the line as before. Inner words are never cut, and a cut that would leave nothing is not made."""
+    tables = natural._tables(None)
+    spans = [m.span() for m in re.finditer(r"\S+", span)]
+    words = [(w, i) for i, (a, b) in enumerate(spans) for w in natural.normal(span[a:b]).split()]
+    first, last = 0, len(spans)
+    articles = tuple(natural.normal(w) for w in natural_writes.listed(tables, None, "articles"))
+    nouns = sorted((tuple(natural.normal(n).split()) for n in natural_writes.listed(tables, "files", "nouns")), key=len, reverse=True)
+    at = 0
+    while at < len(words) and words[at][0] in articles:
+        at += 1
+    for noun in nouns:
+        end = at + len(noun)
+        if noun and tuple(w for w, _ in words[at:end]) == noun and end < len(words) and words[end][1] != words[end - 1][1] and (not at or words[at][1] != words[at - 1][1]):
+            first = words[end][1]
+            break
+    joins = sorted((tuple(natural.normal(j).split()) for j in natural_writes.listed(tables, None, "service_in") + natural_writes.listed(tables, "files", "of")), key=len, reverse=True)
+    tail = [(w, i) for w, i in words if i >= first]
+    for phrase in _tail_phrases(tables):
+        start = len(tail) - len(phrase)
+        if start <= 0 or tuple(w for w, _ in tail[start:]) != phrase or tail[start][1] == tail[start - 1][1]:
+            continue
+        while start > 0 and tail[start - 1][0] in articles and tail[start - 1][1] != tail[start][1]:
+            start -= 1
+        for join in joins:
+            begin = start - len(join)
+            if begin > 0 and join and tuple(w for w, _ in tail[begin:start]) == join and tail[begin][1] != tail[begin - 1][1]:
+                last = tail[begin][1]
+                break
+        if last != len(spans):
+            break
+    return span[spans[first][0]:spans[last - 1][1]] if first < last else span
+
+
 def _embedded(wanted: str):
     """(name, folder) when the span itself ends with a folder phrase ("Plano da pasta coral"), else None: the model may have taken the whole tail as the name."""
     words = natural.normal(wanted).split()
@@ -403,10 +454,13 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
     "truncated", "cut", "no_folder", "folder_missing", "incomplete"}. `account` google or microsoft narrows the search to one account; `said` is the line the folder named in it comes from
     (None: no folder). Only files under the folders the configuration lists are returned. A folder named in the line that none of the walked folders carries does not stop the search: the file
     is looked for in the whole walked tree and `folder_missing` is the name the person typed (the reply says so); `no_folder` (a refusal) is only for a folder that points outside, see `_outside`."""
-    tries = [(wanted, _folder_of_line(said, wanted) if said else None)]
+    tries = [(wanted, _folder_of_line(said, wanted) if said else None, None)]
     inner = _embedded(wanted)
     if inner:
-        tries.append(inner)
+        tries.append(inner + (None,))
+    bare = _bare_name(wanted) if said else wanted
+    if bare != wanted:
+        tries.append((bare, tries[0][1], ("bare", bare)))          # the name alone, tried last, on the walk already made
     outside = tries[0][1] is not None and tries[0][1]["outside"]
     tree = _walk(cfg, account, names_only=outside)
     out = {"folders": tree["roots"], "matches": [], "failed": tree["failed"], "truncated": tree["truncated"], "cut": tree["cut"], "no_folder": False, "all_failed": False,
@@ -418,16 +472,16 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
         return out
     out["all_failed"] = not tree["files"] and tree["failed"] >= len(tree["roots"])
     missing = []
-    for name, folder in tries:
-        got = _find(tree, name, folder)
+    for name, folder, view in tries:
+        got = _find(_view(tree, view, account, said), name, folder)
         if got["matches"]:
             out["matches"] = _matches_of(got["matches"])
             return out
         if folder is not None and got["no_folder"]:
             missing.append(folder)
-    if missing and len(missing) == len([1 for _, folder in tries if folder is not None]):          # every reading of the line names a folder the walk did not find: look everywhere, and say so
-        for name, _ in tries:
-            got = _find(tree, name, None)
+    if missing and len(missing) == len([1 for _, folder, _ in tries if folder is not None]):          # every reading of the line names a folder the walk did not find: look everywhere, and say so
+        for name, _, view in tries:
+            got = _find(_view(tree, view, account, said), name, None)
             if got["matches"]:
                 out["matches"] = _matches_of(got["matches"])
                 out["folder_missing"] = missing[0]["shown"]

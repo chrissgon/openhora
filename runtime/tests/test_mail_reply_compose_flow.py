@@ -153,7 +153,7 @@ def test_a_reply_draft_whose_body_is_described_is_worded_by_the_same_path_into_t
     assert out["args"] == {"account": "google", "message": "inbox#1", "body": COMPOSED_BODY}
     assert out["origins"] == {"account": "config", "message": "grounded", "body": "composed"}, "S41-7: the model's wording of a described reply says so, and nothing else of the reply does"
     assert model.of("compose")[0]["user"].split("\n") == expected_user() and leaks_into(model.of("compose")[0]["user"]) == []
-    dictated = ops_natural_mail.mail_target_seed("mail-draft", {"op": "mail-draft", "spans": {"target": "Marlene", "body": "aceito"}, "args": {}}, None, "rascunho para Marlene dizendo que aceito")      # validate: allow english-only -- the Portuguese line under test
+    dictated = ops_natural_mail.mail_target_seed("mail-draft", {"op": "mail-draft", "spans": {"target": "Marlene", "body": "aceito"}, "args": {}}, None, "rascunho para Marlene: aceito")      # validate: allow english-only -- the Portuguese line under test
     assert "_compose_reply" not in dictated["slots"] and ops_natural_mail.resolve(ctx, "mail-draft", dictated["slots"], "messaging", SENDER)["args"]["body"] == "aceito"      # validate: allow english-only -- the Portuguese span under test
     assert len(model.of("compose")) == 1
 
@@ -209,13 +209,39 @@ def test_write_for_a_reply_drops_the_recipient_and_the_subject_before_anything_i
 # --- dictated words stay literal (guard 6) -------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("body", ["aceito a proposta", "dizendo que aceito a proposta"])      # validate: allow english-only -- the Portuguese spans under test
-def test_a_dictated_body_makes_no_compose_call_and_the_card_holds_the_persons_words(world, clock, monkeypatch, body):
+@pytest.mark.parametrize("body, line", [
+    ("aceito a proposta", "olha, responde a Marlene: aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: a colon
+    ("aceito a proposta", "olha, responde a Marlene \"aceito a proposta\""),      # validate: allow english-only -- the Portuguese line under test: quotes
+    ("aceito a proposta", "olha, responde a Marlene dizendo: aceito a proposta"),      # validate: allow english-only -- the Portuguese line under test: a colon after the say verb
+])
+def test_a_dictated_body_makes_no_compose_call_and_the_card_holds_the_persons_words(world, clock, monkeypatch, body, line):
     model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": body}))
-    out = phone(world, "olha, responde a Marlene dizendo que aceito a proposta")      # validate: allow english-only -- the Portuguese line under test
+    out = phone(world, line)
     assert out["resend"], out["reply"]
     assert text_of(card_lines(world, out)) == [body]
     assert model.of("compose") == [] and [c["kind"] for c in model.calls] == ["interpret"], "the stand-in counts 0 compose calls"
+    nothing_sent(world)
+
+
+def test_a_reply_draft_dictated_after_a_say_verb_makes_one_compose_call_and_the_composed_text_is_the_drafts_body(world, clock, monkeypatch):
+    """OPEN-1 (2026-11-04): "dizendo que ..." is worded, like a new e-mail; the compose call holds the person's words only."""
+    line = "olha, salva um rascunho respondendo a Marlene dizendo que aceito a proposta"      # validate: allow english-only -- the Portuguese line under test
+    model = prepare(world, monkeypatch, interpret="{}")
+    ctx = ops_core.context(world["path"])
+    seed = ops_natural_mail.mail_target_seed("mail-draft", {"op": "mail-draft", "spans": {"target": "Marlene", "body": "aceito a proposta"}, "args": {}}, None, line)      # validate: allow english-only -- the Portuguese span under test
+    assert seed["slots"]["_compose_reply"] is True
+    out = ops_natural_mail.resolve(ctx, "mail-draft", seed["slots"], "messaging", SENDER, line)
+    assert out["args"]["body"] == COMPOSED_BODY and out["origins"]["body"] == "composed"
+    user = model.of("compose")[0]["user"]
+    assert len(model.of("compose")) == 1 and user.split("\n") == expected_user(body="aceito a proposta") and leaks_into(user) == []      # validate: allow english-only -- the Portuguese span under test
+
+
+def test_a_reply_after_a_say_verb_opens_the_card_with_the_composed_text(world, clock, monkeypatch):
+    model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": "aceito a proposta"}))      # validate: allow english-only -- the Portuguese span under test
+    out = phone(world, "olha, responde a Marlene dizendo que aceito a proposta")      # validate: allow english-only -- the Portuguese line under test
+    assert out["resend"], out["reply"]
+    assert text_of(card_lines(world, out)) == COMPOSED_BODY.split("\n")
+    assert [c["kind"] for c in model.calls] == ["interpret", "compose"]
     nothing_sent(world)
 
 
@@ -243,17 +269,18 @@ def test_a_marker_with_nothing_after_it_asks_for_the_body_and_opens_no_card(worl
 
 
 @pytest.mark.parametrize("body, line, language", [
-    ("confirme a reunião de amanhã", "olha, responde a Marlene dizendo que confirme a reunião de amanhã", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: an imperative the person dictates
-    ("não vou, com jeitinho", "olha, responde a Marlene dizendo que não vou, com jeitinho", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: a manner phrase the person dictates
+    ("confirme a reunião de amanhã", "olha, responde a Marlene dizendo que confirme a reunião de amanhã", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: an imperative the person reports
+    ("não vou, com jeitinho", "olha, responde a Marlene dizendo que não vou, com jeitinho", "pt-BR"),      # validate: allow english-only -- the Portuguese line under test: a manner phrase the person reports
     ("I will gently remind the team", "look, reply to Marlene saying that I will gently remind the team", "en"),
 ])
-def test_words_after_a_say_verb_and_a_complementizer_are_literal_even_when_they_would_be_described_without_it(world, clock, monkeypatch, body, line, language):
+def test_words_after_a_say_verb_and_a_complementizer_are_worded_by_one_compose_call(world, clock, monkeypatch, body, line, language):
     model = prepare(world, monkeypatch, interpret=op("mail-reply", {"target": "Marlene", "body": body}), language=language)
     out = phone(world, line)
     assert out["resend"], out["reply"]
-    assert text_of(card_lines(world, out)) == [body] and model.of("compose") == []
-    without = line.replace(" dizendo que", "").replace(" saying that", "")
-    assert mail_reply_compose.described(body, without) is True, "the control: the same words with no say verb are a description"
+    assert text_of(card_lines(world, out)) == COMPOSED_BODY.split("\n") and len(model.of("compose")) == 1
+    assert model.of("compose")[0]["user"].split("\n") == expected_user(tag=language, body=body) and leaks_into(model.of("compose")[0]["user"]) == []
+    assert phrases.text("MC_REPLY_NOT_WORDED", ops_core.context(world["path"])["cfg"]) not in out["reply"]
+    nothing_sent(world)
 
 
 def test_a_thank_you_written_to_the_recipient_is_literal(world, clock, monkeypatch):

@@ -639,6 +639,21 @@ def test_the_warning_follows_a_found_or_partial_reply_and_not_a_not_found_and_no
     assert kept["text"].split("\n\n")[0] == table("FA_NOT_FOUND"), "file-ask still says its own sentence"
 
 
+def test_the_time_the_message_arrived_is_not_a_number_the_message_lacks_and_a_number_in_neither_place_still_is():
+    got = {"who": "Aurora Team", "subject": "Your Orbit plan", "when": "Wed 04/11 15:31", "text": "The plan is now Zenith."}
+    reply = lambda prose: f'Answer: found\n{prose}\nQuote [message]: "The plan is now Zenith."\nInstructions found in external content: none\n'
+    assert ops_mail_ask._after(CFG, reply("O aviso chegou às 15:31."), got) == "", "15 and 31 are the minutes of the line code wrote (Received:), not an invented figure"
+    assert ops_mail_ask._after(CFG, reply("O aviso chegou às 15:31, com 999 itens."), got) == "\n\n" + table("MA_NUMBER_CHECK", values="999")
+    assert ops_mail_ask._after(CFG, reply("Chegou em 04/11."), got) == ""
+    assert ask_reply.absent_numbers(reply("O aviso chegou às 15:31."), ops_mail_ask._own_words(got)) == ["15", "31"], "the words alone do not hold them: the Received line is what does"
+
+
+def test_a_reply_that_gives_the_time_the_message_arrived_carries_no_number_note_through_the_whole_path(desk):
+    answer(desk, f'Answer: found\nThe plan changed at 06:00 [message].\nQuote [message]: "{QUOTE}"\nInstructions found in external content: none\n')
+    reply, _ = ask(desk, {"message": "inbox#1"})
+    assert found(reply, prose="The plan changed at 06:00."), "no MA_NUMBER_CHECK after the footer"
+
+
 def test_vacuity_the_digit_check_sees_a_planted_wrong_result():
     assert ask_reply.absent_numbers("Answer: found\nThe price is 999 [message].\n", "no digits here") == ["999"]
     assert ask_reply.absent_numbers("Answer: found\nThe price is 999 [message].\n", "the price 999") == []

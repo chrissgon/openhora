@@ -261,7 +261,7 @@ TABLE = {
                 "create_verbs": ["cria", "crie", "criar", "salva", "salve", "faz", "faca"],
                 "replace_verbs": ["troca", "troque", "substitui", "substitua", "atualiza", "atualize"],
                 "save_verbs": ["salva", "salve", "salvar", "guarda", "guarde", "guardar", "sobe", "suba", "subir", "manda", "mande", "coloca", "coloque", "joga", "envia", "envie"],
-                "nouns": ["arquivo", "documento", "nota", "texto"],
+                "nouns": ["arquivo", "documento", "nota", "texto", "planilha"],
                 "named": ["chamado", "chamada", "com o nome", "de nome"],
                 "content": ["com o texto", "com o conteudo", "dizendo", "escrito", "contendo"],
                 "folder": ["na pasta", "para a pasta", "pra pasta", "em a pasta"],
