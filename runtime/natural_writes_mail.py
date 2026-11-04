@@ -838,17 +838,20 @@ _RANGE_MARKS = frozenset(("-", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014",
 _RANGE_MID_EXTRA = frozenset(("ao", "aos"))          # BL7-5: "do 1 ao 3" (the tables' `range` list holds `a` and `ate`): the person meant 1, 2 and 3
 _RANGE_LEAD = frozenset(("between", "entre"))          # BL7-5: "between 1 and 3"
 _JOINERS_EXTRA = frozenset(("or", "ou"))          # BL7-5: a number chained to another by "or" counts as the same list
+_DEFINITE = frozenset(("o", "a", "os", "as", "the"))          # P3: the articles of the tables that stand before a number from a list on screen ("arquiva o 3"); "um", "my" and "new" do not
 _CLOCK_AFTER = ("o clock", "oclock")          # "the 2 o'clock meeting": a time, never a message number
 _WORD_EDGE = ".,;:!?()[]\"'"
 
 
-def free_numbers(line, spans=(), tables=None) -> list:
+def free_numbers(line, spans=(), tables=None, after_list=False) -> list:
     """BL7-5. The whole numbers `line` writes as message numbers, in order, none twice. A word of digits (`#7`, `4,`), as `natural.decision_numbers` reads a number per word, counts only
     when ALL hold: it is written `#n`, or the word before it is a mail noun of the tables (`email 4`, `e-mails 2`, `mensagem 3`), or it is chained to such a number: written right after it (`emails 2 4 e 7`), or after a joiner
     (`and`, `e`, `or`, `ou`, a comma) with an optional article between (`emails 2, 4 e o 7`); it does not overlap an occurrence in the line of one of the texts of `spans` (a body, a
     folder, a state) nor a time phrase of `natural_time.find` (a clock, a date, a relative time); it is not followed by a unit (`natural.MEASURES`), by `o'clock` or by a currency mark and
     not preceded by a currency. So a count noun ("the 2 budgets"), a year, a room ("room 4", "sala 4") and a phone number are no message number, by construction (principle 13: the stricter
-    rule stays). A line with a range between numbers (`1-3`, `1 a 3`, `1 to 3`, `do 1 ao 3`, `between 1 and 3`) gives [], and so does a time phrase that cannot be mapped to the line: it
+    rule stays). With `after_list` (the line is the first one after a reply that listed mail: `item_refs.mail_list_on_screen`) a number also counts when the word before it is a definite article of the tables
+    (`o`, `a`, `os`, `as`, `the`: "arquiva o 3") or when it is the second word of the line, right after the verb ("archive 3"); every other refusal above stays, so a number of a time, a range, a unit, a currency
+    or a span is no message number with a list on screen either. A line with a range between numbers (`1-3`, `1 a 3`, `1 to 3`, `do 1 ao 3`, `between 1 and 3`) gives [], and so does a time phrase that cannot be mapped to the line: it
     fails closed. Pure."""
     if not isinstance(line, str) or not line:
         return []
@@ -868,11 +871,13 @@ def free_numbers(line, spans=(), tables=None) -> list:
             blocked.append((at, at + len(text)))
             at = line.find(text, at + 1)
     range_words, nouns, articles, joiners = set(_RANGE_MID_EXTRA), set(), set(), set(_JOINERS_EXTRA)
+    definite = set()
     for table in _tables_with_mail(natural._tables(tables)):
         d = _data(table)
         range_words |= {p[0] for p in d["shared"]["range"] if len(p) == 1}
         nouns |= set(d["mail"]["nouns"]) | set(d["plural"])
         articles |= {p[0] for p in d["shared"]["articles"] if len(p) == 1}
+        definite |= articles & _DEFINITE
         joiners |= {p[0] for p in d["shared"]["joiners"] if len(p) == 1}
     toks = [(m.start(), m.end(), unicodedata.normalize("NFKC", m.group()).strip(_WORD_EDGE), unicodedata.normalize("NFKC", m.group())) for m in re.finditer(r"\S+", line)]
     folded = [_words_of(tok[2]) for tok in toks]
@@ -895,7 +900,8 @@ def free_numbers(line, spans=(), tables=None) -> list:
         if after.split(" ")[0] in natural.MEASURES or after in _CLOCK_AFTER or (at + 1 < len(toks) and toks[at + 1][2].lstrip().startswith(natural.CURRENCY_OR_MARK_AFTER)) or before.endswith(natural.CURRENCY_BEFORE):
             continue
         preceding = [w for k in range(max(0, at - 3), at) for w in folded[k]]
-        if not (tok[2].startswith("#") or any(len(n) <= len(preceding) and tuple(preceding[len(preceding) - len(n):]) == n for n in nouns) or _chained(toks, folded, at, counted, articles, joiners)):
+        listed = after_list and (at == 1 or (at > 0 and len(folded[at - 1]) == 1 and folded[at - 1][0] in definite))          # P3: with a list on screen, "arquiva o 3" and "archive 3" name message 3
+        if not (tok[2].startswith("#") or listed or any(len(n) <= len(preceding) and tuple(preceding[len(preceding) - len(n):]) == n for n in nouns) or _chained(toks, folded, at, counted, articles, joiners)):
             continue
         counted.add(at)
         found_numbers.append(int(tok[2].lstrip("#")))
