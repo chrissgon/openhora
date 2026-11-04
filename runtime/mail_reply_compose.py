@@ -3,15 +3,16 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The text of a reply that the person described, worded by the model (BL7-2, an extension of slice S7; limits L60, L61 and L63).
+"""The text of a reply that the person described or reported, worded by the model (BL7-2, an extension of slice S7; limits L60, L61 and L63; OPEN-1 of 2026-11-04).
 
 "responde a Marlene agradecendo pelo convite e explicando com jeitinho que nao vou poder ir" does not dictate a text: it says what the reply should do. The interpreter's span
-for the body is then a description, and until BL7-2 it went on the card as the text. The maintainer's rule of S7 (2026-10-20, a new e-mail) and his line of 2026-10-26 ("resposta
+for the body is then a description, and until BL7-2 it went on the card as the text. A reply reported after a say verb ("responde o email do reembolso dizendo que confirmo")
+is worded the same way (the maintainer's decision of 2026-11-04: it is worded like a new e-mail, whose "dizendo que" has always been worded). The maintainer's rule of S7 (2026-10-20, a new e-mail) and his line of 2026-10-26 ("resposta
 redigida") say the secretary words it. This file decides WHEN a reply's body is a description and, only then, asks the same compose route (`mail_compose.write`, the same pinned
 prompt, the same rate, day and breaker limits, the same checks of the answer) for the text. It sends, approves and opens nothing: the reply card shows the WHOLE text and its approval
 binds the card's hash (L55, L64), exactly as for every reply card.
 
-  described(body, line)             True when the body DESCRIBES the text instead of dictating it. Both are folded by `natural.normal`; `first` is the body's first word (its second
+  described(body, line)             True when the body is worded: it DESCRIBES the text, or it is REPORTED after a say verb. False when the person's own words are the text. Both are folded by `natural.normal`; `first` is the body's first word (its second
                                     when the first is "e", "and", "y", "et" or "und"), `before` the one word right before the body's place in the line. In this order, and the first
                                     rule that holds decides:
                                       1. the literal marker ("exact text:", "texto exato:"...): the body starts with it, or the RAW line holds one that ends at or before the body's
@@ -20,7 +21,8 @@ binds the card's hash (L55, L64), exactly as for every reply card.
                                          a quote: False ("responde ao Pedro: obrigado pelo convite, com carinho");
                                       3. a say verb of the closed list SAY ("dizendo", "saying", "diciendo", "disant", "sagend", "dicendo"...) is `first`, is `before`, is one of the
                                          up to three words before a complementizer (que, that, dass, che, qu) that is `before` or that opens the body ("en disant que", "saying that",
-                                         "dizendo a ela que"): False. Anything reported after a say verb stays literal, whatever it holds;
+                                         "dizendo a ela que"): True. Anything reported after a say verb is worded, whatever it holds (a colon or a quote right after the verb, in
+                                         the body or in the line before it, is dictation and stays literal, rules 1 and 2);
                                       4. `first` or `before` is a describing verb of the closed list HOW ("agradecendo", "explicando", "thanking"...), except "thank" followed by
                                          "you" or "u" (that is a thanks written to the recipient): True;
                                       5. the body holds a manner phrase of the closed list MANNER as whole words ("com jeitinho", "politely"...): True;
@@ -40,6 +42,7 @@ Standard library only (the other modules are imported when a function needs them
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +56,7 @@ COMPLEMENTIZERS = frozenset(("que", "that", "dass", "che", "qu"))      # "qu'il"
 THANKS_TO_YOU = ("you", "u")      # "thank you" is a thanks written to the recipient, "thank her" describes one
 QUOTES = "\"\u201c\u2018\u00ab\u201e\u201a\u2039'"      # the opening quotes (the ASCII apostrophe counts only after a space or a bracket, `_dictated_shape`)
 JOINERS = frozenset(("e", "and", "y", "et", "und"))      # a body that starts with "and" starts with its second word
-SAY = frozenset((      # the words that report what the person said to say: the body after them is the text, as the person worded it
+SAY = frozenset((      # the words that report what the person said to say: the body after them is worded, unless a colon, a quote or the literal marker shows dictation
     "dizendo", "falando", "saying", "telling", "diciendo", "disant", "sagend", "dicendo"))
 HOW = frozenset((      # the verbs that say what the reply should do, not what it says
     "agradecendo", "agradeca", "agradece", "pedindo", "explicando", "explique", "explica", "recusando", "recuse", "aceitando", "confirmando", "confirme", "perguntando",
@@ -101,12 +104,21 @@ def _dictated_shape(head: str, body: str) -> bool:
     return bool(tail) and tail[-1] in QUOTES and (len(tail) == 1 or tail[-2].isspace() or tail[-2] in "([")
 
 
+SAY_THEN_WRITTEN = re.compile(r"\s*(?:\S+\s+)?([^\W\d_]+)\s*[:\u003a\uff1a" + QUOTES + "]")      # "saying: yes", "and dizendo \"sim\"": a say verb (the first word, or the second behind a joiner) and then a colon or an opening quote
+
+
+def _written_after_say(body: str) -> bool:
+    """Whether the body itself opens with a say verb followed by a colon or an opening quote: the words after it are written words, whatever the span left out."""
+    found = SAY_THEN_WRITTEN.match(body)
+    return bool(found) and natural.normal(found.group(1)) in SAY
+
+
 def _how(word, following) -> bool:
     return word in HOW and not (word == "thank" and following in THANKS_TO_YOU)
 
 
 def described(body: str, line: str) -> bool:
-    """Whether the body of a reply describes its text (see the module's text). Never raises: a fault is "not described", the person's own words."""
+    """Whether the body of a reply is worded by the model: it describes its text or is reported after a say verb (see the module's text). Never raises: a fault is "not described", the person's own words."""
     try:
         if not isinstance(body, str) or mail_compose.MARKER.match(body):
             return False      # the literal marker is checked first: "texto exato: agradecendo..." is the text
@@ -128,10 +140,12 @@ def described(body: str, line: str) -> bool:
         at = _place(ahead, mine)
         back = ahead[max(0, at - 4):at] if at else []      # the up to four words right before the body
         before = back[-1] if back else None
+        if _written_after_say(body):
+            return False      # "saying: yes, friday works" typed as the span: a colon right after the say verb is dictation
         if first in SAY or before in SAY:
-            return False
+            return True      # the words follow a say verb: worded, like the body of a new e-mail
         if (before in COMPLEMENTIZERS and any(w in SAY for w in back[-4:-1])) or (mine[0] in COMPLEMENTIZERS and any(w in SAY for w in back[-3:])):
-            return False      # reported words, whatever they hold: "dizendo que confirme...", "saying that I will gently...", "en disant que..."
+            return True      # reported words, whatever they hold: "dizendo que confirme...", "saying that I will gently...", "en disant que..."
         if _how(first, mine[k + 1] if len(mine) > k + 1 else None) or (before is not None and _how(before, mine[0])):
             return True
         padded = " " + " ".join(mine) + " "

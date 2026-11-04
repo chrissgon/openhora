@@ -417,7 +417,7 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
         else:
             opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
             if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
-                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said, ctx=ctx, channel=CHANNEL, sender=sender)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
                 opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
             if opened is None and (new_file := ops_natural_files.seed(op, decision, said)) is not None:          # a new file the closed forms ("chamado <name>") read nothing of: the card is opened from the verified spans (name, content, folder) the model gave
                 opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=new_file)

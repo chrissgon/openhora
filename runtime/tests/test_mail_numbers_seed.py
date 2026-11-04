@@ -12,6 +12,9 @@ Held here, every expectation a literal of this file (invented names, `.example` 
     forms still says `IX_WRITE_LANGUAGE`, and `turn_gate.provenance` passes on every opened row with `line-number`;
   * vacuity: `free_numbers` patched to return the decision's own numbers opens the rows it must refuse, and the branch of `_carry_out` patched off fails the card rows.
 
+P3 (OPEN-4, 2026-11-04): on the FIRST line after a reply that listed mail (`item_refs.mail_list_on_screen`), "arquiva o 3" and "archive 3" name message 3 (`free_numbers(after_list=True)`);
+with no list on screen, on a second line or after a calendar-only list, they name nothing, and the which-box question stays for two mail boxes.
+
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_mail_numbers_seed.py
 """
 from __future__ import annotations
@@ -23,13 +26,15 @@ import pytest
 import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
-from test_mail_compose_flow import setup, phone, op, clock, forget  # noqa: F401  (the mail desk world, the stand-in model, the clock)
+from test_mail_compose_flow import setup, phone, op, clock, forget, SENDER  # noqa: F401  (the mail desk world, the stand-in model, the clock)
 from test_send_own_account import world  # noqa: F401
 
+item_refs = st.load("item_refs")
 nwm = st.load("natural_writes_mail")
 natural = st.load("natural")
 ops = st.load("ops")
 ops_natural_mail = st.load("ops_natural_mail")
+ops_items = st.load("ops_items")
 ops_core = st.load("ops_core")
 mail_refresh = st.load("mail_refresh")
 turn_gate = st.load("turn_gate")
@@ -41,6 +46,9 @@ FIRST = tsm.message(1, "2026-10-20T09:00:00Z", sender="Marta Siqueira <marta.siq
                     text="Here is the budget.", headers={"Message-ID": "<c1@x.example>"})
 SECOND = tsm.message(2, "2026-10-20T10:00:00Z", sender="Nadia Ferreira <nadia.ferreira@feira.example>", subject="Volunteer schedule for the book fair", id="p2", thread_id="t2",
                      text="Here is the schedule.", headers={"Message-ID": "<c2@x.example>"})
+
+THIRD = tsm.message(3, "2026-10-20T11:00:00Z", sender="Olga Prado <olga.prado@escola.example>", subject="Class trip permission slips", id="p3", thread_id="t3",
+                    text="Please sign the slips.", headers={"Message-ID": "<c3@x.example>"})
 
 # --- free_numbers ----------------------------------------------------------------------------------------------------------------------------
 
@@ -167,12 +175,18 @@ def test_no_seed_when_the_model_numbers_are_not_exactly_the_lines_or_words_stand
 # --- the product's own turn --------------------------------------------------------------------------------------------------------------------
 
 
-def run(world, monkeypatch, language, line, answer, messages=(FIRST, SECOND)):
+def run(world, monkeypatch, language, line, answer, messages=(FIRST, SECOND), on_screen=False, boxes=None, skipped=0):
     """The product's turn for the line, the stand-in model answering `answer`: (the reply tuple of `ops.say`, the list of what `ops_natural_mail.resolve` returned, the stand-in model)."""
     model = setup(world, monkeypatch, interpret=answer, compose=json.dumps({"subject": "S", "body": "B"}), groups=GROUPS, language=language)
     world["desk"].providers.mail["gmail"] = [dict(m) for m in messages]
     world["desk"].refresh("inbox")
-    monkeypatch.setattr(ops_natural_mail, "_mail_sources", lambda ctx: [{"id": "inbox", "account": "google"}])
+    monkeypatch.setattr(ops_natural_mail, "_mail_sources", lambda ctx: boxes or [{"id": "inbox", "account": "google"}])
+    if on_screen:          # P3: the reply before this line listed mail (what `ops_items.remember_listed` records); `skipped` lines came in between
+        ctx = ops_core.context(world["path"])
+        item_refs._MAIL_LISTED.clear()
+        item_refs.remember_listed(ctx, SENDER, None, len(boxes or [1]), mail_shown=True)
+        for _ in range(skipped):
+            item_refs.begin_turn(ctx, "messaging", SENDER)
     resolved = []
     real = ops_natural_mail.resolve
 
@@ -297,17 +311,146 @@ def test_the_gate_accepts_the_origins_of_every_opened_row(world, clock, monkeypa
     assert args_of(resolved) and checked and "line-number" in repr(checked), (checked, out["reply"])
 
 
+# --- P3: a bare number right after a mail list ---------------------------------------------------------------------------------------------------
+
+AFTER = (
+    ("arquiva o 3", (), [3]),
+    ("arquiva o 3 e o 5", (), [3, 5]),
+    ("arquiva os 3 e 5", (), [3, 5]),
+    ("apaga a 4", (), [4]),
+    ("archive the 3", (), [3]),
+    ("archive 3", (), [3]),
+    ("arquiva 3", (), [3]),
+    ("trash 3 and 4", (), [3, 4]),
+    ("arquiva o 5, recebi 3 dias atrás", (), [5]),          # the 3 has neither an article before it nor a place after the verb: never [3, 5]
+    ("arquiva o 1 a 3", (), []),          # a range stays a range
+    ("trash the 1-3", (), []),
+    ("arquiva o 3 de 12:30", (), [3]),
+    ("arquiva o 2 o'clock", (), []),          # a clock
+    ("archive the 3 for $40", (), [3]),          # the price is no number of a message
+    ("trash 4 of 25 euros", (), [4]),
+    ("archive the $40", (), []),          # a currency mark
+    ("archive 25 euros", (), []),          # a unit
+    ("reply to the 3 saying 3", ("3",), []),          # the text occurs where the number is
+    ("responde ao 3 dizendo que ok", (), []),          # "ao" is not one of the articles that count
+    ("arquiva um 3", (), []),
+    ("please archive 3", (), []),          # not the word right after the verb at the head of the line
+    ("trash the email about room 4", (), []),
+    ("trash the email from the 2 o'clock meeting", (), []),
+)
+
+
+@pytest.mark.parametrize("line, spans, expected", AFTER, ids=[row[0] for row in AFTER])
+def test_with_a_list_on_screen_a_number_after_an_article_or_the_verb_is_a_message_number(line, spans, expected):
+    assert nwm.free_numbers(line, spans, after_list=True) == expected
+
+
+@pytest.mark.parametrize("line", [row[0] for row in AFTER if row[2] and row[0] not in ("arquiva o 3 de 12:30",)] + ["arquiva o 3"])
+def test_the_same_lines_with_no_list_on_screen_name_no_message(line):
+    assert nwm.free_numbers(line, ()) == [] and nwm.free_numbers(line, (), after_list=False) == []
+
+
+def test_a_list_on_screen_keeps_the_rows_that_name_the_noun_or_the_hash(monkeypatch):
+    assert nwm.free_numbers("arquiva o email 5, recebi 3 dias atrás", (), after_list=True) == [5]
+    assert nwm.free_numbers("reply to #7 ok", (), after_list=True) == [7]
+
+
+@pytest.fixture
+def screen(world):
+    item_refs._LISTED.clear()
+    item_refs._MAIL_LISTED.clear()
+    yield ops_core.context(world["path"])
+    item_refs._LISTED.clear()
+    item_refs._MAIL_LISTED.clear()
+
+
+def test_a_mail_list_is_on_screen_for_the_first_line_after_it_only(world, screen):
+    item_refs.remember_listed(screen, SENDER, None, 1, mail_shown=True)
+    assert not item_refs.mail_list_on_screen(screen, "messaging", SENDER), "the line that listed is not the line after it"
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    assert item_refs.mail_list_on_screen(screen, "messaging", SENDER) and not item_refs.mail_list_on_screen(screen, "messaging", "telegram:5151")
+    assert not item_refs.mail_list_on_screen(screen, "page", SENDER)
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    assert not item_refs.mail_list_on_screen(screen, "messaging", SENDER), "a second line is not the first"
+
+
+def test_a_list_older_than_the_window_or_with_no_mail_is_not_on_screen(world, screen, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(item_refs, "LISTED_CLOCK", lambda: now[0])
+    item_refs.remember_listed(screen, SENDER, None, 2, mail_shown=True)
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    now[0] += item_refs.LISTED_S + 1
+    assert not item_refs.mail_list_on_screen(screen, "messaging", SENDER)
+    now[0] = 2000.0
+    item_refs.remember_listed(screen, SENDER, None, 2, mail_shown=True)
+    item_refs.remember_listed(screen, SENDER, None, 2, mail_shown=False)          # a later reply listed only a calendar: the mail list is gone
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    assert not item_refs.mail_list_on_screen(screen, "messaging", SENDER)
+
+
+@pytest.mark.parametrize("sources, on", [
+    ([{"type": "mail", "source": "inbox", "items": [1]}], True),
+    ([{"type": "mail", "source": "inbox", "items": [1]}, {"type": "mail", "source": "work", "items": [1]}], True),          # two boxes on screen: no single source is kept, a mail list is
+    ([{"type": "mail", "source": "inbox", "items": [1]}, {"type": "calendar", "source": "agenda", "items": [1]}], True),
+    ([{"type": "calendar", "source": "agenda", "items": [1]}], False),
+    ([{"type": "mail", "source": "inbox", "items": []}], False),
+    ([], False),
+])
+def test_the_read_items_records_a_mail_list_only_when_a_reply_showed_mail_rows(world, screen, sources, on):
+    ops_items.remember_listed(screen, "messaging", SENDER, {"sources": sources})
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    assert item_refs.mail_list_on_screen(screen, "messaging", SENDER) is on
+
+
+def test_the_seed_reads_the_article_form_only_with_a_list_on_screen(world, screen):
+    given = decision("mail-archive", {"messages": [3]}, {"messages": "3"})
+    assert ops_natural_mail.mail_number_seed("mail-archive", given, "arquiva o 3", ctx=screen, channel="messaging", sender=SENDER) is None
+    item_refs.remember_listed(screen, SENDER, None, 1, mail_shown=True)
+    item_refs.begin_turn(screen, "messaging", SENDER)
+    got = ops_natural_mail.mail_number_seed("mail-archive", given, "arquiva o 3", ctx=screen, channel="messaging", sender=SENDER)
+    assert got["slots"] == {"numbers": [3]} and got.origins == {"numbers": "line-number"}
+    assert ops_natural_mail.mail_number_seed("mail-archive", given, "arquiva o 3") is None, "no ctx: the stricter rule"
+    subset = decision("mail-archive", {"messages": [3]}, {"messages": "3"})
+    assert ops_natural_mail.mail_number_seed("mail-archive", subset, "arquiva o 5, recebi 3 dias atrás", ctx=screen, channel="messaging", sender=SENDER) is None
+
+
+def test_after_a_mail_list_arquiva_o_3_opens_the_archive_card_of_message_3(world, clock, monkeypatch):
+    out, resolved, _ = run(world, monkeypatch, "pt-BR", "arquiva o 3", op("mail-archive", {"messages": "3"}), messages=(FIRST, SECOND, THIRD), on_screen=True)
+    assert [a["messages"] for a in args_of(resolved)] == ["inbox#3"], (out["reply"], sorted(out))
+
+
+def test_with_no_list_on_screen_the_same_line_is_cannot_write(world, clock, monkeypatch):
+    out, resolved, _ = run(world, monkeypatch, "pt-BR", "arquiva o 3", op("mail-archive", {"messages": "3"}), messages=(FIRST, SECOND, THIRD))
+    assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE") and not out.get("resend")
+
+
+def test_on_the_second_line_after_the_list_the_same_line_is_cannot_write(world, clock, monkeypatch):
+    out, resolved, _ = run(world, monkeypatch, "pt-BR", "arquiva o 3", op("mail-archive", {"messages": "3"}), messages=(FIRST, SECOND, THIRD), on_screen=True, skipped=1)
+    assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE")
+
+
+def test_after_a_list_the_number_in_the_line_with_a_range_or_a_time_is_still_cannot_write(world, clock, monkeypatch):
+    out, resolved, _ = run(world, monkeypatch, "pt-BR", "arquiva o 1 a 3", op("mail-archive", {"messages": "1,3"}), messages=(FIRST, SECOND, THIRD), on_screen=True)
+    assert not resolved and out["reply"] == sentence(world, "IX_CANNOT_WRITE")
+
+
+def test_after_a_list_of_two_boxes_the_number_asks_which_box(world, clock, monkeypatch):
+    two = [{"id": "inbox", "account": "google"}, {"id": "work", "account": "microsoft"}]
+    out, resolved, _ = run(world, monkeypatch, "pt-BR", "arquiva o 3", op("mail-archive", {"messages": "3"}), messages=(FIRST, SECOND, THIRD), on_screen=True, boxes=two)
+    assert not args_of(resolved) and out["reply"].startswith(sentence(world, "NW_MAIL_ASK_SOURCE")) and sentence(world, "NW_MAIL_ASK_SOURCE") == "De qual caixa?", out["reply"]
+
+
 # --- vacuity -----------------------------------------------------------------------------------------------------------------------------------
 
 
 def test_vacuity_a_free_numbers_that_echoes_the_decision_opens_the_rows_it_must_refuse(world, clock, monkeypatch):
-    monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None: [1])
+    monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None, after_list=False: [1])
     out, resolved, _ = run(world, monkeypatch, "en", "trash emails 1 and 2 pls", op("mail-trash", {"messages": "1"}))
     assert args_of(resolved), "the planted free_numbers must open the subset row (the real one refuses it)"
 
 
 def test_vacuity_a_free_numbers_that_counts_every_digit_word_opens_the_count_noun_row(world, clock, monkeypatch):
-    monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None: [int(w) for w in line.replace(",", " ").split() if w.isdigit()])
+    monkeypatch.setattr(nwm, "free_numbers", lambda line, spans=(), tables=None, after_list=False: [int(w) for w in line.replace(",", " ").split() if w.isdigit()])
     out, resolved, _ = run(world, monkeypatch, "en", "trash the 2 budgets pls", op("mail-trash", {"messages": "2"}))
     assert args_of(resolved), "the planted free_numbers must open the count-noun row (the real one refuses it)"
 

@@ -307,6 +307,35 @@ def test_a_day_or_a_state_code_cannot_read_is_a_sentence_and_no_list(world, snap
     assert len(mail_reads(snaps)) == before, "no provider was read for a sentence"
 
 
+
+@pytest.mark.parametrize("word", ["último", "últimos", "latest", "the last", "os últimos"])      # validate: allow english-only -- the closed count words under test
+def test_a_count_word_in_the_state_slot_is_no_state(word, clock):
+    assert ops_items.unreadable_filter({"state": word}, clock.moment) is None, "the control of the fix: a count word is dropped, never a sentence"
+    assert "unread" not in ops_items.items_args("os últimos emails", clock.moment, None, {"state": word}), "and it never turns the unread filter on"
+
+
+@pytest.mark.parametrize("word", ["lidos", "importantes", "lido e último", "a", "o"])      # validate: allow english-only -- states and articles under test
+def test_every_other_state_keeps_the_sentence(word, clock):
+    assert ops_items.unreadable_filter({"state": word}, clock.moment) == "NW_ITEMS_MATCH_STATE", "only a span of count words (an article alone is none) is let through"
+
+
+def test_unread_state_still_sets_unread(clock):
+    assert ops_items.unreadable_filter({"state": "não lidos"}, clock.moment) is None      # validate: allow english-only -- the Portuguese state under test
+    assert ops_items.items_args("emails não lidos", clock.moment, None, {"state": "não lidos"})["unread"] is True      # validate: allow english-only -- the Portuguese state under test
+
+
+def test_the_last_email_a_model_put_in_state_lists_one_message_with_its_start(world, snaps, clock):
+    inbox(world, snaps, [tsm.message(1, when=TODAY, sender=BANK, subject="Extrato de outubro", text="Seu extrato de outubro chegou."), *mails()[1:]])      # validate: allow english-only -- invented body
+    cfg = cfg_of(world)
+    reply = run_items(world, "qual foi o último email que chegou?", {"state_span": "último"})      # validate: allow english-only -- the live line under test
+    assert reply != phrases.text("NW_ITEMS_MATCH_STATE", cfg), "row 2 of the acceptance run: the sentence about a state is gone"
+    lines = reply.splitlines()
+    assert len(lines) == 3 and "Extrato de outubro" in lines[1] and "Consulta" not in reply, "one message, newest first, and the start of its text"
+    assert lines[2] == phrases.text("NW_ITEMS_PREVIEW", cfg, text="Seu extrato de outubro chegou."), "the preview line a one-message list carries"
+    plural = run_items(world, "quais são meus últimos emails?", {"state_span": "últimos"})      # validate: allow english-only -- the live line under test
+    assert plural != phrases.text("NW_ITEMS_MATCH_STATE", cfg) and "Consulta" in plural, "the plural asks for no count: the plain list"
+
+
 # --- the line of a model, version 2 ------------------------------------------------------------------------------------------------------------------
 
 

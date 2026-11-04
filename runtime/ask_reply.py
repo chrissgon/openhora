@@ -28,6 +28,7 @@ and this module reads only those lines and decides what is sent. A model's text 
      letters of Cyrillic and Greek folded to Latin and the case folded (fold()), so that `Checked quоte` (a Cyrillic o), a zero-width
      space and a full-width bracket do not pass.
   4. A `[<id>]` of the form of a source id that the run was not given is flagged UNKNOWN_SOURCE (`[1]`, a footnote, is not).
+     With a `read_label` and ONE source, a `[x]` that the copy of that source holds (a subject tag such as `[tag]`) is the message's own and is not flagged.
   5. `found` or `partial` with no verified quote: UNVERIFIED.
   6. `not-found`: the model's prose is dropped; only NOT_FOUND, the instructions lines and the footer are sent.
   7. After the instructions line the reply keeps only lines that name a source the run was given, say `not followed` and carry a
@@ -315,7 +316,8 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     prose = "\n".join(parsed["prose"]).strip()
     if one is not None:
         prose = re.sub(r"[ \t]*\[" + re.escape(one) + r"\]", "", prose).strip()
-    unknown = [i for i in dict.fromkeys(BRACKET.findall(prose)) if i not in ids and not i.isdigit()]
+    own_copy = copies_flat.get(one, "").lower() if one is not None else ""      # AF-4: a `[x]` the one source's copy holds (a subject tag) is the message's own, not an invented id
+    unknown = [i for i in dict.fromkeys(BRACKET.findall(prose)) if i not in ids and not i.isdigit() and f"[{i}]" not in own_copy]
     notes = [say("UNKNOWN_SOURCE", id=i) for i in unknown]
     if unknown:
         flags.append("UNKNOWN_SOURCE")
