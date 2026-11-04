@@ -236,11 +236,8 @@ class Reminders:
         cfg = bridge.cfg(project)
         today = datetime.date.fromisoformat(found["now"][:10])
 
-        def line(r):
-            when = natural.describe(natural.info_of(r["due"][:10], r["due"][11:16], today), cfg)
-            return f"#{r['id']} {when}" + (f": {r['text']}" if "text" in r else "")
-        lines = [line(r) for r in found["open"]]
-        gone = [line(r) + f" ({phrases.text(WHY_KEYS.get(r.get('why'), 'RM_WHY_OTHER'), cfg)})" for r in found["not_sent"]]
+        lines = [natural.reminder_line(r, today, cfg) for r in found["open"]]
+        gone = [natural.reminder_line(r, today, cfg) + f" ({phrases.text(WHY_KEYS.get(r.get('why'), 'RM_WHY_OTHER'), cfg)})" for r in found["not_sent"]]
         if not lines and not gone:
             bridge.reply(chat, f"{project['name']}: {phrases.text('RM_NONE_WAIT', cfg)}", project)
             return False
