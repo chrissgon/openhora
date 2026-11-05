@@ -76,7 +76,7 @@ A table that changes with the code is generated, never edited by hand: it sits b
 
 ## The pages
 
-Every page of this folder, once. The eight layer pages share a template; the four feature pages cross layers.
+Every page of this folder, once. The eight layer pages share a template; the five feature pages cross layers.
 
 | Page | What it covers |
 |---|---|
@@ -92,6 +92,7 @@ Every page of this folder, once. The eight layer pages share a template; the fou
 | [sources.md](sources.md) | A feature across layers: the sources folder (limits L21 to L27), versions, the catalog, the converter, Notion pages and Drive files |
 | [outputs.md](outputs.md) | A feature across layers: the export step kinds and the renderer's container, the formula guard (L32), the step engine's effect gate (L30), the write-back to a platform document (L31) and the hidden-text flag |
 | [unattended.md](unattended.md) | A feature across layers: remote access, the credentials directory, retention, orphan containers, the lease and the doctor's `--unattended` |
+| [scripts.md](scripts.md) | A feature across layers: a project's own script as a step (limits L34 to L38), approved by the hash of its bytes, run in a sandbox, reaching only the destinations the person approved |
 
 ## The layers
 
@@ -242,7 +243,7 @@ The names fixed for this work. Use each exactly.
 | Project configuration | `<project>/docs/workbench/runtime.json`, accepted by its hash |
 | Lab | The eval harness under `evals/`: the runner, the executor, the container |
 | Lab facade | `runtime/lab.py`, the one file of `runtime/` that imports the lab's execution kit (`evals/execution.py`) |
-| Operations layer | `runtime/ops.py` (with `ops_say.py`, `ops_reads.py`, `ops_waits.py`, `ops_config.py`, `ops_runs.py` and `ops_core.py`): every operation a shell can perform, once |
+| Operations layer | `runtime/ops.py` and the `ops_*.py` modules (listed in [runtime.md](runtime.md)): every operation a shell can perform, once |
 | Table of operations | `runtime/operations.py`: one row per operation (its verb, function, arguments, channels, whether it calls a model, whether it is a job); the terminal's parser is built from it, and the service's routes, the MCP tools and the conversation's commands exist only for the rows that list their channel |
 | Channel | The surface that called an operation: `terminal`, `chat`, `page`, `mcp` or `messaging`; each row of the table of operations lists the channels that may call it |
 | Channel rule | An effect is approved with its hash from the terminal or the page (`EFFECT_CHANNELS`), or from a messaging app the project grants that effect's word (`GRANTS`); the conversation and the MCP mode never approve one |
@@ -330,10 +331,9 @@ The names fixed for this work. Use each exactly.
 | A request written as bullets is read as several deliveries, one router run each, before the person sees the count | stage 3 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-3-findings-2026-10-06.md`), finding 12 |
 | The social platform layer is built for one platform of one shape | [AGENTS.md](../../../AGENTS.md), design rule 3 |
 | The adapters' report of what a run did with a skill is built (`skills_loaded`, `skills_used`) but not yet shown on a recorded follow-up run; no rule reads it | skeleton findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/skeleton-findings-2026-10-05.md`), finding 6; [backlog](../../backlog.md), R12 |
-| A board's own status property is not written; the runtime's states live in a property of its own | [backlog](../../backlog.md), R13 |
 | The workarounds listed under T23 wait for the next change of the lab default list or of the grader (the dependency install step, the two `AGENTS.md` lines, the approvals copied into the state file, the manifest outside the frontmatter, a skill run up to its gate, among others) | [backlog](../../backlog.md), T23 |
 | The review of 2026-10-06 ranks its findings against the goal of replaceable layers; its status table says which are fixed, which partly (skill code runs in an isolated host process, not yet in a container) and which wait for the next change of their layer | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`) |
-| `runtime/ops.py` holds every operation and has grown since the review measured it, and `runtime/dispatcher.py` is both the decision and the scheduler's entry; the split waits for the next change of that layer | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 10, whose status row gives the size now; [runtime.md](runtime.md) |
+| `runtime/ops.py` keeps the entry points of the person's verbs, the approvals, the policy and the configuration, after the run pipeline moved to `ops_runs.py`, `ops_requests.py`, `ops_task_run.py` and `ops_round.py` (44-C1 to 44-C4b), and `runtime/dispatcher.py` is both the decision and the scheduler's entry | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 10, whose status row gives the size now; [runtime.md](runtime.md) |
 | The social handlers keep three differences from the other handler until their step of stage 7 hands them to the operations layer: their own gate and records, their skill scripts run as host subprocesses (finding 9), and their own loaders (the third has no listed removal) | [runtime.md](runtime.md), "Known limits and improvements"; `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), findings 9 and 15 |
 | The eval container's model routes are keyed by provider route, and the eval contract has no shared conformance suite; both wait for the next change of the lab or an adapter | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), findings 12 and 13; [lab.md](lab.md); [adapters.md](adapters.md) |
 | `integration:documents` is in neither list of classes (the table of `contracts/environment.md` and `LISTED` in `providers/resolve.py`), though the runtime uses it; it resolves by its folder | [contracts-and-references.md](contracts-and-references.md); [providers.md](providers.md) |

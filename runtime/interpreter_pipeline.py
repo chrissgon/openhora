@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The B-prime arm of the interpreter experiment for ONE corpus item (package IX-2c, plan `PLAN-NL-INTERPRETER-FINAL.md`): what the platform would do with a line, from the
+"""The B-prime arm of the interpreter experiment for ONE corpus item (package IX-2c; the plan is outside the repository): what the platform would do with a line, from the
 forward check to the word `observed` the scorer reads. Measurement only: nothing here executes, stores, sends or writes; no model is called here either (the caller passes a
 `call`, so that a recorded answer, a stand-in or the real route are the same code).
 
