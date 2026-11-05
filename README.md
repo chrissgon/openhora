@@ -41,21 +41,24 @@ shared/references/  security.md, the one cross-cutting reference, and platforms/
 shared/scripts/     the one source of every script more than one skill carries; scripts/sync_copies.py writes the copies
 contracts/          what skills read and write in a target project: project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md
 providers/          native implementations of requirement classes, resolved by providers/resolve.py: reader:email, publisher:<platform>,
-                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents
-                    (Notion and Google Drive files as sources), converter:document (the container that turns a source into text), exporter:document (the container that renders a CSV, workbook, Word or PDF file);
-                    the interface is providers/CONTRACT.md
+                    messenger:<platform>, sender:email, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents
+                    (Notion and Google Drive files as sources), integration:calendar, integration:tasks, converter:document (the container that turns a source into text), exporter:document (the container that renders a CSV, workbook, Word or PDF file),
+                    script:project (the container a project's own script runs in), model:text, writer:calendar|mailbox|files|tasks (the writes to the person's own accounts) and providers/accounts/ (their authorization);
+                    the full list and the interface are providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
 packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing, content
-adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools;
+adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api implements the run-agent.sh contract (one model call, no tools), which no runtime of the core calls today;
                     openclaw is documentation only (the runtime's MCP mode from an OpenClaw gateway), not an adapter
 evals/              the eval harness: eval_run.py (the runner), executor.py and container/ (every run executes in a container),
                     eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version),
+                    run_attempts.py, evidence_lines.py, local_models.py, interpreter_status.py and interpreter/ (the interpreter's corpora and evidence),
                     image-lock.json (the published eval image), community.json (community evidence), tests/
 scripts/            repository tooling: validate.py, security_scan.py, sync_copies.py, owner_table.py, architecture_tables.py, new-skill.sh,
                     install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py (with doctor_ops.py: `--unattended`), evidence.py,
                     verify_community.py and community_pack.py (community evidence), image_lock.py (the eval image's lock file),
                     update_prices.py (the price table), skill_import.py (a skill from outside: fetch, check, vet, test), redact.py,
-                    build_demo.py and demo_fixtures.py (the interface's demo mode)
+                    build_demo.py and demo_fixtures.py (the interface's demo mode), select_tests.py, shard_tests.py and test_slots.py (which tests run, in which
+                    shards, how many at once), skill_catalog.py, interpreter_corpus*.py and pytest_plugins/ (AGENTS.md, "Layout", lists them all)
 runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container (or, for a step task, code
                     with no model), a person decides through pending decisions; lab.py is the one file that imports the eval runner,
                     ops.py the operations, cli.py the shell (runtime/README.md lists the modules)
@@ -68,7 +71,7 @@ netlify.toml        how Netlify publishes site/ (the build command and the respo
 flows/              one data file per flow: the tasks, their written dependencies and parameters, read by the task runtime (a project's own are docs/workbench/flows/ in the project)
 .github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook
-docs/               area map, decisions, inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
+docs/               area map, decisions/ (one file per entry; decisions.md is the closed record), inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
 ```
 
 ## The task runtime
@@ -77,13 +80,13 @@ The runtime (`runtime/`, [layer page](docs/architecture/platform/runtime.md), co
 
 - **Sources.** A project reads uploaded files (PDF, Word, spreadsheet, presentation, CSV, HTML, text), Notion pages and Google Drive files (chosen in Google's Picker, `drive.file` scope, files only) that sit, as immutable versions, in a sources folder (`sources_dir` of `runtime.json`) a run never sees whole. The planner reads a catalog built from the converted text and names, for each task, the sources it needs; the plan shows them. [sources.md](docs/architecture/platform/sources.md).
 - **Model choice.** A request, a task or an area agent names a model of `evals/eval-gate.json`, or `auto`, which picks the cheapest model on which the skill is `reliable`; a model the person names runs, supervised unless it is proven. Fixing a model on an agent that works in an autonomous mode needs the person's consent for that agent. [contracts/runtime.md](contracts/runtime.md), "The choice of the model".
-- **Step tasks.** A task can be a step that code runs with no skill and no model: `ingest` (import or refresh a source), the exports below and `write-back`. [runtime.md](docs/architecture/platform/runtime.md).
+- **Step tasks.** A task can be a step that code runs with no skill and no model: `ingest` (import or refresh a source), the exports below, `write-back`, `project-script`, `publish-post`, `send-email` and the writes to the person's own calendar, mail, files and tasks. [runtime.md](docs/architecture/platform/runtime.md).
 - **Outputs.** A task's result becomes a CSV file, a workbook, a Word document or a PDF in `docs/outputs/`, made in a container with no network (a cell that starts like a formula is written as text); a project document can replace a Notion page only after the person approves the hash of the exact content, in the terminal, on the page, or on a messaging app the project allows. The converter flags text a person cannot see in a source. [outputs.md](docs/architecture/platform/outputs.md).
 - **Flows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. A flow can run on a schedule as a **routine**, which fires nothing until the person approves the hash of its exact content and stops to ask when anything it hashed changes. [contracts/runtime.md](contracts/runtime.md), "Flows" and "Routines".
+- **Project scripts.** A project's own script runs as a step, in a container with nothing of the machine in it. The plan's hash covers the script's sha256, its lock file and the destinations it may reach; a changed file never runs, and the step is never started unattended. [scripts.md](docs/architecture/platform/scripts.md).
+- **Messaging and accounts.** The messaging bridge (`runtime/messaging.py`) lets a listed sender on Telegram, Discord, WhatsApp or e-mail read and ask; its channel policy is closed by default and every widening is accepted by hash. A plain line is read by the natural-language interpreter only for a sender who holds the group `interpret`, and web research needs a group too. A change to the person's own calendar, mail, files or tasks is made only after the person approves the card of its exact content. [messaging.md](docs/architecture/platform/messaging.md), [contracts/runtime.md](contracts/runtime.md), "The messaging bridge".
 - **Running unattended.** Secrets for a machine with no desktop session (a credentials directory), retention of old runs and source versions, the sweep of orphan containers, one writer at a time for a synced sources folder, and `python3 scripts/doctor.py --unattended`. [unattended.md](docs/architecture/platform/unattended.md).
 - **Community evidence.** Anyone can test a skill on a model the maintainer has not tested, with their own keys, in a fork; the attested result ranks the model and never releases work on its own. [docs/community-evidence.md](docs/community-evidence.md).
-
-In progress, not built: a project script ([the plan](docs/architecture/delegation-platform-plan-2026-10-14.md)).
 
 ## Install
 
@@ -92,7 +95,7 @@ Each adapter documents its own install in its `README.md`. Without `--pack`, the
 - **Claude Code**: `bash adapters/claude-code/install.sh [--pack <name>]` builds a plugin and links it where Claude Code loads it.
 - **Codex, Cursor, Cline, OpenCode, OpenClaw and any tool that reads `~/.agents/skills/`**: `bash adapters/agents-dir/install.sh [--pack <name>] [--project <dir>]`.
 
-Both installers put `shared/references/` beside the skills and take `--uninstall`. The `api` adapter installs nothing: it is the tool-free way for the agent runtime (`contracts/runtime.md`) to call a model.
+Both installers put `shared/references/` beside the skills and take `--uninstall`. The `api` adapter installs nothing: it implements the tool-free `run-agent.sh` contract (`contracts/runtime.md`), which no runtime of the core calls today.
 
 Which requirement classes the environment satisfies: `python3 scripts/doctor.py`.
 
@@ -104,7 +107,7 @@ python3 scripts/security_scan.py --strict   # secrets, hidden text, unsafe scrip
 bash scripts/install-hooks.sh               # once per clone: enables .githooks/ (--check, --uninstall)
 ```
 
-The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then a fast set of tests: the guards and the tests named for each file the commit touches (`select_tests.py --direct`); `WB_HOOK_FULL=1 git commit` runs the full selection instead. The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, and `tests` runs the selection of the tests that the pull request can reach, in three shards (the whole suite at the end of a delivery), beside the `python39` shards and a `container` job for the eval container; a draft pull request runs only `validate` and `changes`, and its `tests` is red until it is marked ready.
+The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then a fast set of tests: the guards and the tests named for each file the commit touches (`select_tests.py --direct`); `WB_HOOK_FULL=1 git commit` runs the full selection instead. The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, and `tests` runs the selection of the tests that the pull request can reach, in three shards (the whole suite at the end of a delivery), beside the `python39` shards and a `container` job for the eval container; a draft pull request runs only `validate` and `changes`, and its `tests` is red until it is marked ready. A nightly run (`.github/workflows/nightly.yml`, every day at 06:17 UTC, on the branch the repository variable `NIGHTLY_REF` names, else the default branch) runs the whole suite with the full fuzz in three shards, and the `python39` list in full. `checks.yml` also has the `converter` and `go` jobs.
 
 A new skill starts from `bash scripts/new-skill.sh --name <prefix-name> --kind capability|flow --area <area>`; `AGENTS.md`, "Adding a skill", has the rest.
 

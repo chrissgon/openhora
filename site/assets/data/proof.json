@@ -1,6 +1,6 @@
 {
  "source": "docs/inventory.md, Evaluation status (band table and model table)",
- "generated_at_commit": "54f08b5f0417",
+ "generated_at_commit": "62c996c56958",
  "lab_models": [
   {
    "model": "claude-sonnet-5-5",
@@ -16,14 +16,38 @@
  "runs_per_case": 3,
  "skills": [
   {
+   "skill": "asst-answer",
+   "version": "0.2.0",
+   "area": "asst",
+   "last_full_test": "2026-11-05, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.89",
+     "score": "0.97",
+     "mean": "1.00",
+     "runs": "51"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "needs a test",
+     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5, 6, 7, 8",
+     "gate": "not computed",
+     "score": "0.91",
+     "mean": "0.96",
+     "runs": "51"
+    }
+   }
+  },
+  {
    "skill": "biz-icp-positioning",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "biz",
    "last_full_test": "2026-10-04, passed",
    "models": {
     "claude-sonnet-5-5": {
      "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 3.2 have no run in the current set",
+     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 3.2, 4.1, 4.2 have no run in the current set",
      "gate": "passed (baseline expired), 1.00 vs 0.40",
      "score": "0.65",
      "mean": "1.00",
@@ -41,13 +65,13 @@
   },
   {
    "skill": "biz-market-analysis",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "biz",
    "last_full_test": "2026-10-04, passed",
    "models": {
     "claude-sonnet-5-5": {
      "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5 have no run in the current set",
+     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 4.1, 4.2 have no run in the current set",
      "gate": "passed (baseline expired), 0.96 vs 0.22",
      "score": "0.61",
      "mean": "0.97",
@@ -65,7 +89,7 @@
   },
   {
    "skill": "brand-guidelines",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -89,7 +113,7 @@
   },
   {
    "skill": "brand-identity",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -113,7 +137,7 @@
   },
   {
    "skill": "brand-name",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -137,7 +161,7 @@
   },
   {
    "skill": "brand-profile",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -161,7 +185,7 @@
   },
   {
    "skill": "brand-strategy",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -185,7 +209,7 @@
   },
   {
    "skill": "brand-voice",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "brand",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -233,7 +257,7 @@
   },
   {
    "skill": "core-clarify",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "core",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -257,7 +281,7 @@
   },
   {
    "skill": "core-critique",
-   "version": "2.1.0",
+   "version": "2.2.0",
    "area": "core",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -281,31 +305,14 @@
   },
   {
    "skill": "core-orchestrator",
-   "version": "2.3.0",
+   "version": "4.1.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 2.4, 3.4, 4.3, 4.4, 4.6, 5.1, 6.4, 7.4, 7.5, 8.4, 8.5, 9.3, 9.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.43",
-     "score": "0.59",
-     "mean": "0.96",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5, 6, 7, 8",
-     "gate": "not computed",
-     "score": "0.64",
-     "mean": "0.99",
-     "runs": "3"
-    }
-   }
+   "last_full_test": "none",
+   "models": {}
   },
   {
    "skill": "core-project-init",
-   "version": "1.0.0",
+   "version": "1.2.0",
    "area": "core",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -329,7 +336,7 @@
   },
   {
    "skill": "core-research",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "core",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -353,7 +360,7 @@
   },
   {
    "skill": "core-security-audit",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "core",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -377,31 +384,14 @@
   },
   {
    "skill": "core-skill-creator",
-   "version": "3.1.0",
+   "version": "4.0.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.2, 1.3, 2.6, 4.7 have no run in the current set",
-     "gate": "passed (baseline expired), 0.90 vs 0.27",
-     "score": "0.50",
-     "mean": "0.87",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1",
-     "gate": "not computed",
-     "score": "0.58",
-     "mean": "0.94",
-     "runs": "3"
-    }
-   }
+   "last_full_test": "none",
+   "models": {}
   },
   {
    "skill": "design-brief",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "design",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -425,7 +415,7 @@
   },
   {
    "skill": "design-execute",
-   "version": "2.0.0",
+   "version": "2.1.0",
    "area": "design",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -449,7 +439,7 @@
   },
   {
    "skill": "design-handoff",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "design",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -473,7 +463,7 @@
   },
   {
    "skill": "design-system",
-   "version": "2.0.0",
+   "version": "2.1.0",
    "area": "design",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -497,7 +487,7 @@
   },
   {
    "skill": "design-ux-flows",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "design",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -521,7 +511,7 @@
   },
   {
    "skill": "eng-architecture",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -545,7 +535,7 @@
   },
   {
    "skill": "eng-code-review",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -569,7 +559,7 @@
   },
   {
    "skill": "eng-codebase-map",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -593,7 +583,7 @@
   },
   {
    "skill": "eng-docs",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -617,27 +607,10 @@
   },
   {
    "skill": "eng-impact-analysis",
-   "version": "1.0.0",
+   "version": "2.0.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.2, 3.1, 3.2, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.39",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    }
-   }
+   "last_full_test": "none",
+   "models": {}
   },
   {
    "skill": "eng-implement",
@@ -689,7 +662,7 @@
   },
   {
    "skill": "eng-refactor",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -713,7 +686,7 @@
   },
   {
    "skill": "eng-root-cause",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -737,7 +710,7 @@
   },
   {
    "skill": "eng-security-review",
-   "version": "2.0.0",
+   "version": "2.1.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -785,7 +758,7 @@
   },
   {
    "skill": "eng-unit-tests",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -808,56 +781,15 @@
    }
   },
   {
-   "skill": "flow-fix-bug",
-   "version": "1.2.0",
-   "area": "flow",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 1.5, 2.4, 2.5, 3.3, 3.4, 3.5, 4.5, 4.6, 5.5, 5.6 have no run in the current set",
-     "gate": "passed (baseline expired), 0.99 vs 0.68",
-     "score": "0.60",
-     "mean": "0.96",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    }
-   }
-  },
-  {
    "skill": "mkt-content-plan",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "mkt",
    "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 1.6, 1.7, 2.1, 2.2, 2.4, 2.5 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.70",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    }
-   }
+   "models": {}
   },
   {
    "skill": "mkt-engage",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "area": "mkt",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -881,7 +813,7 @@
   },
   {
    "skill": "mkt-messaging",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "mkt",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -908,24 +840,7 @@
    "version": "1.0.0",
    "area": "mkt",
    "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.5, 1.6, 1.8, 3.2, 4.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.22",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    }
-   }
+   "models": {}
   },
   {
    "skill": "mkt-social-copy",
@@ -944,16 +859,16 @@
      "band": "needs a test",
      "cause": "guard assertion(s) 1.3, 1.5, 2.4, 3.5, 3.7 have no run in the current set",
      "gate": "passed (baseline expired), 0.96 vs 0.48",
-     "score": "0.59",
+     "score": "0.60",
      "mean": "0.96",
      "runs": "3"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
      "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
+     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
      "gate": "not computed",
-     "score": "0.63",
-     "mean": "0.98",
+     "score": "0.65",
+     "mean": "1.00",
      "runs": "3"
     }
    }
@@ -974,7 +889,7 @@
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
      "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
+     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
      "gate": "not computed",
      "score": "0.63",
      "mean": "0.99",
@@ -984,7 +899,7 @@
   },
   {
    "skill": "ops-ci-pipeline",
-   "version": "2.0.0",
+   "version": "2.1.0",
    "area": "ops",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -1008,55 +923,21 @@
   },
   {
    "skill": "ops-pull-request",
-   "version": "1.0.0",
+   "version": "2.0.0",
    "area": "ops",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 1.5, 2.4, 2.5, 3.1, 4.1, 4.2, 4.3, 4.4, 5.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.52",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-     "gate": "not computed",
-     "score": "0.62",
-     "mean": "0.98",
-     "runs": "3"
-    }
-   }
+   "last_full_test": "none",
+   "models": {}
   },
   {
    "skill": "ops-repo-baseline",
-   "version": "1.0.0",
+   "version": "2.1.0",
    "area": "ops",
-   "last_full_test": "2026-10-04, passed",
-   "models": {
-    "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.2, 2.3, 2.4, 2.5, 3.2, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 0.84 vs 0.41",
-     "score": "0.60",
-     "mean": "0.97",
-     "runs": "3"
-    },
-    "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
-    }
-   }
+   "last_full_test": "none",
+   "models": {}
   },
   {
    "skill": "product-backlog",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "product",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -1080,7 +961,7 @@
   },
   {
    "skill": "product-feature-spec",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "product",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -1104,7 +985,7 @@
   },
   {
    "skill": "product-prd",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "product",
    "last_full_test": "2026-10-04, passed",
    "models": {
@@ -1128,7 +1009,7 @@
   },
   {
    "skill": "product-roadmap",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "product",
    "last_full_test": "2026-10-04, passed",
    "models": {

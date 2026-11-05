@@ -56,7 +56,7 @@
       <p class="ph-kicker">Interface</p>
       <h1 id="page-title" class="ph-title">Your projects, as a small city</h1>
       <p class="ph-lead">A person opens a local page and sees their projects as a small low-poly city: one building per project, one floor per area agent, an owl at a desk on each floor, and a card for whatever is waiting for the person. It is the view onto the task runtime, not a separate product.</p>
-      <p class="ph-lead">The real interface is a local page that the openhora runtime serves on your own machine, at 127.0.0.1 only. The tour below is a demo of it on fictional data.</p>
+      <p class="ph-lead">The real interface is a local page that the openhora runtime serves on your own machine, at 127.0.0.1 by default (an opt-in flag, <code>--lan</code>, serves a private LAN address). The tour below is a demo of it on fictional data.</p>
     </div>
     <span class="cross bl" aria-hidden="true"></span><span class="cross br" aria-hidden="true"></span>
   </div>
@@ -246,7 +246,7 @@
       <div class="ttl"><h2 id="open-t">How to open it</h2><span class="aside">on your own machine</span></div>
     </div>
     <div class="open-row">
-      <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</span></span><span class="ln c"># binds 127.0.0.1 only</span></pre></div>
+      <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</span></span><span class="ln c"># binds 127.0.0.1 by default</span></pre></div>
       <p class="src">runtime/README.md · <a class="ext" href="https://github.com/chrissgon/openhora/blob/main/runtime/README.md">open on main</a></p>
     </div>
     <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>

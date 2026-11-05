@@ -18,7 +18,7 @@
     {
       "command": "/pending",
       "arguments": "[id]",
-      "help": "what waits for you; with an id, that decision whole"
+      "help": "what waits for you; with an id, that decision whole (the MCP mode and a messaging reader without the group ask-mail do not see the current text of an event a calendar card shows, nor the addresses, the subject, the text and the attachment names of an e-mail card)"
     },
     {
       "command": "/answer",
@@ -54,6 +54,16 @@
       "command": "/stop-task",
       "arguments": "<task id>",
       "help": "stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it"
+    },
+    {
+      "command": "/ask",
+      "arguments": "<text>",
+      "help": "answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask"
+    },
+    {
+      "command": "/attachments",
+      "arguments": "",
+      "help": "the files people sent through a messaging app (from a messaging app, only the ones you sent): those held for your answer (name, kind, size, the source each would become, when it expires), the latest decisions, the day's count and the limits; a held file is in the data folder, never in a run, a prompt or the sources folder"
     },
     {
       "command": "/new",

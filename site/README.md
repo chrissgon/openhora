@@ -19,4 +19,5 @@ installed. The tests build the demo into a temporary folder, serve the site and 
 1280 and 375 px in light and dark. They are not in CI yet: the CI runner's Node and Chrome versions are not pinned in `.github/workflows/checks.yml`.
 
 Other tools: `python3 site/tools/check_links.py` lists the GitHub links that point at a missing path; `python3 site/tools/build_css.py` rebuilds the
-per-page stylesheets from `assets/css/src/site.css`.
+per-page stylesheets from `assets/css/src/site.css`; `python3 site/tools/build_proof_json.py` rebuilds `assets/data/proof.json` from the band and model tables of
+`docs/inventory.md`; `python3 site/tools/count_facts.py` counts the facts the pages state (skills, guard assertions, skills that carry the external-content line).

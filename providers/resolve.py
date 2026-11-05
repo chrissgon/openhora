@@ -95,7 +95,7 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
 # Roles whose folder and variables are derived from the text of the class. `messenger`, `converter`, `exporter`, `script` and `writer` (writes to the person's
-# own accounts: writer:calendar, writer:mailbox, writer:files; folder providers/writer/, always named explicitly, never `auto`) are in ROLES and not in
+# own accounts: writer:calendar, writer:mailbox, writer:files, writer:tasks; folder providers/writer/, always named explicitly, never `auto`) are in ROLES and not in
 # LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
 # `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
