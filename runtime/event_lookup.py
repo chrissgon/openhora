@@ -19,21 +19,25 @@ here but the operation and the two spans the check already verified against the 
 How the calendar is read (the reading the numbered form reads, with its rights): the sender must pass `item_refs.may_read` (the group `ask-mail`; the same sentence as the family
 when not); the calendar sources are the registered ones (`ops_natural_calendar.calendar_sources`); for each, `item_refs.read_index` checks the newest snapshot (younger than 26
 hours, files hashed against the store's record, index against its digest) and the text is read as `ops_items._event_lines` reads it, only after its hash was checked, now with the
-day headings (`## 2026-10-22 (Thursday)`) the text prints above the events. The event's title is the second field of its line (the first is the time). Nothing is called, nothing is
-written and no model is used.
+day headings (`## 2026-10-22 (Thursday)`) the text prints above the events. The event's title is the second field of its line (the first is the time). No model is used.
+
+How fresh the snapshots are (AF-3, `fresh`): before a line is searched, each registered calendar source is read again when its newest snapshot is older than `ops_items.FRESH_S` (10 minutes) or an approved calendar effect marked
+it changed (`ops_items.refresh_for_line`: the rule of the items list, the line's budget of one read for a source and the same closed stderr line when a read fails). A fresh and unmarked snapshot costs no read; a failed read leaves the old
+snapshot. So an event added in the calendar's own app is a candidate and one removed through a card is not, and the read of a miss below skips a source this line already read.
 
 Which events fit (slice S16b: the closest name; `ranked` below holds the rule). An event is a candidate when it is not cancelled and falls in the window: from today to 30 days ahead, or, when the line names a day, that day alone. A day is
 named by a date word code reads (today, tomorrow, "dia 22", 22/10, a weekday: any date of that weekday in the window); a time of day alone names none, so a title that holds a number is
 never mistaken for one; a date word code cannot read is a question, not a guess. A candidate fits when its title is near the words of the line (case and accents folded; the closed stop words left out; a small edit distance for each word, none up to 3 letters, 1 up to 6, 2 above; at least half of the title's
 words and a Dice share of 0.5: `ranked`); for a change, the line without the spans that hold the new time and the new title (found in the line with its white space collapsed; a span not found is a question). The best fits alone when it beats
 the next by 0.15; else the rows within 0.15 of it are the several close ones. Exactly one fits: the card opens.
-Several: a short numbered list and the question which. None: the calendar sources are read again once (`refresh`: only a sender who may read a snapshot gets here, no new
-group; a snapshot older than its limit counts as a miss too; a failure is dropped), the search is made again, and still none is one plain sentence; never a second refresh for a line. The numbers listed are the snapshot's own, so "cancela o evento 7" is then the numbered form.
+Several: a short numbered list and the question which. The numbers are the snapshot's own, except when two rows would print the same number (AF-3: two sources number their snapshots from 1 each): that list is numbered by POSITION, 1 to k in the order shown. None: the calendar sources are read again once (`refresh`: only a sender who may read a snapshot gets here, no new
+group; a snapshot older than its limit counts as a miss too; a failure is dropped), the search is made again, and still none is one plain sentence; never a second refresh for a line. The numbers listed are the snapshot's own (unless the list is positional), so "cancela o evento 7" is then the numbered form.
 
 A number after a list (slice S11). Right after the numbered list above (or the items list of the calendar, `remember_items`), "cancela o 2", "o 2", "2", "the 2nd" and "muda o 2 para as
 15h" from the SAME sender in the same chat, within LIST_WINDOW_S seconds, mean the entry with that number of the snapshot the list was made from, exactly as "cancela o evento 2" does (the
 same family path and card, never approved here). `take` is called by the interpreter's `turn` before any model call. What is kept for it is a small record in memory for each (project,
-channel, sender): the time, the operation the list asked about, the new time a change list was asked with, and (source, number, read_at) for each entry shown; no line, title or text. Before a
+channel, sender): the time, the operation the list asked about, the new time a change list was asked with, whether its numbers are positions, and (source, number, read_at) for each entry shown; no line, title or text.
+The number of a by-name list that would print a number twice is a position (`positional`): "2" is the second row printed, and the numbered line handed to the family carries the snapshot number kept at that place; every other list's number is the snapshot's own. Before a
 number is carried out the newest snapshot of that source is read again and its `read_at` must be the recorded one: a refreshed snapshot, or a number that two sources listed, is asked again
 (EV_LIST_AGAIN) and never guessed; a number the list did not show is no form of this list and the line goes on as before; a sender with no live list is not touched.
 
@@ -191,6 +195,19 @@ def events(ctx: dict, sender) -> tuple:
     return (out, None) if refused < len(listed) else ([], "folder" if folder else "stale")
 
 
+def fresh(project: str, ctx: dict, sender) -> None:
+    """Before a line names an event by its words (AF-3): each registered calendar source is read again when its newest snapshot is older than `ops_items.FRESH_S` or marked changed by an
+    approved calendar effect (`ops_items.refresh_for_line`: the rule of the items list, with the line's budget of one read for a source, so the read of a miss below skips it). Only a sender who
+    may read a snapshot; a failed read leaves the old snapshot, as the items list does, and nothing of it is said."""
+    if not item_refs.may_read(ctx, CHANNEL, sender):
+        return
+    sources_listed = ops_natural_calendar.calendar_sources(ctx)
+    if sources_listed:
+        line_stage.publish("calendar")      # S19
+    for source in sources_listed:
+        ops_items.refresh_for_line(project, ctx, source["id"])
+
+
 def refresh(project: str, ctx: dict) -> None:
     """Read each registered calendar source again, once: the provider read the snapshots come from (`ops_sources.source_refresh`, which `snapshot_refresh` in
     runtime/sources_mail.py does), a new version only when the listing changed. The caller has passed `item_refs.may_read`, the right to read these snapshots; the
@@ -266,7 +283,7 @@ def seed_service(ctx: dict, decision: dict, said: str, extras: dict, seed: dict)
 
 # --- a number after a list ----------------------------------------------------------------------------------------------------------------------
 
-_LISTS = {}          # (project key, channel, sender) -> {"at", "op", "start", "items": [(source, n, read_at)], "shown": [{"day", "start", "account", "position"}], "more"}: in memory only, no line and no title
+_LISTS = {}          # (project key, channel, sender) -> {"at", "op", "start", "items": [(source, n, read_at)], "shown": [{"day", "start", "account", "position"}], "more", "positional"}: in memory only, no line and no title
 _lock = threading.Lock()
 
 
@@ -288,17 +305,17 @@ def _slot(ctx: dict, channel, sender) -> tuple:
     return (ops_natural.project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, op, start, items: list, shown=None, more: bool = False) -> None:
+def _remember(ctx: dict, channel, sender, op, start, items: list, shown=None, more: bool = False, positional: bool = False) -> None:
     """Keep what the sender may point to next. `shown` (LP-1) is, for each item in the same order, the values the list printed for it ({"day": ISO date | None, "start": "HH:MM" | None,
     "account": "google" | "microsoft" | None, "position": 1.. | None}): clocks, days, accounts and positions only, never a title, a line or a word of the person's; `more` says the list printed
-    fewer rows than it holds."""
+    fewer rows than it holds. `positional` (AF-3): the numbers the list printed are the positions 1..k of `items` (the by-name list of `_list`), not the snapshot numbers the items list prints."""
     now = ops_natural._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
         if items:
             _LISTS[_slot(ctx, channel, sender)] = {"at": now, "op": op, "start": start, "start_source": None, "items": list(items), "shown": list(shown or []), "more": bool(more), "seen": 0,
-                                                   "pending": _last_pending(ctx)}
+                                                   "pending": _last_pending(ctx), "positional": bool(positional)}
         else:
             _LISTS.pop(_slot(ctx, channel, sender), None)
 
@@ -320,6 +337,13 @@ def _shown_values(day, when, account, position) -> dict:
     return {"day": day.isoformat() if isinstance(day, datetime.date) else day if isinstance(day, str) else None, "start": _start_shown(when), "account": account, "position": position}
 
 
+def _clash(found: list) -> bool:
+    """Whether two rows of the list `_list` shows would print the same number (AF-3): two calendar sources number their snapshots from 1 each. Only such a list is numbered by position; a list whose numbers are all
+    different keeps the snapshot's own, which is what "cancela o evento N" of the items list means."""
+    numbers = [r["n"] for r in found[:LIST_MAX]]
+    return len(set(numbers)) < len(numbers)
+
+
 def remember_list(ctx: dict, sender, op: str, found: list, start, more: bool = False) -> None:
     """The list of events `_list` shows: what the sender may now point to by number (`start` is the new time a change was asked with, "@HH:MM" when it is a clock with no day,
     or None) and, for a pick by an ordinal or by a value (runtime/list_pick.py), the values each printed row holds. `more`: the list also said how many more events fit."""
@@ -329,7 +353,7 @@ def remember_list(ctx: dict, sender, op: str, found: list, start, more: bool = F
         accounts = {}
     shown = found[:LIST_MAX]
     _remember(ctx, CHANNEL, sender, op, start, [(r["source"], r["n"], r["read_at"]) for r in shown],
-              [_shown_values(r["day"], r["time"], r.get("account") or accounts.get(r["source"]), place) for place, r in enumerate(shown, 1)], more or len(found) > LIST_MAX)
+              [_shown_values(r["day"], r["time"], r.get("account") or accounts.get(r["source"]), place) for place, r in enumerate(shown, 1)], more or len(found) > LIST_MAX, positional=_clash(found))
 
 
 def note_start_source(ctx: dict, sender, source) -> None:
@@ -413,7 +437,8 @@ def _number_form(said: str):
         if all(w in fillers for w in before) and not re.search(r"[a-z0-9]", rest):
             return {"n": n, "verb": None, "canonical": None}
         return None
-    return {"n": n, "verb": kind, "canonical": f"{norm[:verb_end].rstrip()} {nouns[0]} {n}{rest}"}
+    head = f"{norm[:verb_end].rstrip()} {nouns[0]}"
+    return {"n": n, "verb": kind, "canonical": f"{head} {n}{rest}", "head": head, "rest": rest}
 
 
 def _fresh(ctx: dict, sender, source: str, read_at: str) -> bool:
@@ -481,7 +506,7 @@ def _pick(ctx: dict, record: dict, form: dict, now) -> tuple:
     shown = record.get("shown") or []
     if len(shown) != len(record["items"]):
         return list_pick.SKIP
-    rows = [dict(values, n=item[1]) for item, values in zip(record["items"], shown)]
+    rows = [dict(values, n=place if record.get("positional") else item[1]) for place, (item, values) in enumerate(zip(record["items"], shown), 1)]
     when = now or ops_natural._clock()
     return list_pick.choose(form, rows, lambda text: _pick_day(text, when), bool(record.get("more")))
 
@@ -489,7 +514,7 @@ def _pick(ctx: dict, record: dict, form: dict, now) -> tuple:
 def _pick_reply(ctx: dict, record: dict, verdict: tuple) -> str:
     """The sentence of a verdict that opens nothing (the list is kept): several rows fit, none does, or the reading is not safe."""
     kind, payload, detail = verdict
-    numbers = [item[1] for item in record["items"]]
+    numbers = list(range(1, len(record["items"]) + 1)) if record.get("positional") else [item[1] for item in record["items"]]
     if kind == "several":
         return _text(ctx, "LP_SEVERAL", value=_value_text(ctx, detail), rows=_numbers_text(ctx, [numbers[i] for i in payload]))
     if kind == "none":
@@ -535,11 +560,21 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
             return _pick_reply(ctx, record, verdict), True
         source, n, read_at = record["items"][verdict[1]]
         form = {"n": n, "verb": pick["verb"], "canonical": f"{pick['head']} {n}" if pick["verb"] else None}
-        matches = [(source, read_at)]
+        matches, said_n = [(source, read_at)], verdict[1] + 1 if record.get("positional") else n
+    elif record.get("positional"):          # AF-3: the list printed the positions 1..k; the number said is the place in the list, and the event is the snapshot's number kept at that place
+        if not 1 <= form["n"] <= len(record["items"]):
+            return None, False
+        source, n, read_at = record["items"][form["n"] - 1]
+        said_n, matches = form["n"], [(source, read_at)]
+        if form["verb"] is not None:
+            form = dict(form, n=n, canonical=f"{form['head']} {n}{form['rest']}")          # the numbered line handed to the family carries the snapshot's number
+        else:
+            form = dict(form, n=n)
     else:
         matches = [(source, read_at) for source, n, read_at in record["items"] if n == form["n"]]
         if not matches:
             return None, False
+        said_n = form["n"]
     extras["stored"] = _text(ctx, "NW_PRIVATE_REPLY")
     if len(matches) > 1:
         return _text(ctx, "EV_LIST_AGAIN"), False
@@ -560,7 +595,7 @@ def _taken(project: str, ctx: dict, said: str, sender, extras: dict, writes, rec
     if form["verb"] is not None:
         return writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=turn_gate.Seed({"op": op, "line": form["canonical"], "bind": bind}, listed)), False
     if op is None:
-        return _text(ctx, "EV_LIST_WHAT", n=form["n"]), True
+        return _text(ctx, "EV_LIST_WHAT", n=said_n), True
     slots = dict(bind) if "created" in bind else {"event": form["n"], "source": source}
     if op == "event-change":
         if not record["start"]:
@@ -815,13 +850,14 @@ def _narrowed(ctx: dict, rows: list, text: str, kind: str, value, today: datetim
 # --- the reply -----------------------------------------------------------------------------------------------------------------------------------
 
 
-def _shown(row: dict, with_source: bool, table=None) -> str:
-    """One line of the list of events. With events of two sources the source ends the line: the plain name of the calendar when `table` (runtime/source_names.py `catalog`, BL5D) knows
-    it, else its id."""
+def _shown(row: dict, with_source: bool, table=None, place=None) -> str:
+    """One line of the list of events, numbered by `place` (its position in the list: AF-3, two sources number their snapshots from 1 each, so the snapshot's number is no name for a row), by
+    the row's own number when no place is given. With events of two sources the source ends the line: the plain name of the calendar when `table` (runtime/source_names.py `catalog`, BL5D)
+    knows it, else its id."""
     day = row["day"]
     weekday = ENGLISH_WEEKDAY[day.weekday()]
     where = f" ({(table or {}).get(row['source'], {}).get('name') or row['source']})" if with_source else ""
-    return f"{row['n']}. {weekday} {day.strftime('%d/%m/%Y')} {row['time']} · {row['title']}{where}"
+    return f"{place or row['n']}. {weekday} {day.strftime('%d/%m/%Y')} {row['time']} · {row['title']}{where}"
 
 
 def _when(row: dict) -> str:
@@ -852,11 +888,12 @@ def _found_fields(ctx: dict, extras: dict, row: dict) -> dict:
 def _list(ctx: dict, op: str, found: list) -> str:
     many = len({r["source"] for r in found}) > 1
     table = source_names.catalog(ctx) if many else None
-    lines = [_shown(r, many, table) for r in found[:LIST_MAX]]
+    clash = _clash(found)
+    lines = [_shown(r, many, table, place if clash else None) for place, r in enumerate(found[:LIST_MAX], 1)]
     if len(found) > LIST_MAX:
         lines.append(_text(ctx, "EV_MORE", k=len(found) - LIST_MAX))
     key = "EV_MANY_CANCEL" if op == "event-cancel" else "EV_MANY_CHANGE"
-    return _text(ctx, key) + "\n" + "\n".join(lines) + "\n" + _text(ctx, key + "_HOW", n=found[0]["n"])
+    return _text(ctx, key) + "\n" + "\n".join(lines) + "\n" + (_text(ctx, key.replace("EV_MANY", "EV_POS") + "_HOW", n=1) if clash else _text(ctx, key + "_HOW", n=found[0]["n"]))          # AF-3: a list numbered by position says so
 
 
 PROBLEM = {"not-readable": "NW_REF_NOT_READABLE"}          # the sender may not read a snapshot: nothing of the calendar is named. "no-source" has no sentence of its own: the events created here are searched
@@ -1115,6 +1152,7 @@ def _found(project: str, ctx: dict, op: str, time_, spans: dict, said: str, send
     (`_day_named`). One card (through the family path, never approved here), the numbered list of the events that fit, or one plain sentence; the calendar is read again once on a miss."""
     named = account_named(said, spans.get("title"))          # S11: "no outlook" narrows the search to that account's calendars
     account = named
+    fresh(project, ctx, sender)
     rows, problem = events(ctx, sender)
     if problem == "folder":          # the sources folder is refused: a read of the provider cannot cure it and "no such event" would be false; the reason, once, with the calendars' plain names
         table = source_names.catalog(ctx)

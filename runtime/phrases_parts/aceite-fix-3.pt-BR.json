@@ -1,0 +1,8 @@
+{
+  "package": "aceite-fix-3",
+  "table": {
+    "EV_POS_CANCEL_HOW": "Diga o número da lista, por exemplo: cancela o {n}.",
+    "EV_POS_CHANGE_HOW": "Diga o número da lista e o novo horário, por exemplo: remarca o {n} para sexta às 15h."
+  },
+  "same_as_english": []
+}
