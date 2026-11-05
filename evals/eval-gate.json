@@ -62,7 +62,7 @@
       "adapter": "agents-dir",
       "pass_env": ["OPENROUTER_API_KEY"],
       "route": "openrouter",
-      "provider_pin": "openai",
+      "provider_pin": "azure",
       "upstream_models": ["openai/gpt-6-luna", "google/gemini-3.8-flash"],
       "price_source": "https://openrouter.ai/api/v1/models",
       "run_token_budget": 5000000
