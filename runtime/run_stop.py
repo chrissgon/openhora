@@ -19,7 +19,7 @@ Two kinds of run, two ways to end them:
   each shared object checked again before its removal (runtime/orphans.py `remove_runs`). The descendants are never signalled
   by pid: a pid read from a listing can be another process by the time it is used.
 
-  The router's run happens inside the calling process (runtime/ops.py `_router_call`), so nothing is signalled: `watch` runs a
+  The router's run happens inside the calling process (runtime/ops_requests.py `_router_call`), so nothing is signalled: `watch` runs a
   thread beside the lab call that reads the request's stop request every STOP_POLL seconds and ends the lab's runs of this
   process (lab.stop_runs), which is safe because the lab guard makes the router the only lab session of the process.
 
@@ -41,6 +41,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lab  # noqa: E402  (the lab facade: the container tool and the stop of its runs)
 import ops_core as core  # noqa: E402
 import ops_runs  # noqa: E402  (_signal_owner: the one way a holder of a task lock is signalled)
 import orphans  # noqa: E402
@@ -176,7 +177,6 @@ def stop_tasks(cfg: dict, task_ids, *, tool=None, rows=None, grace: float | None
     named = sorted({r for t in termed for r in out[t]["runs"]})
     if named:   # nothing is asked of the container tool for a holder that was not signalled
         if tool is None:
-            import lab
             tool = lab.container_tool
         cleaned = orphans.remove_runs(tool, named)
         for t in termed:
@@ -199,7 +199,6 @@ def watch(ctx: dict, request_id: int, *, poll: float = STOP_POLL, stop=None, joi
         if stop is not None:
             stop()
             return
-        import lab
         lab.stop_runs()
 
     def loop():
@@ -228,7 +227,6 @@ def watch(ctx: dict, request_id: int, *, poll: float = STOP_POLL, stop=None, joi
         done.set()
         thread.join(timeout=poll + 10.0 if join_wait is None else join_wait)
         if thread.is_alive():   # it may still end the lab's runs after the router's session is over: the flag it would leave is put back
-            import lab
             lab.LAB.STOPPING.clear()
 
 

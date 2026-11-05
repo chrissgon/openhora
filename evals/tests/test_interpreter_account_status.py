@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 import interpreter_fixtures as fx
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -38,8 +40,8 @@ ACCT = {"id": ACCT_ID, "kind": "account", "model": ACCT_MODEL, "upstream_model":
         "runner_version": "fx-1", "runner_sha256": fx.H["a"], "envelope_sha256": fx.H["b"], "reference": True,
         "retention": "A fictional account route: sent under a fictional subscription."}
 # The sha256 of the canonical JSON of ACCT without `retention` and `reference` (sorted keys, compact separators), computed once offline.
-ACCT_SHA = "ad1270f749a169dbc6a387768981bac69583745bbf6685161939b19226cf4c95"
-DEEPSEEK_SHA = "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"  # SPEC-ACCT-ROUTE 0.7: the committed DeepSeek row
+ACCT_SHA = PINNED_HASHES["route_account_status_test_row"]
+DEEPSEEK_SHA = PINNED_HASHES["route_or_deepseek_v4_1_flash"]  # SPEC-ACCT-ROUTE 0.7: the committed DeepSeek row
 CHEAP = {**fx.route_row("fx-cheap", "example/cheap-1", "cheap/cheap-1", "hostone"), "kind": "http"}
 ROUTES = {"v": 1, "routes": [CHEAP, ACCT]}
 PRICES = {"version": 1, "models": {"anthropic/claude-sonnet-5-5": {

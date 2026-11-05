@@ -15,7 +15,8 @@ person's own mailbox or calendar says WHICH message or event by a reference, nev
                        calendar of the event the runtime itself created, and nothing of any snapshot or of another person's words
 
 Code resolves a reference through the INDEX that runtime/sources_mail.py writes into the manifest of each snapshot version: {n, id, thread_id,
-message_id, from_address, reply_to_address, subject, change_key} for a message, {n, id, etag, calendar, organizer_self, attendees_other,
+message_id, from_address, reply_to_address, subject, change_key, received, unread} for a message (`received`: the moment it came, UTC, or null: an index written before the key has none; `unread`: true,
+false or null, the provider's flag, null for an index written before the key, CB-2), {n, id, etag, calendar, organizer_self, attendees_other,
 recurring} for an event. The index is code's own record of what the provider printed; the text is another person's words and is never parsed
 for an id. A reference to a snapshot older than REF_MAX_AGE (the age limit L53 allows an unattended task, 26 hours) is refused with "refresh
 <id> first": a number from an old reading may name another item today. A version made before the index existed has none, and is refused the
@@ -51,6 +52,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import operations  # noqa: E402
@@ -61,7 +64,7 @@ import sources_mail  # noqa: E402
 
 REF_MAX_AGE = sources.SNAPSHOT_MAX_AGE            # seconds: 26 hours, the number of limit L53
 MANIFEST_CAP = 4 * 1024 * 1024                    # the most a manifest file may hold (a hundred messages are a few hundred KiB)
-INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"),
+INDEX_KEYS = {"mail": ("n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received", "unread"),
               "calendar": ("n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring")}
 COUNT_KEY = {"mail": "messages", "calendar": "events"}
 SUBJECT_MAX = 120
@@ -69,6 +72,8 @@ SUBJECT_MAX = 120
 # messaging sender read one.
 SNAPSHOT_READERS = (None, "terminal", "chat", "page")
 READ_GROUP = "ask-mail"
+TASKS_GROUP = "tasks-read"      # CB-5: the group that shows the title of a task the service holds now on a card (runtime/phrases.py CARD_PRIVATE_GROUP_OF; a test holds the two equal)
+PRIVATE_GROUPS = (READ_GROUP, TASKS_GROUP)
 
 ITEM_REF = re.compile(r"([a-z0-9][a-z0-9-]{0,39})#([0-9]{1,4})")
 CREATED_REF = re.compile(r"created:([1-9][0-9]{0,8})")
@@ -77,6 +82,7 @@ CREATED_REF = re.compile(r"created:([1-9][0-9]{0,8})")
 ID = re.compile(r"[A-Za-z0-9_=+.-]{1,700}")
 KEY = re.compile(r"[\x21-\x7e]{1,200}")
 MESSAGE_ID = re.compile(r"[\x21-\x7e]{1,998}")
+RECEIVED = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")      # the moment a message came, in UTC (S16C-REPLY-DATE); an index written before the key has none
 CALENDAR = re.compile(r"[A-Za-z0-9._%+#@=-]{1,256}")
 
 
@@ -139,11 +145,33 @@ def may_read(ctx: dict, channel, sender=None) -> bool:
     return False
 
 
+def private_groups(ctx: dict, channel, sender=None) -> frozenset:
+    """The groups of PRIVATE_GROUPS the caller holds, which decide the private lines of a card it is shown (runtime/phrases.py `card_without_private`): all of them for the
+    terminal, the conversation, the page and a call with no channel (they read everything), those of the sender's own profile, else the channel's, for a messaging sender
+    named as <platform>:<id>, and none for any other caller (the MCP mode included). A messaging call with no sender gets none. The group READ_GROUP is `may_read`, so that the
+    two never say different things."""
+    cfg = ctx["cfg"]
+    held = {READ_GROUP} if may_read(ctx, channel, sender) else set()
+    if channel is not None and not (isinstance(channel, str) and channel):
+        return frozenset(held)
+    if ops_actor.label(cfg, channel, sender) in SNAPSHOT_READERS:
+        held.add(TASKS_GROUP)
+    elif channel == ops_actor.MESSAGING and ops_actor.split(sender)[0]:
+        if TASKS_GROUP in (operations.effective_groups(ops_actor.MESSAGING, cfg.get("channels"), sender) or ()):
+            held.add(TASKS_GROUP)
+    return frozenset(held)
+
+
 # --- reading the index ------------------------------------------------------------------------------------------------------------
 
 
 def _shaped(pattern, value):
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
+
+
+def _received(value):
+    """The moment a message came as the index recorded it: the closed shape AND a date that exists (`2026-02-30T10:00:00Z` is none), else None."""
+    return value if _shaped(RECEIVED, value) is not None and text.parse_moment(value) is not None else None
 
 
 def _subject(value) -> str:
@@ -166,7 +194,8 @@ def _entry(kind: str, n: int, raw) -> dict:
                 "message_id": _shaped(MESSAGE_ID, raw.get("message_id")), "from_address": text.plain_address(raw.get("from_address")),
                 "reply_to_address": text.plain_address(raw.get("reply_to_address")),
                 "subject": _subject(raw.get("subject")),
-                "change_key": _shaped(KEY, raw.get("change_key"))}
+                "change_key": _shaped(KEY, raw.get("change_key")), "received": _received(raw.get("received")),
+                "unread": raw.get("unread") if isinstance(raw.get("unread"), bool) else None}
     others = raw.get("attendees_other")
     return {"n": n, "id": _shaped(ID, raw.get("id")), "etag": _shaped(KEY, raw.get("etag")), "calendar": _shaped(CALENDAR, raw.get("calendar")),
             "organizer_self": raw.get("organizer_self") is True, "attendees_other": others if type(others) is int and others >= 0 else None,
@@ -263,6 +292,115 @@ def resolve(ctx: dict, value, *, channel, sender=None, kinds=None, evidence_base
                                        f"{snapshot['read_at']}), so {ref['source']}#{ref['n']} does not exist")
     shown = {key: snapshot[key] for key in ("source", "type", "implementation", "calendar", "box", "version", "read_at", "age") if key in snapshot}
     return {"kind": "item", **shown, "n": ref["n"], "count": count, "entry": snapshot["entries"][ref["n"] - 1]}
+
+
+# --- the list on screen (N1 of mail-list-account) --------------------------------------------------------------------------------------------------
+# After a reply that listed exactly one mail source with rows, in a project with two or more mail sources, the sender's NEXT line, within LISTED_S seconds, that writes a number and names no account
+# means that source: the same window and "next line" rule as the events a list showed (runtime/event_lookup.py). No text and no number is kept: the project, the sender, the source id, its version, a
+# clock reading and a counter. In memory only; a restart forgets it and the which-box question comes back.
+
+LISTED_S = 600          # seconds after the list in which the next line's number means that list
+LISTED_CLOCK = time.monotonic          # the clock the window is read against; a test replaces it
+_LISTED = {}          # (project path, sender) -> {"at", "source", "version", "seen"}
+_MAIL_LISTED = {}          # (project path, sender) -> {"at", "seen"}: a list of mail (one source or several) is on the sender's screen, whether or not its source is kept above
+_LISTED_LOCK = threading.Lock()
+
+
+def _listed_key(ctx: dict, sender) -> tuple:
+    return (os.path.realpath(ctx["cfg"]["project"]), sender or "")
+
+
+def _latest(ctx: dict, source_id: str):
+    """The store's record of the newest version of a source, or None (a store that cannot be read remembers and finds nothing: the which-box question is the safe answer)."""
+    try:
+        return sources._stored(ctx, "source_latest", source_id)
+    except sources.SourcesError:
+        return None
+
+
+def _numbering(ctx: dict, source_id: str, sender, clock=None):
+    """The ids of the messages of the newest snapshot of a mail source, in their numbers, or None when they cannot be read or one message has no id: what tells a snapshot that renumbered the messages from
+    one that only changed a flag (a read mark changes the snapshot's version, not the numbers; the review of MAIL-SUMMARY-FLIP)."""
+    try:
+        snapshot = read_index(ctx, source_id, channel="messaging", sender=sender, kinds=("mail",), clock=clock)
+    except (ItemRefError, sources.SourcesError):
+        return None
+    ids = tuple(entry.get("id") for entry in snapshot["entries"])
+    return None if any(i is None for i in ids) else ids
+
+
+def remember_listed(ctx: dict, sender, source_id, mail_count: int, clock=None, mail_shown: bool = False) -> None:
+    """Called after a list of items was read for a messaging sender: forget what the sender's earlier list was and, when the reply listed exactly one mail source (`source_id`) in a project with
+    two or more (`mail_count`), keep that source, the version of its newest snapshot and the ids of its messages in their numbers (`clock` is the seam of the snapshot's age). With `mail_shown`
+    (the reply listed mail, one source or several) it also keeps that a mail list is on the screen, which `mail_list_on_screen` answers; a reply with no mail leaves none."""
+    latest = _latest(ctx, source_id) if source_id and mail_count > 1 else None
+    ids = _numbering(ctx, source_id, sender, clock) if latest is not None else None
+    with _LISTED_LOCK:
+        _LISTED.pop(_listed_key(ctx, sender), None)
+        _MAIL_LISTED.pop(_listed_key(ctx, sender), None)
+        if latest is not None:
+            _LISTED[_listed_key(ctx, sender)] = {"at": LISTED_CLOCK(), "source": source_id, "version": latest["version"], "ids": ids, "seen": 0}
+        if mail_shown:
+            _MAIL_LISTED[_listed_key(ctx, sender)] = {"at": LISTED_CLOCK(), "seen": 0}
+
+
+def begin_turn(ctx: dict, channel, sender) -> None:
+    """Called by `ops_say.say` at the start of every line of a messaging sender: the list is for the line right after it, so a line counts."""
+    if channel != "messaging":
+        return
+    with _LISTED_LOCK:
+        found = _LISTED.get(_listed_key(ctx, sender))
+        if found is not None:
+            found["seen"] += 1
+        on_screen = _MAIL_LISTED.get(_listed_key(ctx, sender))
+        if on_screen is not None:
+            on_screen["seen"] += 1
+
+
+def _same_numbering(ctx: dict, sender, found: dict, latest, clock=None) -> bool:
+    """Whether the newest snapshot (`latest`, the store's record) numbers the messages as the list on screen did: the same version, or a newer one with the same ids in the same order (a flag
+    changed). A list whose ids were not kept, or a snapshot that cannot be read, is a list that moved: the safe answer."""
+    if latest["version"] == found["version"]:
+        return True
+    return found.get("ids") is not None and _numbering(ctx, found["source"], sender, clock) == found["ids"]
+
+
+def listed_source(ctx: dict, channel, sender, clock=None):
+    """The source id the sender's list on screen is, for the line being read now, or None: it is the first line since the list (`begin_turn` counted it), the list is not older than LISTED_S, and
+    the source's newest snapshot still numbers the messages as the list did (`_same_numbering`)."""
+    if channel != "messaging":
+        return None
+    with _LISTED_LOCK:
+        found = dict(_LISTED.get(_listed_key(ctx, sender)) or {})
+    if not found or found["seen"] != 1 or LISTED_CLOCK() - found["at"] > LISTED_S:
+        return None
+    latest = _latest(ctx, found["source"])
+    return found["source"] if latest is not None and _same_numbering(ctx, sender, found, latest, clock) else None
+
+
+def mail_list_on_screen(ctx: dict, channel, sender) -> bool:
+    """Whether the line being read is the first line since a reply that listed mail for the sender (one source or several; `remember_listed` kept it, `begin_turn` counted the line) and that list is
+    not older than LISTED_S. It says nothing of which source: a bare number in that line may be read as a message number (`natural_writes_mail.free_numbers(after_list=True)`), and the
+    which-box question stays for a project with two mail sources. Never true off a messaging app, for a second line, or when the reply listed no mail."""
+    if channel != "messaging":
+        return False
+    with _LISTED_LOCK:
+        found = dict(_MAIL_LISTED.get(_listed_key(ctx, sender)) or {})
+    return bool(found) and found["seen"] == 1 and LISTED_CLOCK() - found["at"] <= LISTED_S
+
+
+def list_moved(ctx: dict, channel, sender, clock=None):
+    """The source id of the sender's list on screen when that list was remembered, is not older than LISTED_S, and its source now numbers the messages differently (`listed_source` is None then, as it
+    is when nothing was remembered: this tells the two apart), else None. It holds for EVERY line since the list inside the window, not only the first, until a new list replaces it
+    (MAIL-SUMMARY-FLIP review: retyping the number must not get the plan that names no box). A project with one mail box remembers no list, so it is never "moved"."""
+    if channel != "messaging":
+        return None
+    with _LISTED_LOCK:
+        found = dict(_LISTED.get(_listed_key(ctx, sender)) or {})
+    if not found or found["seen"] < 1 or LISTED_CLOCK() - found["at"] > LISTED_S:
+        return None
+    latest = _latest(ctx, found["source"])
+    return found["source"] if latest is not None and not _same_numbering(ctx, sender, found, latest, clock) else None
 
 
 def main(argv=None) -> int:

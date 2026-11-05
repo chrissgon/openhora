@@ -21,6 +21,7 @@ from sources_fixture import standin_convert
 
 lab = st.load("lab")
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_runs = st.load("ops_runs")
 ops_steps = st.load("ops_steps")
@@ -492,7 +493,7 @@ def test_a_dispatch_starts_a_step_task_with_run_step_beside_a_skill_task_with_ru
             ops_runs.SPAWNED.append((project, task_id, child))
         return child
     monkeypatch.setattr(ops_runs, "spawn", spawn)
-    monkeypatch.setattr(ops, "_image_stop", lambda: ("image", "the eval image is missing", []))     # skill runs are held; steps are not
+    monkeypatch.setattr(ops_round, "_image_stop", lambda: ("image", "the eval image is missing", []))     # skill runs are held; steps are not
     out = ops.dispatch(world["path"], wait=False)
     assert calls == [(made["task"], "run-step")] and [s["task_id"] for s in out["started"]] == [made["task"]]
     assert out["stopped"] == "the eval image is missing"
@@ -514,8 +515,8 @@ def spawn_recorder(monkeypatch, calls):
             ops_runs.SPAWNED.append((project, task_id, child))
         return child
     monkeypatch.setattr(ops_runs, "spawn", spawn)
-    monkeypatch.setattr(ops, "_image_stop", lambda: None)
-    monkeypatch.setattr(ops, "_credential_stop", lambda model=None: None)
+    monkeypatch.setattr(ops_round, "_image_stop", lambda: None)
+    monkeypatch.setattr(ops_round, "_credential_stop", lambda model=None: None)
 
 
 def test_the_runtime_stopped_the_dispatcher_starts_no_step_task_with_agents_or_without_and_the_persons_own_start_still_runs_one(world, monkeypatch):
@@ -636,7 +637,7 @@ def test_a_step_the_dispatcher_started_asks_the_brake_and_the_kinds_flag_again_u
             ops_runs.SPAWNED.append((project, task_id, child))
         return child
     monkeypatch.setattr(ops_runs, "spawn", spawn)
-    monkeypatch.setattr(ops, "_image_stop", lambda: None)
+    monkeypatch.setattr(ops_round, "_image_stop", lambda: None)
     ops.dispatch(world["path"], wait=False)
     assert calls == [(made["task"], "run-step")]                                          # the dispatcher did decide to start it
     assert raced == [{"ran": None, "reason": "stopped", "held": True, "task": made["task"], "recovered": []}]

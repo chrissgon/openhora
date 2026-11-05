@@ -1,4 +1,4 @@
-"""Which card a plain line changes, and what the bridge does with the answer (slice S13, runtime/messaging_bridge.py `revise_line` and `revise_now`, limits L55 and L64), over the stand-in
+"""Which card a plain line changes, and what the bridge does with the answer (slice S13, runtime/messaging_turn.py the kind `decision-card-revise`, runtime/messaging_bridge.py `revise_waiting` and `revise_now`, limits L55 and L64), over the stand-in
 operations object and the stand-in messenger of test_messaging.py. Offline, no model, no network; every name is invented.
 
 A plain line that is not an approve or reject word is about the card that waits when that card is the LAST message the platform sent to the chat, or the card the line replies to; the
@@ -10,15 +10,30 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging_card_revise
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
-from test_messaging import SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
+from test_messaging import SENDER, WAIT, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 from test_messaging_card_words import GRANTED, HASH, OTHER, approvals, effect, message_ids, nothing_decided, went_to_say
 
 KEY = "telegram:" + SENDER
-LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Christopher Gonçalves"'      # validate: allow english-only -- the live line, Portuguese
-NOT_REVISABLE = "To change this card, reject it and ask again."
+LINE = 'Ajuste o corpo do email. Após "Atenciosamente," coloque "Renato Bragança"'      # validate: allow english-only -- the live line, Portuguese
+
+
+def settle(world, seconds=WAIT):
+    """Wait until every job thread of the bridge has ended (the revise job, an approval job): the point after which a word is decided, and
+    after which the fake's calls are complete. A reply is sent inside a job, so a reply seen is not yet the end of the job."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        alive = [t for t in list(world.bridge.threads) if t.is_alive()]
+        if not alive:
+            return True
+        for thread in alive:
+            thread.join(0.05)
+    return False
 
 
 class Revise:
@@ -62,7 +77,9 @@ def test_the_new_card_is_sent_after_one_sentence_and_is_the_last_message_so_a_wo
     assert wait_for(lambda: len(world.sent()) == 3)
     assert world.texts()[1] == "Done: the new one." and world.sent()[2]["message"]["text"].startswith("northwind-shop · request #8")      # the old card, the sentence, the new card
     assert wait_for(lambda: world.bridge.last_sent.get(SENDER) == message_ids(world)[-1])      # the job has finished sending: the new card is the last message
+    assert settle(world)
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(8, "f" * 64)], "the word decides the new card, with the new card's hash"
 
 
@@ -92,6 +109,7 @@ def test_a_word_that_decides_a_card_goes_before_a_change_and_the_stand_in_is_nev
     mail_card(world)
     revise = Revise(world)
     world.say(word)
+    assert settle(world)
     assert revise.checks == [] and revise.changes == [] and world.calls("say") == []
     assert approvals(world) != [] or world.calls("reject") != []
 
@@ -114,8 +132,9 @@ def test_a_card_that_cannot_be_changed_by_words_gets_one_sentence_and_stays_the_
     mail_card(world)
     revise = Revise(world, found="sentence")
     world.say("Muda o texto para dizer outra coisa")      # validate: allow english-only -- the Portuguese line under test
-    assert world.texts()[-1] == NOT_REVISABLE and revise.changes == [] and world.calls("say") == []
+    assert pk.said(world.texts()[-1], "RV_NOT_REVISABLE") and revise.changes == [] and world.calls("say") == []
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(7, HASH)], "the card is still the last message the person was shown"
 
 
@@ -173,7 +192,9 @@ def test_the_write_form_of_a_change_of_an_event_is_a_line_for_the_hook_and_goes_
     mail_card(world)
     revise = Revise(world, result={"pass": True})
     world.say("muda para as 10h")
-    assert wait_for(lambda: revise.changes) and revise.checks[0][2] == "muda para as 10h" and world.calls("say") == []
+    assert wait_for(lambda: revise.changes) and revise.checks[0][2] == "muda para as 10h"
+    assert settle(world)      # S41-11 PR 2b: the line goes on once the hook answers `pass`; no write form claims it any more (PR 2a), so it goes on to `say`, a moment after the hook's answer: the old check of an empty list at once was a race
+    assert [call[2]["text"] for call in world.calls("say")] == ["muda para as 10h"], "the line the hook did not take went on, once"
 
 
 def test_a_failure_of_the_layer_is_one_plain_sentence_and_the_card_is_left_alone(world):
@@ -181,7 +202,7 @@ def test_a_failure_of_the_layer_is_one_plain_sentence_and_the_card_is_left_alone
     revise = Revise(world)
     world.fake.card_revise = lambda *a, **k: (_ for _ in ()).throw(world.fake.OpsError("boom"))
     world.say(LINE)
-    assert wait_for(lambda: world.texts()[-1].startswith("I could not make that change")) and nothing_decided(world)
+    assert wait_for(lambda: pk.said(world.texts()[-1], "RV_FAILED")) and nothing_decided(world)
 
 
 def test_a_sentence_that_leaves_the_old_card_open_sends_the_card_again_so_a_word_still_decides_it(world):
@@ -192,7 +213,9 @@ def test_a_sentence_that_leaves_the_old_card_open_sends_the_card_again_so_a_word
         assert wait_for(lambda: len(world.sent()) == 1 + 2 * turn)      # the card, then (the sentence and the card again) once for each line
         assert wait_for(lambda: world.bridge.last_sent.get(SENDER) == message_ids(world)[-1])
     assert world.texts()[1] == "Sorry." and len(world.sent()) == 5 and world.sent()[2]["message"]["text"] == world.sent()[0]["message"]["text"]      # the card, the sentence, the same card, again
+    assert settle(world)
     world.say("sim")
+    assert settle(world)
     assert approvals(world) == [(7, HASH)], "the old card, with its own hash, is decided by the word"
 
 
@@ -201,8 +224,74 @@ def test_a_reply_to_a_card_that_a_change_replaced_is_told_so_in_one_sentence_and
     revise = Revise(world, found="replaced")
     world.items[7]["status"] = "resolved"
     world.say(LINE, reply_to=message_ids(world)[0])
-    assert revise.checks == [(7, HASH, LINE, "messaging", KEY)] and world.texts()[-1] == "That card was replaced by a newer one. Change the newer card, or ask again."
+    assert revise.checks == [(7, HASH, LINE, "messaging", KEY)] and pk.said(world.texts()[-1], "RV_REPLACED")
     assert revise.changes == [] and world.calls("say") == []
     revise.found = None
     world.say(LINE, reply_to=message_ids(world)[0])      # the layer says it is nothing: it goes on as it always did
     assert went_to_say(world)
+
+
+RECIPIENT_LINE = "troca o destinatário para outra.pessoa@example.com"      # validate: allow english-only -- the Portuguese line under test
+
+
+def test_a_recipient_line_follows_the_same_rule_of_which_card(world):
+    """mail-card-recipient (limit L63): a line that asks for another recipient is asked of the card it is about by the same rule as any line (the bridge does not read the line, messaging_bridge.py
+    `revise_waiting`): a typed line after the card, and a reply to an older card, are asked of that card; a forward and a line after another message are not."""
+    mail_card(world, 7)
+    revise = Revise(world)
+    world.say(RECIPIENT_LINE)
+    assert wait_for(lambda: revise.changes) and revise.checks == [(7, HASH, RECIPIENT_LINE, "messaging", KEY)] and revise.changes == [(7, HASH, RECIPIENT_LINE, "messaging", KEY)]
+    assert settle(world)
+    world.items[9] = effect(9, sha="d" * 64)
+    world.bridge.tick()
+    first = message_ids(world)[0]
+    world.say(RECIPIENT_LINE, reply_to=first)      # a reply to the older card, which is no longer the last message
+    assert wait_for(lambda: len(revise.changes) == 2) and revise.checks[1][:2] == (7, HASH) and revise.changes[1][:2] == (7, HASH), "that card is the one asked, not the newer one"
+    assert settle(world)
+    asked = len(revise.checks)
+    world.say(RECIPIENT_LINE, forwarded=True)
+    assert len(revise.checks) == asked and len(revise.changes) == 2, "a forward is never asked"
+    revise.found = None
+    world.say("hello there")      # a message after the card: the card is no longer the last one
+    assert wait_for(lambda: world.texts()[-1] == "Noted.")
+    revise.found = "mail"
+    before = len(revise.checks)
+    world.say(RECIPIENT_LINE)
+    assert len(revise.checks) == before and len(revise.changes) == 2, "a line after another message is not asked either"
+
+
+# --- the card call is a model call: the line a code-owned pass leaves goes on through the first leg, and the acknowledgement starts with the card call (card-model-sees, review 3) ------------
+
+
+def test_a_line_code_owns_goes_on_through_the_first_leg_of_a_plain_line_and_any_other_pass_goes_on_as_it_did(world):
+    mail_card(world)
+    Revise(world, result={"pass": True, "decide": True})
+    world.say("tomar remedio as 22h")      # validate: allow english-only -- the line under test
+    assert wait_for(lambda: world.calls("say")) and settle(world)
+    (call,) = world.calls("say")
+    assert call[2]["decide"] is True and call[2]["text"] == "tomar remedio as 22h", "the same first leg a plain line takes, which holds no model slot and answers a sender who holds `interpret` alone"      # validate: allow english-only -- the line under test
+
+
+def test_vacuity_a_pass_without_the_decide_flag_goes_on_as_the_plain_call_it_was(world):
+    mail_card(world)
+    Revise(world, result={"pass": True})
+    world.say("what time is it in Lisbon")
+    assert wait_for(lambda: world.calls("say")) and settle(world)
+    (call,) = world.calls("say")
+    assert "decide" not in call[2], "the oracle of the test above fails on this call: the flag is what moves the line to the first leg"
+
+
+def test_the_acknowledgement_timer_starts_before_the_card_call(world):
+    mail_card(world)
+    events = []
+    revise = Revise(world, result={"say": "Done.", "resend": None})
+    real_change, real_begin = world.fake.card_revise, world.bridge.ack_begin
+
+    def change(*args, **kwargs):
+        events.append("card call")
+        return real_change(*args, **kwargs)
+    world.fake.card_revise = change
+    world.bridge.ack_begin = lambda project, chat, text: (events.append("ack begins"), real_begin(project, chat, text))[1]
+    world.say(LINE)
+    assert wait_for(lambda: revise.changes) and settle(world)
+    assert events[:2] == ["ack begins", "card call"], events

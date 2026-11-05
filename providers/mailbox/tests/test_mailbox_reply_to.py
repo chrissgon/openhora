@@ -87,8 +87,8 @@ def test_gmail_a_reply_to_that_lists_two_mailboxes_leaves_no_key():
 
 def test_gmail_a_message_without_reply_to_has_the_same_keys_as_before():
     out = gmail.normalize(eml(), source="gmail", message_id="m1", thread_id="t1")
-    assert set(out) == {"id", "thread_id", "source", "received_at", "from", "to", "subject", "text", "truncated", "links", "headers", "attachments",
-                        "external_content", "from_address"}
+    assert set(out) == {"id", "thread_id", "source", "received_at", "unread", "from", "to", "subject", "text", "truncated", "links", "headers",
+                        "attachments", "external_content", "from_address"}      # `unread`: CB-2, null for a message that carries no label list
     assert out["from_address"] == "ana@clinic.example"
     assert set(out["headers"]) == {"From", "To", "Subject", "Message-ID"}
 
@@ -162,7 +162,7 @@ def test_outlook_the_request_still_reads_only_and_the_select_gains_one_field_and
     asked = fake.api_requests()[0]
     assert asked["method"] == "GET"
     assert set(asked["query"]["$select"].split(",")) == {"id", "conversationId", "changeKey", "receivedDateTime", "sentDateTime", "from", "toRecipients",
-                                                         "replyTo", "subject", "body", "hasAttachments", "internetMessageId"}
+                                                         "replyTo", "subject", "body", "hasAttachments", "internetMessageId", "isRead"}      # `isRead`: CB-2
 
 
 # --- the sender's plain address (review M1): read from the parsed header or the address field, never picked out of words ---------------------

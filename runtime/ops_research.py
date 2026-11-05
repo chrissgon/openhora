@@ -7,6 +7,7 @@
 
   research(project, question, [channel, sender])          the operation (the terminal, a messaging app): {"reply", "ran", "status", "refusal", "request_id", "run_id", "links"}
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `research`)
+  stop(project, sender)                                    the brake (BL2a): the sender's own running search is cancelled; True when one was running (below)
 
 The interpreter picks `research` for a question of general information (the weather, a price or a quote, the news, a fact) that no file or source of the person's own answers. It is a
 read in the interpreter's catalog and the one read that calls a model: code, not the router, runs one task with the skill NAMED HERE (SKILL), so no question is put to the person first
@@ -19,7 +20,7 @@ and no plan is made. What code decides, in this order, before anything runs:
   3. The routing, by the rule of every conversation run (runtime/ops_models.py): the project's default model, else `auto` (the cheapest pair on which the skill is `reliable`, else the
      reference model). The web is allowed only when the chosen pair was MEASURED with the web (the proof's `web`): a pair that was not runs nothing and the reply says there is no web
      (RS_NO_WEB). Proof decides what a model may be asked to do; it is never traded for an answer.
-  3b. The question: one that holds a possessive form of a source of the project ("minha agenda", "my e-mails", runtime/research_guard.py) is not run: the sentence that asks again.
+  3b. The question: one that holds a possessive form of a source of the project ("minha agenda", "my e-mails", `turn_gate.research_allowed`, runtime/turn_gate.py) is not run: the sentence that asks again.
   4. The bounds, from the configuration's key `research` (runtime/project_config.py): at most `max_per_day` runs in a local day (counted from the store, whatever their end), and, per
      run, `max_cost_usd` (the adapter's --max-cost-usd) and `timeout_seconds`. The route lock (one conversation model call per project) is held for the run.
 
@@ -28,19 +29,23 @@ prompt is the question in the person's words and a fixed task text that names th
 ask it to send them out (a run on the open network gets nothing of the project, in its files or in its prompt). Nothing it writes comes back. Its brief is read from the copy (runtime/research_reply.py) to write the reply: a few plain lines, the sources as short links, cut to the limit of a
 message, with no skill, flow or file name and no code fence; a run that is not proven says so in one sentence. A failure (no web, a timeout, the cost cap, any other) is one plain sentence.
 
+The brake (BL2a, the maintainer's decision of 2026-10-24). On a messaging app a search that runs is recorded in memory for the sender who asked it (runtime/pending_items.py, kind `research-run`,
+the request id only); that sender's stop word (runtime/plan_confirm.py `stop_form`, a closed list; the messaging bridge reads it under L64's conditions) calls `stop`, which cancels THAT
+request through the cancel path that stops what runs (runtime/ops_cancel.py `cancel_request`: its watcher is the one `_run` passes to the run). It reaches no other sender's search and no request that
+is not a research. The reply is RS_CANCELLED. Nothing of the question is in the record.
+
 What is kept (limits L50 and L63): the question is the person's line, which the interpreter stores as a neutral word; the reply is stored as a neutral word too (RS_STORED), so the
 conversation, which the MCP mode reads, holds neither. The run is a row of the store as an answer run is (a request called "Question <n>" whose text is the neutral word "web research",
 and its run: the skill, the model, the cost, the tokens), which is what the daily count and the costs read; neither holds the question or the answer. The run folder
 (<data_dir>/contained-runs/<n>/) holds the prompt and the brief for the project's retention (`run_retention_days`) like every contained run, outside git. Nothing here logs, prints or
 stores the question or the answer; an error prints the name of its type only.
 
-Sibling of runtime/ops.py, which exposes `research` under its name. The shared names come from ops_core, read as `core.<name>`; what stays in runtime/ops.py is reached at call time
-through `_ops()`. Standard library only. Runs on Python 3.9: python3 runtime/ops_research.py --help
+Sibling of runtime/ops.py, which exposes `research` under its name. The shared names come from ops_core, read as `core.<name>`; the pieces of a run (`task_prompt`, `_midnight_utc`, `_note`, `_reported_usage`, `_skill_loaded`, `_count`) are read as
+`ops_runs.<name>` (runtime/ops_runs.py). Standard library only. Runs on Python 3.9: python3 runtime/ops_research.py --help
 """
 from __future__ import annotations
 
 import contextlib
-import importlib
 import os
 import shutil
 import sys
@@ -55,10 +60,13 @@ import ops_actor  # noqa: E402
 import ops_cancel  # noqa: E402
 import ops_contained  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_runs  # noqa: E402
+import pending_items  # noqa: E402
 import phrases  # noqa: E402
-import research_guard  # noqa: E402
 import research_reply  # noqa: E402
 import skill_meta  # noqa: E402
+import turn_gate  # noqa: E402
 import workcopy  # noqa: E402
 
 SKILL = "core-research"
@@ -71,11 +79,6 @@ TASK_TEXT = ("answer the question above with a web search, as your skill does. T
              "docs/workbench/research/answer.md and keep the answer short: at most five lines under Answer in brief, each with its source number. "
              "Write the brief and the reply in the language of the question.")
 FAILURES = {"timeout": "RS_TIMEOUT"}      # a failure kind with a sentence of its own; every other one is RS_FAILED
-
-
-def _ops():
-    """runtime/ops.py, found at call time."""
-    return importlib.import_module("ops")
 
 
 def _outcome(reply: str, status: str, **more) -> dict:
@@ -125,7 +128,7 @@ def _scope() -> dict:
 def _today(ctx: dict) -> int:
     """How many research runs were started today (local day), whatever their end."""
     store = ctx["store"]
-    rows = core._stored(ctx, store.runs_since, _ops()._midnight_utc())
+    rows = core._stored(ctx, store.runs_since, ops_runs._midnight_utc())
     return sum(1 for row in rows if row.get("skill") == SKILL and row.get("task_id") == row.get("request_id"))      # a run on a REQUEST: a task of a flow or of an agent that runs the same skill is not counted
 
 
@@ -149,7 +152,7 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["research"]
     limit = PHONE_MAX if channel == "messaging" else OTHER_MAX
-    if research_guard.personal(question, line):      # about the person's own calendar, mail or files: not for a web search, whatever the model said
+    if not turn_gate.research_allowed(question, line):      # about the person's own calendar, mail or files: not for a web search, whatever the model said
         return _outcome(t("IX_ASK_AGAIN"), "personal")
     try:
         _scope()
@@ -164,11 +167,11 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
         return _outcome(t("RS_NO_WEB"), "no-web")
     try:
         identity = lab.skill_identity(SKILL)
-        prompt = _ops().task_prompt(question, TASK_TEXT, [])      # the question and the fixed task text: no standing instructions and nothing else of the project (the run is on the open network)
+        prompt = ops_runs.task_prompt(question, TASK_TEXT, [])      # the question and the fixed task text: no standing instructions and nothing else of the project (the run is on the open network)
     except lab.LabError:
         return _outcome(t("RS_FAILED"), "failed")
     with core._route_lock(cfg):      # RunBusy: one conversation model call per project at a time
-        importlib.import_module("ops_runs")._recover(ctx, holding_route=True)
+        ops_runs._recover(ctx, holding_route=True)
         number, dest = ops_contained._contained_folder(cfg)
         prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
         try:
@@ -179,14 +182,22 @@ def _research(project: str, ctx: dict, question: str, channel, sender, line=None
                 started = core._stored(ctx, store.answer_run_start, skill=SKILL, model=routing["model"], adapter=routing["adapter"],
                                        skill_version=identity["version"], skill_sha256=identity["content_sha256"],
                                        billing=routing["billing"] or "unknown", autonomy=routing["autonomy"], title=store.ANSWER_TITLE, text=NEUTRAL, web=True)
-            return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit)
+            running = None
+            if channel == "messaging":      # the brake: the sender's stop word reaches this run (`stop`)
+                running = pending_items.new_item("research-run", *_binding(project, sender), state={"request_id": started["request_id"]})
+                pending_items.put(running)
+            try:
+                return _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit, running)
+            finally:
+                if running is not None:
+                    pending_items.pop(running["id"])
         finally:
             shutil.rmtree(prepared_dir, ignore_errors=True)
             with contextlib.suppress(OSError):
                 os.rmdir(dest)      # a refusal before the run leaves the folder it claimed empty: it goes (a folder with a run in it stays)
 
 
-def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit) -> dict:
+def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, started, dest, prepared_dir, limit, running=None) -> dict:
     cfg, store = ctx["cfg"], ctx["store"]
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     limits = cfg["research"]
@@ -196,16 +207,21 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     def finish(**fields):
         """End the run and its request (one transaction). A request cancelled meanwhile has the run recorded cancelled: nothing is answered, and this returns the outcome that says so."""
         done = core._stored(ctx, store.answer_run_finish, run_id, run_dir=dest, **fields)
-        return _outcome(t("ASK_CANCELLED"), "cancelled", ran=True, **base) if done["cancelled"] else None
+        if not done["cancelled"]:
+            return None
+        stopped = running is not None and running["state"].get("stopped") is True      # RS_CANCELLED says "as you asked": only a stop that came through `stop` (this sender's own word); a cancel from the page, the terminal or the board keeps its sentence
+        return _outcome(t("RS_CANCELLED" if stopped else "ASK_CANCELLED"), "cancelled", ran=True, **base)
 
     def fail(kind: str, reason: str, word: str, counts=None, image=None, reported=None) -> dict:
         return finish(status="failed", failure=kind, attempts=(counts or {}).get("attempts", 0), image_digest=image,
-                      error=_ops()._note(reason), **_ops()._reported_usage(reported, routing)) or _outcome(t(word), "failed" if word == "RS_FAILED" else word[3:].lower(), ran=True, **base)
+                      error=ops_runs._note(reason), **ops_runs._reported_usage(reported, routing)) or _outcome(t(word), "failed" if word == "RS_FAILED" else word[3:].lower(), ran=True, **base)
 
     try:
         result = ops_contained.execute(ctx, SKILL, meta, keys, routing, prompt, timeout=limits["timeout_seconds"], dest=dest, prepared_dir=prepared_dir,
                                        max_cost=limits["max_cost_usd"], around=ops_cancel.watch(ctx, request_id), open_web=True)
-    except core.OpsError:
+    except core.OpsError as e:
+        if getattr(e, "lab_kind", None) == "docker":      # Docker is not running (or not installed): say so, never "try again in a few minutes"
+            return fail("internal", "the research environment is off", "RS_NO_ENV")      # `internal`, attempts 0: the store's closed list has no other kind that fits, and it is the one that says no model was reached (autonomy.never_reached_the_model)
         return fail("internal", "the run could not be made", "RS_FAILED")
     except Exception as e:      # the run row never stays `running`; the error is recorded by its type only, never its text (it can hold the question)
         print(f"research: internal error {type(e).__name__}", file=sys.stderr)
@@ -222,11 +238,11 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     else:
         shown = t(words[parsed["status"]])
     number_of = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None  # noqa: E731
-    every = _ops()._reported_usage(lab.reported_usage(dest), routing)
+    every = ops_runs._reported_usage(lab.reported_usage(dest), routing)
     cancelled = finish(status="ok", attempts=counts["attempts"],
                        cost_usd=every.get("cost_usd", number_of("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                        tokens=every.get("tokens", number_of("total_tokens", int)), duration_ms=number_of("duration_ms", int),
-                       skill_loaded=_ops()._skill_loaded(timing, SKILL), image_digest=result["image_digest"], redactions=_ops()._count(counts.get("redactions")))
+                       skill_loaded=ops_runs._skill_loaded(timing, SKILL), image_digest=result["image_digest"], redactions=ops_runs._count(counts.get("redactions")))
     if cancelled:
         return cancelled
     if not _still_may(project, channel, sender):
@@ -234,6 +250,28 @@ def _run(project, ctx, question, channel, sender, meta, keys, routing, prompt, s
     out = _outcome(shown, parsed["status"], ran=True, **base)
     out["links"] = _links(parsed, shown) if parsed["status"] == "answer" else []
     return out
+
+
+def _binding(project: str, sender) -> tuple:
+    """The key of a sender's running search in runtime/pending_items.py: (the project's id in the shells, "messaging", the sender)."""
+    return (ops_natural.project_key(project), "messaging", sender or "")
+
+
+def stop(project: str, sender) -> bool:
+    """The brake: cancel THIS sender's running web search. True when one was running and was cancelled; False for no search, a search of another sender, and a sender whose profile does not
+    hold `research` now (the policy again, as `_still_may` asks it). It says nothing to the person (the search's own reply, RS_CANCELLED, does) and keeps nothing. The cancel is the path that
+    stops what runs, called with the request id this sender's own record names; no other request can be named here. The call is not made as the messaging sender: that path would ask the
+    group `cancel`, which a sender who may search need not hold, and the stop word is the answer to this sender's own search. The stop label carries the sender's profile as R18's does
+    ("user from messaging, profile <name>", never the sender); the record is marked `stopped` first, so that only this path makes the reply RS_CANCELLED."""
+    ctx = core.context(project)
+    if not operations.permitted("research", "messaging", ctx["cfg"]["channels"], None, sender):
+        return False
+    item = pending_items.find(_binding(project, sender), "research-run")
+    if item is None:
+        return False
+    item["state"]["stopped"] = True
+    ops_cancel.cancel_request(ctx, item["state"]["request_id"], by=f"user from messaging, profile {ops_actor.profile_of(ctx['cfg'], sender)}")
+    return True
 
 
 def _question(value, what: str = "the question") -> str:

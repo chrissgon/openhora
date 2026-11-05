@@ -157,6 +157,70 @@ def test_the_runtime_never_builds_the_eval_image_a_missing_one_is_an_error(tree,
     assert called == [("image", "inspect")] and st.calls(tree["adapter"]) == []
 
 
+class _ExecutorError(Exception):
+    """Stands for evals/executor.py's ExecutorError (the lab matches it by its name, since the executor is loaded by path)."""
+
+
+_ExecutorError.__name__ = "ExecutorError"
+
+
+def _container_error(monkeypatch, tree, tmp_path, runner):
+    """The LabError that run_skill raises when the container environment cannot be had, with an executor whose `docker` is `runner`. `ensure` is never to be reached."""
+    reached = []
+
+    class Executor:
+        @staticmethod
+        def names():
+            return {"image": "wb-eval:invented"}
+
+        docker = staticmethod(runner)
+
+        @staticmethod
+        def ensure():
+            reached.append("ensure")
+            return {}
+
+    er = lab.load()
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er, "load_executor", lambda: Executor)
+    with pytest.raises(lab.LabError) as e:
+        run(tree, tmp_path)
+    assert reached == [] and st.calls(tree["adapter"]) == []
+    return e.value
+
+
+def test_a_docker_daemon_that_is_not_running_is_the_kind_docker_and_not_a_missing_image(tree, tmp_path, monkeypatch):
+    seen = []
+
+    def docker(*args, check=True, **kwargs):
+        seen.append(args[:2])
+        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"})()
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "docker" and error.reason == lab.DAEMON_DOWN and seen == [("image", "inspect")]
+    assert "eval container is not available" not in str(error)
+
+
+@pytest.mark.parametrize("raised", [FileNotFoundError(2, "No such file or directory", "docker"), _ExecutorError("docker is not installed or not on PATH: evals run only in a container")],
+                         ids=["no client (OS error)", "no client (executor error)"])
+def test_a_missing_docker_client_is_the_kind_docker(tree, tmp_path, monkeypatch, raised):
+    def docker(*args, **kwargs):
+        raise raised
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "docker" and error.reason == "docker is not installed or not on the PATH"
+
+
+@pytest.mark.parametrize("raised", [FileNotFoundError(2, "No such file or directory", "evals/image-lock.json"), _ExecutorError("docker image inspect failed: something else"),
+                                    RuntimeError("the executor broke")], ids=["another missing file", "another executor error", "another error"])
+def test_vacuity_any_other_failure_of_the_container_environment_stays_the_kind_container(tree, tmp_path, monkeypatch, raised):
+    def docker(*args, **kwargs):
+        raise raised
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "container" and "the eval container is not available" in error.reason
+
+
 # Names of the lab's runner (evals/eval_run.py): the event runner, the case files, the variants, the baseline's
 # checks, the grading and the evidence rows. None of them is in the execution kit, so the facade cannot read them.
 RUNNER_ONLY = (
@@ -341,6 +405,27 @@ def test_the_image_is_only_inspected_and_never_built(monkeypatch):
     assert lab.image()["digest"] is None
     monkeypatch.setattr(er, "EXECUTOR", "host")
     assert lab.image()["digest"] is None
+
+
+def test_the_image_lookup_with_the_daemon_down_says_so_after_one_docker_call_and_is_not_a_missing_image(monkeypatch):
+    er = lab.load()
+    seen = []
+    answer = {"stderr": "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"}
+
+    def docker(*args, **kwargs):
+        seen.append(args[:2])
+        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": answer["stderr"]})()
+
+    fake = type("Executor", (), {"names": staticmethod(lambda: {"image": "wb-eval:demo"}), "ensure": staticmethod(lambda: (_ for _ in ()).throw(AssertionError("may only inspect"))),
+                                 "image_platform": staticmethod(lambda: "linux/arm64"), "docker": staticmethod(docker), "IMAGE_PLATFORM": "linux/arm64"})
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er, "load_executor", lambda: fake)
+    found = lab.image()
+    assert found["setup"] == lab.DAEMON_DOWN and found["problem"] == lab.DAEMON_DOWN and found["digest"] is None and found["name"] == "wb-eval:demo"
+    assert seen == [("image", "inspect")]
+    answer["stderr"] = "Error: No such image: wb-eval:demo"      # the control: an image that is simply not there says nothing about the daemon
+    missing = lab.image()
+    assert missing["setup"] == lab.BUILD and missing["problem"] is None and missing["digest"] is None
 
 
 def test_the_measurement_problem_is_the_status_scripts_own():

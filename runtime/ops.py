@@ -205,7 +205,10 @@ import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, n
 import ops_question  # noqa: E402  (a question turned down is closed with its request: reject on a question)
 import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped; re-exported below)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
+import ops_requests  # noqa: E402  (the router's run on a request: `route` calls it as ops_requests.<name>, and so does ops_round._reroute; 44-C3)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
+import ops_task_run  # noqa: E402  (the start and the body of a run and the gate that turns its effect into a pending approval, 44-C4a; this file re-exports the names at its end)
+import ops_round  # noqa: E402  (the dispatcher's round and the releases a mode makes, 44-C4b; this file re-exports the names at its end)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
 import sources  # noqa: E402  (limit L26: the protected paths gain the sources folder when it sits inside the project)
 import ops_sources  # noqa: E402  (the sources of the project: the ingest operations and the pieces the planner and a run ask of them)
@@ -219,7 +222,7 @@ import ops_models  # noqa: E402  (which model a run goes to: the choice, the key
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import ops_language  # noqa: E402  (the language of a deliverable: the check of a request's choice and the line of a run)
 import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
-import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
+import autonomy  # noqa: E402  (the same folder, as runtime/handlers/social.py imports social_vote)
 import board  # noqa: E402
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)
@@ -246,21 +249,7 @@ import skill_meta  # noqa: E402
 import state_merge  # noqa: E402
 import workcopy  # noqa: E402
 
-NOTE_LIMIT = 1000        # characters of a failure's reason kept on a task and on a run row
-USE_ID = re.compile(r"[0-9a-f]{8}")
 VERDICTS = ("worked", "corrected", "failed")
-RECORDER_TIMEOUT = 60
-ROUTE_KEPT = "a route-only run returns no file"
-HANDED_LINE = "The user handed over these files for this task. They are in the project at:"
-# One line per document the mirror imported from the platform since the task's last run (decision of 2026-10-06).
-EDITED_LINE = "The person edited {path} on the platform since the last run; its content is theirs."
-MANDATORY_LINE = ("This delivery is a mandatory milestone: the next task accepts it only with your approval written in "
-                  "the document. Write it there, then release.")
-
-
-def _note(value) -> str:
-    """A reason on one record: control characters out, cut to NOTE_LIMIT characters."""
-    return core.CONTROL.sub(" ", str(value or "")).strip()[:NOTE_LIMIT] or "no reason given"
 
 
 def _sha256(path: str):
@@ -279,106 +268,7 @@ def _read(path: str):
         return None
 
 
-# --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
-
-
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "",
-                language_line: str = "") -> str:
-    """The text of one run: the request in the person's words, the task's own text, and, on a run made after
-    an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
-    for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
-    the "For this task: " paragraph, so the prompt is the plain request. handed lists the relative paths of the
-    files the person handed over to this task (the file drop): one paragraph after the task's text names them;
-    absent or empty, the prompt is unchanged. edited lists the documents the mirror imported from the platform
-    since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
-    the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
-    the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
-    instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
-    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text. language_line is the paragraph
-    that says which language the artifacts are written in (runtime/language.py), right after the task's paragraph and before the
-    instructions; the call sites of a task run and of the router's run always give it, "" leaves it out."""
-    parts = [request_text.strip()]
-    if (task_text or "").strip():
-        parts += ["", "For this task: " + task_text.strip()]
-    if language_line:
-        parts += ["", language_line]
-    if instructions:
-        parts += ["", instructions]
-    if handed:
-        parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
-    if sourced:
-        parts += ["", *sourced]
-    if edited:
-        parts += ["", *[EDITED_LINE.format(path=rel) for rel in edited]]
-    if answered:
-        parts += ["", "In an earlier run of this task you stopped and asked the user. Your replies and the user's "
-                      "answers are below, oldest first. Each answer is the user's decision: record it where the "
-                      "skill says decisions are recorded, and do not ask it again."]
-        for n, item in enumerate(answered, 1):
-            parts += ["", f"--- your reply {n} ---", (item.get("body") or "").strip(), "",
-                      f"--- the user's answer {n} ---", (item.get("answer") or "").strip()]
-    return "\n".join(parts) + "\n"
-
-
-# --- what comes back: runtime/workcopy.py (limits L7, L8, L12, L14) -------------------------------------------
-
-
-def _count(value):
-    """A count the lab reported, or None when it reported none."""
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
-
-
-def _skill_loaded(timing: dict, skill: str):
-    """Whether the run touched the skill: it is in `skills_loaded` (its SKILL.md was read) or in `skills_used` (a tool
-    named its folder: a script run, a reference read, a listing; R12). None when the adapter reported neither list.
-    No rule reads it yet."""
-    lists = [timing.get(key) for key in ("skills_loaded", "skills_used") if isinstance(timing.get(key), list)]
-    return any(skill in names for names in lists) if lists else None
-
-
-def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
-    """(ending, why) of a completed run, from runtime/endings.py, with the skill's facts (manifest.ending_facts),
-    the declared outputs without a placeholder that the copy held, unchanged, after the run, and the files found
-    under the run's returned temporary folder (gate_files)."""
-    cwd, changes = result["cwd"], result["changes"]
-    written = [p for p in changes["created"] + changes["modified"] if skill_meta.matches(meta["outputs"], p)]
-    after = set(changes["created"] + changes["modified"] + changes["unchanged"])
-    fixed = [p for p in meta["outputs"] if "<" not in p and not p.endswith("/")]
-    missing = [p for p in fixed if p not in after]
-    texts = [(_read(os.path.join(cwd, *p.split("/"))) or "") if lab.readable(cwd, p) else "" for p in written]
-    facts = dict(manifest.ending_facts(core.ROOT, skill), outputs_present=[p for p in fixed if p in set(changes["unchanged"])],
-                 gate_files=list(gate_files))
-    return endings.classify(result["response"], changes, written, missing, texts, facts=facts)
-
-
-# --- a use and a verdict, with the existing recorder; the runtime's own key for a model ----------------------------
-
-
-def _recorder() -> str:
-    return core.EVIDENCE or os.path.join(core.ROOT, "scripts", "evidence.py")
-
-
-def _record(args: list) -> "subprocess.CompletedProcess":
-    return subprocess.run([sys.executable, _recorder(), "record", *args], capture_output=True, text=True,
-                          timeout=RECORDER_TIMEOUT, check=False)
-
-
-def _use_start(ctx: dict, run_id: int, skill: str, routing: dict):
-    """Record the start of a use of the skill with the recorder, with the model and adapter of the routing (the
-    gate file's ids, never a model's own account), and keep its id in the cursor use:<run id>. Returns the id, or
-    None when the use could not be recorded: that never stops a run."""
-    try:
-        done = _record(["--start", "--skill-dir", os.path.join(core.ROOT, "skills", skill), "--project", ctx["cfg"]["project"],
-                        "--model", routing["model"], "--adapter", routing["adapter"]])
-    except (OSError, subprocess.SubprocessError) as e:
-        print(f"the use of run {run_id} could not be recorded: {type(e).__name__}", file=sys.stderr)
-        return None
-    use = done.stdout.strip()
-    if done.returncode != 0 or not USE_ID.fullmatch(use):
-        print(f"the use of run {run_id} could not be recorded: {done.stderr.strip()[-500:]}", file=sys.stderr)
-        return None
-    core._stored(ctx, ctx["store"].cursor_set, f"use:{run_id}", use)
-    return use
+# --- the routing of one run (the recorder of a use moved to ops_runs, 44-C3) ----------------------------
 
 
 def _route(ctx: dict, skill: str, meta: dict, keys, task=None, requested=None) -> dict:
@@ -387,31 +277,6 @@ def _route(ctx: dict, skill: str, meta: dict, keys, task=None, requested=None) -
     billing of the credential the run would use (core._model_billing: "subscription", "metered", "free", or None when no
     manifest says), which the daily caps count by, and the autonomy of the pair ("proven", "consent" or "supervised")."""
     return ops_models.route(ctx, skill, meta, keys, task, requested)
-
-
-@contextlib.contextmanager
-def _key_in_environment(routing: dict, keys):
-    """Around a run on the runtime's own key: the variable the gate file names for the model holds that key, and afterwards
-    what was there before (the earlier value, or no variable). Nothing for a run on the lab's key, which the lab passes
-    itself."""
-    key = keys[routing["model"]]
-    if key["source"] != "runtime" or key["value"] is None:
-        yield
-        return
-    name = lab.reference(routing["model"])["pass_env"][0]
-    with core._ENV_LOCK:  # the table of what is injected, with the variable itself: a child the dispatcher starts reads both
-        before = os.environ.get(name)
-        os.environ[name] = key["value"]
-        core.ENV_INJECTED[name] = before
-    try:
-        yield
-    finally:
-        with core._ENV_LOCK:
-            core.ENV_INJECTED.pop(name, None)
-            if before is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = before
 
 
 # --- the operations ----------------------------------------------------------------------------------------
@@ -469,282 +334,6 @@ def run_task(project: str, task_id: int, model: str | None = None) -> dict:
     "held"} for a task that was refused: the terminal exits 4 for that, unless the reason is a word of the held tasks
     (runtime/dispatcher.py)."""
     return ops_runs.run_task(project, task_id, requested=ops_models.check_word(model))
-
-
-def _push_after_run(ctx: dict, out: dict) -> dict:
-    """Write to the documents platform the documents a run returned. Never fails the task: a failure is listed."""
-    rels = [r["path"] for r in out.get("returned") or [] if r.get("class") == "document"]
-    if not rels:
-        return documents.result()
-    try:
-        return documents.push(ctx, rels)
-    except Exception as e:  # a failed push never fails the task; the next sync tries again
-        return {**documents.result(), "failed": [{"path": rel, "reason": f"{type(e).__name__}: {e}"} for rel in rels]}
-
-
-# What can go wrong before a run has its row: a skill the runtime knows nothing of, a lab that refuses, a store that does.
-PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
-
-
-def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
-    """The slow part of a run's start, made before the claim lock: the skill's meta and manifest (a skill the runtime knows
-    nothing of does not run), the routing (ops_models.route with the keys core._keys found, which the caller read from the
-    secret store) and the skill's identity. A model with no key is a refusal: the run does not start."""
-    skill = task["skill"]
-    meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-    known = manifest.load(core.ROOT, skill)
-    routing = _route(ctx, skill, meta, keys, task, requested)
-    if routing["key_missing"]:
-        raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill),
-            "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
-
-
-def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
-    """The run's start, under the claim lock: its spend limit (before the run's own row: its reservation is not in the
-    day's spend yet) and the run row. Returns what _run_body takes."""
-    routing, identity = prepared["routing"], prepared["identity"]
-    budget = _budget(ctx, task.get("agent"), routing, prepared["keys"])
-    run_id = core._stored(ctx, ctx["store"].task_run_start, task["id"], skill=task["skill"], model=routing["model"],
-                          adapter=routing["adapter"], skill_version=identity["version"],
-                          skill_sha256=identity["content_sha256"], web=routing["web"],
-                          billing=routing["billing"] or "unknown", autonomy=routing["autonomy"])["run_id"]
-    return {**prepared, "task": task, "budget": budget, "run_id": run_id}
-
-
-def _run_body(ctx: dict, started: dict) -> dict:
-    """The run itself, after its row was opened (_run_start): the copy, the lab, the return of what the run left, the
-    pending decision. The return into the project's files is made under the write lock."""
-    cfg, store, task = ctx["cfg"], ctx["store"], started["task"]
-    skill, meta, known, keys = task["skill"], started["meta"], started["known"], started["keys"]
-    routing, budget, run_id = started["routing"], started["budget"], started["run_id"]
-    dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
-    out = {"ran": task["id"], "skill": skill, "run_id": run_id, "run_dir": dest, "status": "failed", "ending": None,
-           "failure": None, "task_state": "failed", "pending_id": None, "returned": [], "kept": [], "left_out": [],
-           "entered": None, "state": None, "routing": routing, "use": None}
-
-    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
-        done = core._stored(ctx, store.task_run_finish, run_id, status="failed", failure=kind, task_state="failed",
-                attempts=attempts, image_digest=digest, run_dir=dest, error=_note(reason), task_note=_note(reason),
-                redactions=redactions, **_reported_usage(reported, routing))
-        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a stopped run is cancelled whatever it found (R18)
-        return out
-
-    out["use"] = _use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
-    # Outside the run folder: the facade sets aside whatever it finds there.
-    prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
-    try:
-        handed = drop.files(cfg["project"], task["id"])
-        refused = []
-        if handed and routing["web"] and not drop.WEB_TASK_TAKES_DROP:
-            refused = [{"path": rel, "reason": drop.WEB_REFUSAL} for _source, rel in handed]
-            handed = []
-        try:   # decision D29: the newest version of each source the plan chose, as of this start; the rows say which
-            sourced = ops_sources.copies_for(ctx, task, prepared_dir, started.get("unattended", True))
-        except ops_sources.SourcesRefused as e:
-            return fail("internal", str(e))
-        try:
-            entered = workcopy.entering(cfg["project"], meta, web=routing["web"], cfg=cfg,
-                                        settings_names=lab.settings_names(), prepared_dir=prepared_dir, handed=handed,
-                                        sourced=sourced["files"])
-        except workcopy.CopyError as e:
-            return fail("internal", f"the copy could not be built: {e}")
-        ops_sources.record_copies(ctx, run_id, task, sourced["records"])   # only the copies the run received (entering() took them all)
-        if sourced["records"]:   # a task with no source returns what it always returned
-            out["sources"] = [{k: r[k] for k in ("source", "version", "sha256")} for r in sourced["records"]]
-        files, base, out["left_out"] = entered["files"], entered["base"], entered["left_out"] + refused
-        entered_rels = {rel for _source, rel in files}
-        out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(files)}
-        base_state = _read(os.path.join(cfg["project"], *path_rule.STATE.split("/")))
-        request = core._stored(ctx, store.task_get, task["parent_id"])
-        request_text = request["text"]
-        answered = [p for p in core._stored(ctx, store.pending_list, "resolved", task["id"]) if p["resolution"] == "answered"]
-        earlier = [r for r in core._stored(ctx, store.task_runs_list, task["id"]) if r["id"] != run_id]
-        edited = [rel for rel in documents.imported_since(cfg, earlier[-1]["started_at"] if earlier else None)
-                  if rel in entered_rels and skill_meta.matches(meta["inputs"], rel)]
-        prompt = task_prompt(request_text, task["text"], answered,
-                             handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
-                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)],
-                             instructions=started["instructions"], language_line=ops_language.run_line(cfg, task))
-        code = None
-        if entered.get("tracked") and code_task(meta):
-            code = _code_state(ctx, task)
-            if code.get("refused"):
-                return fail("internal", code["refused"])
-        current = (code or {}).get("current")
-        gate = known.get("gate")
-        # the module of the gate's effect kind; None when the word or the skill names none
-        kind = _effect_kind(gate, meta["requires"])
-        if kind is not None:
-            refused = kind.refusal(cfg, current)
-            if refused:
-                return fail("internal", refused)
-        try:
-            installed = _dependencies(cfg, entered, read=_reader(cfg, current))
-        except deps_sets.DepsError as e:
-            return fail("internal", f"dependencies: {e.reason}")
-
-        def prepare(copy, root):
-            if kind is not None:
-                # T23: a skill runs only up to its gate; a runtime mode in the skills with an external effect replaces this
-                kind.prepare(current, copy, root, cfg, task, request["title"])
-            elif current is not None:
-                changeset.apply(current, copy)  # the earlier work of the request, as an uncommitted change
-            for r in installed:
-                deps_sets.place(r, copy)
-
-        finish = (lambda copy, _root: [deps_sets.remove(copy, r["produces"]) for r in installed]) if installed else None
-        if current is None and not installed and not gate:
-            prepare = None
-        with lab.session(), _key_in_environment(routing, keys):
-            result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], model=routing["model"],
-                                   prepare=prepare, finish=finish, tmp_in_run=bool(gate),
-                                   max_cost=budget)
-    except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
-    except Exception as e:  # the task never stays `running`: the error is recorded, then shown
-        traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
-    finally:
-        shutil.rmtree(prepared_dir, ignore_errors=True)
-    counts, timing = result["counts"], result["timing"]
-    if result["status"] != "ok":
-        failure = result["failure"]
-        return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")), result.get("reported"))
-    left = result["changes"]["created"] + result["changes"]["modified"]
-    bound = manifest.bound_among(known, left)
-    made = _changeset_of(ctx, task, run_id, dest, result, entered, code, bound) if code is not None else None
-    with core._write_lock(cfg, wait=None):  # held from the check of the stop request to the finish: the stop request is written under it (L41)
-        if ops_cancel.stop_requested(ctx, task["id"]):   # a stopped run returns nothing
-            return fail("stopped", "stopped before it returned anything", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
-        returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
-                                                           versioned=(made or {}).get("versioned", ()),
-                                                           tracked=entered.get("tracked") or () if code is None else (),
-                                                           cfg=cfg)
-        gate_files = _tmp_files(result.get("tmp"))
-        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
-        gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
-        body, masked = workcopy.masked_reply(result["response"])
-        if state_report is not None:
-            out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
-        number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
-        # Only a metered run has a cost that is billed, whatever the model; a subscription or free run keeps none (costs.py recomputes it).
-        every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
-        finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
-                      cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
-                      tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                      skill_loaded=_skill_loaded(timing, skill),
-                      image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
-        if ending == "blocked":
-            # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
-            # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
-            # and `retry` makes the task ready again.
-            sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
-            done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=_note(sentence or body), **finish)
-            out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
-            return out
-        mandatory = ending == "done" and bool(known.get("mandatory_milestone"))
-        if made is not None:
-            body = body.rstrip("\n") + "\n\n" + made["text"]
-        if mandatory:
-            body = body.rstrip("\n") + "\n\n" + MANDATORY_LINE
-        cut = len(body.encode("utf-8")) > store.BODY_MAX
-        # A run that wrote nothing and asks opens a question, which is answered. A run that wrote a declared output
-        # opens a review, a draft with open questions included: its body is the whole reply, so the person reads the
-        # questions and either releases the draft as it stands (its open questions stay in it, its row stays a
-        # draft) or answers it, and the next run is given the answer. A run that stopped at its confirmation gate
-        # (ending `gate`) opens a review too until stage 4 of the platform plan turns it into an `effect`.
-        decision = {"kind": "question" if ending == "question" else "review",
-                    "title": f"{skill}: {ending.replace('_', ' ')}",
-                    "body": body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore") if cut else body,
-                    "payload": {"ending": ending, "why": why, "returned": returned, "kept": kept, "run_dir": dest,
-                                "entered": out["entered"], "left_out": out["left_out"], "state": out["state"],
-                                "routing": routing, "use": out["use"],
-                                "response_file": os.path.join(result["outputs"], "response.md"), "body_cut": cut,
-                                "body_masked": masked}}
-        if made is not None:
-            decision["payload"]["changeset"] = made["summary"]
-        if gate_found is not None:
-            decision["payload"]["gate"] = gate_found if ending == "gate" else {**gate_found, "recovered": False,
-                                                                                "why": f"the run ended {ending}, not at its gate"}
-        if ending == "gate" and gate_found is not None:
-            decision = _effect_or_review(ctx, task, request, dest, decision, gate_found, made, code,
-                                         known["gate"]["effect"], meta["requires"])
-        if mandatory:
-            decision["payload"]["mandatory_milestone"] = True
-            if cut:  # the sentence stays at the end of a body that was cut
-                tail = "\n\n" + MANDATORY_LINE
-                room = store.BODY_MAX - len(tail.encode("utf-8"))
-                decision["body"] = body.encode("utf-8")[:room].decode("utf-8", errors="ignore") + tail
-        done = core._stored(ctx, store.task_run_finish, run_id, task_state="waiting", pending=decision, **finish)
-        out.update(status="ok", ending=ending, task_state="waiting", pending_id=done["pending_id"], returned=returned, kept=kept)
-        return out
-
-
-def _reported_usage(reported, routing: dict) -> dict:
-    """The usage a failed run's attempts reported (lab.reported_usage), as the arguments that record it: tokens always, the
-    cost only on a metered credential (only a metered run has a billed cost, as for a run that ended). Nothing when none
-    was reported, so a failed run with a reported cost keeps it and the reservation does not stand in for it (A-57)."""
-    reported = reported or {}
-    out = {}
-    if reported.get("total_tokens") is not None:
-        out["tokens"] = int(reported["total_tokens"])
-    if reported.get("cost_usd") is not None and routing.get("billing") == "metered":
-        out["cost_usd"] = float(reported["cost_usd"])
-    return out
-
-
-def _effect_kind(gate, requires):
-    """The module of the effect kind a manifest's gate names (gate.effect, through effects.gate_kind), or None when
-    there is no gate, its word names no kind, the kind is not one of the gate path (GATE), or the skill does not
-    declare the class of provider that executes the kind (`requires`): a design skill's `create` is no pull request.
-    A task with no kind runs up to its gate and opens a review, never an effect."""
-    return effects.gate_kind(gate["effect"], requires) if gate else None
-
-
-def _effect_or_review(ctx: dict, task: dict, request: dict, dest: str, decision: dict, gate_found: dict, made, code,
-                      effect: str, requires) -> dict:
-    """The pending decision a run that stopped at its gate opens: an `effect` (the effect document's hash in
-    payload_sha256) when the payload was recovered and parsed, its base and head are the configuration's, the
-    configuration has code, and the change set it would commit is not blocked; else the review, its body starting
-    with the reason. The classifier never guesses, and neither does this."""
-    cfg = ctx["cfg"]
-    kind = _effect_kind({"effect": effect}, requires)
-    parsed = None
-    if kind is not None and gate_found.get("payload_file"):
-        with open(gate_found["payload_file"], encoding="utf-8", errors="replace") as f:
-            parsed = kind.parse(f.read())
-    stored = (made or {}).get("summary") or {}
-    reason, chosen = None, None
-    if kind is None:
-        reason = f"the gate's effect {effect!r} names no kind of effect"
-    elif not gate_found.get("recovered"):
-        reason = f"the payload was not recovered: {gate_found.get('why')}"
-    elif parsed is None:
-        reason = "the payload is not in the form its kind of effect reads"
-    elif kind.mismatch(parsed, cfg, task):
-        reason = kind.mismatch(parsed, cfg, task)
-    elif stored.get("blocked"):
-        reason = "the change set is blocked"
-    else:
-        try:
-            chosen = changeset.load(dest) if stored.get("file") else (code or {}).get("current")
-        except changeset.ChangesetError as e:
-            reason = f"the change set: {e.reason}"
-        if reason is None and (chosen is None or chosen.get("blocked") or not (chosen["files"] or chosen["removed"])):
-            reason = "there is no unblocked change set for the effect"
-    if reason is not None:
-        cut = decision["body"].encode("utf-8")[:ctx["store"].BODY_MAX - 2048].decode("utf-8", errors="ignore")
-        return {**decision, "body": f"No effect was opened: {reason}.\n\n{cut}",
-                "payload": {**decision["payload"], "effect": {"opened": False, "why": reason}}}
-    doc = kind.document(effect, cfg, request, parsed, chosen, task, gate_found["payload_sha256"])
-    path, digest = effects.write(dest, doc)
-    payload = {**decision["payload"], "effect_file": path, "changeset_file": os.path.join(chosen["dir"], changeset.JSON_FILE),
-               "changeset_dir": chosen["dir"], "payload_file": gate_found["payload_file"],
-               "effect": {"opened": True, **kind.summary(doc)}}
-    return {"kind": "effect", "title": kind.title(doc)[:200], "body": kind.body(doc, digest),
-            "payload": payload, "payload_sha256": digest}
 
 
 def _provider_path(cfg: dict, cls: str, platform: str | None = None) -> str:
@@ -868,156 +457,6 @@ def _write_approval_row(cfg: dict, row: list) -> dict:
         return {"written": True}
 
 
-def _tmp_files(tmp) -> list:
-    """[(relative path, bytes)] of the regular files under a run's returned temporary folder, no link followed."""
-    out = []
-    if not tmp or not os.path.isdir(tmp) or os.path.islink(tmp):
-        return out
-    for current, folders, files in os.walk(tmp):
-        folders[:] = sorted(n for n in folders if not os.path.islink(os.path.join(current, n)))
-        for name in sorted(files):
-            path = os.path.join(current, name)
-            if not os.path.islink(path) and os.path.isfile(path):
-                out.append((os.path.relpath(path, tmp).replace(os.sep, "/"), os.path.getsize(path)))
-    return out
-
-
-def _gate_payload(result: dict, dest: str, tmp_files, kind) -> dict:
-    """The payload a gate run wrote, recovered (runtime/effects.py) and kept as <dest>/payload.md; everything else
-    under the returned temporary folder is deleted, and only its names and sizes are kept. Returns {"recovered",
-    "why", "payload_file", "payload_sha256", "parsed", "tmp_left"}."""
-    found = effects.recover_payload(result.get("response") or "", result.get("tmp"), lab.readable)
-    out = {"recovered": found["recovered"], "why": found.get("why"), "payload_file": None, "payload_sha256": None,
-           "parsed": False, "tmp_left": [{"name": rel, "bytes": size} for rel, size in tmp_files]}
-    if found["recovered"]:
-        kept = os.path.join(dest, "payload.md")
-        shutil.copyfile(found["file"], kept)
-        out.update(payload_file=kept, payload_sha256=found["sha256"],
-                   parsed=kind is not None and kind.parse(found["text"]) is not None)
-    if result.get("tmp") and os.path.isdir(result["tmp"]) and not os.path.islink(result["tmp"]):
-        shutil.rmtree(result["tmp"])
-    return out
-
-
-def _git(project: str, *args) -> "subprocess.CompletedProcess":
-    """git in the project (the person's own repository, run by the host); never in a copy a run touched."""
-    return subprocess.run(["git", "-C", project, *args], capture_output=True, text=True, timeout=120, check=False)
-
-
-def _request_run_dirs(ctx: dict, request_id: int) -> list:
-    """The run folders of the completed runs of a request's tasks, newest first."""
-    runs = []
-    for t in core._stored(ctx, ctx["store"].tasks_list, request_id):
-        if t["parent_id"] is not None:
-            runs += [r for r in core._stored(ctx, ctx["store"].task_runs_list, t["id"]) if r["status"] == "ok" and r["run_dir"]]
-    return [r["run_dir"] for r in sorted(runs, key=lambda r: r["id"], reverse=True)]
-
-
-def code_task(meta: dict) -> bool:
-    """A code task: its skill is of a code area (workcopy.CODE_AREAS, the areas of the code-change flow's skills).
-    Only a code task whose copy holds versioned files is held to clean tracked files and makes a change set
-    (choice K4); a document task runs on a project whose tracked files carry uncommitted changes (a project
-    initialised by core-project-init always has two), and a versioned file it changed is listed in `kept`."""
-    return meta.get("area") in workcopy.CODE_AREAS
-
-
-def _code_state(ctx: dict, task: dict) -> dict:
-    """What a run whose copy holds versioned files starts from: {"project_commit", "current"}, or {"refused": why}.
-    A change set is made against one commit of the project (choice K4): the run is refused while the project's
-    tracked files have uncommitted changes, and when the request's current change set was made against another
-    commit. The state file is left out of that check: it never travels in a change set (the path rule's class
-    `state`), and code writes into it (an answer, an approval row) between the runs of a request."""
-    project = ctx["cfg"]["project"]
-    try:
-        dirty = _git(project, "status", "--porcelain", "-z", "--untracked-files=no")
-        head = _git(project, "rev-parse", "HEAD")
-    except (OSError, subprocess.SubprocessError) as e:
-        return {"refused": f"git could not be run in the project: {type(e).__name__}"}
-    if dirty.returncode != 0 or head.returncode != 0:
-        return {"refused": f"git failed in the project: {(dirty.stderr or head.stderr).strip()[:300]}"}
-    if [entry for entry in dirty.stdout.split("\0") if entry and entry[3:] != path_rule.STATE]:
-        return {"refused": "commit or stash the changes to tracked files first: a change set is made against a commit"}
-    commit = head.stdout.strip()
-    try:
-        current = changeset.current(_request_run_dirs(ctx, task["parent_id"]))
-    except changeset.ChangesetError as e:
-        return {"refused": f"the request's change set: {e.reason}"}
-    if current is not None and current.get("project_commit") != commit:
-        return {"refused": f"the request's change set was made against the commit {current.get('project_commit')} and the "
-                           f"project is at {commit}: cancel the request, or put the project back on that commit"}
-    return {"project_commit": commit, "current": current}
-
-
-def _reader(cfg: dict, current):
-    """read(rel) of a dependency file as the next run sees it: the request's current change set's when it holds or
-    removes the file, else the project's."""
-    def read(rel):
-        if current is not None:
-            if rel in (current.get("removed") or []):
-                return None
-            for item in current.get("files") or []:
-                if item["path"] == rel:
-                    with open(os.path.join(current["dir"], "files", *rel.split("/")), "rb") as f:
-                        return f.read()
-        return _project_bytes(cfg["project"], rel)
-    return read
-
-
-EMPTY_CHANGESET = changeset.canonical_sha256([], [])
-
-
-def _changeset_of(ctx: dict, task: dict, run_id: int, dest: str, result: dict, entered: dict, code: dict, bound) -> dict:
-    """The change set a completed run left, stored in its run folder when it differs from the one it started from:
-    {"summary" (for the pending decision's payload), "text" (for its body), "versioned" (the paths that never come
-    back as loose files)}."""
-    checks = {"readable": lab.readable, "scan": workcopy.scan, "settings": lab.carries_settings}
-    facts = {"staged": list(result["staged"]) + [path_rule.DROP_DIR], "bound": list(bound)}
-    try:
-        made = changeset.compute(dest, result.get("base_commit"), entered["tracked"], facts, checks,
-                                 protected=sources.protected_paths(ctx["cfg"]))
-    except changeset.ChangesetError as e:
-        why = f"the change set could not be computed: {e.reason.splitlines()[0] if e.reason else e.kind}"
-        return {"summary": {"error": why}, "text": why[0].upper() + why[1:] + ".", "versioned": []}
-    current = code.get("current")
-    file = None
-    if made["refused"] or made["sha256"] != (current["sha256"] if current else EMPTY_CHANGESET):
-        made.update(request=task["parent_id"], task=task["id"], run=run_id, project_commit=code["project_commit"])
-        file = changeset.store(dest, made)
-    summary = {"file": file, "sha256": made["sha256"], "files": len(made["files"]), "removed": len(made["removed"]),
-               "blocked": made["blocked"], "refused": made["refused"]}
-    lines = [f"Change set: {len(made['files'])} file(s), {len(made['removed'])} removed"
-             + (", blocked" if made["blocked"] else "") + (f", sha256 {made['sha256']}" if file else ", unchanged")]
-    lines += [f"- {item['change']}: {item['path']}" + (" (executable)" if item["executable"] else "") for item in made["files"]]
-    lines += [f"- removed: {rel}" for rel in made["removed"]]
-    lines += [f"- refused: {item['path'] or '(the whole set)'}: {item['reason']}" for item in made["refused"]]
-    return {"summary": summary, "text": "\n".join(lines), "versioned": made["versioned"]}
-
-
-def _project_bytes(project: str, rel: str):
-    """The bytes of a project's file at rel, or None when it is not a regular file inside the project."""
-    path = os.path.join(project, *rel.split("/"))
-    real = os.path.realpath(path)
-    if os.path.islink(path) or not os.path.isfile(path) or not real.startswith(os.path.realpath(project) + os.sep):
-        return None
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _dependencies(cfg: dict, entered: dict, read=None) -> list:
-    """The installed folders a run gets: for a run whose copy holds versioned files, each declared dependency set
-    whose files are all there (read(rel), default the project's own file), installed or taken from the cache
-    (runtime/deps.py). Empty for a run without versioned files. Raises deps.DepsError."""
-    if not entered.get("tracked"):
-        return []
-    read = read or (lambda rel: _project_bytes(cfg["project"], rel))
-    out = []
-    for entry in cfg.get("dependencies") or []:
-        files = deps_sets.files_for(entry, read)
-        if files is not None:
-            out.append(deps_sets.ensure(cfg["data_dir"], entry, files, lab.image()["digest"]))
-    return out
-
-
 def deps(project: str) -> dict:
     """Install every dependency set the project's configuration declares, by code, with no model: {"dependencies":
     [{"recipe", "file", "applies", and when it applies "key", "cached", "duration_ms"}]}. A set whose files are not
@@ -1026,7 +465,7 @@ def deps(project: str) -> dict:
     ctx = core.context(project)
     cfg, out = ctx["cfg"], []
     for entry in cfg.get("dependencies") or []:
-        files = deps_sets.files_for(entry, lambda rel: _project_bytes(cfg["project"], rel))
+        files = deps_sets.files_for(entry, lambda rel: ops_task_run._project_bytes(cfg["project"], rel))
         row = {"recipe": entry["recipe"], "file": entry["file"], "applies": files is not None}
         if files is not None:
             try:
@@ -1187,23 +626,7 @@ def release(project: str, pending_id: int, channel: str | None = None, sender: s
     under "after"."""
     ctx = core.context(project)
     ops_actor.guard(ctx, "release", channel, sender)
-    return _release(ctx, pending_id, by="user", actor=ops_actor.label(ctx["cfg"], channel, sender))
-
-
-def _release(ctx: dict, pending_id: int, by: str, actor=None) -> dict:
-    """pending_resolve(released) and then _after_release, for the person (by "user") and for a mode ("mode:<mode>")."""
-    item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-    made = (item.get("payload") or {}).get("changeset") or {}
-    if item["kind"] == "review" and made.get("blocked"):
-        refused = "; ".join(f"{r['path'] or 'the whole set'}: {r['reason']}" for r in made.get("refused") or [])
-        raise core.OpsError(f"pending decision {pending_id}: its change set is blocked ({refused}): answer with what to change, "
-                       "or cancel the request", 1)
-    task = core._stored(ctx, ctx["store"].task_get, item["task_id"])
-    lock = core._route_lock(ctx["cfg"]) if item["kind"] == "review" and _brief_delivery(ctx, task) else contextlib.nullcontext()
-    with lock:
-        out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="released", by=by, actor=actor))
-        after = _after_release(ctx, item)
-    return {**out, "after": after} if after else out
+    return ops_round._release(ctx, pending_id, by="user", actor=ops_actor.label(ctx["cfg"], channel, sender))
 
 
 def retry(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:
@@ -1252,7 +675,7 @@ def verdict(project: str, run_id: int, word: str) -> dict:
     if given:
         raise core.OpsError(f"run {run_id} already has the verdict {given}", 1)
     try:
-        done = _record(["--verdict", word, "--use", use, "--project", ctx["cfg"]["project"]])
+        done = ops_runs._record(["--verdict", word, "--use", use, "--project", ctx["cfg"]["project"]])
     except (OSError, subprocess.SubprocessError) as e:
         raise core.OpsError(f"the recorder could not be run: {type(e).__name__}", 1) from None
     if done.returncode != 0:
@@ -1604,7 +1027,7 @@ def status(project: str) -> dict:
                           for d in core._stored(ctx, ctx["store"].documents_list)],
             "board": ({"left_out_final": len(core._stored(ctx, lambda _conn: board.left_out(ctx, rows)))}
                       if board.enabled(ctx["cfg"]) else None),
-            "held": _held_listed(ctx, rows)}
+            "held": ops_reads._held_listed(ctx, rows)}
 
 
 def config(project: str) -> dict:
@@ -1623,7 +1046,7 @@ def config(project: str) -> dict:
             "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"], "policies": cfg["policies"],
             "channel_profiles": cfg["channel_profiles"], "language": cfg.get("language"), **({"google_folders": cfg["google_folders"]} if cfg.get("google_folders") else {}),
             **policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
-                                     got(policy_widening.KEY) or policy_widening.PENDING_SECRET)}   # POL-1/POL-2: grants, widening, its hash, warnings
+                                     got(policy_widening.KEY) or policy_widening.PENDING_SECRET, got(policy_widening.FALLBACKS))}   # POL-1/POL-2: grants, widening, its hash, warnings
 
 
 def task(project: str, task_id: int, channel: str | None = None, sender: str | None = None) -> dict:
@@ -1707,13 +1130,13 @@ def route(project: str, request_id: int, flow: str | None = None, channel: str |
         try:
             if channel in ops_say.QUEUING_CHANNELS and ops_say.waiting(ctx):  # first in, first out
                 raise core.RunBusy("older lines or requests wait for the planning agent", 1)
-            return _route_request(ctx, request_id)
+            return ops_requests._route_request(ctx, request_id)
         except core.RunBusy:
             if channel not in ops_say.QUEUING_CHANNELS + (ops_say.DRAIN,):
                 raise
-            _routable(ctx, request_id)
+            ops_requests._routable(ctx, request_id)
             return ops_say.queue_route(ctx, request_id)
-    _routable(ctx, request_id)
+    ops_requests._routable(ctx, request_id)
     try:
         loaded, bound = ops_flows.bound(ctx, flow, params, request_id)
         tasks = _with_agents(ctx["cfg"], plan.from_flow(loaded, core.ROOT, plan.pack_skills(ctx["cfg"], core.ROOT)))
@@ -1724,425 +1147,6 @@ def route(project: str, request_id: int, flow: str | None = None, channel: str |
                           payload=decision["payload"])
     return {"routed": True, "pending_id": opened["pending_id"], "source": "named", "flow": loaded["flow"],
             "cancelled": opened["cancelled"], "recovered": []}
-
-
-def _routable(ctx: dict, request_id: int) -> dict:
-    """The request's row, refused when it is a task or does not wait for its route."""
-    request = core._stored(ctx, ctx["store"].task_get, request_id)
-    if request["parent_id"] is not None:
-        raise core.OpsError(f"task {request_id} is not a request: route the request it belongs to", 1)
-    if request["state"] != "requested":
-        raise core.OpsError(f"request {request_id} is {request['state']}: only a request that waits for its route is routed", 1)
-    return request
-
-
-def _route_request(ctx: dict, request_id: int) -> dict:
-    """The router's run on a request, holding the route lock (RunBusy when the router answers another request): the body
-    of route() without a flow, and what route_queued calls."""
-    with core._route_lock(ctx["cfg"]):
-        recovered = ops_runs._recover(ctx, holding_route=True)
-        request = _routable(ctx, request_id)
-        try:
-            parts = plan.split(request["text"])
-        except ValueError as e:
-            raise core.OpsError(str(e), 2) from None
-        if len(parts["items"]) > 1:
-            return {**_route_deliveries(ctx, request, parts), "recovered": recovered["tasks"]}
-        return {**_route_run(ctx, request), "recovered": recovered["tasks"]}
-
-
-def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False, said: str | None = None) -> dict:
-    """One run of the router skill on a request, asked only for the route, with text as the request's words. Returns
-    {"out", "failed"} and, for a run that did not fail, "response", "body", "finish" (the arguments of
-    route_run_finish), "common" (the payload keys every decision of the run carries) and "read" (router.read_route).
-    A failed run is finished here; a run that did not fail is finished by the caller, with its decision. `said` is the person's own line, given
-    for a request of one line only: a reply that names an operation (package NR-2) is believed against it, and without it such a reply is unclassified."""
-    cfg, store, skill = ctx["cfg"], ctx["store"], router.ROUTER_SKILL
-    try:
-        meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        keys = core._keys()
-        routing = _route(ctx, skill, meta, keys)
-        if routing["key_missing"]:
-            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-        identity = lab.skill_identity(skill)
-        with core._claim_lock(cfg):  # the budget and the run row are one step: two starts cannot pass the same cap
-            budget = _budget(ctx, plan.PLANNING, routing, keys)
-            run_id = core._stored(ctx, store.route_run_start, request["id"], skill=skill, model=routing["model"],
-                                  adapter=routing["adapter"], skill_version=identity["version"],
-                                  skill_sha256=identity["content_sha256"], web=False, reroute=reroute,
-                                  billing=routing["billing"] or "unknown", autonomy=routing["autonomy"])["run_id"]
-    except (skill_meta.SkillError, lab.LabError, OSError, KeyError) as e:
-        raise core.OpsError(f"the router ({skill}) could not start: {e}", 1) from None
-    dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
-    out = {"routed": False, "request": request["id"], "source": "router", "run_id": run_id, "run_dir": dest,
-           "status": "failed", "ending": None, "failure": None, "pending_id": None, "kind": None, "kept": [],
-           "left_out": [], "entered": None, "routing": routing, "use": None}
-
-    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
-        done = core._stored(ctx, store.route_run_finish, run_id, status="failed", failure=kind, attempts=attempts,
-                image_digest=digest, run_dir=dest, error=_note(reason), redactions=redactions,
-                **_reported_usage(reported, routing))
-        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a request being cancelled: cancelled (R18)
-        return {"out": out, "failed": True}
-
-    held, why = ops_instructions.for_run(cfg["project"])   # the standing instructions; a file that fails a check stops the run, before a use is recorded
-    if why:
-        return fail("internal", why)
-    out["use"] = _use_start(ctx, run_id, skill, routing)
-    prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
-    try:
-        try:
-            entered = workcopy.entering(cfg["project"], meta, web=False, cfg=cfg, settings_names=lab.settings_names(),
-                                        prepared_dir=prepared_dir)
-        except workcopy.CopyError as e:
-            return fail("internal", f"the copy could not be built: {e}")
-        out["left_out"] = entered["left_out"]
-        out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
-        answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
-                                       if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.router_line(cfg, request)) \
-            + ops_sources.router_block(ctx, request["text"])
-        # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
-        # every container of the process when it closes): the whole session is held under one guard. Task runs are
-        # processes of their own and never take it.
-        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys), ops_cancel.watch(ctx, request["id"]):
-            result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
-                                   max_cost=budget)
-    except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
-    except Exception as e:  # the run row never stays `running`: the error is recorded, then shown
-        traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
-    finally:
-        shutil.rmtree(prepared_dir, ignore_errors=True)
-    counts, timing = result["counts"], result["timing"]
-    if result["status"] != "ok":
-        failure = result["failure"]
-        return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")), result.get("reported"))
-    if ops_cancel.stop_requested(ctx, request["id"]):   # the request is being cancelled: its reply is not read, nothing is opened
-        return fail("stopped", "cancelled while the router answered", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
-    # Nothing a route-only run left comes back: the router's run sees only the router installed, so what it would
-    # write (a line about a skill it finds missing) is wrong here by construction.
-    facts = {"staged": result["staged"]}
-    out["kept"] = [{"path": rel, "class": path_rule.classify(rel, facts), "reason": ROUTE_KEPT}
-                   for rel in sorted(result["changes"]["created"] + result["changes"]["modified"])
-                   if path_rule.classify(rel, facts) != "ignored"]
-    body, masked = workcopy.masked_reply(result["response"])
-    body = body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore")
-    number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
-    every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
-    finish = dict(status="ok", attempts=counts["attempts"],
-                  cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
-                  tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                  skill_loaded=_skill_loaded(timing, skill),
-                  image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
-    common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
-              "routing": routing, "use": out["use"], "body_masked": masked}
-    return {"out": out, "failed": False, "response": result["response"], "body": body, "finish": finish,
-            "common": common, "read": router.read_route(result["response"], ignore_language=bool(request.get("language")), said=said)}
-
-
-def _checked(ctx: dict, read: dict) -> dict:
-    """read_route() of a reply with "checked": router.check_route() against the flow files and the pack in scope."""
-    return dict(read, checked=router.check_route(read, flow_files.names(core.ROOT), plan.pack_skills(ctx["cfg"], core.ROOT),
-                                                 known_sources=ops_sources.known_ids(ctx)))
-
-
-def _combined(ctx: dict, request: dict, routed: list) -> dict:
-    """plan.combine for these routed deliveries, with the flow files they name, the agents' packs, the gate file's
-    limits and the past runs of their skills. Raises plan.PlanError, ValueError, flow_files.FlowError."""
-    cfg = ctx["cfg"]
-    flows = {}
-    for entry in routed:
-        flow = ((entry.get("route") or {}).get("checked") or {}).get("flow")
-        if flow and flow not in flows:
-            flows[flow] = flow_files.load(flow, core.ROOT)
-    reference = lab.reference()
-    limits = {"max_running": cfg["max_running"], "timeout_seconds": reference["timeout_seconds"],
-              "retries": reference["retries"]}
-    skills = plan.agent_skills(cfg, core.ROOT)
-    pack = plan.pack_skills(cfg, core.ROOT)
-    forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
-    mine = ops_language.project_of(cfg)
-    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced, project_language=mine)
-    ops_flows.vet(ctx, out["tasks"])
-    past = []
-    for skill in dict.fromkeys(t["skill"] for t in out["tasks"] if t.get("skill")):
-        past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
-    return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced,
-                        project_language=mine) if past else out
-
-
-def _route_run(ctx: dict, request: dict) -> dict:
-    """One run of the router on a request of one delivery (stage 3's behaviour): a valid route becomes a plan (through
-    plan.combine), a reply that asks a question, anything else a question that names the flow command."""
-    store = ctx["store"]
-    call = _router_call(ctx, request, request["text"], said=ops_say.person_line(request["text"]))
-    out = call["out"]
-    if call["failed"]:
-        return out
-    read, body, finish, common = call["read"], call["body"], call["finish"], call["common"]
-    why = read.get("why")
-    if read["kind"] == "route":
-        decision = None
-        try:
-            route_read = _checked(ctx, read)
-            if route_read["checked"]["ok"]:
-                combined = _combined(ctx, request, [{"item": request["text"], "route": route_read, "reply": body}])
-                if combined["plan"] is not None:
-                    decision = ops_waits.annotate(ctx, request, {"kind": "plan", **combined["plan"]})
-                else:  # the route was valid and the plan was not: the one delivery was left out (plan.combine says why)
-                    why = combined["unrouted"][0]["why"] if combined["unrouted"] else why
-            else:
-                why = route_read["checked"]["why"]
-        except (flow_files.FlowError, plan.PlanError, ValueError) as e:
-            decision, why = None, f"no plan can be built from the route: {e}"
-        if decision is not None:
-            decision["payload"] = {**decision["payload"], **common}
-            done = core._stored(ctx, store.route_run_finish, out["run_id"], ending="done", pending=decision, **finish)
-            out.update(status="ok", ending="done", routed=True, kind="plan", pending_id=done["pending_id"])
-            return out
-    if read["kind"] == "direct":  # a direct turn: nothing to plan and nothing to ask; the conversation answers it
-        core._stored(ctx, store.route_run_finish, out["run_id"], ending="done", **finish)
-        out.update(status="ok", ending="done", routed=False, kind="direct", next=read["next"])
-        return out
-    if read["kind"] == "operation":   # an operation of the table of natural requests (package NR-2): nothing to plan and nothing to ask; the conversation executes it by code
-        core._stored(ctx, store.route_run_finish, out["run_id"], ending="done", **finish)
-        out.update(status="ok", ending="done", routed=False, kind="operation", operation={k: read[k] for k in ("name", "args", "when")})
-        return out
-    if read["kind"] == "question":
-        decision = {"kind": "question", "title": "The router asks", "body": body,
-                    "payload": {"ending": "question", **common}}
-        ending = "question"
-    else:
-        decision = _not_recognised(store, request, body, why, common)
-        ending = "unclassified"
-    done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **finish)
-    out.update(status="ok", ending=ending, kind="question", pending_id=done["pending_id"])
-    return out
-
-
-def _not_recognised(store, request: dict, body: str, why, common: dict) -> dict:
-    """The question of a reply that names no route: its body is one sentence, and the reply whole is in the payload
-    (`raw`) with the two actions the page offers (`actions`: choose a flow, cancel the request)."""
-    raw = body.encode("utf-8")[:ops_say.RAW_MAX].decode("utf-8", errors="ignore")
-    return {"kind": "question", "title": "The route was not recognised",
-            "body": ops_say.NOT_NAMED.format(request=request["id"]),      # stored in English; a card and the conversation say it in the language (phrases.body)
-            "payload": {"ending": "unclassified", "why": why, "raw": raw, "actions": list(ops_say.NOT_NAMED_ACTIONS), **common}}
-
-
-def _item_text(preamble: str, item: str) -> str:
-    return f"{preamble}\n\n{item}" if preamble else item
-
-
-def _route_deliveries(ctx: dict, request: dict, parts: dict) -> dict:
-    """A request that lists several deliveries (decision P3): one router run per item, each with the text
-    "<preamble>\n\n<item>"; then one plan of every routed delivery, a delivery starting after an earlier one only when it reads what that one writes (plan.combine),
-    opened with the last run. An item whose reply asks, names no valid route or cannot be planned goes to the plan's
-    "unrouted" with the whole reply. When no item was routed, the last run opens one question with every reply."""
-    store = ctx["store"]
-    routed, runs, last = [], [], None
-    items = parts["items"]
-    for k, item in enumerate(items, 1):
-        call = _router_call(ctx, request, _item_text(parts["preamble"], item))
-        if call["failed"]:
-            return {**call["out"], "deliveries": len(items), "runs": runs + [call["out"]["run_id"]]}
-        read = call["read"]
-        entry = {"item": item, "route": None, "reply": call["body"]}
-        if read["kind"] == "route":
-            entry["route"] = _checked(ctx, read)
-            ending = "done" if entry["route"]["checked"]["ok"] else "unclassified"
-        else:
-            entry["route"] = None if read["kind"] == "question" else read
-            ending = "question" if read["kind"] == "question" else "unclassified"
-        routed.append(entry)
-        runs.append(call["out"]["run_id"])
-        if k < len(items):
-            core._stored(ctx, store.route_run_finish, call["out"]["run_id"], ending=ending, **call["finish"])
-        else:
-            last = (call, ending)
-    call, ending = last
-    out = call["out"]
-    try:
-        combined = _combined(ctx, request, routed)
-        why = None
-    except (flow_files.FlowError, plan.PlanError, ValueError) as e:
-        combined, why = None, f"no plan can be built from the routes: {e}"
-    if combined is not None and combined["plan"] is not None:
-        decision = ops_waits.annotate(ctx, request, {"kind": "plan", **combined["plan"]})
-        decision["payload"] = {**decision["payload"], **call["common"], "router_runs": runs}
-        kind = "plan"
-    else:
-        replies = "\n\n".join(f"--- delivery {n}: {e['item']} ---\n{e['reply'].rstrip()}" for n, e in enumerate(routed, 1))
-        decision = _not_recognised(store, request, (why or "No delivery of the request was routed.") + "\n\n" + replies,
-                                   why or "no delivery was routed", {**call["common"], "router_runs": runs})
-        decision["title"] = "No delivery was routed"
-        kind = "question"
-    done = core._stored(ctx, store.route_run_finish, out["run_id"], ending=ending, pending=decision, **call["finish"])
-    out.update(status="ok", ending=ending, routed=kind == "plan", kind=kind, pending_id=done["pending_id"],
-               deliveries=len(items), runs=runs,
-               unrouted=len(combined["unrouted"]) if combined is not None else len(items))
-    return out
-
-
-# --- stage 6: what follows a release: the brief's delivery routed again, the backlog's sub-tasks ------------------
-
-
-def _approved_plan(ctx: dict, request_id: int):
-    """The payload of the request's approved `plan` pending decision (the newest), or None: the one source of the
-    plan's deliveries and limits after its approval."""
-    found = [p for p in core._stored(ctx, ctx["store"].pending_list, "resolved", request_id)
-             if p["kind"] == "plan" and p["resolution"] == "approved"]
-    return found[-1]["payload"] if found else None
-
-
-def _brief_delivery(ctx: dict, task: dict):
-    """(k, delivery, plan payload) when task is the brief after which a delivery of its approved plan is routed again,
-    else None."""
-    if task.get("parent_id") is None:
-        return None
-    approved = _approved_plan(ctx, task["parent_id"]) or {}
-    for k, delivery in enumerate(approved.get("deliveries") or [], 1):
-        if delivery.get("reroute_after") and delivery["reroute_after"] == task["key"]:
-            return k, delivery, approved
-    return None
-
-
-def _after_release(ctx: dict, item: dict) -> dict:
-    """What a release of a review starts, by the person or by a mode (WP-6.5): (a) the brief's delivery routed again,
-    with the brief's path from the files the run returned (never from the reply); (b) the backlog's sub-tasks, when the
-    task's skill owns the product backlog and the run returned it. Returns {"reroute": ..., "subtasks": ...}, each only
-    when it applied. The caller holds the route lock when (a) applies."""
-    out = {}
-    if item["kind"] != "review":
-        return out
-    task = core._stored(ctx, ctx["store"].task_get, item["task_id"])
-    returned = [r.get("path") for r in (item.get("payload") or {}).get("returned") or [] if isinstance(r, dict)]
-    found = _brief_delivery(ctx, task)
-    if found is not None:
-        out["reroute"] = _reroute(ctx, task, returned, *found)
-    if task.get("skill") and task["skill"] == plan.owner_of(plan.BACKLOG, core.ROOT) and plan.BACKLOG in returned:
-        out["subtasks"] = _backlog_subtasks(ctx, task)
-    return out
-
-
-def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, approved: dict) -> dict:
-    """Route delivery k again, once, with the line "The brief is at <path>." added. A route to a flow or a skill opens
-    an `acceptance` of kind subtasks with its tasks (keys d<k>-..., the first ones after the brief); a second route to
-    the brief skill, a reply that asks or names no valid route, a missing brief or a failed run opens an `acceptance`
-    of kind deliveries that shows the reason and the router's whole reply: the delivery reaches the person, never a
-    third run."""
-    store = ctx["store"]
-    request = core._stored(ctx, store.task_get, task["parent_id"])
-    briefs = [rel for rel in returned if rel and rel.startswith(plan.BRIEFS_DIR)]
-    if not briefs:
-        return _not_rerouted(ctx, request, k, delivery, "the brief task returned no file under " + plan.BRIEFS_DIR, "")
-    parts = plan.split(request["text"])
-    text = _item_text(parts["preamble"] if len(parts["items"]) > 1 else "", delivery["item"]) + \
-        f"\n\nThe brief is at {briefs[0]}."
-    call = _router_call(ctx, request, text, reroute=True)
-    if call["failed"]:
-        if call["out"]["status"] == "cancelled":   # the request is being cancelled: nothing is opened for it (R18)
-            return {"delivery": k, "run_id": call["out"]["run_id"], "pending_id": None, "routed": False, "why": "cancelled"}
-        return _not_rerouted(ctx, request, k, delivery, f"the router's run failed: {call['out']['failure']['reason']}",
-                             "", run_id=call["out"]["run_id"])
-    read, body = call["read"], call["body"]
-    why, tasks = None, None
-    if read["kind"] != "route":
-        why = "the router asked" if read["kind"] == "question" else read.get("why") or "no route"
-    else:
-        route_read = _checked(ctx, read)
-        checked = route_read["checked"]
-        if not checked["ok"]:
-            why = checked["why"]
-        elif checked.get("skill") == plan.BRIEF_SKILL:
-            why = "the router named the brief again: a delivery is routed again once"
-        else:
-            try:
-                flows = {checked["flow"]: flow_files.load(checked["flow"], core.ROOT)} if "flow" in checked else {}
-                tasks = plan.delivery_tasks(dict(route_read, title=plan.title_of(delivery["item"])), k, flows, core.ROOT,
-                                            plan.pack_skills(ctx["cfg"], core.ROOT), prefix=True)
-                skills = plan.agent_skills(ctx["cfg"], core.ROOT)
-                inside = {t["key"] for t in tasks}
-                for t in tasks:
-                    if not [d for d in t["depends_on"] if d in inside]:
-                        t["depends_on"] = [task["key"]] + t["depends_on"]
-                    t["agent"] = plan.agent_for(t, skills)
-                language_rules.with_language(tasks, request.get("language") or route_read.get("language"))
-            except (flow_files.FlowError, plan.PlanError, ValueError) as e:
-                why, tasks = f"no task can be planned from the route: {e}", None
-    finish = call["finish"]
-    if tasks is None:
-        decision = _not_rerouted_decision(request, k, delivery, why, body, call["common"])
-        ending = "question" if read["kind"] == "question" else "unclassified"
-    else:
-        lines = [f"Delivery {k} ({delivery['item']}) was routed again after its brief ({briefs[0]}): {read['line']}.",
-                 "Accept to add these tasks to request " + str(request["id"]) + ":", ""]
-        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']}, agent {t['agent'] or 'none'})" for t in tasks]
-        lines += ["", language_rules.payload_line({"tasks": tasks, "project_language": ops_language.project_of(ctx["cfg"])})]
-        decision = {"kind": "acceptance", "title": f"Accept the tasks of delivery {k}, routed after its brief",
-                    "body": "\n".join(lines), "payload": {"what": "subtasks", "delivery": k, "brief": briefs[0],
-                                                          "route": read["line"], "tasks": tasks, **call["common"]}}
-        ending = "done"
-    done = core._stored(ctx, store.route_run_finish, call["out"]["run_id"], ending=ending, pending=decision, **finish)
-    return {"delivery": k, "run_id": call["out"]["run_id"], "pending_id": done["pending_id"],
-            "routed": tasks is not None and not done["cancelled"], "why": why}
-
-
-def _not_rerouted_decision(request: dict, k: int, delivery: dict, why: str, reply: str, common: dict) -> dict:
-    body = (f"Delivery {k} of request {request['id']} ({delivery['item']}) was not planned after its brief: {why}. "
-            "Accepting records that you read this; start a new request for this delivery when you want it.")
-    if reply:
-        body += "\n\nThe router's reply, whole:\n\n" + reply
-    return {"kind": "acceptance", "title": f"Delivery {k} was not routed after its brief",
-            "body": body, "payload": {"what": "deliveries", "delivery": k, "why": why, **common}}
-
-
-def _not_rerouted(ctx: dict, request: dict, k: int, delivery: dict, why: str, reply: str, run_id=None) -> dict:
-    decision = _not_rerouted_decision(request, k, delivery, why, reply, {})
-    opened = core._stored(ctx, ctx["store"].acceptance_open, task_id=request["id"], what="deliveries",
-                     title=decision["title"], body=decision["body"], payload=decision["payload"])
-    return {"delivery": k, "run_id": run_id, "pending_id": opened["pending_id"], "routed": False, "why": why}
-
-
-def _backlog_subtasks(ctx: dict, task: dict) -> dict:
-    """The product backlog's todo tasks as sub-tasks of the request, within the limits of its approved plan (read from
-    that plan's payload and nowhere else): those inside are added at once (tasks_add), the others wait in one
-    `acceptance` of kind subtasks. A task the request already has is not proposed again."""
-    store, request_id = ctx["store"], task["parent_id"]
-    approved = _approved_plan(ctx, request_id) or {}
-    limits = approved.get("limits") or {}
-    try:
-        proposed = plan.backlog_tasks(os.path.join(ctx["cfg"]["project"], *plan.BACKLOG.split("/")), core.ROOT)
-    except ValueError as e:
-        return {"error": str(e)}
-    rows = [t for t in core._stored(ctx, store.tasks_list, request_id) if t["parent_id"] is not None]
-    known = {t["key"] for t in rows if t.get("key")}
-    planned = {t.get("key") for t in approved.get("tasks") or []}
-    proposed = [p for p in proposed if p["key"] not in known]
-    if not proposed:
-        return {"created": [], "pending_id": None}
-    language_rules.with_language(proposed, ops_language.of_plan(approved, core._stored(ctx, store.task_get, request_id), task))
-    skills = plan.agent_skills(ctx["cfg"], core.ROOT)
-    for p in proposed:
-        try:
-            p["agent"] = plan.agent_of(p["skill"], skills) if skills else None
-        except ValueError:
-            p["agent"] = None  # no agent owns it: it waits, and the person can run it by hand
-    chosen = plan.subtasks(limits, len([t for t in rows if t.get("key") not in planned]), proposed, known)
-    created = ops_waits.add_subtasks(ctx, request_id, chosen["create"])["tasks"] if chosen["create"] else []
-    pending_id = None
-    if chosen["ask"]:
-        lines = [f"The product backlog proposes {len(chosen['ask'])} task(s) outside the approved plan's limits "
-                 f"({limits.get('max_subtasks', 0)} sub-tasks of {', '.join(limits.get('subtask_skills') or []) or 'no skill'}):", ""]
-        lines += [f"- {t['key']}: {t['title']}" + (f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else "")
-                  for t in chosen["ask"]]
-        lines += ["", language_rules.payload_line({"tasks": chosen["ask"], "project_language": ops_language.project_of(ctx["cfg"])})]
-        pending_id = core._stored(ctx, store.acceptance_open, task_id=request_id, what="subtasks",
-                             title=f"Accept {len(chosen['ask'])} sub-task(s) of request {request_id}",
-                             body="\n".join(lines), payload={"tasks": chosen["ask"]})["pending_id"]
-    return {"created": [t["id"] for t in created], "pending_id": pending_id}
 
 
 EFFECT_CHANNELS = operations.EFFECT_CHANNELS  # the channels an effect may be approved from (decision D8, extended); the source is operations.py
@@ -2285,157 +1289,7 @@ def reject(project: str, pending_id: int, note: str | None = None, channel: str 
 
 # --- stage 6: the dispatcher's operations ----------------------------------------------------------------------------
 
-DISPATCH_BUDGET = 2700     # seconds after which a round starts no new run (the worker's limit is 240 minutes)
 HANDLER_TIMEOUT = 1800     # seconds a handler's verb may take
-PER_RUN_USD = 0.5          # what a floor run of unknown cost counts at, when runtime.json names no max_cost_usd_per_run
-# A run that failed so: the next run of the round would fail the same way, so the round stops.
-STOPPING_FAILURES = ("auth", "settings")
-STOPPING_REASONS = ("container:", "config:")  # a LabError of these kinds, recorded as an internal failure
-
-
-def _midnight_utc() -> str:
-    """The start of today, local time, as UTC ISO-8601: where a day's caps start counting."""
-    local = datetime.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-    return local.astimezone(datetime.timezone.utc).isoformat()
-
-
-def _budget(ctx: dict, agent, routing: dict, keys=None):
-    """lab.run_skill's max_cost: the spend limit of a run on a metered credential, or one no manifest could bill (autonomy.run_budget
-    of the agent's day; the per-run limit when the agent has no caps or less is left, a start by hand not being capped); None else."""
-    per_run = ctx["cfg"]["raw"].get("max_cost_usd_per_run", PER_RUN_USD)
-    found = _agents_of_the_day(ctx, keys).get(agent)
-    return None if routing["billing"] not in (None, "metered") else (found and autonomy.run_budget(found["entry"], found["spent"], per_run)) or per_run
-
-
-def _agents_of_the_day(ctx: dict, keys=None) -> dict:
-    """Each area agent's facts, a day's spend and entry, from the store and the configuration: {name: {"facts",
-    "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use; keys: the Keys found). The
-    spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the rule of its model: a run on a metered model is metered). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
-    (its task is a request, so its agent is None) counts against the planning agent, an answer run (ask) against the owner of the answer skill
-    (ops_ask.run_owners). {} without area agents."""
-    store, cfg = ctx["store"], ctx["cfg"]
-    agents_checked = cfg["area_agents"]
-    if not agents_checked:
-        return {}
-    now = datetime.datetime.now(datetime.timezone.utc)
-    standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
-    runs = autonomy.with_billing(core.attributed(core._stored(ctx, store.runs_since, _midnight_utc()), ops_ask.run_owners(ctx)),
-                                 core._metered_models())
-    per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, keys or core._keys())
-    return {name: {"facts": autonomy.facts(name, agents_checked, standing_rows, now), "entry": entry,
-                   "spent": autonomy.spend(runs, name, per_run), "split": autonomy.spend_split(runs, name, per_run),
-                   "in_use": in_use}
-            for name, entry in agents_checked.items()}
-
-
-def _proven_on(ctx: dict, routed, task: dict, run) -> bool:
-    """Whether the skill of a task is proven now on the model its run used (the proof of that model, read now); with no run
-    (a review of a stand-in), on the model the task would run on."""
-    try:
-        return bool(routed(task["skill"], task, (run or {}).get("model")).get("proven"))
-    except core.OpsError:
-        return False
-
-
-def _snapshot(ctx: dict, keys) -> dict:
-    """What dispatcher.decide reads, from the store, the proof (proof.route through _route) and the runtime manifests:
-    the tasks running (with the children started and not yet claimed), the slot holders, the ready tasks oldest first with
-    the model each would run on and the code flag and footprint of their skill, the open reviews with their agent, whether
-    the pair that ran is proven and whether the person's consent covers it, and mandatory flag, the tasks a child could not start lately (`refused`), the project's `max_running`, and each area
-    agent's facts, a day's spend and its entry (_agents_of_the_day). A run of the router (its task is a request, so its
-    agent is None) counts against the planning agent."""
-    store, cfg = ctx["store"], ctx["cfg"]
-    agents = cfg["area_agents"]
-    tasks = ops_waits.current_tasks(ctx)  # the waits derived again first: a round decides from what is now
-    by_id = {t["id"]: t for t in tasks}
-    proofs = {}
-
-    def routed(skill: str, task=None, requested=None) -> dict:
-        slot = (skill, (task or {}).get("id"), requested)
-        if slot not in proofs:
-            proofs[slot] = _route(ctx, skill, skill_meta.declared(os.path.join(core.ROOT, "skills", skill)), keys, task, requested)
-        return proofs[slot]
-
-    cache = {}
-    parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
-    starting = parallel_part.pop("starting")  # started and not yet claimed: counted as running, not decided again
-    out = {**parallel_part,
-           "ready": [{**t, "code": ops_runs.task_facts(t, cache)[1], "footprint": ops_runs.task_facts(t, cache)[0]}
-                     for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
-           "reviews": [], "agents": _agents_of_the_day(ctx, keys), "model": {}, "billing": {},
-           "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
-    for item in core._stored(ctx, store.pending_list):
-        task = by_id.get(item["task_id"])
-        if item["kind"] != "review" or task is None or not task.get("skill"):
-            continue
-        runs = core._stored(ctx, store.task_runs_list, task["id"])
-        run = runs[-1] if runs else None  # the run that opened this review
-        proven, consent = ops_models.consent_for_review(ctx, run, agents.get(task.get("agent")),
-                                                        _proven_on(ctx, routed, task, run))
-        out["reviews"].append({"pending": item, "task": task, "agent": task.get("agent"), "proven": proven, "consent": consent,
-                               "mandatory": plan.mandatory(task["skill"], core.ROOT)})
-    for task in out["ready"]:
-        if task.get("agent") in agents and task.get("skill"):
-            try:
-                routing = routed(task["skill"], task)
-            except core.OpsError as e:  # a model the gate file does not list: the task is held, the round goes on
-                out.setdefault("refused", {})[task["id"]] = str(e)
-                continue
-            out["model"][task["id"]], out["billing"][task["id"]] = routing["model"], routing["billing"]
-    out["waits"] = ops_waits.waiting_for(ctx)  # a ready task with an open wait starts nowhere (dispatcher.decide)
-    ops_steps.annotate(ctx, out)  # the brake of the step tasks, and which kinds the dispatcher may start (runtime/ops_steps.py)
-    return out
-
-
-def _mode_releases(ctx: dict, released: list, snapshot: dict, decided: dict, skip=None) -> list:
-    """Apply the releases a decision lists, each as the mode of its agent (by "mode:<mode>"), with what a release starts
-    (_after_release). A review skip(task) names is left for later (poll leaves the brief's release, which runs the
-    router, to dispatch). When a release by a mode completes a request, one acceptance of kind deliveries lists every
-    delivery a mode released in it (part 0, F.3). Returns [{"pending_id", "task_id", "by", ...}]."""
-    reviews = {r["pending"]["id"]: r for r in snapshot["reviews"]}
-    agents = snapshot["agents"]
-    out = []
-    for pending_id in decided["release"]:
-        review = reviews[pending_id]
-        if skip is not None and skip(review["task"]):
-            continue
-        by = "mode:" + autonomy.mode_of(agents[review["agent"]]["facts"])
-        done = _release(ctx, pending_id, by=by)
-        out.append({"pending_id": pending_id, "task_id": review["task"]["id"], "by": by,
-                    **({"after": done["after"]} if done.get("after") else {})})
-        released.append(pending_id)
-        for request_id in done.get("completed") or []:
-            out[-1]["acceptance"] = _deliveries_acceptance(ctx, request_id)
-    return out
-
-
-def _deliveries_acceptance(ctx: dict, request_id: int):
-    """One acceptance of kind deliveries on a request a mode completed, listing every delivery a mode released in it;
-    None when no delivery of it was released by a mode."""
-    store = ctx["store"]
-    tasks = {t["id"]: t for t in core._stored(ctx, store.tasks_list, request_id) if t["parent_id"] is not None}
-    by_mode = [p for p in core._stored(ctx, store.pending_list, "resolved")
-               if p["task_id"] in tasks and p["kind"] == "review" and p["resolution"] == "released"
-               and str(p.get("resolved_by") or "").startswith("mode:")]
-    if not by_mode:
-        return None
-    lines = [f"Request {request_id} is done, and an autonomy mode released these deliveries without you. Each stays a "
-             "draft: read it, then accept (a note records what you think), or reject.", ""]
-    lines += [f"- task {p['task_id']} ({tasks[p['task_id']]['skill']}): {tasks[p['task_id']]['title']}, released by "
-              f"{p['resolved_by']}, pending decision {p['id']}" for p in by_mode]
-    return core._stored(ctx, store.acceptance_open, task_id=request_id, what="deliveries",
-                   title=f"Accept the deliveries of request {request_id}", body="\n".join(lines),
-                   payload={"released": [p["id"] for p in by_mode]})["pending_id"]
-
-
-def _stops_the_round(ran: dict):
-    """The reason a round stops after this run, or None: a failure the next run would repeat."""
-    failure = ran.get("failure") or {}
-    if failure.get("kind") in STOPPING_FAILURES:
-        return f"a run failed ({failure['kind']}): the next run would fail the same way"
-    if failure.get("kind") == "internal" and str(failure.get("reason") or "").startswith(STOPPING_REASONS):
-        return f"a run could not reach the container ({failure['reason'][:200]}): the next run would fail the same way"
-    return None
 
 
 def dispatch(project: str, budget_seconds=None, wait: bool | None = None, channel: str | None = None) -> dict:
@@ -2483,117 +1337,7 @@ def pin(project: str) -> dict:
                     "each with the scheduler provider"}
 
 
-def _configuration_moved(ctx: dict) -> bool:
-    """Whether the configuration this round loaded is no longer the file or no longer the accepted one: the file's hash
-    or the accepted hash differs from the one the round started with. The round then ends, so that a narrowing accepted
-    in the middle of it (the page stopped an agent) stops the next start."""
-    try:
-        now = core._config_of(ctx["cfg"]["project"])
-    except core.OpsError:
-        return True
-    accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
-    return now["sha256"] != ctx["cfg"]["sha256"] or accepted != ctx["cfg"]["sha256"]
-
-
-def _credential_stop(model: str | None = None):
-    """(reason, why, missing) no run on the model can start from this process, or None: its credential is neither set
-    nor found in the secret store (lab.credential_missing). The model is the default model (the first lab model) when none
-    is named. The reason is `secret store` when this interpreter cannot read the store at all (the library is missing), else
-    `credential`. Named with the interpreter, since a scheduled job's interpreter may not read the store (open point O1)."""
-    model = lab.resolve_model(model)
-    missing = lab.credential_missing(model)
-    if not missing:
-        return None
-    reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    locked = secret_state.unreadable_sentence(core.ROOT, names=missing) if reason == "credential" else ""   # a locked store is not a missing key (I3)
-    return reason, (f"{locked}; the credential of {model} ({', '.join(missing)}) cannot be read" if locked else
-                    f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store") + (
-                    f" from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
-                    "\"The dispatcher's two jobs\""), list(missing)
-
-
-def _image_stop():
-    """("image", why) when the eval image is not on this machine although the lab runs in a container (a run would
-    fail for it), else None. A machine the lab cannot look at (no container executor, no docker) says nothing."""
-    seen = lab.image()
-    if seen.get("problem"):
-        return "image", f"the eval image cannot be looked up ({seen['problem']}): no run starts, and no task fails for it. See connections", []
-    if seen.get("name") and not seen.get("digest"):
-        return "image",f"the eval image {seen['name']} is not on this machine: no run starts, and no task fails for it. See connections", []
-    return None
-
-
-# --- why a ready task did not start (WP-9.14, A-10) ---------------------------------------------------------------
-
-HELD_CURSOR = "dispatch:held"   # the store's cursor that holds the last round's held tasks (JSON), per project
-HELD_KEPT = 20                  # tasks kept in the record: a cursor value is at most 4 KiB
-SERVICE = {}                    # the local service's facts, by project folder: set by service_check in the service's process only
-
-
-def _now_iso() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-
-def _record_held(ctx: dict, held: list, missing=()) -> None:
-    """Keep the last round's held tasks, [{"task_id", "agent", "reason"}], as the cursor HELD_CURSOR with the time they
-    began to be held (at), and `missing`, the variables of the credential that were not found (names only). At most
-    HELD_KEPT tasks; "more" counts the rest. A round that holds the same tasks for the same reasons writes nothing: a
-    write moves the store's change counter, and every open page reloads for it."""
-    kept, more, names = held[:HELD_KEPT], max(0, len(held) - HELD_KEPT), list(missing)[:HELD_KEPT]
-    try:
-        before = json.loads(core._stored(ctx, ctx["store"].cursor_get, HELD_CURSOR) or "null")
-    except ValueError:
-        before = None
-    if isinstance(before, dict) and before.get("held") == kept and before.get("more") == more \
-            and (before.get("missing") or []) == names:
-        return
-    record = {"at": _now_iso(), "held": kept, "more": more, "missing": names}
-    core._stored(ctx, ctx["store"].cursor_set, HELD_CURSOR, json.dumps(record, separators=(",", ":")))
-
-
-def _held_listed(ctx: dict, rows: list) -> list:
-    """The held tasks `status` and `agents` show: [{"task_id", "agent", "reason", "at", "next", "commands"}] for the ready tasks
-    among rows (the store's tasks). While the local service dispatches nothing, every ready task is held with `dispatch
-    off`; otherwise the last round's record, kept only for tasks still ready. `next` is the sentence that gets past the
-    reason, or None; `commands` is the same as fields, [{"name", "command"}], for the two reasons a command gets past
-    (ops_reads.held_commands), else []."""
-    ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
-    if not ready:
-        return []
-    project = ctx["cfg"]["project"]
-    service = SERVICE.get(os.path.realpath(project))
-    if service is not None and service["dispatch"] == "off":
-        return [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.DISPATCH_OFF, "at": service["at"],
-                 "next": core._command("run-next", project, uv=True), "commands": []} for t in ready]
-    try:
-        record = json.loads(core._stored(ctx, ctx["store"].cursor_get, HELD_CURSOR) or "null")
-    except ValueError:
-        record = None
-    if not isinstance(record, dict):
-        return []
-    ids = {t["id"] for t in ready}
-    out = []
-    for h in record.get("held") or []:
-        if h.get("task_id") in ids:
-            out.append({**h, "at": record.get("at"), "next": ops_reads.held_next(project, h["reason"], record.get("missing")),
-                        "commands": ops_reads.held_commands(project, h["reason"], record.get("missing"))})
-    return out
-
-
-def _ticks(ctx: dict, project: str) -> dict:
-    """The tick of every handler whose `dispatch` is true and whose agent is enabled; a failure is recorded, never
-    raised."""
-    out = {}
-    agents = ctx["cfg"]["area_agents"]
-    for name, entry in sorted((ctx["cfg"].get("handlers") or {}).items()):
-        agent = agents.get(entry.get("agent")) or {}
-        if not entry.get("dispatch") or not agent.get("enabled") or agent.get("mode") == "stopped":
-            continue
-        try:
-            out[name] = handler_call(project, name, "tick")
-        except core.OpsError as e:
-            out[name] = {"error": str(e), "code": e.code}
-    return out
+# --- the handlers' ticks of a round ---------------------------------------------------------------------------------
 
 
 def poll(project: str) -> dict:
@@ -2624,9 +1368,9 @@ def poll(project: str) -> dict:
                 state = "written"
     released = []
     if cfg["area_agents"]:
-        snapshot = _snapshot(ctx, core._keys())
+        snapshot = ops_round._snapshot(ctx, core._keys())
         decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
-        released = _mode_releases(ctx, [], snapshot, decided, skip=lambda task: _brief_delivery(ctx, task) is not None)
+        released = ops_round._mode_releases(ctx, [], snapshot, decided, skip=lambda task: ops_round._brief_delivery(ctx, task) is not None)
     return {"synced": synced, "expired": expired, "released": released, "state": state}
 
 
@@ -2688,33 +1432,80 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
-from ops_say import chat_memory, natural_draft, natural_file_accounts, natural_forget, natural_needs, natural_reply, natural_write, route_queued, say  # noqa: E402,F401
-from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
+from ops_say import (  # noqa: E402,F401
+    chat_memory,
+    list_waits,
+    natural_draft,
+    natural_file_accounts,
+    natural_forget,
+    natural_needs,
+    natural_reply,
+    natural_write,
+    plan_choice,
+    plan_drop,
+    plan_live,
+    reads_words,
+    route_queued,
+    say,
+)
+from ops_say import (  # noqa: E402,F401
+    ASK_NEXT,
+    CONVERSATION,
+    MEMORY_CHARS,
+    MEMORY_CUT,
+    MEMORY_HEAD,
+    MEMORY_TAIL,
+    MEMORY_TURNS,
+    PLAN_NEXT,
+)
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
-from ops_sources import (source_add, source_calendar, source_describe, source_drive, source_import, source_mail, source_onedrive,  # noqa: E402,F401
-                         source_refresh, sources_catalog)
+from ops_sources import (  # noqa: E402,F401
+    source_add,
+    source_calendar,
+    source_describe,
+    source_drive,
+    source_import,
+    source_mail,
+    source_onedrive,
+    source_refresh,
+    sources_catalog,
+)
 # The files sent through a messaging app (runtime/ops_attachments.py): the held list, the hold, the add and the discard.
 from ops_attachments import attachment_add, attachment_discard, attachment_hold, attachments  # noqa: E402,F401
 # Reminders (runtime/ops_reminders.py): the three operations, and what the messaging bridge asks of the store to send them.
-from ops_reminders import remind, reminder_forget, reminder_restore, reminders_due, reminders_read, reminders_retry, reminders_sent  # noqa: E402,F401
+from ops_reminders import (  # noqa: E402,F401
+    remind,
+    reminder_forget,
+    reminder_restore,
+    reminders_due,
+    reminders_read,
+    reminders_retry,
+    reminders_sent,
+)
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
 # The numbered items of the mail and calendar snapshots (runtime/ops_items.py, package NR-5a).
-from ops_items import items  # noqa: E402,F401
+from ops_items import agenda, items  # noqa: E402,F401
 # Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
 from ops_file_read import file_read  # noqa: E402,F401
 # A question of general information answered by a web search, one run of the research skill with web access (runtime/ops_research.py, slice R2-F1).
-from ops_research import research  # noqa: E402,F401
+from ops_research import (  # noqa: E402,F401      # BL2a: `research_stop` ends the sender's own search by their stop word (not an operation of the table)
+    research,
+    stop as research_stop,
+)
+from source_names import (  # noqa: E402,F401      # BL5D: the plain names a phone shows for the sources; not an operation of the table
+    for_project as source_names,
+)
 # Move a file found by its name to the service's trash, behind a card (runtime/ops_file_trash.py, slice R2-A).
 from ops_file_trash import file_trash  # noqa: E402,F401
 # An e-mail from the person's own account (runtime/ops_mail_send.py, package W2): a new e-mail and a reply; each one prepares a card and sends nothing.
 from ops_mail_send import mail_reply, mail_send  # noqa: E402,F401
-# A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check and the change; the change opens a new card and sends nothing.
-from ops_card_revise import card_revise, card_revise_check  # noqa: E402,F401
+# A waiting card changed by words (runtime/ops_card_revise.py, slice S13): the check, the change and `card_replaced`; the change opens a new card and sends nothing.
+from ops_card_revise import card_replaced, card_revise, card_revise_check  # noqa: E402,F401
 # The person's own mailbox (runtime/ops_mailbox.py, package W3): a draft, archive, a move, read state, the trash; each one prepares a card and writes nothing.
 from ops_mailbox import mail_archive, mail_draft, mail_mark, mail_move, mail_trash  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
@@ -2727,15 +1518,133 @@ import ops_instructions  # noqa: E402  (the standing instructions: three operati
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
 import ops_ask  # noqa: E402  (the answer from sources: `ask`, and the owners of the runs of a request)
 from ops_ask import ask  # noqa: E402,F401
-from ops_contained import contained_run  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
+from ops_contained import (  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
+    contained_run,
+)
 # The routines (runtime/ops_routines.py): the schedule's flows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
-from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401
-                          routines_read)
+from ops_routines import (  # noqa: E402,F401
+    routine_approve,
+    routine_cancel,
+    routine_change,
+    routine_create,
+    routine_pause,
+    routine_resume,
+    routines_read,
+)
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
-from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
+from ops_reads import (  # noqa: E402,F401
+    agents,
+    artifact,
+    artifact_raw,
+    artifacts,
+    connections,
+    conversation,
+    costs,
+    service_check,
+    skills,
+)
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401
 from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
+# --- re-exports added from SPEC-HOTSPOTS on: one block per module, sorted by module name ---
+from ops_file_ask import (  # noqa: E402,F401
+    file_ask,
+)
+from ops_mail_ask import (  # noqa: E402,F401
+    mail_ask,
+)
+from ops_mail_read import (  # noqa: E402,F401
+    mail_read,
+)
+from ops_reads import (  # noqa: E402,F401  (44-C2: the service's facts and the held tasks of `status`; this file reads them as ops_reads.<name>)
+    SERVICE,
+    _held_listed,
+)
+from ops_requests import (  # noqa: E402,F401  (44-C3: the router's run on a request; the callers in this file read them as ops_requests.<name>)
+    ROUTE_KEPT,
+    _checked,
+    _combined,
+    _item_text,
+    _not_recognised,
+    _route_deliveries,
+    _route_request,
+    _route_run,
+    _routable,
+    _router_call,
+)
+from ops_round import (  # noqa: E402,F401  (44-C4b: the dispatcher's round and the releases; the callers in this file read them as ops_round.<name>)
+    DISPATCH_BUDGET,
+    STOPPING_FAILURES,
+    STOPPING_REASONS,
+    _after_release,
+    _approved_plan,
+    _backlog_subtasks,
+    _brief_delivery,
+    _configuration_moved,
+    _credential_stop,
+    _deliveries_acceptance,
+    _image_stop,
+    _mode_releases,
+    _not_rerouted,
+    _not_rerouted_decision,
+    _proven_on,
+    _release,
+    _reroute,
+    _snapshot,
+    _stops_the_round,
+    _ticks,
+)
+from ops_runs import (  # noqa: E402,F401  (44-C1: the pieces of a run; 44-C2: the held record; 44-C3: the recorder of a use; the callers in this file read them as ops_runs.<name>)
+    EDITED_LINE,
+    HANDED_LINE,
+    HELD_CURSOR,
+    HELD_KEPT,
+    NOTE_LIMIT,
+    PER_RUN_USD,
+    RECORDER_TIMEOUT,
+    USE_ID,
+    _agents_of_the_day,
+    _budget,
+    _count,
+    _key_in_environment,
+    _midnight_utc,
+    _note,
+    _now_iso,
+    _push_after_run,
+    _record,
+    _record_held,
+    _recorder,
+    _reported_usage,
+    _skill_loaded,
+    _use_start,
+    code_task,
+    task_prompt,
+)
+from ops_task_run import (  # noqa: E402,F401  (44-C4a: the start and the body of a run; the callers in this file read them as ops_task_run.<name>)
+    EMPTY_CHANGESET,
+    MANDATORY_LINE,
+    PREPARE_ERRORS,
+    _changeset_of,
+    _code_state,
+    _dependencies,
+    _effect_kind,
+    _effect_or_review,
+    _ending,
+    _gate_payload,
+    _git,
+    _prepare_run,
+    _project_bytes,
+    _reader,
+    _request_run_dirs,
+    _run_body,
+    _run_start,
+    _tmp_files,
+)
+from ops_todo import (  # noqa: E402,F401
+    todo_add,
+    todo_done,
+    todo_list,
+)
 
 
 if __name__ == "__main__":

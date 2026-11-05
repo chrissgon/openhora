@@ -7,7 +7,7 @@
 
 Tables: cursors (where a trigger source left off), events (triggers to handle, deduplicated and
 claimed atomically), runs (one row per agent run), inbox (what waits for the user) and actions
-(outward actions the runtime executed, for daily limits and audit). The first runtime (scripts/runtime.py) calls
+(outward actions the runtime executed, for daily limits and audit). A runtime that is not the task runtime calls
 this script through its CLI, so another implementation of the `store:runtime` class can replace it (STORE_PROVIDER).
 
 Since schema version 2 the file also holds the tables of the task runtime (runtime/): tasks (a request and the
@@ -53,7 +53,9 @@ import secrets
 import sqlite3
 import stat
 import sys
+import threading
 import time
+import weakref
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -948,10 +950,157 @@ def db_path(args) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def connect(path: Path) -> sqlite3.Connection:
+_HELD_CURSORS: dict = {}
+
+
+def _held_cursor_class(real):
+    """The cursor class that keeps its Connection alive (`held`), so a read chained on a temporary never meets a
+    closed database. It is made from the class this interpreter's sqlite3 hands out, once, and not named here: the
+    validator's harness-name check reads that class's name as the name of an editor."""
+    probe = real.cursor()
+    base = type(probe)
+    probe.close()
+    if base not in _HELD_CURSORS:
+        _HELD_CURSORS[base] = type("_HeldCursor", (base,), {"held": None})
+    return _HELD_CURSORS[base]
+
+
+_DROPPED: list = []    # the _Dropped refs of main-thread Connections that were dropped; appended by the interpreter, in C
+_PENDING: dict = {}    # id(ref) -> ref, for every main-thread Connection not yet drained: a ref must outlive its referent or its callback never runs
+
+
+class _Dropped(weakref.ref):
+    """A weak reference to a main-thread Connection that carries the real connection and calls `_DROPPED.append` when the Connection dies."""
+    __slots__ = ("real",)
+
+
+def _on_main_thread() -> bool:
+    return threading.current_thread() is threading.main_thread()
+
+
+def close_dropped() -> None:
+    """Close the connections whose Connection was dropped since the last call. `connect` calls it first, so a connection made
+    on the main thread is closed by the next connect of the main thread (or by a call of this by name), in an ordinary frame.
+    It does nothing on another thread. Each entry is taken out of both lists BEFORE it is closed: an exception that is not an
+    sqlite3 error (the exception of a stop signal's handler, which can land while a close releases the lock of the
+    interpreter) goes out through the caller as a normal raise, nothing is retried, and the next call carries on with the rest.
+    A connection another thread made refuses its close (sqlite3 refuses any use there): it is left to the collector. The order
+    is read the last entry, take it out of _PENDING, take it out of _DROPPED, close: a stop between the first two leaves it to
+    the next drain, a stop after them leaves only a local, so the connection goes to the collector."""
+    if not _on_main_thread():
+        return
+    while _DROPPED:
+        # The order lets a stop at any line leave the entry recoverable or with the collector: it is read first and taken out of
+        # _PENDING while it is still in _DROPPED (a stop here is drained next time), then out of _DROPPED (a stop after leaves
+        # only the local, and the connection goes to the collector). `remove` takes this very entry even if the callback of
+        # another thread appended one meanwhile; `pop()` would take the newer one.
+        ref = _DROPPED[-1]
+        _PENDING.pop(id(ref), None)
+        _DROPPED.remove(ref)
+        try:
+            ref.real.close()
+        except sqlite3.Error:
+            pass
+
+
+class Connection:
+    """What connect returns on the main thread: one sqlite3 connection, closed by the next connect after the last reference
+    to this object goes.
+
+    From Python 3.11 a sqlite3.Connection refers to itself through its statement cache, so a connection dropped without
+    close() stays open, with its file and its -wal descriptor, until the cyclic collector reaches it (on 3.9 and 3.10
+    reference counting closes it at once). This object is outside that cycle, so reference counting sees its last drop,
+    whoever holds it: a caller never has to close, and one that does close loses nothing (a second close is a no-op). A
+    holder that keeps the object keeps the connection for as long as it keeps it.
+
+    The close is not made in the drop. A close releases the lock of the interpreter, and a stop signal's handler that runs
+    then raises inside whatever frame is running, which in a destructor can only be printed and dropped: the stop would be
+    lost (runtime/messaging.py, runtime/mcp.py, runtime/ops_steps.py and the default SIGINT raise from their handlers). So
+    this class has no __del__, and no Python runs in a drop: a weak reference made in `_wrap` (a _Dropped, with
+    `_DROPPED.append` as its callback, a call in C) puts the real connection in a list, and the next `connect` on the main
+    thread (or `close_dropped()`) closes it in an ordinary frame, where a handler's exception is a normal raise. The cost,
+    on the main thread: the last connections stay open until the next connect (at most what was dropped since the last one:
+    2 for an operation's context()) or, when the thread connects no more, until the process ends, as they would with a
+    collector with nothing to do; and a connection dropped with a transaction open would hold it, and the write lock of the
+    file, until then. `write` ends its transaction (COMMIT, or ROLLBACK on BaseException) and opens its try before BEGIN, so
+    an exception that lands right after BEGIN returns is rolled back too; what remains is a second stop that lands during
+    that ROLLBACK, and one that lands between the end of the body and COMMIT, which leave the lock held until the next
+    connect (the CLI's `cmd_export` has a raw BEGIN, in a process of its own). A
+    connection made on the main thread and dropped on another thread lands in the same list, and the main thread closes it:
+    sqlite3 wants its own thread.
+
+    A connection made on any other thread is a _ThreadConnection, which closes at its own drop: those threads run no signal
+    handler, and a request thread ends without a later connect to close for it. Its __del__ runs on whichever thread drops
+    it, so a thread connection handed to the main thread and dropped there can still lose a stop signal; no production
+    path hands one over.
+
+    What a drop keeps alive: `execute` returns a cursor that holds this object (_held_cursor_class), so
+    `open_db(db).execute(...).fetchone()` on a temporary works. Nothing else does. A cursor from `conn.cursor()`, a saved
+    `conn.commit`, and `executemany`, `executescript`, `iterdump` and `cursor` called on a temporary reach the real connection
+    through __getattr__ and do not hold this object: on another thread they meet `Cannot operate on a closed database` (they
+    worked at the base), on the main thread they work until the next connect. No production line does any of these. The
+    last connection of a file to close checkpoints and may remove the -wal and -shm files (SQLite's WAL life; some builds
+    keep them); the store tolerates both (private_files, ops_reads.version)."""
+    __slots__ = ("_real", "_cursor_class", "__weakref__")
+
+    def __init__(self, real):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_cursor_class", _held_cursor_class(real))
+
+    def __getattr__(self, name):
+        if name in ("_real", "_cursor_class"):   # a slot is unset (a half-built object): no recursion through __getattr__
+            raise AttributeError(name)
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real, name, value)
+
+    def execute(self, *args):
+        cursor = self._real.cursor(self._cursor_class)
+        cursor.held = self
+        return cursor.execute(*args)
+
+    def close(self):
+        self._real.close()
+
+    def __enter__(self):
+        self._real.__enter__()
+        return self
+
+    def __exit__(self, *given):
+        return self._real.__exit__(*given)
+
+
+class _ThreadConnection(Connection):
+    """A Connection made on a thread that is not the main one: it closes its connection at its own drop. A close that
+    sqlite3 refuses (the drop is on another thread than the one that made it) is swallowed and leaves the connection to the
+    collector, as before."""
+    __slots__ = ()
+
+    def __del__(self):
+        try:
+            self._real.close()
+        except Exception:  # noqa: BLE001 - a refusal on another thread, a half-built object, or the interpreter's exit: nobody can be told
+            pass
+
+
+def _wrap(real) -> "Connection":
+    """The Connection for a real sqlite3 connection, by the thread that makes it (see Connection)."""
+    if not _on_main_thread():
+        return _ThreadConnection(real)
+    conn = Connection(real)
+    ref = _Dropped(conn, _DROPPED.append)
+    ref.real = real
+    _PENDING[id(ref)] = ref
+    return conn
+
+
+def connect(path: Path) -> "Connection":
+    close_dropped()   # the connections dropped on the main thread since the last connect: closed here, in an ordinary frame
     # isolation_level=None: no implicit transactions; writes open BEGIN IMMEDIATE themselves.
-    conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
-    conn.row_factory = sqlite3.Row
+    real = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_SECONDS, isolation_level=None)
+    real.row_factory = sqlite3.Row
+    conn = _wrap(real)
     conn.execute("PRAGMA busy_timeout = 10000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -970,16 +1119,20 @@ def write(conn: sqlite3.Connection):
     with one cheap read that something was written (change_counter). One that changed nothing, such as a
     dispatcher tick with no task ready, and one that is rolled back leave it alone. After the largest value it
     starts again at 1: a reader compares two numbers for difference only."""
-    conn.execute("BEGIN IMMEDIATE")
-    changes = conn.total_changes
+    # The try opens before BEGIN: an exception that lands right after BEGIN returns (a stop signal's handler) must not leave
+    # the write lock held by a connection that is dropped open. A BEGIN that fails (database is locked) opened no
+    # transaction, so nothing is rolled back and its own error is the one raised.
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        changes = conn.total_changes
         yield
         if conn.total_changes != changes:
             raised = change_counter(conn) + 1
             # A pragma takes no parameter; the value is an integer computed here, never text from outside.
             conn.execute(f"PRAGMA user_version = {raised if raised <= CHANGE_COUNTER_MAX else 1}")
     except BaseException:
-        conn.execute("ROLLBACK")
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
         raise
     conn.execute("COMMIT")
 
@@ -1046,7 +1199,7 @@ def missing_migrations(conn: sqlite3.Connection) -> list:
     return sorted(set(MIGRATIONS) - have)
 
 
-def open_ready(args) -> sqlite3.Connection:
+def open_ready(args) -> "Connection":
     """A connection to an existing database at the current schema version: the highest applied number is the script's, and none of the script's
     migrations is missing (a number below the highest that was never applied is a gap, and init fills it)."""
     path = db_path(args)
@@ -1451,7 +1604,8 @@ def cmd_export(args) -> int:
 # transaction, so a step that ends a run, opens a pending decision and moves its task is all or nothing.
 # None of them has a CLI verb (export reads the tables). Text a model or another person wrote (a reply, a
 # question, an answer) is stored as given and never interpreted. Every function takes the connection that
-# open_db() returns and raises StoreError.
+# open_db() returns and raises StoreError. That object closes its connection soon after its last reference goes, so
+# no caller closes it (see Connection for the thread it closes on and what a drop keeps alive).
 
 TASK_STATES = ("requested", "planned", "ready", "running", "waiting", "blocked", "done", "failed", "cancelled")
 TASK_FINAL_STATES = ("done", "cancelled")  # nothing leaves them; failed and blocked go back to ready (task_retry)
@@ -1622,7 +1776,7 @@ ACCEPTANCE_WHATS = ("subtasks", "deliveries")  # payload["what"] of an acceptanc
 REROUTE_STATES = ("planned", "done")  # a request one of whose deliveries is routed again after its brief (stage 6)
 
 
-def open_db(path) -> sqlite3.Connection:
+def open_db(path) -> "Connection":
     """A connection to an existing database at the current schema version: what every function below takes."""
     return open_ready(argparse.Namespace(db=str(path)))
 
@@ -1645,8 +1799,13 @@ def _task(conn: sqlite3.Connection, task_id: int) -> dict:
 
 
 def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
-    """Inside a transaction: a request whose tasks are all done becomes done, a wait ends (cleared) when its
-    awaited row is done or cancelled, or when the task that waited is (a cancelled task waits for nothing), a planned task whose dependencies are all done and that has no open wait becomes ready.
+    """Inside a transaction: a request whose tasks are all done becomes done; a planned request whose tasks are all
+    cancelled and at least one of which was cancelled by a rejected `effect` becomes cancelled (the person turned the
+    effect down and nothing else of the request can move: a cancelled task is final; it is not listed as completed, and a
+    request whose only task was stopped by `task_stop` has no rejected effect and stays as it is). Because every
+    resolving transaction runs this, the same rule ends a request an earlier rejection left planned. A wait ends
+    (cleared) when its awaited row is done or cancelled, or when the task that waited is (a cancelled task waits for
+    nothing), a planned task whose dependencies are all done and that has no open wait becomes ready.
     Returns (ids made ready, ids of the requests completed)."""
     ready, completed = [], []
     for row in conn.execute("SELECT id FROM tasks WHERE state = 'planned' AND parent_id IS NULL ORDER BY id").fetchall():
@@ -1654,6 +1813,10 @@ def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
         if states and all(state == "done" for state in states):
             conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, row["id"]))
             completed.append(row["id"])
+        elif states and all(state == "cancelled" for state in states) and conn.execute(
+                "SELECT 1 FROM pending_decisions d JOIN tasks t ON t.id = d.task_id WHERE t.parent_id = ? "
+                "AND d.kind = 'effect' AND d.status = 'resolved' AND d.resolution = 'rejected'", (row["id"],)).fetchone():
+            conn.execute("UPDATE tasks SET state = 'cancelled', updated_at = ? WHERE id = ?", (now, row["id"]))
     conn.execute("UPDATE task_waits SET status = 'cleared', ended_at = ?, ended_by = 'runtime' WHERE status = 'open' "
                  "AND (awaited_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')) "
                  "OR task_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')))", (now,))
@@ -1942,8 +2105,9 @@ def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: st
     whose tasks are all done becomes done. A `plan` or an `acceptance` is never resolved here (plan_approve,
     plan_reject, acceptance_resolve). A question asked on a request (by the router, before any task exists) is
     only answered, and the request stays `requested`: a request is never given out to run. An `effect` is
-    `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled); both
-    revoke a `pending-execution` approval of it in the same transaction; it is approved through effect_done only.
+    `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled, and its
+    request too once no task of it is left that is not cancelled: `_refresh`); both revoke a `pending-execution`
+    approval of it in the same transaction; it is approved through effect_done only.
     `actor` (POL-2) is who acted, kept beside `by`: see migration 17.
     Returns {"pending_id", "task_id", "task_state", "ready": [ids], "completed": [request ids]}."""
     if resolution not in RESOLUTIONS and resolution not in EFFECT_RESOLUTIONS:

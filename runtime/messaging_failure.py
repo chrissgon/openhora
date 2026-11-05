@@ -14,6 +14,9 @@ sentences are free text, so a word list picks quota, size, name, network and aut
   from_step(kind, account, code, field, folder, cfg)   the sentence for a failed preparation (account_start.start)
   from_error(error, cfg, word=None, account=None)      the sentence for a failed approval (the bridge)
 
+A write the Google Tasks writer refused because the API is not enabled for the OAuth client's project ends in `api_disabled:` (providers/writer/google-tasks.py, runtime/effect_tasks.py): that
+text is checked first, before the rule for an authorization (code 3), so the person is told the one thing that fixes it.
+
 No command, no path and no hash is ever in a sentence (limit L62). Standard library only. Runs on Python 3.9: python3 runtime/messaging_failure.py --help
 """
 from __future__ import annotations
@@ -26,10 +29,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phone_errors  # noqa: E402  (what an English sentence becomes on a phone that does not speak English)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
-SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
-SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL", "send-own": "MAIL"}
+SERVICE_OF_KIND = {"file-write": "FILES", "mailbox-change": "MAIL", "send-email": "MAIL", "tasks-item": "TASKS"}      # the step kinds whose service is Drive/OneDrive or Gmail/Outlook
+SERVICE_OF_WORD = {"files": "FILES", "mailbox": "MAIL", "send": "MAIL", "send-own": "MAIL", "tasks": "TASKS"}
 PLACE_OF_WORD = {"calendar": "FAIL_LOOK_CALENDAR", "mailbox": "FAIL_LOOK_MAILBOX", "files": "FAIL_LOOK_FILES", "send": "FAIL_LOOK_SENT", "send-own": "FAIL_LOOK_SENT",
-                 "publish": "FAIL_LOOK_POST"}      # where the person looks when the outcome of a write is unknown
+                 "publish": "FAIL_LOOK_POST", "tasks": "FAIL_LOOK_TASKS"}      # where the person looks when the outcome of a write is unknown
 QUOTA = re.compile(r"quota|insufficient ?storage|storage (limit|full)|no (space|room) left", re.I)
 TOO_LARGE = re.compile(r"too (large|big)|size limit|payload too large|exceeds the (size|maximum)", re.I)
 TAKEN = re.compile(r"already (exists|there|in)|name (is )?taken|conflict", re.I)
@@ -47,7 +50,7 @@ def _family(kind=None, word=None):
 
 
 def _service(family, account, cfg) -> str:
-    if family in ("FILES", "MAIL") and account in ("google", "microsoft"):
+    if family in ("FILES", "MAIL", "TASKS") and account in ("google", "microsoft"):
         return phrases.text(f"FAIL_SERVICE_{family}_{account.upper()}", cfg)
     if family == "CALENDAR" and account in ("google", "microsoft"):
         return phrases.text("OUT_CAL_MICROSOFT" if account == "microsoft" else "OUT_CAL_GOOGLE", cfg)
@@ -72,6 +75,8 @@ def from_step(kind, account, code, field, folder, cfg, said=None) -> str:
         return phrases.text("FAIL_REFUSED", cfg, service=service)
     if code == "gone":
         return phrases.text("FAIL_GONE", cfg)
+    if code == "event_gone":
+        return phrases.text("FAIL_EVENT_GONE", cfg)
     if code == "name_taken":
         return phrases.text("FAIL_NAME_TAKEN", cfg)
     if code in ("file_too_large", "too_large"):
@@ -86,6 +91,8 @@ def from_error(error, cfg, word=None, account=None) -> str:
     wrote). `word` is the effect's word (`files`, `calendar`, `mailbox`, `send`) and `account` its account, when the caller knows them."""
     text = str(error)
     service = _service(_family(None, word), account, cfg)
+    if "api_disabled:" in text:
+        return phrases.text("FAIL_TASKS_API_OFF", cfg)
     if UNKNOWN.search(text):
         return phrases.text("FAIL_UNKNOWN", cfg, place=phrases.text(PLACE_OF_WORD.get(word, "FAIL_LOOK_ANY"), cfg))
     if QUOTA.search(text):

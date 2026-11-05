@@ -10,9 +10,11 @@ from __future__ import annotations
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 import test_sources_mail as tsm
 from test_calendar_write import SEEDED, Snapshots, install_item_refs, world  # noqa: F401  (the calendar world and its real snapshots)
 from test_ops_natural_writes import PLAIN, READER, SENDER, forget, policy  # noqa: F401
+from test_items_fresh import project  # noqa: F401  (the four senders, each holding `confirm-reads-off`)
 from test_reminders import Clock
 
 ops = st.load("ops")
@@ -78,10 +80,10 @@ def test_a_messaging_sender_reads_them_only_with_ask_mail_and_the_mcp_mode_never
         ops.items(world["path"], channel="messaging", sender=PLAIN)
 
 
-def test_the_lines_in_words_list_the_mail_or_the_events_and_the_conversation_stores_a_neutral_word(world, snaps, clock):
-    policy(world)
+def test_the_lines_in_words_list_the_mail_or_the_events_and_the_conversation_stores_a_neutral_word(world, snaps, clock, tier1_forms):      # S41-11: the closed form of the read claims the line here, as before: the test is about the list
+    project(world)      # the four senders hold `confirm-reads-off` (D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about the lists)
     mail = ops.say(world["path"], "lista os e-mails", channel="messaging", sender=READER)["reply"]
-    assert "inbox" in mail and "Bia Costa · Appointment confirmed · today 06:00" in mail and "Dentist" not in mail
+    assert "Gmail (" in mail and "inbox" not in mail and "Bia Costa · Appointment confirmed · today 06:00" in mail and "Dentist" not in mail
     events = ops.say(world["path"], "meus eventos", channel="messaging", sender=READER)["reply"]
     assert "Google calendar" in events and "agenda" not in events and "Dentist" in events and "bia@clinic" not in events
     english = ops.say(world["path"], "my emails", channel="messaging", sender=READER)["reply"]

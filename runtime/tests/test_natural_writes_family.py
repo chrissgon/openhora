@@ -12,7 +12,9 @@ import types
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import world  # noqa: F401  (a real project to read the configuration of)
 from test_ops_natural_writes import SENDER, forget, phone, policy  # noqa: F401
 from test_reminders import Clock
@@ -60,7 +62,7 @@ def stand_in(monkeypatch):
         if "source" not in slots:
             return {"ask": {"need": "message", "slot": "source", "sentence_key": "NW_ASK_SOURCE", "fields": {}, "multi": False, "engine": None,
                             "options": [{"value": "inbox", "label": "Bia · Appointment"}, {"value": "bills", "label": "Bank · Statement"}]}}
-        return {"args": {"account": "google", "messages": ",".join(f"{slots['source']}#{n}" for n in slots["numbers"])}}
+        return {"args": {"account": "google", "messages": ",".join(f"{slots['source']}#{n}" for n in slots["numbers"])}, "origins": {"account": "config", "messages": "picked"}}      # S41-7: the gate refuses an argument with no origin
     resolver.resolve = resolve
     monkeypatch.setitem(sys.modules, "natural_writes_stubmail", pure)
     monkeypatch.setitem(sys.modules, "ops_natural_mail", resolver)
@@ -95,7 +97,8 @@ def test_a_need_the_family_declares_is_answered_by_the_family_with_the_options_t
     monkeypatch.setattr(ops_natural_writes, "_call_operation", lambda project, op, args, channel, sender: (calls.append((op, args, channel, sender)),
                         {"request": 1, "task": 1, "pending": 7, "word": "mailbox", "on_cards": True})[1])
     asked = ops.natural_write(world["path"], "arquiva o e-mail 3", channel="messaging", sender=SENDER)
-    assert asked["asked"] and asked["reply"].endswith("1. Bia · Appointment\n2. Bank · Statement") and calls == []
+    rows_shown = asked["reply"].split("\n")[-2:]
+    assert asked["asked"] and pk.said(rows_shown[0], "MR_ROW", None, n=1, box="Bia", line="Appointment") and pk.said(rows_shown[1], "MR_ROW", None, n=2, box="Bank", line="Statement") and calls == []
     wrong = ops.natural_write(world["path"], "1", channel="messaging", sender=SENDER)
     assert wrong["asked"] is True, "the family answers with what the person was shown (the values), not with the place in the list"
     done = ops.natural_write(world["path"], "bills", channel="messaging", sender=SENDER)
@@ -112,12 +115,12 @@ def test_a_final_sentence_of_the_resolver_is_the_reply_and_stores_no_draft(world
 def test_every_question_and_answer_of_a_family_is_stored_as_a_neutral_word_in_the_conversation(world, clock, stand_in):
     policy(world)
     policy(world, page=("read", "calendar-write", "mail-organize"))
-    ops.say(world["path"], "arquiva o e-mail 3", channel="page")
-    ops.say(world["path"], "inbox", channel="page")
+    ops.natural_write(world["path"], "arquiva o e-mail 3", channel="page")      # S41-11: no plain line is claimed on a shell by `say` any more (it is the interpreter's on a phone, the agent's on the page): the questions and answers go through the writes' own entry
+    ops.natural_write(world["path"], "inbox", channel="page")
     ctx = ops_core.context(world["path"])
     rows = [(m["role"], m["text"]) for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=100)]
-    assert rows[:2] == [("user", "(a request to your accounts)"), ("assistant", "(request to your accounts)")]
-    assert "Bia" not in str(rows) and "Bank" not in str(rows)
+    assert "Bia" not in str(rows) and "Bank" not in str(rows), "nothing of the family's questions or answers is in the conversation"
+    pk.assert_said(ops_natural.stored_line(ctx, "arquiva o e-mail 3"), "NW_PRIVATE_LINE", None)      # the neutral word the store keeps for such a line
 
 
 def test_a_comma_after_a_polite_word_does_not_hide_the_head():

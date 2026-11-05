@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 import standin_tree as st
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME = REPO / "runtime"
@@ -39,15 +41,15 @@ INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-q
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"]
+         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "mail-read", "todo-list", "file-ask", "mail-ask", "agenda"]      # CB-9: the three reads of catalog version 2; MAIL-SUMMARY-FLIP: mail-ask, of version 3; P5: agenda, of version 4
 NOTICES = ["remind", "reminder-forget", "reminder-restore"]
 WRITES = ["cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"]
 EFFECTS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-           "file-create", "file-replace", "file-save", "file-trash"]
+           "file-create", "file-replace", "file-save", "file-trash", "todo-add", "todo-done"]      # CB-9: the two cards of the to-do list, of catalog version 2
 KINDS = {"operational", "widening", "internal"}
 SEVERITY = ["wrong_effect_unconfirmed", "wrong_card", "wrong_reminder_reading", "wrong_item_binding", "wrong_read", "wrong_route", "missed", "clarify", "correct"]
 OBSERVED = ["executed", "card", "confirm", "remind_confirm", "read", "answer", "clarify", "route", "none", "refuse_d", "refuse_g", "refuse_policy",
-            "forwarded", "outage"]
+            "forwarded", "outage", "question"]
 
 
 def load(path: Path):
@@ -85,11 +87,11 @@ def gated_problems(doc: dict) -> list:
 def snapshot_problems(snap: dict) -> list:
     """Everything wrong with a catalog snapshot, by the test's own lists (read from natural.NATURAL only for the text of `what` and the slots)."""
     out = []
-    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 1:
+    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 4:
         out.append("keys")
     names = [r["op"] for r in snap.get("ops", [])]
     refused = [r["op"] for r in snap.get("refused", [])]
-    if len(names) != 65:
+    if len(names) != 72:
         out.append("ops count %d" % len(names))
     if len(refused) != 21:
         out.append("refused count %d" % len(refused))
@@ -178,12 +180,12 @@ def test_vacuity_a_flipped_kind_a_wrong_group_and_a_dropped_row_fail_the_checker
 
 # --- the served catalog ----------------------------------------------------------------------------------------------------------------------------
 
-def test_the_served_file_equals_generate_and_the_counts_are_65_and_21():
+def test_the_served_file_equals_generate_and_the_counts_are_72_and_21():
     snap = load(RUNTIME / "interpreter_catalog.json")
     assert snap == catalog.generate()
     assert catalog.sha256(snap) == catalog.sha256(catalog.generate())
     assert snapshot_problems(snap) == []
-    assert len(snap["ops"]) == 65 and len(snap["refused"]) == 21
+    assert len(snap["ops"]) == 72 and len(snap["refused"]) == 21 and snap["v"] == 4
 
 
 def test_the_file_is_written_in_the_stated_form():
@@ -204,8 +206,9 @@ def test_a_row_carries_the_class_the_what_and_the_slot_kinds():
     snap = load(RUNTIME / "interpreter_catalog.json")
     by = {r["op"]: r for r in snap["ops"]}
     assert by["ask"]["class"] == "work"
-    assert by["remind"] == {"op": "remind", "class": "N", "what": "a reminder sent back once at a time", "slots": {"text": "span", "when": "when"}}
-    assert by["mail-archive"]["slots"] == {"messages": "ints"} and by["mail-archive"]["class"] == "E"
+    assert by["remind"] == {"op": "remind", "class": "N", "what": "Choose this to be reminded once at a time; text is what to remind, as the line says it, and when is the time. Not a calendar event and not an item of a to-do list.", "slots": {"text": "span", "when": "when"}}
+    assert by["mail-archive"]["slots"] == {"messages": "ints", "target": "span", "day": "span", "service": "word"} and by["mail-archive"]["class"] == "E"      # B''-lite: the number slot stays, the words of the message are added; P5: the account word
+    assert by["event-cancel"]["slots"] == {"event": "int", "target": "span", "day": "span"} and by["mail-draft"]["slots"]["target"] == "span" and "day" not in by["mail-draft"]["slots"]
     assert by["status"]["slots"] == {} and by["cancel"]["slots"] == {"id": "int"}
     for r in snap["refused"]:
         assert set(r) == {"op", "class", "what"} and "slots" not in r
@@ -242,9 +245,9 @@ def test_generate_follows_the_classification_it_is_given():
     for r in rows:
         if r["op"] == "deps":
             r["kind"] = "operational"          # a planted reclassification moves the op from refused to ops
-    moved = catalog.generate(rows)
+    moved = catalog.generate(gated=rows)
     assert "deps" in [r["op"] for r in moved["ops"]] and "deps" not in [r["op"] for r in moved["refused"]]
-    assert len(moved["ops"]) == 66 and len(moved["refused"]) == 20
+    assert len(moved["ops"]) == 73 and len(moved["refused"]) == 20
     assert catalog.sha256(moved) != catalog.sha256(catalog.generate())
 
 
@@ -282,9 +285,9 @@ def test_the_frame_schema_has_its_definitions_and_seven_rules():
     assert doc["$id"] == "openhora:interpreter-frame:1" and doc["additionalProperties"] is False and doc["required"] == ["v", "items", "last"]
     assert set(doc["definitions"]) == {"id", "op", "slot", "words", "item", "last"}
     assert doc["properties"]["items"]["maxItems"] == 5
-    assert doc["definitions"]["item"]["properties"]["kind"]["enum"] == ["write-draft", "reminder-confirm", "router-question", "choice"]
+    assert doc["definitions"]["item"]["properties"]["kind"]["enum"] == ["write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm"]      # BL2a: the fifth kind
     assert doc["definitions"]["item"]["properties"]["need"]["enum"] == ["slot", "confirm", "option", "text"]
-    assert [r.split(" ")[0] for r in doc["x-rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
+    assert [r.split(" ")[0] for r in doc["x-rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]      # BL2a: R8, the plan-confirm item
     # every $ref resolves inside the document
     refs = []
 
@@ -313,10 +316,10 @@ def test_the_taxonomy_has_its_lists_rules_metrics_and_one_example_per_rule():
         assert r["category"] in SEVERITY
         assert r["observed"] == "any" or set(r["observed"]) <= set(OBSERVED)
     assert [m["name"] for m in doc["metrics"]] == ["N", "rate(c)", "correct_direct", "clarify_rate", "parse_failure_rate", "p95_latency_ms", "median_cost_usd",
-                                                    "wrong_route_cost_usd"]
-    assert len(doc["examples"]) == 32  # C0 wrote one per rule, first and in rule order; IX-1 added 23 when it froze the file
+                                                    "wrong_route_cost_usd", "question_on_other_golds"]
+    assert len(doc["examples"]) == 37  # C0 wrote one per rule, first and in rule order; IX-1 added 23 when it froze the file; ANY-QUESTION Q0 added 5
     nine = json.dumps(doc["examples"][:9], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    assert hashlib.sha256(nine).hexdigest() == "4a65bfbff03d8b8b8ade7f5d5058d7398a7ee48f7cb0b877a4ec19312343ca38"  # C0's nine, unchanged
+    assert hashlib.sha256(nine).hexdigest() == PINNED_HASHES["interpreter_interfaces_c0_nine_examples"]  # C0's nine, unchanged
     for e in doc["examples"]:
         assert set(e) == {"gold", "observed", "observed_detail", "category"}
         assert e["observed"] in OBSERVED and e["category"] in SEVERITY

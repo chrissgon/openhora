@@ -17,6 +17,7 @@ import datetime
 import json
 from pathlib import Path
 
+import old_claim
 import standin_tree as st
 
 natural = st.load("natural")
@@ -35,7 +36,7 @@ def decide(text: str, now: datetime.datetime) -> dict:
     {"out": "shown", "due": "YYYY-MM-DD HH:MM"} when it shows one reading to be confirmed (the confirmation, the kind question that holds the reading, or the question for the
     words that already has it), {"out": "asked", "need": ...} for any other question or a refusal (a moment that has passed, a date the calendar does not have, more than
     366 days ahead), {"out": "unmatched"} when no reminder row takes the line."""
-    named = natural.candidate(text)
+    named = old_claim.candidate(text)
     if named is not None and named["op"] != "remind":
         return {"out": "unmatched", "op": named["op"]}
     how = named["how"] if named else "trigger"
@@ -113,14 +114,14 @@ def test_no_probe_line_is_made_without_a_confirmation_and_the_routines_and_the_n
             shown_wrong += got["out"] == "shown" and got["due"] != expect[1:]
         elif expect == "R":
             try:
-                recurring = natural.understand(text, now, (natural.candidate(text) or {}).get("how", "trigger"))["ask"]["need"] == "recurring"
+                recurring = natural.understand(text, now, (old_claim.candidate(text) or {}).get("how", "trigger"))["ask"]["need"] == "recurring"
             except KeyError:
                 recurring = False
             if not recurring:
                 wrong.append(f"{text!r} at {now:%Y-%m-%d %H:%M}: a routine's, not said so")
         elif expect == "N":
-            if got["out"] != "unmatched" and natural.candidate(text) is not None:
-                wrong.append(f"{text!r}: not a reminder, matched to {natural.candidate(text)}")
+            if got["out"] != "unmatched" and old_claim.candidate(text) is not None:
+                wrong.append(f"{text!r}: not a reminder, matched to {old_claim.candidate(text)}")
     record_property("wrong_shown_probe_readings", shown_wrong)
     print(f"\nmetric: {shown_wrong} probe readings shown wrong of {expecting} that expect a moment")
     assert wrong == [], "\n".join(wrong)

@@ -159,7 +159,7 @@ def _widening(cfg: dict, store, conn, accepted):
     try:
         got = lambda name: store.cursor_get(conn, name)
         view = policy_grants.view(got(policy_widening.EFFECTIVE), got(policy_widening.LEGACY), cfg, accepted is not None, got(policy_widening.ACCOUNTS),
-                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET)
+                                  got(policy_widening.KEY) or policy_widening.PENDING_SECRET, got(policy_widening.FALLBACKS))
         return (view["widening_sha256"], policy_widening.lines(view["widening"])) if view["widening"] else None
     except Exception:      # noqa: BLE001 - a refusal is never held back by this hint: the command is then the plain one
         return None
@@ -235,7 +235,7 @@ def _own_key(variable: str) -> tuple:
 def _model_key(model: str) -> dict:
     """The key a run on the model would use: {"value", "source", "reason"}, in this order.
     source "runtime": the runtime's own key for the model's credential variable (_own_key), when it is stored and the model
-      passes exactly one variable, under which it travels (ops._key_in_environment). It wins: a person who wants a capped key of
+      passes exactly one variable, under which it travels (ops_runs._key_in_environment). It wins: a person who wants a capped key of
       the runtime's own stores it.
     source "lab": no key of its own, and every variable the gate file names for the model is set or found in the secret
       store, by the lab's own lookup (lab.credential_missing). value is None: the value stays the lab's, which run_skill passes

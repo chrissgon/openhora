@@ -68,55 +68,9 @@ def test_vacuity_the_forms_are_the_only_thing_that_makes_a_line_a_change_of_proj
     assert command_words.project("qual o prazo do projeto") is None, "the same word, in a line that is a request"
 
 
-# --- a decision or an act that a model chose: believed only when the line says the same (slice S20, review round) --------------------------------------------------------------
+# --- the numbers of a decision (slice S20, review round): the rule `vet` held moved to runtime/turn_gate.py (S41-5; runtime/tests/test_turn_gate_line_checks.py) --------------------------------------------------------------
 
 natural = st.load("natural")
-
-PLAIN = [      # (operation, number, line): the plain command, in the six languages
-    ("reject", 25, "rejeite a pergunta 25"), ("reject", 25, "por favor, dispense a pergunta 25"), ("reject", 4, "please decline decision 4"), ("reject", 4, "rechaza la pregunta 4"),
-    ("reject", 4, "refuse la question 4"), ("reject", 4, "lehne die Frage 4 ab"), ("reject", 4, "respingi la domanda 4"),
-    ("release", 7, "libere a entrega 7"), ("release", 7, "release the delivery 7"), ("release", 7, "libere la livraison 7"), ("release", 7, "rilascia la consegna 7"),
-    ("approve", 31, "aprueba la decision 31"), ("approve", 31, "genehmige die Entscheidung 31"), ("approve", 31, "approva la richiesta 31"),
-    ("cancel", 9, "por favor, cancele a solicitacao numero 9"), ("cancel", 9, "please cancel request 9"), ("cancel", 9, "annule la demande 9"), ("cancel", 9, "storniere die Anfrage 9"),
-    ("stop-task", 3, "pare a tarefa 3"), ("stop-task", 3, "please stop task 3"), ("stop-task", 3, "detén la tarea 3"), ("stop-task", 3, "ferma il compito 3"),
-    ("retry", 3, "por favor, tente a tarefa 3 de novo"), ("retry", 3, "please retry task 3"), ("retry", 3, "reintenta la tarea 3"), ("retry", 3, "wiederhole die Aufgabe 3"),
-    ("attachment-add", 2, "adicione o arquivo 2"), ("attachment-discard", 2, "please discard attachment 2"), ("attachment-add", 2, "ajoute le fichier 2"),
-    ("routine-pause", 4, "pausa a rotina 4"), ("routine-pause", 4, "please pause routine 4"), ("routine-pause", 4, "pausa la rutina 4"), ("routine-pause", 4, "pausiere die Routine 4"),
-]
-NOT_PLAIN = [      # the same operations, in lines that are not a plain command: a negation, a condition, a time, a question, another verb, another object, a second number
-    ("cancel", 1, "não precisa cancelar o pedido 1"), ("cancel", 2, "devo cancelar o pedido 2?"), ("cancel", 2, "cancela o 2"), ("cancel", 2, "cancela a tarefa 2"),  # validate: allow english-only -- the Portuguese lines under test
-    ("cancel", 1, "no need to cancel request 1"), ("cancel", 1, "don't cancel request 1"), ("cancel", 1, "cancel request 1 tomorrow"), ("cancel", 1, "cancelar pedido 1 si llueve"),
-    ("cancel", 1, "annule la demande 1 si besoin"), ("cancel", 1, "storniere die Anfrage 1 wenn nötig"), ("cancel", 1, "annulla la richiesta 1 se serve"),
-    ("cancel", 1, "non annullare la richiesta 1"), ("cancel", 1, "no canceles la solicitud 1"), ("cancel", 1, "n'annule pas la demande 1"), ("cancel", 1, "storniere die Anfrage 1 nicht"),
-    ("stop-task", 3, "se der erro, para a tarefa 3"), ("stop-task", 3, "don't stop task 3"), ("stop-task", 1, "stop task 1 of 2"), ("stop-task", 3, "should we stop task 3?"),
-    ("retry", 3, "never retry the task 3"), ("retry", 3, "retry task 3 when it fails"),
-    ("reject", 1, "não rejeite a 1"), ("reject", 3, "rejeite a pergunta de 3 dias atrás"), ("reject", 1, "don't reject 1"), ("reject", 1, "task 1 should be rejected"),  # validate: allow english-only -- the Portuguese lines under test
-    ("reject", 1, "reject task 1"), ("release", 1, "release the file 1"), ("approve", 1, "if it is late approve plan 1"),
-    ("attachment-discard", 2, "discard the request 2"), ("attachment-add", 2, "adicione 2"), ("routine-pause", 4, "pause task 4"), ("routine-pause", 4, "do not pause routine 4"),
-]  # validate: allow english-only -- the Portuguese lines under test
-
-
-@pytest.mark.parametrize("op,number,line", PLAIN)
-def test_a_plain_command_in_any_of_the_six_languages_is_believed(op, number, line):
-    assert command_words.vet(line, op, number) is None, line
-
-
-@pytest.mark.parametrize("op,number,line", NOT_PLAIN)
-def test_a_line_that_negates_asks_conditions_names_another_object_or_a_second_number_is_not_believed(op, number, line):
-    assert command_words.vet(line, op, number) is not None, line
-
-
-def test_the_number_is_the_one_in_the_line_and_the_models_must_equal_it():
-    assert command_words.vet("cancel request 9", "cancel", 8) == "number" and command_words.vet("cancel request nine", "cancel", 9) == "number"
-    assert command_words.vet("cancel request 9 and 10", "cancel", 9) == "number" and command_words.vet("cancel request 9", "cancel", True) == "number"
-    assert command_words.vet("cancel request 9", "cancel", None) == "number"
-
-
-def test_vacuity_the_same_probe_without_its_negation_is_believed_and_with_it_is_not():
-    assert command_words.vet("cancel request 1", "cancel", 1) is None
-    assert command_words.vet("do not cancel request 1", "cancel", 1) == "again"
-    assert command_words.vet("cancel request 1?", "cancel", 1) == "again"
-    assert command_words.vet("cancel request 1 if it fails", "cancel", 1) == "again"
 
 
 def test_a_number_that_belongs_to_a_time_or_a_quantity_is_not_a_decision_number():
@@ -124,3 +78,15 @@ def test_a_number_that_belongs_to_a_time_or_a_quantity_is_not_a_decision_number(
                  "rejeite por $25", "rejeite 25 reais", "rejeite a pergunta von 3 Tagen"):  # validate: allow english-only -- the Portuguese lines under test
         assert natural.decision_numbers(line) == [], line
     assert natural.decision_numbers("rejeite a pergunta 25") == [25] and natural.decision_numbers("reject question #7.") == [7]
+
+
+# --- BL2b: D5 is on and the closed verb lists are gone: the person checks the meaning, the number rule stays ------------------------------------------------------------------
+
+def test_the_verb_lists_are_gone_and_so_is_vet_the_number_rule_lives_in_the_gate():
+    plan_confirm = st.load("plan_confirm")
+    assert plan_confirm.ACTIVE is True, "the verb test went with the switch: the sentence and the person's OK check the meaning (limit L65)"
+    for gone in ("names", "VERBS", "OBJECT", "NOUNS", "NEGATION", "CONTRACTION", "CONDITION", "LINE_WORDS_MAX", "vet"):      # `vet` moved to turn_gate.number_believed (S41-5)
+        assert not hasattr(command_words, gone), gone
+    gate = st.load("turn_gate")
+    assert gate.number_believed("quero cancelar o pedido 3", 3) is True      # validate: allow english-only -- the Portuguese line under test
+    assert gate.number_believed("n\u00e3o cancela o pedido 3", 3) is True      # a negated line reaches the question; the person says no there (BL2a test_plan_confirm_acts, BL2b test_messaging_plan_confirm)

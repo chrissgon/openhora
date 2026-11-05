@@ -100,9 +100,9 @@ def test_the_check_of_each_reader_names_the_account_record_and_the_platform_set(
     out = json.loads(run(gmail, ["--check"], account_env(fake, gmail, tmp_path)).stdout)
     assert out == {"ok": True, "account": fga.ACCOUNT, "token_source": "environment (GOOGLE_ACCOUNT_TOKEN)", "scope": SET, "record": "account"}
     out = json.loads(run(calendar, ["--check"], account_env(fake, calendar, tmp_path)).stdout)
-    assert out["ok"] is True and out["record"] == "account" and out["scope"] == sorted(fga.PLATFORM_SET) and out["account"] == fga.ACCOUNT
+    assert out["ok"] is True and out["record"] == "account" and out["scope"] == sorted(fga.PREVIOUS_SET) and out["account"] == fga.ACCOUNT
     out = json.loads(run(drive, ["--check"], account_env(fake, drive, tmp_path)).stdout)
-    assert out["ok"] is True and out["record"] == "account" and out["scope"] == sorted(fga.PLATFORM_SET) and out["account"] == fga.ACCOUNT
+    assert out["ok"] is True and out["record"] == "account" and out["scope"] == sorted(fga.PREVIOUS_SET) and out["account"] == fga.ACCOUNT
 
 
 def test_the_verbs_print_what_they_always_printed_from_the_account_token(fake, tmp_path):

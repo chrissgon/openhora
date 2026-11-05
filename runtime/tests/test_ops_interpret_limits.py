@@ -7,18 +7,24 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_interpret_limits.
 """
 from __future__ import annotations
 
+import ast
+
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_interpret_dispatch import BARE, IX_PROFILES, IX_SENDERS, KEY, PLAIN, ROUTED, TODAY, ZONE, op, phone, prepare  # noqa: F401
 from test_ops_natural import world  # noqa: F401  (the real-operations world fixture)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ops_interpret = st.load("ops_interpret")
+turn_gate = st.load("turn_gate")
 interpreter_enable = st.load("interpreter_enable")
 interpreter_route = st.load("interpreter_route")
 ops_core = st.load("ops_core")
@@ -28,9 +34,11 @@ ops = st.load("ops")
 
 RUNTIME = Path(__file__).resolve().parents[1]
 NONE = '{"v":1,"kind":"none"}'
+PT = {"language": "pt-BR"}
+ES = {"language": "es"}      # a language with no table: the sentences are the English ones
 PLAIN_LINE = "tell me something about the unicorns"
-HASHES = {"route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd", "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
-          "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d", "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504"}
+HASHES = {"route_sha256": PINNED_HASHES["route_or_deepseek_v4_1_flash"], "prompt_sha256": PINNED_HASHES["interpreter_prompt"],
+          "catalog_sha256": PINNED_HASHES["interpreter_catalog_before_s8"], "protocol_sha256": PINNED_HASHES["interpreter_protocol"]}
 FLIP = {"0": "1"}
 
 
@@ -39,7 +47,12 @@ class Clock:
 
     def __init__(self, monkeypatch):
         self.now = 1000.0
-        monkeypatch.setattr(ops_interpret, "clock", lambda: self.now)
+        monkeypatch.setattr(turn_gate, "clock", lambda: self.now)
+
+
+def gate_call(entry):
+    """The one call site, given an admission of its own (the route check is the gate's)."""
+    return turn_gate.call(turn_gate.Admission(turn_gate._MINT), entry, "system", "user", deadline_ms=6000, params={"temperature": 0.0, "max_tokens": 10, "reasoning": "off"})
 
 
 def models(calls):
@@ -71,7 +84,7 @@ def flipped(text):
 def test_the_committed_entry_is_in_force_here_and_a_line_of_the_listed_sender_makes_one_call(world, monkeypatch):
     calls = []
     prepare(world, monkeypatch, calls, {"text": NONE})
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message."
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
     assert len(models(calls)) == 1 and routed(calls) == []
 
 
@@ -126,7 +139,8 @@ def test_vacuity_the_control_of_the_entry_tests_calls_when_nothing_is_changed(wo
     calls = []
     prepare(world, monkeypatch, calls, {"text": NONE})
     entry_file(tmp_path, monkeypatch)
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 1
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 1
 
 
 def test_limit_63_an_entry_that_names_the_account_route_is_not_in_force_and_no_account_call_is_made(world, monkeypatch, tmp_path):
@@ -155,16 +169,48 @@ def test_a_routes_file_whose_only_match_is_an_account_row_is_not_called_by_the_o
     monkeypatch.setattr(interpreter_route, "complete", refuse)
     monkeypatch.setattr(lab, "account_text", refuse)
     entry = {"route": "or-deepseek-v4.1-flash", "route_sha256": interpreter_route.route_sha256(account)}
-    assert ops_interpret._daily_call(entry, "system", "user") == {"ok": False, "code": "E_ROUTE"}
+    assert gate_call(entry) == {"ok": False, "code": "E_ROUTE"}
     assert interpreter_enable.active("en") is None
     entry = {"route": "or-deepseek-v4.1-flash", "route_sha256": HASHES["route_sha256"]}
-    assert ops_interpret._daily_call(entry, "system", "user") == {"ok": False, "code": "E_ROUTE"}
+    assert gate_call(entry) == {"ok": False, "code": "E_ROUTE"}
 
 
-def test_the_source_of_the_module_names_no_account_route_no_lab_and_no_route_lookup_of_its_own():
-    text = (RUNTIME / "ops_interpret.py").read_text(encoding="utf-8")
-    assert [word for word in ("account", "lab", "load(", "find(") if word in text] == []
-    assert "daily_routes()" in text and 'get("kind") != "http"' in text
+ORACLE_NAMES = {"TEXT_ARGS", "SECTION_OF", "ADDRESS", "_words", "_subsequence", "_contiguous", "value_problems", "_Frame", "_address_problems", "_written_numbers", "_entry_words", "_words_of_the_line",
+                "_message_problems", "_state_said", "_of_service", "_mailbox_account", "_named", "_account_problems", "_hour_written", "_range_texts", "_norm", "_variants", "_time_problems"}
+
+
+def gate_code_scanned(text: str) -> str:
+    """The gate's CODE as the scan reads it (S41-7): parsed and written back, so that no comment and no docstring is in it (documentation names the arguments of a card), without the 23 definitions of
+    the value oracle moved from natural_writes (they read lines with `find(`), and with the argument key `'account'` and the name `account_origin` taken out (the table of section 4 names the
+    arguments). Anything else, an account route first of all, wherever it is in the module, is still there to be found."""
+    tree = ast.parse(text)
+    tree.body = [node for node in tree.body
+                 if not ({node.name} if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else {t.id for t in getattr(node, "targets", []) if isinstance(t, ast.Name)}) & ORACLE_NAMES]
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree).replace("'account'", "").replace("account_origin", "")
+
+
+def test_the_scan_of_the_gate_sees_code_appended_after_the_oracle_and_leaves_out_only_what_it_names():
+    text = (RUNTIME / "turn_gate.py").read_text(encoding="utf-8")
+    scanned = gate_code_scanned(text)
+    assert "find(" not in scanned and "account" not in scanned and "lab" not in scanned and "def value_problems" not in scanned and "def provenance" in scanned
+    planted = text + "\n\ndef later(route):\n    return interpreter_route.account_route(route)\n"
+    assert "account" in gate_code_scanned(planted), "an account route appended after the oracle is found"
+    assert "find(" in gate_code_scanned(text + "\n\ndef lookup(route):\n    return interpreter_route.find(route)\n"), "a lookup of a route appended is found"
+
+
+def test_the_source_of_the_module_and_of_the_gate_name_no_account_route_no_lab_and_no_route_lookup_of_their_own():
+    for name in ("ops_interpret.py", "turn_gate.py"):      # the route check moved from the first to the second (S41-4): both stay clean of an account route, the lab and a lookup of a route by id
+        text = (RUNTIME / name).read_text(encoding="utf-8")
+        if name == "turn_gate.py":      # S41-7: what is left out is named (comments and docstrings, the moved value oracle by its names, the argument key `'account'` and the helper `account_origin`); code appended to the gate later is scanned
+            text = gate_code_scanned(text)
+        assert [word for word in ("account", "lab", "load(", "find(") if word in text] == [], name
+    gate = (RUNTIME / "turn_gate.py").read_text(encoding="utf-8")
+    assert "daily_routes()" in gate and 'get("kind") != "http"' in gate
 
 
 def test_vacuity_the_source_check_sees_a_word_it_forbids():
@@ -198,7 +244,7 @@ def test_ten_calls_per_sender_per_minute_and_the_eleventh_is_routed(world, monke
 
 
 def test_vacuity_with_the_rate_check_off_the_eleventh_call_goes_through_and_the_scenario_fails(world, monkeypatch):
-    monkeypatch.setattr(ops_interpret, "_admit", lambda ctx, sender: True)
+    monkeypatch.setattr(turn_gate, "admit", lambda ctx, sender, fallback=None: turn_gate.Admission(turn_gate._MINT))      # LUNA-ENABLE: the committed entry names a fallback, so the caller passes `fallback=`
     assert rate_scenario(world, monkeypatch) != []
 
 
@@ -209,7 +255,7 @@ def test_the_rate_is_per_sender(world, monkeypatch):
     for n in range(10):
         phone(world, PLAIN_LINE)
     assert phone(world, PLAIN_LINE)["reply"] == "ROUTED"
-    assert phone(world, PLAIN_LINE, who="plain")["reply"] == "I did not see a request in that message."
+    pk.assert_said(phone(world, PLAIN_LINE, who="plain")["reply"], "IX_NONE", None)
 
 
 def test_three_hundred_calls_per_project_per_local_day_and_the_next_day_calls_again(world, monkeypatch):
@@ -217,14 +263,15 @@ def test_three_hundred_calls_per_project_per_local_day_and_the_next_day_calls_ag
     prepare(world, monkeypatch, calls, {"text": NONE})
     clock = Clock(monkeypatch)
     for n in range(300):
-        assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message."
+        pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
         clock.now += 7.0
     assert len(models(calls)) == 300
     assert phone(world, PLAIN_LINE)["reply"] == "ROUTED" and len(models(calls)) == 300
     ops_core.context(world["path"])
     day = ops_natural._clock()
     monkeypatch.setattr(ops_natural, "_clock", lambda: day.replace(day=day.day + 1))
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 301
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 301
 
 
 def failing(calls, code="E_NETWORK"):
@@ -250,7 +297,8 @@ def test_three_failed_calls_open_the_breaker_for_five_minutes(world, monkeypatch
     clock.now += 2.0      # 1303 s
     monkeypatch.setattr(interpreter_route, "complete", lambda route_id, system, user, **kw: calls.append({"route": route_id, "user": user}) or
                         {"ok": True, "text": NONE, "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"})
-    assert phone(world, PLAIN_LINE)["reply"] == "I did not see a request in that message." and len(models(calls)) == 4
+    pk.assert_said(phone(world, PLAIN_LINE)["reply"], "IX_NONE", None)
+    assert len(models(calls)) == 4
 
 
 def test_a_success_between_failures_keeps_the_breaker_closed(world, monkeypatch):
@@ -277,7 +325,7 @@ def test_a_failed_call_on_a_private_line_gets_the_outage_sentence_and_never_the_
     monkeypatch.setattr(interpreter_route, "complete", failing(calls))
     write_config(world["path"], language="pt-BR")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, PRIVATE_PT)["reply"] == "Não consegui entender agora. Tente de novo em alguns minutos."      # validate: allow english-only -- the Portuguese line or sentence under test
+    pk.assert_said(phone(world, PRIVATE_PT)["reply"], "IX_OUTAGE", PT)
     assert routed(calls) == []
 
 
@@ -298,7 +346,7 @@ def test_a_failed_call_in_a_project_of_another_language_gets_the_outage_sentence
     monkeypatch.setattr(interpreter_route, "complete", failing(calls))
     write_config(world["path"], language="es")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, "cuentame algo sobre los unicornios")["reply"] == "I could not understand that right now. Try again in a few minutes."
+    pk.assert_said(phone(world, "cuentame algo sobre los unicornios")["reply"], "IX_OUTAGE", ES)
     assert routed(calls) == []
 
 

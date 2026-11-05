@@ -1,0 +1,17 @@
+{
+ "base_commit": "83c06da3da4b61fa761cc3fc1c7d9721455fe881",
+ "count": 1432,
+ "file": "runtime/tests/reply_guard_lines.jsonl",
+ "gold_counts": {
+  "answer": 623,
+  "new": 756,
+  "unclear": 53
+ },
+ "note": "frozen in commit 1 of CANDIDATE-OUT PR 1, before the guard code exists; the guard is never tuned on a test row; runtime/tests/test_reply_guard.py refuses a set whose bytes do not hash to this",
+ "sha256": "a4ffa083639859648bc44cd0001c8fb6d85c6398d1a77c33f56c48d0ae09325b",
+ "split_counts": {
+  "dev": 559,
+  "test": 873
+ },
+ "split_rule": "sha256(line)[:8] as hex, modulo 100, under 40 is dev, else test"
+}

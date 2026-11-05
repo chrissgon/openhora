@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import re
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_ops_natural import FLOW, KEY, docs, router_says, with_senders, world  # noqa: F401  (the real-operations world fixture)
 
 ops = st.load("ops")
 ops_cancel = st.load("ops_cancel")
+phrases = st.load("phrases")
+PT = {"language": "pt-BR"}
 
 PROSE = "I looked around and I am not sure what you want.\n"
-SENTENCE = "I did not understand the request and started nothing. Can you say it another way?"
-PORTUGUESE = "Não entendi o pedido e não comecei nada. Pode dizer de outro jeito?"      # validate: allow english-only -- the Portuguese sentence under test
+SENTENCE = phrases.text("PHONE_NOT_UNDERSTOOD", None)      # the sentence of the table: the oracle `problems` reads it as a text
 COMMAND = re.compile(r"(^|\s)/[a-z]+")
 FORBIDDEN = ("route --flow", "python3", "uv run", "pedido 8", "/cancel", "/new", "did not name a flow")
 
@@ -41,7 +44,7 @@ def test_a_phone_gets_one_plain_sentence_and_the_request_is_cancelled_by_code(wo
     real = ops_cancel.request_cancel
     monkeypatch.setattr(ops_cancel, "request_cancel", lambda conn, request_id, *, by, context: cancelled.append(by) or real(conn, request_id, by=by, context=context))
     out = phone(world, "Something unclear.")
-    assert out["reply"] == SENTENCE and problems(out["reply"]) == []
+    assert ps.alone(out["reply"], "PHONE_NOT_UNDERSTOOD", {}) and problems(out["reply"]) == []
     assert out["pending_id"] is None and out["ran"] is True
     assert cancelled == ["code:unclassified-phone"]
     assert ops.status(world["path"])["requests"][0]["state"] == "cancelled" and ops.pending(world["path"])["pending"] == []
@@ -62,14 +65,14 @@ def test_a_project_in_portuguese_gets_the_sentence_in_portuguese(world):
     accept(world["path"], language="pt-BR")
     router_says(world, PROSE)
     out = phone(world, "Algo sem sentido.")
-    assert out["reply"] == PORTUGUESE and problems(out["reply"]) == []
+    assert ps.alone(out["reply"], "PHONE_NOT_UNDERSTOOD", PT) and problems(out["reply"]) == []
 
 
 def test_the_page_keeps_the_question_with_its_actions_and_the_request_waits(world):
     router_says(world, PROSE)
     out = ops.say(world["path"], "Something unclear.", channel="page")
     request = out["request_id"]
-    assert out["reply"].startswith(f"The planning agent did not name a flow or a skill for request {request}")
+    assert pk.said(out["reply"].split("\n")[0], "BODY_NOT_NAMED", request=request)
     assert f"/cancel {request}" in out["reply"] and out["pending_id"] is not None
     assert ops.status(world["path"])["requests"][0]["state"] == "requested"
 

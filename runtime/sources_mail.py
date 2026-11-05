@@ -44,7 +44,9 @@ secret (the names in SECRETS), and this module never reads or stores a token.
 THE INDEX (package SNAP-IDX, SPEC-SECRETARY-WRITES 3.4). Beside the text, each version's manifest keeps `index`: one entry for each item the
 text lists, in the order the text lists it, numbered from 1, so that `<source id>#<n>` names one message or one event by code and never by the
 words of the text (runtime/item_refs.py reads it). A mail entry is {n, id, thread_id, message_id, from_address, reply_to_address, subject,
-change_key}; a calendar entry is {n, id, etag, calendar, organizer_self, attendees_other, recurring}. It holds no body, no sender's name, no
+change_key, received, unread} (`received`: the moment the message came in UTC, `YYYY-MM-DDTHH:MM:SSZ`, or null; S16C-REPLY-DATE; `unread`: true,
+false or null, the provider's own flag, null when it printed none or the index was written before the key; CB-2);
+a calendar entry is {n, id, etag, calendar, organizer_self, attendees_other, recurring}. It holds no body, no sender's name, no
 token; a subject is cleaned and cut at INDEX_SUBJECT_CHARS characters; an id, key or address that is not shaped as the service prints it
 is null, and the entry stays so that the numbers do not move. A message left out of the text for a credential has no entry and no number. A mail
 text numbers its messages (`## 3. ...`); a calendar text numbers its event lines (`3. 09:00-10:00 · ...`) in the order of
@@ -67,6 +69,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import secret_state  # noqa: E402  (stdlib only: whether the secret store is locked, sources-identity)
 import snapshot_text as text  # noqa: E402
 import sources  # noqa: E402
 from sources import SourcesError, _clean  # noqa: E402
@@ -146,6 +149,25 @@ def origin_of(source_type: str, value) -> dict:
 # --- the one caller of the providers (limit L52) -----------------------------------------------------------------------------------
 
 
+def _closed_kind(cfg: dict, kind, names) -> "str | None":
+    """The closed word a provider failure carries for the phone (sources-identity): `usage`, `failed`, or `not-configured`. A provider exits 3 (`not-configured`) also when the OS secret
+    store is locked or unavailable, the credentials folder is unsafe or the password manager is locked: unlocking cures it, and it is not an expired authorization, so the word is
+    dropped (None: the plain sentence, a retry may work) when the store says so (runtime/secret_state.py, asked fresh, no secret read). A 401 on the API call and a refused refresh also exit 3
+    and cannot be told from an expired authorization without reading the provider's text, which the runtime does not: they stay `not-configured`. A store that cannot be asked is not guessed at."""
+    if kind not in ("usage", "not-configured", "failed"):
+        return None
+    if kind != "not-configured":
+        return kind
+    try:
+        if secret_state.unreadable_sentence(cfg["workbench"], names=list(names or ()), fresh=True):
+            return None
+        if secret_state.probe(cfg["workbench"])["state"] == "unknown":      # the answer just kept: the resolver could not be run or asked here
+            return None
+    except Exception:      # noqa: BLE001 - a resolver that does not run here: the plain sentence says nothing that is not known
+        return None
+    return kind
+
+
 def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: list, *, call=None, timeout: int = PROVIDER_TIMEOUT) -> dict:
     """One read verb of a mail or calendar provider, through providers/resolve.py, in a process that has the minimum environment and the
     provider's own secret. The implementation is explicit (never "auto"). Only the verbs of VERBS are sent. `call(cls, verb, args, root=,
@@ -165,7 +187,9 @@ def provider_call(cfg: dict, cls: str, implementation: str, verb: str, args: lis
     except Exception as e:
         kind = getattr(e, "kind", None)
         reason = getattr(e, "reason", None) or str(e)
-        raise SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code) from None
+        refused = SourcesError(f"the {code} could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", code)
+        refused.provider_kind = _closed_kind(cfg, kind, secrets)   # the closed word of why, never the provider's text: the phone says "authorization" from it
+        raise refused from None
     if not isinstance(out, dict):
         raise SourcesError(f"the {code} provider answered no object", code)
     return out
@@ -200,13 +224,22 @@ def calendar_window(now, past: int, ahead: int, zone=None) -> tuple:
     return _midnight(first, zone), _midnight(last + datetime.timedelta(days=1), zone), first, last
 
 
+def _unread_mark(source_type: str, item) -> str:
+    """The part of a mail item's change word that the provider's unread flag adds: a tab and the word `unread` or `read` when the provider printed a boolean, nothing when it printed none or a calendar
+    item is read. A message read on the phone changes no id and, in Gmail, no change key, so without it a refresh would find the listing unchanged and keep a snapshot whose index says
+    unread (CB-2); a provider that prints no flag adds nothing, so its signature is the one it always had."""
+    flag = item.get("unread") if source_type == "mail" and isinstance(item, dict) else None
+    return "" if not isinstance(flag, bool) else "\tunread" if flag else "\tread"
+
+
 def _signature(pairs, label: str, local_date: str) -> str:
     listed = "\n".join(sorted(f"{i}\t{k}" for i, k in pairs))
     return hashlib.sha256(f"{listed}\n{label}\n{local_date}{SIGNATURE_MARK}".encode("utf-8")).hexdigest()
 
 
-def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None) -> dict:
-    """Read what a mail or calendar origin names: the provider's items of the window, nothing built yet. Returns {"type", "parts", "now",
+def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=None, zone=None, timeout=None) -> dict:
+    """Read what a mail or calendar origin names: the provider's items of the window, nothing built yet. `timeout` (seconds) bounds the provider's answer; None keeps
+    PROVIDER_TIMEOUT (300), which every caller but the one line that asks for less (BL5E, runtime/mail_refresh.py) uses. Returns {"type", "parts", "now",
     "zone", "label", "window", "items", "truncated", "skipped", "signature", "first", "last"}. Items that are not shaped as the provider
     prints them are counted in "skipped"."""
     parts = origin_of(source_type, origin)
@@ -217,13 +250,15 @@ def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=
     if source_type == "mail":
         start, end = mail_window(now, parts["days"])
         got = provider_call(cfg, MAIL_CLASS, parts["implementation"], "search",
-                            ["--query", parts["query"], "--since", text.utc_stamp(start), "--limit", str(parts["max"]), "--own-words"], call=call)
+                            ["--query", parts["query"], "--since", text.utc_stamp(start), "--limit", str(parts["max"]), "--own-words"], call=call,
+                            timeout=timeout or PROVIDER_TIMEOUT)
         listed, key, limit = got.get("messages"), "change_key", parts["max"]
         first = last = None
     else:
         start, end, first, last = calendar_window(now, parts["past"], parts["ahead"], zone)
         got = provider_call(cfg, CALENDAR_CLASS, parts["implementation"], "events",
-                            ["--calendar", parts["calendar"], "--from", start.isoformat(), "--to", end.isoformat(), "--max", str(EVENTS_MAX)], call=call)
+                            ["--calendar", parts["calendar"], "--from", start.isoformat(), "--to", end.isoformat(), "--max", str(EVENTS_MAX)], call=call,
+                            timeout=timeout or PROVIDER_TIMEOUT)
         listed, key, limit = got.get("events"), "etag", EVENTS_MAX
     if not isinstance(listed, list):
         raise SourcesError(f"the {source_type} provider's list is not one this runtime reads", source_type)
@@ -235,7 +270,7 @@ def read_snapshot(cfg: dict, source_type: str, origin: str, *, call=None, clock=
             continue
         change = item.get(key) if isinstance(item.get(key), str) else ""
         items.append(item)
-        pairs.append((item_id, change[:200]))
+        pairs.append((item_id, change[:200] + _unread_mark(source_type, item)))
     skipped += max(0, len(listed) - limit)
     return {"type": source_type, "parts": parts, "now": now, "zone": zone, "label": label, "window": (start, end), "items": items,
             "truncated": bool(got.get("truncated")), "skipped": skipped, "signature": _signature(pairs, label, local_date),
@@ -254,11 +289,13 @@ def _shaped(pattern, value):
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
 
 
-def mail_index_entry(n: int, message: dict, scan=None) -> dict:
-    """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key}. Every
-    value is a closed shape or null (INDEX_*); the subject is cleaned, its links replaced and cut at INDEX_SUBJECT_CHARS; no body, no name. The
-    entry is scanned for credentials as a whole (the Reply-To address was not part of the message's scan): a hit empties the entry's words, never
-    its number."""
+def mail_index_entry(n: int, message: dict, scan=None, moment=None) -> dict:
+    """The index entry of the message the text numbers `n`: {n, id, thread_id, message_id, from_address, reply_to_address, subject, change_key, received, unread}.
+    `unread` is the provider's flag as a closed boolean: true (not read), false (read), null (the provider printed none, or something that is not a boolean: unknown, never read); it holds no text, so a credential hit leaves it as it is.
+    Every value is a closed shape or null (INDEX_*); the subject is cleaned, its links replaced and cut at INDEX_SUBJECT_CHARS; no body, no name.
+    `received` is the moment the message came (`moment`, the aware datetime of the message's view, which comes from the provider's received time: Outlook's `receivedDateTime`, Gmail's `internalDate`, else the sender's own `Date` header, a well-shaped time the sender chose; it injects no text and chooses no recipient) in UTC, `YYYY-MM-DDTHH:MM:SSZ`, null when the
+    message has none: a reply card shows it beside the message answered, and it chooses nothing (S16C-REPLY-DATE). The entry is scanned for
+    credentials as a whole (the Reply-To address was not part of the message's scan): a hit empties the entry's words and its time, never its number."""
     headers = message.get("headers") if isinstance(message.get("headers"), dict) else {}
     from_address = text.plain_address(message.get("from_address"))     # the readers print the address alone; this is not picked out of the `from` words
     reply = text.plain_address(message.get("reply_to"))
@@ -266,9 +303,11 @@ def mail_index_entry(n: int, message: dict, scan=None) -> dict:
         reply = None
     entry = {"n": n, "id": _shaped(INDEX_ID, message.get("id")), "thread_id": _shaped(INDEX_ID, message.get("thread_id")),
              "message_id": _shaped(INDEX_MESSAGE_ID, headers.get("Message-ID")), "from_address": from_address, "reply_to_address": reply,
-             "subject": text.one_line(message.get("subject") or "", INDEX_SUBJECT_CHARS), "change_key": _shaped(INDEX_KEY, message.get("change_key"))}
+             "subject": text.one_line(message.get("subject") or "", INDEX_SUBJECT_CHARS), "change_key": _shaped(INDEX_KEY, message.get("change_key")),
+             "received": text.utc_stamp(moment) if moment else None,
+             "unread": message.get("unread") if isinstance(message.get("unread"), bool) else None}
     if scan is not None and scan(json.dumps(entry).encode("utf-8")):
-        entry.update(message_id=None, from_address=None, reply_to_address=None, subject="")
+        entry.update(message_id=None, from_address=None, reply_to_address=None, subject="", received=None)
     return entry
 
 
@@ -306,7 +345,7 @@ def build_mail(source_id: str, snap: dict, *, scan=None) -> tuple:
         if used > budget:
             break
         blocks.append(block)
-    index = [mail_index_entry(number, message, scan) for number, (_view, message) in enumerate(kept[:len(blocks)], 1)]
+    index = [mail_index_entry(number, message, scan, view["moment"]) for number, (view, message) in enumerate(kept[:len(blocks)], 1)]
     dropped = len(kept) - len(blocks)
     notes = []
     if snap["truncated"]:
@@ -391,15 +430,15 @@ def snapshot_new(ctx, source_id: str, source_type: str, origin: str, description
     return {**snapshot_make(ctx, row, snap, label="import", evidence_base=evidence_base), "source_row": row}
 
 
-def snapshot_refresh(ctx, source: dict, *, convert, call=None, clock=None, zone=None, evidence_base=None) -> dict:
-    """A refresh of a mail or calendar source: the provider is read for the window as it is now. When the listing is the one recorded with the
+def snapshot_refresh(ctx, source: dict, *, convert, call=None, clock=None, zone=None, evidence_base=None, timeout=None) -> dict:
+    """A refresh of a mail or calendar source: the provider is read for the window as it is now (`timeout` as in read_snapshot: None keeps 300 seconds). When the listing is the one recorded with the
     newest version (same ids and change keys, same local date), no version is made and the files in the folder are still checked against
     the record (limit L25); otherwise a new version is imported. Returns {"imported", "unchanged", "read", "source", "version", ...}."""
     if source.get("type") not in ("mail", "calendar"):
         raise SourcesError(f"{source.get('id')} is not a mail or calendar source", "usage")
     cfg = ctx["cfg"]
     sources.check_folder(cfg, evidence_base)
-    snap = read_snapshot(cfg, source["type"], source["origin"], call=call, clock=clock, zone=zone)
+    snap = read_snapshot(cfg, source["type"], source["origin"], call=call, clock=clock, zone=zone, timeout=timeout)
     latest = sources._stored(ctx, "source_latest", source["id"])
     if latest is not None and latest.get("origin_version") == snap["signature"]:
         done = sources.recheck(ctx, source, convert=convert, clock=(lambda: snap["now"]), evidence_base=evidence_base)

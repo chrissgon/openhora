@@ -5,18 +5,21 @@
 # ///
 """One-time OAuth 2.0 authorization of the person's own Google account for the whole platform: authorize, check, forget.
 
-  authorize   asks for exactly four scopes, once, for every Google provider of the platform (Gmail, Calendar, Drive):
+  authorize   asks for exactly five scopes, once, for every Google provider of the platform (Gmail, Calendar, Drive, Tasks):
                 {gmail}
                 {events}
                 {calendarlist}
                 {drive}
+                {tasks}
               with PKCE (S256), a random state checked on the callback, access_type=offline and prompt=consent, on a one-shot listener on
-              127.0.0.1. A consent that does not grant exactly those four (one box unticked, or a wider scope such as
+              127.0.0.1. A consent that does not grant exactly those five (one box unticked, or a wider scope such as
               https://mail.google.com/) stores nothing and exits 3 naming this command. The address the token belongs to is read once
               from the Gmail profile. The result is one record in the OS secret store (service "openhora", username "{username}"; the
               secret {secret}): the refresh token, the Desktop app client that travels with it, the scope, the address and the date.
   check       whether an authorization is found, through the secret resolver (the environment, then the credentials directory, then the OS
-              secret store), and whether its scope is exactly the four; no network, nothing printed of the token.
+              secret store), and whether its scope is exactly the five; no network, nothing printed of the token. A record made before Google Tasks was added
+              holds the four of PREVIOUS_SCOPES: Gmail, Calendar and Drive keep working with it, `check` prints "scope_is_previous_set": true
+              and exits 3, and the Tasks providers say "authorize again" (run `authorize` once).
   forget      removes the stored record from the OS secret store. It does not call Google: also remove the app's access in your Google
               Account (its third-party access page), which is the one switch that stops every reader and writer of the account at once.
               The old records (mailbox-gmail, gmail-client-id, gmail-client-secret, calendar-google, gdrive-sources) are never touched by
@@ -45,8 +48,8 @@ Sources (Google's own documentation, accessed 2026-10-18):
   (under 100 users): https://developers.google.com/identity/protocols/oauth2 and https://support.google.com/cloud/answer/13464323
 
 Google Cloud setup (once), at https://console.cloud.google.com, in the project of your Gmail client (the Desktop app client is reused):
-  1. APIs and services, Library: enable the Gmail API, the Google Calendar API and the Google Drive API.
-  2. Google Auth Platform, Data Access, "Add or remove scopes": the four above. Keep the old scopes listed until the legacy records are gone.
+  1. APIs and services, Library: enable the Gmail API, the Google Calendar API, the Google Drive API and the Google Tasks API.
+  2. Google Auth Platform, Data Access, "Add or remove scopes": the five above (and enable the Google Tasks API in step 1). Keep the old scopes listed until the legacy records are gone.
   3. Audience: "In production" (in "Testing" Google expires the authorization every seven days). Do not submit the app for verification: a
      personal-use app under 100 users works unverified, and the consent screen asks you to click through "Google hasn't verified this app".
   4. Run: uv run <workbench>/providers/accounts/google_auth.py authorize
@@ -60,7 +63,7 @@ Test overrides (tests only, loopback URLs only, both set together; the OS secret
   GOOGLE_ACCOUNT_TOKEN_URL   replaces {token_url}
 
 exit codes: 0 success, 1 failed or timed out, 2 usage, 3 not configured (no authorization or no client credentials, a consent that did
-not grant exactly the four scopes, an incomplete record).
+not grant exactly the five scopes, an incomplete record).
 """
 from __future__ import annotations
 
@@ -108,7 +111,7 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 ENV_API_BASE, ENV_TOKEN_URL = "GOOGLE_ACCOUNT_API_BASE", "GOOGLE_ACCOUNT_TOKEN_URL"
 INPUTS = (("GOOGLE_CLIENT_ID", "the Desktop app OAuth client id"), ("GOOGLE_CLIENT_SECRET", "that client's secret"))
 PROVIDER = "google-account"
-__doc__ = __doc__.format(gmail=SCOPES[0], events=SCOPES[1], calendarlist=SCOPES[2], drive=SCOPES[3], username=KEYRING_USERNAME,
+__doc__ = __doc__.format(gmail=SCOPES[0], events=SCOPES[1], calendarlist=SCOPES[2], drive=SCOPES[3], tasks=SCOPES[4], username=KEYRING_USERNAME,
                          secret=google.SECRET, gmail_base=google.DEFAULT_GMAIL_BASE, token_url=google.DEFAULT_TOKEN_URL)
 
 
@@ -161,7 +164,7 @@ def pkce_pair() -> tuple:
 
 
 def authorize_url(client_id: str, redirect_uri: str, state: str, challenge: str) -> str:
-    """The consent URL: exactly the four platform scopes, PKCE S256, the state, offline access (a refresh token) and a consent screen.
+    """The consent URL: exactly the five platform scopes, PKCE S256, the state, offline access (a refresh token) and a consent screen.
     No include_granted_scopes: the token carries only what this consent grants."""
     return GOOGLE_AUTHORIZE_URL + "?" + urllib.parse.urlencode({
         "client_id": client_id, "redirect_uri": redirect_uri, "response_type": "code", "scope": " ".join(SCOPES),
@@ -268,7 +271,7 @@ def exchange_code(token_url: str, code: str, verifier: str, client_id: str, clie
     if not token.get("refresh_token"):
         raise ProviderError("Google returned no refresh token; revoke the app's access in your Google Account and run this again")
     google.token_text(token["refresh_token"], "a refresh_token", ProviderError)      # before the scope check and long before anything is stored
-    google.check_platform_scope(token.get("scope") or None, None, ProviderError, "nothing stored")     # a response with no scope cannot be shown to be the set
+    google.check_platform_scope(token.get("scope") or None, None, ProviderError, "nothing stored", tasks=True)     # exactly the five: a response with no scope cannot be shown to be the set
     return token
 
 
@@ -318,12 +321,17 @@ def check(slot: str) -> int:
     words = google.scope_words(record["scope"])
     missing, extra = google.scope_problems(words)
     whole = not missing and not extra
+    previous = words == set(google.PREVIOUS_SCOPES)      # made before Google Tasks was added: every provider but the tasks ones accepts it (CB-4)
     print(json.dumps({"provider": PROVIDER, "found": True, "source": found[1], "slot": record["slot"], "has_refresh_token": True,
-                      "account": record["account"], "scope": sorted(words), "scope_is_platform_set": whole, "missing": missing, "extra": extra,
-                      "obtained_at": record["obtained_at"]}, indent=2))
+                      "account": record["account"], "scope": sorted(words), "scope_is_platform_set": whole, "scope_is_previous_set": previous,
+                      "missing": missing, "extra": extra, "obtained_at": record["obtained_at"]}, indent=2))
     if not whole:
-        log(f"the stored scope is not the platform's set (missing: {', '.join(missing) or 'none'}; extra: {', '.join(extra) or 'none'}); "
-            f"run: {google.AUTH_COMMAND}")
+        if previous:
+            log(f"the stored scope is the four of before Google Tasks: Gmail, Calendar and Drive work, the Tasks providers need {google.TASKS_SCOPE}; "
+                f"run: {google.AUTH_COMMAND}")
+        else:
+            log(f"the stored scope is not the platform's set (missing: {', '.join(missing) or 'none'}; extra: {', '.join(extra) or 'none'}); "
+                f"run: {google.AUTH_COMMAND}")
         return EXIT_NOT_CONFIGURED
     return EXIT_OK
 

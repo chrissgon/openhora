@@ -121,7 +121,8 @@ def test_the_dry_run_reads_no_credential_opens_no_connection_and_prints_the_requ
     assert len(digest) == 64
     out(run(fake, tmp_path, state, *insert_args(tmp_path)))
     [(method, path, query, body)] = calls(fake)
-    assert {"method": method, "path": path, "query": query, "headers": {}, "body": body} == would
+    assert {"method": method, "path": path, "query": query, "headers": {}, "body": body} == {k: would[k] for k in ("method", "path", "query", "headers", "body")}
+    assert would["verb"] == "event-insert" and would["guard"] == {}      # CB-6: the verb and the guard flags are part of what is hashed
 
 
 def test_a_done_key_is_not_sent_again_and_the_replay_says_so(fake, tmp_path, state):
@@ -223,7 +224,8 @@ def test_a_removal_is_exactly_one_delete_with_if_match_and_send_updates_none(fak
     event = a_event(fake)
     done = out(run(fake, tmp_path, state, *delete_args(event["etag"])))
     assert done["done"] is True and done["replayed"] is False
-    [(method, path, query, body)] = calls(fake)
+    [(read_method, read_path, _, _), (method, path, query, body)] = calls(fake)      # a plain removal reads the event first (CB-6: it is no part of a series), then sends the one DELETE
+    assert (read_method, read_path) == ("GET", f"{EVENTS}/evabc12345")
     assert (method, path, query, body) == ("DELETE", f"{EVENTS}/evabc12345", {"sendUpdates": "none"}, None)
     assert fake.requests[-1]["if_match"] == event["etag"] and "evabc12345" in fake.removed and fake.unexpected() == []
 

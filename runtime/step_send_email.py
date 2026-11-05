@@ -277,7 +277,7 @@ def _prepare_own(ctx: steps.Context, state: dict) -> dict:
         moved = mail_refs.pin_problem(args.get("reply_pin"), facts)      # the reference may name another message than the one the operation resolved
         if moved:
             raise steps.StepFailure("reply_moved", "reply", "mailer", moved[:200])
-        reply = {k: facts[k] for k in send_document.REPLY_KEYS}
+        reply = send_document.reply_of(facts)      # the seven keys, and the time the message came when the index recorded it (S16C-REPLY-DATE)
         recipients = dict(to=[facts["address"]], cc=[], bcc=[], subject=mail_refs.reply_subject(facts["subject"]), in_reply_to=facts["message_id"],
                           references=[facts["message_id"]], thread_id=facts["thread_id"])
     else:

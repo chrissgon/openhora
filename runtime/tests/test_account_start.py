@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_channel_grants import accept
 
@@ -41,7 +42,7 @@ ACCOUNTS = {"google": {"address": "Ana@Mail.example", "calendars": {"personal": 
 TITLE = "Calendar: new event"
 HIDDEN = "Dentist \u202e"      # a right-to-left override: a line that would not say what it does
 ARGS = {"account": "google", "title": "Dentist at 14:00, bring the x-rays", "start": "2026-10-20T14:00"}
-SENDER = "telegram:4242"
+SENDER = "telegram:830461975213"
 CALLS = []       # what the stand-in effect's execute was asked: it is the only thing in this file that "writes"
 
 
@@ -382,9 +383,10 @@ def test_limit_55_the_start_module_reaches_no_effect_module_no_provider_and_no_w
 
 def test_the_reply_of_a_messaging_app_is_said_in_the_projects_language(world):
     started = start(world)
-    assert account_start.reply_text(None, started) == f"Card #{started['pending']} waits for your approval."
+    pk.assert_said(account_start.reply_text(None, started), "ACCT_CARD_SENT", None, pending=started["pending"])
     said = account_start.reply_text({"language": "pt-BR"}, started)
-    assert said == phrases.TABLE["pt-BR"]["ACCT_CARD_SENT"].format(pending=started["pending"]) and said != account_start.reply_text(None, started)
+    pk.assert_said(said, "ACCT_CARD_SENT", {"language": "pt-BR"}, pending=started["pending"])
+    assert said != account_start.reply_text(None, started)
     assert phrases.localize(phrases.en("ACCT_NOT_CONFIGURED").format(account="google"), {"language": "pt-BR"}) == \
         phrases.text("ACCT_NOT_CONFIGURED", {"language": "pt-BR"}, account="google")
 
@@ -425,7 +427,7 @@ def test_a_word_whose_group_does_not_exist_yet_starts_nothing(world, monkeypatch
 
 
 def test_the_words_of_the_family_have_their_groups_and_send_is_the_one_a_mail_from_the_persons_own_account_adds(world):
-    assert account_start.GROUP_OF_WORD == {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send"}
+    assert account_start.GROUP_OF_WORD == {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send", "tasks": "tasks-write"}
     assert set(account_start.WORDS) == set(ops.project_config.ACCOUNT_EFFECT_WORDS) | {"send"}      # package W2: an e-mail from the person's own account
 
 

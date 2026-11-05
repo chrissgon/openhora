@@ -20,6 +20,8 @@ import pytest
 
 import standin_tree as st
 from interface_css import css_paths, interface_css
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 service = st.load("service")
 
@@ -695,11 +697,11 @@ def test_the_tasks_tab_is_the_fourth_tab_of_a_floor_and_a_tab_of_the_lobby_and_e
 FAVICON = INTERFACE / "favicon.svg"
 MARK = INTERFACE / "brand" / "openhora-mark.svg"
 # The first path of each drawing, and the hash of the file as the page ships it (the maintainer's drawing with its provenance
-# metadata block removed and nothing else changed). A new drawing changes these two lines on purpose.
+# metadata block removed and nothing else changed). A new drawing changes these two lines on purpose (their values are in scripts/tests/pinned_hashes.json).
 FAVICON_FIRST_PATH = "M40 76 Q26 40 34 16 Q62 30 80 52Z"
-FAVICON_SHA256 = "75f49e4b62fcb62729826d25023066036536f97365cf644d387fbbcc521b2da4"
+FAVICON_SHA256 = PINNED_HASHES["interface_favicon_svg"]
 MARK_FIRST_PATH = "M44 70 Q30 40 36 22 Q60 34 74 50Z"
-MARK_SHA256 = "d00da3f5cbde96e252154f321d6c5b94d322518f014afc15b64874aca5bab242"
+MARK_SHA256 = PINNED_HASHES["interface_mark_svg"]
 
 
 def test_the_brand_pair_is_the_one_primary_token_and_is_set_once_at_root():

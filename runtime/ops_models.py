@@ -35,6 +35,7 @@ import lab
 import ops_core as core
 import prices
 import proof as proof_rules
+import skill_meta
 
 AUTO = autonomy.AUTO_MODEL
 
@@ -185,7 +186,6 @@ def models_read(ctx: dict, skill: str, today=None) -> dict:
     {"skill", "default_model", "lab_models", "pairs": [...], "recommended": the model `auto` would choose now or None,
     "checks"}. The recommendation is the cheapest reliable pair with a key, a price and a measured usage; it is a hint for the
     person and never a gate (decision D34)."""
-    import skill_meta
     cfg = ctx["cfg"]
     meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
     table, max_days = price_table(ctx)

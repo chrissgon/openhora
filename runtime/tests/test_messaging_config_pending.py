@@ -11,11 +11,11 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, SENDER, wait_for, world  # noqa: F401  (the stand-in bridge)
 
-EN = "The project's configuration changed and must be accepted in the terminal before I can go on."
-PT = "A configuração do projeto mudou e precisa ser aceita no terminal antes de eu continuar."      # validate: allow english-only -- the Portuguese sentence under test
+PT = {"language": "pt-BR"}
 FIRST, SECOND = "a" * 64, "b" * 64
 
 
@@ -43,10 +43,16 @@ def on_the_phone_violations(texts) -> list:
     return sorted(set(found))
 
 
+def told(world, count, cfg=None):
+    """True when the chat was sent the sentence `count` times and nothing else."""
+    texts = world.texts()
+    return len(texts) == count and all(pk.said(t, "CONFIG_PENDING", cfg) for t in texts)
+
+
 def test_a_line_while_the_configuration_is_not_accepted_gets_one_plain_sentence_and_is_not_acted_on(world):
     pending(world)
     world.say("Ola")
-    assert world.texts() == [EN]
+    assert told(world, 1), world.texts()
     assert world.calls("say") == [] and world.calls("pending") == [] and world.fake.named("route_queued") == []
     assert on_the_phone_violations(world.texts()) == []
 
@@ -56,21 +62,21 @@ def test_the_sentence_is_said_once_per_chat_and_per_hash_of_the_file(world):
     world.say("Ola")
     world.say("Are you there?")
     world.say(None, action="7:approve")
-    assert world.texts() == [EN], "the same hash: once"
+    assert told(world, 1), "the same hash: once"
     pending(world, sha=SECOND)
     world.say("Ola again")
     world.say("and again")
-    assert world.texts() == [EN, EN], "a changed file is told once more"
+    assert told(world, 2), "a changed file is told once more"
     pending(world, sha=FIRST)
     world.say("back")
-    assert world.texts() == [EN, EN], "a hash told before is not told again"
+    assert told(world, 2), "a hash told before is not told again"
     assert world.calls("say") == []
 
 
 def test_the_sentence_is_in_the_projects_language(world):
     pending(world, language="pt-BR")
     world.say("Ola")
-    assert world.texts() == [PT]
+    assert told(world, 1, PT), world.texts()
     assert on_the_phone_violations(world.texts()) == []
 
 

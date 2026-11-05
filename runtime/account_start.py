@@ -52,7 +52,7 @@ import phrases  # noqa: E402
 import project_config  # noqa: E402
 import steps  # noqa: E402
 
-GROUP_OF_WORD = {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send"}      # the policy group that holds the operations of each effect word
+GROUP_OF_WORD = {"calendar": "calendar-write", "mailbox": "mail-organize", "files": "files-write", "send": "mail-send", "tasks": "tasks-write"}      # the policy group that holds the operations of each effect word
 OPERATION_GROUP = {"file-trash": "files-trash"}      # an operation of an effect word that its own group gates (R2-A: the move to the trash is not in `files-write`, so a project that accepted that group does not gain it)
 WORDS = tuple(GROUP_OF_WORD)      # the effect words of a write to a person's own account; `send` is a mail from the person's own account (package W2; the outbox's send is not started here)
 KEY = re.compile(r"[a-z]+(-[a-z]+){0,5}")

@@ -14,6 +14,7 @@ import os
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 md = st.load("mailbox_document")
@@ -225,9 +226,14 @@ def test_the_facts_a_decision_records_are_closed_words_numbers_and_ids_and_never
 def test_the_card_of_a_draft_shows_every_recipient_first_the_subject_and_the_whole_text_and_says_it_is_not_sent():
     doc = make(action="draft", draft={"to": ["joe@shop.example"], "cc": ["amy@shop.example"], "bcc": ["boss@shop.example"], "subject": "Hi", "body": "Line one\nLine two\n", "reply": None})
     text = md.body(doc, "x").splitlines()
-    assert text[0].startswith("Code saves this draft in your mailbox pat@example.com") and "It is not sent" in text[0]
-    assert text[2:6] == ["To: joe@shop.example", "Cc: amy@shop.example", "Bcc: boss@shop.example", "Subject: Hi"]
-    assert text[6:] == ["The draft's text, exactly as it will be saved (every line starts with \u2502):", "\u2502 Line one", "\u2502 Line two", "----- end of the draft -----"]
+    pk.assert_said(text[0], "CARD_BOX_CODE_DRAFT", None, address="pat@example.com")
+    assert len(text[2:6]) == 4
+    pk.assert_said(text[2], "CARD_BOX_DRAFT_TO", None, to="joe@shop.example")
+    pk.assert_said(text[3], "CARD_BOX_DRAFT_CC", None, cc="amy@shop.example")
+    pk.assert_said(text[4], "CARD_BOX_DRAFT_BCC", None, bcc="boss@shop.example")
+    pk.assert_said(text[5], "CARD_BOX_DRAFT_SUBJECT", None, subject="Hi")
+    pk.assert_said("\n".join(text[6:-1]), "CARD_BOX_DRAFT_TEXT", None, body="\u2502 Line one\n\u2502 Line two")
+    pk.assert_said(text[-1], "CARD_BOX_DRAFT_END", None)
     private = {line[0] for line in md.card_lines(doc, "x") if line[0] in phrases.CARD_PRIVATE}
     assert private == {"CARD_BOX_DRAFT_TO", "CARD_BOX_DRAFT_CC", "CARD_BOX_DRAFT_BCC", "CARD_BOX_DRAFT_SUBJECT", "CARD_BOX_DRAFT_TEXT"}, "who a draft goes to, its subject and its text are the mail's"
     assert {line[0] for line in md.card_lines(doc, "x")} - private == {"CARD_BOX_CODE_DRAFT", "CARD_ACCOUNT", "CARD_BOX_DRAFT_END"}

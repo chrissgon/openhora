@@ -7,46 +7,54 @@
 
 The maintainer's rule (2026-10-22): "Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível" and "Deveria sempre poder editar alguma informacao de algum card".
 A plain line sent right after a card (or as a reply to it) that changes a word of what the card shows replaces the card with a new one; the old card is ended and can never be
-approved. The bridge decides which card a line may be about (runtime/messaging_bridge.py `revise_line`); this file decides what the line is for that card.
+approved. The bridge decides which card a line may be about (runtime/messaging_bridge.py `revise_waiting`, called by the kind `decision-card-revise` of runtime/messaging_turn.py); this file decides what the line is for that card.
 
   card_revise_check(project, pending_id, sha256, text, channel, sender)   None (the line is not about this card: it goes on as it always did), "mail" (a new e-mail card the model
-                                                                          rewrites), "event" (an event card changed by the interpreter's verified decision) or "sentence" (a card
+                                                                          rewrites), "event" (an event card changed by the interpreter's verified decision, the model seeing the card) or "sentence" (a card
                                                                           of a write that cannot be changed by words yet, and a line that asks for a change: one sentence, RV_NOT_REVISABLE)
                                                                           or "replaced" (a card this feature ended and a line that asks for a change of it).
                                                                           Calls no model and changes nothing.
   card_revise(project, pending_id, sha256, text, channel, sender)         {"say": a sentence, "resend": the id of the new card or None} or {"pass": True} (the line is not a change
                                                                           of this card: the bridge goes on with it). Mail: runtime/mail_revise.py (one call to the model, validated
-                                                                          by code); event: runtime/ops_event_revise.py (one interpreter call, the verified spans). Then the family
+                                                                          by code); event: runtime/ops_event_revise.py (one interpreter call with the card in view, runtime/event_card.py; the verified spans and parts). Then the family
                                                                           opens the new card as it opens any card, and the old card is ended as rejected with a note that says it
                                                                           was replaced, so its hash is never approvable again. Nothing is sent, written or approved here.
+  card_replaced(item)                                                     True when the single-decision view `item` is a card this feature replaced (rejected with the note NOTE): the bridge says
+                                                                          TAP_REPLACED instead of TAP_CLOSED to a tap on it. Pure.
   decided(project, channel, sender, line)                                 the interpreter's decision made for this line while it was checked as a change of a card and found to be
                                                                           something else, once, for 60 seconds, for this project and sender (so the line is not read by the model
                                                                           twice), or None
 
 A line is a change of a card only when ALL of these hold: the channel is a messaging app and the sender holds the group `interpret` with the newest entry of
-runtime/interpreter_enable.json in force (a mail card also needs the entry to pin this checkout's revise prompt); the sender may prepare the same kind of card and may reject one; the
+runtime/interpreter_enable.json in force (a mail card also needs the entry to pin this checkout's revise prompt, an event card the entry to pin this checkout's event card text); the sender may prepare the same kind of card and may reject one; the
 line is one line of at most INSTRUCTION_MAX characters, not a command, not an approve or reject word, not a greeting or a question about the state, and, for a mail card, not a
-request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself); the card
+request code recognises (a tier-1 form, a write in words, the answer to the sender's draft; for an event card the write form of a change of an event is the change itself, and a reminder, a bare time or a write said in words reaches the model that sees the card, which decides; only a typed command stays code's); the card
 is an OPEN effect decision whose content hash is the `sha256` the bridge gives (the hash of the card the person saw).
 
-For a mail card the model is called only when the line holds a word that asks for a change, a quoted text or a word that asks to change who receives the e-mail (limit L63): any other
+For a mail card the model is called only when the line holds a word that asks for a change, a quoted text, a word that asks to change who receives the e-mail or a whole address outside quotation marks (limit L63): any other
 line, "lista os emails" or "obrigado" or a thought, is not an instruction for the card, reaches no model here and goes on as it always did. For a line that names another event than the
 card's ("muda o dentista para as 10h" on the card of "evento social") the event card is left alone and the line goes on.
 
-The change (limit L55, principle 11: an effect only after the approval of its exact content). Recipients and the account of a mail card, and everything of an event card the line does not
+The change (limit L55, principle 11: an effect only after the approval of its exact content). The account of a mail card, its recipients (but for the case below), and everything of an event card the line does not
 name, are copied by code from the old card's document, and the new card is checked equal to it in everything but the change. Everything that can fail fails BEFORE the old card is touched
 (a sentence, and the old card is sent once more so that it is the last message and a word still decides it); then the old card is ended and the new one opened and checked, so the worst
-case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". An instruction that asks to change who receives an e-mail gets
-one sentence and no new card (the person asks for a new e-mail). A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
+case is no open card, never two: a card decided meanwhile is told so, a new card that cannot be opened is told as "ask again". A line that asks to change who receives an e-mail is read by the model like any other
+(the answer {"recipient": "<address>"}, `mail_revise.recipient_answer`); code opens a new card (`_recipient`) only when the card has one recipient and the address is the one new address the person typed
+whole in the line outside its quoted texts (`mail_revise.typed_recipient`); the sender, the subject and the body are the old card's, checked equal. A name, several addresses, an add, a remove or a copy,
+an address that is not in the line, get one sentence (RV_RECIPIENTS) and the old card stays open, except a line that reached the model only because it holds an address (`mail_revise.only_an_address`:
+no word that asks for a change, no word about the recipients, no object of the card, no quoted text) when the model answers an empty recipient: that is a new request in free words, not a request about this
+card, so it goes on to the turn that reads it ({"pass": True}), the card stays open and nothing is said about the recipients. So does a line that types a whole new address outside its quoted texts beside a request for
+a change of the text, when the model answers only the text (`mail_revise.typed_new_address`): the request for the recipient would be dropped, so nothing is changed and the person says it in two lines. A change asked of a card this feature replaced is told that the card was replaced (`card_revise_check` gives "replaced").
 
 Privacy (limit L63): nothing is logged, printed or stored here but the one decision in memory for the length of RETAIN seconds; the calls are counted in the interpreter's limits.
 
-A sibling of runtime/ops.py, which exposes the three names. Standard library only. Runs on Python 3.9: python3 runtime/ops_card_revise.py --help
+A sibling of runtime/ops.py, which exposes the three names; it reaches `reject`, `natural_write` and `natural_forget` of ops.py through ops_facade.py, at call time. Standard library only. Runs on Python 3.9: python3 runtime/ops_card_revise.py --help
 """
 from __future__ import annotations
 
 import importlib
 import os
+import re
 import sys
 import threading
 import time
@@ -55,11 +63,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import card_words  # noqa: E402
 import greeting  # noqa: E402
+import interpreter_enable  # noqa: E402
 import mail_revise  # noqa: E402
+import natural  # noqa: E402
+import natural_writes  # noqa: E402
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_facade  # noqa: E402
+import ops_grants  # noqa: E402
+import ops_interpret  # noqa: E402
+import ops_natural  # noqa: E402
+import ops_say  # noqa: E402
 import phrases  # noqa: E402
+import turn_gate  # noqa: E402
 
 CHANNEL = "messaging"
 OPERATION = {"send": "mail-send", "draft": "mail-draft"}
@@ -74,8 +91,16 @@ def _key(project, channel, sender) -> tuple:
     return os.path.realpath(str(project)), channel, sender
 
 
+def _purge() -> None:
+    """Drop every entry older than RETAIN, of every chat: an entry nobody reads would otherwise keep a private line in memory for as long as the process lives. Called with `_lock` held."""
+    now = clock()
+    for key in [k for k, (_, _, at) in _decided.items() if now - at >= RETAIN]:
+        del _decided[key]
+
+
 def remember(project, channel, sender, line: str, decision: dict) -> None:
     with _lock:
+        _purge()
         _decided[_key(project, channel, sender)] = (" ".join(line.split()), decision, clock())
 
 
@@ -83,6 +108,7 @@ def decided(project, channel, sender, line: str):
     """The decision `remember` kept for this very line of this sender in this project, once (the entry is dropped when it is read, whatever it held), or None. An entry older
     than RETAIN seconds is never returned."""
     with _lock:
+        _purge()
         got = _decided.pop(_key(project, channel, sender), None)
     return got[1] if got and got[0] == " ".join(line.split()) and clock() - got[2] < RETAIN else None
 
@@ -92,40 +118,58 @@ def forget_all() -> None:
         _decided.clear()
 
 
-def _ops():
-    return importlib.import_module("ops")
+CODE_OWNED = ("bare", "reminder", "write")      # what `turn_gate.new_request` says of a line code reads by itself that is NOT a typed command: a reminder (said with a bare time, or with its words) and a write said in words ("cria consulta sexta 15h")
 
 
-def _recognised(ctx: dict, line: str, sender) -> bool:
-    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card."""
-    natural_writes = importlib.import_module("natural_writes")
-    ops_natural = importlib.import_module("ops_natural")
-    ops_say = importlib.import_module("ops_say")
-    return (card_words.card_word(line) is not None or natural_writes.candidate(line) is not None or ops_natural.recognises(ctx, line, CHANNEL, sender)
+def _recognised(ctx: dict, line: str, sender, event: bool = False) -> bool:
+    """Whether code takes the line as something of its own (see the module's text): then it is not a change of a card. On the card of an event that waits the model sees the card and decides what the
+    person asked (the maintainer's rule of 2026-10-30), so a line that `turn_gate.new_request` reads as a reminder, a bare time or a write said in words ("tomar remedio as 22h", "vai ate as 17h",
+    "cria tambem consulta sexta 15h") reaches it too; only a typed command stays code's: a card word, a decision said in words, a closed form, a question about the state, a greeting. A line that is not
+    a change of the card passes on to the path it would have taken (`ops_event_revise.revise`); a reminder in words is read by the interpreter on the daily route for a sender who holds `interpret`
+    (L51 as amended on 2026-10-28), so the prompt of the card call goes to the same route."""
+    # S41-11: the write families' claim (`natural_writes.candidate`) is gone from this test: a line the gate reads as a write by one of its steps ("Mude o titulo do evento para X") must stay the change of
+    # the card that waits, and `ops_natural.recognises` now holds those private words. CANDIDATE-OUT: what is left to ask here is the code guard `turn_gate.new_request` (bare reading included, as the
+    # old claim named it), which holds the reminders' and the closed forms' words; the interpreter's own word for a new request is not read here.
+    new = turn_gate.new_request(line)
+    return (card_words.card_shape(line) is not None or ops_natural.peek(ctx, line, CHANNEL, sender, claim=False) or (new is not None and not (event and new in CODE_OWNED))
             or ops_say.state_question(line) or greeting.is_greeting(line, helps=True))
+
+
+def reaches_event_card(ctx: dict, text: str, sender) -> bool:
+    """Whether a plain line sent after the card of an event can reach the model that sees the card: the checks of `_taken` that read only the line (a card word, a question about the state, a greeting, and
+    something code takes as its own that is not the change itself). The measurement uses it to keep out a line the product never sends to a prompt; the test of the dev set holds it equal to `card_revise_check`."""
+    if not isinstance(text, str) or text.lstrip().startswith("/"):
+        return False
+    line = mail_revise.clean(text)
+    if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
+        return False
+    return not _recognised(ctx, line, sender, event=True) or _is_event_change(line)
+
+
+def owned_by_code(ctx: dict, text: str, sender) -> bool:
+    """Whether code would have taken the line as its own before the model saw the card (a reminder, a bare time, a write said in words, a typed form) and it is not the change of an event: then a card
+    call that does not read it as a change leaves it to that path, unread and unremembered, so that no line is lost (`ops_event_revise.revise`)."""
+    line = mail_revise.clean(text)
+    return line is not None and _recognised(ctx, line, sender) and not _is_event_change(line)
 
 
 def _is_event_change(line: str) -> bool:
     """Whether code reads the line as the write form of a change of an event ("muda para as 10h"): for an event card that form is the change itself."""
-    found = importlib.import_module("natural_writes").candidate(line)
-    return bool(found) and found.get("op") == "event-change"
+    return bool(natural_writes.read(line, None, op="event-change"))      # S41-11: the family reads it with the operation fixed (the claimer that said so is gone)
 
 
 def entry_of(ctx: dict, channel, sender, revise: bool):
-    """The entry of interpreter_enable.json in force (that pins the revise prompt when `revise`), or None; None too unless the sender is read by the interpreter."""
-    interpret = importlib.import_module("ops_interpret")
-    enable = importlib.import_module("interpreter_enable")
-    if not interpret.enabled(ctx, channel, sender):
+    """The entry of interpreter_enable.json in force (that pins the revise prompt when `revise`, else the event card text), or None; None too unless the sender is read by the interpreter."""
+    if not ops_interpret.enabled(ctx, channel, sender):
         return None
-    got = (enable.revise_active if revise else enable.active)(interpret._tag(ctx["cfg"]))
+    got = (interpreter_enable.revise_active if revise else interpreter_enable.card_active)(ops_interpret._tag(ctx["cfg"]))
     return got["entry"] if got else None
 
 
 def _shape(ctx: dict, item: dict) -> tuple:
     """(kind, document, mail shape): "mail" with the shape of a new e-mail this path can reproduce, "event" for the card of a new event or of a change of one found in a snapshot, else
     "sentence" for any other effect card of a write to the person's accounts."""
-    grants = importlib.import_module("ops_grants")
-    doc = grants.effect_document(ctx, item)
+    doc = ops_grants.effect_document(ctx, item)
     mail = mail_revise.shape(doc)
     if mail is not None:
         return "mail", doc, mail
@@ -135,12 +179,18 @@ def _shape(ctx: dict, item: dict) -> tuple:
     return "sentence", doc, None
 
 
+def card_replaced(item) -> bool:
+    """Whether the decision `item` (the single-decision view of `ops.pending`) is a card this feature replaced: rejected with the note NOTE. Pure; the bridge uses it to tell a tap on an old
+    card (TAP_REPLACED) from a tap on a card that was decided or closed some other way (TAP_CLOSED)."""
+    return isinstance(item, dict) and item.get("resolution") == "rejected" and item.get("answer") == NOTE
+
+
 def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     """(kind, entry, instruction, document, mail shape) when the line is about the card, else None (see the module's text)."""
     if channel != CHANNEL or not isinstance(text, str) or text.lstrip().startswith("/") or not isinstance(sha256, str):
         return None
     line = mail_revise.clean(text)
-    if line is None or card_words.card_word(line) is not None or importlib.import_module("ops_say").state_question(line) or greeting.is_greeting(line, helps=True):
+    if line is None or card_words.card_shape(line) is not None or ops_say.state_question(line) or greeting.is_greeting(line, helps=True):
         return None
     try:
         item = core._stored(ctx, ctx["store"].pending_get, pending_id)
@@ -151,16 +201,16 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
     if item.get("status", "open") != "open":
         # a card this feature replaced, and a line that asks for a change of it: the person is told it was replaced (the bridge asks this only for a reply to the card)
         asked = mail_revise.asks_change(line) or bool(mail_revise.literals(mail_revise.instruction(text)))
-        return ("replaced", None, line, None, None) if asked and item.get("answer") == NOTE and item.get("resolution") == "rejected" else None
+        return ("replaced", None, line, None, None) if asked and card_replaced(item) else None
     kind, doc, mail = _shape(ctx, item)
     if not isinstance(doc, dict):
         return None
     if kind == "sentence":
         return ("sentence", None, line, doc, None) if mail_revise.asks_change(line) and not _recognised(ctx, line, sender) else None
-    if _recognised(ctx, line, sender) and not (kind == "event" and _is_event_change(line)):
+    if _recognised(ctx, line, sender, event=kind == "event") and not (kind == "event" and _is_event_change(line)):
         return None
     raw = mail_revise.instruction(text)
-    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw)
+    asks = mail_revise.asks_change(line) or bool(mail_revise.literals(raw)) or mail_revise.recipient_words(raw) or mail_revise.types_address(raw)      # an address in the line: the model reads the request
     if kind == "mail" and not asks:
         return None      # a line that asks for no change never reaches the model (limit L63): a request or a thought, not an instruction for this card
     entry = entry_of(ctx, channel, sender, revise=kind == "mail")
@@ -178,10 +228,11 @@ def _taken(ctx: dict, pending_id, sha256, text, channel, sender):
 
 def card_revise_check(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None):
     """See the module's text. Calls no model."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    return taken[0] if taken else None
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); an inner reuse inside a line, an entry of its own when the entry is called directly
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        return taken[0] if taken else None
 
 
 def say(ctx: dict, key: str, again=None) -> dict:
@@ -193,7 +244,7 @@ def drop(project: str, pending_id, channel, sender) -> None:
     """End a card the revision opened and cannot use (a card is never left to be approved by mistake); tried twice. Never raises."""
     for _ in range(2):
         try:
-            _ops().reject(project, pending_id, note=NOTE, channel=channel, sender=sender)
+            ops_facade.function("reject")(project, pending_id, note=NOTE, channel=channel, sender=sender)
             return
         except Exception:      # noqa: BLE001 - nothing of the fault is kept
             continue
@@ -212,7 +263,7 @@ def swap(project: str, ctx: dict, old_id, open_new, matches, done_key: str, chan
     (`matches(new_id)`), so that the worst case is no open card at all and never two: a card that cannot be ended (it was decided meanwhile) stops the change before anything is
     opened and says what happened; a new card that cannot be opened or is not what was asked is ended and the person is told to ask again. `open_new()` returns the id of the new card."""
     try:
-        _ops().reject(project, old_id, note=NOTE, channel=channel, sender=sender)
+        ops_facade.function("reject")(project, old_id, note=NOTE, channel=channel, sender=sender)
     except core.OpsError:
         return say(ctx, "RV_DECIDED") if _closed(ctx, old_id) else say(ctx, "RV_FAILED", old_id)
     try:
@@ -228,37 +279,49 @@ def swap(project: str, ctx: dict, old_id, open_new, matches, done_key: str, chan
 
 
 def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sender) -> dict:
-    if mail_revise.asks_recipients(line):
-        return say(ctx, "RV_RECIPIENTS", pending_id)
-    interpret = importlib.import_module("ops_interpret")
-    if not interpret._admit(ctx, sender):
+    admission = turn_gate.admit(ctx, sender)
+    if admission is None:
         return say(ctx, "RV_FAILED", pending_id)
-    revised, ok = None, False
+    revised, ok, asked = None, False, None
     try:
-        got = mail_revise.call(entry, mail_revise.prompt_template(), mail_revise.message(interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line))
+        got = turn_gate.call(admission, entry, mail_revise.prompt_template(), mail_revise.message(ops_interpret._tag(ctx["cfg"]), mail["subject"], mail["body"], line),
+                        deadline_ms=mail_revise.DEADLINE_MS, params=mail_revise.PARAMS)
         ok = bool(got.get("ok"))
         if ok:
-            revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
+            asked = mail_revise.recipient_answer(got.get("text"))
+            if asked is None:
+                revised = mail_revise.accept(got.get("text"), mail["to"], mail["subject"], mail["body"], line)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
-        ok, revised = False, None
-    interpret._record(ok)
+        ok, revised, asked = False, None, None
+    turn_gate.record(ok)
+    if asked == "" and mail_revise.only_an_address(line):
+        return {"pass": True}      # a new request in free words that holds an address, typed while the card waits: the model found nothing about this card, so the line goes on to the turn that reads it, as before
+    if asked is not None:
+        return _recipient(project, ctx, pending_id, asked, line, mail, channel, sender)
+    if revised is not None and mail_revise.typed_new_address(line, mail["to"], mail["subject"], mail["body"]) is not None:
+        return say(ctx, "RV_RECIPIENTS", pending_id)      # a text answer beside a new address the person typed: the recipient cannot be applied by it, and the rest is not applied alone
     if revised is not None and revised.get("same") and revised.get("holds"):
         return say(ctx, "RV_ALREADY", pending_id)      # the card already holds every text the line asks for: told so, and the card is sent again
     if revised is None or revised.get("same"):
         return say(ctx, "RV_FAILED", pending_id)
-    seed = {"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}}
-    grants = importlib.import_module("ops_grants")
+    seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": list(mail["to"]), "subject": revised["subject"], "body": revised["body"]}},
+                          {"account": "card-copy", "to": "card-copy", "subject": "composed", "body": "composed"})      # S41-7: the account and the recipients are the card's own; the text is the reviser's wording (S13)
+    arguments = {"account": mail["account"], "to": ",".join(mail["to"]), "subject": revised["subject"], ("text" if seed["op"] == "mail-send" else "body"): revised["body"]}
+    problems = turn_gate.provenance(seed["op"], arguments, {**seed.origins, ("text" if seed["op"] == "mail-send" else "body"): seed.origins["body"]})      # S41-7: the revised card's arguments, checked before the old card is ended
+    if problems:
+        print(turn_gate.refusal_line(seed["op"], problems), file=sys.stderr)
+        return say(ctx, "RV_FAILED", pending_id)      # nothing was ended and nothing opened: the card stays as it was
 
     def open_new():
-        opened = _ops().natural_write(project, "", channel=channel, sender=sender, seed=seed)
+        opened = ops_facade.function("natural_write")(project, "", channel=channel, sender=sender, seed=seed)
         if not isinstance(opened.get("resend"), int):
-            _ops().natural_forget(project, sender, channel)
+            ops_facade.function("natural_forget")(project, sender, channel)
         return opened.get("resend")
 
     def matches(new_id) -> bool:
         try:
             made = core._stored(ctx, ctx["store"].pending_get, new_id)
-            found = mail_revise.shape(grants.effect_document(ctx, made))
+            found = mail_revise.shape(ops_grants.effect_document(ctx, made))
         except core.OpsError:
             return False
         return (found is not None and made.get("kind") == "effect" and made.get("status", "open") == "open"
@@ -267,21 +330,56 @@ def _mail(project: str, ctx: dict, pending_id, entry, line, mail, channel, sende
     return swap(project, ctx, pending_id, open_new, matches, "RV_DONE_MAIL", channel, sender)
 
 
+def _recipient(project: str, ctx: dict, pending_id, asked: str, line: str, mail: dict, channel, sender) -> dict:
+    """The model read a request to change who receives the card (see the module's text). Code takes only an address the person typed; everything else of the new card is the old card's, checked equal."""
+    address = mail_revise.typed_recipient(asked, line, mail["to"])
+    if address is None:
+        return say(ctx, "RV_RECIPIENTS", pending_id)
+    if address.lower() == mail["to"][0].lower():
+        return say(ctx, "RV_ALREADY", pending_id)
+    if not mail_revise.keeps_body(mail["body"]):
+        return say(ctx, "RV_FAILED", pending_id)
+    seed = turn_gate.Seed({"op": OPERATION[mail["kind"]], "slots": {"account": mail["account"], "to": [address], "subject": mail["subject"], "body": mail["body"]}},
+                          {"account": "card-copy", "to": "line-span", "subject": "card-copy", "body": "card-copy"})
+    key = "text" if seed["op"] == "mail-send" else "body"
+    arguments = {"account": mail["account"], "to": address, "subject": mail["subject"], key: mail["body"]}
+    problems = turn_gate.provenance(seed["op"], arguments, {**seed.origins, key: seed.origins["body"]})
+    if problems:
+        print(turn_gate.refusal_line(seed["op"], problems), file=sys.stderr)
+        return say(ctx, "RV_FAILED", pending_id)
+
+    def open_new():
+        opened = ops_facade.function("natural_write")(project, "", channel=channel, sender=sender, seed=seed)
+        if not isinstance(opened.get("resend"), int):
+            ops_facade.function("natural_forget")(project, sender, channel)
+        return opened.get("resend")
+
+    def matches(new_id) -> bool:
+        try:
+            made = core._stored(ctx, ctx["store"].pending_get, new_id)
+            found = mail_revise.shape(ops_grants.effect_document(ctx, made))
+        except core.OpsError:
+            return False
+        return found == dict(mail, to=[address]) and made.get("kind") == "effect" and made.get("status", "open") == "open"
+    return swap(project, ctx, pending_id, open_new, matches, "RV_DONE_RECIPIENT", channel, sender)
+
+
 def card_revise(project: str, pending_id: int, sha256: str, text: str, channel: str = CHANNEL, sender=None) -> dict:
     """The change (see the module's text)."""
-    ops_actor.require(channel, sender)
-    ctx = core.context(project)
-    taken = _taken(ctx, pending_id, sha256, text, channel, sender)
-    if taken is None:
-        return {"pass": True}
-    kind, entry, line, doc, mail = taken
-    if kind == "replaced":
-        return say(ctx, "RV_REPLACED")
-    if kind == "sentence":
-        return say(ctx, "RV_NOT_REVISABLE")
-    if kind == "mail":
-        return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
-    return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
+    with turn_gate.turn():      # S41-6: the line's refresh budget (limits L52 and L53); the new card this opens (`natural_write`) is the same line
+        ops_actor.require(channel, sender)
+        ctx = core.context(project)
+        taken = _taken(ctx, pending_id, sha256, text, channel, sender)
+        if taken is None:
+            return {"pass": True}
+        kind, entry, line, doc, mail = taken
+        if kind == "replaced":
+            return say(ctx, "RV_REPLACED")
+        if kind == "sentence":
+            return say(ctx, "RV_NOT_REVISABLE")
+        if kind == "mail":
+            return _mail(project, ctx, pending_id, entry, line, mail, channel, sender)
+        return importlib.import_module("ops_event_revise").revise(project, ctx, pending_id, entry, line, doc, channel, sender)
 
 
 if __name__ == "__main__":

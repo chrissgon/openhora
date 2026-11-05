@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
 from test_messaging_policy import decisions
@@ -65,7 +66,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
         owners = [(g, s["kind"]) for g, s in operations.GROUPS.items() if row["name"] in s["operations"] and g not in operations.MESSAGING_ONLY_GROUPS]
         if row["name"] == "approve":
             # the umbrella and one group for each word of an effect (POL-1), and the networked plans beside the plans
-            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:calendar", "effect:create", "effect:files", "effect:mailbox", "effect:publish", "effect:send", "effect:send-own", "effect:write",
+            assert sorted(k for _, k in owners) == ["acceptance", "effect", "effect:calendar", "effect:create", "effect:files", "effect:mailbox", "effect:publish", "effect:send", "effect:send-own", "effect:tasks", "effect:write",
                                                      "plan", "plan:networked"], owners
         elif row["name"] == "cancel":   # R18: the one operation in two groups, so that a policy written with reject-cancel stays valid
             assert sorted(g for g, _ in owners) == ["brakes", "reject-cancel"] and {k for _, k in owners} == {None}, owners
@@ -75,7 +76,7 @@ def test_every_row_of_the_page_the_mcp_mode_and_messaging_is_in_exactly_one_grou
             assert len(owners) == 1 and owners[0][1] is None, (row["name"], owners)
     # POL-2: `read-limited` is a subset of `read` (the one group beside `brakes`/`reject-cancel` that shares operations), valid on a messaging app alone
     assert set(operations.GROUPS["read-limited"]["operations"]) < set(operations.GROUPS["read"]["operations"])
-    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited", "ask-mail", "interpret", "send-files")
+    assert operations.MESSAGING_ONLY_GROUPS == ("read-limited", "ask-mail", "interpret", "send-files", "confirm-reads-off", "interpret-fallback")      # BL2a: the policy that turns off the question before a read
     for group, spec in operations.GROUPS.items():  # every operation a group names is a row of the table
         for name in spec["operations"]:
             operations.by_name(name)
@@ -154,10 +155,10 @@ def test_permissions_are_names_and_pairs_in_the_tables_order():
     assert {"approve:plan", "approve:acceptance", "approve:effect", "approve:go-ahead", "set-mode:down", "set-mode:up", "cancel", "go-ahead"} <= set(everything)
     assert operations.permissions("page", {"page": ["read", "approve-plans", "go-ahead"]}) == [
         "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "stop-task", "set-mode:down",
-        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]
+        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "agenda", "instructions", "routines", "routine-pause", "routine-cancel"]
     only_read = operations.permissions("page", {"page": ["read"]})
     assert only_read == ["status", "task", "flows", "flow-check", "config", "progress", "pending", "cancel", "stop-task", "set-mode:down", "agents", "conversation",
-                         "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]  # the brakes are there
+                         "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "agenda", "instructions", "routines", "routine-pause", "routine-cancel"]  # the brakes are there
     assert "set-mode:up" in operations.permissions("page", {"page": ["read", "set-mode"]})
     assert operations.permissions("page", {"page": ["read", "approve-effects", "approve-acceptances"]}).count("approve:effect") == 1
 
@@ -329,7 +330,7 @@ def test_a_typed_approve_on_the_page_follows_the_page_policy_and_never_approves_
     assert reply.startswith("error: an effect is approved in the terminal, with its hash") and provider_calls(tree) == []
     assert ops.pending(path, effect["id"])["status"] == "open"
     for channel in ("terminal", "mcp", "messaging", None):
-        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:4242" if channel == "messaging" else None))["reply"]
+        said = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))["reply"]
         assert (said == PLAIN_REFUSAL if channel == "messaging" else said.startswith("error: ")) and provider_calls(tree) == [], channel
     ops.say(path, f"/approve {accept_id}", channel="page")
     assert ops.pending(path, accept_id)["status"] == "resolved"
@@ -414,7 +415,8 @@ def test_a_queued_line_is_checked_again_at_the_drain_under_the_page_policy_and_g
     out = ops.route_queued(path)
     assert out["dropped"] == {"kind": "line", "id": line} and out["queued"] == 0
     reply = [m for m in ops.conversation(path)["messages"] if m["role"] == "assistant"][-1]["text"]
-    assert reply == "A queued line was not answered: " + sentence("say") and ops_say._queue_read(ops_core.context(path), peek=True) == []
+    pk.assert_said(reply, "QUEUE_DROPPED_LINE", None, why=sentence("say"))
+    assert ops_say._queue_read(ops_core.context(path), peek=True) == []
 
 
 def test_an_entry_queued_before_groups_were_stored_is_checked_as_a_line_or_a_route_under_the_page(tree):  # noqa: F811
@@ -451,7 +453,7 @@ def test_a_line_that_routes_a_request_already_queued_by_the_page_keeps_the_group
     ctx = ops_core.context(path)
     answer_to = ctx["store"].acceptance_open(ctx["conn"], task_id=request, what="deliveries", title="Q", body="b", payload={})["pending_id"]
     monkeypatch.setattr(ops_say, "_planning_may_start", lambda c: (True, ""))
-    monkeypatch.setattr(ops_say, "_ops", lambda: types.SimpleNamespace(answer=lambda *a, **k: None, route=ops.route))
+    monkeypatch.setattr(ops, "answer", lambda *a, **k: None)      # 44-C2: ops_say reaches `answer` through ops_facade, which reads ops.answer at the call; `route` is the real one
     with ops_core._route_lock(ctx["cfg"]):
         ops_say.queue_route(ctx, request)                                   # the page asked for the route: group request
         ops_say._say_route(path, ctx, "same request", 10**6, "page", answer_to=answer_to)   # a line routes the same request
@@ -479,7 +481,7 @@ def test_get_projects_carries_the_pages_permissions_per_project_and_null_when_no
     [one, two, three] = body["projects"]
     assert one["permissions"] == {"channel": "page", "allowed": [
         "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "stop-task", "set-mode:down",
-        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "instructions", "routines", "routine-pause", "routine-cancel"]}
+        "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "items", "agenda", "instructions", "routines", "routine-pause", "routine-cancel"]}
     assert set(one["permissions"]) == {"channel", "allowed"}
     assert two["permissions"] == {"channel": "page", "allowed": operations.permissions("page", None)}
     assert {"approve:plan", "approve:acceptance", "approve:effect", "approve:go-ahead", "set-mode:down", "set-mode:up"} <= set(two["permissions"]["allowed"])

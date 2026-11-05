@@ -200,6 +200,8 @@ A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doc
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-16: the images of earlier definitions of the converter and the exporter are listed in the doctor's `images` row and removed on the person's word with `python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)`, never automatically (T38).
 - 2026-10-15: S16: the password manager (1Password first) as the fourth place a secret is looked up, with a mapping file of references, one call of the vendor's tool per lookup and no cache, its states told apart from a missing secret, the doctor's `password_manager` check and limit L39. `provider_environment` keeps `OPENHORA_CREDENTIALS_DIR` and `CREDENTIALS_DIRECTORY`, so a provider's process finds a credentials directory that only those variables name.
 - 2026-10-15: after review: a run folder is kept while its task, its request or a pending decision is open; the container sweep never removes a running container and can be turned off in `runtime.json`; the lease is taken only before a write and a takeover is told; an unsafe credentials directory is told, and root-provisioned read-only secrets are accepted; whole-name detection of synced folders.

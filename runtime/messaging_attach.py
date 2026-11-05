@@ -287,12 +287,13 @@ class Attachments:
         settings = bridge.settings(project)
         if settings is None or not bridge.ops.operations.permitted("file-save", CHANNEL, settings["policy"], None, bridge.key(chat)):
             return False
+        origin = "line-span" if account is not None else "config"          # S41-7: a service word of the caption, else the one account the project lists
         if account is None:
             listed = self.accounts(project)
             account = listed[0] if len(listed) == 1 else None
         if account is None:
             return False
-        return bool(bridge.write_now(project, chat, said or "", {"op": "file-save", "attachment": number, "account": account, "folders": "silent"}))
+        return bool(bridge.write_now(project, chat, said or "", {"op": "file-save", "attachment": number, "account": account, "folders": "silent", "origins": {"account": origin}}))
 
     def accounts(self, project: dict) -> list:
         """The accounts ("google", "microsoft") the project lists with folders: where a file can be saved to."""
@@ -404,7 +405,7 @@ class Attachments:
             self.open_saves.pop(key, None)
 
         def call():
-            pending = bridge.write_now(project, chat, "", {"op": "file-save", "attachment": number, "account": account, "folders": "first"})
+            pending = bridge.write_now(project, chat, "", {"op": "file-save", "attachment": number, "account": account, "folders": "first", "origins": {"account": "picked"}})      # the button the person pressed (S41-7)
             if pending:
                 self.open_saves[key] = pending
         bridge.start(project, chat, "file-save", call)

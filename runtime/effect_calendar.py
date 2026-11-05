@@ -176,8 +176,8 @@ def _private_file(folder: str, name: str, data: bytes) -> str:
 
 
 def spec_file(folder: str, doc: dict):
-    """The private file the writer is handed (the person's words never go on a command line), or None for a removal."""
-    if doc["operation"] == "cancel":
+    """The private file the writer is handed (the person's words never go on a command line), or None for a removal or a cancel of a series."""
+    if doc["operation"] in calendar_document.CANCELS:
         return None
     return _private_file(folder, "spec.json", json.dumps(calendar_document.spec_of(doc), ensure_ascii=False, sort_keys=True).encode("utf-8"))
 
@@ -194,17 +194,30 @@ def _applied(doc: dict, got: dict) -> bool:
 
 
 def _unchanged(doc: dict, got) -> None:
-    """StaleError unless the event is as the task read it: found with the version the task read (limit L56)."""
+    """StaleError unless the event is as the task read it: found with the version the task read (limit L56). For the cancel of a series or of one occurrence (CB-7) it is the series'
+    master (the whole series) or the instance (one occurrence) that is read again, by the id the document names, and it must still belong to the series the document names and, for an
+    occurrence, start at the instant the document names."""
     if not isinstance(got, dict) or not isinstance(got.get("found"), bool):
         raise UnknownError("the writer's answer about the event is not one this code understands")
     if not got["found"]:
-        if doc["operation"] == "cancel":
+        if doc["operation"] in calendar_document.CANCELS:
             return      # gone: an earlier attempt of this removal may have landed; the writer's ledger tells
         raise StaleError("the event is not in the calendar any more")
     event = got.get("event")
     if not isinstance(event, dict) or event.get("etag") != doc["base_etag"]:
         if not _applied(doc, got):
             raise StaleError("the event has another version than the one the task read")
+    if doc["operation"] in calendar_document.SERIES_CANCELS:
+        series = doc["series"]
+        if event.get("series_id") != series["id"] or event.get("id") != doc["event_id"] or event.get("status") == "cancelled":
+            raise StaleError("the event is not the part of the series the task read")
+        if doc["operation"] == "cancel-occurrence" and series["start"] != event.get("start"):
+            try:
+                same = calendar_document.parse_instant(str(event.get("start"))) == calendar_document.parse_instant(series["start"])
+            except effects.EffectError:
+                same = False
+            if not same:
+                raise StaleError("the occurrence moved: it does not start when the task read it")
 
 
 def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=None) -> dict:

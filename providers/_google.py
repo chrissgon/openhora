@@ -12,9 +12,16 @@ The model: one OAuth client, one consent and one refresh token per Google accoun
 everything those scopes allow; what restricts it is the platform (policies, effect cards of the exact content, the verbs each provider
 script exposes, no token in a run), never a narrower token. A token that lacks a scope of the set, or carries one more, is refused.
 
-  PLATFORM_SCOPES         the four scopes the platform asks, once, for every Google provider
-  check_platform_scope    a token response (the authorization and every refresh) must carry exactly the set; a refresh that omits `scope`
-                          is accepted only when the record's stored scope is the set
+The transition (CB-4, OPEN-CB-7, 2026-10-27): the set gained the Google Tasks scope. A token made before it carries the four scopes of
+PREVIOUS_SCOPES, and the maintainer's accounts keep working until the person authorizes again: every provider but the tasks ones accepts
+EXACTLY the five or EXACTLY the four (nothing between, nothing beyond); the tasks providers (`tasks=True`) accept exactly the five, and a
+four-scope token is refused by them with the authorize command named. The authorization always asks the five. A follow-up (CB-4b) removes
+PREVIOUS_SCOPES once both accounts carry the five.
+
+  PLATFORM_SCOPES         the five scopes the platform asks, once, for every Google provider (the authorization asks all five)
+  PREVIOUS_SCOPES         the four scopes a token made before Google Tasks was added carries; accepted, exactly, by every provider but the tasks ones
+  check_platform_scope    a token response (the authorization and every refresh) must carry exactly the five (or, for a provider that does not
+                          read tasks, exactly the four); a refresh that omits `scope` is accepted only when the record's stored scope is one of them
   parse_account_record    the one JSON record (slot, refresh token, client, scope, account, date) of the secret GOOGLE_ACCOUNT_TOKEN
   load_account_record     the account record first, a provider's legacy record (its old exact rule) when the account record is absent, with
                           one warning on stderr per process when the legacy one was used
@@ -54,7 +61,9 @@ GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 CALENDAR_LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
-PLATFORM_SCOPES = (GMAIL_SCOPE, CALENDAR_EVENTS_SCOPE, CALENDAR_LIST_SCOPE, DRIVE_SCOPE)
+TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"      # CB-4: "Create, edit, organize, and delete all your tasks" (the tasks providers send no delete: their ALLOWED has none)
+PREVIOUS_SCOPES = (GMAIL_SCOPE, CALENDAR_EVENTS_SCOPE, CALENDAR_LIST_SCOPE, DRIVE_SCOPE)
+PLATFORM_SCOPES = PREVIOUS_SCOPES + (TASKS_SCOPE,)
 # Words a token response may carry that grant no access to mail, calendar or files: identity only. Anything else beyond the set is refused.
 IGNORED_SCOPES = ("openid", "email", "profile", "https://www.googleapis.com/auth/userinfo.email",
                   "https://www.googleapis.com/auth/userinfo.profile")
@@ -111,21 +120,27 @@ def scope_words(text) -> set:
     return set(str(text or "").split()) - set(IGNORED_SCOPES)
 
 
-def scope_problems(words) -> tuple:
-    """(missing, extra), each sorted, of a set of scope words against the platform's set."""
-    wanted = set(PLATFORM_SCOPES)
-    return sorted(wanted - set(words)), sorted(set(words) - wanted)
+def scope_problems(words, wanted=PLATFORM_SCOPES) -> tuple:
+    """(missing, extra), each sorted, of a set of scope words against a wanted set (the platform's five by default). `extra` is always
+    measured against the five: the four of a token made before Google Tasks are never extra."""
+    return sorted(set(wanted) - set(words)), sorted(set(words) - set(PLATFORM_SCOPES))
 
 
-def check_platform_scope(granted, stored=None, error=AccountError, outcome="nothing was read") -> None:
+def check_platform_scope(granted, stored=None, error=AccountError, outcome="nothing was read", tasks=False) -> None:
     """Refuse a token whose scope is not exactly the platform's set. `granted` is the `scope` of a token response (the authorization or a
     refresh). A refresh response that omits it is accepted only when the record's `stored` scope is the set: Google may leave it out, and a
     response that names no scope cannot be shown to be the right one on its own. `outcome` ends the message ("nothing was read" for a
-    reader, "nothing was stored" for the authorization)."""
+    reader, "nothing was stored" for the authorization). The set is the five, or, unless `tasks` (a provider that reads or writes
+    tasks, and the authorization), exactly the four of PREVIOUS_SCOPES: a token made before Google Tasks was added (CB-4, OPEN-CB-7)."""
     words = scope_words(granted)
     if not words:
         words = scope_words(stored)
-    missing, extra = scope_problems(words)
+    if words == set(PLATFORM_SCOPES) or (not tasks and words == set(PREVIOUS_SCOPES)):
+        return
+    if tasks and words == set(PREVIOUS_SCOPES):
+        raise error(f"the account token was made before Google Tasks was added to the platform's set and lacks {TASKS_SCOPE}: {outcome}. "
+                    f"Run {AUTH_COMMAND} and keep every box ticked on the consent screen", EXIT_NOT_CONFIGURED)
+    missing, extra = scope_problems(words, PLATFORM_SCOPES if tasks else PREVIOUS_SCOPES)
     if missing:
         more = f"; it also carries {', '.join(extra)}, which the platform does not ask" if extra else ""
         raise error(f"the account token lacks {', '.join(missing)}{more}: {outcome}. Run {AUTH_COMMAND} and keep every box ticked "
@@ -302,11 +317,12 @@ def token_request(token_url, form, error=AccountError) -> dict:
     raise error(f"the Google token endpoint returned {status} ({detail})", EXIT_SERVICE, status)
 
 
-def refresh_access_token(token_url, record, error=AccountError) -> dict:
-    """A new access token from the account record's refresh token; the whole token response, after the scope check."""
+def refresh_access_token(token_url, record, error=AccountError, tasks=False) -> dict:
+    """A new access token from the account record's refresh token; the whole token response, after the scope check (`tasks`: a provider that
+    needs the Google Tasks scope, see check_platform_scope)."""
     data = token_request(token_url, {"client_id": record["client_id"], "client_secret": record["client_secret"],
                                      "grant_type": "refresh_token", "refresh_token": record["refresh_token"]}, error)
-    check_platform_scope(data.get("scope"), record.get("scope"), error)
+    check_platform_scope(data.get("scope"), record.get("scope"), error, tasks=tasks)
     return data
 
 

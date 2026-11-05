@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 import test_sources_mail as tsm
 from sources_fixture import standin_convert
@@ -69,6 +70,7 @@ START, END = "2026-10-19T13:00:00-03:00", "2026-10-19T14:00:00-03:00"
 EVENTS = fgw.EVENTS_PREFIX
 GRAPH_EVENTS = "/v1.0/me/calendar/events"
 TITLE, NOTES = "Haircut with Joe", "Bring cash"
+CFG, PT = {"language": "en"}, {"language": "pt-BR"}
 PIECES = {"location": "Main Street", "reminder_minutes": 30, "notes": NOTES}
 SEEDED = "evabc12345"
 GRAPH_SEEDED = "AAMkEvent9999="
@@ -130,7 +132,7 @@ def approve(world, started_or_item, channel="terminal"):
     pending = started_or_item["pending"] if "pending" in started_or_item else started_or_item["id"]
     ctx = ops_core.context(world["path"])
     item = ctx["store"].pending_get(ctx["conn"], pending)
-    return ops.approve(world["path"], pending, sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+    return ops.approve(world["path"], pending, sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
 
 
 def effect_doc(world, started):
@@ -225,19 +227,21 @@ def test_a_create_prepares_a_card_of_the_whole_event_and_writes_and_reads_nothin
     assert set(started) == {"request", "task", "pending", "word", "on_cards"} and started["word"] == "calendar" and started["on_cards"] is True
     assert world["google"].requests == [] and world["graph"].requests == [], "preparing a create opens no connection and reads no credential"
     item = item_of(world, started)
-    assert item["kind"] == "effect" and item["title"] == "Calendar: new event" and TITLE not in item["title"]
+    assert item["kind"] == "effect" and pk.said(item["title"], "TITLE_CAL_CREATE", CFG) and TITLE not in item["title"]
     assert item["payload"]["step"] == {"kind": "calendar-event", "step": "calendar"} and phrases.card_valid(item["payload"]["card"])
     assert item["body"] == phrases.card_text(item["payload"]["card"])
     lines = item["body"].splitlines()
-    assert lines[0] == "Code creates this event after your approval, and nothing else."
-    assert lines[1:] == [f"Account: google ({fgw.ACCOUNT})", "Calendar: personal", f"Title: {TITLE}", "When: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)",
-                         "Where: Main Street", "Calendar reminder: 30 min before", f"Notes: {NOTES}", "No one is invited: no e-mail is sent."]
+    pk.assert_said(lines[0], "CARD_CAL_CREATE", CFG)
+    assert [pk.which(line, CFG) for line in lines[1:]] == [
+        ("CARD_ACCOUNT", {"account": "google", "address": fgw.ACCOUNT}), ("CARD_CAL_CALENDAR", {"calendar": "personal"}), ("CARD_CAL_TITLE", {"title": TITLE}),
+        ("CARD_CAL_WHEN", {"when": "Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)"}), ("CARD_CAL_WHERE", {"location": "Main Street"}), ("CARD_CAL_REMIND", {"minutes": "30"}),
+        ("CARD_CAL_NOTES", {"notes": NOTES}), ("CARD_CAL_NOBODY", {})]
     doc = effect_doc(world, started)
     assert doc["effect"] == "calendar" and doc["operation"] == "create" and doc["send_updates"] == "none" and doc["implementation"] == "google-calendar"
     assert doc["event"]["start_at"] == START and doc["event"]["end_at"] == END and doc["event_id"] is None and doc["before"] is None
     assert doc["calendar"] == "personal" and doc["calendar_id"] == fgw.CALENDAR and doc["zone"] == "America/Sao_Paulo"
     tasks, pending = rows(world)
-    assert {t["id"]: t["title"] for t in tasks}[started["task"]] == "Calendar: new event" and len(pending) == 1
+    assert pk.said({t["id"]: t["title"] for t in tasks}[started["task"]], "TITLE_CAL_CREATE", CFG) and len(pending) == 1
 
 
 def test_limit_55_a_create_is_one_post_with_send_updates_none_made_only_by_the_approval_of_the_hash(world):
@@ -370,9 +374,9 @@ def test_an_all_day_event_defaults_to_the_same_day_and_a_timed_event_to_an_hour_
     doc = effect_doc(world, day)
     assert doc["event"] == {"title": TITLE, "all_day": True, "start": "2026-10-20", "end": "2026-10-20", "start_at": "2026-10-20", "end_at": "2026-10-21",
                             "location": "", "reminder_minutes": None, "notes": ""}
-    assert "When: all day Tue 20/10/2026" in item_of(world, day)["body"]
+    assert pk.said(item_of(world, day)["body"], "CARD_CAL_WHEN", CFG, when="all day Tue 20/10/2026")
     span = create(world, start="2026-10-20", end="2026-10-22")
-    assert "all day Tue 20/10/2026 - Thu 22/10/2026" in item_of(world, span)["body"] and effect_doc(world, span)["event"]["end_at"] == "2026-10-23"
+    assert pk.said(item_of(world, span)["body"], "CARD_CAL_WHEN", CFG, when="all day Tue 20/10/2026 - Thu 22/10/2026") and effect_doc(world, span)["event"]["end_at"] == "2026-10-23"
     timed = create(world, start="2026-10-19T23:30")
     assert effect_doc(world, timed)["event"]["end"] == "2026-10-20T00:30" and "Mon 19/10/2026 23:30 - Tue 20/10/2026 00:30 (America/Sao_Paulo)" in item_of(world, timed)["body"]
 
@@ -396,16 +400,17 @@ def test_the_card_is_said_line_by_line_in_the_projects_language_with_the_same_ha
     english = cards.effect_card_text(item, {})
     assert english == item["body"]
     portuguese = cards.effect_card_text(item, {"language": "pt-BR"})
-    assert portuguese.splitlines()[0] == "O c\u00f3digo cria este evento depois da sua aprova\u00e7\u00e3o, e nada mais."
-    for needle in (f"Conta: google ({fgw.ACCOUNT})", "Agenda: personal", f"T\u00edtulo: {TITLE}", "Quando: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)", "Onde: Main Street",
-                   "Lembrete da agenda: 30 min antes", f"Notas: {NOTES}", "Ningu\u00e9m \u00e9 convidado: nenhum e-mail \u00e9 enviado."):
-        assert needle in portuguese, needle
+    pk.assert_said(portuguese.splitlines()[0], "CARD_CAL_CREATE", PT)
+    for key, fields in (("CARD_ACCOUNT", {"account": "google", "address": fgw.ACCOUNT}), ("CARD_CAL_CALENDAR", {"calendar": "personal"}), ("CARD_CAL_TITLE", {"title": TITLE}),
+                        ("CARD_CAL_WHEN", {"when": "Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)"}), ("CARD_CAL_WHERE", {"location": "Main Street"}),
+                        ("CARD_CAL_REMIND", {"minutes": 30}), ("CARD_CAL_NOTES", {"notes": NOTES}), ("CARD_CAL_NOBODY", {})):
+        pk.assert_said(portuguese, key, PT, **fields)
     caps = {"buttons": True, "max_buttons": 6, "max_text": 4096, "documents": False, "url_buttons": True, "reply_context": True}
     policy = {"messaging": ["read", "approve-effect-calendar"]}
     full = ops.pending(world["path"], started["pending"])
     pt = cards.build("northwind", full, caps, policy, "text", None, operations=operations, cfg={"language": "pt-BR"})
     en = cards.build("northwind", full, caps, policy, "text", None, operations=operations, cfg={})
-    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"] and "T\u00edtulo: " + TITLE in pt["message"]["text"]
+    assert pt["content_sha256"] == en["content_sha256"] and full["payload_sha256"] not in pt["message"]["text"] and pt["content_sha256"] == full["payload_sha256"] and pk.said(pt["message"]["text"], "CARD_CAL_TITLE", PT, title=TITLE)
     assert pt["approvable"] is True and pt["whole"] is True
 
 
@@ -446,15 +451,18 @@ def test_a_change_reads_the_event_and_shows_each_changed_part_as_it_was_and_as_i
     assert [(m, p) for m, p, _, _ in calls(google)] == [("GET", f"{EVENTS}/ev0001")] and "fields" in query
     assert [r["method"] for r in google.requests] == ["POST", "GET"], "the token, then the one read of the event"
     item = item_of(world, started)
-    assert item["title"] == "Calendar: change an event"
+    assert pk.said(item["title"], "TITLE_CAL_CHANGE", CFG)
     lines = item["body"].splitlines()
-    assert lines[0].startswith("Code changes this event after your approval, only if it is still as read at 20")
-    assert "Before: Title: Haircut with Joe" in lines and "After: Title: Haircut with Pat" in lines
-    assert "Before: When: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in lines and "After: When: Tue 20/10/2026 10:00-11:00 (America/Sao_Paulo)" in lines
-    assert "Before: Notes: Bring cash" in lines and "After: Notes: -" in lines
-    assert "Unchanged: Where: Main Street" in lines and "Unchanged: Calendar reminder (min before): 30" in lines
-    assert "Event: ev0001" in lines and "The event now is at: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in lines and f"The event now: {TITLE}" in lines, "the event as read live, with its id"
-    assert lines[-2].startswith("Based on version ") and lines[-1] == "No one is invited: no e-mail is sent."
+    body = "\n".join(lines)
+    assert pk.said(lines[0], "CARD_CAL_CHANGE", CFG) and pk.which(lines[0], CFG)[1]["read_at"].startswith("20")
+    assert pk.said(body, "CARD_CAL_BEFORE_TITLE", CFG, title="Haircut with Joe") and pk.said(body, "CARD_CAL_AFTER_TITLE", CFG, title="Haircut with Pat")
+    assert pk.said(body, "CARD_CAL_BEFORE_WHEN", CFG, when="Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)")
+    assert pk.said(body, "CARD_CAL_AFTER_WHEN", CFG, when="Tue 20/10/2026 10:00-11:00 (America/Sao_Paulo)")
+    assert pk.said(body, "CARD_CAL_BEFORE_NOTES", CFG, notes="Bring cash") and pk.said(body, "CARD_CAL_AFTER_NOTES", CFG, notes="-")
+    assert pk.said(body, "CARD_CAL_KEPT_WHERE", CFG, location="Main Street") and pk.said(body, "CARD_CAL_KEPT_REMIND", CFG, minutes=30)
+    # the event as read live, with its id
+    assert pk.said(body, "CARD_CAL_EVENT", CFG, event_id="ev0001") and pk.said(body, "CARD_CAL_NOW_WHEN", CFG, when="Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)") and pk.said(body, "CARD_CAL_NOW_TITLE", CFG, title=TITLE)
+    assert pk.said(lines[-2], "CARD_CAL_BASE", CFG) and pk.said(lines[-1], "CARD_CAL_NOBODY", CFG)
     doc = effect_doc(world, started)
     assert doc["operation"] == "change" and doc["event_id"] == "ev0001" and doc["changed"] == ["title", "when", "notes"] and doc["base_etag"] == google.events["ev0001"]["etag"]
     assert doc["event"]["end"] == "2026-10-20T11:00", "a start alone moves the event and keeps how long it lasts"
@@ -580,26 +588,23 @@ def test_limit_57_a_removal_is_one_delete_with_if_match_and_send_updates_none_th
     made = made_event(world)
     started = ops.event_cancel(world["path"], "google", f"created:{made['pending']}")
     item = item_of(world, started)
-    assert item["title"] == "Calendar: remove an event"
+    assert pk.said(item["title"], "TITLE_CAL_CANCEL", CFG)
     lines = item["body"].splitlines()
-    assert lines[0] == ("Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days "
-                        "(Google Calendar, Trash); this has not been verified yet.")
-    assert f"Removing, title: {TITLE}" in lines and "Event: ev0001" in lines and lines[-1].startswith("Based on version ")
+    pk.assert_said(lines[0], "CARD_CAL_CANCEL", CFG)
+    body = "\n".join(lines)
+    assert pk.said(body, "CARD_CAL_DROP_TITLE", CFG, title=TITLE) and pk.said(body, "CARD_CAL_EVENT", CFG, event_id="ev0001") and pk.said(lines[-1], "CARD_CAL_BASE", CFG)
     doc = effect_doc(world, started)
     assert doc["operation"] == "cancel" and doc["event"] is None and doc["changed"] == [] and doc["before"]["title"] == TITLE
     world["google"].requests.clear()
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["operation"] == "cancel"
     assert [(m, p, q, b) for m, p, q, b in calls(world["google"])] == [("GET", f"{EVENTS}/ev0001", calls(world["google"])[0][2], None),
+                                                                      ("GET", f"{EVENTS}/ev0001", calls(world["google"])[1][2], None),      # CB-6: the writer reads the event again: a plain removal is of no series
                                                                       ("DELETE", f"{EVENTS}/ev0001", {"sendUpdates": "none"}, None)]
     assert [r for r in world["google"].requests if r["method"] == "DELETE"][0]["if_match"] == doc["base_etag"]
     assert "ev0001" in world["google"].removed and world["google"].events == {} and world["google"].unexpected() == []
 
 
-OUTLOOK_LINE_EN = ("Code removes this event after your approval. Outlook may not keep a copy of a removed event; once approved, it may not be possible to recover it.")
-OUTLOOK_LINE_PT = "O Outlook pode n\u00e3o guardar uma c\u00f3pia do evento apagado; depois de aprovado, pode n\u00e3o ser poss\u00edvel recuper\u00e1-lo."
-GOOGLE_LINE_EN = ("Code removes this event after your approval. Google is expected to move it to the calendar's trash, where you can restore it for 30 days "
-                  "(Google Calendar, Trash); this has not been verified yet.")
 REMOVAL = "DEL" + "ETE"      # built here so that no scan of this file's text mistakes the test for a request
 
 
@@ -618,11 +623,14 @@ def test_limit_57_an_outlook_removal_is_one_delete_of_the_event_made_only_by_the
     started = outlook_removal(world, monkeypatch)
     item = item_of(world, started)
     lines = item["body"].splitlines()
-    assert item["title"] == "Calendar: remove an event" and lines[0] == OUTLOOK_LINE_EN, lines[0]
+    assert pk.said(item["title"], "TITLE_CAL_CANCEL", CFG)
+    pk.assert_said(lines[0], "CARD_CAL_CANCEL_OUTLOOK", CFG)
     assert "trash" not in item["body"] and "Google" not in lines[0], "the Outlook card makes no promise of a trash"
-    assert f"Account: microsoft ({fgc.ADDRESS})" in lines and f"Event: {GRAPH_SEEDED}" in lines and "Removing, title: Dentist" in lines and lines[-1].startswith("Based on version ")
+    body = "\n".join(lines)
+    assert pk.said(body, "CARD_ACCOUNT", CFG, account="microsoft", address=fgc.ADDRESS) and pk.said(body, "CARD_CAL_EVENT", CFG, event_id=GRAPH_SEEDED)
+    assert pk.said(body, "CARD_CAL_DROP_TITLE", CFG, title="Dentist") and pk.said(lines[-1], "CARD_CAL_BASE", CFG)
     portuguese = cards.effect_card_text(item, {"language": "pt-BR"}).splitlines()
-    assert portuguese[0] == "O c\u00f3digo remove este evento depois da sua aprova\u00e7\u00e3o. " + OUTLOOK_LINE_PT      # validate: allow english-only -- the Portuguese line under test
+    pk.assert_said(portuguese[0], "CARD_CAL_CANCEL_OUTLOOK", PT)
     doc = effect_doc(world, started)
     assert doc["operation"] == "cancel" and doc["account"] == "microsoft" and doc["implementation"] == "outlook-calendar" and doc["event"] is None
     assert doc["event_id"] == GRAPH_SEEDED and doc["base_etag"] == world["graph"].events[GRAPH_SEEDED]["changeKey"] and doc["changed"] == []
@@ -642,10 +650,11 @@ def test_the_outlook_line_is_the_outlook_cards_alone_and_the_google_card_keeps_i
     outlook = item_of(world, outlook_removal(world, monkeypatch))
     google = made_event(world)
     removal = item_of(world, ops.event_cancel(world["path"], "google", f"created:{google['pending']}"))
-    assert OUTLOOK_LINE_EN == outlook["body"].splitlines()[0] and GOOGLE_LINE_EN == removal["body"].splitlines()[0]
-    assert OUTLOOK_LINE_EN not in removal["body"] and "Outlook" not in removal["body"] and GOOGLE_LINE_EN not in outlook["body"], "vacuity: each card holds only its own line"
-    assert cards.effect_card_text(removal, {"language": "pt-BR"}).splitlines()[0].endswith("isso ainda n\u00e3o foi verificado.")      # validate: allow english-only -- the Portuguese line under test
-    assert OUTLOOK_LINE_PT not in cards.effect_card_text(removal, {"language": "pt-BR"})
+    assert pk.said(outlook["body"].splitlines()[0], "CARD_CAL_CANCEL_OUTLOOK", CFG) and pk.said(removal["body"].splitlines()[0], "CARD_CAL_CANCEL", CFG)
+    # vacuity: each card holds only its own line
+    assert not pk.said(removal["body"], "CARD_CAL_CANCEL_OUTLOOK", CFG) and "Outlook" not in removal["body"] and not pk.said(outlook["body"], "CARD_CAL_CANCEL", CFG)
+    assert pk.said(cards.effect_card_text(removal, PT).splitlines()[0], "CARD_CAL_CANCEL", PT)
+    assert not pk.said(cards.effect_card_text(removal, PT), "CARD_CAL_CANCEL_OUTLOOK", PT)
 
 
 def test_an_outlook_removal_of_an_event_whose_change_key_moved_after_the_card_is_stale_and_nothing_is_sent(world, monkeypatch):
@@ -730,17 +739,65 @@ def test_the_effect_of_an_outlook_removal_passes_the_document_check_and_the_pref
     assert calendar_document.provider_args(doc, None) == ["--calendar", "default", "--event", GRAPH_SEEDED, "--base-etag", doc["base_etag"], "--idempotency-key", doc["idempotency_key"]]
 
 
+def _zone_doc(account="microsoft", operation="create", zone="America/Sao_Paulo", day=False, edit=("title",)):
+    """A checked document for provider_args: a timed (or all-day) event, as a create, a change of `edit` fields, or a removal."""
+    times = calendar_document.times
+    when = times("2026-10-19", None) if day else times("2026-10-19T13:00", None)
+    event = calendar_document.event_of(TITLE, "", None, "", when)
+    base = dict(task_id=7, account=account, address=fgc.ADDRESS, calendar="personal", calendar_id="default", operation=operation, zone=zone, dry_run_sha256="a" * 64)
+    if operation == "create":
+        return calendar_document.document(**base, event=event)
+    base.update(event_id="AAMkEvent9999=", base_etag="ck1", read_at="2026-10-19T12:00:00Z")
+    if operation == "cancel":
+        return calendar_document.document(**base, before=event)
+    after = dict(event)
+    if "title" in edit:
+        after["title"] = "Moved"
+    if "when" in edit:
+        later = times("2026-10-20", None) if day else times("2026-10-20T09:00", None)
+        after.update({k: later[k] for k in ("all_day", "start", "end", "start_at", "end_at")})
+    return calendar_document.document(**base, before=event, event=after, changed=calendar_document.changed_fields(event, after))
+
+
+def _flag(argv):
+    return argv[argv.index("--time-zone") + 1] if "--time-zone" in argv else None
+
+
+def test_the_outlook_writer_gets_the_hosts_zone_for_a_timed_create_and_for_a_change_of_times_only(tmp_path):
+    spec = str(tmp_path / "spec.json")
+    create_args = calendar_document.provider_args(_zone_doc(), spec)
+    assert create_args == ["--calendar", "default", "--spec-file", spec, "--idempotency-key", _zone_doc()["idempotency_key"], "--time-zone", "America/Sao_Paulo"]
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("when",)), spec)) == "America/Sao_Paulo"
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("title", "when"), zone="Europe/Lisbon"), spec)) == "Europe/Lisbon"
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", edit=("title",)), spec)) is None, "a change with no times writes no zone"
+
+
+def test_the_zone_flag_is_not_given_for_google_a_removal_an_all_day_event_or_an_offset_zone(tmp_path):
+    spec = str(tmp_path / "spec.json")
+    google = _zone_doc(account="google")
+    assert _flag(calendar_document.provider_args(google, spec)) is None and "--time-zone" not in calendar_document.provider_args(google, spec)
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="cancel"), None)) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(day=True), spec)) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(operation="change", day=True, edit=("when",)), spec)) is None
+    for offset in ("UTC-03:00", "UTC+05:30", "Local"):
+        assert _flag(calendar_document.provider_args(_zone_doc(zone=offset), spec)) is None, offset
+    assert _flag(calendar_document.provider_args(_zone_doc(zone="Etc/GMT+12"), spec)) == "Etc/GMT+12"
+    # vacuity: the helper does see a flag when there is one, and the flag is exactly the document's zone, never anything else
+    assert _flag(["--time-zone", "Zone/Planted"]) == "Zone/Planted" and _flag(["--calendar", "default"]) is None
+    assert _flag(calendar_document.provider_args(_zone_doc(zone="Europe/Lisbon"), spec)) != "America/Sao_Paulo"
+
+
 # --- Outlook: a create and a change -------------------------------------------------------------------------------------------------------------
 
 
-def test_an_outlook_create_is_one_post_in_utc_with_no_attendee_and_the_card_says_so(world):
+def test_an_outlook_create_is_one_post_in_the_hosts_zone_with_no_attendee_and_the_card_says_so(world):
     started = create(world, "microsoft", **PIECES)
-    assert world["graph"].requests == [] and item_of(world, started)["body"].splitlines()[1] == f"Account: microsoft ({fgc.ADDRESS})"
+    assert world["graph"].requests == [] and pk.said(item_of(world, started)["body"].splitlines()[1], "CARD_ACCOUNT", CFG, account="microsoft", address=fgc.ADDRESS)
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["event_id"] == "AAMkEvent0001="
     [(method, path, query, body)] = [(r["method"], r["path"], r["query"], r["body"]) for r in world["graph"].graph_requests()]
     assert (method, path, query) == ("POST", GRAPH_EVENTS, {})
-    assert body["subject"] == TITLE and body["start"] == {"dateTime": "2026-10-19T16:00:00", "timeZone": "UTC"} and "attendees" not in body
+    assert body["subject"] == TITLE and body["start"] == {"dateTime": "2026-10-19T13:00:00", "timeZone": "America/Sao_Paulo"} and "attendees" not in body
     assert body["singleValueExtendedProperties"] == [{"id": fgc.KEY_PROPERTY, "value": effect_doc(world, started)["idempotency_key"]}]
     assert len(world["graph"].token_forms) == 1 and world["google"].requests == [] and world["graph"].unexpected() == []
 
@@ -751,14 +808,14 @@ def test_an_outlook_change_reads_the_event_compares_the_change_key_and_sends_one
     started = ops.event_change(world["path"], "microsoft", "calendar#1", title="Dentist (moved)", start="2026-10-20T09:00")
     doc = effect_doc(world, started)
     assert doc["changed"] == ["title", "when"] and doc["before"]["start_at"] == "2026-10-19T16:00:00Z" and doc["base_etag"] == world["graph"].events[GRAPH_SEEDED]["changeKey"]
-    assert "Before: When: Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)" in item_of(world, started)["body"]
+    assert pk.said(item_of(world, started)["body"], "CARD_CAL_BEFORE_WHEN", CFG, when="Mon 19/10/2026 13:00-14:00 (America/Sao_Paulo)")
     world["graph"].requests.clear()
     done = approve(world, started)
     assert done["task_state"] == "done" and done["result"]["operation"] == "change"
     sent = [(r["method"], r["path"]) for r in world["graph"].graph_requests()]
     assert sent == [("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"), ("GET", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}"), ("PATCH", f"{GRAPH_EVENTS}/{GRAPH_SEEDED}")]
     patch = world["graph"].graph_requests()[-1]["body"]
-    assert patch["subject"] == "Dentist (moved)" and patch["start"] == {"dateTime": "2026-10-20T12:00:00", "timeZone": "UTC"} and "attendees" not in patch
+    assert patch["subject"] == "Dentist (moved)" and patch["start"] == {"dateTime": "2026-10-20T09:00:00", "timeZone": "America/Sao_Paulo"} and "attendees" not in patch
     assert world["graph"].events[GRAPH_SEEDED]["subject"] == "Dentist (moved)" and world["graph"].unexpected() == []
 
 
@@ -840,7 +897,7 @@ def test_a_service_that_says_no_leaves_the_effect_open_and_nothing_written(world
 
 
 def test_limit_58_the_seam_starts_only_an_event_read_and_a_dry_run_and_the_dry_run_carries_no_credential(world, monkeypatch):
-    assert ops_step_seams.CALENDAR_READ_VERBS == ("event-get",)
+    assert ops_step_seams.CALENDAR_READ_VERBS == ("event-get", "event-instances")      # CB-7 (L58): the second read is a series' instances in a window of two days, the one place a series is listed
     made = made_event(world)      # the approval of this one writes (that is the effect module's call, not the seam's): it is done before the spy
     seen = []
     real = effect_calendar.provider_call

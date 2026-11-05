@@ -23,6 +23,7 @@ import standin_tree as st
 
 lab = st.load("lab")
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_runs = st.load("ops_runs")
 ops_say = st.load("ops_say")
@@ -851,7 +852,7 @@ def test_a_waiting_round_that_raises_still_waits_for_its_children(world, monkeyp
     held_lab, children = Lab(monkeypatch), []
     threaded(monkeypatch, children)
     planned(world, "w-duo")
-    real = ops._snapshot
+    real = ops_round._snapshot
     calls = []
 
     def breaks(ctx, key):
@@ -860,7 +861,7 @@ def test_a_waiting_round_that_raises_still_waits_for_its_children(world, monkeyp
             raise ops.OpsError("the store went away", 1)
         return real(ctx, key)
 
-    monkeypatch.setattr(ops, "_snapshot", breaks)
+    monkeypatch.setattr(ops_round, "_snapshot", breaks)
     threading.Timer(0.5, held_lab.release.set).start()
     began = time.monotonic()
     with pytest.raises(ops.OpsError, match="the store went away"):

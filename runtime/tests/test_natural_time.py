@@ -16,6 +16,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from natural_cases_pt_br import PARSER_CASES, PARSER_CLOCK
 
@@ -206,10 +207,10 @@ def test_a_time_that_has_passed_today_means_tomorrow_and_a_day_that_has_passed_i
     assert resolve(nt.parse("13h", now)["when"], now, BRT)["wall"] == "2026-10-23T13:00"
     with pytest.raises(ValueError) as e:
         resolve(nt.parse("today at 1pm", now)["when"], now, BRT)
-    assert str(e.value) == "That time has passed. Now it is 2026-10-22 14:00."
+    pk.assert_said(str(e.value), "RM_PAST", None, now="2026-10-22 14:00")
     with pytest.raises(ValueError) as e:
         resolve(nt.parse("30/02 10h", now)["when"], now, BRT)
-    assert str(e.value) == "2027-02-30 is not a day of the calendar."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_DATE", None, given="2027-02-30")
     with pytest.raises(ValueError):
         resolve(nt.parse("in 2000 days", now)["when"], now, BRT)
 
@@ -241,7 +242,7 @@ def test_across_the_march_clock_change_a_wall_time_the_clock_skips_is_refused_by
     assert skipped["when"] == "2027-03-28 01:30"
     with pytest.raises(ValueError) as e:
         resolve(skipped["when"], now, zone)
-    assert str(e.value) == "2027-03-28 01:30 does not exist on that day (the clock skips it). Pick another time."
+    pk.assert_said(str(e.value), "RM_NO_SUCH_TIME", None, given="2027-03-28 01:30")
     assert resolve(nt.parse("tomorrow at 02:30", now)["when"], now, zone)["wall"] == "2027-03-28T02:30"
 
 
@@ -266,9 +267,8 @@ STUB = {      # an invented language: "morgen" is tomorrow, "heute" today, and a
     "ordinal_suffixes": [], "prefixes": ["um", "am"], "hour_words_24": ["u"], "meridiem": {"am": [], "pm": []},
     "dayparts": {"morning": [], "dawn": [], "afternoon": [], "evening": [], "night": []}, "vague": ["spaeter"], "noon": ["mittag"], "midnight": [],
     "bare_hour_prefixes": ["um"], "relative_in": ["in"], "relative_units": {"m": ["min"], "h": ["std"], "d": ["tagen"], "w": []}, "number_words": {"ein": 1},
-    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "reminders": [], "reminders_bare": [], "calendar": [], "calendar_verb": [], "calendar_noun": [],
-                 "calendar_loose": [], "note": [], "undo": []},
-    "forget": {"verbs": [], "nouns": [], "fillers": [], "id_words": [], "id_marked": []}, "polite": [], "connectors": ["an"],
+    "half_hour": [], "triggers": {"remind": ["erinnere mich"], "remind_anywhere": [], "calendar": [], "calendar_verb": [], "calendar_noun": [], "calendar_loose": []},
+    "forget": {"nouns": [], "fillers": []}, "polite": [], "connectors": ["an"],
     "answers": {"yes": ["ja"], "notice": [], "event": [], "other": [], "cancel": [], "thanks": [], "again": []},
     "vague_parts": {"morning": [], "afternoon": [], "evening": [], "night": []},
     "work_starters": [],
@@ -337,6 +337,22 @@ def test_a_list_that_names_a_bad_file_a_duplicate_tag_or_no_file_is_refused_with
     assert "natural_languages.json" in str(e.value)
 
 
+DELETED_KEYS = ("problem_words", "calendar_noun_reads", "remind_nouns")      # CANDIDATE-OUT 2: ten keys left the schema with `natural.candidate`; these three are lists
+DELETED_TRIGGERS = ("reminders", "reminders_bare", "undo", "note")
+DELETED_FORGET = ("verbs", "id_words", "id_marked")
+
+
+def test_the_ten_keys_only_the_deleted_reading_used_are_gone_from_the_shipped_tables_and_the_schema_refuses_a_table_that_holds_one():
+    for table in nt.languages():
+        assert not set(DELETED_KEYS) & set(table) and not set(DELETED_TRIGGERS) & set(table["triggers"]) and not set(DELETED_FORGET) & set(table["forget"]), table["tag"]
+        assert set(table["forget"]) == {"nouns", "fillers"} and {"remind", "remind_anywhere", "calendar", "calendar_verb", "calendar_noun", "calendar_loose"} == set(table["triggers"])
+    assert not set(DELETED_KEYS) & set(nt.LISTS) and not set(DELETED_TRIGGERS) & set(nt.GROUPS["triggers"]) and not set(DELETED_FORGET) & set(nt.GROUPS["forget"])
+    for planted in ({**STUB, "triggers": {**STUB["triggers"], "undo": []}}, {**STUB, "forget": {**STUB["forget"], "verbs": []}}):      # the vacuity: the stub passes, a stub with one old key of a group does not
+        with pytest.raises(ValueError):
+            nt.check_table(planted)
+    nt.check_table(STUB)
+
+
 def test_the_shipped_tables_follow_the_schema_and_a_table_that_breaks_it_is_refused():
     assert [t["tag"] for t in nt.languages()] == ["en", "pt-BR"]
     for table in nt.languages():
@@ -374,7 +390,7 @@ def test_the_engine_holds_no_word_of_any_language_and_no_import_of_the_runtime()
     found = sorted(w for w in words if len(w) > 2 and any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", text) for text in strings))
     assert len(words) > 100 and found == [], "a word of a language is data in a table, not in the engine"
     imports = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", source, re.M))
-    assert imports <= {"__future__", "ast", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports
+    assert imports <= {"__future__", "ast", "bisect", "calendar", "datetime", "json", "os", "re", "sys", "unicodedata"}, imports
 
 
 # --- what is left near the time, what repeats, and the checks of the tables' list ---------------------------------------------------------------------------

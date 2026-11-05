@@ -42,3 +42,8 @@
 /interface/                    @chrissgon
 /flows/                        @chrissgon
 /skills/*/evals/runtime-manifest.json @chrissgon
+
+# The hash pins of the test suite (route rows, approval digests, the interpreter's enabling hashes) and the guard that keeps them in one file:
+# a change of a pinned value is a decision, so the owner sees it.
+/scripts/tests/pinned_hashes.json      @chrissgon
+/scripts/tests/test_pinned_hashes.py   @chrissgon

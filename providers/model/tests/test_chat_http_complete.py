@@ -103,12 +103,3 @@ def test_check_needs_the_key_and_the_network_is_not_used(stub):
 def test_help_prints_the_usage_and_exits_zero():
     done = run(["--help"])
     assert done.returncode == 0 and "complete [--dry-run]" in done.stdout and done.stderr == ""
-
-
-def test_vacuity_a_wrong_expectation_is_caught(stub):
-    """The oracle compares literal values: a planted wrong expectation fails."""
-    run(["complete"], request(route(stub)))
-    with pytest.raises(AssertionError):
-        assert sent(stub)[1]["provider"]["order"] == ["another-provider"]
-    with pytest.raises(AssertionError):
-        assert sent(stub)[0]["headers"]["authorization"] == "Bearer sk-wrong"

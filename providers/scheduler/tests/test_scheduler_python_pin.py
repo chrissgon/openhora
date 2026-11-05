@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[3] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 HERE = Path(__file__).resolve().parent.parent
 PIN_WARNING = ("the interpreter of uv run inside this job is chosen by uv at each firing; "
@@ -35,8 +37,8 @@ LEGACY_ONE_SHOT = {
 LEGACY_RECURRING = {**{k: v for k, v in LEGACY_ONE_SHOT.items() if k not in ("at", "grace_minutes")},
                     "id": "tick", "kind": "recurring", "every_minutes": 15, "timeout_minutes": 30}
 LEGACY_DIGESTS = {
-    "one-shot": "00c3c13de6c9aa168a5ab098078ec9d03691e7461183c08f2b676e60ec23656e",
-    "recurring": "43223010e49d0e71239f533a0e7087da4561e20116d26b6eb3a64b3581bb48cb",
+    "one-shot": PINNED_HASHES["scheduler_legacy_one_shot_digest"],
+    "recurring": PINNED_HASHES["scheduler_legacy_recurring_digest"],
 }
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from sources_fixture import make_pdf
 from test_attachments import IDENT, SENDER, POLICIES, PDF, accept, case  # noqa: F401  (the project the attachment tests use)
@@ -154,6 +155,8 @@ def test_a_macro_enabled_package_is_refused_like_a_file_the_converter_will_not_r
     monkeypatch.setattr(sources, "provider_convert", refusing)
     with pytest.raises(ops.OpsError) as caught:
         ops.attachment_add(case.path, held, channel="messaging", sender=SENDER)
-    assert str(caught.value) == "Budget.xlsm was not added and was deleted: it holds macros, which are never converted."
+    refusal = str(caught.value)
+    pk.assert_said(refusal, "ATT_REFUSED", None, name="Budget.xlsm")
+    pk.assert_said(refusal.split(": ", 1)[1].rstrip("."), "ATT_REASON_MACRO", None)      # the reason is the sentence of its own key
     row = case.rows()[0]
     assert (row["status"], row["code"]) == ("refused", "macro") and not (case.data / "attachments" / "held" / "1").exists()

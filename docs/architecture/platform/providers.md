@@ -15,7 +15,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | Path | Where | Format | Written by | Read by | Lifecycle | Versioned | Generated |
 |---|---|---|---|---|---|---|---|
 | `providers/CONTRACT.md` | repo | the interface every provider implements, the verbs and the keys each verb prints, per class | maintainers | provider authors, callers | changed by pull request; a verb is added with the skill that needs it | yes | no |
-| `providers/resolve.py` | repo | Python 3.9, standard library only; `LISTED`, `ROLES`, `FIXED`, `ALIASES`, `PARAMETER_ROLES`, `PLATFORM_DEFAULTS` | maintainers | skills (by command), `runtime/board.py`, `runtime/documents.py`, `runtime/effects.py`, `runtime/ops.py` (`_provider_path`), `runtime/ops_core.py` (the store), `runtime/ops_reads.py` (the connections read), `runtime/project_config.py` (`resolver()`), `runtime/handlers/published_posts.py`, `scripts/runtime.py`, `scripts/doctor.py` | a class is added here and in the environment contract in one change | yes | no |
+| `providers/resolve.py` | repo | Python 3.9, standard library only; `LISTED`, `ROLES`, `FIXED`, `ALIASES`, `PARAMETER_ROLES`, `PLATFORM_DEFAULTS` | maintainers | skills (by command), `runtime/board.py`, `runtime/documents.py`, `runtime/effects.py`, `runtime/ops.py` (`_provider_path`), `runtime/ops_core.py` (the store), `runtime/ops_reads.py` (the connections read), `runtime/project_config.py` (`resolver()`), `runtime/handlers/published_posts.py`, `runtime/handlers/social.py`, `scripts/doctor.py` | a class is added here and in the environment contract in one change | yes | no |
 | `providers/<folder>/<impl>.py` | repo | one script per implementation, PEP 723 header with exact pins; `auth.py` beside it is a helper, never an implementation | maintainers | the resolver (by name), its callers (by the printed path) | changed by pull request, with offline tests | yes | no |
 | `providers/<folder>/tests/` | repo | pytest, offline: a stand-in service on 127.0.0.1, fake tokens | maintainers | CI, the commit hook | grows with each verb | yes | no |
 | `providers/accounts/` (`microsoft_auth.py`, `README.md`, `tests/`) | repo | not a class folder: the authorization command of the person's own account, `authorize\|check\|forget [--account main]`, one consent for the platform's whole scope set and one record (ACCT-M; the Google one is ACCT-G's) | maintainers | the person's terminal; the readers read the record it writes | changed by pull request | yes | no |
@@ -56,10 +56,12 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `exporter:document` | `exporter/` | `container.py` | `--check`, `build`, `render` |
 | `script:project` | `script/` | `container.py` | `--check`, `build`, `run`, `deps`, `reap` |
 | `model:text` | `model/` | `chat-http.py` | `--check`, `complete` |
-| `writer:calendar` | `writer/` | `google-calendar.py` | `--check`, `event-get`, `event-insert`, `event-patch`, `event-delete` |
-| `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete` |
+| `writer:calendar` | `writer/` | `google-calendar.py` | `--check`, `event-get`, `event-insert`, `event-patch`, `event-delete`, `event-instances`, `event-cancel-occurrence` |
+| `writer:calendar` | `writer/` | `outlook-calendar.py` | `--check`, `event-get`, `event-create`, `event-patch`, `event-delete`, `event-instances`, `event-cancel-series`, `event-cancel-occurrence` |
 | `writer:mailbox` | `writer/` | `gmail.py` | `--check`, `message-meta`, `modify`, `trash`, `draft-create` |
 | `writer:mailbox` | `writer/` | `outlook-mail.py` | `--check`, `message-meta`, `folder-get`, `move`, `mark`, `draft-create`, `draft-reply` |
+| `writer:tasks` | `writer/` | `google-tasks.py` | `--check`, `task-get`, `task-insert`, `task-complete` |
+| `writer:tasks` | `writer/` | `microsoft-todo.py` | `--check`, `task-get`, `task-insert`, `task-complete` |
 | `writer:files` | `writer/` | `gdrive.py` | `--check`, `file-meta`, `create`, `update`, `trash` |
 | `writer:files` | `writer/` | `onedrive.py` | `--check`, `file-meta`, `create`, `replace`, `trash` |
 | `generator:image` | `generator/` | none ships | - |
@@ -74,6 +76,8 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `integration:documents` | `documents/` | `onedrive.py` | `--check`, `stat`, `read`, `search`, `children`, `comments`, `write`, `notice`, `resolve` |
 | `integration:calendar` | `calendar/` | `google.py` | `--check`, `calendars`, `events` |
 | `integration:calendar` | `calendar/` | `outlook.py` | `--check`, `calendars`, `events` |
+| `integration:tasks` | `tasks/` | `google.py` | `--check`, `lists`, `open` |
+| `integration:tasks` | `tasks/` | `microsoft.py` | `--check`, `lists`, `open` |
 | `scheduler:job` | `scheduler/` | `launchd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `scheduler:job` | `scheduler/` | `systemd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `store:runtime` | `store/` | `sqlite.py` | `--check`, `init`, `cursor-get`, `cursor-set`, `cursor-clear`, `event-add`, `event-next`, `event-done`, `run-start`, `run-end`, `runs`, `inbox-add`, `inbox-list`, `inbox-resolve`, `action-add`, `actions`, `action-count`, `export` |
@@ -161,7 +165,7 @@ A provider never reads a skill, the store (except the store provider itself), an
 
 - **Skills' scripts and steps**, by class: `python3 <workbench root>/providers/resolve.py --class <class>` prints the path, and the skill runs it. The skill holds the gate; the provider holds `--confirmed`.
 - **The task runtime**, by class through `resolve.call(cls, verb, args, implementation=<the configuration's name>, config=...)`, the one function that resolves, picks the interpreter, starts the verb, maps the exit code and parses the one JSON object (`ProviderCallError`, which carries the last 300 characters of the provider's standard error as `stderr_tail`; the keywords `platform` (the operating system), `env` and `run` let a test choose them; "Calling a provider from code" of `providers/CONTRACT.md`): the board (`runtime/board.py`, class `integration:issue-tracker`), the documents (`runtime/documents.py`, `integration:documents`), the published-posts handler (`runtime/handlers/published_posts.py`, `publisher:<platform>`, the read-only `posts`) and the messaging bridge (`runtime/messaging_provider.py`, `messenger:<platform>`: `call` for the per-call verbs, and `start` for the long-lived `listen`, which returns the running `Popen` with its own session) call it. The effects (`integration:vcs`: `commit-files` then `open-pr`) do not use `call`: `runtime/ops.py` resolves the provider's path (`_provider_path`), and `effects.provider_call` is the only caller of `resolve.invoke`; `runtime/effect_pull_request.py` and `runtime/ops.py` call `provider_call`. The store (`store:runtime`) is resolved with `resolve.resolve` and its module imported by `runtime/ops.py`, since its task functions are the runtime's own persistence; `runtime/ops.py` also resolves each class to show the connections. `runtime/project_config.py` (`resolver()`) loads `providers/resolve.py` as a module for the board, the documents and the effects.
-- **The first runtime** (`scripts/runtime.py`, `scripts/runtime_vote.py`, `scripts/vote_job.py`), which the scheduler starts on the system interpreter: the store's verbs, the mailbox, the publisher. It keeps its own loader of `providers/resolve.py` (`load_resolution`) and starts providers with `uv run` itself, until WP-7.5 retires it.
+- **The social agent's handlers** (`runtime/handlers/social.py`, `social_vote.py`, `social_vote_job.py`), which the scheduler starts on the system interpreter: the store's verbs, the mailbox, the publisher. They keep their own loader of `providers/resolve.py` (`load_resolution`) and start providers with `uv run` themselves (the first runtime, deleted by T6, did the same).
 - **`scripts/doctor.py`**, which runs each class's `--check` through `uv run` and reports `connector`, `provider`, `missing` or `unknown`.
 
 **The rules.**
@@ -315,6 +319,8 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 | A provider a test starts with an environment of its own is not under the loopback guard; there only the provider's own refusal of a base address that is not loopback holds | `providers/loopback_only.py`, its docstring |
 
 ## Changes
+
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
 
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the classes, implementations and verbs).

@@ -73,8 +73,7 @@ def test_naming_the_implementation_keeps_working_whatever_the_environment_says(r
 def test_the_social_tick_of_a_project_with_auto_fails_and_with_gmail_resolves(monkeypatch):
     for name in [n for n in os.environ if n.endswith("_PROVIDER")]:
         monkeypatch.delenv(name)
-    for label, path in (("scripts_runtime_for_the_mailbox_tests", REPO / "scripts" / "runtime.py"),
-                        ("social_handler_for_the_mailbox_tests", REPO / "runtime" / "handlers" / "social.py")):
+    for label, path in (("social_handler_for_the_mailbox_tests", REPO / "runtime" / "handlers" / "social.py"),):
         module = load(path, label, monkeypatch)
         providers = module.Providers(REPO)
         with pytest.raises(module.Fail) as refused:
@@ -89,6 +88,6 @@ def test_the_social_tick_of_a_project_with_auto_fails_and_with_gmail_resolves(mo
 def test_the_documents_that_tell_the_maintainer_say_what_to_set():
     readme = (REPO / "providers" / "mailbox" / "README.md").read_text(encoding="utf-8")
     assert '"mailbox": "gmail"' in readme and "MAILBOX_PROVIDER" in readme and "auto" in readme
-    for path in (REPO / "runtime" / "handlers" / "social.py", REPO / "scripts" / "runtime.py"):
+    for path in (REPO / "runtime" / "handlers" / "social.py",):
         text = path.read_text(encoding="utf-8")
         assert '"auto" resolves only while one reader ships (since M1 name gmail or outlook, or set MAILBOX_PROVIDER)' in text, path.name

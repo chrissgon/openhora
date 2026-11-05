@@ -499,7 +499,7 @@ def cmd_check(args) -> int:
     account = record["kind"] == "account"
     calendar = Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if account else AUTH_COMMAND)
     calendar.get("/calendar/v3/users/me/calendarList", {"maxResults": 1, "fields": "items(id)"})
-    out = {"ok": True, "scope": sorted(_google.PLATFORM_SCOPES if account else SCOPES), "account": record.get("account"),
+    out = {"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES if account else SCOPES), "account": record.get("account"),
            "obtained_at": record.get("obtained_at")}
     if account:
         out["record"] = "account"

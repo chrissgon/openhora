@@ -20,6 +20,8 @@ import pytest
 
 import standin_tree as st
 from test_interpreter_measure_cli import CONFIGURED, ITEMS, Cli
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 ir = st.load("interpreter_route")
 measure = st.load("interpreter_measure")
@@ -29,11 +31,11 @@ REPO = Path(__file__).resolve().parents[2]
 RETENTION = "Sent to the vendor under the maintainer's subscription account terms; zero data retention is not confirmed."
 SONNET_ID, HAIKU_ID = "acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"
 DEEPSEEK_ID = "or-deepseek-v4.1-flash"
-# The sha256 of the canonical JSON of each row without `retention` and `reference`, computed once offline from the rows below.
+# The sha256 of the canonical JSON of each row without `retention` and `reference`, computed once offline from the rows below; the values are in scripts/tests/pinned_hashes.json.
 HASHES = {
-    DEEPSEEK_ID: "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
-    SONNET_ID: "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b",
-    HAIKU_ID: "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02",
+    DEEPSEEK_ID: PINNED_HASHES["route_or_deepseek_v4_1_flash"],
+    SONNET_ID: PINNED_HASHES["route_acct_sonnet_5_5"],
+    HAIKU_ID: PINNED_HASHES["route_acct_haiku_4_5"],
 }
 RUNNER_VERSION = "run-text/1 cli/2.1.283"
 SONNET_ROW = {"id": SONNET_ID, "kind": "account", "model": "claude-sonnet-5-5", "upstream_model": "claude-sonnet-5-5", "lab_model": "claude-sonnet-5-5",
@@ -124,7 +126,7 @@ def test_vacuity_a_changed_setting_changes_an_account_hash_and_retention_and_ref
 
 
 def test_the_deepseek_hash_is_unchanged_by_the_account_rows():
-    assert ir.route_sha256(raw_row(DEEPSEEK_ID)) == "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"
+    assert ir.route_sha256(raw_row(DEEPSEEK_ID)) == PINNED_HASHES["route_or_deepseek_v4_1_flash"]
 
 
 def test_an_account_route_is_not_shown_to_a_provider():
@@ -153,9 +155,12 @@ def with_account(**over):
     return rows
 
 
+FALLBACK_IDS = ("or-gemini-3.5-flash-lite", "or-gpt-6-luna")      # S41-10: the two fallback rows (http, zdr), which follow the account rows
+
+
 def test_the_committed_file_loads_with_the_two_account_rows_and_one_reference():
     doc = ir.load()
-    assert [r["id"] for r in doc["routes"]] == [DEEPSEEK_ID, SONNET_ID, HAIKU_ID] and [r["kind"] for r in doc["routes"]] == ["http", "account", "account"]
+    assert [r["id"] for r in doc["routes"]] == [DEEPSEEK_ID, SONNET_ID, HAIKU_ID, *FALLBACK_IDS] and [r["kind"] for r in doc["routes"]] == ["http", "account", "account", "http", "http"]
     assert [r["id"] for r in doc["routes"] if r["reference"]] == [SONNET_ID]
 
 
@@ -201,9 +206,9 @@ def test_vacuity_a_lab_model_of_the_vendor_loads_and_the_committed_rows_keep_the
     for lab_model in ("claude-sonnet-5-5", "claude-haiku-4-5"):
         assert ir.load(workbench(tmp_path / lab_model, with_account(lab_model=lab_model)))["routes"][1]["lab_model"] == lab_model
     rows = {r["id"]: r for r in ir.load()["routes"]}
-    assert ir.route_sha256(rows[SONNET_ID]) == "23657eec67a80cb5f4e2ca075cace2acca74c128904addb27eaa3b2838b0aa1b"
-    assert ir.route_sha256(rows[HAIKU_ID]) == "7a7bcd7764488bbc0fd583b6c989f3dddf4ac543303f5e4d57ade85df8e06d02"
-    assert ir.route_sha256(rows[DEEPSEEK_ID]) == "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd"
+    assert ir.route_sha256(rows[SONNET_ID]) == PINNED_HASHES["route_acct_sonnet_5_5"]
+    assert ir.route_sha256(rows[HAIKU_ID]) == PINNED_HASHES["route_acct_haiku_4_5"]
+    assert ir.route_sha256(rows[DEEPSEEK_ID]) == PINNED_HASHES["route_or_deepseek_v4_1_flash"]
 
 
 def test_the_references_are_exactly_one_across_the_two_kinds(tmp_path):
@@ -220,7 +225,7 @@ def test_the_references_are_exactly_one_across_the_two_kinds(tmp_path):
 
 def test_daily_routes_holds_no_account_row_while_load_does():
     daily = ir.daily_routes()
-    assert [r["id"] for r in daily] == [DEEPSEEK_ID] and all(r["kind"] == "http" for r in daily)
+    assert [r["id"] for r in daily] == [DEEPSEEK_ID, *FALLBACK_IDS] and all(r["kind"] == "http" for r in daily)
     assert {r["id"] for r in ir.load()["routes"]} - {r["id"] for r in daily} == {SONNET_ID, HAIKU_ID}      # vacuity: the account rows exist
 
 

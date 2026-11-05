@@ -28,7 +28,7 @@ CUT = 80      # characters of the question that /pending shows
 
 
 def unclassified(item: dict) -> bool:
-    """Whether the decision is the question of a request the router could not read (ops._not_recognised: the ending `unclassified`, or its title)."""
+    """Whether the decision is the question of a request the router could not read (ops_requests._not_recognised: the ending `unclassified`, or its title)."""
     payload = item.get("payload")
     return (isinstance(payload, dict) and payload.get("ending") == "unclassified") or item.get("title") == phrases.en("TITLE_ROUTE_UNRECOGNISED")
 

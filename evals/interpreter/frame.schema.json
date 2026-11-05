@@ -6,7 +6,7 @@
   "id": {"type": "string", "pattern": "^i[1-9]$"}, "op": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$"},
   "slot": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,23}$"}, "words": {"type": "string", "minLength": 1, "maxLength": 300},
   "item": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "need", "age_s"], "properties": {
-     "id": {"$ref": "#/definitions/id"}, "kind": {"enum": ["write-draft", "reminder-confirm", "router-question", "choice"]},
+     "id": {"$ref": "#/definitions/id"}, "kind": {"enum": ["write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm"]},
      "op": {"$ref": "#/definitions/op"}, "need": {"enum": ["slot", "confirm", "option", "text"]}, "slot": {"$ref": "#/definitions/slot"},
      "options": {"type": "integer", "minimum": 2, "maximum": 9},
      "values": {"type": "array", "maxItems": 9, "items": {"type": "object", "additionalProperties": false, "required": ["n", "label"], "properties": {
@@ -24,4 +24,5 @@
   "R4 values[].label comes only from the accepted configuration (the builder takes labels from a config map, never from an item)",
   "R5 words keys are slots of op's (or last.op's) catalog row; values are the same sender's own earlier words, never third-party text",
   "R6 ids unique within items; at most one item per kind except choice",
-  "R7 no string anywhere that the platform did not write or the sender did not type: no mail, file name, source name, router question, card body"]}
+  "R7 no string anywhere that the platform did not write or the sender did not type: no mail, file name, source name, router question, card body",
+  "R8 plan-confirm: exactly the keys id, kind, need, op, age_s; need is confirm; op is an op of the catalog's ops"]}

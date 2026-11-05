@@ -14,10 +14,12 @@ import pytest
 
 import natural_cases_pt_br as pt
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, OTHER, SENDER, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
 ops = st.load("ops")
@@ -167,27 +169,6 @@ def test_a_no_to_a_cancel_question_says_nothing_was_cancelled():
     assert completed(draft, "cancel", NOW)["ask"]["retries"] == 1, "'cancel' to 'cancel it?' does not say which way"
 
 
-# --- Q1: the forms of a reminder number ---------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("line", pt.ID_FORMS + ["forget reminder no. 4", "forget reminder nr 4", "forget the reminder n° 4"])
-def test_an_explicit_number_acts_at_once_in_every_form_that_says_it_is_one(line):
-    got = natural.candidate(line)
-    assert got["op"] == "reminder-forget" and got["id"] in (3, 4) and "confirm" not in got, line
-
-
-@pytest.mark.parametrize("line", pt.BARE_FORGET + ["cancel #4", "delete 3", "forget 3"])
-def test_a_forget_with_no_noun_is_shown_and_confirmed(line):
-    got = natural.candidate(line)
-    assert got["op"] == "reminder-forget" and got["confirm"] is True and got["bare"] is True and got["id"] in (3, 4), line
-
-
-@pytest.mark.parametrize("line,at", [("cancel the 9am reminder", "9am"), ("remove the 3pm reminder", "3pm"), ("cancela o lembrete das 9", "das 9")])
-def test_a_forget_by_the_hour_is_matched_against_the_moment_and_confirmed(line, at):
-    got = natural.candidate(line)
-    assert got == {"op": "reminder-forget", "how": "trigger", "id": None, "at": at, "confirm": True}
-
-
 def test_nothing_but_numbers_in_a_forget_is_shown_never_acted_on(world):  # noqa: F811
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to pay installment 3")
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 2 pm to call the florist")
@@ -294,4 +275,4 @@ def test_a_table_of_the_schema_holds_the_keys_of_this_round():
     for table in nt.languages():
         for key in ("first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past", "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words"):
             assert isinstance(table[key], list), key
-        assert "id_marked" in table["forget"] and "again" in table["answers"] and set(table["vague_parts"]) == {"morning", "afternoon", "evening", "night"}
+        assert set(table["forget"]) == {"nouns", "fillers"} and "again" in table["answers"] and set(table["vague_parts"]) == {"morning", "afternoon", "evening", "night"}

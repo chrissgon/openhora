@@ -55,7 +55,7 @@ accepted with accept-config; it holds no secret (the password is the secret MAIL
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
 "calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id or /path | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
-"<label or folder id>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
+"<label or folder id>"}, "task_lists": {"<name>": "<task list id | default>"}, "move_removes_inbox": true | false (default true)}, and, beside the two accounts, "default": "google" | "microsoft" (an account the object lists: the
 account a line in words goes to when it names no service and both could serve it, package NR-5; `account_default`). A name is lowercase letters, digits and hyphens, at most 32; an id is
 checked by a full-match pattern of its provider (a Google id holds no slash; a OneDrive path is `/` and names, no `.` or `..`). A Google folder may also be a path from
 My Drive in the same form ("/Documentos", "/Clientes/2026"): accepting the file resolves each one to its folder id through the Drive provider (`resolve-path`, runtime/ops_config.py), the
@@ -95,7 +95,8 @@ it is ignored. The one price table is runtime/prices.json (runtime/prices.py), r
 ranking and the proof page; `price_warnings()` says so, and the doctor of a project (the connections read) shows it.
 
 It also reads "policies" (package POL-2; absent means none), "channels" and "messaging" together, as the channel policy: "policies" maps a profile
-name (lowercase words joined by hyphens, at most 32 characters) to a list of groups, or to {"groups": [...], "notices": "all" | "actionable"};
+name (lowercase words joined by hyphens, at most 32 characters) to a list of groups, or to {"groups": [...], "notices": "all" | "actionable", "sentence_language": "<a tag
+of the phrase table>"} (TT-2: the language of the fixed sentences said to that sender or on that channel, never of an artifact, and never a group);
 "channels.<channel>" is a list of groups or the name of a profile, the channel's default; "messaging.senders.<platform>" lists plain sender ids
 and entries {"id": "<sender id>", "policy": "<profile>"}, and a sender's profile replaces the channel's groups for that sender. Every place a profile
 is assigned checks it against the channel (project_config._check_assigned; the refusal names the profile and the channel), and `load` returns the
@@ -143,9 +144,9 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research")
-# The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
-# (the first runtime). Leaves with stage 7.
+                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research", "file_ask")
+# The top-level keys runtime/handlers/social.py, social_vote.py and social_vote_job.py read from the same file
+# (the social agent, which the first runtime was ported to).
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
                       "first_lookback_minutes", "max_events_per_tick", "daily_cost_cap_usd", "timeout_seconds",
                       "notify", "path", "vote")
@@ -235,6 +236,7 @@ def load(project: str) -> dict:
         out["channels"][operations.SENDERS_KEY] = senders   # the groups of each listed sender whose entry names a profile (operations.effective_groups)
     out["max_running"] = _max_running(raw)
     out["research"] = _research(raw.get("research"))
+    out["file_ask"] = _file_ask(raw.get("file_ask"))
     out["run_retention_days"] = _bounded(raw, "run_retention_days", RUN_RETENTION_DEFAULT, 1, RUN_RETENTION_MAX)
     out["source_versions_kept"] = _bounded(raw, "source_versions_kept", SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX)
     sweep = raw.get("sweep_orphan_containers", True)
@@ -275,31 +277,47 @@ def _max_running(raw: dict) -> int:
     return value
 
 
-# The key "research" (slice R2-F1, runtime/ops_research.py): the bounds of each web research run, all optional. An object with any of three keys; absent keys take the default.
-RESEARCH_DEFAULTS = {"max_cost_usd": 0.25, "timeout_seconds": 300, "max_per_day": 10}
+# The key "research" (slice R2-F1, runtime/ops_research.py): the bounds of each web research run, all optional. An object with any of three keys; absent keys take the default; the default cost cap is 0.60 USD (the maintainer, 2026-10-24: one weather lookup on the reference model reached 0.25).
+RESEARCH_DEFAULTS = {"max_cost_usd": 0.6, "timeout_seconds": 300, "max_per_day": 10}
 RESEARCH_BOUNDS = {"max_cost_usd": (0.01, 5.0), "timeout_seconds": (30, 900), "max_per_day": (1, 100)}   # the dollars one run may spend, the seconds one run may last, the runs in a local day
 
 
-def _research(value) -> dict:
-    """The key "research": {"max_cost_usd", "timeout_seconds", "max_per_day"}, each from its bounds; absent or `{}` gives the defaults. A key it does not know is refused."""
+def _bounded_run(name: str, value, defaults: dict, bounds: dict) -> dict:
+    """The key `name` ("research" or "file_ask"): {"max_cost_usd", "timeout_seconds", "max_per_day"}, each from its bounds; absent or `{}` gives the defaults. A key it does not know is refused."""
     if value is None:
-        return dict(RESEARCH_DEFAULTS)
+        return dict(defaults)
     if not isinstance(value, dict):
-        raise ConfigError("runtime.json research must be an object")
-    unknown = sorted(set(value) - set(RESEARCH_DEFAULTS))
+        raise ConfigError(f"runtime.json {name} must be an object")
+    unknown = sorted(set(value) - set(defaults))
     if unknown:
-        raise ConfigError(f"runtime.json research has an unknown key {unknown[0]!r}; the keys are {', '.join(RESEARCH_DEFAULTS)}")
-    out = dict(RESEARCH_DEFAULTS)
-    for key, (low, high) in RESEARCH_BOUNDS.items():
+        raise ConfigError(f"runtime.json {name} has an unknown key {unknown[0]!r}; the keys are {', '.join(defaults)}")
+    out = dict(defaults)
+    for key, (low, high) in bounds.items():
         if key not in value:
             continue
         given = value[key]
         number = isinstance(given, (int, float)) and not isinstance(given, bool) and math.isfinite(given)
         whole = key != "max_cost_usd"
         if not number or (whole and not isinstance(given, int)) or not low <= given <= high:
-            raise ConfigError(f"runtime.json research.{key} must be {'an integer' if whole else 'a number'} from {low} to {high}")
+            raise ConfigError(f"runtime.json {name}.{key} must be {'an integer' if whole else 'a number'} from {low} to {high}")
         out[key] = given
     return out
+
+
+def _research(value) -> dict:
+    """The key "research": {"max_cost_usd", "timeout_seconds", "max_per_day"}, each from its bounds; absent or `{}` gives the defaults. A key it does not know is refused."""
+    return _bounded_run("research", value, RESEARCH_DEFAULTS, RESEARCH_BOUNDS)
+
+
+# The key "file_ask" (package FA-1, runtime/ops_file_ask.py): the bounds of each question about one file, all optional, the same three keys and ranges as "research". The defaults are the choices of
+# SPEC-FILE-ASK OPEN-FA-6 (not measured): 0.25 USD and 180 seconds a question, 20 questions in a local day.
+FILE_ASK_DEFAULTS = {"max_cost_usd": 0.25, "timeout_seconds": 180, "max_per_day": 20}
+FILE_ASK_BOUNDS = RESEARCH_BOUNDS
+
+
+def _file_ask(value) -> dict:
+    """The key "file_ask": {"max_cost_usd", "timeout_seconds", "max_per_day"}, each from its bounds; absent or `{}` gives the defaults. A key it does not know is refused."""
+    return _bounded_run("file_ask", value, FILE_ASK_DEFAULTS, FILE_ASK_BOUNDS)
 
 
 POLICY_CHANNELS = operations.POLICY_CHANNELS  # the channels a policy narrows: page, mcp and messaging (chat and the terminal never)
@@ -312,7 +330,7 @@ def _refused_group(channel: str, group: str, groups: list) -> str | None:
 
 
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")   # a profile's name: lowercase words joined by hyphens, at most 32 characters
-PROFILE_KEYS = ("groups", "notices")
+PROFILE_KEYS = ("groups", "notices", "sentence_language")
 PROFILE_NOTICES = ("all", "actionable")
 DEFAULT_PROFILE = "default"                            # the label of a sender who has no profile (the channel's own groups); not a name a project may use
 SENDER_ID_MAX = 254                                    # an e-mail address fits (the longest a mailbox name and a domain make)
@@ -336,7 +354,10 @@ def _policies(value) -> dict:
     (`channels.<channel>` names it as the channel's default, a sender's entry in `messaging.senders` names it for that sender). A name is lowercase words
     joined by hyphens, at most 32 characters, and not `default`. A profile that lists unknown groups, or both `read` and `read-limited`, is refused.
     Returns {"<profile>": {"groups": [...], "notices": "all" | "actionable"}}; `notices` (default all) says whether a sender gets a card for every
-    decision (all) or only for one their profile can act on or answer (actionable)."""
+    decision (all) or only for one their profile can act on or answer (actionable). An object profile may also carry `sentence_language` (TT-2), one of the tags
+    of the phrase table (phrases.TABLE: `en`, `pt-BR`): the language of the fixed sentences (cards, confirmations, refusals, reminders) said to a sender with
+    that profile, or on a channel assigned it (phrases.sentence_tag). It is not a group and grants nothing, and no artifact reads it (language.effective never
+    does). The record holds it only when the profile sets it, so that a file without it loads as it always did."""
     if value is None:
         return {}
     if not isinstance(value, dict):
@@ -347,7 +368,7 @@ def _policies(value) -> dict:
             raise ConfigError(f"runtime.json policies: {name!r} is not a profile name (lowercase words joined by hyphens, at most 32 characters)")
         if name == DEFAULT_PROFILE:
             raise ConfigError(f"runtime.json policies: {DEFAULT_PROFILE!r} is the label of a sender with no profile; choose another name")
-        notices = "all"
+        notices, sentence = "all", None
         if isinstance(body, dict):
             unknown = sorted(set(body) - set(PROFILE_KEYS))
             if unknown or "groups" not in body:
@@ -357,11 +378,16 @@ def _policies(value) -> dict:
             if notices not in PROFILE_NOTICES:
                 raise ConfigError(f"runtime.json policies.{name}.notices must be one of {', '.join(PROFILE_NOTICES)}")
             groups = _groups_of(f"policies.{name}.groups", body["groups"])
+            if "sentence_language" in body:
+                given = body["sentence_language"]
+                if not isinstance(given, str) or given not in phrases.TABLE:
+                    raise ConfigError(f"runtime.json policies.{name}.sentence_language must be one of {', '.join(phrases.TABLE)}")
+                sentence = given
         else:
             groups = _groups_of(f"policies.{name}", body)
         if "read" in groups and "read-limited" in groups:
             raise ConfigError(f"runtime.json policies.{name}: lists both 'read' and 'read-limited'; choose one (read-limited is read without the spend)")
-        out[name] = {"groups": groups, "notices": notices}
+        out[name] = {"groups": groups, "notices": notices, **({"sentence_language": sentence} if sentence else {})}
     return out
 
 
@@ -384,9 +410,18 @@ def _check_assigned(where: str, channel: str, groups: list, profile: str | None,
     if "send-files" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'send-files' needs 'read-files' beside it "
                           "(it sends the file that reading files finds, so a policy that only sends is refused)")
+    if "interpret-fallback" in groups and "interpret" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'interpret-fallback' needs 'interpret' beside it "
+                          "(it only chooses a second model service for the lines the interpreter reads, so a policy that lists it alone is refused)")
     if "files-trash" in groups and "read-files" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}'files-trash' needs 'read-files' beside it "
                           "(it finds the file by its name and lists names, as reading files does, so a policy that only trashes is refused)")
+    if "ask-files" in groups and "read-files" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'ask-files' needs 'read-files' beside it "
+                          "(it finds the file by its name and lists names, as reading files does, so a policy that lists it alone is refused)")
+    if channel == "messaging" and "read-mail-body" in groups and "ask-mail" not in groups:
+        raise ConfigError(f"runtime.json {where}: {label}'read-mail-body' needs 'ask-mail' beside it "
+                          "(it shows the text of the messages that the right to read your mail snapshots reaches, so a policy that lists it alone is refused)")
     if channel in operations.MUST_READ and "read" not in groups:
         raise ConfigError(f"runtime.json {where}: {label}must list the group 'read' (the {channel} reads what it shows)")
 
@@ -687,9 +722,9 @@ def _outbox(value, workbench: str):
 
 ACCOUNT_PROVIDERS = ("google", "microsoft")
 ACCOUNT_DEFAULT = "default"          # NR-5 (Q2): the key of `accounts` that names which account a line in words goes to when it names none and both could serve
-ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
-ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "move_removes_inbox")
-ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders")      # the three maps of names to ids: the targets the platform may write to
+ACCOUNT_EFFECT_WORDS = ("calendar", "mailbox", "files", "tasks")           # the effect words that arrived with the account writes, not with a skill (contracts/environment.md)
+ACCOUNT_KEYS = ("address", "calendars", "folders", "mail_folders", "task_lists", "move_removes_inbox")
+ACCOUNT_SECTIONS = ("calendars", "folders", "mail_folders", "task_lists")      # the maps of names to ids: the targets the platform may write to (`task_lists`: CB-5; the id `default` is the account's default list)
 ACCOUNT_NAME = re.compile(r"[a-z0-9-]{1,32}")
 ACCOUNT_SECTION_MAX = 50                                         # names in one map
 ACCOUNT_DEFAULT_FOLDER = "default"                               # the name of the folder a file goes to when the person names none
@@ -702,6 +737,8 @@ ACCOUNT_ID = {       # (provider, section) -> the full-match pattern of an id; n
     ("microsoft", "calendars"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
     ("microsoft", "folders"): re.compile(r"[A-Za-z0-9_=!-]{1,200}"),
     ("microsoft", "mail_folders"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),
+    ("google", "task_lists"): re.compile(r"[A-Za-z0-9_-]{1,128}"),      # `default` matches: the service's own word for the account's default list
+    ("microsoft", "task_lists"): re.compile(r"[A-Za-z0-9_=-]{1,300}"),      # `default` matches too: the runtime resolves it to the id of the list the service marks as the default one
 }
 
 
@@ -838,8 +875,8 @@ def clean_name(value, width: int = 40) -> str:
 
 def account_target(cfg: dict, account, section: str, name=None) -> tuple:
     """(id, None) of a target the project lists for an account, or (None, the sentence that refuses it): the one place the write kinds ask whether the
-    platform may write somewhere (limit L55). `section` is calendars, folders or mail_folders. Without a name, calendars means the first one listed and
-    folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
+    platform may write somewhere (limit L55). `section` is calendars, folders, mail_folders or task_lists. Without a name, calendars and task lists mean the first one
+    listed and folders the one named `default`; a mail folder is always named. Whatever the token could reach, only what is listed is a target."""
     entry = account_entry(cfg, account)
     if entry is None:
         return None, phrases.en("ACCT_NOT_CONFIGURED").format(account=clean_name(account, 20))
@@ -849,7 +886,7 @@ def account_target(cfg: dict, account, section: str, name=None) -> tuple:
         return None, f"a name is a text: {clean_name(name)!r} is not one of the {section.replace('_', ' ')} the project lists for the account {account}"
     listed, what = entry[section], section.replace("_", " ")
     if name is None:
-        name = next(iter(listed), None) if section == "calendars" else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
+        name = next(iter(listed), None) if section in ("calendars", "task_lists") else ACCOUNT_DEFAULT_FOLDER if section == "folders" else None
         if name is None:
             return None, f"name one of the {what} the project lists for the account {account}: {', '.join(listed) or 'none are listed'}"
     if name not in listed:

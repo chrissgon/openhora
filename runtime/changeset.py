@@ -42,6 +42,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import lab  # noqa: E402  (the same folder: run_command, the one way a command runs in the container)
 import path_rule  # noqa: E402  (the same folder)
 
 # The code provider's bounds (providers/vcs/github.py, MAX_FILES and MAX_FILE_BYTES), repeated so that a change set
@@ -86,11 +87,6 @@ class ChangesetError(Exception):
     def __init__(self, kind: str, reason: str):
         super().__init__(reason)
         self.kind, self.reason = kind, reason
-
-
-def _run():
-    import lab  # noqa: E402  (only when a command runs)
-    return lab.run_command
 
 
 def matches(path: str, globs) -> bool:
@@ -163,7 +159,7 @@ def compute(run_dir: str, base_commit, tracked, facts, checks, protected=(), run
     if os.path.lexists(index):
         os.unlink(index)
     # security-scan: allow shell-string -- SCRIPT is a constant of this module, run in the run's container with no network; its arguments are a checked commit id and a fixed file name
-    done = (run or _run())(["bash", "-c", SCRIPT, "changeset", base_commit, os.path.join("..", INDEX)], run_dir,
+    done = (run or lab.run_command)(["bash", "-c", SCRIPT, "changeset", base_commit, os.path.join("..", INDEX)], run_dir,
                            cwd=cwd, network="none", timeout=GIT_TIMEOUT)
     if os.path.lexists(index):
         os.unlink(index)
@@ -315,7 +311,7 @@ def as_branch(changeset: dict, copy_dir: str, root: str, base: str, head: str, m
         raise ChangesetError("git", "the change set holds no path to commit")
     apply(changeset, copy_dir)
     # security-scan: allow shell-string -- AS_BRANCH is a constant of this module, run in the run's container with no network; its arguments are checked branch names, the request's title and the change set's checked paths
-    done = (run or _run())(["bash", "-c", AS_BRANCH, "as-branch", base, head, message or "change", *paths], root,
+    done = (run or lab.run_command)(["bash", "-c", AS_BRANCH, "as-branch", base, head, message or "change", *paths], root,
                            cwd=copy_dir, network="none", timeout=GIT_TIMEOUT)
     if done.get("timed_out") or done.get("returncode") != 0:
         first = ((done.get("stderr") or "").strip().splitlines() or ["timed out"])[0]

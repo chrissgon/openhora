@@ -194,16 +194,20 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
                 "providers/calendar/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry, "
                 "and it is a record of its own, apart from the Gmail one; from the environment, the same JSON text"),
     Secret("GOOGLE_ACCOUNT_TOKEN",
-           "sign in to the person's own Google account for every Google provider of the platform: the Gmail, Calendar and Drive readers, and "
-           "the writers of later packages only through an approved effect of the exact content",
+           "sign in to the person's own Google account for every Google provider of the platform: the Gmail, Calendar, Drive and Tasks readers, "
+           "and the writers of later packages only through an approved effect of the exact content",
            "OAuth scopes https://www.googleapis.com/auth/gmail.modify, https://www.googleapis.com/auth/calendar.events, "
-           "https://www.googleapis.com/auth/calendar.calendarlist.readonly and https://www.googleapis.com/auth/drive, exactly those four "
-           "(providers/accounts/google_auth.py): one token that reads and changes mail, calendars and Drive files, sends mail and moves "
-           "mail to the trash (only gmail.modify is limited by Google itself; drive can delete files permanently and empty the trash and "
-           "calendar.events can delete events, and what prevents it is code, limit L57 and the writers' allow-lists, not the scope); the restriction is the platform's (policies, an effect card of the exact "
+           "https://www.googleapis.com/auth/calendar.calendarlist.readonly, https://www.googleapis.com/auth/drive and "
+           "https://www.googleapis.com/auth/tasks, exactly those five (providers/accounts/google_auth.py; a token of the four of before "
+           "Google Tasks still serves every provider but the Tasks ones until the person authorizes again): one token that reads and "
+           "changes mail, calendars, Drive files and tasks, sends mail and moves mail to the trash (only gmail.modify is limited by Google "
+           "itself; drive can delete files permanently and empty the trash, calendar.events can delete events, and tasks can change and "
+           "delete tasks at the service even though the Tasks writers never delete, and what prevents it is code, limit L57 and the "
+           "writers' allow-lists, not the scope); the restriction is the platform's (policies, an effect card of the exact "
            "content, the verbs each provider script exposes, no token in a run), not a narrower token (decision of 2026-10-18)",
            ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py", "providers/_google.py",
-            "providers/accounts/google_auth.py", "providers/writer/gdrive.py", "providers/mailer/gmail.py"),
+            "providers/accounts/google_auth.py", "providers/writer/gdrive.py", "providers/mailer/gmail.py",
+            "providers/tasks/google.py", "providers/writer/google-tasks.py"),
            store_username="google-account",
            set_local="uv run providers/accounts/google_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
@@ -269,16 +273,19 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
                 "OS secret store, and only if it still holds the token the provider used); no client secret exists (a public client); "
                 "from the environment, the same JSON text"),
     Secret("MICROSOFT_ACCOUNT_TOKEN",
-           "act on the person's own Microsoft account (Outlook mail and calendar, OneDrive): the readers of the mail, calendar and file "
-           "sources today, the platform's writers later; one consent for the whole account",
-           "Microsoft Graph delegated Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite and User.Read, with offline_access "
-           "(providers/accounts/microsoft_auth.py), from one app registration: the token can read, change, send and move to the trash "
-           "everything the account holds in those services, and the three ReadWrite permissions can also delete permanently (Microsoft "
+           "act on the person's own Microsoft account (Outlook mail and calendar, OneDrive, Microsoft To Do): the readers of the mail, calendar, "
+           "file and task sources today, the platform's writers later; one consent for the whole account",
+           "Microsoft Graph delegated Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, Files.ReadWrite, User.Read and Tasks.ReadWrite, with "
+           "offline_access (providers/accounts/microsoft_auth.py), from one app registration: the token can read, change, send and move to "
+           "the trash everything the account holds in those services, and change and delete the person's tasks in Microsoft To Do even "
+           "though the To Do writers never delete, and the three ReadWrite permissions can also delete permanently (Microsoft "
            "lists permanentDelete for them): what prevents that, and what stops misuse, is the platform's (limit L57 and the writers' "
            "allow-lists, policies, a card of the exact content for each write, the verbs each script sends, no token in a run), not the "
-           "token's. A token that lacks one of the set or carries another is refused",
+           "token's. A token that lacks one of the set or carries another is refused (a record of the five of before To Do tasks still "
+           "serves every provider but the To Do ones until the person authorizes again)",
            ("providers/accounts/microsoft_auth.py", "providers/_msgraph.py", "providers/documents/onedrive.py", "providers/mailbox/outlook.py",
-            "providers/calendar/outlook.py", "providers/writer/onedrive.py", "providers/mailer/outlook.py"),
+            "providers/calendar/outlook.py", "providers/writer/onedrive.py", "providers/mailer/outlook.py",
+            "providers/tasks/microsoft.py", "providers/writer/microsoft-todo.py"),
            store_username="microsoft-account",
            set_local="uv run providers/accounts/microsoft_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, tenant, scope, account_kind, account, obtained_at) written by "

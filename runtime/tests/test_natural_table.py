@@ -11,21 +11,25 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
+from expected_kit import extend
 
 natural = st.load("natural")
 operations = st.load("operations")
 phrases = st.load("phrases")
 nt = st.load("natural_time")
 
-R = {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"}      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
-N = {"remind", "reminder-forget", "reminder-restore"}
-W = {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"}
+R = extend("natural_table.R", {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "agenda"})      # P5: agenda, the events of the calendar (a read the dispatcher runs as items); NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
+N = extend("natural_table.N", {"remind", "reminder-forget", "reminder-restore"})
+W = extend("natural_table.W", {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"})
 D = {"approve", "reject", "release", "answer", "go-ahead"}
-E = {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
-     "file-create", "file-replace", "file-save", "file-trash"}
-WORK = {"say", "request", "route", "ask"}
+E = extend("natural_table.E", {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
+     "file-create", "file-replace", "file-save", "file-trash"})
+WORK = extend("natural_table.WORK", {"say", "request", "route", "ask"})
+GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
+WORDS_PARAMS = {("items", "day"): "day_span", ("agenda", "day"): "day_span", ("items", "state"): "state_span", ("items", "service"): "service_word", ("reminder-forget", "target"): "matching", ("todo-done", "target"): "target"}      # the test's own literal: CB-1, CB-5 and CB-8 (served since CB-9): words that name an item by itself, read by code from the span (runtime/ops_items.py SPAN_PARAMS, the reminders' matcher, runtime/ops_todo.py), never an argument of the operation
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
 
@@ -49,9 +53,11 @@ def forms():
 def test_every_operation_of_the_table_has_a_row_and_one_class_so_that_nothing_is_left_unclassified():
     missing = sorted(OPS - set(natural.CLASSES))
     assert not missing, f"operations with no class in runtime/natural.py CLASSES: {missing}"
-    assert not sorted(OPS - set(natural.NATURAL)), "operations with no row in NATURAL"
+    later = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] > operations.LINE_CATALOG}      # CB-3: a row of a later catalog version has a class and no row of NATURAL until the flip
+    assert not sorted(OPS - later - set(natural.NATURAL)), "operations with no row in NATURAL"
     assert set(natural.CLASSES) == OPS, sorted(set(natural.CLASSES) ^ OPS)      # a class for something that is not an operation: nothing is planned any more
-    assert set(natural.NATURAL) == set(natural.CLASSES)
+    served = {row["name"] for row in operations.OPERATIONS if row["natural"]["since"] <= operations.LINE_CATALOG}      # CB-0: what a line may reach; a row of a later catalog version has a class and no line row
+    assert set(natural.NATURAL) == served and served <= set(natural.CLASSES)
     assert set(natural.CLASSES.values()) <= CLASS_SET
 
 
@@ -73,7 +79,6 @@ def test_nothing_is_planned_any_more_and_the_effects_are_operations_that_end_in_
     assert natural.PLANNED == () and not E - OPS, "the writes of SPEC-SECRETARY-WRITES exist: each is an operation, and a line only names it"
     for name in E:
         assert any(name in operations.GROUPS[g]["operations"] for g in operations.GROUPS), name      # in a group of the channel policy, like any other
-    assert natural.operation_of("calendar-event-create") == "event-create" and natural.operation_of("remind") == "remind"
 
 
 def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
@@ -85,16 +90,28 @@ def test_the_safety_of_the_classes_follows_from_the_groups_of_the_table():
         assert natural.class_of(name) == ("R" if name == "sources" else "G"), name
     for name in ("approve", "reject", "release", "answer", "go-ahead"):
         assert natural.class_of(name) == "D"
-    for name in R - {"research"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
+    for name in R - {"research", "file-ask", "mail-ask"}:      # a read changes nothing: it is in a read group, or a read of the person's own files, reminders or sources, and calls no model
         row = operations.by_name(name)
         assert row["model"] is False, name
-        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files")), name
+        assert any(name in operations.GROUPS[g]["operations"] for g in ("read", "sources", "add-sources", "reminders", "read-files", "read-mail-body", "tasks-read")), name
     # R2-F1: `research` is the one read that calls a model (a web search run by the research skill). It changes nothing and reads nothing of the person's, and it has a group of its own,
     # in no default policy, so that no sender gets it from a group that was granted for another reason.
     row = operations.by_name("research")
     assert row["model"] is True and row["channels"] == ("terminal", "messaging")
     assert operations.GROUPS["research"] == {"operations": ("research",), "kind": None}
     assert [g for g, spec in operations.GROUPS.items() if "research" in spec["operations"]] == ["research"]
+    # FA-1: `file-ask` is the other read that calls a model, and the only one that hands the text of the person's own file to one (the quarantined reader, runtime/ops_file_ask.py). It has a group
+    # of its own, in no default policy, which `read-files` never covers, and no row on the MCP mode.
+    row = operations.by_name("file-ask")
+    assert row["model"] is True and row["channels"] == ("terminal", "page", "messaging") and "mcp" not in row["channels"]
+    assert operations.GROUPS["ask-files"] == {"operations": ("file-ask",), "kind": None}
+    assert [g for g, spec in operations.GROUPS.items() if "file-ask" in spec["operations"]] == ["ask-files"]
+    # MAIL-SUMMARY: `mail-ask` is the third read that calls a model, and hands ONE e-mail of the snapshots to the same quarantined reader. It has no group of its own: it is listed under `ask`, and on a messaging
+    # app `operations.PAIRED` asks for `ask-mail` beside it. It is in no default policy and has no row on the MCP mode.
+    row = operations.by_name("mail-ask")
+    assert row["model"] is True and row["channels"] == ("terminal", "page", "messaging") and "mcp" not in row["channels"]
+    assert [g for g, spec in operations.GROUPS.items() if "mail-ask" in spec["operations"]] == ["ask"] and operations.PAIRED == {"mail-ask": (("messaging",), "ask-mail")}
+    assert operations.GROUPS["read-files"] == {"operations": ("file-read",), "kind": None}
     for name, cls in natural.CLASSES.items():      # an operation that is only the terminal's is never run from a line
         if operations.by_name(name)["channels"] == ("terminal",):
             assert cls == "G", name
@@ -108,6 +125,12 @@ def test_a_row_has_slots_of_known_kinds_that_fill_real_parameters_and_forms_belo
         assert row["what"], name
         for slot, (kind, param) in row["slots"].items():
             assert kind in ("int", "ints", "word", "span", "when"), (name, slot)
+            if slot in GROUNDING and name in E:      # B''-lite: the words of the item and its day are read by code from the spans (runtime/event_lookup.py, runtime/ops_natural_mail.py), never passed to the operation
+                assert param == slot and param not in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
+                continue
+            if (name, slot) in WORDS_PARAMS:      # a slot of the words of an item: its parameter is the one code reads the span as, and it is no argument of the operation
+                assert param == WORDS_PARAMS[(name, slot)] and param not in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
+                continue
             assert param in {a["name"] for a in operations.by_name(name)["args"]}, (name, slot, param)
     assert set(forms()) <= set(natural.NATURAL)
     assert not set(forms()) & {"remind", "reminders", "reminder-forget", "reminder-restore"}, "the reminders are the intents of `candidate`, not forms"
@@ -244,8 +267,6 @@ ARE_FORMS = {"help": "commands", "ajuda": "commands", "task 3": "task", "tarefa 
 @pytest.mark.parametrize("line", TO_THE_ROUTER)
 def test_a_line_that_asks_for_work_with_the_words_of_an_operation_reaches_the_router(line):
     assert natural.match(line) is None, line
-    found = natural.candidate(line)
-    assert found is None or found["op"] not in ("event-create",) or "calendar" in line or "agenda" in line, (line, found)      # the reminders' own intents decide the rest
 
 
 @pytest.mark.parametrize("line, op", sorted(ARE_FORMS.items()))
@@ -267,17 +288,20 @@ def test_a_line_longer_than_a_form_is_a_request_not_a_form():
     assert natural.match("aprova o pedido 21 " + "e " * natural.LINE_WORDS) is None
 
 
-def test_needs_names_the_group_a_messaging_sender_must_hold_for_a_tier_1_line():
-    assert natural.needs("quais arquivos voce tem?") == "sources"
-    assert natural.needs("pendencias") == "pending"
-    assert natural.needs("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
-    for line in ("cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
-        assert natural.needs(line) is None, line
+def test_the_line_group_names_the_group_a_messaging_sender_must_hold_for_a_decision_said_in_words_and_no_other_line():
+    """S41-11: the one closed reading code keeps is a decision said in words (`natural.decision`, the D operations); a read, a notice or an act said in words is the interpreter's and needs `talk`. PR 2b: the group is `ops_natural.line_group` (it was `natural.needs`)."""
+    ops_natural = st.load("ops_natural")
+    assert ops_natural.line_group("aprova o 12") == "pending", "a decision is a read of its card: the group that reads"
+    assert ops_natural.line_group("rejeite a pergunta 25") == "pending" and ops_natural.line_group("approve request 7") == "pending"
+    for line in ("quais arquivos voce tem?", "pendencias", "cancela o pedido 8", "muda o modelo", "marca na agenda o dentista", "escreva um post", "/status", "me lembra sexta as 18h de regar as samambaias"):
+        assert ops_natural.line_group(line) is None, line
+    assert natural.decision("aprova o 12")["op"] == "approve" and natural.decision("cancela o pedido 8") is None and natural.decision("pendencias") is None, "match still knows the forms; `decision` keeps the D class"
 
 
 def test_private_and_the_confirmation_words_are_the_reminders_and_the_tables():
-    assert natural.private("me lembra amanha as 15h de buscar a encomenda") and natural.private("remind me tomorrow at 2pm to water the plants")
-    assert not natural.private("what files do you have?") and not natural.private("quais sao os meus lembretes?")
+    turn_gate = st.load("turn_gate")      # S41-11: `natural.private` is gone; the detector is the one of S41-9
+    assert turn_gate.private_line("me lembra amanha as 15h de buscar a encomenda") and turn_gate.private_line("remind me tomorrow at 2pm to water the plants")
+    assert not turn_gate.private_line("what files do you have?") and not turn_gate.private_line("quais sao os meus lembretes?")
     for yes in ("yes", "sim", "Sim.", "ok", "はい", "si", "oui", "да"):
         assert natural.confirm_kind(yes) == "yes", yes
     for no in ("no", "nao", "cancel", "cancela", "いいえ", "nein"):
@@ -295,15 +319,15 @@ def test_the_aliases_the_cues_and_the_function_words_are_the_tables_data():
 def test_the_questions_and_replies_of_a_reminder_are_said_in_one_place_in_the_projects_language():
     draft = {"need": "confirm", "text": "pay the rent", "readings": [{"date": "2026-10-19", "time": "09:00", "rel": 1, "far": False, "rolled": False}]}
     sentence, keep = natural.question(draft, None, True)
-    assert sentence == "I understood: tomorrow, Mon 19/10, at 09:00: pay the rent. Confirm? (yes / another time)" and keep is True
-    assert natural.question(draft, None, False)[0] == "I understood: tomorrow, Mon 19/10, at 09:00. Confirm? (yes / another time)"
+    assert pk.said(sentence, "NT_CONFIRM_TEXT", None, when="tomorrow, Mon 19/10, at 09:00", text="pay the rent") and keep is True
+    assert pk.said(natural.question(draft, None, False)[0], "NT_CONFIRM_COUNT", None, when="tomorrow, Mon 19/10, at 09:00")
     assert natural.question({"need": "recurring"}, None)[1] is False
     done = {"reminder": {"id": 4, "text": "pay the rent"}, "human": {"date": "2026-10-19", "time": "09:00", "rel": 1, "far": False, "zone": "BRT", "rolled": False}}
-    assert natural.made_sentence(done, None, True) == "Reminder #4: tomorrow, Mon 19/10, at 09:00 (BRT): pay the rent. To undo: /forget 4."
-    assert natural.made_sentence(done, None, False) == "Reminder #4: tomorrow, Mon 19/10, at 09:00 (BRT). To undo: /forget 4."
-    assert natural.forgot_sentence(done, None, True).startswith("Reminder #4 cancelled: tomorrow, Mon 19/10, at 09:00 (BRT): pay the rent")
+    assert pk.said(natural.made_sentence(done, None, True), "NT_SET_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent")
+    assert pk.said(natural.made_sentence(done, None, False), "NT_SET_COUNT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)")
+    assert pk.said(natural.forgot_sentence(done, None, True), "NT_FORGOT_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent")
     sentence, forget = natural.forget_question([{"preview": {"id": 4, "text": "pay the rent"}, "human": done["human"]}], None, True)
-    assert sentence.startswith("Cancel reminder #4: ") and forget["need"] == "forget" and forget["ids"] == [4]
+    assert pk.said(sentence, "NT_ASK_FORGET_TEXT", None, id=4, when="tomorrow, Mon 19/10, at 09:00 (BRT)", text="pay the rent") and forget["need"] == "forget" and forget["ids"] == [4]
 
 
 # --- believing what a router named ----------------------------------------------------------------------------------------------------------------

@@ -37,7 +37,7 @@ rejected) with a note.
                        start on a document the person edited and the agents would not read (decision D11).
   imported_since(cfg, since)  the documents imported (a person's edit, recorded in <data_dir>/documents/imported.json
                        at each import) after a task's last run started, while the project's file is still that text:
-                       the next run of a task that reads one is told so in its prompt (ops.task_prompt).
+                       the next run of a task that reads one is told so in its prompt (ops_runs.task_prompt).
   take(ctx, rel, side) settles a rejected record: "page" takes the page's text (when the checker passes), or, for a
                        read_only type, keeps the page as it is and leaves the file unmirrored until it changes again;
                        "project" writes the project's file over the page, the page's text kept aside first.
@@ -452,7 +452,7 @@ def _settle(ctx: dict, record: dict, entry, page: dict, out: dict) -> str:
 def _import(ctx: dict, rel: str, markdown: str, version) -> None:
     """Write a page's text over the project's file and set both hashes to it, so that the next push sees nothing
     to write and the person's edit is not sent back through the conversion. The import is recorded (IMPORTED), so
-    the next run of a task that reads the document is told the content is the person's (ops.task_prompt)."""
+    the next run of a task that reads the document is told the content is the person's (ops_runs.task_prompt)."""
     data = markdown.encode("utf-8")
     _own_write_clear(ctx["cfg"], rel)
     _write_project(ctx["cfg"]["project"], rel, data)

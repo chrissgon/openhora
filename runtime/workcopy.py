@@ -65,7 +65,7 @@ import sources  # noqa: E402  (the same folder: limit L26 asks it whether a path
 import state_merge  # noqa: E402
 
 CODE_AREAS = tuple(roles.load()["code_areas"])  # runtime/roles.json
-# Why a versioned file a document task changed stays in its run folder (ops.code_task: only a code task makes a
+# Why a versioned file a document task changed stays in its run folder (ops_runs.code_task: only a code task makes a
 # change set).
 SOURCES_KEPT = "the sources folder is the runtime's: nothing a run leaves is written there"
 TRACKED_KEPT = "a versioned file: only a code task brings one back, as a change set"
@@ -499,7 +499,7 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
     unchanged since the copy (L12; the state file is merged line by line instead, L10), the credential scan
     (L14). Nothing is deleted in the project. versioned lists the paths the path rule calls versioned (the change
     set's, runtime/changeset.py): they never come back as loose files and are not listed here. tracked lists the
-    versioned paths of a run that makes no change set (a document task, ops.code_task): one of them the run changed
+    versioned paths of a run that makes no change set (a document task, ops_runs.code_task): one of them the run changed
     outside docs/ is kept, with the reason TRACKED_KEPT. cfg is the project's configuration (project_config.load()), required
     so that no caller can leave the check out ({} for a caller that has no sources folder): a returned path that is, or is inside, the sources folder is kept with the reason SOURCES_KEPT and never written (limit L26,
     the return direction: the folder is the runtime's, even when it sits inside the project)."""

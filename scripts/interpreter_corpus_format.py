@@ -33,7 +33,9 @@ TAGS = ("typo", "no-accents", "lower-nopunct", "slang", "code-switch", "filler",
         "must-route", "relabel-time", "relabel-op")
 HARD_TAGS = frozenset(("tempt-d", "tempt-g", "multi-intent", "injection", "forward", "dst", "past", "far-future",
                        "weekday-mismatch", "code-switch", "inherit"))
-OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded", "question")
+QUESTION_ABOUT = ("card", "done", "can", "other")          # ANY-QUESTION Q0.1: what a gold question is about
+QUESTION_FIELDS = ("title", "when", "place", "to", "from", "subject", "approve", "other")
 # The time slots of the served catalog (runtime/interpreter_catalog.py TIME_SLOTS, copied: scripts/ never imports runtime/;
 # runtime/tests/test_interpreter_corpus_schema.py ties the two).
 TIME_SLOTS = frozenset((("remind", "when"), ("event-create", "time"), ("event-change", "time")))
@@ -46,15 +48,15 @@ ID_RE = re.compile(r"^(dev|test)-(pt-br|en|es|fr|de|it|ja|mx)-([0-9]{5})$")
 OPAQUE_RE = re.compile(r"^w-[0-9a-f]{8}$")
 ISO_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$")
 RULE_RE = re.compile(r"^L(?:10|[1-9])$")
-RELABEL_BASE = {"natural": 10000, "writes": 20000, "mail": 30000}
-RELABEL_RANGE = (10000, 39999)
+RELABEL_BASE = {"natural": 10000, "writes": 20000, "mail": 30000, "tier1": 40000}
+RELABEL_RANGE = (10000, 49999)
 RELABEL_CLOCK = "2026-10-22T14:00"
 RELABEL_ZONE = "America/Sao_Paulo"
 RELABEL_AGE_S = 60
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 MAX_LINE = 1000
 FRAME_ITEM_KEYS = frozenset(("id", "kind", "op", "need", "slot", "options", "values", "words", "age_s"))
-FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice")
+FRAME_KINDS = ("write-draft", "reminder-confirm", "router-question", "choice", "plan-confirm")
 FRAME_NEEDS = ("slot", "confirm", "option", "text")
 FRAME_ID_RE = re.compile(r"^i[1-9]$")
 OP_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -273,6 +275,8 @@ def frame_problems(frame, cat) -> list:
             out.append(f"{where}.age_s: not an integer 0..86400")
         if kind == "router-question" and (keys != {"id", "kind", "need", "age_s"} or need != "text"):
             out.append(f"{where}: a router question is id, kind, need text, age_s (R1)")
+        if kind == "plan-confirm" and (keys != {"id", "kind", "need", "op", "age_s"} or need != "confirm"):
+            out.append(f"{where}: a plan-confirm item is id, kind, need confirm, op, age_s (R8)")
         op = item.get("op")
         if op is not None and (not isinstance(op, str) or not OP_RE.match(op) or op not in cat["ops"]):
             out.append(f"{where}.op: not an op of the catalog (R2)")
@@ -455,8 +459,32 @@ def gold_problems(gold, item, cat, where="gold", scope=None) -> list:
         if keys != {"outcome", "class"} or gold["class"] not in ("D", "G"):
             return [f"{where}: a refuse gold is outcome and class D or G"]
         return []
+    if outcome == "question":
+        return _question_problems(gold, keys, cat, where)
     if keys != {"outcome"}:
         return [f"{where}: a {outcome} gold has the key outcome only"]
+    return []
+
+
+def _question_problems(gold, keys, cat, where) -> list:
+    """A question gold: outcome, about, and by about the card's field (card) or an op of the catalog (required with can, optional with done); no scope."""
+    if "scope" in gold:
+        return [f"{where}: a question gold carries no scope"]
+    if keys - {"outcome", "about", "field", "op"}:
+        return [f"{where}: a question gold is outcome, about, field?, op?"]
+    about = gold.get("about")
+    if about not in QUESTION_ABOUT:
+        return [f"{where}.about: not one of the four"]
+    if (about == "card") != ("field" in gold):
+        return [f"{where}.field: present exactly when about is card"]
+    if "field" in gold and gold["field"] not in QUESTION_FIELDS:
+        return [f"{where}.field: not one of the eight"]
+    if "op" in gold and about not in ("done", "can"):
+        return [f"{where}.op: only with about done or can"]
+    if about == "can" and "op" not in gold:
+        return [f"{where}.op: required with about can"]
+    if "op" in gold and gold["op"] not in cat["ops"] and gold["op"] not in cat["refused"]:
+        return [f"{where}.op: not an op of the catalog"]
     return []
 
 
@@ -525,7 +553,7 @@ def item_problems(item, cat, lines_only=False) -> list:
         number = int(match.group(3))
         in_range = RELABEL_RANGE[0] <= number <= RELABEL_RANGE[1]
         if (item["author"] == "relabel") != in_range:
-            out.append("id: 10000-39999 is the relabelled items' range, and only theirs")
+            out.append("id: 10000-49999 is the relabelled items' range, and only theirs")
     tags = item["tags"]
     if not isinstance(tags, list) or len(set(map(str, tags))) != len(tags) or not all(t in TAGS for t in tags):
         out.append("tags: distinct words of the closed list")

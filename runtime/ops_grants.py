@@ -75,7 +75,7 @@ def private_view(ctx: dict, item: dict, channel, sender=None) -> dict:
         # An account write whose card cannot be read as a card (a key outside the table, a field that is no text) is shown to no one who may not read the person's mail:
         # what it holds is unknown, so it is private (fail closed). Its body, its card and the record of its execution go.
         return {**item, "body": phrases.en("CARD_HIDDEN_NOTE_WHOLE"), "payload": {key: value for key, value in payload.items() if key not in ("card", "result")}}
-    hidden = set() if reader else set(phrases.CARD_PRIVATE)
+    hidden = phrases.private_hidden(item_refs.private_groups(ctx, channel, sender))      # each private line is shown to a reader who holds ITS group (ask-mail; tasks-read for the title of a task: CB-5)
     if not reader and not _owns_held_file(ctx, item, channel, sender):
         hidden |= set(phrases.CARD_PRIVATE_OWNER)      # the name of a file a sender sent is the sender's (and a reader of the person's own items')
     cut = [line for line in card if line[0] in hidden]
@@ -208,22 +208,34 @@ def effect_refusal(ctx: dict, item: dict, channel, facts: dict, sender=None):
         return ("this effect carries more than a card can show (the hash covers something the card does not carry: a file, an image, every row of "
                 "a table, or the code of a change), so it is not approved from a card: approve it in the terminal or on the page, with its hash: "
                 + command)
-    if has_private_lines(item, facts.get("word") in operations.ACCOUNT_APPROVAL_WORDS) and not item_refs.may_read(ctx, channel, sender):
-        return ("this card has lines that show the person's own e-mail, calendar or files, and a messaging app draws them only for a sender who holds the group "
-                f"{phrases.CARD_PRIVATE_GROUP}, so this card is not whole for you and is not approved from here: approve it in the terminal or on the page, with its hash: " + command)
+    held = item_refs.private_groups(ctx, channel, sender)
+    if has_private_lines(item, facts.get("word") in operations.ACCOUNT_APPROVAL_WORDS, held):
+        group = _missing_group(item, held)
+        return ("this card has lines that show the person's own e-mail, calendar, files or tasks, and a messaging app draws them only for a sender who holds the group "
+                f"{group}, so this card is not whole for you and is not approved from here: approve it in the terminal or on the page, with its hash: " + command)
     return _sender_problem(ctx, item, facts, sender)
 
 
-def has_private_lines(item: dict, account_write: bool = False) -> bool:
-    """Whether the stored card of an effect has a line of phrases.CARD_PRIVATE: the lines a reader who does not hold the group ask-mail is not shown (private_view and
-    the messaging card both leave them out). Read from the decision's own card, at the operations layer, so that the approval of a card that was not whole for the
+def _missing_group(item: dict, held) -> str:
+    """The group the reader lacks to see the first private line of the card (CB-5: the title of a task is shown by `tasks-read`, every other private line by `ask-mail`); `ask-mail`
+    for a card that cannot be read as a card."""
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    card = payload.get("card")
+    keys = [line[0] for line in card] if phrases.card_valid(card) else []
+    return next((phrases.private_group(k) for k in keys if k in phrases.private_hidden(held)), phrases.CARD_PRIVATE_GROUP)
+
+
+def has_private_lines(item: dict, account_write: bool = False, held=None) -> bool:
+    """Whether the stored card of an effect has a line of phrases.CARD_PRIVATE that a reader who holds the groups `held` is not shown (none held when None: every private line;
+    private_view and the messaging card both leave them out). Read from the decision's own card, at the operations layer, so that the approval of a card that was not whole for the
     approver is refused here too, whatever the bridge drew. A decision with no well-formed card has none, except an account write (`account_write`: the effect's word is
     one of operations.ACCOUNT_APPROVAL_WORDS), whose card that cannot be read as a card is unknown and so private (fail closed)."""
     payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
     card = payload.get("card")
     if not phrases.card_valid(card):
-        return bool(account_write)
-    return any(line[0] in phrases.CARD_PRIVATE for line in card)
+        return bool(account_write) and (held is None or phrases.CARD_PRIVATE_GROUP not in held)
+    hidden = phrases.CARD_PRIVATE if held is None else phrases.private_hidden(held)
+    return any(line[0] in hidden for line in card)
 
 
 def _sender_problem(ctx: dict, item: dict, facts: dict, sender):

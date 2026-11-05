@@ -18,9 +18,34 @@
   {
    "catalog_sha256": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
    "date": "2026-10-22",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "a77f8a8f88e2c76516bc3b4f54fc120859b8f86d647016a8ac5d56a4aac4c263",
+   "date": "2026-10-24",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "98e7913c702a82e6e8eb81fa9ab863998b19ea0142ca7e7374092212f655d366",
+   "date": "2026-10-28",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
+   "date": "2026-10-28",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "date": "2026-10-31",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
+   "date": "2026-11-05",
    "state": "served"
   }
  ],
- "served": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+ "served": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
  "v": 1
 }

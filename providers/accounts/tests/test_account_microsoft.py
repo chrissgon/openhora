@@ -51,9 +51,11 @@ def record(**over):
 # --- the platform's set -----------------------------------------------------------------------------------------------------
 
 
-def test_the_platform_set_is_the_five_permissions_the_maintainer_approved_and_offline_access_is_asked_besides():
-    assert msgraph.PLATFORM_SCOPES == ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
-    assert ACCOUNT.scopes == msgraph.PLATFORM_SCOPES and ACCOUNT.account is True and ACCOUNT.scope is None
+def test_the_previous_set_is_the_five_permissions_the_maintainer_approved_before_to_do_and_offline_access_is_asked_besides():
+    assert msgraph.PREVIOUS_SCOPES == ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
+    assert msgraph.PLATFORM_SCOPES == msgraph.PREVIOUS_SCOPES + ("Tasks.ReadWrite",)      # CB-4: the authorization and the To Do providers ask the six; every other provider the five
+    assert ACCOUNT.scopes == msgraph.PREVIOUS_SCOPES and ACCOUNT.account is True and ACCOUNT.scope is None
+    assert ACCOUNT.accepted == (msgraph.PREVIOUS_SCOPES, msgraph.PLATFORM_SCOPES)
     assert ACCOUNT.refresh_scope == " ".join(PREFIX + n for n in PLATFORM) + " offline_access"
     assert "Files.ReadWrite.All" not in ACCOUNT.refresh_scope and "Mail.Read " not in ACCOUNT.refresh_scope
     assert (ACCOUNT.secret, ACCOUNT.keyring_username, ACCOUNT.keyring_service) == ("MICROSOFT_ACCOUNT_TOKEN", "microsoft-account", "openhora")

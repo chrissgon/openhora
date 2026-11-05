@@ -19,16 +19,21 @@ To, the Subject and the WHOLE text, and nothing is sent until the person approve
   available(ctx, channel, sender)   whether composing is on for this sender now: the interpreter is on for them (messaging, the group `interpret`, the newest entry of
                                     runtime/interpreter_enable.json in force) AND that entry pins THIS prompt's sha256 (`compose_prompt_sha256`). A changed prompt turns composing
                                     off and leaves the interpreter on
-  write(ctx, channel, sender, to, subject, text, ai_subject)
+  write(ctx, channel, sender, to, subject, text, ai_subject, *, reply=False)
                                     {"subject": str | None, "body": str, "composed": bool}. The model is called once, through the same limits as the interpreter's (the sender's
-                                    rate, the project's day, the breaker: `ops_interpret._admit` and `_record`). When the call is not made, fails or the answer is not valid, the
+                                    rate, the project's day, the breaker: `turn_gate.admit`, `call` and `record`). When the call is not made, fails or the answer is not valid, the
                                     person's own text is the body and the subject is the one the person gave, or, when the seed left it to the model (`ai_subject`), the first sentence of the person's own
-                                    words cut at 60 characters (None when the person gave none and the seed did not ask the model: the family asks)
-  validate(text, to, subject)       {"subject", "body"} for the model's text, or None. Code decides: strict JSON with exactly the two keys; a subject of one line; a body of
+                                    words cut at 60 characters (None when the person gave none and the seed did not ask the model: the family asks). BL7-2: with `reply=True` (the text of a reply the person described,
+                                    runtime/mail_reply_compose.py) the recipient and the subject are never sent: the user message's `to:` and `subject:` lines are empty, the
+                                    model's subject is dropped (the reply's is the message's own) and only the body is validated (`validate(..., body_only=True)`); the subject
+                                    returned is always None. Nothing of the message answered is an argument of `write`, so nothing of it can be sent
+  validate(text, to, subject, *, body_only=False)
+                                    {"subject", "body"} for the model's text, or None. Code decides: strict JSON with exactly the two keys; a subject of one line; a body of
                                     plain text of at most 4000 characters; no header line, no HTML, no code fence, no link, no web address and no e-mail address other than the
                                     recipients the person typed; nothing the card refuses (`send_document.text_problem`). A body that ends with a closing formula alone
                                     ("Atenciosamente,", "Best regards,") loses that last line and the bracketed placeholder name after it (`without_dangling_close`: one closing at most,
-                                    never after a line that ends with ":"): a name after the formula keeps it
+                                    never after a line that ends with ":"): a name after the formula keeps it. With `body_only=True` (a reply) only the subject's check is skipped, the
+                                    model's subject is dropped and the result is `{"subject": None, "body": body}`; every check of the body stays
   spelled(typed, shown)             the subject the person typed, with its spelling fixed when the model's `shown` is the SAME subject (S12): NFKC with no format or control character; its
                                     letters in the scripts the typed letters use; every character that is not a letter (digits, punctuation, symbols, spaces) the person's, in the same
                                     places; a word typed with a capital or a digit changes its accents only (the first letter of the first word may become a capital); a word typed in
@@ -43,7 +48,7 @@ Privacy (limit L63, D2): the person's words go to the model provider under the s
 does. Nothing is logged, printed or written by this file: no span, no composed text, no exception message. The composed text exists in memory until the family opens the card,
 which stores it as it stores every card (the card is the one record of an e-mail, runtime/send_document.py); the draft that waits for a question is the family's, in memory only.
 
-Standard library only (the other modules are imported when a function needs them). Runs on Python 3.9: python3 runtime/mail_compose.py --help
+Standard library only, and the other modules of runtime/ it needs (imported at the top, except ops_interpret and interpreter_enable, which reach this file through their own imports: see ALLOWED_LAZY in runtime/tests/test_import_breakers.py). Runs on Python 3.9: python3 runtime/mail_compose.py --help
 """
 from __future__ import annotations
 
@@ -54,6 +59,12 @@ import os
 import re
 import sys
 import unicodedata
+
+import line_stage
+import natural_writes_mail
+import ops_natural
+import send_document
+import turn_gate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROMPT_FILE = os.path.join(HERE, "mail_compose_prompt.txt")
@@ -253,8 +264,7 @@ def _plain(text: str) -> str:
 
 def _typed_address(span: str, line: str):
     """The address as the sender typed it (capitals kept) when `span` is a whole address token of the line, compared without regard to case, else None."""
-    nwm = importlib.import_module("natural_writes_mail")
-    for tok in nwm.tokenize(line) or []:
+    for tok in natural_writes_mail.tokenize(line) or []:
         typed = line[tok.start:tok.end]
         if tok.kind == "addr" and tok.value.lower() == span.lower() and typed.lower() == span.lower():
             return typed
@@ -282,7 +292,8 @@ def seed(op: str, decision: dict, line: str):
     slots["_compose"] = True
     if not subject:
         slots["_ai_subject"] = True
-    return {"op": op, "slots": slots}
+    # S41-7: the address was typed whole in the line (`_typed_address`), the subject and the body are spans of the line the interpreter's check verified: the person's words
+    return turn_gate.Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("to", "subject", "body") if key in slots})
 
 
 # --- the call ------------------------------------------------------------------------------------------------------------------------------------
@@ -298,15 +309,6 @@ def available(ctx: dict, channel, sender) -> bool:
         return False
 
 
-def _call(entry: dict, system: str, user: str) -> dict:
-    """The one model call: the entry's daily route (kind http, the hash the entry was decided on), as ops_interpret._daily_call does it, with this file's settings."""
-    route = importlib.import_module("interpreter_route")
-    rows = [r for r in route.daily_routes() if r["id"] == entry["route"]]
-    if len(rows) != 1 or rows[0].get("kind") != "http" or route.route_sha256(rows[0]) != entry["route_sha256"]:
-        return {"ok": False, "code": "E_ROUTE"}
-    return route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=DEADLINE_MS, **PARAMS)
-
-
 def _pairs(pairs) -> dict:
     out = {}
     for key, value in pairs:
@@ -318,12 +320,12 @@ def _pairs(pairs) -> dict:
 
 def _problem(text: str, multiline: bool) -> bool:
     """Whether a text cannot be on the card as it is (the card's own check, runtime/send_document.py)."""
-    send_document = importlib.import_module("send_document")
     return bool(send_document.text_problem(text, multiline))
 
 
-def validate(text, to, subject=None):
-    """{"subject", "body"} for the model's text, or None (see the module's text). `to` is the list of typed recipient addresses; `subject` the person's, when given."""
+def validate(text, to, subject=None, *, body_only=False):
+    """{"subject", "body"} for the model's text, or None (see the module's text). `to` is the list of typed recipient addresses; `subject` the person's, when given. With `body_only`
+    (a reply, BL7-2) the model's subject is not checked and is dropped: only the subject's check is skipped, every check of the body is the same."""
     if not isinstance(text, str) or len(text.encode("utf-8")) > OUTPUT_MAX:
         return None
     found = FENCE.fullmatch(text.strip())
@@ -342,6 +344,8 @@ def validate(text, to, subject=None):
         clean = re.sub(r"(?<![\w.+-])" + re.escape(unicodedata.normalize("NFKC", address)) + r"(?![\w-])(?!\.[\w])", "", clean, flags=re.I)      # only the whole typed address
     if "@" in clean or LINK.search(clean):
         return None
+    if body_only:
+        return {"subject": None, "body": body}
     if subject is None and _subject_problem(shown):
         return None
     return {"subject": spelled(subject, shown) if subject is not None else shown, "body": body}
@@ -356,31 +360,35 @@ def _subject_of(described: str) -> str:
     return "" if "=?" in first else first.rstrip(".!?,;: ")
 
 
-def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool = False) -> dict:
-    """The subject and the body of the e-mail (see the module's text). Never raises, never blocks: the person's own words are the fallback."""
+def write(ctx: dict, channel, sender, to, subject, text: str, ai_subject: bool = False, *, reply: bool = False) -> dict:
+    """The subject and the body of the e-mail (see the module's text). Never raises, never blocks: the person's own words are the fallback. With `reply` (BL7-2) the recipient and the
+    subject are dropped before anything is built (the reply's recipient is the index's From and is never sent to the model), and the answer is validated for its body alone."""
+    if reply:
+        to, subject, ai_subject = [], None, False
     body, exact = strip_marker(text)
     described = WHITE.sub(" ", body).strip()
     out = {"subject": subject or (_subject_of(described) if ai_subject and described else None), "body": body, "composed": False}
     if exact or not described or len(described) > DESCRIPTION_MAX or not available(ctx, channel, sender):
         return out
     interpret = importlib.import_module("ops_interpret")
-    if not interpret._admit(ctx, sender):
+    admission = turn_gate.admit(ctx, sender)
+    if admission is None:
         return out
     proposal, ok = None, False
     try:
         enable = importlib.import_module("interpreter_enable")
         entry = enable.compose_active(interpret._tag(ctx["cfg"]))["entry"]
-        now = importlib.import_module("ops_natural")._clock()
+        now = ops_natural._clock()
         user = "\n".join([f"date: {now.strftime('%Y-%m-%d')} {DAY_NAMES[now.weekday()]}", f"language: {interpret._tag(ctx['cfg'])}", "to: " + ", ".join(to),
                           "subject: " + (subject or ""), "description: " + described])
-        importlib.import_module("line_stage").publish("compose")      # S19: the model words the e-mail
-        got = _call(entry, prompt_template(), user)
+        line_stage.publish("compose")      # S19: the model words the e-mail
+        got = turn_gate.call(admission, entry, prompt_template(), user, deadline_ms=DEADLINE_MS, params=PARAMS)      # the route check and the call are the gate's
         ok = bool(got.get("ok"))
         if ok:
-            proposal = validate(got.get("text"), to, subject or None)
+            proposal = validate(got.get("text"), to, subject or None, **({"body_only": True} if reply else {}))
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the person's words
         ok, proposal = False, None
-    interpret._record(ok)
+    turn_gate.record(ok)
     if proposal is None:
         return out
     return {"subject": proposal["subject"] or out["subject"], "body": proposal["body"], "composed": True}

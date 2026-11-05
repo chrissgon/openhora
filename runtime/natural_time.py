@@ -18,7 +18,9 @@ something about it is uncertain (a word of a week or a month within two words of
 weak word of a language (an abbreviation such as "sex" or "may") counts only when the line is in that language, and where it may be a name (it does not touch the
 time or a number) the reading is confirmed, never dropped.
 
-  find(text, languages=None)         the time phrases of a line, with no clock: {"norm", "origin", "hits", "tables"}; each hit has "kind", "lang" and a span
+  find(text, languages=None)         the time phrases of a line, with no clock: {"norm", "origin", "hits", "tables", "evidence", "deadline"}; each hit has "kind",
+                                     "lang" and a span; `deadline` holds the date the line states as the content of the request, not as its moment ("tomorrow at
+                                     9am to renew the permit before it expires on the 15th": see `_deadlines`), which is no hit and is never cut from the text
   parse(text, now, languages=None)   what the line means, with the clock:
                                        {"when": <the grammar of reminders.resolve>, "reading": {...}, "spans": [(start, end)...]}   one clear reading
                                        {"ask": [reading...], "spans"}                                                              two or more readings (or one to confirm): ask
@@ -68,9 +70,9 @@ weekday_after, months (12 lists), weak, cued, month_joiners, day_words, ordinal_
 pm} (with the forms written with dots, "a.m."), dayparts {morning, dawn, afternoon, evening, night}, vague, noon, midnight, bare_hour_prefixes, relative_in,
 relative_units {m, h, d, w}, number_words {word: n}, half_hour, and_half, joiners, half_words, time_words, not_typos, recurrence, recurrence_units,
 recurrence_counted_units, recurrence_phrases, recurrence_other, recurrence_not_before, recurrence_adverbs, recurrence_before_day, recurrence_joiners, week_phrases,
-remind_nouns, vague_parts {morning, afternoon, evening, night}, first_words, ordinal_marks, quarter_past, quarter_to, half_past, date_markers, date_nouns, but_words,
-fraction_before, fraction_after, date_cues, edge_words, problem_words, work_verbs, calendar_noun_reads, triggers {remind, remind_anywhere,
-reminders, reminders_bare, calendar, calendar_verb, calendar_noun, calendar_loose, note, undo}, forget {verbs, nouns, fillers, id_words, id_marked}, polite, connectors, answers {yes,
+vague_parts {morning, afternoon, evening, night}, first_words, ordinal_marks, quarter_past, quarter_to, half_past, date_markers, date_nouns, but_words,
+deadline_words, deadline_to, deadline_breaks, fraction_before, fraction_after, date_cues, edge_words, work_verbs, triggers {remind, remind_anywhere,
+calendar, calendar_verb, calendar_noun, calendar_loose}, forget {nouns, fillers}, polite, connectors, answers {yes,
 notice, event, other, cancel, thanks, again}, work_starters. The trigger and answer words are read by runtime/natural.py, the time words here.
 
 Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --help
@@ -78,6 +80,7 @@ Standard library only. Runs on Python 3.9: python3 runtime/natural_time.py --hel
 from __future__ import annotations
 
 import ast
+import bisect
 import calendar
 import datetime
 import json
@@ -92,17 +95,18 @@ MAX_READINGS = 4          # a question offers at most this many readings
 RELATIVE_MAX = 9999       # the largest n of `in <n>m|h|d` (runtime/reminders.py)
 _L = r"(?<![a-z0-9])"
 _R = r"(?![a-z0-9])"
+_TOKEN = re.compile(r"[a-z0-9]+")          # a word of the folded line
 
 LISTS = ("markers", "weekday_next", "weekday_this", "weekday_after", "weak", "cued", "hour_words_long", "not_typos", "recurrence", "recurrence_before_day",
-         "recurrence_joiners", "problem_words", "work_verbs", "calendar_noun_reads", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
+         "recurrence_joiners", "work_verbs", "month_joiners", "day_words", "ordinal_prefixes", "ordinal_suffixes", "prefixes",
          "hour_words_24", "vague", "noon", "midnight", "bare_hour_prefixes", "relative_in", "half_hour", "and_half", "joiners", "half_words", "time_words",
          "fraction_before", "fraction_after", "date_cues", "edge_words", "polite", "connectors", "work_starters", "recurrence_units", "recurrence_adverbs",
-         "recurrence_other", "recurrence_not_before", "week_phrases", "remind_nouns", "first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past",
-         "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words", "before_words", "topic_words", "date_after_clock")
+         "recurrence_other", "recurrence_not_before", "week_phrases", "first_words", "ordinal_marks", "quarter_past", "quarter_to", "half_past",
+         "date_markers", "date_nouns", "recurrence_phrases", "recurrence_counted_units", "but_words", "before_words", "topic_words", "date_after_clock", "deadline_words", "deadline_to", "deadline_breaks")
 GROUPS = {"days": ("today", "tomorrow", "day_after_tomorrow"), "meridiem": ("am", "pm"), "dayparts": ("morning", "dawn", "afternoon", "evening", "night"),
           "relative_units": ("m", "h", "d", "w"),
-          "triggers": ("remind", "remind_anywhere", "reminders", "reminders_bare", "calendar", "calendar_verb", "calendar_noun", "calendar_loose", "note", "undo"),
-          "forget": ("verbs", "nouns", "fillers", "id_words", "id_marked"), "vague_parts": ("morning", "afternoon", "evening", "night"),
+          "triggers": ("remind", "remind_anywhere", "calendar", "calendar_verb", "calendar_noun", "calendar_loose"),
+          "forget": ("nouns", "fillers"), "vague_parts": ("morning", "afternoon", "evening", "night"),
           "answers": ("yes", "notice", "event", "other", "cancel", "thanks", "again")}
 
 
@@ -337,11 +341,14 @@ class _Compiled:
 
 
 _compiled = {}
+COMPILED_MAX = 64          # the tables whose patterns are kept: the shipped ones are a few; more means the caller makes a new table object for each call, and the whole cache is cleared when it is full, never kept for good
 
 
 def _comp(table) -> "_Compiled":
     found = _compiled.get(id(table))
     if found is None or found.table is not table:
+        if len(_compiled) >= COMPILED_MAX:
+            _compiled.clear()          # each entry holds its table and about twenty patterns (about 40 kB): a cache that only grows is a leak of a call-per-line caller
         found = _compiled[id(table)] = _Compiled(table)
     return found
 
@@ -648,7 +655,7 @@ def _numerals(norm: str, tables: list) -> str:
 
 
 def find(text, languages=None) -> dict:
-    """The time phrases of the line, with no clock: {"norm", "origin", "hits", "tables"}. Each hit is {"kind": "clock" | "date" | "slash" | "relative" | "vague",
+    """The time phrases of the line, with no clock: {"norm", "origin", "hits", "tables", "evidence", "deadline"}. Each hit is {"kind": "clock" | "date" | "slash" | "relative" | "vague",
     "s", "e" (in the folded text), "lang", ...}. `languages` replaces the tables shipped (a test's stub language)."""
     tables = languages if languages is not None else globals()["languages"]()
     norm, origin = normalise(text)
@@ -658,7 +665,70 @@ def find(text, languages=None) -> dict:
     tokens = set(re.findall(r"[a-z0-9]+", norm))
     evidence = {h["lang"] for h in hits if h.get("lang") and not h.get("weak")} | {t["tag"] for t in tables if tokens & set(t["markers"])}
     kept = [h for h in hits if _keep(h, hits, norm, text if isinstance(text, str) else "", origin, tables, evidence)]
-    return {"norm": norm, "origin": origin, "hits": sorted(kept, key=lambda h: h["s"]), "tables": tables, "evidence": evidence}
+    kept, deadline = _deadlines(norm, sorted(kept, key=lambda h: h["s"]), tables)
+    return {"norm": norm, "origin": origin, "hits": kept, "tables": tables, "evidence": evidence, "deadline": deadline}
+
+
+def _deadlines(norm: str, hits: list, tables: list) -> tuple:
+    """(kept, deadline): the hits split so that a date the line states as the CONTENT of the request, not as its moment ("renew the permit before it expires on the
+    15th", "que vence dia 15"), is set apart. A hit is a deadline when all of these hold: it is a date or a slash date; one of the two words right before it is a
+    deadline word of some table (`deadline_words`); another date, slash date or relative hit ends before it starts (the moment comes first); the line has a clock
+    hit other than it; and no clock hit starts at or after its end (a clock after the date may be the deadline's own hour, "due on the 15th at 3pm": nothing is set
+    apart); and, for a line that may name TWO moments or a destination, no word of the table's `deadline_to` (to, for and their Portuguese forms: the date after it is where something goes) begins the
+    hit or stands in the three words before it, and no word or phrase of `deadline_breaks` (then, again, and, e, depois: a second moment follows) stands between the end of the hit before
+    it and its start ("move tomorrow's 9am meeting to the deadline on the 20th", "tomorrow at 9am, then again on the due date, the 15th": both ask, as before). Every other hit is
+    kept, so `parse`, `doubts` and the cuts see only the moment; the deadline's words stay in the text of the request, never cut."""
+    words = {w for t in tables for w in t.get("deadline_words", [])}
+    if not words:
+        return hits, []
+    stops = {w for t in tables for w in t.get("deadline_to", [])}
+    breaks = [tuple(p.split()) for t in tables for p in t.get("deadline_breaks", [])]
+    # Everything a hit asks about the others is read from tables built ONCE (one pass over the tokens and the hits), so that the time is linear in the line: the old reading
+    # rescanned the text before each hit and every other hit for each hit, which is quadratic and let one long line of times hold the engine for minutes.
+    tokens = [(m.start(), m.end()) for m in _TOKEN.finditer(norm)]
+    starts = [a for a, _b in tokens]
+    by_end = sorted(hits, key=lambda g: g["e"])
+    ends = [g["e"] for g in by_end]
+    moment_to = []          # moment_to[i]: whether one of the first i+1 hits by end is a date, a slash date or a relative one
+    seen = False
+    for g in by_end:
+        seen = seen or g["kind"] in ("date", "slash", "relative")
+        moment_to.append(seen)
+    clocks = [g["s"] for g in hits if g["kind"] == "clock"]
+    last_clock = max(clocks) if clocks else -1
+
+    def last_tokens(at, count):
+        """The last `count` tokens of norm[:at], the one the cut falls inside shortened to the cut."""
+        i = bisect.bisect_left(starts, at)
+        out = [norm[a:min(b, at)] for a, b in tokens[max(0, i - count):i]]
+        return out
+    kept, deadline = [], []
+    for h in hits:
+        if h["kind"] not in ("date", "slash"):
+            kept.append(h)
+            continue
+        before = last_tokens(h["s"], 2)
+        own = _TOKEN.search(norm, h["s"], h["e"])
+        near = last_tokens(h["s"], 3)          # "to the deadline on the 20th": the destination word may stand one word further back
+        if not (any(w in words for w in before) and not (own and own.group() in stops) and not any(w in stops for w in near)):
+            kept.append(h)
+            continue
+        if h["e"] <= h["s"]:          # an empty hit (the scan never makes one): the plain reading, which leaves the hit itself out of `earlier`
+            earlier = [g for g in hits if g is not h and g["e"] <= h["s"]]
+            moment, edge = any(g["kind"] in ("date", "slash", "relative") for g in earlier), max((g["e"] for g in earlier), default=0)
+            gap = _TOKEN.findall(norm, edge, h["s"]) if earlier else []
+        else:
+            i = bisect.bisect_right(ends, h["s"])          # the hits that end at or before this one starts: `earlier`
+            moment, edge = (moment_to[i - 1], ends[i - 1]) if i else (False, 0)
+            gap = _TOKEN.findall(norm, edge, h["s"]) if i else []          # the words between the latest of them and this one
+        if (not any(tuple(gap[j:j + len(b)]) == b for b in breaks for j in range(len(gap)))
+                and moment
+                and bool(clocks)
+                and last_clock < h["e"]):
+            deadline.append(h)
+        else:
+            kept.append(h)
+    return kept, deadline
 
 
 def _spans(found: dict) -> list:
@@ -783,7 +853,7 @@ def leftover_doubt(found: dict, trigger, tables: list, unknown: bool) -> bool:
     in a language there is no table for: "manana a las 15:00", "vendredi a 21h30"). `trigger` is the span, in the folded text, of the trigger words already taken out."""
     norm, hits = found["norm"], found["hits"]
     tokens = _tokens(norm)
-    covered = [(h["s"], h["e"]) for h in hits] + ([tuple(trigger)] if trigger else [])
+    covered = [(h["s"], h["e"]) for h in hits + found.get("deadline", [])] + ([tuple(trigger)] if trigger else [])          # a deadline was read by code: it is not an unread date
     left = [(w, s, e) for w, s, e in tokens if not any(a <= s and e <= b for a, b in covered)]
     words = [w for w, _s, _e in left]
     date_words, markers, nouns, firsts = set(), set(), [], set()

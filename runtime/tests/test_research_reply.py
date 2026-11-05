@@ -1,6 +1,6 @@
 """The reply of a web research, written by code (slice R2-F1, runtime/research_reply.py): the skill's brief and reply become a few plain lines and the links of its sources.
 
-Pure: a brief is a text, a copy is a folder in a temporary directory. Every expectation is a literal of this file; every site, title and claim is invented. Each rule has a vacuity case: the
+Pure: a brief is a text, a copy is a folder in a temporary directory. Every expectation is a literal of this file, except the sentences of the phrase table, which are asserted by their key (phrase_kit); every site, title and claim is invented. Each rule has a vacuity case: the
 same input without the thing the rule removes, or the rule's fault planted, so that the oracle is seen to be able to fail.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_research_reply.py
@@ -8,12 +8,16 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_research_reply.py
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 research_reply = st.load("research_reply")
+
+PT = {"language": "pt-BR"}
 
 HEAD = "# Research: tides\n\n- Owner: core-research\n- Status: draft\n- Search capability: full\n\n"
 SOURCES = """
@@ -203,39 +207,64 @@ def shown(answer: str, proven: bool = True, limit: int = 1800, cfg=None) -> str:
     return research_reply.render(parsed, cfg, proven, limit)
 
 
+def marks_of(line, claim, cites) -> list:
+    """The marks a claim line carries, as the separate words in its brackets (each one a sentence of the table): the line must be the claim, its marks in brackets (if any) and its source numbers."""
+    found = re.fullmatch(re.escape(claim) + r"(?: \((?P<marks>.+)\))?(?P<cites>(?: \[\d+\])*)", line)
+    assert found and found["cites"] == cites, line
+    return found["marks"].split(", ") if found["marks"] else []
+
+
+def sources_block(block, cfg, *links):
+    """The last paragraph of a reply: the sentence RS_SOURCES, then one line for each link."""
+    first, *rest = block.split("\n")
+    pk.assert_said(first, "RS_SOURCES", cfg)
+    assert rest == list(links), rest
+
+
 def test_the_reply_is_the_claims_then_the_sources_cited_as_short_links():
-    assert shown("- High tide is at 06:12 (fact) [1][2] — confidence: high\n- It may change (opinion) [2] — confidence: low") == (
-        "High tide is at 06:12 [1] [2]\nIt may change (opinion, not very sure) [2]\n\nSources:\n"
-        "[1] https://tides.example/harbour/today?station=4\n[2] https://www.portnews.example.org/notice/12")
+    claims, sources = shown("- High tide is at 06:12 (fact) [1][2] — confidence: high\n- It may change (opinion) [2] — confidence: low").split("\n\n")
+    first, second = claims.split("\n")
+    assert marks_of(first, "High tide is at 06:12", " [1] [2]") == []
+    [opinion, low] = marks_of(second, "It may change", " [2]")
+    pk.assert_said(opinion, "RS_OPINION")
+    pk.assert_said(low, "RS_LOW")
+    sources_block(sources, None, "[1] https://tides.example/harbour/today?station=4", "[2] https://www.portnews.example.org/notice/12")
 
 
 def test_an_estimate_says_so_and_a_source_nobody_cites_is_not_listed():
-    assert shown("- Next tide near 18:30 (estimate) [2] — confidence: high") == "Next tide near 18:30 (estimate) [2]\n\nSources:\n[2] https://www.portnews.example.org/notice/12"
+    claims, sources = shown("- Next tide near 18:30 (estimate) [2] — confidence: high").split("\n\n")
+    [estimate] = marks_of(claims, "Next tide near 18:30", " [2]")
+    pk.assert_said(estimate, "RS_ESTIMATE")
+    sources_block(sources, None, "[2] https://www.portnews.example.org/notice/12")
 
 
 def test_a_claim_whose_sources_have_no_link_says_the_sources_could_not_be_attached():
-    assert shown("- High tide (fact) [9] — confidence: high") == "High tide\n\nI could not attach the sources."
+    claim, tail = shown("- High tide (fact) [9] — confidence: high").split("\n\n")
+    assert claim == "High tide"
+    pk.assert_said(tail, "RS_NO_LINKS")
 
 
 def test_a_run_that_is_not_proven_ends_with_one_sentence_that_says_so():
-    assert shown("- High tide (fact) [1] — confidence: high", proven=False).endswith(
-        "\n\nThis search has not passed a full test on this model yet, so check the sources before relying on it.")
+    pk.assert_said(shown("- High tide (fact) [1] — confidence: high", proven=False).split("\n\n")[-1], "RS_UNPROVEN")
 
 
 def test_vacuity_a_proven_run_has_no_such_sentence():
-    assert "not passed a full test" not in shown("- High tide (fact) [1] — confidence: high")
+    assert not pk.said(shown("- High tide (fact) [1] — confidence: high"), "RS_UNPROVEN")
 
 
 def test_the_reply_is_in_the_projects_language():
-    assert shown("- High tide (fact) [1] — confidence: low", cfg={"language": "pt-BR"}) == (
-        "High tide (pouca certeza) [1]\n\nFontes:\n[1] https://tides.example/harbour/today?station=4")
+    claims, sources = shown("- High tide (fact) [1] — confidence: low", cfg=PT).split("\n\n")
+    [low] = marks_of(claims, "High tide", " [1]")
+    pk.assert_said(low, "RS_LOW", PT)
+    sources_block(sources, PT, "[1] https://tides.example/harbour/today?station=4")
 
 
 def test_the_claims_are_cut_to_leave_room_for_the_sources_and_the_sources_are_never_cut():
     claims = "\n".join(f"- {'tide ' * 60}number {n} (fact) [1][2] — confidence: high" for n in range(1, 7))
     reply = shown(claims, limit=700)
-    tail = "\n\nSources:\n[1] https://tides.example/harbour/today?station=4\n[2] https://www.portnews.example.org/notice/12"
-    assert len(reply) <= 700 and reply.endswith(tail) and "…" in reply[:-len(tail)]
+    *body, sources = reply.split("\n\n")
+    assert len(reply) <= 700 and "…" in "\n\n".join(body)
+    sources_block(sources, None, "[1] https://tides.example/harbour/today?station=4", "[2] https://www.portnews.example.org/notice/12")
 
 
 def test_vacuity_the_same_claims_without_the_limit_are_whole():

@@ -10,12 +10,15 @@ replace is `source_resolve.resolve` over the registered Drive and OneDrive sourc
 a file THIS sender sent: exactly one, or exactly one of the kind the line names, else the sender's files are listed (a file of someone else is never named).
 
 resolve(ctx, op, slots, channel, sender, said) -> {"args"} | {"ask"} | {"say"} (the interface of runtime/natural_writes.py).
+seed(op, decision, line)                the seed of `ops_natural_writes.open_line` for a new file the interpreter decided (file-create), built from the spans its check verified, or None: the closed
+                                        forms ("chamado <name>") are not asked. It carries `name`, `content` and `folder`; a `folder` span that is only a word for a service ("drive", "onedrive") is no folder: it
+                                        names the account when it names exactly one service and nothing when it is the bare "drive" (ops_file_read.GENERIC). A decision with no `content` gives None (the closed
+                                        forms read nothing either: the person is told it could not be prepared); one with no `name`, or a name the check of the file names refuses, is asked the name by `resolve`.
 
 Sibling of runtime/ops_natural_writes.py. Standard library only. Runs on Python 3.9: python3 runtime/ops_natural_files.py --help
 """
 from __future__ import annotations
 
-import importlib
 import sys
 
 import attachments as att
@@ -23,15 +26,14 @@ import files_document as fd
 import natural
 import ops_actor
 import ops_core as core
+import ops_file_read
+import ops_natural_writes
 import source_resolve
 import sources
+import turn_gate
 
 CARDS_MAX = 5      # the most cards of held files one line brings back
 SOURCE_ACCOUNT = {"drive": "google", "onedrive": "microsoft"}      # the type of a file source -> the account it belongs to
-
-
-def _w():
-    return importlib.import_module("ops_natural_writes")
 
 
 def held_files(ctx: dict, channel, sender) -> list:
@@ -44,7 +46,7 @@ def held_files(ctx: dict, channel, sender) -> list:
 
 
 def _create(ctx: dict, slots: dict):
-    w = _w()
+    w = ops_natural_writes
     wanted = slots.get("account") or ("google" if slots.get("gdoc") else None)
     state, account = w.pick_account(ctx, wanted, "folders")
     if state == "spec":
@@ -52,19 +54,23 @@ def _create(ctx: dict, slots: dict):
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder
-    name = slots["name"]
+    name = slots.get("name")
+    if not name:          # a file the interpreter decided with no name (`seed`): the name is asked, as for a name with no extension
+        return w.ask_spec("name", "NW_ASK_FILE_NAME")
     if slots.get("gdoc") and not fd.extension_of(name):
         name = name + "." + fd.GDOC_WORD
     if fd.name_problem(name, fd.CREATE_EXTENSIONS + (fd.GDOC_WORD,)):
         return w.ask_spec("name", "NW_ASK_FILE_NAME")
     args = {"account": account, "file_name": name, "content": slots["content"]}
+    origins = {"account": turn_gate.account_origin(slots, wanted), "file_name": turn_gate.origin_of(slots, "name", "line-span"), "content": turn_gate.origin_of(slots, "content", "line-span")}
     if folder:
         args["folder"] = folder
-    return {"args": args}
+        origins["folder"] = turn_gate.origin_of(slots, "folder", "line-span")
+    return {"args": args, "origins": origins}
 
 
 def _replace(ctx: dict, slots: dict):
-    w = _w()
+    w = ops_natural_writes
     rows = [r for r in sources.list_catalog(ctx, hashes=False) if r["type"] in SOURCE_ACCOUNT]
     if "file" in slots:
         chosen = [r for r in rows if r["id"] == slots["file"]]
@@ -80,11 +86,12 @@ def _replace(ctx: dict, slots: dict):
     if not chosen:
         return w.say_spec("NAT_NO_SOURCE")
     row = chosen[0]
-    return {"args": {"account": SOURCE_ACCOUNT[row["type"]], "file": row["id"], "content": slots["content"]}}
+    return {"args": {"account": SOURCE_ACCOUNT[row["type"]], "file": row["id"], "content": slots["content"]},
+            "origins": {"account": "config", "file": turn_gate.origin_of(slots, "file", "grounded"), "content": turn_gate.origin_of(slots, "content", "line-span")}}      # the file: found by the words (the search over the registered sources) or chosen among those listed
 
 
 def _save(ctx: dict, slots: dict, channel, sender):
-    w = _w()
+    w = ops_natural_writes
     if slots.get("attachment") is not None and slots["attachment"] not in [r["id"] for r in held_files(ctx, channel, sender)]:
         return w.say_spec("ATT_NO_SUCH", n=slots["attachment"])          # a file somebody else sent, or one no longer held, is a file that does not exist
     if slots.get("attachment") is None:
@@ -108,19 +115,47 @@ def _save(ctx: dict, slots: dict, channel, sender):
             return w.cards_spec([slots["attachment"]], "NW_PICK_ON_CARD")
         return account
     listed = list(((ctx["cfg"].get("accounts") or {}).get(account) or {}).get("folders") or {})
+    folder_origin = turn_gate.origin_of(slots, "folder", "line-span")
     if slots.get("folder") is None and listed and "default" not in listed and slots.get("_folders"):
         # a caption or a button of a file's card never opens a question: a folder list with no `default` leaves the file's card (a caption), or takes the first folder listed (a
         # button; the card of the save names the folder, and the approval is of that card)
         if slots["_folders"] == "silent":
             return {"silent": True}
         slots = dict(slots, folder=listed[0])
+        folder_origin = "config"          # the first folder the project lists: the card names it and the approval is of that card
     state, folder = w.named_target(ctx, account, "folders", slots.get("folder"), "folder")
     if state == "spec":
         return folder
     args = {"account": account, "attachment": slots["attachment"]}
+    origins = {"account": turn_gate.account_origin(slots, slots.get("account")), "attachment": "held"}          # a file this sender sent and the hold keeps: `held_files` was asked above, for this sender
     if folder:
         args["folder"] = folder
-    return {"args": args}
+        origins["folder"] = folder_origin
+    return {"args": args, "origins": origins}
+
+
+def seed(op: str, decision: dict, line: str):
+    """The seed of a new file (see the module's text), or None when the operation is not a new file or the decision has no content."""
+    if op != "file-create":
+        return None
+    spans = decision.get("spans") or {}
+    content = spans.get("content")
+    if not content or not content.strip():
+        return None
+    slots = {"content": content}
+    name = (spans.get("name") or "").strip()
+    if name:
+        slots["name"] = name
+    folder = (spans.get("folder") or "").strip()
+    if folder:
+        if natural.ascii_normal(folder) in ops_file_read.GENERIC:
+            pass          # the bare "drive" is what a person calls their cloud folder: no folder and no account (the family asks which account when two have folders)
+        elif (service := ops_file_read._service_of(folder)) is not None:
+            slots["account"] = service          # "onedrive" names the account, not a folder
+        else:
+            slots["folder"] = folder
+    # provenance: the name, the content and the folder are spans of the line the interpreter's check verified; the account is a service word of the line
+    return turn_gate.Seed({"op": op, "slots": slots}, {key: "line-span" for key in ("name", "content", "folder", "account") if key in slots})
 
 
 def resolve(ctx: dict, op: str, slots: dict, channel, sender, said):

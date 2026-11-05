@@ -15,6 +15,7 @@ Usage: python3 scripts/interpreter_corpus.py <verb> [options]   (each verb takes
   similarity   PASS or FAIL of the 0.80 similarity rule against a file of real lines (never printed)
   sample       a Markdown table of N items of one language for the maintainer's review
   hashes       the sha256 of every frozen file, the catalog and the three interface files
+  widen-golds  the span golds of a corpus widened by rule W1 (SPEC-BLITE-5A), as a new corpus on stdout
   check        every item of the files against the item format and the catalog
 
 Items are one canonical JSON object per line, sorted by id (canonical = json.dumps(ensure_ascii=False,
@@ -32,6 +33,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # the two siblings below, however this file is loaded
@@ -496,6 +498,102 @@ def cmd_check(args):
     return 1 if problems else 0
 
 
+# ----------------------------------------------------------------------------------------------- widen-golds (rule W1)
+
+# Rule W1, SPEC-BLITE-5A section 4, 2026-10-25. A gold list of a span slot is an incomplete enumeration of one implicit
+# rule: the value, with or without its article, its preposition, the family noun and a body's lead-in. W1 writes that
+# rule once. EDGE is the words a piece may lose at either edge; ARTICLES is the words one of which may be added at the
+# left when it stands right before the piece in the line. Both are folded (lower case, no accent).
+W1_EDGE = {
+    "pt-BR": ("o a os as um uma de da do das dos no na nos nas em para pra por pelo pela ao aos aquele aquela aqueles "  # validate: allow english-only -- a Portuguese word list, data
+              "aquelas esse essa este esta e-mail e-mails email emails mensagem mensagens arquivo evento dizendo que"),
+    "en": "the a an of from to in on for about that this those these email emails e-mail e-mails message messages file "
+          "event saying",
+    "es": "el la los las un una de del al a en por para sobre ese esa este esta correo correos mensaje mensajes archivo "
+          "evento diciendo que",
+    "fr": "le la les l' un une de du des d' a au aux en pour sur ce cet cette ces mail mails courriel courriels message "
+          "messages fichier evenement disant que qu'",
+    "de": "der die das den dem des ein eine einen einem von vom zu zum zur im in am an auf fur uber mit diese dieser "
+          "dieses mail mails e-mail nachricht datei termin sagend dass",
+    "it": "il lo la i gli le l' un una uno di del della dei degli delle a al alla ai in nel nella su sul sulla per da "
+          "dal dalla quel quella questo questa mail email messaggio file evento dicendo che",
+}
+W1_ARTICLES = {
+    "pt-BR": "o a os as um uma aquele aquela aqueles aquelas esse essa este esta",
+    "en": "the a an this that these those",
+    "es": "el la los las un una ese esa este esta",
+    "fr": "le la les l' un une ce cet cette ces",
+    "de": "der die das den dem des ein eine einen einem diese dieser dieses",
+    "it": "il lo la i gli le l' un una uno quel quella questo questa",
+}
+W1_TIME_SLOTS = {("remind", "when"), ("event-create", "time"), ("event-change", "time")}  # as interpreter.TIME_SLOTS
+EDGE_PUNCT = ".,;:!?"
+
+
+def _token_fold(token: str) -> str:
+    plain = "".join(c for c in unicodedata.normalize("NFKD", token).casefold() if not unicodedata.combining(c))
+    return plain.strip(EDGE_PUNCT)
+
+
+def widen_span(line: str, alternatives: list, edge: frozenset, articles: frozenset) -> list:
+    """The accepted list of one span slot under rule W1: the alternatives kept, plus the pieces of rule W1 of every
+    alternative that stands in the line as whole words (tokens are whitespace-separated, compared folded)."""
+    spans = [(m.start(), m.end()) for m in re.finditer(r"\S+", line)]
+    folded = [_token_fold(line[s:e]) for s, e in spans]
+    out = set(alternatives)
+
+    def piece(i, j):  # tokens i..j-1 as they stand in the line, edge punctuation off the two ends
+        return line[spans[i][0]:spans[j - 1][1]].strip(EDGE_PUNCT + " ")
+
+    for alt in alternatives:
+        want = [_token_fold(t) for t in alt.split()]
+        if not want or not any(want):
+            continue
+        for start in range(len(folded) - len(want) + 1):
+            if folded[start:start + len(want)] != want:
+                continue
+            end = start + len(want)
+            for i in range(start, end):
+                if i > start and folded[i - 1] not in edge:
+                    break  # every word removed at the left is an edge word
+                for j in range(end, i, -1):
+                    if j < end and folded[j] not in edge:
+                        break  # every word removed at the right is an edge word
+                    if all(f in edge for f in folded[i:j]):
+                        continue  # at least one word that is not an edge word remains
+                    out.add(piece(i, j))
+                    if i > 0 and folded[i - 1] in articles:
+                        out.add(piece(i - 1, j))
+    return sorted(out)
+
+
+def widen_item(item: dict, cat: dict) -> dict:
+    gold = item.get("gold")
+    if not isinstance(gold, dict) or gold.get("outcome") != "op" or not isinstance(gold.get("slots"), dict):
+        return item
+    op, lang = gold.get("op"), item.get("lang")
+    kinds = (cat["ops"].get(op) or {}).get("slots", {})
+    if lang not in W1_EDGE:
+        raise UsageError(f"{item.get('id')}: no word list for the language")
+    edge, articles = frozenset(W1_EDGE[lang].split()), frozenset(W1_ARTICLES[lang].split())
+    slots = {}
+    for slot, accepted in gold["slots"].items():
+        if kinds.get(slot) == "span" and (op, slot) not in W1_TIME_SLOTS and isinstance(accepted, list):
+            slots[slot] = widen_span(item["line"], accepted, edge, articles)
+        else:
+            slots[slot] = accepted
+    return dict(item, gold=dict(gold, slots=slots))
+
+
+def cmd_widen_golds(args):
+    cat = load_catalog(args.catalog)
+    items = read_jsonl(args.in_)
+    by_id(items, "the input file")
+    out = [widen_item(item, cat) for item in items]
+    sys.stdout.write(corpus_bytes(out).decode("utf-8"))
+    print(f"{len(out)} items, rule W1 applied", file=sys.stderr)
+
+
 # --------------------------------------------------------------------------------------------------------------- main
 
 def parser() -> argparse.ArgumentParser:
@@ -593,6 +691,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--root", default=str(ROOT))
     p.add_argument("--test", help="the held-out test file, hashed over its bytes")
     p.set_defaults(run=cmd_hashes)
+
+    p = verb("widen-golds", "The canonical lines of a corpus with every span slot's gold alternatives widened by rule W1; stdout.")
+    p.add_argument("--in", dest="in_", required=True, help="the corpus file (for example evals/interpreter/dev-long-v1.jsonl)")
+    catalog(p)
+    p.set_defaults(run=cmd_widen_golds)
 
     p = verb("check", "Every item against the item format and the catalog: `<id> <problem>` per problem, exit 1 when any.")
     p.add_argument("--in", dest="in_", required=True, nargs="+")

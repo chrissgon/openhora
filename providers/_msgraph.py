@@ -35,8 +35,11 @@ microsoft-account). The readers prefer that record and fall back for one cycle t
 The restriction is no longer the token's: it is the platform's (policies, cards of the exact content, the verbs each script sends, no token
 in a run). The legacy functions above keep their behaviour; the account ones are:
 
-  PLATFORM_SCOPES, account_profile   the five permissions (and offline_access) and the Profile of the account record (`Profile.scopes`)
-  check_platform_scope               a token that lacks one of the set, or carries one more, is refused (exit 3) naming the authorize command
+  PLATFORM_SCOPES, PREVIOUS_SCOPES, account_profile   the six permissions (and offline_access), the five a token made before To Do tasks was added
+                                     carries, and the Profile of the account record (`Profile.scopes`; `tasks=True` for the To Do providers and the
+                                     authorization, which name and need the six; every other provider names the five and also accepts the six)
+  check_platform_scope               a token that lacks one of the set, or carries one more, is refused (exit 3) naming the authorize command; a
+                                     provider that does not read tasks accepts EXACTLY the six or EXACTLY the five (CB-4, OPEN-CB-7), the tasks ones the six
   parse_account_record               the account record, and load_credentials: account first, legacy only when the account's is absent, one note
   profile_of                         which profile a record belongs to (one read from the account's secret is an AccountRecord), for the refresh and the write-back
   authorize_account, check_account   the commands of providers/accounts/microsoft_auth.py (its `forget` is `forget` above)
@@ -93,7 +96,11 @@ SESSION_TIMEOUT_SECONDS = 600
 HANDLER_TIMEOUT_SECONDS = 5     # a connection that sends nothing is dropped, never waited on for ever
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 # The account token (package ACCT-M). One Entra registration, one consent per account, the platform's whole set of delegated permissions.
-PLATFORM_SCOPES = ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
+# CB-4 (OPEN-CB-7): `Tasks.ReadWrite` joined the set. A token made before it carries the five of PREVIOUS_SCOPES and keeps working for every provider but the To Do ones until the
+# person authorizes again (a refresh names only the permissions the provider needs, so Microsoft answers with those); a follow-up (CB-4b) removes PREVIOUS_SCOPES.
+TASKS_SCOPE = "Tasks.ReadWrite"
+PREVIOUS_SCOPES = ("Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite", "User.Read")
+PLATFORM_SCOPES = PREVIOUS_SCOPES + (TASKS_SCOPE,)
 ACCOUNT_SECRET, ACCOUNT_KEYRING_USERNAME, ACCOUNT_LABEL = "MICROSOFT_ACCOUNT_TOKEN", "microsoft-account", "Microsoft account"
 ACCOUNT_AUTH_COMMAND = "uv run <workbench>/providers/accounts/microsoft_auth.py authorize"
 FORGET_COMMAND = "uv run <workbench>/providers/accounts/microsoft_auth.py forget"
@@ -135,8 +142,11 @@ class Profile:
     not_found / forbidden_hint   the words of a 404 and of a 403
     client_id_var / tenant_var   the variables the authorization command reads (the id is never a flag)
     registration     one sentence of the consent text: what the app registration holds
-    scopes           the account profile only: the set of permissions (PLATFORM_SCOPES); `scope` is then None. A legacy profile has one
-                     permission, `scopes == (scope,)`, and `account` is False.
+    scopes           the account profile only: the set of permissions the provider names at a refresh (PLATFORM_SCOPES for the To Do providers and the
+                     authorization, PREVIOUS_SCOPES for every other provider); `scope` is then None. A legacy profile has one permission,
+                     `scopes == (scope,)`, and `account` is False.
+    accepted         the sets of permissions a record and a token response may carry for this profile, each exactly: its own `scopes`, and, for an account
+                     profile that does not need tasks, also PLATFORM_SCOPES (a token made with Tasks.ReadWrite still serves it)
     """
 
     def __init__(self, *, label, scope, secret, keyring_username, auth_command, run_hint, env_prefix, user_agent, not_found,
@@ -148,6 +158,12 @@ class Profile:
         self.auth_command, self.run_hint, self.env_prefix, self.user_agent = auth_command, run_hint, env_prefix, user_agent
         self.not_found, self.forbidden_hint = not_found, forbidden_hint
         self.client_id_var, self.tenant_var, self.download_hosts = client_id_var, tenant_var, download_hosts
+
+    @property
+    def accepted(self) -> tuple:
+        if not self.account or set(self.scopes) == set(PLATFORM_SCOPES):
+            return (self.scopes,)
+        return (self.scopes, PLATFORM_SCOPES)
 
     @property
     def refresh_scope(self) -> str:
@@ -167,10 +183,12 @@ class Profile:
         return f"{self.env_prefix}_DOWNLOAD_HOSTS"
 
 
-def account_profile(*, run_hint, env_prefix, user_agent, not_found, forbidden_hint, download_hosts=False) -> Profile:
-    """The Profile of the account record for one provider: the same secret, username, set and commands for all of them; the test overrides, the
-    User-Agent and the words of a 404 and a 403 are the provider's own."""
-    return Profile(label=ACCOUNT_LABEL, scope=None, scopes=PLATFORM_SCOPES, secret=ACCOUNT_SECRET, keyring_username=ACCOUNT_KEYRING_USERNAME,
+def account_profile(*, run_hint, env_prefix, user_agent, not_found, forbidden_hint, download_hosts=False, tasks=False) -> Profile:
+    """The Profile of the account record for one provider: the same secret, username and commands for all of them; the test overrides, the
+    User-Agent and the words of a 404 and a 403 are the provider's own. `tasks`: the provider reads or writes To Do tasks (and the authorization
+    does): its set is the six permissions of PLATFORM_SCOPES and a token of the five is refused; any other provider's set is the five, and a token
+    of the six is accepted too."""
+    return Profile(label=ACCOUNT_LABEL, scope=None, scopes=PLATFORM_SCOPES if tasks else PREVIOUS_SCOPES, secret=ACCOUNT_SECRET, keyring_username=ACCOUNT_KEYRING_USERNAME,
                    auth_command=ACCOUNT_AUTH_COMMAND, run_hint=run_hint, env_prefix=env_prefix, user_agent=user_agent, not_found=not_found,
                    forbidden_hint=forbidden_hint, client_id_var=ACCOUNT_CLIENT_ID_VAR, tenant_var=ACCOUNT_TENANT_VAR, download_hosts=download_hosts)
 
@@ -272,9 +290,11 @@ class AccountRecord(dict):
     the secret it was found under, never by what it holds: profile_of tells the two kinds apart by this class."""
 
 
-def parse_account_record(profile: Profile, text: str) -> AccountRecord:
+def parse_account_record(profile: Profile, text: str, transition: bool = False) -> AccountRecord:
     """The account record from its JSON text; ProviderError (not configured) when it is unreadable, incomplete or made for another set of
-    permissions. The scope the record names must be the platform's set exactly (the authorization command writes it)."""
+    permissions. The scope the record names must be one of the profile's accepted sets exactly (the authorization command writes the six; a
+    record of the five, made before To Do tasks, serves every provider but the To Do ones). `transition`: accept either set whatever the profile
+    (the authorization command's `check`, which says which one the record holds)."""
     command = f"{profile.auth_command} (or remove the entry with: {FORGET_COMMAND})"
     try:
         record = json.loads(text)
@@ -284,7 +304,11 @@ def parse_account_record(profile: Profile, text: str) -> AccountRecord:
             or not plain_ascii(record.get("refresh_token")) or not plain_ascii(record.get("client_id"))):
         raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) is unreadable or incomplete; run: {command}", EXIT_NOT_CONFIGURED)
     stored = scopes_of(record.get("scope")) if isinstance(record.get("scope"), str) else set()
-    if {n.lower() for n in stored} != {n.lower() for n in profile.scopes}:
+    allowed = (PREVIOUS_SCOPES, PLATFORM_SCOPES) if transition else profile.accepted
+    if {n.lower() for n in stored} not in [{n.lower() for n in names} for names in allowed]:
+        if {n.lower() for n in stored} == {n.lower() for n in PREVIOUS_SCOPES}:
+            raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) was made before To Do tasks were added to the platform's set "
+                                f"and lacks {TASKS_SCOPE}; run: {command}", EXIT_NOT_CONFIGURED)
         raise ProviderError(f"the {profile.label} record ({profile.keyring_username}) was made for another set of permissions than the "
                             f"platform's ({', '.join(profile.scopes)}); run: {command}", EXIT_NOT_CONFIGURED)
     tenant = record.get("tenant") or "common"
@@ -464,8 +488,15 @@ def check_platform_scope(profile: Profile, granted, authorizing: bool = False) -
     nothing = "nothing was stored" if authorizing else "nothing was read"
     wanted = {name.lower(): name for name in profile.scopes}
     got = {name.lower(): name for name in scopes_of(granted)}
+    for names in profile.accepted:      # exactly one of the accepted sets (CB-4, OPEN-CB-7): the six, or, for a provider that does not read tasks, the five
+        if set(got) == {name.lower() for name in names}:
+            return " ".join(names)
+    allowed = {name.lower() for names in profile.accepted for name in names}
     lacking = [wanted[key] for key in wanted if key not in got]
-    extra = sorted(got[key] for key in got if key not in wanted)
+    extra = sorted(got[key] for key in got if key not in allowed)
+    if lacking == [TASKS_SCOPE] and not extra:
+        raise ProviderError(f"the account token was made before To Do tasks were added to the platform's set and lacks {TASKS_SCOPE}: {nothing}. Run "
+                            f"{profile.auth_command} and keep every box ticked on the consent screen", EXIT_NOT_CONFIGURED)
     if lacking:
         more = (f" (it also carries {', '.join(extra)}, which the platform does not ask: revoke the app's access in your Microsoft account first)"
                 if extra else "")
@@ -492,8 +523,11 @@ def refresh_access_token(profile: Profile, token_url: str, record: dict) -> tupl
     """(a new access token held in memory for this process, the refresh token Microsoft issued with it or None); checks the scope. The
     request names its scope so that the access token is no wider than asked, and sends no client secret: the app is a public client. A
     refresh token that is not printable ASCII is not kept (a note says so, never its value)."""
+    scope = profile.refresh_scope
+    if profile.account and {n.lower() for n in scopes_of(record.get("scope"))} == {n.lower() for n in PLATFORM_SCOPES}:
+        scope = " ".join(f"{SCOPE_PREFIX}{name}" for name in PLATFORM_SCOPES) + " offline_access"      # a record of the six names the six at every refresh, whatever the provider reads
     data = token_request(profile, token_url, {"client_id": record["client_id"], "grant_type": "refresh_token",
-                                              "refresh_token": record["refresh_token"], "scope": profile.refresh_scope})
+                                              "refresh_token": record["refresh_token"], "scope": scope})
     (check_platform_scope if profile.account else check_scope)(profile, data.get("scope"))
     access = usable_access_token(data)
     rotated = data.get("refresh_token")
@@ -1074,10 +1108,15 @@ def check_account(profile: Profile, provider) -> int:
         log(f"not configured: no {profile.label} authorization in the environment, the credentials directory or the OS secret store; run: "
             f"{profile.auth_command}")
         return EXIT_NOT_CONFIGURED
-    record = parse_account_record(profile, found[0])
+    record = parse_account_record(profile, found[0], transition=True)      # the six, or the five of a record made before To Do tasks was added: it says which
+    held = [name for name in PLATFORM_SCOPES if name.lower() in {n.lower() for n in scopes_of(record.get("scope"))}]
+    tasks = TASKS_SCOPE in held
     print(json.dumps({"found": True, "source": found[1], "slot": record["slot"], "account": clean_address(record.get("account")),
-                      "account_kind": record.get("account_kind"), "tenant": record["tenant"], "scopes": list(profile.scopes),
+                      "account_kind": record.get("account_kind"), "tenant": record["tenant"], "scopes": held, "tasks": tasks,
                       "has_refresh_token": True, "obtained_at": record.get("obtained_at")}, indent=2))
+    if not tasks:
+        log(f"the stored record is the five permissions of before To Do tasks: mail, calendar and files work, To Do needs {TASKS_SCOPE}; run: {profile.auth_command}")
+        return EXIT_NOT_CONFIGURED
     return EXIT_OK
 
 

@@ -281,3 +281,173 @@ def test_the_line_is_required_by_time_source_so_a_span_alone_never_decides():
         interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE)          # type: ignore[call-arg]
     assert interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE, "tomorrow at 3pm") == "code"
     assert interp.time_source("tomorrow at 3pm", kit.NOW, kit.ZONE, "tomorrow at 3pm or the day after at 5pm") == "ask"
+
+
+# --- the time of a change, with the event's current day left out of the line (BL5C, SPEC-BLITE-5C C1a and C1b) -------------------------------------------------------------------------------
+
+CHANGE_CLOCK = "2026-10-27 09:30"          # the clock of the blite items: a Tuesday, in the zone of each item
+# (id, zone, line, target, day, time, time_iso, weekday): the recorded slots of the five event-change items of dev-long-v1 that were asked again, every name invented.
+CHANGES = {
+    "en-50002": ("America/New_York", "move the dentist appointment from tomorrow to Friday at 10am", "the dentist appointment", "tomorrow", "Friday at 10am", "2026-10-30T10:00", "fri"),
+    "pt-br-50004": ("America/Sao_Paulo", "muda o dentista de amanhã para sexta às 10h", "o dentista", "amanhã", "sexta às 10h", "2026-10-30T10:00", "fri"),          # validate: allow english-only -- the Portuguese line under test
+    "pt-br-50005": ("America/Sao_Paulo", "Por gentileza, passe a reunião de alinhamento com a equipe de vendas de quinta para segunda às 14h30", "a reunião de alinhamento com a equipe de vendas", "quinta",  # validate: allow english-only -- the Portuguese line under test
+                    "segunda às 14h30", "2026-11-02T14:30", "mon"),          # validate: allow english-only -- the Portuguese line under test
+    "de-50001": ("Europe/Berlin", "verschieb das Teammeeting mit Jonas von Donnerstag auf Freitag um 9 Uhr", "das Teammeeting mit Jonas", "Donnerstag", "Freitag um 9 Uhr", "2026-10-30T09:00", "fri"),
+    "fr-50001": ("Europe/Paris", "déplace la réunion budget avec Claire de demain à vendredi 11h", "la réunion budget avec Claire", "demain", "vendredi 11h", "2026-10-30T11:00", "fri"),
+}
+
+
+def change(target, day, time, time_iso, weekday, **slots):
+    got = {"target": target, "time": time, **slots}
+    if day is not None:
+        got["day"] = day
+    return {"v": 1, "kind": "op", "op": "event-change", "slots": got, "time_iso": time_iso, "weekday": weekday}
+
+
+def run_change(line, zone, target, day, time, time_iso="2026-10-30T10:00", weekday="fri", **slots):
+    return interp.check(change(target, day, time, time_iso, weekday, **slots), line, None, kit.CATALOG, kit.now_at(CHANGE_CLOCK, zone), zone, kit.ALL_OPS)
+
+
+@pytest.mark.parametrize("item", ["en-50002", "pt-br-50004", "pt-br-50005"])
+def test_a_change_with_the_events_old_day_and_a_new_time_is_read_by_code(item):
+    zone, line, target, day, time, time_iso, weekday = CHANGES[item]
+    got = run_change(line, zone, target, day, time, time_iso, weekday)
+    assert got["kind"] == "op" and got["time"] == {"local": time_iso, "source": "code"} and got["time_disagree"] is False, got
+    assert got["spans"]["day"] == day and got["spans"]["time"] == time and got["spans"]["target"] == target
+
+
+@pytest.mark.parametrize("item", ["de-50001", "fr-50001"])
+def test_a_change_in_german_or_french_stays_asked_there_is_no_time_table_for_them(item):
+    zone, line, target, day, time, time_iso, weekday = CHANGES[item]
+    assert_clarify(run_change(line, zone, target, day, time, time_iso, weekday), "time-ask")
+
+
+def test_the_old_day_does_not_hide_a_second_time_behind_the_day_slot():
+    en = "America/New_York"
+    # a day span that holds a clock is not blanked: the line has two clocks and the time is asked
+    assert_clarify(run_change("move the dentist from tomorrow at 9 to Friday at 10am", en, "the dentist", "tomorrow at 9", "Friday at 10am"), "time-ask")
+    # a day span that overlaps the time span is not blanked
+    assert_clarify(run_change("move the dentist appointment from tomorrow to Friday at 10am", en, "the dentist appointment", "Friday", "Friday at 10am"), "time-ask")
+    assert_clarify(run_change("move the dentist appointment from tomorrow to Friday at 10am", en, "the dentist appointment", "to Friday at", "Friday at 10am"), "time-ask")
+    # a day span that holds a time range
+    assert_clarify(run_change("move the dentist from tomorrow 9am-10am to Friday at 10am", en, "the dentist", "tomorrow 9am-10am", "Friday at 10am"), "time-ask")
+    # a third day word outside both spans
+    assert_clarify(run_change("move the dentist from tomorrow to Friday at 10am, or Monday", en, "the dentist", "tomorrow", "Friday at 10am"), "time-ask")
+    assert_clarify(run_change("move the dentist from tomorrow to Friday at 10am or Monday", en, "the dentist", "tomorrow", "Friday at 10am"), "time-ask")
+    # a day span that is not in the line, or a word that is no day at all
+    assert run_change("move the dentist from tomorrow to Friday at 10am", en, "the dentist", "today", "Friday at 10am")["kind"] == "clarify"
+    assert_clarify(run_change("move the dentist from tomorrow to Friday at 10am", en, "the dentist", "dentist", "Friday at 10am"), "time-ask")
+
+
+def test_a_day_span_that_occurs_twice_is_blanked_once_and_the_other_one_is_a_time_phrase_the_span_does_not_hold():
+    en = "America/New_York"
+    got = run_change("move the dentist from tomorrow to Friday at 10am, not tomorrow", en, "the dentist", "tomorrow", "Friday at 10am")
+    assert_clarify(got, "time-ask")
+
+
+def test_the_day_of_a_change_is_only_blanked_for_a_change():
+    line = "move the dentist from tomorrow to Friday at 10am"
+    now = kit.now_at(CHANGE_CLOCK, "America/New_York")
+    assert interp._without_old_day("event-change", {"day": "tomorrow", "time": "Friday at 10am"}, "Friday at 10am", line).replace(" ", "") == "movethedentistfromtoFridayat10am"
+    for name in ("event-create", "event-cancel", "remind", "status"):
+        assert interp._without_old_day(name, {"day": "tomorrow", "time": "Friday at 10am"}, "Friday at 10am", line) == line, name
+    # an event-create with the same words stays asked: the old day is a time phrase outside its span
+    got = interp.check({"v": 1, "kind": "op", "op": "event-create", "slots": {"title": "the dentist", "time": "Friday at 10am"}, "time_iso": "2026-10-30T10:00", "weekday": "fri"}, line, None, kit.CATALOG, now,
+                       "America/New_York", kit.ALL_OPS)
+    assert_clarify(got, "time-ask")
+
+
+def test_without_old_day_leaves_the_line_when_the_day_is_not_a_plain_date_or_the_span_is_missing():
+    line = "move the dentist from tomorrow to Friday at 10am"
+    assert interp._without_old_day("event-change", {"time": "Friday at 10am"}, "Friday at 10am", line) == line          # no day slot
+    assert interp._without_old_day("event-change", {"day": "the dentist", "time": "Friday at 10am"}, "Friday at 10am", line) == line          # no time phrase in the day span
+    assert interp._without_old_day("event-change", {"day": "tomorrow at 9", "time": "Friday at 10am"}, "Friday at 10am", line) == line          # a clock in the day span
+    assert interp._without_old_day("event-change", {"day": "next", "time": "Friday at 10am"}, "Friday at 10am", line) == line
+    assert interp._without_old_day("event-change", {"day": "yesterday", "time": "Friday at 10am"}, "Friday at 10am", line) == line          # not in the line
+
+
+def test_vacuity_without_the_blanking_the_five_items_are_asked_again(monkeypatch):
+    monkeypatch.setattr(interp, "_without_old_day", lambda name, slots, span, line: line)
+    for item in ("en-50002", "pt-br-50004", "pt-br-50005"):
+        zone, line, target, day, time, time_iso, weekday = CHANGES[item]
+        assert_clarify(run_change(line, zone, target, day, time, time_iso, weekday), "time-ask")
+
+
+# --- the time span may leave out the engine's trigger word (C1b) ---------------------------------------------------------------------------------------------------------------
+
+def test_a_span_without_the_trigger_word_of_the_time_phrase_is_the_time_of_the_line():
+    zone = "America/Sao_Paulo"
+    got = run_change("muda o dentista para sexta às 10h", zone, "dentista", None, "sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"] == {"local": "2026-10-30T10:00", "source": "code"}
+    got = run_change("muda o dentista para sexta às 10h", zone, "dentista", None, "para sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"]["source"] == "code", "the old span, with the trigger word, still reads"
+    zone = "America/New_York"
+    got = interp.check(remind("tmrw at 7pm", "2026-10-28T19:00", "wed", "same"), "same for tmrw at 7pm pls", None, kit.CATALOG, kit.now_at(CHANGE_CLOCK, zone), zone, kit.ALL_OPS)
+    assert got["kind"] == "op" and got["time"] == {"local": "2026-10-28T19:00", "source": "code"}
+
+
+def test_a_span_with_a_word_outside_the_time_phrases_is_still_asked():
+    zone = "America/Sao_Paulo"
+    for span in ("sexta às 10h com a Ana", "sexta às 10h com"):          # validate: allow english-only -- the Portuguese line under test
+        assert_clarify(run_change("muda o dentista para sexta às 10h com a Ana", zone, "dentista", None, span), "time-ask")
+    assert_clarify(run(remind("3pm to call Dana", "2026-10-20T15:00", "tue", "call Dana"), "remind me at 3pm to call Dana"), "time-ask")
+    assert_clarify(run(remind("Dana", "2026-10-20T15:00", "tue", "call"), "remind me at 3pm to call Dana"), "time-ask")
+
+
+def test_the_cover_is_only_widened_by_the_core_of_the_hits():
+    found = interp.nt.find("muda o dentista para sexta às 10h")
+    assert interp._cover("muda o dentista para sexta às 10h", "sexta às 10h", found) and interp._cover("muda o dentista para sexta às 10h", "para sexta às 10h", found)
+    long = "muda para sexta às 10h com a Ana"          # validate: allow english-only -- the Portuguese line under test
+    assert not interp._cover(long, "sexta às 10h com a Ana", interp.nt.find(long)), "a word that is no part of a time phrase, and no trigger word held"
+    assert not interp._cover("muda o dentista para sexta às 10h", "sexta às", found)
+    assert not interp._cover("muda o dentista para sexta às 10h", "", found)
+
+
+def test_a_day_span_that_is_the_new_day_is_never_blanked_it_is_asked_as_before():
+    """The model may put the NEW day in the `day` slot ("para amanhã às 10h"): blanked, the line would read an hour only and the change would keep the event's own day. The day span must end  # validate: allow english-only -- the Portuguese line under test
+    before the time span, and the time span must hold a day of its own (F2 of the review of #562), so that this line, and a day that follows the time, are asked."""
+    zone = "America/Sao_Paulo"
+    line = "muda o dentista para amanhã às 10h"          # validate: allow english-only -- the Portuguese line under test
+    assert_clarify(run_change(line, zone, "dentista", "amanhã", "às 10h", "2026-10-28T10:00", "wed"), "time-ask")  # validate: allow english-only -- the Portuguese line under test
+    assert_clarify(run_change("muda o dentista para sexta às 10h de amanhã", zone, "dentista", "amanhã", "sexta às 10h"), "time-ask")          # validate: allow english-only -- the Portuguese line under test
+    en = "America/New_York"
+    assert_clarify(run_change("move the dentist to Friday at 10am", en, "the dentist", "Friday", "at 10am"), "time-ask")
+    assert interp._without_old_day("event-change", {"day": "Friday", "time": "at 10am"}, "at 10am", "move the dentist to Friday at 10am") == "move the dentist to Friday at 10am"
+    assert interp._without_old_day("event-change", {"day": "tomorrow", "time": "Friday at 10am"}, "Friday at 10am", "move the call Friday at 10am from tomorrow") == "move the call Friday at 10am from tomorrow"          # the day follows the time: asked
+
+
+# --- the old day is blanked only when the time span holds a day of its own (F2 of the review of #562) -------------------------------------------------------------------------------------------
+
+NEW_DAY_AS_DAY = [          # (line, target, day, time, time_iso, weekday): the model put the NEW day in `day`, and something stands between the two spans: base and code ask
+    ("muda a reunião para amanhã, às 10h", "reunião", "amanhã", "às 10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("muda a reunião para amanhã mesmo às 10h", "reunião", "amanhã", "às 10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("muda a reunião para amanhã - 10h", "reunião", "amanhã", "10h"),          # validate: allow english-only -- the Portuguese line under test
+    ("move the call to tomorrow, at 10am", "the call", "tomorrow", "at 10am"),
+    ("move the call to tomorrow then at 10am", "the call", "tomorrow", "at 10am"),
+    ("move the dentist appointment to tomorrow; 10am", "the dentist appointment", "tomorrow", "10am"),
+    ("muda o dentista pra amanhã. Às 10h", "dentista", "amanhã", "Às 10h"),          # validate: allow english-only -- the Portuguese line under test
+]
+
+
+@pytest.mark.parametrize("line,target,day,time", NEW_DAY_AS_DAY)
+def test_a_new_day_put_in_the_day_slot_is_never_blanked_whatever_stands_between_the_spans(line, target, day, time):
+    zone = "America/Sao_Paulo" if "muda" in line else "America/New_York"
+    assert_clarify(run_change(line, zone, target, day, time, "2026-10-28T10:00", "wed"), "time-ask")
+    assert interp._without_old_day("event-change", {"target": target, "day": day, "time": time}, time, line) == line
+
+
+def test_a_day_span_inside_the_target_is_never_blanked():
+    zone = "America/Sao_Paulo"
+    line = "muda a Reunião de Segunda para sexta às 10h"          # validate: allow english-only -- the Portuguese line under test
+    assert_clarify(run_change(line, zone, "Reunião de Segunda", "Segunda", "sexta às 10h"), "time-ask")          # validate: allow english-only -- the Portuguese line under test
+    assert interp._without_old_day("event-change", {"target": "Reunião de Segunda", "day": "Segunda", "time": "sexta às 10h"}, "sexta às 10h", line) == line          # validate: allow english-only -- the Portuguese line under test
+    # the same day word outside the target is the old day and is blanked
+    got = run_change("muda a reunião de segunda para sexta às 10h", zone, "reunião", "segunda", "sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"]["source"] == "code"
+
+
+def test_a_time_span_with_a_day_of_its_own_still_blanks_the_old_day_with_punctuation_between():
+    zone = "America/Sao_Paulo"
+    got = run_change("muda o dentista de amanhã, para sexta às 10h", zone, "dentista", "amanhã", "sexta às 10h")          # validate: allow english-only -- the Portuguese line under test
+    assert got["kind"] == "op" and got["time"] == {"local": "2026-10-30T10:00", "source": "code"}
+    assert interp._without_old_day("event-change", {"day": "amanhã", "time": "às 10h"}, "às 10h", "muda o dentista de amanhã para as 10h") == "muda o dentista de amanhã para as 10h"          # validate: allow english-only -- the Portuguese line under test

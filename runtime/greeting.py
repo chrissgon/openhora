@@ -14,8 +14,11 @@ is (the rule of runtime/card_words.py); with a tag only that language's lists ar
 in words they always had (the list of commands), and only a messaging app, which has no list of commands to type, answers it with the summary.
 
 The answer is built by `ops_say._greeting_reply` (a greeting in the project's language and one short line for each family of capabilities the SENDER'S policy permits, from the
-phrase table), which `ops_say._turn` calls before the interpreter's seam for any sender who may talk, and which the messaging bridge lets through to `say` for a help line of such
+phrase table), which the row `greeting` of runtime/ops_turn.py calls before the interpreter's seam for any sender who may talk, and which the messaging bridge lets through to `say` for a help line of such
 a sender. This module reads nothing of the project: a pure reading of one line.
+
+`as_question(line, language=None)` is true for a line that is wholly a greeting (never a help form) and carries a question mark ("oi, tudo bem?"): it asks how the other one is, so it is never
+the answer yes to a question (package L64H; the kind `plan-confirm` of runtime/messaging_turn.py reads it).
 
 Standard library only. Runs on Python 3.9: python3 runtime/greeting.py --help
 """
@@ -27,6 +30,7 @@ import unicodedata
 
 
 LINE_WORDS_MAX = 10      # a longer line is a sentence, never a greeting
+QUESTION_MARKS = ("?", "\u00bf")      # read after NFKC, so the full-width question mark is "?"
 STRETCH_MAX = 4          # extra copies of the last letter of a short word that may be stretched ("oiiii")
 STRETCHED = ("oi", "ola", "opa", "hi", "hey", "hello", "hola", "hallo", "ciao")
 
@@ -72,6 +76,15 @@ WORDS = {
 }
 PHRASE = re.compile(r"[a-z0-9]+(?: [a-z0-9]+)*")
 _COMPILED = {}
+
+# S41-11: the closed forms of "help in words" that the fixed list of commands answers (the row `help-in-words` of runtime/messaging_turn.py), moved here from `requests.forms.commands` of the language
+# tables (runtime/natural_lang_pt_br.py, natural_lang_en.py), which keep the key until the tables' deletion. Each is a whole-line form over normal(): words, groups `( )`, `|` and `?`, nothing open.
+HELP_FORMS = (
+    r"ajuda", r"(que|quais) (comandos|coisas) (voce|vc) (tem|sabe fazer|faz|entende)", r"o que (voce|vc) (sabe|consegue|pode) fazer", r"como (eu )?(uso|usar)( isso| voce)?",  # validate: allow english-only -- the closed Portuguese forms of help in words, language data
+    r"help( me)?", r"what can you do", r"what (commands|can i ask)( do you (have|know))?", r"how (do|can) i use (this|you)",
+)
+HELP_LINE_WORDS_MAX = 40      # as `natural.LINE_WORDS`: a longer line is a request, not a form
+_HELP_COMPILED = []
 
 
 def normal(line: str) -> str:
@@ -121,6 +134,28 @@ def is_greeting(line, language=None, helps=True) -> bool:
     if not flat or len(flat.split()) > LINE_WORDS_MAX:
         return False
     return _shape(language, helps).fullmatch(flat) is not None
+
+
+def help_form(line) -> bool:
+    """Whether the WHOLE line is one closed form of help in words (`HELP_FORMS`): the typed /help said in words, answered with the fixed list of commands to every listed sender (S41-11: the row
+    `help-in-words`; the decision of 2026-10-28 keeps it code). A slash line, a line with an address and an empty line are not."""
+    if not isinstance(line, str) or not line.strip() or line.startswith("/") or "@" in line:
+        return False
+    flat = normal(line)
+    if not flat or len(flat.split()) > HELP_LINE_WORDS_MAX:
+        return False
+    if not _HELP_COMPILED:
+        _HELP_COMPILED.extend(re.compile(form) for form in HELP_FORMS)
+    return any(form.fullmatch(flat) for form in _HELP_COMPILED)
+
+
+def as_question(line, language=None) -> bool:
+    """Whether the WHOLE line is a greeting (never a help form) written as a question: `is_greeting(line, language, helps=False)` and a question mark anywhere in it ("oi, tudo bem?", "tudo bem?",
+    "hi, how are you?"). Such a line asks how the other one is; it is never the answer yes to a question (package L64H)."""
+    if not is_greeting(line, language, helps=False):
+        return False
+    folded = unicodedata.normalize("NFKC", line)
+    return any(mark in folded for mark in QUESTION_MARKS)
 
 
 if __name__ == "__main__":

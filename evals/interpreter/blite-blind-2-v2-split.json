@@ -1,0 +1,53 @@
+{
+ "counts": {
+  "author": {
+   "opus": 60
+  },
+  "frame": {
+   "none": 44,
+   "plan-confirm": 16
+  },
+  "lang": {
+   "de": 4,
+   "en": 15,
+   "es": 4,
+   "fr": 4,
+   "it": 3,
+   "pt-BR": 30
+  },
+  "op": {
+   "cancel": 2,
+   "event-cancel": 2,
+   "event-change": 1,
+   "event-create": 2,
+   "file-create": 1,
+   "file-read": 2,
+   "items": 1,
+   "mail-archive": 2,
+   "mail-draft": 1,
+   "mail-reply": 21,
+   "mail-send": 3,
+   "mail-trash": 1,
+   "pending": 1,
+   "remind": 3,
+   "reminders": 3,
+   "research": 1,
+   "stop-task": 1
+  },
+  "outcome": {
+   "answer": 2,
+   "clarify": 3,
+   "op": 48,
+   "route": 7
+  },
+  "tags": {
+   "filler": 11,
+   "multi-turn": 16
+  }
+ },
+ "file": "blite-blind-2-v2.jsonl",
+ "frozen": "2026-10-26",
+ "items": 60,
+ "sha256": "ef25dc3a67c15ffa592c2826242ef0dd050dfa811c473bed68f32de2039158fa",
+ "v": 1
+}

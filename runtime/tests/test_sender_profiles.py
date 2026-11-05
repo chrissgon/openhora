@@ -653,6 +653,7 @@ def test_the_record_keeps_a_margin_under_the_cursor_limit_in_the_worst_case_of_e
     size = len(policy_widening.dump(snap).encode())
     # S18 added the 46th group: 45 groups were 3,684 bytes (the record's mask of every sender gains a hex digit at each fourth group, 100 bytes in this worst case) and 46 are 3,800.
     # The margin was cut from "about 15 more groups" to about 7 on purpose, recorded in docs/decisions.md: the next package that adds a group moves the record to a denser mask first.
+    # S41-10 added the 49th group (3,969 bytes in hexadecimal) and so moved the record to base 64 (versions 4 and 5): 49 groups are 3,557 bytes, a digit more every sixth group instead of every fourth.
     assert size < 3900, f"the record is {size} bytes of the 4096 a cursor holds: it must keep room for the groups that will be added (about 7)"
     assert size < 4 * 1024 - 7 * (len("approve-effect-publish") + 4)
 

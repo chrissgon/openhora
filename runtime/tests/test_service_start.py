@@ -6,6 +6,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_service_start.py
 """
 from __future__ import annotations
 
+import subprocess
 import threading
 
 import pytest
@@ -173,3 +174,49 @@ def test_a_verdict_of_the_service_check_is_bounded(tree, monkeypatch):  # noqa: 
         "modules": {"mcp.py": "y" * 5000}, "lab": "ok"})
     got = ops.service_check(path, 30)
     assert len(got["secret_store"]) <= 300 and "\n" not in got["secret_store"] and len(got["problems"][0]) <= 300
+
+
+# --- RESEARCH-NO-DOCKER: the docker verdict says when the daemon is not running -------------------------------------------------------------------------
+
+DAEMON_DOWN_SENTENCE = "docker is on the PATH but its daemon is not running: web research and contained runs cannot start until Docker is started"
+
+
+def _check_with_image(tree, monkeypatch, on_path, image):
+    """service_check with docker on the PATH or not and `lab.image()` answering `image`. Returns the report and the number of `lab.image()` calls; any process the check
+    started would fail the test (it starts nothing and makes no docker call of its own)."""
+    lab = st.load("lab")
+    asked = []
+    monkeypatch.setattr(lab, "image", lambda: asked.append(1) or image)
+    monkeypatch.setattr(dispatcher, "inspect", lambda module: {"secret_store": "ok", "credential": "ok", "tools": {"docker": "/bin/docker" if on_path else None, "uv": "/bin/uv", "git": "/bin/git"},
+                                                                "modules": {}, "lab": "ok"})
+    monkeypatch.setenv(operations.UV_MARK, "0")
+
+    def never(*args, **kwargs):
+        raise AssertionError("service_check started a process")
+    for name in ("run", "Popen", "check_output", "check_call", "call"):
+        monkeypatch.setattr(subprocess, name, never)
+    return ops.service_check(str(tree["project"]), 30), len(asked)
+
+
+DOWN = {"name": "wb-eval:demo", "digest": None, "platform": "linux/arm64", "evidence_platform": "linux/arm64", "source": "local", "setup": "the docker daemon cannot be reached: start Docker, then try again",
+        "problem": "the docker daemon cannot be reached: start Docker, then try again"}
+HERE = {"name": "wb-eval:demo", "digest": "sha256:" + "d" * 64, "platform": "linux/arm64", "evidence_platform": "linux/arm64", "source": "local", "setup": None, "problem": None}
+
+
+def test_a_daemon_that_is_not_running_is_said_in_the_docker_verdict_and_costs_no_second_docker_call(tree, monkeypatch):  # noqa: F811
+    lab = st.load("lab")
+    assert DOWN["setup"] == lab.DAEMON_DOWN
+    report, asked = _check_with_image(tree, monkeypatch, True, DOWN)
+    assert report["docker"] == DAEMON_DOWN_SENTENCE
+    assert "cannot be looked up" in report["image"] and "docker daemon cannot be reached" in report["image"], "the image line already said it"
+    assert asked == 1, "the verdict reads the one image lookup the check already made"
+    assert ops.connections(str(tree["project"]))["service"]["docker"] == DAEMON_DOWN_SENTENCE
+
+
+def test_vacuity_a_daemon_that_answers_and_a_docker_that_is_not_on_the_path_keep_their_verdicts(tree, monkeypatch):  # noqa: F811
+    up, asked = _check_with_image(tree, monkeypatch, True, HERE)
+    assert up["docker"] == "ok" and up["image"] == "ok" and asked == 1
+    missing, _ = _check_with_image(tree, monkeypatch, False, {**HERE, "name": None, "digest": None})
+    assert missing["docker"] == "docker is not on the PATH of this process"
+    absent_and_down, _ = _check_with_image(tree, monkeypatch, False, DOWN)
+    assert absent_and_down["docker"] == "docker is not on the PATH of this process", "not on the PATH wins: today's sentence"

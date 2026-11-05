@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, PLAN_HASH, SECRET_TEXT, decision, Fake, wait_for
 from test_service import WAIT
@@ -30,7 +31,7 @@ shell_kit = st.load("shell_kit")
 messaging = st.load("messaging")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_listen_standin.py"
-SENDER = "4242"
+SENDER = "830461975213"
 FAST = dict(ready_seconds=30, send_seconds=10, backoff=(0.02, 0.05), stdin_wait=5, term_wait=2, join_wait=3)
 
 
@@ -286,12 +287,26 @@ def test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_
     first, second = (s["message"]["actions"][0]["id"] for s in r.sent())
     assert first == "1:approve" and second == "2:approve"
     assert any("exited (1)" in line for line in r.log) and any("could not be sent (failed)" in line for line in r.log)
+    assert wait_for(lambda: r.bridge.ledger.by_action("crash-1", second) is not None), "the bridge has recorded the second copy (the provider logs a send before the bridge's record of it is written)"
     stale = {"sender": "crash-1", "chat": "crash-1", "private": True, "text": None, "action": first, "action_ref": None, "reply_to": None}
     r.bridge.handle(stale)
     assert bridge.STALE in r.texts() and not r.calls("approve")
     r.bridge.handle({**stale, "action": second})
     assert r.calls("approve") and "Approved #1." in r.texts()
     r.finish()
+
+
+def test_the_crash_test_does_not_race_the_bridges_ledger_write(tmp_path, monkeypatch, rig):
+    """The provider logs a send before the bridge's record of the card is written (the send returns to the bridge first). The crash test above taps the second copy's button, and a tap on a card
+    the bridge has not recorded yet is `STALE`: it waits for the record. Here every record is written 0.4 s late, which is that order on any machine: the test must still pass."""
+    ledger = st.load("messaging_ledger")
+    real = ledger.Ledger.add
+
+    def add(self, record, *args, **kwargs):
+        time.sleep(0.4)
+        return real(self, record, *args, **kwargs)
+    monkeypatch.setattr(ledger.Ledger, "add", add)
+    test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_copys_button_is_stale(tmp_path, monkeypatch, rig)
 
 
 def test_exit_3_and_exit_2_stop_the_bridge_with_the_reason_the_provider_gave(tmp_path, monkeypatch, rig):
@@ -444,7 +459,7 @@ class Fake:
     operations = operations
     def config(self, project):
         return {{"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": {data!r},
-                "messaging": {{"senders": {{"chirp": ["4242"]}}}}, "channels": {{"messaging": ["read"]}}}}
+                "messaging": {{"senders": {{"chirp": ["830461975213"]}}}}, "channels": {{"messaging": ["read"]}}}}
     def pending(self, project, pending_id=None):
         return {{"pending": []}}
     def reminders_due(self, project, platform):
@@ -488,7 +503,7 @@ def test_sigterm_of_the_bridge_and_the_end_of_its_stdin_stop_the_provider_after_
                 proc.kill()
                 proc.wait()
         assert (r.base / "stopped").read_text() == "stopped" and not alive(pid)
-        assert b"4242" not in proc.stderr.read()
+        assert b"830461975213" not in proc.stderr.read()
 
 
 def test_a_killed_bridge_cannot_leave_the_provider_behind_because_its_stdin_ends(tmp_path, monkeypatch, rig):
@@ -696,8 +711,9 @@ def test_the_line_about_more_waiting_is_not_lost_when_its_chat_is_deferred_and_g
     for number in range(1, 13):
         r.items[number] = decision("question", number, title=f"Q{number}")
     r.run(notice_every=600)
-    more = "And 2 more waiting. Send /pending to list them."
-    assert wait_for(lambda: more in r.texts()), r.log
-    assert r.texts().count(more) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
+    def more(text):
+        return pk.said(text, "MORE_LINE", n=2)
+    assert wait_for(lambda: any(more(t) for t in r.texts())), r.log
+    assert sum(1 for t in r.texts() if more(t)) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
     assert not any("could not be sent" in line for line in r.log), "a deferral is not logged as a failure"
     r.finish()

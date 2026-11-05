@@ -11,20 +11,31 @@ The stages, in order; the first that decides ends the item (`run_item`):
   1. forward      a messaging item that is a forward (`forwarded` anything but absent or false: the fail-closed reading of runtime/messaging_inbound.py)  -> forwarded
   0. precheck     a line over `max_line_chars` is never sent (`interpreter.precheck`)                                                                -> route / clarify
   2. closed       with a frame, the newest open item and a line that code reads as the same yes or no (`natural.confirm_kind`), or one digit      -> answer
-  3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.match`          -> the operation
+  3. tier 1       with no open item: a line that starts with `/` is a typed command (the same in both arms) -> none; else `natural.decision`: a decision said in words (S41-11: the
+                  one closed reading code keeps, the D operations; the model never approves) or `greeting.help_form` (help in words)                                                     -> the operation
   4. model        `interpreter.build_messages`, `call(system, user)`, `interpreter.parse`, `interpreter.check` (the sender holds every group: `ALLOWED`)
-  5. mapping      the decision to `observed` (`observe`, `OBSERVED_OF`): a measurement-only table. It never gives `executed`: nothing is executed
+  5. mapping      the decision to `observed` (`observe`, `OBSERVED_OF`): a measurement-only table. It never gives `executed`: nothing is executed. A question maps to `question`
+                  (ANY-QUESTION Q0), with its about, field and op as the detail
 The forward is first because a forward is never a request, whatever its length.
 
 Resolution always succeeds here (an account, a calendar, a folder, a source, a file, a mail number, an attachment, a task, a routine or a request that a decision names
-is taken to exist): the stubs of both arms. The mapping cannot measure the families' seed builders, resolution failures, the card's rendering, the per-sender policy, the
-rate limit or the circuit breaker, nor approval by word: `confirm` and `card` mean "code would show this exact operation with these spans", not "this card was sent".
+is taken to exist, and a named message is found once): the stubs of both arms. For a MAIL operation the mapping follows the product's carrying out step by step (`mail_step`,
+BL7-4, mirroring `ops_interpret._carry_out`): the seed of a new e-mail, a message named by words (a sender and a subject of up to GROUND_WORDS_MAX content words: BL7-5), the closed forms,
+the numbers the model gave when the closed forms read none (BL7-5: exactly the line's free numbers and no words beside them), and the question the family would ask first (a recipient,
+a body, a folder, a state) or the sentence that says it could not prepare the write: those are `clarify`, never `card`; every other write is still `card`. The mapping cannot
+measure resolution failures, several matching messages, an event's or a file's family, the card's rendering, the per-sender policy, the rate limit or the circuit breaker, nor
+approval by word: `confirm` and `card` mean "code would show this exact operation with these spans", not "this card was sent".
 
   run_item(item, run, call)    the Outcome: {"observed", "detail", "stage", "parse", "error", "time_source", "call": {latency_ms, usage, upstream} | None, "notes", "why",
                                "time_disagree"}; `call(system, user)` returns what `interpreter_route.complete` returns, or a stand-in's
   pre_model(item)              the Outcome of stages 1 to 3, or None when the item reaches the model (pure code; no call)
   item_problems(item)          the names of the fields of a corpus item that are not in the form of the corpus (never a value), [] when it is valid
   observe(decision)            (observed, detail) of a decision of `interpreter.check`
+  with_mail_step(decision, line, now, zone, lang)
+                               the decision as the measurement sees it: the `clarify` of `mail_step` for a mail write the product would not open a card for, else the decision
+  mail_step(decision, line, now, lang)
+                               None when the product would open the card of a mail operation, else the slot it would ask first, or "cannot" when it would say it could not
+                               prepare the write (`now` aware; `lang` the project's language: the item's)
 
 Python 3.9, standard library only. `python3 runtime/interpreter_pipeline.py --help` prints this text.
 """
@@ -37,8 +48,12 @@ from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import greeting  # noqa: E402  (the same folder, pure: the closed forms of help in words, S41-11)
 import interpreter  # noqa: E402  (the same folder: the protocol, the validator and the served catalog)
+import mail_compose  # noqa: E402  (the same folder, pure: the seed of a new e-mail)
 import natural  # noqa: E402  (the same folder: tier 1, the classes, the confirm reading)
+import natural_writes  # noqa: E402  (the same folder, pure: the closed forms of the write families)
+import natural_writes_mail  # noqa: E402  (the same folder, pure: the words that name a message, the state words)
 
 SERVED = interpreter.SERVED
 # The sender holds every group (the labelling guide's L1: gold is what the platform should do for the owner): every operation of the served catalog is allowed.
@@ -48,7 +63,7 @@ STAGES = ("forwarded", "precheck", "closed", "tier1", "typed", "model")
 # `refuse_g` otherwise; `remind` is the one N operation that shows its reading (`remind_confirm`). `executed` is not in the image.
 OBSERVED_OF = {"R": "read", "work": "read", "N": "confirm", "W": "confirm", "E": "card", "D": "refuse_d"}
 CALL_ERRORS = ("E_USAGE", "E_KEY", "E_ROUTE", "E_TIMEOUT", "E_NETWORK", "E_RATE", "E_UPSTREAM", "E_HTTP", "E_PIN", "E_RESPONSE", "E_INTERNAL", "E_UNKNOWN")
-OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded")
+OUTCOMES = ("op", "answer", "clarify", "route", "none", "refuse", "forwarded", "question")
 CHANNELS = ("messaging", "page", "terminal", "chat")
 ITEM_WORD = "item"
 LANG_CODES = {"pt-BR": "pt-br", "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it", "ja": "ja", "mixed": "mx"}          # a language and the code its ids carry (evals/evidence_lines.py IX_LANG_CODES)
@@ -135,6 +150,8 @@ def observe(decision: dict) -> tuple:
         if decision.get("time"):
             detail["time"] = decision["time"]["local"]
         return "answer", detail
+    if kind == "question":
+        return "question", {"about": decision.get("about"), "field": decision.get("field"), "op": decision.get("op")}
     if kind == "clarify":
         if decision.get("slot") is not None:
             return "clarify", {"slot": decision["slot"]}
@@ -148,6 +165,78 @@ def observe(decision: dict) -> tuple:
     if kind == "refuse_policy":
         return "refuse_policy", {"op": decision["op"]}
     raise ValueError("a decision of an unknown kind")
+
+
+MAIL_TARGET_OPS = ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark")          # ops_interpret.MAIL_TARGET_OPS, written again: the mirror below is checked against the product by a test
+ROUTE_LANGUAGES = ("pt-BR", "en")          # ops_interpret.ROUTE_LANGUAGES: the project languages whose write forms the tables detect
+
+
+def mail_step(decision: dict, line: str, now: datetime.datetime, lang: str):
+    """BL7-4. What the product does with a believed mail operation that `observed_of_op` calls a card: None when it would open the card, else the slot it would ask first ("to", "body",
+    "folder", "state", ...) or "cannot" when it would say it could not prepare the write (`ops_interpret._cannot`). It mirrors `ops_interpret._carry_out` for class E, in its order, with the
+    stubs of this module (one account, one mailbox, one matching message, a configured folder), and imports pure modules only; `lang` is the project's language, which the item's
+    language stands for. A mail operation the steps do not name is read by the closed forms, as the product does. Not measured: resolution failures and several matching messages."""
+    op, spans, args = decision["op"], decision.get("spans") or {}, decision.get("args") or {}
+    seed = mail_compose.seed(op, decision, line)          # 1. a new e-mail: the card is opened from the verified spans, and `_compose_args` asks what is missing, in this order
+    if seed is not None:
+        slots = seed["slots"]
+        if not slots.get("to"):
+            return "to"
+        if not slots.get("body") or not mail_compose.strip_marker(slots["body"])[0].strip():          # the subject is never asked: `_ai_subject` is set whenever it is missing
+            return "body"
+        return None
+    if op in MAIL_TARGET_OPS and lang in ROUTE_LANGUAGES and (spans.get("target") or spans.get("day")) and "message" not in args and "messages" not in args:
+        tables = natural._tables(None)          # 2. a message named by its words: found once (the stub), then `_reference_args` asks what is missing
+        ground = decision.get("target_ground")          # BL7-5: a ground (BL7-1's widened target, or a target with its own subject) may hold up to GROUND_WORDS_MAX words
+        words = natural_writes_mail.ground_words(ground, tables) if ground else natural_writes_mail.target_words(spans.get("target") or "", tables)
+        if not words and not spans.get("day"):
+            return "cannot"          # `mail_target_seed` is None: nothing to look a message up by
+        if op in ("mail-reply", "mail-draft") and (not spans.get("body") or not mail_compose.strip_marker(spans["body"])[0].strip()):
+            return "body"
+        if op == "mail-move" and not args.get("folder"):
+            return "folder"
+        if op == "mail-mark" and not (spans.get("state") and natural_writes_mail.answer("state", spans["state"], {}, tables)):
+            return "state"
+        return None
+    got = natural_writes.read(line, now, op=op)          # 3. the closed forms, with the operation fixed
+    if got is None:
+        if op in MAIL_TARGET_OPS and lang in ROUTE_LANGUAGES and ("message" in args or "messages" in args):          # BL7-5 (G1): the model's numbers, when the closed forms read none (`ops_natural_mail.mail_number_seed`)
+            return _numbers_step(op, decision, line)
+        return "cannot"
+    return got["need"][0] if got.get("need") else None
+
+
+def _numbers_step(op: str, decision: dict, line: str):
+    """BL7-5. The mirror of `ops_natural_mail.mail_number_seed` and of what the family asks of its seed: "cannot" when the decision's spans hold a `target`, `day`, `to` or `subject`, or the
+    numbers the model gave are not exactly the line's free numbers (`natural_writes_mail.free_numbers`, with the decision's text and word spans); else the slot the family would ask first
+    ("body" for a reply or a draft with no body or only a literal marker, "folder" for a move with no folder, "state" for a mark whose span reads none), else None (the card)."""
+    spans, args = decision.get("spans") or {}, decision.get("args") or {}
+    if any(spans.get(slot) for slot in ("target", "day", "to", "subject")):
+        return "cannot"
+    given = args.get("message") if "message" in args else args.get("messages")
+    numbers = [given] if isinstance(given, int) and not isinstance(given, bool) else list(given) if isinstance(given, (list, tuple)) else []
+    if not numbers or not all(isinstance(n, int) and not isinstance(n, bool) for n in numbers):
+        return "cannot"
+    texts = [str(spans[slot]) for slot, spec in natural.NATURAL[op]["slots"].items() if spec[0] in ("span", "word") and spans.get(slot)]
+    if sorted(set(numbers)) != sorted(natural_writes_mail.free_numbers(line, texts)):
+        return "cannot"
+    if op in ("mail-reply", "mail-draft") and (not spans.get("body") or not mail_compose.strip_marker(spans["body"])[0].strip()):
+        return "body"
+    if op == "mail-move" and not args.get("folder"):
+        return "folder"
+    if op == "mail-mark" and not (spans.get("state") and natural_writes_mail.answer("state", spans["state"], {}, natural._tables(None))):
+        return "state"
+    return None
+
+
+def with_mail_step(decision: dict, line: str, now: datetime.datetime, zone: str, lang: str) -> dict:
+    """`decision` as the measurement sees it: a believed mail write that the product would not open a card for is the `clarify` it would ask (its slot) or say it could not prepare (no
+    slot); every other decision is returned as it is. `now` is the wall clock of `zone` (naive, as `now_of`)."""
+    if decision["kind"] == "op" and decision["op"].startswith("mail-") and natural.class_of(decision["op"]) == "E":
+        step = mail_step(decision, line, now.replace(tzinfo=ZoneInfo(zone)), lang)
+        if step is not None:
+            return {"kind": "clarify", "error": None, "why": None, "slot": None if step == "cannot" else step, "ops": None}
+    return decision
 
 
 def _outcome(decision: dict, stage: str, parse: str = "none", error=None, call=None, notes=()) -> dict:
@@ -185,8 +274,10 @@ def _closed_answer(frame, line: str):
 
 
 def _tier1(line: str):
-    """The decision for a line that is one closed form of exactly one operation (`natural.match`), spans rebuilt from its slots; else None."""
-    found = natural.match(line)
+    """The decision for a line that is a decision said in words (`natural.decision`, the D operations: S41-11 keeps these closed readings), spans rebuilt from its slots; else None."""
+    found = natural.decision(line)
+    if found is None and greeting.help_form(line):      # the help in words is the other closed reading code keeps (the row `help-in-words`, S41-11): the operation `commands`
+        found = {"op": "commands", "args": {}, "tier": 1}
     if found is None:
         return None
     op, args = found["op"], found["args"]
@@ -231,6 +322,7 @@ def run_item(item: dict, run: int, call) -> dict:
         decision = {"kind": "clarify", "error": error, "why": "invalid", "slot": None, "ops": None}
     else:
         decision = interpreter.check(obj, line, frame, SERVED, now, zone, ALLOWED)
+        decision = with_mail_step(decision, line, now, zone, item["lang"])
     return _outcome(decision, "model", parse=parse, call=info)
 
 

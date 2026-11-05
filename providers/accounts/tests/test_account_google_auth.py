@@ -105,7 +105,7 @@ def no_secret(*texts):
 # --- the consent URL ------------------------------------------------------------------------------------------------------
 
 
-def test_the_consent_url_asks_for_the_four_platform_scopes_alone_with_pkce_and_a_state():
+def test_the_consent_url_asks_for_the_five_platform_scopes_alone_with_pkce_and_a_state():
     verifier, challenge = auth.pkce_pair()
     assert 43 <= len(verifier) <= 128
     assert challenge == base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -113,7 +113,7 @@ def test_the_consent_url_asks_for_the_four_platform_scopes_alone_with_pkce_and_a
     parsed = urllib.parse.urlparse(url)
     query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://accounts.google.com/o/oauth2/v2/auth"
-    assert set(query["scope"][0].split()) == set(fga.PLATFORM_SET) and len(query["scope"][0].split()) == 4, "exactly the four, nothing wider"
+    assert set(query["scope"][0].split()) == set(fga.PLATFORM_SET) and len(query["scope"][0].split()) == 5, "exactly the five, nothing wider"
     assert fga.MAIL_ALL not in query["scope"][0] and "https://www.googleapis.com/auth/calendar " not in query["scope"][0] + " "
     assert query["code_challenge_method"] == ["S256"] and query["code_challenge"] == [challenge] and query["state"] == ["the-state"]
     assert query["response_type"] == ["code"] and query["redirect_uri"] == ["http://127.0.0.1:5555"]
@@ -343,7 +343,7 @@ def test_check_reads_the_record_the_way_the_providers_do_and_needs_no_network(fa
 
 def test_check_says_what_is_missing_and_what_is_extra_and_exits_3(fake):
     lacking = run_script(fake, "check", env={"GOOGLE_ACCOUNT_TOKEN": fake.record_json(scope=" ".join(fga.PLATFORM_SET[:3]))})
-    assert lacking.returncode == 3 and json.loads(lacking.stdout)["missing"] == [fga.DRIVE]
+    assert lacking.returncode == 3 and json.loads(lacking.stdout)["missing"] == [fga.DRIVE, fga.TASKS]
     assert "google_auth.py authorize" in lacking.stderr
     wider = run_script(fake, "check", env={"GOOGLE_ACCOUNT_TOKEN": fake.record_json(scope=" ".join(fga.PLATFORM_SET + (fga.MAIL_ALL,)))})
     assert wider.returncode == 3 and json.loads(wider.stdout)["extra"] == [fga.MAIL_ALL]

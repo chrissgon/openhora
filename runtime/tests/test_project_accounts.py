@@ -58,10 +58,10 @@ def test_the_key_is_known_and_absent_means_the_platform_writes_to_no_account(pro
 
 def test_a_full_entry_is_checked_and_completed(project):
     cfg = write(project, FULL)
-    assert cfg["accounts"]["google"] == {**FULL["google"], "address": "ana@mail.example"}
+    assert cfg["accounts"]["google"] == {"task_lists": {}, **FULL["google"], "address": "ana@mail.example"}      # CB-5: a section is always present, empty when the file names none
     assert cfg["accounts"]["microsoft"]["move_removes_inbox"] is True, "absent means true"
     only = write(project, {"google": {"address": "ana@mail.example"}})["accounts"]
-    assert only == {"google": {"address": "ana@mail.example", "calendars": {}, "folders": {}, "mail_folders": {}, "move_removes_inbox": True}}
+    assert only == {"google": {"address": "ana@mail.example", "calendars": {}, "folders": {}, "mail_folders": {}, "task_lists": {}, "move_removes_inbox": True}}
     assert write(project, {})["accounts"] == {}
 
 

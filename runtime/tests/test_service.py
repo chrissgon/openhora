@@ -188,7 +188,7 @@ def path_of(world, route):
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items") + VIEW_READS
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -546,7 +546,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
         {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask",
-         "event-change", "event-cancel", "research",
+         "event-change", "event-cancel", "research", "file-ask", "mail-ask",
          "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"}
 
 

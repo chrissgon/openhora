@@ -13,16 +13,23 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+from pathlib import Path
+
+import pytest
 
 import interpreter_kit as kit
 import standin_tree as st
+from closed_heads import old_private  # noqa: F401  (S41-11: the S41-9 oracle of the private-line detector, kept by the tests until 2b)
+# Every pinned hash of the test suite is in scripts/tests/pinned_hashes.json, with what it hashes and why it is pinned.
+PINNED_HASHES = json.loads((Path(__file__).resolve().parents[2] / "scripts" / "tests" / "pinned_hashes.json").read_text(encoding="utf-8"))["pins"]
 
 interp = st.load("interpreter")
+ops_interpret = st.load("ops_interpret")
 natural = kit.natural
 
 # The source of `natural.check_operation` at the commit this package branched from (sha256 of `inspect.getsource`): the validator calls it unchanged, so a change to it is a change of the
 # security of the layer and must be read, not merged by accident.
-CHECK_OPERATION_SHA256 = "ae0d63f27600795d660808369ea3971427ca60bd30cf5b6c19c6e128aec09a3e"
+CHECK_OPERATION_SHA256 = PINNED_HASHES["interpreter_check_operation_source"]
 
 
 def run(obj, line, frame=None, allowed=None, now=None, zone=kit.ZONE):
@@ -189,9 +196,10 @@ def test_inherit_without_a_frame_or_a_last_request_or_for_a_slot_with_no_recorde
         invalid(run(obj, "e outro sábado às 16h", frame), "E_INHERIT")
 
 
-def test_a_slot_is_either_given_or_inherited_and_a_time_is_never_inherited():
+def test_a_slot_the_line_fills_is_the_lines_and_a_time_is_never_inherited():
     both = op("event-create", {"title": "revis\u00e3o do carro", "time": "sábado às 16h"}, time_iso="2026-10-24T16:00", weekday="sat", inherit={"title": "revis\u00e3o do carro"})
-    invalid(run(both, "revis\u00e3o do carro sábado às 16h", FRAME), "E_INHERIT")
+    got = run(both, "revis\u00e3o do carro sábado às 16h", FRAME)          # BL7-1 (gap 3): the title the line gives is the line's; the inherit of the same slot is dropped, never read
+    assert got["kind"] == "op" and got["inherited"] == [] and got["spans"]["title"] == "revis\u00e3o do carro" and got["args"]["title"] == "revis\u00e3o do carro"
     frame = {"v": 1, "items": [], "last": {"op": "event-create", "words": {"time": "sábado às 16h"}, "age_s": 5}}
     timed = op("event-create", {"title": "revis\u00e3o"}, inherit={"time": "sábado às 16h"})
     invalid(run(timed, "revis\u00e3o de novo", frame), "E_INHERIT")
@@ -260,7 +268,7 @@ def test_route_and_none_pass_and_a_route_for_a_private_line_becomes_a_question()
     assert run({"v": 1, "kind": "none"}, "thanks") == {"kind": "none", "error": None}
     assert run({"v": 1, "kind": "route"}, "plan a three-day workshop for the new hires") == {"kind": "route", "error": None}
     private = "remind me to call Dana Thursday at 3pm"
-    assert natural.private(private)
+    assert old_private(private)
     got = run({"v": 1, "kind": "route"}, private)
     assert got["kind"] == "clarify" and got["why"] == "private-route"
 
@@ -268,7 +276,7 @@ def test_route_and_none_pass_and_a_route_for_a_private_line_becomes_a_question()
 def test_a_line_longer_than_the_limit_is_not_sent():
     long_plain = "plan the offsite " * 80
     long_private = "remind me to call Dana tomorrow at 3pm " * 40
-    assert len(long_plain) > 1000 and len(long_private) > 1000 and not natural.private(long_plain) and natural.private(long_private)
+    assert len(long_plain) > 1000 and len(long_private) > 1000 and not old_private(long_plain) and old_private(long_private)
     assert interp.precheck(long_plain) == {"kind": "route", "error": None}
     got = interp.precheck(long_private)
     assert got["kind"] == "clarify" and got["why"] == "long-line"
@@ -375,3 +383,109 @@ def test_an_inherited_span_must_come_from_the_last_request_of_the_same_operation
     other = op("mail-draft", {"body": "hi"}, inherit={"to": "ben@example.test"})
     invalid(run(other, "and draft hi", frame), "E_INHERIT")
     assert natural.NATURAL["mail-draft"]["slots"].get("to")
+
+
+# --- a removal's unasked time and a change with a day and no event (BL5C, SPEC-BLITE-5C C2 and C3) ------------------------------------------------------------------------------------------
+
+NEW_YORK = "America/New_York"
+CANCEL_LINE = "Please remove the haircut tomorrow from my calendar"
+
+
+def at_item(obj, line, zone=NEW_YORK):
+    return interp.check(obj, line, None, kit.CATALOG, kit.now_at("2026-10-27 09:30", zone), zone, kit.ALL_OPS)
+
+
+def test_a_removal_with_an_unasked_time_is_read_without_it_and_nothing_of_it_is_kept():
+    obj = op("event-cancel", {"target": "the haircut", "day": "tomorrow"}, time_iso="2026-10-28T09:30", weekday="wed")
+    got = at_item(obj, CANCEL_LINE)
+    assert got["kind"] == "op" and got["op"] == "event-cancel" and got["args"] == {"target": "the haircut", "day": "tomorrow"}, got
+    assert got["spans"] == {"target": "the haircut", "day": "tomorrow"} and got["time"] is None and got["time_disagree"] is False
+    assert "time_iso" not in got and "weekday" not in got
+    assert obj["time_iso"] == "2026-10-28T09:30" and obj["weekday"] == "wed", "the model's object is not edited"
+    assert interp.TIME_DROPPED_OPS == ("event-cancel",)
+
+
+def test_a_removal_with_a_time_that_is_not_a_time_of_the_line_is_read_the_same_the_value_is_never_read():
+    for stamp, weekday in (("2026-10-28T09:30", "wed"), ("1999-01-01T00:00", "fri"), ("2026-10-27T08:00", "mon")):          # a time of the line, a time long past, a time that has passed today
+        obj = op("event-cancel", {"target": "the haircut", "day": "tomorrow"}, time_iso=stamp, weekday=weekday)
+        got = at_item(obj, CANCEL_LINE)
+        assert got["kind"] == "op" and got["time"] is None, (stamp, got)
+
+
+def test_the_time_is_dropped_only_for_a_removal_every_other_operation_keeps_its_shape_rule():
+    invalid(run(op("status", {}, time_iso="2026-10-22T15:00", weekday="thu"), "status"), "E_SHAPE")
+    invalid(at_item(op("event-change", {"target": "the haircut", "day": "tomorrow", "title": "trim"}, time_iso="2026-10-28T09:30", weekday="wed"), "rename the haircut of tomorrow to trim"), "E_SHAPE")
+    invalid(at_item(op("mail-trash", {"target": "the newsletter"}, time_iso="2026-10-28T09:30", weekday="wed"), "trash the newsletter"), "E_SHAPE")
+
+
+def test_a_removal_without_a_time_is_unchanged():
+    got = at_item(op("event-cancel", {"target": "the haircut", "day": "tomorrow"}), CANCEL_LINE)
+    assert got["kind"] == "op" and got["args"] == {"target": "the haircut", "day": "tomorrow"} and got["time"] is None
+
+
+@pytest.mark.parametrize("name,slots,line", [("event-change", {"day": "tomorrow", "title": "trim"}, "rename it for tomorrow to trim"), ("event-cancel", {"day": "tomorrow"}, "remove it for tomorrow")])
+def test_a_change_or_a_removal_with_a_day_and_no_event_is_asked_for_the_event(name, slots, line):
+    got = at_item(op(name, slots), line)
+    assert got["kind"] == "clarify" and got["why"] == "no-target" and got["slot"] == "target" and got["op"] == name and got["error"] is None, got
+    assert ops_interpret.WHY_SENTENCE.get("no-target") is None, "the turn answers with the sentence of a question it cannot place: IX_ASK_AGAIN"
+
+
+def test_a_change_with_a_day_and_a_time_and_no_event_is_asked_too():
+    obj = op("event-change", {"day": "tomorrow", "time": "Friday at 10am"}, time_iso="2026-10-30T10:00", weekday="fri")
+    got = at_item(obj, "move it from tomorrow to Friday at 10am")
+    assert got["kind"] == "clarify" and got["why"] == "no-target", got
+
+
+def test_an_event_named_by_its_number_or_its_words_is_not_asked_for():
+    assert at_item(op("event-cancel", {"event": "2", "day": "tomorrow"}), "cancel event 2 of tomorrow")["kind"] == "op"
+    assert at_item(op("event-cancel", {"target": "the haircut", "day": "tomorrow"}), CANCEL_LINE)["kind"] == "op"
+    assert at_item(op("event-cancel", {"target": "the haircut"}), "remove the haircut")["kind"] == "op"
+    assert at_item(op("event-cancel", {}), "remove the haircut")["kind"] == "op", "no day and no event: the runtime finds the event by the line"
+
+
+def test_the_runtime_keeps_the_target_and_the_day_of_a_removal_it_reads_again():
+    obj = {"v": 1, "kind": "op", "op": "event-cancel", "slots": {"event": "haircut", "target": "the haircut", "day": "tomorrow"}, "time_iso": "2026-10-28T09:30", "weekday": "wed"}
+    fixed = ops_interpret._event_slots_fixed(obj, CANCEL_LINE)
+    assert fixed["slots"] == {"target": "the haircut", "day": "tomorrow"} and "time_iso" not in fixed and "weekday" not in fixed
+    # vacuity: the 81c1274 rule keeps the `event` slot only, so a removal named by words lost its target and day
+    old = {k: v for k, v in {"target": "the haircut", "day": "tomorrow"}.items() if k == "event"}
+    assert old == {} and fixed["slots"] != old
+
+
+def test_the_runtime_still_drops_a_slot_a_removal_does_not_have():
+    obj = {"v": 1, "kind": "op", "op": "event-cancel", "slots": {"target": "the haircut", "day": "tomorrow", "title": "x"}}
+    assert ops_interpret._event_slots_fixed(obj, CANCEL_LINE)["slots"] == {"target": "the haircut", "day": "tomorrow"}
+    assert ops_interpret._event_slots_fixed({"v": 1, "kind": "op", "op": "event-cancel", "slots": {"target": "the haircut", "day": "tomorrow"}}, CANCEL_LINE) is None
+
+
+def test_the_runtime_decides_the_removal_with_an_unasked_time_as_the_check_does():
+    """The measured pipeline and the runtime's `decide` agree on the recorded shape: the removal passes with its target and day and no time, with no second pass of the runtime's rescue."""
+    obj = op("event-cancel", {"target": "the haircut", "day": "tomorrow"}, time_iso="2026-10-28T09:30", weekday="wed")
+    text = json.dumps(obj)
+    now = kit.now_at("2026-10-27 09:30", NEW_YORK)
+    runtime = ops_interpret.decide(CANCEL_LINE, text, now, NEW_YORK, kit.ALL_OPS)
+    pipeline = at_item(obj, CANCEL_LINE)
+    assert runtime["kind"] == pipeline["kind"] == "op"
+    assert runtime["args"] == pipeline["args"] == {"target": "the haircut", "day": "tomorrow"} and runtime["spans"] == pipeline["spans"] and runtime["time"] is None
+    again = ops_interpret.lenient(CANCEL_LINE, text, runtime, now, NEW_YORK, kit.ALL_OPS)
+    assert again == runtime, "an op is left as it is"
+    day_no_event = json.dumps(op("event-cancel", {"day": "tomorrow"}))
+    assert ops_interpret.decide("remove it for tomorrow", day_no_event, now, NEW_YORK, kit.ALL_OPS)["why"] == "no-target"
+
+
+# --- a date the calendar does not have ---------------------------------------------------------------------------------------------------------------------
+
+IMPOSSIBLE_DAYS = (("30/02", "2026-03-02", "mon"), ("31/04", "2026-05-01", "fri"), ("29/02", "2026-03-01", "sun"))          # 30 February, 31 April, 29 February of a common year (the kit's year)
+
+
+@pytest.mark.parametrize("day, stamp, weekday", IMPOSSIBLE_DAYS)
+def test_a_date_the_calendar_does_not_have_is_asked_and_never_raises(day, stamp, weekday):
+    """The time reader passes such a date on as written; the validator must ask back (`time-ask`, scope time) whatever the model says, and a model that moved it to a real day is not believed."""
+    line = f"remind me on {day} at 9am to call ben"
+    moved = op("remind", {"text": "call ben", "when": f"{day} at 9am"}, time_iso=f"{stamp}T09:00", weekday=weekday)          # a real day: the model's own reading of the impossible one
+    got = run(moved, line)
+    assert got["kind"] == "clarify" and got["why"] == "time-ask", got
+    same = op("remind", {"text": "call ben", "when": f"{day} at 9am"}, time_iso=f"{stamp[:4]}-{day[3:]}-{day[:2]}T09:00", weekday=weekday)          # the model wrote the impossible day too
+    assert run(same, line)["error"] == "E_TIME_FORMAT"          # refused before the time is read, as before
+    real = op("remind", {"text": "call ben", "when": "30/11 at 9am"}, time_iso="2026-11-30T09:00", weekday="mon")
+    assert run(real, "remind me on 30/11 at 9am to call ben")["kind"] == "op"          # a real day is unchanged

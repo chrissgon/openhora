@@ -339,10 +339,10 @@ def vet(project: str, kind_name: str, args, protected=lambda path: False) -> Non
 
 
 ACCOUNT_ARGS = {"send-email": ("account", "reply", "reply_pin", "channel", "sender")}      # a kind that is also a plain kind (the outbox's send) and has arguments only an operation writes (W2)
-ACCOUNT_WORDS = ("calendar", "mailbox", "files")      # the gate words of a step kind that is only ever a write to the person's own accounts; account_start.WORDS also holds `send`, whose kind `send-email` is the outbox's too and is told apart by ACCOUNT_ARGS
+ACCOUNT_WORDS = ("calendar", "mailbox", "files", "tasks")      # the gate words of a step kind that is only ever a write to the person's own accounts; account_start.WORDS also holds `send`, whose kind `send-email` is the outbox's too and is told apart by ACCOUNT_ARGS
 
 
-ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment")      # the arguments of an account write that are closed words, names `accounts` gives and ids
+ACCOUNT_ARGS_SHOWN = ("operation", "account", "calendar", "folder", "event", "file", "attachment", "list")      # the arguments of an account write that are closed words, names `accounts` gives and ids
 
 
 def is_account_step(kind_name, args=None) -> bool:

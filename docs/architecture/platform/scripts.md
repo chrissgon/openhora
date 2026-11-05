@@ -89,4 +89,6 @@ The failures are closed codes in the task's note and state: `bad_args`, `script_
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-15: first version, with package P9: the step kind `project-script`, the provider `script:project`, limits L34 to L38.

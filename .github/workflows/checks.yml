@@ -1,20 +1,30 @@
 # The same checks as .githooks/pre-commit, for every push to main and every pull request.
 # Actions are pinned to a commit (tags can move); Dependabot proposes updates.
 #
-# Which tests run (docs/decisions.md, 2026-10-20): ONE job, `tests`, which is a required check of the main ruleset, and so is never
-# skipped (nor is `validate`, the other one): any label reruns both. DURING DEVELOPMENT, on a pull request into a branch other than main, it runs only the SELECTED tests
-# (scripts/select_tests.py: the tests of what the pull request changed, plus a fixed set of guards). At the end of a large delivery
-# it runs the WHOLE SUITE (with the full fuzz): on a push to main, on a pull request into main, on a manual run (workflow_dispatch, on
-# any branch: the supervisor runs it on the integration branch at the end of a phase), and on a pull request that carries the label
-# `full-suite` (adding the label starts the job, which is why `labeled` is a trigger). The steps carry the condition, never the job.
-# The jobs that need docker or Go run when the paths they depend on changed, and always in those four cases.
+# Which tests run (docs/decisions.md, 2026-10-20, the entry of T3 and the entry of TEST-SPEED, 2026-10-27): ALL of them run in THREE shard jobs
+# (`tests-shard`, check runs `tests shard <k> of 3`, by scripts/shard_tests.py: round-robin by item, no stored durations), in one of two
+# modes that the `if:` of their steps choose. DURING DEVELOPMENT, on a pull request into a branch other than main, the shards run the
+# SELECTED tests (scripts/select_tests.py: the tests of what the pull request changed, plus a fixed set of guards; each shard computes the
+# same list from the same commit and base, about 15 seconds, so there is no artifact and no extra job). At the end of a large delivery the
+# WHOLE SUITE (with the full fuzz) runs instead: on a push to main, on a pull request into main, on a manual run (workflow_dispatch, on any
+# branch: the supervisor runs it on the integration branch at the end of a phase), and on a pull request that carries the label
+# `full-suite` (adding the label starts the jobs, which is why `labeled` is a trigger). The pre-commit hook runs only a fast set (the guards
+# and the tests named for each changed file): this selection, in CI, is the gate before a merge. ONE job, `tests`, is the required check of
+# the main ruleset, and so is never skipped (nor is `validate`, the other one): any label reruns both. It is the aggregator of the shards
+# (`if: always()`, `needs: tests-shard`) and fails unless every shard succeeded. `always()` is the condition that never skips. The jobs
+# that need docker or Go run when the paths they depend on changed, and always in the four cases of the whole suite.
+# A DRAFT pull request runs only `validate` and `changes` (which then says nothing changed: `container`, `converter` and `go` skip), and
+# its `tests` FAILS on purpose with "a draft pull request runs no tests; mark it ready for review to run them" (approved by the maintainer
+# on 2026-10-27): a job skipped by its condition counts as passing, so `tests` is never skipped and is red, never a false
+# green. Marking the pull request ready (`ready_for_review`) runs everything once. GitHub refuses to merge a draft at all. A red `tests` on
+# a draft means "not run", and is never read as a failure of the code.
 name: checks
 
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -30,8 +40,9 @@ concurrency:
 jobs:
   validate:
     name: validate
-    # No `if:` on this job or on `tests`: they are the required checks of the main ruleset, and a job skipped by its condition is
-    # reported as passing on the same commit, so a label added to a pull request could hide a red check. A label reruns them.
+    # No skipping `if:` on this job or on `tests` (which has only `if: always()`, the condition that never skips): they are the required
+    # checks of the main ruleset, and a job skipped by its condition is reported as passing on the same commit, so a label added to a
+    # pull request could hide a red check. A label reruns them.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -53,25 +64,36 @@ jobs:
       - name: Secrets in history
         run: python3 scripts/security_scan.py --history
 
-  # One job, one required name. Two modes, chosen by the `if:` of its steps (never of the job, which is never skipped, on any event, so
-  # that the check exists and means something on every run; a label added to a pull request reruns it in the mode its base asks for):
-  # the SELECTED tests of a pull request into a branch other than main (scripts/select_tests.py, rules at the top of the file: it
-  # reads the files the pull request changed since its merge base with the base and prints the test files that can reach them, plus
-  # the fixed guards; when it cannot compute the diff it selects every test folder), and the WHOLE SUITE (every test folder, and the
-  # fuzz of the natural writes walked line by line: WB_FULL_FUZZ=1, about eight minutes of one process, runtime/README.md, "The
-  # natural-writes fuzz") on a push to main, a pull request into main, a manual run and a pull request labelled full-suite. The whole
-  # suite is the end of a large delivery: it catches what the selected tests cannot see (a dynamic import, a long call chain without
-  # an import edge). The tests are split across the runner's processes (pytest-xdist, `-n auto`: one worker per vCPU, four on a public
-  # repository's runner; the whole suite in one process took 18 to 19 minutes). --durations lists the slowest tests. The limit
-  # leaves headroom for the full fuzz, a slow runner or a worker that waits on a timeout; the selected run is far shorter.
-  tests:
-    name: tests
+  # The tests in three shards (docs/decisions.md, the entry of T3 and the entry of TEST-SPEED): each job keeps the K-th of 3 items of the
+  # collection (scripts/shard_tests.py, scripts/pytest_plugins/wb_shard.py) of the list of its mode. Every collected item is in exactly one
+  # shard; the job `tests` below is the one required check and fails unless every shard succeeded. The shards run on every event but a draft
+  # pull request (whose `tests` fails by its own step), because the gate needs them in both modes (scripts/tests/test_checks_wiring.py holds that). WHOLE (a push to main, a pull request into main, a
+  # manual run, a pull request labelled full-suite): every test folder with WB_FULL_FUZZ=1 (the fuzz of the natural writes walked line by
+  # line, about eight minutes of one process, runtime/README.md, "The natural-writes fuzz"). SELECTED (a pull request into a branch other
+  # than main): the list that scripts/select_tests.py prints for the files the pull request changed since its merge base with the base,
+  # plus the fixed guards (when it cannot compute the diff it selects every test folder), without the full fuzz. Selected, a shard took
+  # about 10 to 12 minutes where the one job took about 30. The tests of a shard are split across the runner's processes (pytest-xdist,
+  # `-n auto`: one worker per vCPU, four on a public repository's runner). --durations lists the slowest tests. The limit leaves
+  # headroom for a slow runner or a worker that waits on a timeout.
+  tests-shard:
+    name: tests shard ${{ matrix.shard }} of 3
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
+    # The generated blocks of docs/architecture/platform/ (HOT-1; docs/decisions.md): a package never regenerates them, the BATCH does (`python3 scripts/architecture_tables.py --write`,
+    # one commit). So the test that compares them with their sources is STRICT on a batch (a pull request whose branch is `batch/...`), on a pull request into main, on a push to main and on
+    # a manual run (and in nightly.yml), and LENIENT on a package's pull request into the integration branch: a block that only differs from its source is not a failure there, an unknown
+    # table or an unreadable source still is (scripts/tests/test_architecture_tables.py). Read by that test as the environment variable WB_GENERATED_BLOCKS.
+    env:
+      WB_GENERATED_BLOCKS: ${{ (github.event_name != 'pull_request' || github.base_ref == 'main' || startsWith(github.head_ref, 'batch/')) && 'strict' || 'lenient' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the selector reads the merge base with the pull request's base
+          fetch-depth: 0 # the selector reads the merge base with the pull request's base, and tests may read the history
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -85,21 +107,78 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
         run: python3 scripts/select_tests.py --base "$BASE_SHA" --explain | tee "$RUNNER_TEMP/selected-tests.txt"
-      - name: Selected scanner, provider, runtime and script tests
-        if: >-
-          github.event_name == 'pull_request' && github.base_ref != 'main'
-          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
-        run: uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20 $(cat "$RUNNER_TEMP/selected-tests.txt")
       - name: Scanner and provider tests, the whole suite
+        id: whole
         if: >-
           github.event_name != 'pull_request' || github.base_ref == 'main'
           || contains(github.event.pull_request.labels.*.name, 'full-suite')
         env:
           WB_FULL_FUZZ: "1"
-        run: uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20 $(python3 scripts/test_dirs.py)
+          SHARD: ${{ matrix.shard }}
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(python3 scripts/test_dirs.py)
+      - name: The failures again, with assertion detail (the whole suite)
+        # Only to print what `--assert=plain` leaves out of a failure's first report. The job is already red: this step cannot make it green
+        # (`continue-on-error` keeps its own failure from changing the job, and a later success never undoes an earlier failed step), and
+        # `tests` reads `needs.tests-shard.result` as before. It runs only after the run step above failed, only the failures it left in
+        # the cache (`--lf`), and nothing when none is recorded (`--lfnf=none`: a crash or a collection error).
+        if: failure() && steps.whole.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          WB_FULL_FUZZ: "1"
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(python3 scripts/test_dirs.py)
+      - name: Selected scanner, provider, runtime and script tests
+        id: selected
+        if: >-
+          github.event_name == 'pull_request' && github.base_ref != 'main'
+          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/selected-tests.txt")
+      - name: The failures again, with assertion detail (the selection)
+        # As the step of the whole suite above: the same targets, only the failures, and it can never turn the job green.
+        if: failure() && steps.selected.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: >-
+          uv run --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(cat "$RUNNER_TEMP/selected-tests.txt")
+
+  # The one required check, the aggregator of the shards. It runs no test, so it needs no checkout and no uv. It is never skipped, on any
+  # event, so that the check exists and means something on every run (a label added to a pull request reruns it): `if: always()` is
+  # required, because without it a failed shard makes GitHub skip this job, and a skipped required check counts as passing. Its step fails
+  # unless `needs.tests-shard.result` is `success` (a matrix is `success` only when every leg is: a failed, cancelled, timed-out or skipped
+  # shard fails the check). Exactly one of its two steps runs on every event, chosen by the draft flag: on a draft pull request the shards do not run
+  # and the step "Draft: no test has run" fails; the condition of "Every shard passed" is the job condition of `tests-shard`, word for word. Which tests the shards ran, the selection or the whole suite, is chosen by the steps of `tests-shard`; the whole
+  # suite catches what the selection cannot see (a dynamic import, a long call chain without an import edge).
+  tests:
+    name: tests
+    needs: tests-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "Draft: no test has run"
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft
+        run: |
+          echo "a draft pull request runs no tests; mark it ready for review to run them"
+          exit 1
+      - name: Every shard passed
+        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        env:
+          SHARDS: ${{ needs.tests-shard.result }}
+        run: |
+          echo "the shards: $SHARDS"
+          test "$SHARDS" = "success"
 
   # Which of the docker and Go jobs have anything to check: on a pull request into a branch other than main, those whose paths changed;
-  # in the four cases of the whole suite, all of them. The paths are what each job's tests read: the eval container and its adapters,
+  # in the four cases of the whole suite, all of them; on a draft pull request, none. The paths are what each job's tests read: the eval container and its adapters,
   # the converter and exporter images and the workcopy scan, the WhatsApp program. This file counts for all three.
   changes:
     name: changes
@@ -122,8 +201,15 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-suite') }}
+          DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -eu
+          if [ "$DRAFT" = "true" ]; then # a draft runs no docker or Go job: no diff is read
+            echo "container=false" >> "$GITHUB_OUTPUT"
+            echo "converter=false" >> "$GITHUB_OUTPUT"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           everything=false
           if [ "$EVENT" != "pull_request" ] || [ "$ACTION" = "labeled" ] || [ "$BASE_REF" = "main" ] || [ "$FULL_LABEL" = "true" ]; then
             everything=true
@@ -144,47 +230,88 @@ jobs:
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
   # (Python 3.9 on macOS): providers/CONTRACT.md, "Python version". Only their tests run here; the rest of
   # the suite needs a newer Python. pytest 9 needs Python 3.10, so this job pins the last release for 3.9.
-  # shared/scripts/tests holds the tests of the scripts those skills carry as generated copies (the contrast
-  # check among them, whose test moved there from skills/brand-identity/scripts/tests).
+  # The list is scripts/python39_tests.txt, written once: this job and the nightly's nightly-python39 read it.
+  # TWO MODES (docs/decisions.md, T4). SELECTED: on a pull request into a branch other than main without the label `full-suite`,
+  # `scripts/select_tests.py --within scripts/python39_tests.txt` keeps the tests the change can reach that are inside the list, and
+  # the guard scripts/tests/test_runtime_python39.py is always among them (rule 6), so every pull request still parses and imports
+  # every runtime module on Python 3.9. WHOLE: a push to main, a pull request into main (the release), a manual run, the label
+  # `full-suite`, and a selected-mode pull request that touches what decides the selection (.github/workflows/**, the list,
+  # select_tests.py, a conftest.py, pytest.ini, pyproject.toml): the whole list, as the nightly runs it. The accepted cost, decided
+  # by the maintainer 2026-10-24: a 3.9-only break that shows only when unselected code RUNS (a call-time API such as
+  # `zip(strict=...)`) is found by the nightly within 24 hours, and before any release; a break at definition time (syntax, an
+  # evaluated `X | None`, a missing import) is still caught on every pull request by the guard.
   # The tests are split across the runner's processes (pytest-xdist 3.8.0 supports Python 3.9; `-n auto`: one worker per
-  # vCPU). Run in one process they took 12 to 15 minutes and ran into the old 15-minute limit; the limit now leaves
-  # headroom for a slow runner. WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
+  # vCPU). Run in one process the whole list took 12 to 15 minutes and ran into the old 15-minute limit. The entry replay
+  # (about 985 end-to-end scenarios) then took the job to 17 to 23 minutes and a 25-minute limit cancelled it; the limit is
+  # 40 minutes (docs/decisions.md, CI39). WB_SKIP_JS_ONLY_TESTS=1 leaves out the test_interface_*.py files that only drive Node
   # over JavaScript and CSS (runtime/tests/conftest.py says which): Python's version changes nothing for them, and the
-  # tests job runs them. Every test of a Python module stays here.
+  # tests job runs them. Every test of a Python module stays here. THREE SHARDS (docs/decisions.md, the entry of TEST-SPEED): the job was 20 to 34
+  # minutes, the longest of a pull request; each leg keeps the K-th of 3 items of the list (scripts/shard_tests.py), as `tests-shard` does.
+  # Each leg chooses the list the same way, from the same commit and base. `python39` is not a required check, so its name may be a shard's.
   python39:
-    name: python39
-    if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
+    name: python39 shard ${{ matrix.shard }} of 3
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-suite')
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
+    # Strict or lenient generated blocks, as in tests-shard above (HOT-1).
+    env:
+      WB_GENERATED_BLOCKS: ${{ (github.event_name != 'pull_request' || github.base_ref == 'main' || startsWith(github.head_ref, 'batch/')) && 'strict' || 'lenient' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the selector reads the merge base with the pull request's base
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.19"
           python-version: "3.9"
+      - name: Choose the python39 tests this pull request can reach
+        if: >-
+          github.event_name == 'pull_request' && github.base_ref != 'main'
+          && !contains(github.event.pull_request.labels.*.name, 'full-suite')
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash # bash -e -o pipefail: a failing selector fails the step, not only `tee`
+        run: |
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          # PY39_WHOLE_PATHS: what decides the selection or the run; a pull request that touches one runs the whole list
+          if printf '%s\n' "$changed" | grep -Eq '^[.]github/workflows/|(^|/)python39_tests[.]txt$|(^|/)select_tests[.]py$|(^|/)(conftest[.]py|pytest[.]ini|pyproject[.]toml)$'; then
+            echo "python39: this pull request changes what decides the selection; the whole list runs"
+            grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+          else
+            python3 scripts/select_tests.py --base "$BASE_SHA" --explain --within scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+          fi
+          echo "python39: $(wc -l < "$RUNNER_TEMP/py39.txt") target(s)"
+      - name: The whole python39 list
+        if: >-
+          github.event_name != 'pull_request' || github.base_ref == 'main'
+          || contains(github.event.pull_request.labels.*.name, 'full-suite')
+        shell: bash
+        run: grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
       - name: The scripts the scheduler starts, on Python 3.9
+        id: py39
+        env:
+          WB_SKIP_JS_ONLY_TESTS: "1"
+          SHARD: ${{ matrix.shard }}
+        run: >-
+          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 python scripts/shard_tests.py --shard "$SHARD/3" --
+          -q -n auto --assert=plain --dist worksteal -o faulthandler_timeout=120 --durations=40 $(cat "$RUNNER_TEMP/py39.txt")
+      - name: The failures again, with assertion detail (Python 3.9)
+        # As the steps of `tests-shard`: only the failures of the step above, with the detail; it can never turn the job green.
+        if: failure() && steps.py39.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 10
         env:
           WB_SKIP_JS_ONLY_TESTS: "1"
         run: >-
-          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q -n auto -o faulthandler_timeout=120 --durations=20
-          scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
-          scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py scripts/tests/test_stage_skills.py
-          skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
-          skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
-          shared/scripts/tests
-          runtime/tests
-          providers/store/tests providers/scheduler/tests providers/mailer/tests providers/mailbox/tests providers/messenger/tests/test_whatsapp.py
-          providers/messenger/tests/test_messenger_email.py
-          providers/messenger/tests/test_forward_telegram.py providers/messenger/tests/test_forward_discord.py
-          providers/messenger/tests/test_forward_whatsapp_cloud.py providers/messenger/tests/test_forward_twilio.py
-          providers/messenger/tests/test_forward_email.py
-          providers/messenger/tests/test_whatsapp_cloud.py providers/messenger/tests/test_whatsapp_cloud_webhook.py
-          providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
-          providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
-          providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
-          providers/model/tests
+          uv run --python 3.9 --with pytest==8.4.2 --with pytest-xdist==3.8.0 pytest -q --lf --lfnf=none -o faulthandler_timeout=120
+          $(cat "$RUNNER_TEMP/py39.txt")
 
   container:
     name: container

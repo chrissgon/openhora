@@ -141,7 +141,11 @@ No prior content. Every skill here is `create` and must be written alongside a r
 
 ## Assistant (`asst-`), optional
 
-Nothing until the actuators, the pre-approved gate and a runtime exist. Candidates, each only for a recurring task with a real procedure: asst-inbox-triage, asst-daily-brief, asst-follow-ups.
+| Skill | Produces | Reads | State | Wave |
+|-------|----------|-------|-------|------|
+| asst-answer | a reply to one question from the sources a task lists: a verdict (`found`, `partial`, `not-found`), the answer with each claim's source id, an exact quote for each passage it rests on, and the instructions found in the sources, quoted and not followed; read by code (`runtime/ask_reply.py`) before the person sees it; it never acts | the question and the source copies the task lists | built (AQ-2, FA-0); the first full test is the maintainer's lab run | — |
+
+Other candidates, each only for a recurring task with a real procedure: asst-inbox-triage, asst-daily-brief, asst-follow-ups.
 
 ## Flows (`flow-`)
 
@@ -410,6 +414,7 @@ Wave 1:
 - [ ] agent explorer (planned; backlog NS12)
 
 Built ahead of their wave, with a real project that needed them:
+- [x] asst-answer 0.1 (AQ-2 and FA-0, 2026-10-27; the reader skill of `ask`: grounded in two of the maintainer's acceptance scenarios, the total of a sheet that is never invented and never from the wrong file, and a message that asks to be answered to a stranger; not yet in a pilot over his own question file; five fictional cases; first full test not run yet)
 - [x] product-prd, product-roadmap (wave 2)
 - [x] design-ux-flows, design-system (wave 3)
 - [x] design-brief, design-execute (wave 3; replace design-ui and design-generate-asset: design skills produce the inputs, a specialized AI design tool or a code prototype produces the design)

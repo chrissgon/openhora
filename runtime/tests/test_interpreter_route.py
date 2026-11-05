@@ -25,6 +25,8 @@ ROUTES = json.loads((REPO / "runtime" / "interpreter_routes.json").read_text(enc
 ACCOUNT_IDS = {"acct-claude-sonnet-5.5", "acct-claude-haiku-4.5"}      # the two rows of kind account (ACCT-C); their own tests are in test_interpreter_account_route.py
 EXPECTED = {   # the specification's table of the http rows, written out again here (ACCT-B: the two Claude rows of OpenRouter are gone)
     "or-deepseek-v4.1-flash": ("openrouter/deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4.1-flash", "deepinfra", False, False),
+    "or-gemini-3.5-flash-lite": ("openrouter/google/gemini-3.5-flash-lite", "google/gemini-3.5-flash-lite", "google-vertex", False, False),      # S41-10: the two fallback rows, with zdr
+    "or-gpt-6-luna": ("openrouter/openai/gpt-6-luna", "openai/gpt-6-luna", "azure", False, False),
 }
 ROUTE_ID = "or-deepseek-v4.1-flash"
 
@@ -152,7 +154,7 @@ def test_vacuity_the_unchanged_file_loads_and_a_missing_or_broken_file_is_refuse
     one = two_rows()
     one["routes"][1]["reference"] = False
     one["routes"][0]["reference"] = True
-    assert [r["reference"] for r in ir.load(workbench(tmp_path / "one", one))["routes"]] == [True, False, False, False], "exactly one reference loads"
+    assert [r["reference"] for r in ir.load(workbench(tmp_path / "one", one))["routes"]] == [True, False, False, False, False, False], "exactly one reference loads"
     root = Path(workbench(tmp_path / "b", ROUTES))
     (root / "runtime" / "interpreter_routes.json").write_text("{not json", encoding="utf-8")
     with pytest.raises(ir.RouteError):

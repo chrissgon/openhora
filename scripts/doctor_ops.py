@@ -129,7 +129,7 @@ def sources_access_check(sources_dir, system=None, home=None, listdir=os.listdir
     if readable.startswith("this process cannot"):
         return {"status": "warn", "detail": detail, "fix": MAC_SETTINGS}
     return {"status": "unverified", "detail": detail + ". Requirement: " + MAC_SETTINGS +
-            ". To test, run the scheduler's job once (`python3 scripts/runtime.py` through the scheduler) and read its log", "fix": MAC_SETTINGS}
+            ". To test, run the scheduler's job once (`python3 runtime/handlers/social.py` through the scheduler) and read its log", "fix": MAC_SETTINGS}
 
 
 def _existing_parent(path: str) -> str:

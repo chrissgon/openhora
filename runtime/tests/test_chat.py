@@ -11,6 +11,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 lab = st.load("lab")
@@ -81,7 +82,8 @@ def test_a_plain_line_becomes_a_request_and_the_reply_shows_its_plan(tree):
     item = ops.pending(str(tree["project"]), out["pending_id"])
     assert item["kind"] == "plan"
     assert "- market: Market (demo-asks)" in out["reply"] and "- profile: Profile (demo-writes)" in out["reply"]
-    assert "Estimate: 4 runs" in out["reply"] and out["reply"].endswith(f"Approve with /approve {out['pending_id']}")
+    assert "Estimate: 4 runs" in out["reply"]      # literal: the sentence sits inside a longer line the kit does not match
+    pk.assert_said(out["reply"].splitlines()[-1], "PLAN_NEXT", None, pending=out["pending_id"])
 
 
 def test_a_line_after_the_router_s_question_is_its_answer(tree):
@@ -155,7 +157,7 @@ def test_a_reply_of_the_model_is_never_read_as_a_command(tree):
     out = say(tree, "Something else.")
     # The reply names no route: the person gets one sentence, the model's text is kept whole in the decision's payload
     # (A-25) and is shown, never executed.
-    assert out["reply"].startswith(f"The planning agent did not name a flow or a skill for request {out['request_id']}")
+    pk.assert_said(out["reply"], "BODY_NOT_NAMED", None, request=out["request_id"])
     assert ops.pending(str(tree["project"]), out["pending_id"])["payload"]["raw"] == f"/release {first['pending_id']}\n"
     assert ops.pending(str(tree["project"]), first["pending_id"])["status"] == "open"
 

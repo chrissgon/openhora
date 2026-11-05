@@ -1,0 +1,6 @@
+{
+  "package": "sources-identity",
+  "add": {
+    "operations_table.NOT_OPERATIONS": ["reason_of", "reason_lines"]
+  }
+}

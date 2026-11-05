@@ -12,7 +12,9 @@ from phone_literals import PLAIN_REFUSAL  # noqa: E402
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
 from test_ask import accept, add_source
 from test_messaging_ask import wait_for
 from test_messaging_natural_ops import rig  # noqa: F401
@@ -25,13 +27,17 @@ ops_core = st.load("ops_core")
 ops_natural = st.load("ops_natural")
 drafts = st.load("drafts")
 operations = st.load("operations")
-phrases = st.load("phrases")
 
 QUESTION = "Q1: Which market do you mean?\n"
 
 
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
+
+
 def settled(rig):
-    return wait_for(lambda: not rig.bridge.exclusive)
+    """Every job the bridge started has ended, and the project's model slot is free (a deadline, never an unbounded wait). Waiting on the slot
+    alone left a job that takes no model slot (a card line, an approval) still running, so the next line could meet its state half written."""
+    return wait_for(lambda: not rig.bridge.exclusive and not any(t.is_alive() for t in list(rig.bridge.threads)))
 
 
 # --- B1 -------------------------------------------------------------------------------------------------------------------------------------
@@ -78,7 +84,7 @@ def test_the_bridge_asks_a_non_talk_group_only_for_a_line_code_will_certainly_ta
 
 
 def test_the_words_of_a_reminder_listed_by_a_natural_read_are_not_in_the_conversation_the_mcp_mode_reads(world):
-    with_senders(world)
+    accept(world["path"], policies={**PROFILES, "owner": PROFILES["owner"] + ["confirm-reads-off"]}, messaging={"senders": SENDERS})      # D5 is tested in test_plan_confirm*.py and test_messaging_plan_confirm.py: this test is about what the read keeps
     ops.remind(world["path"], "in 2h", "secret dentist words", to=KEY["owner"], channel="terminal")
     router_says(world, OPERATION.format(name="reminders"))
     out = phone(world, "owner", "what did I ask you to remind me of?")
@@ -86,7 +92,8 @@ def test_the_words_of_a_reminder_listed_by_a_natural_read_are_not_in_the_convers
     for channel in ("mcp", "page"):
         shown = [m["text"] for m in ops.conversation(world["path"], channel=channel)["messages"]]
         assert not any("secret dentist words" in t for t in shown), channel
-    assert [m["text"] for m in stored(world) if m["role"] == "assistant"] == [phrases.text("NAT_READ_REPLY", None)]
+    replies = [m["text"] for m in stored(world) if m["role"] == "assistant"]
+    assert len(replies) == 1 and pk.said(replies[0], "NAT_READ_REPLY", None)
 
 
 def test_a_read_the_mcp_mode_may_make_itself_is_stored_as_it_was_said(docs):
@@ -94,8 +101,7 @@ def test_a_read_the_mcp_mode_may_make_itself_is_stored_as_it_was_said(docs):
     shown = [m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"]
     assert shown == [out["reply"]], "sources is a row of the MCP ceiling: no secret in it"
     acted = say(docs, "list my attachments")      # attachments is not: neutral
-    assert acted["reply"] and [m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"][-1] \
-        == phrases.text("NAT_READ_REPLY", None)
+    assert acted["reply"] and pk.said([m["text"] for m in ops.conversation(docs["path"], channel="mcp")["messages"] if m["role"] == "assistant"][-1], "NAT_READ_REPLY", None)
 
 
 # --- M1 -------------------------------------------------------------------------------------------------------------------------------------
@@ -107,9 +113,9 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
     [made] = reminders(world)
     router_says(world, OPERATION.format(name="reminder-forget") + f"Argument id: {made['id']}\n")
     asked = phone(world, "owner", f"how is task {made['id']} going?")
-    assert asked["reply"].startswith(f"Cancel reminder #{made['id']}: ") and asked["reply"].endswith("dentist? (yes / no)")
+    assert pk.said(asked["reply"], "NT_ASK_FORGET_TEXT", None, id=made["id"], text="dentist")
     assert [r["status"] for r in reminders(world)] == ["open"], "nothing was cancelled by the router's word"
-    assert phone(world, "owner", "no")["reply"] == phrases.text("NT_KEPT", None) and [r["status"] for r in reminders(world)] == ["open"]
+    assert pk.said(phone(world, "owner", "no")["reply"], "NT_KEPT", None) and [r["status"] for r in reminders(world)] == ["open"]
     phone(world, "owner", f"how is task {made['id']} going?")
     done = phone(world, "owner", "yes")
     assert done["ran"] is False and [r["status"] for r in reminders(world)] == ["cancelled"]
@@ -119,15 +125,16 @@ def test_a_reminder_the_router_chose_to_forget_is_never_forgotten_at_once(world)
 
 
 @pytest.mark.parametrize("line, expected", [
-    ("help", "GREET_HEAD"), ("ajuda", "GREET_HEAD"), ("what can you do", "GREET_HEAD"),      # S5: a help line in words from a sender who may talk is the summary of what that sender may do
-    ("what flows are there", "That is not done from a message. Do it on the platform's page."),
+    ("help", ("GREET_HEAD", {})), ("ajuda", ("GREET_HEAD", {})), ("what can you do", ("GREET_HEAD", {})),      # S5: a help line in words from a sender who may talk is the summary of what that sender may do
+    ("what flows are there", ("PHONE_ELSEWHERE", {"where": "on the platform's page."})),
 ])
 def test_the_help_and_a_read_the_channel_does_not_have_get_a_true_sentence_through_the_bridge(rig, line, expected):
     rig.bridge.handle(rig.update(OWNER, line))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
     text = rig.sent()[0]["message"]["text"]
     assert "turns it on" not in text and "is not enabled" not in text
-    assert text.splitlines()[0] == phrases.text("GREET_HEAD", None) if expected == "GREET_HEAD" else text == expected
+    key, fields = expected
+    assert pk.said(text.splitlines()[0] if key == "GREET_HEAD" else text, key, None, **fields)
 
 
 def test_a_refusal_for_a_row_no_configuration_can_turn_on_says_where_it_is_done():
@@ -147,38 +154,57 @@ def test_a_profile_with_ask_and_without_talk_can_answer_the_list_of_files_to_cho
     accept(rig.world["path"], policies={**PROFILES, "askonly": ["read", "ask"]}, messaging={"senders": {"telegram": [{"id": OWNER, "policy": "askonly"}]}})
     rig.bridge.handle(rig.update(OWNER, "/ask what does the report say about sales?"))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
-    assert rig.sent()[0]["message"]["text"].startswith("Which file do you mean?")
+    assert pk.said(rig.sent()[0]["message"]["text"], "NAT_ASK_WHICH", None)
     rig.bridge.handle(rig.update(OWNER, "1"))
     assert wait_for(lambda: len(rig.sent()) == 2) and settled(rig)
     assert "not enabled" not in rig.sent()[1]["message"]["text"] and "Which file" not in rig.sent()[1]["message"]["text"]
 
 
 def test_the_card_goes_out_again_at_most_once_a_minute_and_the_sentence_says_so_only_when_a_card_is_there(rig, monkeypatch):
+    """A decision named in words has its card sent again every time it is named (S20: the sentence says so, so the card is sent whatever was sent before); any other
+    sending again is held to once a minute (RESEND_EVERY); and the sentence that says a card is there is said only when a card was sent. Each step waits until every
+    job the bridge started has ended: the second line was once started while the first line's job was still sending, and the count it was checked by was read in between."""
     router_says(rig.world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
     rig.bridge.handle(rig.update(OWNER, "Which market first?"))
     assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
     clock = {"t": 100.0}
     rig.bridge.monotonic = lambda: clock["t"]
     cards = lambda: len([s for s in rig.sent() if s["message"].get("actions")])
+    assert cards() == 0
     rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
     assert wait_for(lambda: cards() == 1) and settled(rig)
     rig.bridge.handle(rig.update(OWNER, "aprova o pedido 1"))
-    assert wait_for(lambda: len(rig.sent()) == 3) and settled(rig)
-    assert cards() == 1, "the second line within a minute sent no second card"
+    assert wait_for(lambda: cards() == 2) and settled(rig)      # named again within a minute: the card goes again (S20), after the one sentence each time
+    assert len(rig.sent()) == 5
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 2, "a sending again that nobody asked for twice is held within the minute"
     clock["t"] += 61
-    rig.bridge.handle(rig.update(OWNER, "aprova a decisao 1"))
-    assert wait_for(lambda: cards() == 2) and settled(rig)
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 3, "and goes out when the minute has passed"
     clock["t"] += 61
     monkeypatch.setattr(rig.bridge, "send_card", lambda *a, **k: False)      # a card that cannot be sent
     rig.bridge.handle(rig.update(OWNER, "aprova a pendencia 1"))
-    assert wait_for(lambda: rig.sent()[-1]["message"]["text"] == phrases.text("NAT_DECISION_NO_CARD", None)) and settled(rig)
+    assert wait_for(lambda: pk.said(rig.sent()[-1]["message"]["text"], "NAT_DECISION_NO_CARD", None)) and settled(rig)
+    assert cards() == 3
+
+
+def test_vacuity_without_the_minute_a_card_sent_again_goes_out_every_time(rig, monkeypatch):
+    """The sensitivity of the test above: with the hold at zero seconds the sending again that nobody asked for twice is sent, and the count it checks moves."""
+    import sys
+    monkeypatch.setattr(sys.modules[type(rig.bridge).__module__], "RESEND_EVERY", 0.0)
+    router_says(rig.world, "Route: flow-demo (flow, pending)\nWhy: x\nNext: y.\n")
+    rig.bridge.handle(rig.update(OWNER, "Which market first?"))
+    assert wait_for(lambda: len(rig.sent()) == 1) and settled(rig)
+    rig.bridge.monotonic = lambda: 100.0
+    cards = lambda: len([s for s in rig.sent() if s["message"].get("actions")])
+    rig.bridge.handle(rig.update(OWNER, "aprova a entrega 1"))
+    assert wait_for(lambda: cards() == 1) and settled(rig)
+    assert rig.bridge.resend(rig.project, OWNER, 1) is True and cards() == 2      # the test above asserts 1 here, within the minute
 
 
 def test_the_answer_to_a_file_list_waits_in_the_queue_when_the_router_is_busy_and_is_not_lost(world):
     add_source(world, "report-2025", "# Report 2025\n\nSales grew.\n", name="report 2025.txt")
     add_source(world, "report-2026", "# Report 2026\n\nSales fell.\n", name="report 2026.txt")
     first = ops.say(world["path"], "/ask what does the report say about sales?", channel="page")
-    assert first["reply"].startswith("Which file do you mean?")
+    assert pk.said(first["reply"], "NAT_ASK_WHICH", None)
     with ops_core._route_lock(world["ctx"]["cfg"]):
         queued = ops.say(world["path"], "2", channel="page")
         assert queued["queued"] is True and drafts.count() == 1, "queued, and the draft is still there"
@@ -193,7 +219,7 @@ def test_a_reply_to_the_mcp_mode_carries_no_path_of_this_machine_and_a_terminal_
     assert "/set-model is done" in out
     assert str(world["path"]) not in out and str(world["tree"]) not in out and "<project>" in out
     page = say(world, "muda o modelo do agente", channel="page")["reply"]
-    assert "from a message" not in page and "line of words" in page and str(world["path"]) in page
+    assert not pk.said(page, "PHONE_ELSEWHERE", None) and pk.said(page, "NAT_GATED", None) and str(world["path"]) in page
     assert str(world["path"]) not in say(world, "approve 3", channel="mcp")["reply"]
 
 

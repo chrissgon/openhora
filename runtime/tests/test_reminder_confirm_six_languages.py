@@ -19,6 +19,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept
 from test_messaging_ask import wait_for
@@ -58,7 +59,7 @@ def opened(rig, monkeypatch, language):
     monkeypatch.setattr(interpreter_route, "complete", lambda route_id, system, user, **kw: {"ok": True, "text": model, "finish": "stop", "usage": {}, "latency_ms": 5, "upstream": "deepinfra"})
     rig.bridge.handle(rig.update(OWNER, line))
     assert wait_for(lambda: len(rig.sent()) == 1 and not rig.bridge.exclusive), language
-    assert rig.sent()[0]["message"]["text"].endswith(f": {words}. Confirm? (yes / another time)"), rig.sent()[0]["message"]["text"]
+    assert pk.said(rig.sent()[0]["message"]["text"], "NT_CONFIRM_TEXT", None, text=words), rig.sent()[0]["message"]["text"]
     assert reminders(rig) == []
     return words
 
@@ -77,7 +78,7 @@ def answer(rig, word):
 def test_a_yes_in_the_persons_own_word_makes_the_reminder_the_interpreter_opened(rig, monkeypatch, language, word):
     words = opened(rig, monkeypatch, language)
     assert answer(rig, word), word
-    assert rig.sent()[1]["message"]["text"].startswith("Reminder #1: ") and words in rig.sent()[1]["message"]["text"], rig.sent()[1]["message"]["text"]
+    assert pk.said(rig.sent()[1]["message"]["text"], "NT_SET_TEXT", None, id=1, text=words), rig.sent()[1]["message"]["text"]
     assert reminders(rig) == [words]
 
 

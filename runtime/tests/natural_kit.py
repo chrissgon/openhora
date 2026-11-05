@@ -23,9 +23,16 @@ def said_yes(ops, path, sender, said, how="trigger"):
     return first
 
 
+def open_draft(day, chat):
+    """The reminder question the chat has open: the bridge's own (a typed /remind) or the one the interpreter's carry-out left in the store of drafts (S41-11)."""
+    import standin_tree as st
+    mine = day.bridge.remind.drafts.get(chat)
+    return mine or st.load("drafts").get("messaging", day.bridge.key(chat), "remind") or {}
+
+
 def say_yes(day, chat, line, **fields):
     """The person writes `line` and, when the bridge answers with the reading to be confirmed (or the kind question that shows it), says yes. A line that asks anything
     else (its time, a reading, its words) is left asking."""
     day.say(chat, line, **fields)
-    if day.bridge.remind.drafts.get(chat, {}).get("need") in ("confirm", "kind"):
+    if open_draft(day, chat).get("need") in ("confirm", "kind"):
         day.say(chat, "yes")

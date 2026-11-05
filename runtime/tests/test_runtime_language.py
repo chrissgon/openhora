@@ -9,6 +9,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_runtime_language.py
 """
 from __future__ import annotations
 
+import phrase_kit as pk
 import standin_tree as st
 from test_effects import tree  # noqa: F401  (the stand-in tree fixture)
 from test_messaging import SECRET_TEXT, decision, wait_for, world  # noqa: F401  (the stand-in world fixture)
@@ -23,6 +24,7 @@ phrases = st.load("phrases")
 operations = st.load("operations")
 
 EN, PT = phrases.TABLE["en"], phrases.TABLE["pt-BR"]
+PT_CFG = {"language": "pt-BR"}
 
 
 def speak(world, tag):
@@ -63,38 +65,69 @@ def unread(lab):  # noqa: F811
     return [t for t in lab.texts(OWNER) if "·" not in t]
 
 
-ENGLISH = [
-    ["This button is no longer valid. Send /pending."], [EN["HELP"]], ["Usage: /approve <id>"],
-    ["Your lines go to northwind-shop. Projects: northwind-shop."], ["No such project. Projects: northwind-shop."], ["northwind-shop: nothing waits for you."],
-    ["northwind-shop: #1 plan: Northwind shop\n#2 question from the assistant: Northwind shop launch plan, the private paragraph\n#3 review: Northwind shop\nTo dismiss one, reply: /reject <number>."], ["Approved #1."], ["Rejected #1."], ["Answered #2."],
-    ["Pending decision 2 is a question: approve takes a plan or an acceptance."], ["The hash you typed is not the one of the card you saw. Send /pending."],
-    ["Act on the card sent to you (send /pending)."], ["Released #3."],
-]
-PORTUGUESE = [
-    ["Este botão não é mais válido. Envie /pending."], [PT["HELP"]], ["Uso: /approve <id>"],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["Suas mensagens vão para northwind-shop. Projetos: northwind-shop."], ["Esse projeto não existe. Projetos: northwind-shop."], ["northwind-shop: nada pendente para você."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["northwind-shop: #1 plano: Northwind shop\n#2 pergunta do assistente: Northwind shop launch plan, the private paragraph\n#3 revisão: Northwind shop\nPara dispensar, responda: /reject <número>."], ["#1 aprovada."], ["#1 rejeitada."], ["#2 respondida."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["A decisão pendente 2 é do tipo pergunta: aprovar vale só para um plano ou um aceite."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["O hash que você digitou não é o do card que você viu. Envie /pending."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    ["Use o card que foi enviado a você (envie /pending)."], ["#3 liberada."],  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-]
+def session(cfg):
+    """What each reply of `replies` says in the language of `cfg`: for each step, the texts sent; a text is the (key, fields) it says whole, or the (key, fields) of each of its lines
+    (a plain string is a line that is no sentence of the table: the number, the kind and the title of a decision)."""
+    kind = lambda word: phrases.kind_word(word, cfg)      # noqa: E731  (the kind of a decision is a word of the table)
+    return [
+        [("STALE", {})], [("HELP", {})], [("USAGE_APPROVE", {})],
+        [("PROJECT_NOW", {"name": "northwind-shop", "projects": "northwind-shop"})], [("PROJECT_NONE", {"projects": "northwind-shop"})], [("NOTHING_WAITS", {"name": "northwind-shop"})],
+        [[f"northwind-shop: #1 {kind('plan')}: Northwind shop", ("PEND_QUESTION", {"id": 2, "text": "Northwind shop launch plan, the private paragraph"}),
+          f"#3 {kind('review')}: Northwind shop", ("PEND_DISMISS_TYPED", {})]],
+        [("APPROVED", {"id": 1})], [("REJECTED", {"id": 1})], [("ANSWERED", {"id": 2})],
+        [("NOT_APPROVABLE", {"number": 2, "kind": kind("question")})], [("WRONG_HASH", {})],
+        [("NO_CARD", {})], [("RELEASED", {"id": 3})],
+    ]
+
+
+def assert_session(got, cfg):
+    """The replies of `replies` are the sentences of `session(cfg)`, by phrase key, nothing else."""
+    expected = session(cfg)
+    assert len(got) == len(expected), got
+    for texts, specs in zip(got, expected):
+        assert len(texts) == len(specs), texts
+        for text, spec in zip(texts, specs):
+            if isinstance(spec, tuple):
+                pk.assert_said(text, spec[0], cfg, **spec[1])
+                continue
+            lines = text.split("\n")
+            assert len(lines) == len(spec), text
+            for line, want in zip(lines, spec):
+                if isinstance(want, tuple):
+                    pk.assert_said(line, want[0], cfg, **want[1])
+                else:
+                    assert line == want
+
+
+def assert_labels(actions, cfg, *keys):
+    """The labels of the buttons are the sentences of these phrase keys, in this order."""
+    labels = [a["label"] for a in actions]
+    assert len(labels) == len(keys), labels
+    for label, key in zip(labels, keys):
+        pk.assert_said(label, key, cfg)
+
+
+def assert_header(text, cfg, kind, id, project="northwind-shop"):
+    """A line of the card says its project, the kind of the decision (a word of the table) and its number."""
+    pk.assert_said(text.split("\n")[0], "HEADER", cfg, project=project, kind=phrases.kind_word(kind, cfg), id=id)
 
 
 def test_a_project_with_no_language_gets_the_english_sentences_it_always_got(world):
-    assert replies(world, None) == ENGLISH
+    assert_session(replies(world, None), None)
 
 
 def test_a_portuguese_project_gets_portuguese_replies_and_the_commands_in_them_stay_the_same(world):
-    assert replies(world, "pt-BR") == PORTUGUESE
-    assert "/pending" in PORTUGUESE[0][0] and "/approve <id>" in PORTUGUESE[2][0]
+    got = replies(world, "pt-BR")
+    assert_session(got, PT_CFG)
+    assert "/pending" in got[0][0] and "/approve <id>" in got[2][0]
 
 
 def test_a_tag_with_no_table_gets_english_and_so_does_a_project_that_names_english(world):
-    assert replies(world, "fr") == ENGLISH
+    assert_session(replies(world, "fr"), {"language": "fr"})
 
 
 def test_the_english_tag_is_english_too(world):
-    assert replies(world, "en") == ENGLISH
+    assert_session(replies(world, "en"), {"language": "en"})
 
 
 # --- the cards -----------------------------------------------------------------------------------------------------------------------------------
@@ -106,14 +139,18 @@ def test_a_card_has_its_frames_in_portuguese_and_the_text_of_the_decision_is_not
     world.items[2] = decision("question", 2, title="Hours", body="When do we open?")
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["text"] == f"northwind-shop · plano #1\n\nNorthwind shop\n\n{SECRET_TEXT}"
-    assert [a["label"] for a in plan["actions"]] == ["Aprovar", "Rejeitar"]
-    assert question["text"].startswith("northwind-shop · pergunta #2\n\nHours\n\nWhen do we open?")
+    assert_header(plan["text"], PT_CFG, "plan", 1)
+    assert plan["text"].partition("\n")[2] == f"\nNorthwind shop\n\n{SECRET_TEXT}"
+    assert_labels(plan["actions"], PT_CFG, "LABEL_APPROVE", "LABEL_REJECT")
+    assert_header(question["text"], PT_CFG, "question", 2)
+    assert question["text"].partition("\n")[2].startswith("\nHours\n\nWhen do we open?")
     speak(world, None)
     world.items[3] = decision("plan", 3, plan_sha256="q" * 64)
     world.bridge.tick()
     english = world.sent()[-1]["message"]
-    assert english["text"] == f"northwind-shop · plan #3\n\nNorthwind shop\n\n{SECRET_TEXT}" and [a["label"] for a in english["actions"]] == ["Approve", "Reject"]
+    assert_header(english["text"], None, "plan", 3)
+    assert english["text"].partition("\n")[2] == f"\nNorthwind shop\n\n{SECRET_TEXT}"
+    assert_labels(english["actions"], None, "LABEL_APPROVE", "LABEL_REJECT")
 
 
 def test_the_frames_of_a_card_the_policy_closes_are_in_portuguese(world):
@@ -124,9 +161,10 @@ def test_the_frames_of_a_card_the_policy_closes_are_in_portuguese(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and PT["PAGE_LINE"] in plan["text"] and "Resolva isso na página da plataforma." in plan["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert plan["link"] == {"label": "Abrir a página", "url": "https://page.example/open"}
-    assert "Responda a esta mensagem com a sua resposta." in question["text"]
+    assert plan["actions"] == [] and pk.said(plan["text"], "PAGE_LINE", PT_CFG)
+    assert set(plan["link"]) == {"label", "url"} and plan["link"]["url"] == "https://page.example/open"
+    pk.assert_said(plan["link"]["label"], "PAGE_LABEL", PT_CFG)
+    assert pk.said(question["text"], "REPLY_LINE", PT_CFG)
 
 
 def test_a_card_with_no_buttons_ends_with_the_words_that_decide_it_and_a_second_act_is_a_typed_line(world):
@@ -135,12 +173,13 @@ def test_a_card_with_no_buttons_ends_with_the_words_that_decide_it_and_a_second_
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     text = world.sent()[0]["message"]["text"]
-    assert text.endswith("Responda sim para aprovar ou não para recusar.") and "/approve" not in text and "Send " not in text  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert pk.said(text.splitlines()[-1], "REPLY_WORDS_LINE", PT_CFG) and "/approve" not in text and "Send " not in text
     world.caps(buttons=True, max_buttons=1)
     world.items[2] = decision("plan", 2, plan_sha256="r" * 64)
     world.bridge.tick()
     second = world.sent()[-1]["message"]
-    assert [a["label"] for a in second["actions"]] == ["Aprovar"] and "Envie /reject 2" in second["text"]
+    assert_labels(second["actions"], PT_CFG, "LABEL_APPROVE")
+    assert pk.said(second["text"], "SEND_LINE", PT_CFG, line="/reject 2")
 
 
 def test_a_cut_text_and_a_text_that_follows_as_a_document_say_so_in_portuguese(world):
@@ -148,11 +187,11 @@ def test_a_cut_text_and_a_text_that_follows_as_a_document_say_so_in_portuguese(w
     world.caps(max_text=300, documents=False)
     world.items[1] = decision("plan", 1, body="x" * 2000)
     world.bridge.tick()
-    assert world.sent()[0]["message"]["text"].rstrip().endswith("(continua na página)")
+    assert pk.said(world.sent()[0]["message"]["text"].rstrip().splitlines()[-1], "CUT", PT_CFG)
     world.caps(max_text=300, documents=True)
     world.items[2] = decision("plan", 2, body="y" * 2000, plan_sha256="s" * 64)
     world.bridge.tick()
-    assert world.sent()[-1]["message"]["text"].rstrip().endswith("(o texto inteiro segue como documento)")
+    assert pk.said(world.sent()[-1]["message"]["text"].rstrip().splitlines()[-1], "WHOLE", PT_CFG)
     assert world.sent()[-1]["message"]["document"]["text"].endswith("y" * 2000), "the file is the decision's own text"
 
 
@@ -162,10 +201,12 @@ def test_an_effect_card_says_where_to_approve_in_portuguese_and_the_command_is_n
     world.items[7] = decision("effect", 7, title="Pull request", payload_sha256="e" * 64)
     world.bridge.tick()
     message = world.sent()[0]["message"]
-    assert [a["label"] for a in message["actions"]] == ["Rejeitar"] and "Aprove na página da plataforma." in message["text"]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-    assert "cli.py" not in message["text"] and "northwind-shop · pedido #7" in message["text"]      # no command on a phone, and the kind is a plain word (LIVE-2)
+    assert_labels(message["actions"], PT_CFG, "LABEL_REJECT")
+    assert pk.said(message["text"], "EFFECT_LINE", PT_CFG)
+    assert "cli.py" not in message["text"] and pk.said(message["text"], "HEADER", PT_CFG, project="northwind-shop", kind=phrases.kind_word("effect", PT_CFG), id=7)      # no command on a phone, and the kind is a plain word (LIVE-2)
     world.say("/approve 7")
-    assert world.calls("approve") == [] and world.texts()[-1] == "Um efeito é aprovado onde o texto inteiro aparece, na página da plataforma: https://page.example/open"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert world.calls("approve") == []
+    pk.assert_said(world.texts()[-1], "EFFECT_REPLY", PT_CFG, where=phrases.text("PHONE_WHERE_LINK", PT_CFG, url="https://page.example/open"))
 
 
 def test_the_count_mode_names_the_kind_of_decision_in_the_language_and_carries_none_of_the_text(world):
@@ -175,7 +216,9 @@ def test_the_count_mode_names_the_kind_of_decision_in_the_language_and_carries_n
     world.items[2] = decision("question", 2, title="Another secret", body="Another body")
     world.bridge.tick()
     blob = " ".join(world.texts())
-    assert "Aguardando você: plano." in blob and "Aguardando você: pergunta." in blob and "ecret" not in blob and "body" not in blob  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    assert any(pk.said(text, "WAITS_COUNT", PT_CFG, kind=phrases.kind_word("plan", PT_CFG)) for text in world.texts())
+    assert any(pk.said(text, "WAITS_COUNT", PT_CFG, kind=phrases.kind_word("question", PT_CFG)) for text in world.texts())
+    assert "ecret" not in blob and "body" not in blob
 
 
 def test_the_line_about_the_decisions_left_for_the_next_tick_is_in_portuguese(world):
@@ -183,7 +226,7 @@ def test_the_line_about_the_decisions_left_for_the_next_tick_is_in_portuguese(wo
     for number in range(1, 13):
         world.items[number] = decision("question", number, title=f"Q{number}")
     world.bridge.tick()
-    assert world.sent()[-1]["message"]["text"] == "E mais 2 esperando. Envie /pending para listar."
+    pk.assert_said(world.sent()[-1]["message"]["text"], "MORE_LINE", PT_CFG, n=2)
 
 
 # --- the notice of a message that could not be read ------------------------------------------------------------------------------------------------
@@ -198,7 +241,7 @@ def test_the_notice_of_a_message_that_could_not_be_read_is_in_the_projects_langu
     lab.bridge.unread_told.clear()
     give(lab, 3)
     lab.bridge.tick()
-    assert unread(lab)[-1] == PT["UNREAD_MANY"].format(n=3) == "3 mensagens enviadas a este canal não puderam ser lidas e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie de novo."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(unread(lab)[-1], "UNREAD_MANY", PT_CFG, n=3)
     lab.bridge.unread_told.clear()
     give(lab, 1)
     lab.bridge.tick()
@@ -216,7 +259,9 @@ def test_the_sentences_of_a_waiting_line_are_in_the_projects_language(lab, plann
     assert planner.reached(0).wait(10)
     lab.say(OWNER, "second")
     lab.say(OWNER, "third")
-    assert lab.texts(OWNER) == [PT["QUEUED"], PT["STILL_WORKING"]] == ["Anotado: respondo a esta mensagem depois da atual.", "Ainda estou trabalhando na última mensagem."]
+    queued, still_working = lab.texts(OWNER)
+    pk.assert_said(queued, "QUEUED", PT_CFG)
+    pk.assert_said(still_working, "STILL_WORKING", PT_CFG)
     planner.gate(0).set()
     assert settle(lab)
     assert lab.texts(OWNER)[2:] == ["Answer 0", "Answer 1"], "the answer of the planning agent is its own text"
@@ -229,11 +274,12 @@ def test_a_line_that_waited_too_long_and_a_line_left_when_the_bridge_stops_are_t
     assert lab.bridge.keep(lab.bridge.projects[0], OWNER, "waiting") is True
     now[0] += bridge.QUEUE_WAIT + 1
     lab.bridge.drain()
-    assert lab.texts(OWNER) == ["Sem resposta: o projeto ficou ocupado por 30 minutos. Envie de novo."]
+    [expired] = lab.texts(OWNER)
+    pk.assert_said(expired, "QUEUE_EXPIRED", PT_CFG)
     assert lab.bridge.keep(lab.bridge.projects[0], OWNER, "again") is True
     lab.bridge.session_ready = lambda: False       # nothing starts: the line is still waiting when the bridge stops
     lab.bridge.close_queue()
-    assert lab.texts(OWNER)[-1] == "Sem resposta: a ponte de mensagens parou. Envie de novo."
+    pk.assert_said(lab.texts(OWNER)[-1], "QUEUE_STOPPED", PT_CFG)
 
 
 def test_a_command_the_busy_planning_agent_cannot_take_is_refused_in_the_language_too(lab, planner):  # noqa: F811
@@ -242,7 +288,8 @@ def test_a_command_the_busy_planning_agent_cannot_take_is_refused_in_the_languag
     planner.refusals = 1
     lab.say(OWNER, "/status")                       # a command is never kept: it is refused with the router's sentence
     assert settle(lab)
-    assert lab.texts(OWNER) == [PT["RUN_BUSY"]] == ["O agente de planejamento está respondendo a outro pedido. Envie de novo daqui a pouco."]  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    [busy] = lab.texts(OWNER)
+    pk.assert_said(busy, "RUN_BUSY", PT_CFG)
 
 
 # --- reminders (RM-1) ----------------------------------------------------------------------------------------------------------------------------------
@@ -251,23 +298,25 @@ def test_a_command_the_busy_planning_agent_cannot_take_is_refused_in_the_languag
 def test_the_replies_to_the_reminder_commands_are_in_portuguese_and_the_words_of_the_person_are_not_touched(day):  # noqa: F811
     accept(day.path, language="pt-BR")
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[-1] == f"Lembrete #1: hoje, dom 18/10, às 15:00 (BRT): {DENTIST}. Para desfazer: /forget 1."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT_CFG, id=1, when="hoje, dom 18/10, às 15:00 (BRT)", text=DENTIST)  # validate: allow english-only -- the day words of a time are the value under test
     day.say(OWNER, "/remind")
-    assert day.texts(OWNER)[-1] == PT["NT_ASK_WHEN_SLASH"] == "Quando? Ex.: /remind amanhã 13h regar as plantas"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "NT_ASK_WHEN_SLASH", PT_CFG)
     day.say(OWNER, "/remind 25:00 call")
-    assert day.texts(OWNER)[-1] == "25:00 não é uma hora do dia (00:00 a 23:59)."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NOT_A_TIME", PT_CFG, given="25:00")
     day.say(OWNER, "/remind 13:00 x")
-    assert day.texts(OWNER)[-1] == "Lembrete #2: 13:00 de hoje já passou: amanhã, seg 19/10, às 13:00 (BRT): x. Para desfazer: /forget 2."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_TEXT", PT_CFG, id=2, text="x", when=phrases.text("NT_ROLLED", PT_CFG, time="13:00", when="amanhã, seg 19/10, às 13:00 (BRT)"))  # validate: allow english-only -- the day words of a time are the value under test
     day.say(OWNER, "/forget")
-    assert day.texts(OWNER)[-1] == "Uso: /forget <n>"
+    pk.assert_said(day.texts(OWNER)[-1], "USAGE_FORGET", PT_CFG)
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == f"northwind-shop: lembretes pendentes (BRT)\n#1 hoje, dom 18/10, às 15:00: {DENTIST}\n#2 amanhã, seg 19/10, às 13:00: x"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    head, first, second = day.texts(OWNER)[-1].split("\n")
+    assert head.startswith("northwind-shop: ") and pk.said(head[len("northwind-shop: "):], "RM_WAITING_HEAD", PT_CFG, zone="BRT")
+    assert first == f"#1 hoje, dom 18/10, às 15:00: {DENTIST}" and second == "#2 amanhã, seg 19/10, às 13:00: x"  # validate: allow english-only -- the day words of a time are the value under test
     day.say(OWNER, "/forget 99")
-    assert day.texts(OWNER)[-1] == "Não há lembrete 99 esperando por você."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NO_SUCH", PT_CFG, n=99)
     day.say(OWNER, "/forget 2")
-    assert day.texts(OWNER)[-1] == "Lembrete #2 cancelado: amanhã, seg 19/10, às 13:00 (BRT): x. Para tê-lo de volta, envie: desfaz" # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "NT_FORGOT_TEXT", PT_CFG, id=2, when="amanhã, seg 19/10, às 13:00 (BRT)", text="x")  # validate: allow english-only -- the day words of a time are the value under test
     day.say(OWNER, "/forget 2")
-    assert day.texts(OWNER)[-1] == "O lembrete 2 tem o status cancelado: não está esperando."  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NOT_WAITING", PT_CFG, n=2, status="cancelado")
 
 
 def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_the_count_line_too(day):  # noqa: F811
@@ -275,31 +324,34 @@ def test_a_due_reminder_goes_with_a_frame_in_the_language_and_the_late_mark_and_
     day.say(OWNER, f"/remind 2026-10-19 09:00 {DENTIST}")
     day.clock.set("2026-10-19 14:00")
     day.bridge.tick()
-    assert day.texts(OWNER)[-1] == f"Lembrete: {DENTIST} (marcado para 09:00)"
+    pk.assert_said(day.texts(OWNER)[-1], "RM_TEXT_LINE", PT_CFG, text=DENTIST + phrases.text("RM_TEXT_LATE", PT_CFG, at="09:00"))
     day.say(OWNER, "/remind 2026-10-20 08:00 Third")
     day.clock.set("2026-10-20 15:00")
     day.bridge.tick()
     day.say(OWNER, "/reminders")
-    assert day.texts(OWNER)[-1] == ("northwind-shop: nenhum lembrete pendente.\nNão enviados recentemente:\n"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
-                                    "#2 hoje, ter 20/10, às 08:00: Third (perdido: a ponte de mensagens só o verificou mais de 6 horas depois do horário marcado)")
+    head, sent_head, third = day.texts(OWNER)[-1].split("\n")
+    assert head.startswith("northwind-shop: ") and pk.said(head[len("northwind-shop: "):], "RM_NONE_WAIT", PT_CFG)
+    pk.assert_said(sent_head, "RM_NOT_SENT_HEAD", PT_CFG)
+    assert third.startswith("#2 hoje, ter 20/10, às 08:00: Third (") and third.endswith(")")  # validate: allow english-only -- the day words of a time are the value under test
+    pk.assert_said(third[len("#2 hoje, ter 20/10, às 08:00: Third ("):-1], "RM_WHY_LATE", PT_CFG)  # validate: allow english-only -- the day words of a time are the value under test
     listed(day, notices="count")
     accept(day.path, language="pt-BR")
     day.say(OWNER, "/remind 2026-10-21 08:00 Fourth")
     day.clock.set("2026-10-21 08:00")
     day.bridge.tick()
-    assert day.texts(OWNER)[-1] == "Há um lembrete para agora (#3)."
+    pk.assert_said(day.texts(OWNER)[-1], "RM_COUNT_LINE", PT_CFG, id=3)
     assert "Fourth" not in " ".join(day.texts(OWNER))
 
 
 def test_an_english_project_gets_the_reminder_sentences_it_always_got(day):  # noqa: F811
     day.say(OWNER, f"/remind 15:00 {DENTIST}")
-    assert day.texts(OWNER)[-1] == f"Reminder #1: today, Sun 18/10, at 15:00 (BRT): {DENTIST}. To undo: /forget 1."
+    pk.assert_said(day.texts(OWNER)[-1], "NT_SET_TEXT", None, id=1, when="today, Sun 18/10, at 15:00 (BRT)", text=DENTIST)
     day.say(OWNER, "/forget 99")
-    assert day.texts(OWNER)[-1] == "No reminder 99 waits for you."
+    pk.assert_said(day.texts(OWNER)[-1], "RM_NO_SUCH", None, n=99)
     day.clock.set("2026-10-18 15:00")
     day.bridge.tick()
-    assert day.texts(OWNER)[-1] == f"Reminder: {DENTIST}"
+    pk.assert_said(day.texts(OWNER)[-1], "RM_TEXT_LINE", None, text=DENTIST)
     for tag in ("fr", "pt"):
         accept(day.path, language=tag)
         day.say(OWNER, "/forget 99")
-        assert day.texts(OWNER)[-1] == "No reminder 99 waits for you.", tag
+        pk.assert_said(day.texts(OWNER)[-1], "RM_NO_SUCH", {"language": tag}, n=99)

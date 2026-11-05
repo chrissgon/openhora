@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+import pytest
+
 import standin_tree as st
 from test_interface_adjustments import INTERFACE, run_node
 from test_interface_floor import needs_node
@@ -22,6 +24,7 @@ import { FakeNode, settle, find, all } from "@FAKE@";
 import * as fm from "@JS@/floor-model.js";
 import { createAgentTab, sha256Hex } from "@JS@/floor/agent-tab.js";
 
+@SLOW@
 const P = "0123456789ab";
 const WARNING = @WARNING@;
 const text = (n) => (n ? n.textContent : null);
@@ -56,6 +59,12 @@ const state = () => {
   return { warning: r.visible(".wb-wider-note"), consent: r.visible("button[data-key=give-consent]"), set: r.visible("button[data-key=set-model]"), code: r.visible("code[data-key=model-command]"),
     copy: r.visible("button[data-key=model-copy]"), line: text(find(tab.el, ".wb-model-consent-line")), failure: (() => { const n = find(tab.el, ".wb-model-box .wb-card-error"); return n && !n.hidden ? text(n) : null; })() };
 };
+// The click hashes the warning with the browser's SubtleCrypto, which answers from a thread pool: a fixed number of event-loop turns (`settle`) is not a wait for it on a loaded machine.
+const until = async (ok, ms = 10000) => {
+  const end = Date.now() + ms;
+  while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 5));
+  await settle();
+};
 const choose = async (model) => {
   const select = find(tab.el, ".wb-model-box select");
   select.value = model;
@@ -72,14 +81,14 @@ await choose("auto");
 out.autoModel = state();
 await choose("fm");
 find(tab.el, "button[data-key=give-consent]").click();
-await settle();
+await until(() => calls.refresh >= 1);
 out.gave = calls.give;
 out.refreshed = calls.refresh;
 out.setCalls = calls.set;
 out.expectedHash = await sha256Hex(WARNING);
 fail = "the warning the page showed is not the text this service holds";
 find(tab.el, "button[data-key=give-consent]").click();
-await settle();
+await until(() => state().failure !== null);
 out.failed = state().failure;
 fail = null;
 allowed = false;
@@ -97,9 +106,15 @@ process.exit(0);
 """
 
 
+# The hash of the warning answers 150 ms late, as it can on a machine under load: the test waits for the click's own effects, not for a number of turns of the event loop.
+SLOW_HASH = """const digest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+globalThis.crypto.subtle.digest = async (...args) => { await new Promise((r) => setTimeout(r, 150)); return digest(...args); };"""
+
+
 @needs_node
-def test_a_model_that_needs_the_consent_shows_the_warning_the_button_and_the_command_and_the_button_sends_the_four_values(tmp_path):
-    script = SCRIPT.replace("@WARNING@", json.dumps(WARNING)).replace("@CONFIG@", CONFIG)
+@pytest.mark.parametrize("slow", ["", SLOW_HASH], ids=["hash-at-once", "hash-150ms-late"])
+def test_a_model_that_needs_the_consent_shows_the_warning_the_button_and_the_command_and_the_button_sends_the_four_values(slow, tmp_path):
+    script = SCRIPT.replace("@WARNING@", json.dumps(WARNING)).replace("@CONFIG@", CONFIG).replace("@SLOW@", slow)
     got = run_node(tmp_path, script)
     c = got["consentModel"]
     assert c["warning"] and c["consent"] and not c["set"] and c["code"] and c["copy"], c

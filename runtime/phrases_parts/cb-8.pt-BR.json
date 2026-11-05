@@ -1,0 +1,8 @@
+{
+  "package": "cb-8",
+  "table": {
+    "RM_FORGET_WORDS_NONE": "Não achei um lembrete seu à espera com essas palavras. Peça a lista dos seus lembretes para ver quais são.",
+    "RM_FORGET_WORDS_WHICH": "Mais de um lembrete seu à espera combina com isso. Qual devo cancelar? Diga o número, por exemplo “cancela o lembrete 3”."
+  },
+  "same_as_english": []
+}

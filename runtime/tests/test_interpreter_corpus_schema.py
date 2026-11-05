@@ -206,3 +206,14 @@ def test_a_planted_item_with_an_unknown_op_fails_check(tmp_path):
     assert [p.split()[0] for p in module.check_items([planted], cat)] == ["dev-en-00002"]
     refused = dict(good, id="dev-en-00003", gold={"outcome": "op", "op": "approve", "slots": {}})
     assert module.check_items([refused], cat), "a refused op is no op of the catalog"
+
+
+def test_the_corpus_tool_accepts_a_plan_confirm_item_and_refuses_what_rule_r8_forbids():
+    """BL2a: the tool that checks the corpora knows the fifth kind and its rule (R8), as the interpreter's checker does."""
+    module = tool("interpreter_corpus_format")
+    cat = module.load_catalog(CATALOG)
+    plan = {"id": "i1", "kind": "plan-confirm", "need": "confirm", "op": "items", "age_s": 30}
+    assert "plan-confirm" in module.FRAME_KINDS
+    assert module.frame_problems({"v": 1, "items": [plan], "last": {"op": "items", "words": {}, "age_s": 30}}, cat) == []
+    assert module.frame_problems({"v": 1, "items": [dict(plan, need="text")], "last": None}, cat) != []
+    assert module.frame_problems({"v": 1, "items": [dict(plan, words={"title": "x"})], "last": None}, cat) != []

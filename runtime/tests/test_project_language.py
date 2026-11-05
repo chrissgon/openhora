@@ -14,6 +14,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_chat import ASKING, FLOW, reply, router_prompt, say
 from test_chat import tree as chat_tree  # noqa: F401
@@ -22,9 +23,12 @@ from test_contained_run import tree as contained_tree  # noqa: F401
 from test_instructions_runs import kept_prompts
 from test_service import api, call, world  # noqa: F401  (the service over a stand-in for the operations)
 
+PT = {"language": "pt-BR"}
+
 lab = st.load("lab")
 language = st.load("language")
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_language = st.load("ops_language")
 operations = st.load("operations")
@@ -242,7 +246,8 @@ def test_a_proposal_from_the_router_is_on_the_card_in_the_task_rows_after_approv
     reply(chat_tree, FLOW + "Language: en\n")
     out = say(chat_tree, "Write the market spec in English for the invented studio.")
     assert "Language: en (requested)" in out["reply"].splitlines(), "the conversation's reply shows it before the estimate"
-    assert out["reply"].index("Language: en (requested)") < out["reply"].index("Estimativa de execuções:"), "the estimate line is the project's language (pt-BR), LR-1"  # validate: allow english-only -- the estimate line of a pt-BR project is the phrase table's Portuguese sentence
+    lines = out["reply"].splitlines()
+    assert lines.index("Language: en (requested)") < next(i for i, line in enumerate(lines) if pk.said(line, "PLAN_ESTIMATE", PT)), "the estimate line is the project's language (pt-BR), LR-1"
     item = ops.pending(path, out["pending_id"])
     assert "Language: en (requested)" in item["body"].splitlines() and [t["language"] for t in item["payload"]["tasks"]] == ["en", "en"]
     request = next(r for r in rows(chat_tree) if r["id"] == out["request_id"])
@@ -394,7 +399,7 @@ def test_the_backlog_subtasks_a_delivery_spawns_carry_its_language_and_the_card_
                 "tasks": [{"key": "d1-backlog", "language": "en"}, {"key": "d2-backlog", "language": "es"}]}
     proposed = [{"key": "t-1", "skill": "demo-writes", "title": "T-1", "text": "do it.", "depends_on": [], "milestone": False},
                 {"key": "t-2", "skill": "demo-writes", "title": "T-2", "text": "do it.", "depends_on": [], "milestone": False}]
-    monkeypatch.setattr(ops, "_approved_plan", lambda c, rid: approved)
+    monkeypatch.setattr(ops_round, "_approved_plan", lambda c, rid: approved)
     monkeypatch.setattr(plan, "backlog_tasks", lambda p, root=None: [dict(t) for t in proposed])
     created = []
     monkeypatch.setattr(ops.ops_waits, "add_subtasks", lambda c, rid, tasks: created.extend(tasks) or {"tasks": []})

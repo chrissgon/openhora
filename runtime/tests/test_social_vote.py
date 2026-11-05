@@ -1,4 +1,4 @@
-"""Offline tests of the runtime's weekly vote step (scripts/runtime_vote.py, scripts/vote_job.py).
+"""Offline tests of the runtime's weekly vote step (runtime/handlers/social_vote.py, runtime/handlers/social_vote_job.py).
 
 The vcs provider, the contained run (a stand-in runtime/cli.py), the post checker, the renderer, the scheduler and the publisher are fakes;
 the store, vote_state.py, vote_update.py and payload.py are the real scripts, copied into a fake workbench.
@@ -648,7 +648,7 @@ def test_vote_job_without_a_post_address_records_nothing(env, tmp_path):
 
 
 def test_vote_job_with_its_publisher_gone_records_nothing(env, tmp_path):
-    # Test gap of the report: vote_job.py when the publisher is not found.
+    # Test gap of the report: social_vote_job.py when the publisher is not found.
     rt(env, "tick")
     job = json.loads(Path(inbox(env)[0]["payload"]["files"]["job"]["path"]).read_text())
     i = job["argv"].index("--publisher")

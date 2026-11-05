@@ -385,22 +385,51 @@ def test_a_loop_written_on_one_line_is_one_line_by_design_and_a_long_line_is_rea
     assert measure.collapse_loop("<invoke " * 25000) is None
     assert measure.collapse_loop("<function_calls>" * 12500 + "\n" + "\n".join(["<invoke name=x/>"] * 25)) is not None
 
-    def cpu_seconds(n):
-        """The CPU time of the process for the three long inputs at size n, the least of three tries. CPU time and not the
-        wall clock, so another test running beside it (pytest -n auto) does not lengthen it."""
-        best = None
-        for _ in range(3):
-            began = time.process_time()
-            measure.collapse_loop("<invoke name=x/>" * n)
-            measure.collapse_loop("<invoke " * (2 * n))
-            measure.collapse_loop("<function_calls>" * n + "\n" + "\n".join(["<invoke name=x/>"] * 25))
-            spent = time.process_time() - began
-            best = spent if best is None else min(best, spent)
-        return best
+    def work(n):
+        measure.collapse_loop("<invoke name=x/>" * n)
+        measure.collapse_loop("<invoke " * (2 * n))
+        measure.collapse_loop("<function_calls>" * n + "\n" + "\n".join(["<invoke name=x/>"] * 25))
 
-    # Linear work doubles when the input doubles (a ratio near 2); quadratic work quadruples (near 4). The bound sits between
+    # Linear work quadruples when the input does (a ratio near 4); quadratic work grows sixteen-fold (near 16). The bound sits between
     # them with slack on both sides, and no absolute time is asserted: a loaded machine is slower, not quadratic.
-    assert cpu_seconds(12500) / cpu_seconds(6250) < 3.2
+    assert cpu_growth(work, 12500, 50000) < 8
+
+
+def cpu_growth(work, small, large, tries=5):
+    """The CPU time of work(large) over that of work(small), each the least of `tries` runs. CPU time and not the wall clock, so
+    another test running beside it (pytest -n auto) does not lengthen it; the least of several runs, so one preempted run does not either."""
+    import time
+
+    def best(n):
+        least = None
+        for _ in range(tries):
+            began = time.process_time()
+            work(n)
+            spent = time.process_time() - began
+            least = spent if least is None else min(least, spent)
+        return least
+
+    return best(large) / best(small)
+
+
+def test_vacuity_the_growth_check_fails_a_quadratic_stand_in_and_passes_a_linear_one():
+    """The sensitivity of the bound above (it asserts under 8): the same measure on work that is quadratic in n, in this file only."""
+    def quadratic(n):
+        side = n // 20
+        total = 0
+        for i in range(side):
+            for j in range(side):
+                total += i ^ j
+        return total
+
+    def linear(n):
+        total = 0
+        for i in range(n * 20):
+            total += i ^ 3
+        return total
+
+    assert cpu_growth(quadratic, 12500, 50000) > 8
+    assert cpu_growth(linear, 12500, 50000) < 8
 
 
 def test_another_formats_parameter_tag_is_not_a_call():

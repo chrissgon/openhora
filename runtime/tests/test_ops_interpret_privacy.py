@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_ask import accept, write_config
 from test_ops_interpret_dispatch import IX_PROFILES, IX_SENDERS, KEY, ZONE, op
@@ -61,17 +62,17 @@ def test_a_spanish_reminder_a_french_event_and_a_failed_call_leave_the_token_now
     caplog.set_level(1)
     stand_in(world, monkeypatch, [REMIND_JSON, EVENT_JSON])
     asked = phone(world, REMIND)["reply"]
-    assert "llamar a Zebulon42" in asked and asked.endswith("Confirm? (yes / another time)"), "the reminder reached the question that asks for a yes"
+    pk.assert_said(asked, "NT_CONFIRM_TEXT", None, text="llamar a Zebulon42")      # the reminder reached the question that asks for a yes
     opened = phone(world, EVENT)["reply"]
-    assert opened == "None of your accounts is set up for this: the key accounts of runtime.json lists them, with what each may write to.", "the event reached its family, which has no account here"
+    pk.assert_said(opened, "NW_NO_ACCOUNT", None)      # the event reached its family, which has no account here
     monkeypatch.setattr(interpreter_route, "complete", lambda route_id, system, user, **kw: {"ok": False, "code": "E_NETWORK"})
     write_config(world["path"], language="es")
     accept(world["path"], policies=IX_PROFILES, messaging={"senders": IX_SENDERS})
-    assert phone(world, "llama a Zebulon42 manana")["reply"] == "I could not understand that right now. Try again in a few minutes."
+    pk.assert_said(phone(world, "llama a Zebulon42 manana")["reply"], "IX_OUTAGE", {"language": "es"})      # es has no table: the English sentence
     assert where_found(tmp_path, caplog, capfd) == []
     ctx = ops_core.context(world["path"])
     shown = [m["text"] for m in ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=50)]
-    assert shown[:2] == ["(a message)", "(reminder)"] and shown.count("(a message)") == 3
+    assert pk.said(shown[0], "IX_PRIVATE_LINE", None) and pk.said(shown[1], "NAT_PRIVATE_REPLY", None) and sum(pk.said(m, "IX_PRIVATE_LINE", None) for m in shown) == 3
 
 
 def test_a_line_the_interpreter_sends_to_the_planning_agent_is_stored_as_it_always_was(world, monkeypatch, tmp_path, caplog, capfd):

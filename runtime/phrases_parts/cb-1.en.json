@@ -1,0 +1,19 @@
+{
+  "package": "cb-1",
+  "table": {
+    "NW_ITEMS_MATCH_WORDS": "with “{words}”",
+    "NW_ITEMS_MATCH_UNREAD": "(unread only)",
+    "NW_ITEMS_MATCH_HEAD": "Your e-mails{filter}:",
+    "NW_ITEMS_MATCH_HEAD_CAL": "Events{filter}:",
+    "NW_ITEMS_EMPTY_MAIL_MATCH": "No e-mail{filter} in the {name} ({state}).",
+    "NW_ITEMS_EMPTY_CAL_MATCH": "No event{filter} in the {name} ({state}).",
+    "NW_ITEMS_UNREAD_UNKNOWN": "I cannot tell which e-mails in the {name} are unread: the provider did not say which ones were read.",
+    "NW_ITEMS_MATCH_EMPTY": "I found no word to look for in that, so this is the whole list.",
+    "NW_ITEMS_MATCH_NODATE": "Left out of the day filter: {n} with no date.",
+    "NW_ITEMS_MATCH_DAY": "I did not understand which day or week you mean. Say, for example, today, tomorrow, Friday or this week.",
+    "NW_ITEMS_MATCH_STATE": "I can only narrow the list to the unread e-mails. Ask for the unread ones, or for the whole list.",
+    "UNDERSTOOD_ITEMS_MAIL_MATCH": "list your e-mails with “{words}”",
+    "UNDERSTOOD_ITEMS_CALENDAR_MATCH": "show the events of your calendar with “{words}”",
+    "UNDERSTOOD_ITEMS_UNREAD": "(only the unread ones)"
+  }
+}

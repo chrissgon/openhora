@@ -401,15 +401,32 @@ def test_download_run_by_an_interpreter_or_process_substitution(tmp_path):
         ("a.sh", "pipe-to-shell"), ("b.sh", "pipe-to-shell"), ("c.sh", "pipe-to-shell"), ("d.sh", "pipe-to-shell")]
 
 
-def test_this_repository_has_no_security_warning():
-    """The hook and the validate job run the scan with --strict, so the tree must hold no warning."""
+def test_the_hook_and_the_validate_job_stop_on_any_security_warning():
+    """Every commit and every pull request is scanned with --strict, whatever tests are selected: hook step 2, before the tests are
+    chosen, and a step of the validate job, a required check with no condition. The whole-tree scan moved to test_security_scan_repo.py
+    (the nightly run, docs/decisions.md, the entry of T2b); test_cli_exit_codes_and_json above shows that --strict exits 1 on a warning."""
     repo = SCRIPT.parents[1]
-    _, active, _ = scanner.scan(str(repo))
-    assert [(f["path"], f["line"], f["rule"]) for f in active] == []
-    hook = (repo / ".githooks" / "pre-commit").read_text()
-    workflow = (repo / ".github" / "workflows" / "checks.yml").read_text()
-    assert "python3 scripts/security_scan.py --strict" in hook
-    assert "python3 scripts/security_scan.py --strict" in workflow.split("\n  tests:")[0]
+    hook = (repo / ".githooks" / "pre-commit").read_text(encoding="utf-8")
+    step = 'if ! out="$(python3 scripts/security_scan.py --strict 2>&1 >/dev/null)"; then'
+    assert "set -euo pipefail" in hook and step in hook
+    body = hook.split(step, 1)[1].split("\nfi\n", 1)[0]
+    assert 'echo "$out" >&2' in body and "\n  fail " in body
+    assert hook.index(step) < hook.index("scripts/select_tests.py --files-from -")
+    workflow = (repo / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+    validate = workflow.split("\n  validate:\n", 1)[1].split("\n  tests", 1)[0]
+    code = [line for line in validate.splitlines() if not line.lstrip().startswith("#")]
+    assert "        run: python3 scripts/security_scan.py --strict" in code
+    assert not [line for line in code if line.strip().startswith("if:")] and not [line for line in code if "continue-on-error" in line]
+
+
+def test_vacuity_a_condition_or_a_tolerated_failure_on_the_scan_step_is_seen():
+    workflow = (SCRIPT.parents[1] / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
+    for planted in ("        if: false\n", "        continue-on-error: true\n"):
+        text = workflow.replace("      - name: Security scan, warnings included\n", "      - name: Security scan, warnings included\n" + planted, 1)
+        assert text != workflow
+        validate = text.split("\n  validate:\n", 1)[1].split("\n  tests", 1)[0]
+        code = [line for line in validate.splitlines() if not line.lstrip().startswith("#")]
+        assert [line for line in code if line.strip().startswith("if:") or "continue-on-error" in line]
 
 
 def test_the_data_and_fixtures_of_scripts_tests_are_not_read_as_scripts_by_the_effect_rule(tmp_path):
@@ -422,3 +439,35 @@ def test_the_data_and_fixtures_of_scripts_tests_are_not_read_as_scripts_by_the_e
     _, active, _ = scanner.scan(str(tmp_path))
     assert sorted((f["rule"], f["path"]) for f in active) == [
         ("undeclared-side-effect", "skills/ops-quiet/scripts/data.json"), ("undeclared-side-effect", "skills/ops-quiet/scripts/tests/test_ship.sh")]
+
+
+# ---- the allow file is sorted (HOT-1; SPEC-HOTSPOTS 4.5) ----------------------------------------------------------------------------------------------
+
+def allow_entry_problems(text: str) -> list[str]:
+    """What is wrong with the entry lines of an allow file (the lines that are not blank and not a `#` comment): an entry twice, or entries not in byte order. A new entry then lands at
+    its own sorted place, so two packages conflict only when their paths are neighbours."""
+    entries = [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
+    found = []
+    if len(set(entries)) != len(entries):
+        found.append("an entry is listed twice")
+    if entries != sorted(entries, key=lambda line: line.encode("utf-8")):
+        found.append("the entries are not sorted in byte order")
+    return found
+
+
+def test_the_entries_of_the_allow_file_of_this_repository_are_sorted_and_unique_and_the_scanner_reads_them_as_before():
+    text = (Path(__file__).resolve().parents[2] / ".security-scan-allow").read_text(encoding="utf-8")
+    assert allow_entry_problems(text) == []
+    assert text.splitlines()[:4] == [line for line in text.splitlines()[:4] if line.startswith("#")], "the four header lines stay first"
+    entries, errors = scanner.load_allow_file(str(Path(__file__).resolve().parents[2]))
+    assert errors == [] and len(entries) == len([line for line in text.splitlines() if line.strip() and not line.startswith("#")])
+
+
+def test_vacuity_an_unsorted_or_repeated_allow_file_is_caught(tmp_path):
+    sorted_text = "# header\nfixtures/a.py secret-assignment -- one\nfixtures/b.py secret-assignment -- two\n"
+    assert allow_entry_problems(sorted_text) == []
+    assert allow_entry_problems("# header\nfixtures/b.py secret-assignment -- two\nfixtures/a.py secret-assignment -- one\n") == ["the entries are not sorted in byte order"]
+    assert allow_entry_problems(sorted_text + "fixtures/b.py secret-assignment -- two\n") == ["an entry is listed twice"]
+    write(tmp_path, ".security-scan-allow", "# header\nfixtures/b.py secret-assignment -- two\nfixtures/a.py secret-assignment -- one\n")
+    entries, _ = scanner.load_allow_file(str(tmp_path))
+    assert sorted(path for path, *_ in entries) == ["fixtures/a.py", "fixtures/b.py"], "the order carries no meaning to the scanner"

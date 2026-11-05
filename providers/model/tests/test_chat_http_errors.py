@@ -58,9 +58,36 @@ def test_a_reply_over_the_size_limit_is_refused_and_one_at_the_limit_is_not(stub
     assert json.loads(run(["complete"], secret_request(route(stub))).stdout)["text"] == "ok"
 
 
-def test_a_reply_from_another_provider_than_the_pin_is_refused_and_its_text_is_not_printed(stub):
+def test_a_reply_from_another_provider_than_the_pin_is_refused_its_name_is_printed_and_its_text_is_not(stub):
+    """S41-10: a provider's name is not sensitive and the single-call probe needs it: one line with the lower-cased name comes before the code line."""
     stub.ok(content=BODY_MARKER, provider="Another-Provider")
-    fails(run(["complete"], secret_request(route(stub))), "E_PIN", 1)
+    done = run(["complete"], secret_request(route(stub)))
+    assert done.stderr == "chat-http: provider another-provider\nchat-http: E_PIN\n" and done.stdout == "" and done.returncode == 1
+    assert leaked(MARKERS, done.stdout, done.stderr) == []
+
+
+@pytest.mark.parametrize("name,printed", [("Google Vertex", "google vertex"), ("A" * 200, "a" * 64), ("na\u00efve\nname", "na?ve?name"), ("x" + "\x1b[31m", "x??31m")])
+def test_the_name_printed_on_a_pin_mismatch_is_lower_case_printable_and_at_most_sixty_four_characters(stub, name, printed):
+    stub.ok(provider=name)
+    done = run(["complete"], secret_request(route(stub)))
+    assert done.stderr == f"chat-http: provider {printed}\nchat-http: E_PIN\n" and done.returncode == 1
+
+
+def test_a_route_with_a_pin_reply_is_compared_with_it_in_any_case_and_not_with_the_pin(stub):
+    """S41-10: the router may name the pinned provider otherwise than the slug it is asked for by (`google-vertex` is asked, `Google Vertex` may answer)."""
+    rt = route(stub, pin="provider-a", pin_reply="Provider A Region")
+    stub.ok(provider="provider a REGION")
+    assert run(["complete"], request(rt)).returncode == 0
+    stub.ok(provider="provider-a")
+    done = run(["complete"], request(rt))
+    assert done.returncode == 1 and done.stderr == "chat-http: provider provider-a\nchat-http: E_PIN\n", "the pin's own spelling is not the reply's when the row says otherwise"
+    stub.ok(provider="Provider-A")
+    assert run(["complete"], request(route(stub))).returncode == 0, "a route without pin_reply is compared with its pin, as before"
+
+
+@pytest.mark.parametrize("bad", ["", 7, None, ["a"]])
+def test_a_pin_reply_that_is_not_a_text_is_a_usage_error(stub, bad):
+    fails(run(["complete"], request(route(stub, pin_reply=bad))), "E_USAGE", 2)
 
 
 def test_a_reply_that_names_the_pin_in_other_case_passes_and_a_route_without_a_pin_accepts_any(stub):

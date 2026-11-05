@@ -102,7 +102,7 @@ def test_a_prompt_that_copies_a_runtime_task_may_name_its_skill(tree):
     assert messages(run_skill(tree), "eval-prompt-names-skill") == [
         "[eval-prompt-names-skill] the prompt names the skill under test, which the run without the skill cannot "
         "follow: case 2"]  # the runtime's line counts only as the first line of the prompt
-    for script in ("scripts/runtime.py", "scripts/runtime_vote.py"):  # the line the runtime writes
+    for script in ("runtime/handlers/social.py", "runtime/handlers/social_vote.py"):  # the line the runtime writes (T6: was the first runtime's scripts)
         assert validate.RUNTIME_TASK_RE.pattern.replace("\\", "") in (REPO / script).read_text(encoding="utf-8")
 
 

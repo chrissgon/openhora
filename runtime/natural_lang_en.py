@@ -114,23 +114,15 @@ TABLE = {
     "date_cues": ["on", "until", "by", "for", "before", "due"],
     # words at the edge of the reminder's words that are not part of them ("to call mom", "mom for")
     "edge_words": ["to", "about", "of", "that", "for", "and", "or", "at", "on", "in"],
-    # words that say a line is about reminders not working, not a request about them
-    "problem_words": ["not", "never", "broken", "bug", "bugs", "fail", "fails", "failed", "failing", "error", "errors", "doesnt", "dont", "wont", "isnt", "arent",
-                      "late", "why", "stuck", "wrong", "missing", "work", "works", "working"],
     # a verb or the opening of a request for work: a line that holds one is not the words of a reminder
     "work_verbs": ["write", "create", "make", "generate", "build", "draft", "prepare", "review", "analyze", "analyse", "summarize", "summarise", "search", "find",
                    "send", "publish", "post", "plan", "design", "implement", "fix", "check", "run", "show", "list", "give", "tell", "please", "want", "need",
                    "could", "would", "can", "schedule", "book", "update", "delete", "remove", "explain", "ask", "request", "compose", "notify"],
-    # the words after a bare calendar noun that make it a question about the calendar, not a request to write to it
-    "calendar_noun_reads": ["of", "for", "on", "today", "tomorrow", "this", "next", "view", "full"],
     # the words that start a line the engine reads as a request of the tier
     "triggers": {
         "remind": ["remind me", "reminder", "set a reminder", "set reminder", "create a reminder", "make a reminder", "add a reminder", "new reminder"],
         # a verb phrase that makes a reminder wherever it stands in the line, when the line holds a time
         "remind_anywhere": ["remind me"],
-        "reminders": ["my reminders", "list my reminders", "list reminders", "show my reminders", "show reminders", "what reminders", "which reminders"],
-        # a word that is a list request only when it is the whole line
-        "reminders_bare": ["reminders"],
         # a verb with a calendar word: an event write (not built)
         "calendar": ["put on my calendar", "put it on my calendar", "add to my calendar", "add it to my calendar", "put in my calendar", "create an event",
                      "create event", "add an event", "put on the calendar", "add to the calendar"],
@@ -140,16 +132,8 @@ TABLE = {
         "calendar_noun": ["calendar"],
         # a scheduling verb with no calendar word: the person is asked whether it is an event or something else
         "calendar_loose": ["schedule", "book"],
-        "note": ["note"],
-        "undo": ["undo", "undo that", "undo it", "bring it back", "bring that back", "restore it"],
     },
-    "forget": {"verbs": ["forget", "cancel", "delete", "remove", "drop"], "nouns": ["reminder", "reminders"], "fillers": ["the", "my", "of", "number", "no", "n"],
-               # the words that make the number after the noun its id ("reminder number 9"); any other word between them is not an id
-               "id_words": ["number", "n", "num", "nr"],
-               # words that make the number after them an id only when written with a full stop or glued to it ("no. 3", "no3"); "no 3" is a preposition and a number
-               "id_marked": ["no"]},
-    # the noun of a reminder: "schedule a reminder", "book a reminder" make a reminder, whatever the scheduling verb
-    "remind_nouns": ["reminder", "reminders"],
+    "forget": {"nouns": ["reminder", "reminders"], "fillers": ["the", "my", "of", "number", "no", "n"]},
     # a week that is named without a day: the day of it is asked ("next week at 10")
     "week_phrases": ["of next week", "in next week", "next week"],
     # "30 minutes before the meeting at 3pm": the offset is taken off the hour that follows
@@ -158,6 +142,12 @@ TABLE = {
     "topic_words": ["of", "about"],
     # the word that joins a date to the hour before it ("9am on 12/12")
     "date_after_clock": ["on"],
+    # a date right after one of these, after the moment, is the content of the request, not its moment ("tomorrow at 9am ... before it expires on the 15th"); never "before", "until" or "by": they may name the moment
+    "deadline_words": ["expires", "expire", "expiring", "expired", "due", "deadline"],
+    # a date right after one of these is where something goes, never the content of the request ("move the meeting to the deadline on the 20th")
+    "deadline_to": ["to", "for", "until", "till", "into"],
+    # a word between the moment and the date that says a second moment follows ("tomorrow at 9am, then again on the due date, the 15th")
+    "deadline_breaks": ["then", "again", "and", "also"],
     "polite": ["please", "can you", "could you", "would you", "hey", "hi"],
     # "yes, but at 3pm": the word that joins a yes to the change
     "but_words": ["but", "except", "only"],
@@ -263,6 +253,8 @@ TABLE = {
             "polite": ["please", "pls", "can you", "could you", "would you", "hey", "hi"],
             "articles": ["a", "an", "the", "my", "our", "your", "new"],
             "joiners": ["and"],
+            # the words that turn the noun after them into the one the person does not want ("the e-mails, not the calendar"): never "no" (the lists merge across tables and the pt-BR "no" is "in the")
+            "negators": ["not", "never", "without", "except", "instead of", "rather than"],
             "range": ["to", "through", "thru"],
             "service_in": ["on", "in", "to", "via", "using", "from", "on my", "in my", "to my", "from my"],
             # the words that may surround the kind in the answer to the reminder-or-event question (an article, a possessive, a place word, a polite word): a closed list
@@ -313,7 +305,7 @@ TABLE = {
                 "create_verbs": ["create", "make", "save", "write"],
                 "replace_verbs": ["replace", "swap", "overwrite", "update"],
                 "save_verbs": ["save", "upload", "store", "put", "keep", "send", "drop"],
-                "nouns": ["file", "document", "note", "doc", "text file"],
+                "nouns": ["file", "document", "note", "doc", "text file", "spreadsheet"],
                 "named": ["named", "called", "with the name"],
                 "content": ["with the text", "with the content", "saying", "that says", "containing"],
                 "folder": ["in the folder", "to the folder", "into the folder", "in folder"],

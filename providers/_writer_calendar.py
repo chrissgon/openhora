@@ -13,7 +13,10 @@ parts that must be the same in both writers so that they cannot drift apart.
                          providers/mailer/smtp.py)
   canonical, sha         the one text a request is hashed from, and its sha256 (`would_sha256` of a dry run)
   read_spec              the spec file a writer is handed (the person's words, in a private file, never on a command line), read without following a link and
-                         checked: the keys of a create or of a change, the limits, the forms of the times
+                         checked: the keys of a create or of a change, the limits, the forms of the times, and, for a series (package CB-6), the closed
+                         `recurrence` (daily, or weekly on one weekday, no end) and the `time_zone` it is expanded in
+  zone_name, parse_instant, utc_text, local_weekday, local_date, window   the closed helpers of the series: a zone name checked, an instant read, the same
+                         instant in UTC, its weekday and date in a zone, and a window of at most two days (the read of a series' instances)
   KEY, EVENT_ID, CALENDAR_ID   the full-match patterns of the ids that enter a path
 
 Standard library only. Runs on Python 3.9. It sends nothing: no method, no path, no URL is in this file (limits L57 and L58 are each writer's own).
@@ -30,6 +33,7 @@ import re
 import stat
 import time
 import unicodedata
+from zoneinfo import ZoneInfo
 
 EXIT_OK, EXIT_REFUSED, EXIT_USAGE, EXIT_NOT_CONFIGURED, EXIT_UNKNOWN = 0, 1, 2, 3, 4
 STATE_ENV = "OPENHORA_STATE_DIR"
@@ -45,6 +49,11 @@ DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 TITLE_MAX, LOCATION_MAX, NOTES_MAX, REMINDER_MAX = 200, 200, 2000, 40320
 HIDDEN = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format, separators, surrogate, private use
 CREATE_KEYS = ("title", "all_day", "start_at", "end_at", "location", "reminder_minutes", "notes")
+SERIES_KEYS = ("recurrence", "time_zone")      # a create spec holds both of them or neither (CB-6): a series is written in the zone it is expanded in
+WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")      # Monday first, the order of datetime.weekday()
+ZONE_NAME = re.compile(r"[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2}")      # an IANA name: Area/Place or Area/Region/Place (no dot, so no `..`)
+RULE_WORD = re.compile(r"daily|weekly:(?:MO|TU|WE|TH|FR|SA|SU)|other")      # the closed reading of a series' rule that `event-get` prints
+WINDOW_MAX_SECONDS = 2 * 24 * 3600      # the read of a series' instances is at most two days wide
 WHEN_KEYS = ("all_day", "start_at", "end_at")
 CHANGE_KEYS = ("title", "location", "reminder_minutes", "notes") + WHEN_KEYS
 
@@ -195,6 +204,75 @@ def settle(implementation: str, key: str, status: str, **facts) -> None:
             del ledger["keys"][key]
 
 
+# --- the closed words of a series (CB-6) ------------------------------------------------------------------------------------------------------------
+
+
+def zone_name(value, what: str = "time_zone") -> str:
+    """An IANA zone name, checked: the form Area/Place (or Area/Region/Place) and a zone the machine's database loads. Usage error (exit 2) otherwise. `what` names
+    the flag or key in the message."""
+    if not isinstance(value, str) or not ZONE_NAME.fullmatch(value):
+        raise WriterError(f"{what} is an IANA zone name such as America/Sao_Paulo", EXIT_USAGE)
+    try:
+        ZoneInfo(value)
+    except Exception:
+        raise WriterError(f"{what} {value}: this machine's zone database does not know that zone", EXIT_USAGE) from None
+    return value
+
+
+def parse_instant(text: str) -> datetime.datetime:
+    """An INSTANT string as an aware datetime. ValueError when it is not a real time."""
+    return datetime.datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+
+
+def utc_text(moment: datetime.datetime) -> str:
+    return moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def local_weekday(instant: str, zone: str) -> str:
+    """The weekday (MO..SU) of an instant on the wall clock of `zone`."""
+    return WEEKDAYS[parse_instant(instant).astimezone(ZoneInfo(zone)).weekday()]
+
+
+def local_date(instant: str, zone: str) -> str:
+    """The date (YYYY-MM-DD) of an instant on the wall clock of `zone`."""
+    return parse_instant(instant).astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d")
+
+
+def window(first, last) -> tuple:
+    """(the start, the end) of a window of instants as UTC `...Z` texts: both are an instant with its offset, the end is after the start, and the window is at most
+    two days wide. Usage error (exit 2) otherwise."""
+    if not all(isinstance(v, str) and INSTANT.fullmatch(v) for v in (first, last)):
+        raise WriterError("--from and --to are an instant with its offset", EXIT_USAGE)
+    try:
+        a, b = parse_instant(first), parse_instant(last)
+    except ValueError:
+        raise WriterError("--from and --to are real times", EXIT_USAGE) from None
+    if b <= a:
+        raise WriterError("--to is after --from", EXIT_USAGE)
+    if (b - a).total_seconds() > WINDOW_MAX_SECONDS:
+        raise WriterError("the window of --from and --to is at most two days wide", EXIT_USAGE)
+    return utc_text(a), utc_text(b)
+
+
+def _series(spec: dict) -> None:
+    """The series part of a create spec: a timed event, a zone, and a recurrence that is `daily` or `weekly` on one weekday that is the weekday of the start in that
+    zone, with nothing else (no end, no interval, no month day). Usage error (exit 2) otherwise."""
+    if spec["all_day"] is not False:
+        raise WriterError("a series is made of timed events: all_day is false when there is a recurrence", EXIT_USAGE)
+    zone = zone_name(spec["time_zone"], "time_zone")
+    rule = spec["recurrence"]
+    if not isinstance(rule, dict) or type(rule.get("freq")) is not str or rule["freq"] not in ("daily", "weekly"):
+        raise WriterError('recurrence is {"freq": "daily"} or {"freq": "weekly", "byday": "MO".."SU"} and nothing else', EXIT_USAGE)
+    if rule["freq"] == "daily":
+        if set(rule) != {"freq"}:
+            raise WriterError('a daily recurrence is {"freq": "daily"} and nothing else', EXIT_USAGE)
+        return
+    if set(rule) != {"freq", "byday"} or type(rule["byday"]) is not str or rule["byday"] not in WEEKDAYS:
+        raise WriterError('a weekly recurrence is {"freq": "weekly", "byday": "MO".."SU"} and nothing else', EXIT_USAGE)
+    if local_weekday(spec["start_at"], zone) != rule["byday"]:
+        raise WriterError(f"the weekly recurrence is on {rule['byday']}, and the event starts on {local_weekday(spec['start_at'], zone)} in {zone}", EXIT_USAGE)
+
+
 # --- the spec file ------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -224,8 +302,8 @@ def _times(spec: dict) -> None:
 
 
 def read_spec(path, operation: str) -> dict:
-    """The spec the writer is handed in a file. `operation` is `create` (the whole event) or `change` (the parts to change: any of CHANGE_KEYS, the three times
-    together). Usage error (exit 2) when the file cannot be read, is not an object, or holds a key, a limit or a form that is not allowed."""
+    """The spec the writer is handed in a file. `operation` is `create` (the whole event, and for a series also `recurrence` and `time_zone`) or `change` (the parts to change: any of
+    CHANGE_KEYS, the three times together; a change never carries a recurrence). Usage error (exit 2) when the file cannot be read, is not an object, or holds a key, a limit or a form that is not allowed."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except (OSError, TypeError):
@@ -246,9 +324,11 @@ def read_spec(path, operation: str) -> dict:
     if not isinstance(spec, dict):
         raise WriterError("--spec-file is one JSON object", EXIT_USAGE)
     if operation == "create":
-        if set(spec) != set(CREATE_KEYS):
-            raise WriterError(f"the spec of a new event has exactly the keys {', '.join(CREATE_KEYS)}", EXIT_USAGE)
+        if set(spec) not in (set(CREATE_KEYS), set(CREATE_KEYS) | set(SERIES_KEYS)):
+            raise WriterError(f"the spec of a new event has exactly the keys {', '.join(CREATE_KEYS)}, and for a series also {', '.join(SERIES_KEYS)} together", EXIT_USAGE)
         _times(spec)
+        if "recurrence" in spec:
+            _series(spec)
     else:
         if not spec or set(spec) - set(CHANGE_KEYS) or (set(spec) & set(WHEN_KEYS) and set(WHEN_KEYS) - set(spec)):
             raise WriterError(f"the spec of a change has some of {', '.join(CHANGE_KEYS)}, and the three times together", EXIT_USAGE)

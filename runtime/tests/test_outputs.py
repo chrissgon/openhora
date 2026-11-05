@@ -191,7 +191,7 @@ def opened(world, task):
 
 
 def approve(world, item, channel="terminal"):
-    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
 
 
 def effect_doc(world, task, cycle=0):
@@ -370,7 +370,7 @@ def test_limit_31_an_output_is_not_approved_from_messaging_the_tool_server_or_a_
     item = opened(world, task)
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
-            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
         assert "approved in the terminal" in str(refused.value)
     with pytest.raises(ops_core.OpsError) as refused:
         ops.approve(world["path"], item["id"], sha256="0" * 64, channel="terminal")
@@ -1460,9 +1460,8 @@ def cancel_by(world, how, request, monkeypatch):
         st.load("ops_routines")._close_stops(ctx, 1)
         return None
     say = st.load("ops_say")
-    fake_ops = type("Ops", (), {"request": staticmethod(lambda project, text, **kw: {"request": request}),
-                                "route": staticmethod(lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})})
-    monkeypatch.setattr(say, "_ops", lambda: fake_ops)
+    monkeypatch.setattr(st.load("ops"), "request", lambda project, text, **kw: {"request": request})      # 44-C2: ops_say reaches the two through ops_facade, which reads ops.<name> at the call
+    monkeypatch.setattr(st.load("ops"), "route", lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})
     monkeypatch.setattr(say, "_planning_may_start", lambda ctx: (True, ""))
     monkeypatch.setattr(say, "state_reply", lambda project, nxt, cfg=None: "a direct reply")
     say._say_route(world["path"], ctx, "what is the plan?", 10**9, "terminal")

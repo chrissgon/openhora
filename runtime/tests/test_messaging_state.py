@@ -142,18 +142,18 @@ def card(project, chat, number, actions, platform=None):
 def test_the_ledger_lives_in_the_state_folder_keyed_by_platform_project_and_chat(tmp_path, state):
     folder = ledgers.prepare_state_dir()
     one = ledgers.Ledger(folder, "telegram")
-    one.add(card("aaaaaaaaaaaa", "4242", 1, {"1:approve": "approve"}))
+    one.add(card("aaaaaaaaaaaa", "830461975213", 1, {"1:approve": "approve"}))
     assert one.path == os.path.join(folder, PROJECT_FILE) and stat.S_IMODE(os.stat(one.path).st_mode) == 0o600
     assert json.loads(open(one.path).read())["cards"][0]["platform"] == "telegram"
-    assert one.sent("aaaaaaaaaaaa", 1, "c" * 64, "4242")
+    assert one.sent("aaaaaaaaaaaa", 1, "c" * 64, "830461975213")
     # the same decision number in another project, or another chat, is another card
-    assert not one.sent("bbbbbbbbbbbb", 1, "c" * 64, "4242") and not one.sent("aaaaaaaaaaaa", 1, "c" * 64, "7")
+    assert not one.sent("bbbbbbbbbbbb", 1, "c" * 64, "830461975213") and not one.sent("aaaaaaaaaaaa", 1, "c" * 64, "7")
     # a card of another platform in the same file is never found by this one
-    one.data["cards"].append(dict(card("aaaaaaaaaaaa", "4242", 9, {"9:approve": "approve"}), platform="other"))
-    assert one.by_action("4242", "9:approve") is None and one.last_card("aaaaaaaaaaaa", 9, "4242") is None
+    one.data["cards"].append(dict(card("aaaaaaaaaaaa", "830461975213", 9, {"9:approve": "approve"}), platform="other"))
+    assert one.by_action("830461975213", "9:approve") is None and one.last_card("aaaaaaaaaaaa", 9, "830461975213") is None
     # two sets of projects, run one after the other, keep separate cards
     second = ledgers.Ledger(folder, "telegram")
-    assert second.sent("aaaaaaaaaaaa", 1, "c" * 64, "4242") and not second.sent("cccccccccccc", 1, "c" * 64, "4242")
+    assert second.sent("aaaaaaaaaaaa", 1, "c" * 64, "830461975213") and not second.sent("cccccccccccc", 1, "c" * 64, "830461975213")
 
 
 def test_the_one_time_migration_copies_the_served_projects_with_seq_and_offset_and_leaves_the_old_file(tmp_path, state):
@@ -162,8 +162,8 @@ def test_the_one_time_migration_copies_the_served_projects_with_seq_and_offset_a
     old_folder.mkdir()
     old = old_folder / PROJECT_FILE
     old.write_text(json.dumps({"version": 1, "offset": 77, "seq": 5, "cards": [
-        card("aaaaaaaaaaaa", "4242", 1, {"5:approve": "approve", "5:reject": "reject"}),
-        card("bbbbbbbbbbbb", "4242", 2, {"4:approve": "approve"})]}))
+        card("aaaaaaaaaaaa", "830461975213", 1, {"5:approve": "approve", "5:reject": "reject"}),
+        card("bbbbbbbbbbbb", "830461975213", 2, {"4:approve": "approve"})]}))
     before = old.read_text()
     lines = []
     one = ledgers.Ledger(folder, "telegram", legacy_folder=str(old_folder), served=["aaaaaaaaaaaa"], log=lines.append)
@@ -174,8 +174,8 @@ def test_the_one_time_migration_copies_the_served_projects_with_seq_and_offset_a
     assert os.path.exists(one.path)
     # a tap on an action id of the migrated card, after a new card was sent, acts on the old card's decision
     assert one.next_seq() == 6
-    one.add(card("aaaaaaaaaaaa", "4242", 3, {"6:approve": "approve"}))
-    found = one.by_action("4242", "5:approve")
+    one.add(card("aaaaaaaaaaaa", "830461975213", 3, {"6:approve": "approve"}))
+    found = one.by_action("830461975213", "5:approve")
     assert found["pending_id"] == 1 and found["project"] == "aaaaaaaaaaaa"
     # once only: with the new file there, a later start does not read the old file again
     old.write_text(json.dumps({"version": 1, "offset": 1, "seq": 1, "cards": []}))
@@ -229,7 +229,7 @@ def world(tmp_path):
         mode = w.mode[project]
         base = {"path": project, "sha256": "a" * 64, "accepted": mode != "unaccepted", "data_dir": str(tmp_path / "data")}
         if mode in ("ready", "now-ready"):
-            base["messaging"] = {"senders": {"telegram": ["4242"]}}
+            base["messaging"] = {"senders": {"telegram": ["830461975213"]}}
         return base
     w.fake.config = lambda project: config(project)
     w.fake.answers["pending"] = {"pending": []}
@@ -325,7 +325,7 @@ def driver(tmp_path, args, marker):
             operations = operations
             def config(self, project):
                 return {{"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": {str(tmp_path / "data")!r},
-                        "messaging": {{"senders": {{"telegram": ["4242"]}}}}}}
+                        "messaging": {{"senders": {{"telegram": ["830461975213"]}}}}}}
             def pending(self, project, pending_id=None):
                 return {{"pending": []}}
             def reminders_due(self, project, platform):

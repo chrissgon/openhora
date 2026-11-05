@@ -176,7 +176,7 @@ def _claim(line: str):
     text = URL.sub("", text)
     text = re.sub(r"`+|\*{1,3}|__", "", text)      # code spans, bold and italics (an underscore inside a word stays)
     text = re.sub(r"\s+", " ", text).strip().rstrip(" —–-,;:")
-    if not text or NOT_FOR_A_CHAT.search(text) or NOTHING_NEW.match(text) or text.startswith("/") or CARD_LIKE.search(text) or card_words.card_word(text) is not None:
+    if not text or NOT_FOR_A_CHAT.search(text) or NOTHING_NEW.match(text) or text.startswith("/") or CARD_LIKE.search(text) or card_words.card_shape(text) is not None:
         return None
     if len(text) > CLAIM_MAX:
         text = text[:CLAIM_MAX - 1].rstrip() + "…"

@@ -55,8 +55,7 @@ scripts/            repository tooling: validate.py, security_scan.py, sync_copi
                     install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py (with doctor_ops.py: `--unattended`), evidence.py,
                     verify_community.py and community_pack.py (community evidence), image_lock.py (the eval image's lock file),
                     update_prices.py (the price table), skill_import.py (a skill from outside: fetch, check, vet, test), redact.py,
-                    build_demo.py and demo_fixtures.py (the interface's demo mode),
-                    and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
+                    build_demo.py and demo_fixtures.py (the interface's demo mode)
 runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container (or, for a step task, code
                     with no model), a person decides through pending decisions; lab.py is the one file that imports the eval runner,
                     ops.py the operations, cli.py the shell (runtime/README.md lists the modules)
@@ -105,7 +104,7 @@ python3 scripts/security_scan.py --strict   # secrets, hidden text, unsafe scrip
 bash scripts/install-hooks.sh               # once per clone: enables .githooks/ (--check, --uninstall)
 ```
 
-The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then the tests of every folder the commit touches: `providers/<class>/`, `scripts/`, `evals/`, `shared/`, an adapter, or a skill's `scripts/` (its `scripts/tests/`). The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, beside a `python39` job and a `container` job for the eval container.
+The pre-commit hook runs `validate.py`, then `security_scan.py --strict`, then a fast set of tests: the guards and the tests named for each file the commit touches (`select_tests.py --direct`); `WB_HOOK_FULL=1 git commit` runs the full selection instead. The tests need [uv](https://docs.astral.sh/uv/). CI runs the same checks in its `validate` and `tests` jobs, and `tests` runs the selection of the tests that the pull request can reach, in three shards (the whole suite at the end of a delivery), beside the `python39` shards and a `container` job for the eval container; a draft pull request runs only `validate` and `changes`, and its `tests` is red until it is marked ready.
 
 A new skill starts from `bash scripts/new-skill.sh --name <prefix-name> --kind capability|flow --area <area>`; `AGENTS.md`, "Adding a skill", has the rest.
 

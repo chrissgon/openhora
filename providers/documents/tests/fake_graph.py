@@ -65,7 +65,7 @@ class FakeGraph:
         self.download_base = None           # the base of the Location /content answers; default: this listener
         self.download_status = 200          # what the download path answers
         self.redirect_download = False      # the download path answers a 302 to elsewhere
-        self.change_on_download = False     # a person edits the file right after its bytes were served
+        self.change_on_download = False     # a person edits the file while its bytes are being served (the edit is in place before they arrive)
         self.access_token = ACCESS_TOKEN    # what the token endpoint issues and Graph accepts
         self.hidden = set()                 # fields Graph leaves out of every item description (e.g. {"cTag"}, {"size"})
         self.report_size = {}               # (drive, item) -> a size the metadata claims, different from the bytes
@@ -216,10 +216,11 @@ class FakeGraph:
                 found = owner.items.get((drive, item))
                 if found is None or query.get("tempauth") != DOWNLOAD_TEMPAUTH:
                     return self._send(403, b"denied")
-                self._send(200, found["content"], ctype="application/octet-stream")
-                if owner.change_on_download:
+                served = found["content"]
+                if owner.change_on_download:   # the person's edit lands before the bytes reach the client: its next look at the metadata sees it
                     owner.change_on_download = False
-                    owner.edit(drive, item, content=found["content"] + b" (edited meanwhile)")
+                    owner.edit(drive, item, content=served + b" (edited meanwhile)")
+                self._send(200, served, ctype="application/octet-stream")
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True

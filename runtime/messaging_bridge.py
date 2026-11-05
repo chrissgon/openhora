@@ -15,6 +15,10 @@ Senders. An update from a sender who is not in `messaging.senders.<platform>` of
 chat that is not private, is dropped with no reply and no log of who or what. A sender who is listed in several
 projects chooses with /project; the default is the first.
 
+Taps. Every tap that reaches the bridge leaves exactly one log line: a card kind, the decision number and the operation word the card gave the button ("a tap was
+received: effect card, decision 7, approve"; "... reminder card, yes" when the card has no decision), or "a tap was received on a card this chat no longer has". Never the
+chat, the sender, a title or text, or the action id. A tap from an unlisted chat leaves only the line of an unlisted sender.
+
 Reads. The bridge reads `pending` itself, outside the policy's `read` group, to build cards and to bind an approval to
 the card the person saw; `read` only decides what a person may ask for (/pending, `status`, and the like), and a policy
 without it also switches the notices off.
@@ -88,20 +92,23 @@ no `language` gets the English constants below, byte for byte; a tag with no tab
 text of an `OpsError` are not translated (contracts/runtime.md, "The language of a deliverable").
 
 Words that decide a card (S2, limit L64; the words are runtime/card_words.py). A plain line that is, whole, only an approve or a reject form ("Aprovo", "sim", "pode marcar", "nao",
-"aprovo o 2") decides a decision card exactly as that card's own button would (`word_line` -> `Bridge.act`, which asks the policy for the sender, binds the act to the card's hash and
+"aprovo o 2") decides a decision card exactly as that card's own button would (the kind `decision-card-word` of runtime/messaging_turn.py -> `word_last` or `word_reply` -> `Bridge.act`, which asks the policy for the sender, binds the act to the card's hash and
 runs the same operation), and only when ALL of these hold: the update is a private line of a listed sender in the chat the card was sent to and is not a forwarded message; the card is
-the LAST message the platform sent to that chat (`last_sent`, memory only: every message, a reply or a delivered reminder included, so any later message ends it and a restart forgets it);
+the LAST message the platform sent to that chat (`last_sent`, memory only: every message, a reply or a delivered reminder included, so any later message ends it and a restart forgets it; it is read again under
+the send lock just before the act, `still_last`, L64H: a message sent since decides nothing and the card is sent once more);
 it is the only decision card of that sender in that chat that a word could decide (sent whole, offering the act); the decision is open and its content hash is the card's (`CHANGED` and a
 new card otherwise). Several such cards: one numbered list is sent (kind and title, no id) and nothing is decided; for `LIST_SECONDS`, while the list is the last message, a position
 ("aprovo o 2") decides that card; "approve all" is never done (`WORD_ONE_AT_A_TIME`); "todos nao" rejects every card of the list, each through its own card. A line that is a reply
 (the reply gesture) to a decision card decides THAT card, whether or not it is the last message. A platform that declares `actions_need_reply` (e-mail) is decided only by a reply to
-the card. Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
+the card. A bare word with no reply while no such card is the last message decides nothing and the card is sent again (several: the list; the kind `decision-card-again`, `word_again`, ACEITE-37). Anything else is not touched: the line goes on as it always did. A card on a platform with no buttons ends with `REPLY_WORDS_LINE` in place of "Send /approve 12".
 A table command typed on a phone (`/cancel 8`) is answered with a sentence in the project's language (`command_sentence`), never the operation's JSON.
 
 Words that change a card (S13, limits L63 and L64). A plain line that is not such a word is about the card that waits when that card is the LAST message sent to the chat (or the line replies to
-it): `revise_line`, after `word_line`, asks the operations layer (`card_revise_check`) what the line is for that card; the change itself (`card_revise`) runs in a job, because it calls a model,
+it): `revise_waiting`, called by the kind `decision-card-revise` after the card words, asks the operations layer (`card_revise_check`) what the line is for that card; the change itself (`card_revise`) runs in a job, because it calls a model,
 and ends in one sentence and the new card, which is the last message and is decided by the same words and buttons, or in one plain sentence with the old card still open. The old card is ended
-by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path.
+by the operations layer and its hash is never approvable again. A line that proves not to be a change goes on as it would have. Nothing is sent or written by this path. A plain line that asks about the card
+(ANY-QUESTION) is answered by code and changes nothing: `waiting_card` reads the card that is the last message again at the moment `line` runs, and `line` leaves its number for the operations layer on the line's thread
+(runtime/line_card.py), which answers from the card's own lines and sends the card again.
 
 Every command in words (S20, limits L54 and L64). A command a sender can type can be asked for in words, and the words are the typed command. The operations layer reads the line (a closed form
 of the tier-1 tables, or the interpreter's decision) and hands the bridge the typed line it stands for (`result["typed"]`); `line` then handles it exactly as it handles the typed one
@@ -109,6 +116,21 @@ of the tier-1 tables, or the interpreter's decision) and hands the bridge the ty
 the ones the typed line does not do either: an approval is never made (the reply sends the decision's card again and leaves it the last message, so that the word that follows decides it),
 and an answer keeps its words. A closed form of a decision or an act is answered by code, so `say` starts it without the project's model slot (a brake said in words works while the planning
 agent answers); `project_line` reads "muda para o projeto X" (runtime/command_words.py) and does what `/project X` does.
+
+The OK of a plan (D5, package BL2b, limits L64 and L65). A read or an act asked in words is answered by the operations layer with a question code wrote from the typed call ("I understood: ... Shall I
+go ahead?"; runtime/plan_confirm.py), and `line` sends it with `ask_plan` (a Yes and a No button when the platform has them, one line "reply yes" on e-mail) and records it in the ledger as a
+record of kind `plan-confirm` (ids, a hash and an operation name, never text). the kind `plan-confirm` of the row `frame` (runtime/messaging_turn.py) takes the OK, in the order of `turn_order.FRAME_KINDS`, right before the card words, under the conditions of L64: a private line of
+a listed sender, not forwarded, a yes or no word code reads (`natural.confirm_kind`; never a greeting in question form, "oi, tudo bem?": `greeting.as_question`, L64H) when the question is the LAST message the platform sent to the chat or the line replies to it (e-mail: only a
+reply); a yes starts the confirmed call as a job with the plan's item and hash (`plan_ok`; with no reply it reads the last message again just before, `still_last`, else `PLAN_NOT_LAST`), a no drops the plan. The question's own buttons do the same (`plan_tapped`). Any other line goes on as
+it did; a correction reaches `say`, where the interpreter reads it with the plan as a typed frame item. A card that came after a question whose plan still waits is not decided by a bare word
+(`word_last`: `PLAN_TWO_OPEN`, whichever of the two was recorded first; a reply names the message it means). A research that runs is stopped by its asker's stop word (the kind `research-run`, right AFTER the card words).
+
+The order of the claims (S41-2 and S41-8, PLAN-BRAIN section 4 step 1). Who takes an update first is not decided in this file: the order is `runtime/turn_order.py` `ORDER` (stage `bridge` for `_handle`, stage `bridge-say` for the start of
+`say`), dispatched by `runtime/messaging_turn.py`, whose rows hold the conditions and the calls and call the claimers below (`project_line`, `say_queue`, and the modules of the reminders, the writes and the files). The
+answers to what is open (a question about a reminder or a write, the OK of a plan, the words that decide or change a card, the stop of a search) are ONE row, `frame`, over the pending kinds of
+`turn_order.FRAME_KINDS`: the envelope every kind checked for itself (not a tap, not empty, not a command, not forwarded, an e-mail only as a reply) is read once, from the `Turn`, and each kind keeps its own
+predicate and its own call (`plan_decide`, `word_reply`, `word_last`, `word_act`, `revise_waiting`, `revise_now`, ... stay here; the second checks of `word_act` and `plan_decide` are the acts' own). A claimer is moved
+or removed by changing the table, and L63(3) says in its row what replaces one that is removed.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -126,6 +148,7 @@ import traceback
 import card_words
 import command_words
 import greeting
+import line_card
 import messaging_ack as ack
 import messaging_attach as attach
 import messaging_cards as cards
@@ -137,10 +160,10 @@ import messaging_pending as pending_view
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
+import messaging_turn
 import messaging_typing as indicator
 import natural
 import natural_time
-import phone_delete
 import phone_errors
 import phone_refusal
 import phrases
@@ -154,6 +177,10 @@ RETRY_SECONDS = 5
 ACK_ONCE_SECONDS = 120.0       # a line acknowledged by one part of its job is not acknowledged again by the next part (S19)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
+# One log line per tap that reaches the bridge (M41-3, package P2). Each holds a card kind, a decision number and a closed operation word, nothing of who or what.
+TAP_RECEIVED = "a tap was received: {kind} card, decision {pending}, {op}"
+TAP_OTHER = "a tap was received: {kind} card, {op}"      # a card with no decision number (a reminder, an attachment, a plan question)
+TAP_STALE = "a tap was received on a card this chat no longer has"
 # The sentences a person reads are the phrase table's (runtime/phrases.py, package LR-1): these names keep the English text (a test, a card and the docs read
 # them) and each place below says the sentence in the project's language. NOT_ACCEPTED_WHY and the other *_WHY texts are for the log, and stay English.
 STALE = phrases.en("STALE")
@@ -168,7 +195,8 @@ UNREADABLE_WHY = "its configuration cannot be read"
 EFFECT_REPLY = phrases.en("EFFECT_REPLY").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 TOO_LONG = phrases.en("TOO_LONG").replace("{where}", "").rstrip()      # the sentence up to the place it points to ({where}: the page, with its link)
 WRONG_HASH = phrases.en("WRONG_HASH")
-NOT_OPEN = phrases.en("NOT_OPEN")
+TAP_REPLACED = phrases.en("TAP_REPLACED")
+TAP_CLOSED = phrases.en("TAP_CLOSED")
 NOT_OFFERED = phrases.en("NOT_OFFERED")
 REPLY_TO_CARD = phrases.en("REPLY_TO_CARD")
 FWD_NOT_A_REQUEST = phrases.en("FWD_NOT_A_REQUEST")
@@ -180,14 +208,17 @@ QUEUE_EXPIRED = phrases.en("QUEUE_EXPIRED")
 QUEUE_STOPPED = phrases.en("QUEUE_STOPPED")
 QUEUE_WAIT = 1800     # seconds a line may wait for the project
 QUEUE_PER_CHAT = 1    # waiting lines of one chat
+TURN_WAIT = 30.0      # seconds a decide leg waits for the earlier lines of its chat to be decided (S41-11): a bound, never a reason to hold a line for good
 QUEUE_PER_PROJECT = 5
 QUEUE_RETRY = 1.0     # seconds before a line that met `RunBusy` is started again
 QUEUE_POLL = 2        # seconds a polling loop waits for the messenger while a line waits out a `RunBusy` pause (a held slot is looked at when its job ends)
 QUEUE_STOP_WAIT = 10.0   # seconds, in all, the stop messages may take (they go out together); the runs end after that
 LIST_SECONDS = 600.0   # seconds the numbered list of cards waits for a position: the conversation spec's choice (3.5, LIST_TTL), not measured
 LIST_MAX = 10          # cards the numbered list names (the newest)
-NOT_DECISION = ("reminder", "question", "attachment")   # the kinds of ledger record that are not a decision card a word could decide
+NOT_DECISION = ("reminder", "question", "attachment", "plan-confirm")   # the kinds of ledger record that are not a decision card a word could decide
 RESEND_EVERY = 60.0   # seconds: a decision named in words has its card sent again at most this often to one chat
+SENT_IDS = 50   # message ids of each chat the bridge remembers having sent (memory only): an e-mail stop word must reply to one of them
+PLAN_TEXT = "plan"   # what the typing indicator and the acknowledgement are shown for a confirmed plan, whose line is a bare "yes" (a card word, which neither of them serves)
 QUEUE_COMMANDS = ("new", "ask")   # the slash commands that may wait: the ones that run the planning agent or the answer run; the others are not lines but acts
 
 
@@ -244,6 +275,12 @@ def dated(message: dict, cfg) -> dict:
     return out
 
 
+def line_group(text):
+    """The group a plain line needs for the bridge's own reading, when there is no project to ask: `pending` for a decision said in words (S41-11: the one closed reading code keeps, a read of its
+    card; `natural.needs` before PR 2b), else None (the line needs `talk`)."""
+    return "pending" if natural.decision(text) is not None else None
+
+
 def queueable(text) -> bool:
     """Whether a line may wait for the project: a plain line, or the slash command `new` or `ask` (with or without `@bot`). Any other command is an
     act of the table (`/cancel`, `/approve`, `/progress`...) and is refused as it always was: a brake kept behind the run it should stop is of no use."""
@@ -273,6 +310,7 @@ class Refused(Exception):
 
 class Bridge(shell_kit.Jobs):
     Refused, NOT_ACCEPTED, NO_CARD = Refused, NOT_ACCEPTED, NO_CARD      # what messaging_attach reads of the bridge
+    DROPPED = DROPPED      # what messaging_turn reads of the bridge (the rows `drop-unlisted` and `reply`)
 
     def __init__(self, ops_module, projects, messenger, ledger, platform: str, log=None, clock=None):
         super().__init__(ops_module, projects, log)
@@ -298,13 +336,17 @@ class Bridge(shell_kit.Jobs):
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
         self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
         self.last_sent = {}                   # chat -> the id of the last message of any kind sent to it (memory only; S2, limit L64): a word decides a card only while the card is it
+        self.sent_ids = {}                    # chat -> the ids of the last SENT_IDS messages sent to it (memory only): on e-mail a stop word of a research must reply to one of them
         self.send_seq = {}                    # chat -> how many sends to it have started (memory only): `last_sent` is stored only by the send that started last
         self.send_lock = threading.Lock()     # guards `send_seq` and `last_sent`: the update thread and the job threads all send
         self.card_lists = {}                  # chat -> the numbered list of cards last sent: {"message_id", "at" (monotonic), "cards": [(project id, pending id, content hash)]} (memory only)
+        self.list_message = {}                # chat -> the id of the message that showed the chat a numbered list the operations layer still holds (memory only): a list is open only while it is the last message (ACEITE-37)
         self.last_message = {}                # chat -> the id of the last message sent to it (memory only): the question a draft asked is answered by a reply to it
         self.waiting = []                     # the lines kept for a busy project, oldest first (memory only): {"n", "project", "chat", "text", "since", "after"}
         self.ticket = 0
         self.queue_lock = threading.Lock()    # guards `waiting` and `ticket`
+        self.turn_lock = threading.Condition()   # S41-11: the decide legs of one chat run in the order the lines came (`decide`): the number last issued and the next to run, by chat
+        self.turn_taken, self.turn_next = {}, {}
         self.drain_lock = threading.Lock()    # one drain at a time, so that lines start in order
         self.scope = threading.local()        # the languages read for the update, the tick or the drain being handled on this thread (`read_once`)
         self.session_ready = None             # a listen provider: whether its session is ready (the loop sets it); no waiting line starts while it is not
@@ -321,7 +363,16 @@ class Bridge(shell_kit.Jobs):
                 "notices": messaging.get("notices") or "text", "page_url": messaging.get("page_url"),
                 "policy": found.get("channels") or {}, "profiles": found.get("policies") or {},
                 "sender_profiles": (messaging.get("sender_profiles") or {}).get(self.platform) or {},
-                "channel_profile": (found.get("channel_profiles") or {}).get(CHANNEL)}
+                "channel_profile": (found.get("channel_profiles") or {}).get(CHANNEL), "source_names": self.source_names(project)}
+
+    def source_names(self, project: dict) -> dict:
+        """{source id: plain name} of a project for the cards (BL5D: a phone says "3 do Gmail", not `caixa-gmail#3`); {} when the facade has none or cannot read it: presentation only."""
+        try:
+            read = getattr(self.ops, "source_names", None)
+            names = read(project["path"]) if read else {}
+            return names if isinstance(names, dict) else {}
+        except Exception:      # noqa: BLE001 - a phone then shows what it showed before
+            return {}
 
     def cfg(self, project=None, chat=None) -> dict:
         """What the phrase table reads of a project: {"language": its `language` setting}, read from its configuration now (an unaccepted one included: the
@@ -358,18 +409,46 @@ class Bridge(shell_kit.Jobs):
             self.scope.cache = None
 
     def inherit(self, call):
-        """`call` as a job that sees the languages read by the thread that creates it."""
+        """`call` as a job that sees the languages read by the thread that creates it, and the language of the fixed sentences for the person it is run for (`sentences_for`)."""
         cache = getattr(self.scope, "cache", None)
-        if cache is None:
+        said = phrases.current_scope()
+        if cache is None and said is None:
             return call
 
         def run():
             self.scope.cache = cache
             try:
-                return call()
+                with phrases.scope(said):
+                    return call()
             finally:
                 self.scope.cache = None
         return run
+
+    def sentence_name(self, chat: str, project=None):
+        """The tag a profile sets for the fixed sentences said to `chat`'s sender (TT-2: `sentence_language` of the sender's profile, else of the channel's, in the ACCEPTED
+        configuration), or None: then the sentences are the project's language, as they always were. With no `project`, the first served project that lists `chat`.
+        Read once per scope (`read_once`). A project that cannot be read, or an unaccepted file, gives None."""
+        try:
+            if project is None:
+                project = next(iter(self.projects_for(chat)), None)
+            if project is None:
+                return None
+            cache = getattr(self.scope, "cache", None)
+            key = ("sentences", project["id"], chat)
+            if cache is not None and key in cache:
+                return cache[key]
+            read = self.ops.config(project["path"])
+            found = phrases.sentence_override(read, CHANNEL, self.key(chat)) if read.get("accepted") else None
+            if cache is not None:
+                cache[key] = found
+            return found
+        except Exception:      # a sentence is never held back by a configuration that cannot be read: it is said in the project's language
+            return None
+
+    def sentences_for(self, chat: str, project=None):
+        """The `with` block (phrases.scope) inside which every fixed sentence is said in the language of `chat`'s sender: opened where a line or a notice is handled for one person,
+        closed on every path, so that it never reaches the next line handled on the thread. Outside one, the project's language."""
+        return phrases.scope(self.sentence_name(chat, project))
 
     def t(self, key: str, project=None, chat=None, cfg=None, **fields) -> str:
         """The sentence `key` in the project's language (runtime/phrases.py). `cfg` is the language already read (a settings dict), else it is read from
@@ -496,6 +575,9 @@ class Bridge(shell_kit.Jobs):
         with self.send_lock:
             if self.send_seq.get(chat) == seq:      # a send that started later decides what the last message is, whichever of the two the platform finished first
                 self.last_sent[chat] = str(sent) if sent else None
+            if sent:
+                self.sent_ids.setdefault(chat, []).append(str(sent))
+                del self.sent_ids[chat][:-SENT_IDS]
         return sent
 
     def guarded(self, kinds: list) -> None:
@@ -609,6 +691,10 @@ class Bridge(shell_kit.Jobs):
         return function(project["path"], **args)
 
     def send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
+        with self.sentences_for(chat, project):      # TT-2: a card is drawn in the language of the sender it is sent to
+            return self._send_card(project, settings, item, chat)
+
+    def _send_card(self, project: dict, settings: dict, item: dict, chat: str) -> bool:
         operations = self.ops.operations
         caps = self.messenger.capabilities()
         sender = self.key(chat)
@@ -747,8 +833,11 @@ class Bridge(shell_kit.Jobs):
                 key = (project["id"], chat)
                 if not left:
                     self.more.pop(key, None)
-                elif self.more.get(key) != left and self.reply(chat, phrases.text("MORE_LINE", settings, n=left), project) is not None:
-                    self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
+                elif self.more.get(key) != left:
+                    with self.sentences_for(chat, project):
+                        sent = self.reply(chat, phrases.text("MORE_LINE", settings, n=left), project)
+                    if sent is not None:
+                        self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
         self.remind.deliver()
         self.notify_unread()
 
@@ -786,7 +875,8 @@ class Bridge(shell_kit.Jobs):
             last = self.unread_told.get(chat)
             if last is not None and now - last < UNREAD_EVERY:
                 continue
-            sent = self.reply(chat, self.t("UNREAD_ONE", chat=chat) if count == 1 else self.t("UNREAD_MANY", chat=chat, n=count))
+            with self.sentences_for(chat):
+                sent = self.reply(chat, self.t("UNREAD_ONE", chat=chat) if count == 1 else self.t("UNREAD_MANY", chat=chat, n=count))
             if sent is None:
                 continue
             self.unread_told[chat] = now
@@ -800,104 +890,11 @@ class Bridge(shell_kit.Jobs):
             self._handle(update)
 
     def _handle(self, update: dict) -> None:
+        """One update in. The order in which it is claimed is the table `turn_order.ORDER` (stage `bridge`), dispatched by runtime/messaging_turn.py; the rows hold the conditions and the calls."""
         sender, chat = str(update.get("sender")), str(update.get("chat"))
         listed = self.projects_for(sender) if update.get("private") and chat == sender else []
-        if not listed:
-            self.log(DROPPED)
-            self.config_pending(update, sender, chat)
-            return
-        if update.get("attachments") is not None:
-            found = provider.valid_attachments(update["attachments"])
-            if found is None:
-                self.log("an update with attachments that are not valid was dropped")
-                return
-            update = dict(update, attachments=found)
-        intent = inbound.parse(update)
-        project = self.project_of(sender, listed)
-        kind = intent["kind"]
-        if kind == "ignore":
-            return
-        if kind == "forwarded":
-            self.reply(chat, self.t("FWD_NOT_A_REQUEST", project=project), project)          # a forwarded message is never a request (FWD): one sentence, and nothing of it is read by a draft, a reminder, a write or a card
-            return
-        replied = update.get("reply_to")
-        shown = self.ledger.by_message(chat, replied) if kind == "natural" and replied else None
-        if shown and shown.get("kind") != "reminder":          # a reply to a card answers THAT card, not a reminder (NR-1); the question about a reminder is answered by `remind.answer`
-            intent = {"kind": "reply", "reply_to": replied, "text": update.get("text") or ""}
-            kind = "reply"
-        self.remind.discarded.discard(chat)
-        if kind != "action" and not intent.get("forwarded"):          # a forwarded file (FWD) answers no open question and drops none: it goes straight to its card
-            if chat in self.remind.drafts:
-                if self.remind.answer(project, chat, kind, update.get("text") or "", replied):
-                    return          # the next line of a chat with a question open about a reminder (NR-1): it answers it, or drops it and goes on as a new line
-            elif chat in self.remind.expired and self.remind.late(project, chat, kind, update.get("text") or ""):
-                return          # a "yes" to a question that expired is told so (NR-1)
-            elif kind in ("text", "natural", "reply") and not (update.get("text") or "").lstrip().startswith("/") and self.write_open(project, chat):
-                if self.write_answers(project, chat, update.get("text") or ""):
-                    self.write(project, chat, update.get("text") or "")          # a question about a write to the person's accounts is open and this line answers it (NR-5)
-                    return
-                self.write_forget(project, chat)          # any other line drops it, and is handled as a new one; a question it asks says the previous one was discarded
-                self.remind.discarded.add(chat)
-        if kind in ("text", "natural", "reply") and self.word_line(update, intent, project, listed, sender, chat):
-            pass          # an approve or a reject word decided a decision card, or listed the cards to choose from (S2, limit L64)
-        elif self.revise_line(update, intent, kind, project, listed, chat):
-            pass          # a change of the card that waits, said in words (S13, limit L64)
-        elif self.project_line(intent, kind, listed, sender, chat):
-            pass          # "muda para o projeto X": the typed /project, said in words (S20)
-        elif kind in ("text", "natural") and (natural.match(intent["text"]) or {}).get("op") == "commands" and not self.greets(project, chat, intent["text"]):      # "help" in words is the typed /help: the fixed list of this app, for every listed sender (it reads nothing of the project), except from a sender who may talk, whose help line is a greeting (S5)
-            self.reply(chat, self.t("HELP", project=project), project)
-        elif kind in ("text", "natural") and self.attach.line(project, chat, intent.get("text") or ""):
-            pass          # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
-        elif kind == "attachment":
-            self.attach.arrived(project, chat, intent)
-        elif kind in ("add", "discard"):
-            self.attach.typed(project, chat, kind, intent["id"])
-        elif kind == "remind":
-            self.remind.created(project, chat, intent)
-        elif kind == "natural":
-            if intent.get("op") == "write":
-                self.write(project, chat, intent["text"])
-            elif not self.remind.natural(project, chat, intent):
-                self.say(project, chat, intent["text"])
-        elif kind == "reminders":
-            self.remind.listing(project, chat)
-        elif kind == "forget":
-            self.remind.forget(project, chat, intent["id"])
-        elif kind == "action":
-            self.tapped(chat, intent["action"], update.get("action_ref"))
-        elif kind == "usage":
-            self.reply(chat, self.t(inbound.usage_key(intent["text"]), project=project) if inbound.usage_key(intent["text"]) else intent["text"], project)
-        elif kind == "help":
-            self.reply(chat, self.t("HELP", project=project), project)
-        elif kind == "project":
-            self.choose(sender, chat, listed, intent["name"])
-        elif kind == "pending":
-            self.listing(project, chat)
-        elif kind in ("approve", "reject", "release", "answer"):
-            replied = None
-            if self.messenger.capabilities().get("actions_need_reply"):
-                replied = self.replied_card(sender, chat, update.get("reply_to"), intent["id"])
-                if replied is None:
-                    self.reply(chat, self.t("REPLY_TO_CARD", project=project), project)
-                    return
-                project = replied[0]
-            if kind == "answer":
-                self.act(project, chat, "answer", intent["id"], text=intent["text"])
-            else:
-                self.act(project, chat, kind, intent["id"], card=replied[1] if replied else None, note=intent.get("note"),
-                         typed_hash=intent.get("sha256"))
-        elif kind == "reply":
-            card = self.ledger.by_message(chat, intent["reply_to"])
-            if card and card["kind"] == "question":
-                target = next((p for p in self.projects if p["id"] == card["project"]), project)
-                if not self.listed_in(target, sender):
-                    self.log(DROPPED)
-                    return
-                self.act(target, chat, "answer", card["pending_id"], card=card, text=intent["text"])
-            else:
-                self.say(project, chat, intent["text"])
-        else:
-            self.say(project, chat, intent["text"])
+        with self.sentences_for(sender, self.project_of(sender, listed) if listed else None):      # TT-2: the sender's `sentence_language`, for every sentence of this line
+            messaging_turn.dispatch(self, messaging_turn.Turn(update=update, sender=sender, chat=chat, listed=listed))
 
     def greets(self, project: dict, chat: str, text: str) -> bool:
         """S5: whether a help line in words ("ajuda", "what can you do") is a greeting that `say` answers with the summary of what this sender may do: the whole line is a greeting or
@@ -909,6 +906,101 @@ class Bridge(shell_kit.Jobs):
         except (Refused, self.ops.OpsError):
             return False
         return True
+
+    # --- the OK of a plan, the question "Posso?" (D5, limits L64 and L65) ------------------------------------------------------------------------------------
+
+    def ask_plan(self, project: dict, chat: str, said: str, plan: dict) -> None:
+        """Send the question of a plan that the operations layer kept (`plan` is its {"item", "sha256", "op"}) and bind it in the ledger as a record of kind `plan-confirm`. On a
+        platform with buttons, and when the text fits one message, the question carries a Yes and a No button; otherwise it is sent as text, and on a platform whose acts are replies
+        (e-mail) a line says to reply yes. The record holds the project, the chat, the message, the two action ids, the plan's item, hash and operation, never a word of the question or of the
+        line. The question is the last message sent (`deliver` sets it), so that a "yes" that comes next is the OK under L64's rule. A question that could not be sent or bound drops the plan: nothing
+        waits for an OK the person was never shown."""
+        caps = self.messenger.capabilities()
+        cfg = self.cfg(project, chat)
+        text = said or self.t("NO_REPLY", project=project)
+        labels = plan.get("choices") or []      # mail-list-account: a question that asks for an account has one button for each option in place of Yes and No (the plain names, the last one "All")
+        limit = int(caps.get("max_button_label") or 0)
+        yes_no = bool(caps.get("buttons") and int(caps.get("max_buttons") or 0) >= (len(labels) or 2) and len(text) <= int(caps.get("max_text") or 0) and (not limit or all(len(label) <= limit for label in labels)))
+        actions, sent = {}, None
+        if yes_no:
+            seq = self.ledger.next_seq()
+            yes, no = f"{seq}:plan-yes", f"{seq}:plan-no"
+            buttons = [{"id": f"{seq}:plan-pick-{n}", "label": label} for n, label in enumerate(labels)] or [{"id": yes, "label": phrases.text("NT_BTN_YES", cfg)}, {"id": no, "label": phrases.text("PLAN_BTN_NO", cfg)}]
+            message = {"text": text, "actions": buttons, "link": None, "document": None}
+            try:
+                sent = self.deliver(chat, message)
+            except provider.MessengerError as e:
+                if e.kind != "deferred":
+                    self.log(f"a question could not be sent ({e.kind})")
+            actions = {button["id"]: f"pick:{n}" for n, button in enumerate(buttons)} if labels else {yes: "yes", no: "no"}
+            self.last_message[chat] = str(sent) if sent else None
+        else:
+            if caps.get("actions_need_reply"):
+                text = text + "\n" + phrases.text("PLAN_REPLY_HOW_ACCOUNT" if labels else "PLAN_REPLY_HOW_EMAIL", cfg)
+            self.scope.replied = None
+            if self.reply(chat, text, project) is True:
+                sent = getattr(self.scope, "replied", None)
+        if not sent:
+            self.ops.plan_drop(project["path"], self.key(chat))
+            return
+        try:
+            self.ledger.add({"project": project["id"], "pending_id": None, "kind": "plan-confirm", "content_sha256": "", "chat": chat, "message_id": str(sent), "actions": actions,
+                             "sent_at": self.clock(), "whole": True, "approvable": False, "blocked": None, "effect_word": None,
+                             "plan_item": plan["item"], "plan_sha256": plan["sha256"], "plan_op": plan["op"], **({"plan_picks": len(labels)} if labels else {})})      # the number of options only: no label and no source id in the ledger
+        except OSError as e:
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
+            self.ops.plan_drop(project["path"], self.key(chat))
+
+    def plan_decide(self, target: dict, chat: str, rec: dict, word: str, said: str, last=None) -> None:
+        """The decision on a plan's question once the OK or the refusal was read (a word under L64's rule, or a button): "no" drops the sender's plan; "yes" starts the confirmed call as a job
+        labelled with the plan's operation (a read that calls no model takes no model slot; research and ask take it, and a busy project answers `STILL_WORKING`), but only while the
+        plan that is live is the one this question was drawn for (its item AND its hash); the operations layer takes it once and asks the policy again. With `last` (the id of the message the word
+        was read against: a word with no reply) a yes reads the last message again, the last thing before it starts (`still_last`, L64H): another message sent since says `PLAN_NOT_LAST` and the plan waits."""
+        key = self.key(chat)
+        try:
+            live = self.ops.plan_live(target["path"], key)
+        except self.ops.OpsError:
+            live = None
+        current = live is not None and live["item"] == rec.get("plan_item") and live["sha256"] == rec.get("plan_sha256")
+        if word == "no":
+            if current:
+                self.ops.plan_drop(target["path"], key)      # the plan THIS question was drawn for; a newer plan of the sender (an older question's No) is left to its own question
+            self.reply(chat, self.t("PLAN_DROPPED", project=target), target)      # whether or not one was live: the answer is the same sentence
+            return
+        if not current:
+            self.reply(chat, self.t("PLAN_GONE", project=target), target)
+            return
+        if last is not None and not self.still_last(chat, last):
+            self.reply(chat, self.t("PLAN_NOT_LAST_ACCOUNT" if rec.get("plan_picks") else "PLAN_NOT_LAST", project=target), target)      # the plan waits; the person replies to the question, or asks again
+            return
+        if rec.get("plan_picks") and word == "yes":
+            self.ask_plan(target, chat, live.get("question") or "", live)      # a yes names no account: the question again, with its buttons; nothing is read
+            return
+        pick = {"choice": int(word[5:])} if word.startswith("pick:") else {}      # the option the person chose; `take` checks it against the plan's options
+        self.start(target, chat, rec["plan_op"], self.line(target, chat, said, None, plan_ok={"item": rec["plan_item"], "sha256": rec["plan_sha256"], **pick}, allow_as=rec["plan_op"]))
+
+    def plan_tapped(self, project: dict, chat: str, rec: dict, word: str) -> None:
+        """A tap on the Yes or No button of a question: the same decision as the word (`plan_decide`); a button names its message, so it needs no last-message rule. The checks of `tapped`
+        (the record is this chat's, the sender is listed) came before."""
+        self.plan_decide(project, chat, rec, word, phrases.text("NT_BTN_YES", self.cfg(project, chat)) if word == "yes" or word.startswith("pick:") else "")
+
+    def plan_waits(self, listed: list, chat: str) -> bool:
+        """Whether a question of a plan whose plan still waits (live: inside its 600 s and neither taken nor dropped) has been sent to this chat (D5, the two-question guard of L64): then a bare word
+        on a decision card decides nothing, because it may be meant for either. No "before the card" condition: `last_sent` follows the order sends START and a ledger record is added when its send
+        RETURNS, so two threads can record the card first and the question after it; a question sent after the card is the last message and the kind `plan-confirm` takes the word before it gets here."""
+        with self.ledger.lock:
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat and c.get("kind") == "plan-confirm"]
+        for rec in records:
+            target = next((p for p in listed if p["id"] == rec.get("project")), None)
+            if target is None:
+                continue
+            try:
+                live = self.ops.plan_live(target["path"], self.key(chat))
+            except self.ops.OpsError:
+                continue
+            if live is not None and live["item"] == rec.get("plan_item"):
+                return True
+        return False
 
     # --- words that decide a card (S2, limit L64) ---------------------------------------------------------------------------
 
@@ -946,23 +1038,11 @@ class Bridge(shell_kit.Jobs):
                 found.append((project, rec, item))
         return found
 
-    def word_line(self, update: dict, intent: dict, project: dict, listed: list, sender: str, chat: str) -> bool:
-        """A line that is, whole, only an approve or reject form (card_words): True when it was taken (it decided a card, or sent the list of cards, or said it approves one at a
-        time), False when the line is not for the cards and goes on as it always did. Every condition of L64 that this method checks is checked again by `word_act` against the
-        ledger and the decision as they are now."""
-        said = intent.get("text")
-        if self.messenger.capabilities().get("actions_need_reply"):
-            said = card_words.reply_line(said)      # S10: an e-mail reply decides with its first line; its signature and the quoted card are not words
-        word = card_words.card_word(said)
-        if word is None or ("forwarded" in update and update["forwarded"] is not False):
-            return False
-        if update.get("reply_to"):
-            return self.word_reply(listed, chat, word, update["reply_to"])
-        if self.messenger.capabilities().get("actions_need_reply"):
-            return False      # e-mail: a typed act is a reply to the card (rule 50)
-        last = self.last_sent.get(chat)
-        if not last:
-            return False      # a restart forgets the last message: a word then decides nothing
+    def word_last(self, listed: list, chat: str, word: dict, last: str) -> bool:
+        """A card word (`card_words.card_word`) on a line that replies to nothing, on a platform with buttons, while `last` is the id of the chat's last message (the kind `decision-card-word` of
+        runtime/messaging_turn.py read the line, the word and the envelope, and took `last` from `last_sent`): True when it was taken (it decided a card, or sent the list of cards, or said it approves one
+        at a time), False when the line is not for the cards and goes on as it always did. Every condition of L64 that this method checks is checked again by `word_act` against the ledger and the decision as
+        they are now."""
         found = self.word_cards(listed, chat)
         shown = self.card_lists.get(chat)
         if shown and shown["message_id"] == last and self.monotonic() - shown["at"] < LIST_SECONDS:
@@ -970,6 +1050,9 @@ class Bridge(shell_kit.Jobs):
         newest = next((c for c in found if str(c[1]["message_id"]) == last), None)
         if newest is None:
             return False      # the last message is not a card a word could decide
+        if self.plan_waits(listed, chat):
+            self.reply(chat, self.t("PLAN_TWO_OPEN", project=newest[0]), newest[0])      # D5, L64: a "Posso?" still waits and a card came after it: a bare word may be meant for either, so it decides neither (a reply names the message it means)
+            return True
         if word["all"] and word["op"] == "approve":
             self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=newest[0]), newest[0])
         elif len(found) > 1:
@@ -977,7 +1060,78 @@ class Bridge(shell_kit.Jobs):
         elif word["n"] is not None:
             return False      # a position chooses from the list only
         else:
-            return self.word_act(newest[0], chat, newest[1], word["op"]) or False
+            return self.word_act(newest[0], chat, newest[1], word["op"], last=last) or False
+        return True
+
+    def question_waits(self, listed: list, chat: str) -> bool:
+        """Whether the card of a question, still open, was sent to this chat: a bare word may be its answer, and the operations layer reads it next (ACEITE-37)."""
+        with self.ledger.lock:
+            records = [dict(c) for c in self.ledger.data["cards"] if self.ledger._mine(c) and c.get("chat") == chat and c.get("kind") == "question" and c.get("pending_id") is not None]
+        for rec in records:
+            target = next((p for p in listed if p["id"] == rec.get("project")), None)
+            if target is None:
+                continue
+            try:
+                if self.ops.pending(target["path"], pending_id=rec["pending_id"]).get("status", "open") == "open":
+                    return True
+            except self.ops.OpsError:
+                continue
+        return False
+
+    def asks_last(self, listed: list, chat: str, last) -> bool:
+        """Whether the last message sent to this chat is a question that waits for the line, so that a bare word may be its answer and brings no card back (ACEITE-37, limit L64). It is known from
+        the ledger, never from the text of a message: the record of the last message is a file card (kind `attachment`: "what do I do with it?"; a router question's card, kind `question`, is read by
+        `question_waits`, and a plan's question by `plan_waits`), or the operations layer says a numbered list of events or of files, the question "which one?", is the last thing it said to this sender
+        (`list_waits`) and the bridge sent that list as the chat's last message (`note_list`, `list_message`). A reminder that was delivered, a greeting and any other plain sentence are no question."""
+        rec = self.ledger.by_message(chat, last) if last else None
+        if rec is not None and rec.get("kind") == "attachment":
+            return True
+        return bool(last) and self.list_message.get(chat) == last and self.list_waits(listed, chat)      # the list is open only while it is the last message: a reminder delivered after it, or any later message, closes it
+
+    def note_list(self, project: dict, chat: str) -> None:
+        """After the reply to a line was sent: remember the id of the last message when the operations layer holds a numbered list it showed in it, else forget (ACEITE-37). `asks_last` is true only
+        while that message is still the last one."""
+        mark = self.last_sent.get(chat) if self.list_waits([project], chat) else None
+        if mark:
+            self.list_message[chat] = mark
+        else:
+            self.list_message.pop(chat, None)
+
+    def list_waits(self, listed: list, chat: str) -> bool:
+        """Whether the operations layer holds a numbered list it showed this sender that the next line may answer (a list of events: "which one do you want to cancel?"; a list of files). An operations
+        object without the read (a test's) has none."""
+        found = getattr(self.ops, "list_waits", None)
+        if found is None:
+            return False
+        for target in listed:
+            try:
+                if found(target["path"], self.key(chat)):
+                    return True
+            except self.ops.OpsError:
+                continue
+        return False
+
+    def word_again(self, listed: list, chat: str, word: dict, last) -> bool:
+        """A card word with no reply that `word_last` did not take (the kind `decision-card-again`, ACEITE-37, limit L64). It decides nothing: one open card is sent again, with a new message id, new
+        buttons and the hash of the decision as it is now, and stays the last message, so that its button or the next word decides it; several get the numbered list. False, and the line goes on as
+        it always did, for a position, no open card, a card that IS the last message, a plan that waits (the row `plan-bare-word` answers), an open question (a router question, a file card that is the last message, a numbered list of events or of files that waits and is still the last message), and an act the one card does not offer."""
+        if word["n"] is not None:
+            return False
+        found = self.word_cards(listed, chat)
+        if not found or (last and any(str(c[1]["message_id"]) == last for c in found)):
+            return False
+        if self.plan_waits(listed, chat) or self.question_waits(listed, chat) or self.asks_last(listed, chat, last):
+            return False
+        if len(found) > 1:
+            self.send_list(chat, found)
+            return True
+        project, card, _ = found[0]
+        if word["op"] not in self.offers(card):
+            return False
+        if self.resend(project, chat, card["pending_id"], force=True):
+            self.keep_cards(chat, self.t("WORD_CARD_AGAIN", project=project), project)
+        else:
+            self.reply(chat, self.t("NAT_DECISION_NO_CARD", project=project), project)
         return True
 
     # --- the project the lines go to, said in words (S20) -----------------------------------------------------------------------
@@ -1021,19 +1175,31 @@ class Bridge(shell_kit.Jobs):
 
     # --- words that change a waiting card (S13, limits L55 and L64) -------------------------------------------------------------
 
-    def revise_line(self, update: dict, intent: dict, kind: str, project: dict, listed: list, chat: str) -> bool:
-        """A plain line that changes a word of the card that waits ("after Regards, put my name", "muda para as 10h"): True when it was taken. Which card: the one the line replies to
-        or, with no reply, the card that is the LAST message sent to this chat (`last_sent`), when it is a decision card of this chat sent whole, still open and unchanged (its hash
-        is the card's), in a project that lists the sender; a platform whose acts are replies (e-mail) is not touched. A line that is a word that decides a card went before (word_line);
-        a forwarded message never gets here. What the line is for that card is the operations layer's (`card_revise_check`): None goes on as it always did, a card of a write that cannot
-        be changed by words gets one sentence, and the change itself runs in a job (it calls a model) and ends in the new card or one plain sentence."""
-        text = intent.get("text") or ""
-        if (kind == "natural" and not (intent.get("op") == "write" and intent.get("write") == "event-change")) or kind not in ("text", "natural", "reply") or not text.strip() \
-                or text.lstrip().startswith("/") or ("forwarded" in update and update["forwarded"] is not False) or self.messenger.capabilities().get("actions_need_reply"):
-            return False
-        replied = update.get("reply_to")
-        shown = replied if isinstance(replied, str) and replied else self.last_sent.get(chat)
-        card = self.ledger.by_message(chat, shown) if shown else None
+    def waiting_card(self, project: dict, chat: str):
+        """The number of the decision card that is the LAST message sent to this chat, for a plain line that may ask about it (ANY-QUESTION), else None: `revise_waiting`'s own conditions read again at the
+        moment the line runs. None on a platform whose acts are replies (e-mail; limit L64), when the last message is not a decision card of this project sent whole to this chat, when it is not open,
+        or when its content is no longer the card's hash. Nothing is sent or written."""
+        try:
+            if self.messenger.capabilities().get("actions_need_reply"):
+                return None
+            last = self.last_sent.get(chat)
+            rec = self.ledger.by_message(chat, last) if last else None
+            if (rec is None or rec.get("project") != project["id"] or rec.get("kind") in NOT_DECISION or rec.get("pending_id") is None
+                    or rec.get("whole") is not True or rec.get("chat") != chat):
+                return None
+            item = self.ops.pending(project["path"], pending_id=rec["pending_id"])
+            if cards.content_sha256(item) != rec["content_sha256"] or item.get("status", "open") != "open":
+                return None
+            return rec["pending_id"]
+        except Exception:      # noqa: BLE001 - nothing of the fault is kept: no card is in view
+            return None
+
+    def revise_waiting(self, card, replied, text: str, kind: str, listed: list, chat: str) -> bool:
+        """A plain line that changes a word of the card that waits ("after Regards, put my name", "muda para as 10h"): True when it was taken. The kind `decision-card-revise` of
+        runtime/messaging_turn.py read the line (a plain line, no command, no forward, not on a platform whose acts are replies) and found the record `card` of the message it is about: the one the line
+        replies to (`replied`) or, with no reply, the chat's LAST message. It is a card to change when it is a decision card of this chat sent whole, still open and unchanged (its hash is the card's),
+        in a project that lists the sender. A line that is a word that decides a card went before (`word_last`). What the line is for that card is the operations layer's (`card_revise_check`): None goes
+        on as it always did, a card of a write that cannot be changed by words gets one sentence, and the change itself runs in a job (it calls a model) and ends in the new card or one plain sentence."""
         project = next((p for p in listed if card and p["id"] == card["project"]), None)
         if card is None or project is None or card.get("kind") in NOT_DECISION or card.get("pending_id") is None or card.get("whole") is not True or card.get("chat") != chat:
             return False
@@ -1059,23 +1225,27 @@ class Bridge(shell_kit.Jobs):
         return True
 
     def revise_now(self, project: dict, chat: str, card: dict, text: str, kind: str) -> None:
-        """The body of the job of `revise_line`: the change, then the new card (sent as every card is) after one sentence, or one plain sentence and the old card still open; a line
+        """The body of the job of `revise_waiting`: the change, then the new card (sent as every card is) after one sentence, or one plain sentence and the old card still open; a line
         that proved not to be a change goes on as it would have (a write form to its family, any other line to the conversation)."""
-        shown = None
+        shown = acked = None
         try:
             try:
                 shown = indicator.Typing(self.messenger).begin(chat, text)
             except Exception:      # never a lost reply
                 shown = None
+            acked = self.ack_begin(project, chat, text)      # the acknowledgement starts with the card call, not with the plain call that may follow it: the card call is a model call too
             result = self.ops.card_revise(project["path"], card["pending_id"], card["content_sha256"], text, channel=CHANNEL, sender=self.key(chat))
         except self.ops.OpsError:
             result = {"say": self.t("RV_FAILED", project=project), "resend": None}
         finally:
             if shown is not None:
                 shown.stop()
+            self.ack_end(acked)
         if result.get("pass"):
             if kind == "natural":
                 self.write_now(project, chat, text)
+            elif result.get("decide"):
+                self.line(project, chat, text, None, decide=True)()      # a line code owns (a reminder, a bare time, a write in words) goes on as it went before the card call: the first leg of a plain line, which takes no model slot, in this job so that the acknowledgement is not sent twice
             else:
                 self.line(project, chat, text, None)()
             return
@@ -1084,9 +1254,9 @@ class Bridge(shell_kit.Jobs):
         if result.get("resend") is not None and not self.resend(project, chat, result["resend"], force=True):          # the old card, sent once more after a sentence, is the last message again
             self.reply(chat, self.t("NW_CARD_NOT_SENT", project=project, pending=result["resend"]), project)
 
-    def word_reply(self, listed: list, chat: str, word: dict, replied) -> bool:
-        """A word sent as a reply to a message: it decides THAT card when the message is a decision card of this chat (it need not be the last message: the reply names it)."""
-        card = self.ledger.by_message(chat, replied) if isinstance(replied, str) else None
+    def word_reply(self, listed: list, chat: str, word: dict, card) -> bool:
+        """A word sent as a reply to a message: it decides THAT card when the message is a decision card of this chat (it need not be the last message: the reply names it). `card` is the ledger's
+        record of the message the line replies to, or None when there is none (the turn read it, once, for every kind: runtime/messaging_turn.py `Turn.replied_record`)."""
         project = next((p for p in listed if card and p["id"] == card["project"]), None)
         if card is None or project is None or card.get("kind") in NOT_DECISION or card.get("pending_id") is None:
             return False
@@ -1106,18 +1276,21 @@ class Bridge(shell_kit.Jobs):
             if len(found) > 1:
                 self.send_list(chat, found)
             elif found:
-                self.resend(found[0][0], chat, found[0][1]["pending_id"])
+                self.resend(found[0][0], chat, found[0][1]["pending_id"], force=True)      # forced: a card sent again less than RESEND_EVERY ago (`word_again`) would make a plain resend return True with nothing sent, and the person silence (ACEITE-37)
             else:
                 return False
             return True
         if word["all"] and word["op"] == "approve":
             self.keep_cards(chat, self.t("WORD_ONE_AT_A_TIME", project=named[0][0]), named[0][0])
         elif word["all"]:
+            if not self.still_last(chat, shown["message_id"]):      # once, before the loop: each reject replies, and that reply is itself the last message (L64H)
+                self.send_list(chat, found)
+                return True
             for project, card, _ in named:
                 self.word_act(project, chat, card, "reject")
         elif word["n"] is not None and 1 <= word["n"] <= len(named):
             project, card, _ = named[word["n"] - 1]
-            if not self.word_act(project, chat, card, word["op"]):
+            if not self.word_act(project, chat, card, word["op"], last=shown["message_id"]):
                 self.send_list(chat, found)
         else:
             self.send_list(chat, found)
@@ -1142,6 +1315,11 @@ class Bridge(shell_kit.Jobs):
                 self.last_sent[chat] = before
             return self.last_sent.get(chat)
 
+    def still_last(self, chat: str, last) -> bool:
+        """Whether `last` is still the id of the chat's last message, read under `send_lock` (L64, L64H): a message another thread sent since, or one on its way, makes it False."""
+        with self.send_lock:
+            return bool(last) and self.last_sent.get(chat) == last
+
     def keep_cards(self, chat: str, text: str, project: dict) -> None:
         """Say `text` about the cards a word was about and leave the last message as it was: the sentence is the answer to that word and shows no other subject, so the card (or
         the list) it was about is still the last thing the person was shown, and the next word may decide it. A compare and set: the last message is put back only when this reply
@@ -1161,10 +1339,11 @@ class Bridge(shell_kit.Jobs):
         if listed:
             self.card_lists[chat] = {"message_id": listed, "at": self.monotonic(), "cards": [(p["id"], r["pending_id"], r["content_sha256"]) for p, r, _ in found]}
 
-    def word_act(self, project: dict, chat: str, card: dict, op: str) -> bool:
+    def word_act(self, project: dict, chat: str, card: dict, op: str, last=None) -> bool:
         """Decide `card` with `op` as its button would: the same call (`act`: the policy for the sender, the hash of the card, the operation). False, with nothing said and
-        nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (NOT_OPEN,
-        CHANGED and a new card) and nothing is decided."""
+        nothing done, when the card was not sent whole to this chat or did not offer the act; a decision no longer open or changed since the card is said so (TAP_REPLACED or TAP_CLOSED,
+        CHANGED and a new card) and nothing is decided. With `last` (a word with no reply: the id of the message it was read against) the last message is read again, the last thing before
+        the act (`still_last`, L64H): another message sent since decides nothing, and the card is sent once more so that the next word decides it."""
         if card.get("chat") != chat or card.get("whole") is not True or op not in self.offers(card):
             return False
         try:
@@ -1172,10 +1351,13 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             return False
         if item.get("status", "open") != "open":
-            self.reply(chat, self.t("NOT_OPEN", project=project, number=item["id"], status=phrases.status(item.get("status"), self.cfg(project))), project)
+            self.reply(chat, self.t(self.closed_card_key(project, item), project=project), project)
         elif cards.content_sha256(item) != card["content_sha256"]:
             self.reply(chat, self.t("CHANGED", project=project), project)
             self.renew(project, chat, item["id"], card)
+        elif last is not None and not self.still_last(chat, last):
+            if not self.resend(project, chat, card["pending_id"], force=True):      # the card again, the last message once more: the next word decides it
+                self.reply(chat, self.t("REPLY_TO_CARD", project=project), project)
         else:
             self.act(project, chat, op, card["pending_id"], card=card)
         return True
@@ -1242,16 +1424,22 @@ class Bridge(shell_kit.Jobs):
         card = self.ledger.by_action(chat, action_id)
         project = next((p for p in self.projects if card and p["id"] == card["project"]), None)
         if card is None or project is None or card.get("chat") != chat:      # a card is acted on only in the chat it was sent to, by that chat's sender
+            self.log(TAP_STALE)
             self.reply(chat, self.t("STALE", project=project, chat=chat), project)
             return
         if not self.listed_in(project, chat):
-            self.log(DROPPED)
+            self.log(DROPPED)      # an unlisted chat keeps only this line: no card kind, no decision number
             return
+        kind, pending, op = card.get("kind") or "decision", card.get("pending_id"), card["actions"].get(action_id)      # all three are words and numbers the bridge itself wrote into the ledger
+        self.log(TAP_RECEIVED.format(kind=kind, pending=pending, op=op) if pending is not None else TAP_OTHER.format(kind=kind, op=op))
         if card.get("kind") == "reminder":
             self.remind.tapped(project, chat, card)
             return
         if card.get("kind") == "attachment":
             self.attach.tapped(project, chat, card, card["actions"][action_id])
+            return
+        if card.get("kind") == "plan-confirm":
+            self.plan_tapped(project, chat, card, card["actions"][action_id])
             return
         self.act(project, chat, card["actions"][action_id], card["pending_id"], card=card)
 
@@ -1313,7 +1501,9 @@ class Bridge(shell_kit.Jobs):
         self.reply(chat, phone_errors.said(str(error), self.cfg(project, chat), failure=True), project, guard=True)
 
     def act(self, project: dict, chat: str, op: str, pending_id: int, card=None, note=None, text=None, typed_hash=None) -> None:
-        """approve, reject, release or answer one decision, bound to the card the person saw."""
+        """approve, reject, release or answer one decision, bound to the card the person saw. A tap (or a card word) on a card whose decision is no longer open says so in one plain sentence
+        (`closed_card_key`) and does nothing: for a reject or a release the refusal comes before `run_op`; a typed `/reject 64` has no card in hand and keeps its path."""
+        tapped = card is not None      # the card came with the act (a button or a card word), not from the ledger's newest card of the number a typed line named
         try:
             card = card or self.ledger.last_card(project["id"], pending_id, chat)
             if card is not None and card.get("chat") != chat:      # never another chat's card
@@ -1326,6 +1516,9 @@ class Bridge(shell_kit.Jobs):
                 self.reply(chat, self.t("ANSWERED", project=project, id=pending_id), project)
                 return
             item = self.ops.pending(project["path"], pending_id=pending_id)
+            if tapped and op in ("reject", "release") and item.get("status", "open") != "open":
+                self.reply(chat, self.t(self.closed_card_key(project, item), project=project), project)      # nothing is rejected or released: the refusal comes before run_op
+                return
             if op == "approve":
                 self.approve(project, chat, item, card, typed_hash)
             elif op == "reject":
@@ -1339,6 +1532,12 @@ class Bridge(shell_kit.Jobs):
             self.oops(chat, e, project)
             if op == "approve":
                 self.renew(project, chat, pending_id, card)
+
+    def closed_card_key(self, project: dict, item: dict) -> str:
+        """The phrase key for a tap on a card whose decision is no longer open: TAP_REPLACED when the card was replaced by a revised one (`card_replaced` of the operations layer, which an
+        operations object without it, a test's, does not have), else TAP_CLOSED. No number, no status word and no command in either sentence."""
+        replaced = getattr(self.ops, "card_replaced", None)
+        return "TAP_REPLACED" if callable(replaced) and replaced(item) else "TAP_CLOSED"
 
     def is_question(self, project: dict, pending_id: int) -> bool:
         """Whether the pending decision is a question, as it is now (S14: a question is turned down without the card it was asked on)."""
@@ -1417,7 +1616,7 @@ class Bridge(shell_kit.Jobs):
             say("NOT_OFFERED")
             return
         if item.get("status", "open") != "open":
-            say("NOT_OPEN", number=number, status=phrases.status(item.get("status"), settings))
+            say(self.closed_card_key(project, item))
             return
         if card["content_sha256"] != item.get("payload_sha256"):
             say("CHANGED")
@@ -1475,21 +1674,53 @@ class Bridge(shell_kit.Jobs):
     def say(self, project: dict, chat: str, text: str) -> None:
         """A free line to the planning agent. A line that may wait (`queueable`) and meets a project that is busy is kept (`keep`) and answered `QUEUED`;
         a line that comes while others wait goes behind them (also one that is being started), so that the lines start in the order they came."""
-        if phone_delete.asks(text):      # S14b: a request to delete a file is answered at once, before any queue, run or model; a sender who may not talk gets the refusal of any line
+        messaging_turn.dispatch(self, messaging_turn.Turn(project=project, chat=chat, text=text), stage="bridge-say")      # the order of the claims made before a line is queued: `turn_order.ORDER`, stage `bridge-say`
+
+    def reads_words(self, project: dict, chat: str) -> bool:
+        """S41-11: whether a plain line of this chat's sender is decided first, with no slot (the group `interpret`; the operations layer decides). False for an operations object that cannot say, or
+        on a fault: the restrictive default is today's single leg."""
+        found = getattr(self.ops, "reads_words", None)
+        if found is None:
+            return False
+        try:
+            return bool(found(project["path"], self.key(chat)))
+        except self.ops.OpsError:
+            return False
+
+    def brake_form(self, text: str) -> bool:
+        """S41-11 (review C1-a): whether a plain line is a brake said in a closed form (`natural.match` reads it, read only: an operation of `operations.LINE_BRAKES`). A sender the interpreter does
+        not read is decided on such a line too, so that its brake gets the typed hint at once and is never queued behind the run it should stop."""
+        found = natural.match(text) if isinstance(text, str) else None
+        return found is not None and found["op"] in self.ops.operations.LINE_BRAKES
+
+    def decide(self, project: dict, chat: str, text: str) -> None:
+        """The first leg of a plain line of a sender whom the interpreter reads (A11-2, SPEC-S41-11-BRAKE): a job that takes no model slot, run behind the earlier lines of this chat (a plan or a draft
+        changes in the order the lines came). Everything that takes the line answers from it; a line nothing takes comes back (`line` sees `to_agent`) and is queued for the agent's turn."""
+        with self.turn_lock:
+            self.turn_taken[chat] = number = self.turn_taken.get(chat, 0) + 1
+        inner = self.line(project, chat, text, None, decide=True)
+
+        def call():
+            with self.turn_lock:
+                self.turn_lock.wait_for(lambda: self.turn_next.get(chat, 1) == number or self.stopping.is_set(), timeout=TURN_WAIT)
             try:
-                self.allow(project, "say", None, chat)
-            except (Refused, self.ops.OpsError):
-                pass
-            else:
-                try:
-                    self.allow(project, "file-trash", None, chat)      # R2-A: a sender who may move a file to the trash is not told it cannot be done: the line goes on, and the conversation opens the file's card
-                except (Refused, self.ops.OpsError):
-                    self.reply(chat, self.t("PHONE_NO_FILE_DELETE", project=project), project)
-                    return
-        found = None if text.lstrip().startswith("/") else natural.match(text)
-        if found is not None and natural.class_of(found["op"]) in ("D", "W"):      # a decision or an act said in a closed form (S20) is answered by code with no model: it takes no model slot, so a brake said in words works while the planning agent answers, as the typed /reject does
-            self.start(project, chat, found["op"], self.line(project, chat, text, None))
-            return
+                inner()
+            finally:
+                with self.turn_lock:
+                    self.turn_next[chat] = max(self.turn_next.get(chat, 1), number + 1)
+                    self.turn_lock.notify_all()
+        try:
+            self.start_job(project["id"], "say", self.inherit(call), slot=False)
+        except BaseException as e:      # a job that does not start leaves no number behind: the lines after it must not wait for it
+            with self.turn_lock:
+                self.turn_next[chat] = max(self.turn_next.get(chat, 1), number + 1)
+                self.turn_lock.notify_all()
+            if not isinstance(e, shell_kit.Stopping):
+                raise
+
+    def say_queue(self, project: dict, chat: str, text: str, route_pass=None) -> None:
+        """The last row of the stage `bridge-say`: the line is started, or kept in the queue of the project (BQ-1), as `say` always did once nothing before it took the line. `route_pass` is the pass the
+        decide leg handed back with the line (S41-11): the route leg carries it, so that the interpreter is not asked a second time."""
         if not queueable(text):
             self.start(project, chat, "say", self.line(project, chat, text, None))
             return
@@ -1498,7 +1729,7 @@ class Bridge(shell_kit.Jobs):
         held = False
         if not mine:
             try:
-                self.start_job(project["id"], "say", self.inherit(self.line(project, chat, text, None)))
+                self.start_job(project["id"], "say", self.inherit(self.line(project, chat, text, None, route_pass=route_pass)))
                 return
             except shell_kit.Busy:
                 held = True
@@ -1507,7 +1738,7 @@ class Bridge(shell_kit.Jobs):
         # beyond the caps the line gets the sentence it always got: the router's when the lines only wait out a `RunBusy` pause, else the slot's
         now = self.monotonic()
         busy_elsewhere = bool(mine) and not held and all(e["after"] > now for e in mine)
-        self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING")
+        self.keep_or_refuse(project, chat, text, "RUN_BUSY" if busy_elsewhere else "STILL_WORKING", route_pass=route_pass)
         self.drain()      # the job that held the slot may have ended between the refusal and the keeping
 
     def write_open(self, project: dict, chat: str) -> bool:
@@ -1577,17 +1808,22 @@ class Bridge(shell_kit.Jobs):
                 self.keep_cards(chat, said, project)      # a doubt or a rolled day said with the card, in the same turn, is about that card: the card stays the last message (S2)
             else:
                 self.reply(chat, said, project)
+                self.note_list(project, chat)
         if result.get("cards"):          # the files to choose among, or the file whose card says where to save it: their cards (ATT-3)
             self.attach.resend(project, chat, result["cards"])
         return result["resend"] if opened else None
 
-    def line(self, project: dict, chat: str, text: str, entry):
+    def line(self, project: dict, chat: str, text: str, entry, plan_ok=None, allow_as=None, decide=False, route_pass=None):
         """The call that runs one line through `say`. `entry` is the kept line this run answers (None: the line has just come); it leaves the waiting
         list when the run begins. The policy is read by `run_op` now; a kept line also needs the project to be accepted and its sender still listed in
-        it, else it is dropped with no reply, as an update from an unlisted sender is."""
+        it, else it is dropped with no reply, as an update from an unlisted sender is. `plan_ok` ({"item", "sha256"}, D5) makes the call the confirmed run of the plan those name,
+        which only the kind `plan-confirm` (through `plan_decide`) and `plan_tapped` pass after they read the person's OK; `allow_as` is then the plan's operation, whose group the policy is asked for (the operations
+        layer asks it again) in place of `self.needs`. `decide` (S41-11) runs the first leg of a plain line: a result that comes back with `to_agent` is queued (`say_queue`, with the route pass) and nothing is
+        said; `route_pass` is the second leg's pass."""
         def call():
             if entry is not None:
                 self.leave(entry)
+            waiting = self.waiting_card(project, chat) if plan_ok is None and route_pass is None else None      # ANY-QUESTION: before the indicator and the acknowledgement, which can send a message
             try:
                 if entry is not None:
                     try:
@@ -1598,17 +1834,30 @@ class Bridge(shell_kit.Jobs):
                         self.log(DROPPED)
                         return
                 shown = acked = None
+                seen = text if plan_ok is None else PLAN_TEXT      # the person's "yes" is a card word: neither the indicator nor the acknowledgement serves it, and a research they confirmed must tell them the word that stops it
                 try:
                     try:
-                        shown = indicator.Typing(self.messenger).begin(chat, text)      # S10: "typing..." while the reply is prepared, on a platform that has it
+                        shown = indicator.Typing(self.messenger).begin(chat, seen)      # S10: "typing..." while the reply is prepared, on a platform that has it
                     except Exception:      # never a lost reply
                         shown = None
-                    acked = self.ack_begin(project, chat, text)      # S19: one short sentence if the reply takes more than a moment
-                    result = self.run_op(project, "say", sender=chat, allow_as=self.needs(text, project, chat), text=text, **self.send_arguments())
+                    acked = self.ack_begin(project, chat, seen)      # S19: one short sentence if the reply takes more than a moment
+                    if plan_ok is None:
+                        legs = ({"decide": True} if decide else {}) | ({"route_pass": route_pass} if route_pass is not None else {})
+                        with line_card.hold(waiting):
+                            result = self.run_op(project, "say", kind="interpret" if decide and self.reads_words(project, chat) else None, sender=chat, allow_as=self.needs(text, project, chat), text=text, **legs, **self.send_arguments())      # review C1-b: leg 1 asks the policy with the kind `interpret`, so that `interpret` alone reaches the decision (the refusal after it is the operations layer's, decision #6)
+                    else:
+                        result = self.run_op(project, "say", sender=chat, allow_as=allow_as, text=text, plan_ok=plan_ok, **self.send_arguments())
                 finally:
                     if shown is not None:
                         shown.stop()      # before anything is sent: no call is made after this
                     self.ack_end(acked)
+                if result.get("to_agent"):      # S41-11: the decide leg handed the line back: the route leg, with its pass, as `say_queue` always did (nothing was stored, nothing is said)
+                    self.say_queue(project, chat, text, route_pass=result["to_agent"])
+                    return
+                planned = result.get("plan_confirm")
+                if isinstance(planned, dict):      # the reply is the question "Posso?" of a plan (D5): it is sent with its buttons and bound in the ledger
+                    self.ask_plan(project, chat, result.get("reply") or "", planned)
+                    return
                 typed = result.get("typed")
                 if typed and not result.get("reply"):      # a command asked for in words that the bridge answers itself (S20): it does what it does for the typed line
                     self.typed_line(project, chat, typed)
@@ -1630,6 +1879,8 @@ class Bridge(shell_kit.Jobs):
                     self.keep_cards(chat, said, project)
                     return
                 self.scope.replied = None
+                if result.get("ask_yes") and result.get("attachment") is None and not carded and self.remind.ask_yes_shared(project, chat, said):
+                    return      # review C2-d: a reminder question of the interpreter's carry-out goes with the one-tap Yes button and is bound in the ledger
                 attached, why = self.file_to_send(project, chat, result.get("attachment"))
                 if why == "read":      # the right to read files is gone since the search: neither the file nor the text found is sent, and the reply says that the right changed
                     said = self.t("FS_RIGHT_CHANGED", project=project)
@@ -1639,6 +1890,7 @@ class Bridge(shell_kit.Jobs):
                     said = self.t("FS_NOT_SENT", project=project)
                 if self.reply(chat, said, project, guard=converted, attachment=attached) is True and result.get("pending_id") is not None:
                     self.note_asked(project, chat, result["pending_id"], getattr(self.scope, "replied", None))      # the router's question reached this chat as the reply: its notice would be the same question twice
+                self.note_list(project, chat)
             except Refused as e:
                 self.reply(chat, str(e), project, guard=True)
             except self.ops.OpsError as e:
@@ -1647,7 +1899,7 @@ class Bridge(shell_kit.Jobs):
                 elif entry is not None:       # a kept line met the busy router again: it waits on, with its place and its time
                     if not self.keep(project, chat, text, entry=entry, retry=True):
                         self.reply(chat, self.t("QUEUE_STOPPED", project=project), project)       # the bridge is stopping
-                elif not queueable(text) or not self.keep(project, chat, text, retry=True):
+                elif plan_ok is not None or not queueable(text) or not self.keep(project, chat, text, retry=True):      # a confirmed plan is never kept as a line: its OK was spent
                     self.reply(chat, self.t("RUN_BUSY", project=project), project)
                 else:
                     self.reply(chat, self.t("QUEUED", project=project), project)
@@ -1726,7 +1978,7 @@ class Bridge(shell_kit.Jobs):
                 return self.ops.natural_needs(project["path"], text, sender=self.key(chat), channel=CHANNEL)
             except self.ops.OpsError:
                 return None
-        found = natural.needs(text)
+        found = line_group(text)
         return found if found is not None and CHANNEL in self.ops.operations.by_name(found)["channels"] else None
 
     def resend(self, project: dict, chat: str, pending_id: int, force: bool = False) -> bool:
@@ -1751,7 +2003,7 @@ class Bridge(shell_kit.Jobs):
             self.resent[key] = now
         return bool(sent)
 
-    def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str) -> None:
+    def keep_or_refuse(self, project: dict, chat: str, text: str, refusal: str, route_pass=None) -> None:
         """Keep the line and say so, or say `refusal` (the phrase table's key of the sentence the line always got when the project was busy: `RUN_BUSY` or
         `STILL_WORKING`). A sender whose policy refuses the line is told so now, and nothing is kept for it."""
         try:
@@ -1762,9 +2014,9 @@ class Bridge(shell_kit.Jobs):
         except self.ops.OpsError:
             self.reply(chat, self.t(refusal, project=project), project)
             return
-        self.reply(chat, self.t("QUEUED" if self.keep(project, chat, text) else refusal, project=project), project)
+        self.reply(chat, self.t("QUEUED" if self.keep(project, chat, text, route_pass=route_pass) else refusal, project=project), project)
 
-    def keep(self, project: dict, chat: str, text: str, entry=None, retry: bool = False) -> bool:
+    def keep(self, project: dict, chat: str, text: str, entry=None, retry: bool = False, route_pass=None) -> bool:
         """Keep a line in memory for the project. A new line (no `entry`) is kept when the bridge is not stopping, the chat has none waiting and the
         project has fewer than QUEUE_PER_PROJECT; `entry` puts a line that was started and met a busy router back where it was. `retry` makes it wait
         QUEUE_RETRY seconds before it is started again. True when the line is kept. Nothing about the line is logged beyond a count."""
@@ -1776,7 +2028,7 @@ class Bridge(shell_kit.Jobs):
                         or sum(1 for e in self.waiting if e["project"]["id"] == project["id"]) >= QUEUE_PER_PROJECT:
                     return False
                 self.ticket += 1
-                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0, "starting": False}
+                entry = {"n": self.ticket, "project": project, "chat": chat, "text": text, "since": self.monotonic(), "after": 0.0, "starting": False, "route_pass": route_pass}
             if retry:
                 entry["after"] = self.monotonic() + QUEUE_RETRY
             self.waiting.append(entry)
@@ -1813,7 +2065,9 @@ class Bridge(shell_kit.Jobs):
                             continue
                         oldest["starting"] = True
                     try:
-                        self.start_job(oldest["project"]["id"], "say", self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest)))
+                        with self.sentences_for(oldest["chat"], oldest["project"]):      # TT-2: the job says its sentences in the language of the chat's sender
+                            job = self.inherit(self.line(oldest["project"], oldest["chat"], oldest["text"], oldest, route_pass=oldest.get("route_pass")))
+                        self.start_job(oldest["project"]["id"], "say", job)
                     except shell_kit.Stopping:
                         self.leave(oldest)
                         told.append((oldest["chat"], "QUEUE_STOPPED", oldest["project"]))
@@ -1826,7 +2080,8 @@ class Bridge(shell_kit.Jobs):
             if expired:
                 self.log(f"{len(expired)} waiting line(s) dropped after {QUEUE_WAIT // 60} minutes")
             for chat, key, project in told:
-                self.reply(chat, self.t(key, project=project), project)
+                with self.sentences_for(chat, project):
+                    self.reply(chat, self.t(key, project=project), project)
 
     def drain_safely(self) -> None:
         try:
@@ -1840,7 +2095,8 @@ class Bridge(shell_kit.Jobs):
 
     def tell_stopped(self, chat: str, project=None) -> None:
         try:
-            self.reply(chat, self.t("QUEUE_STOPPED", project=project, chat=chat), project)
+            with self.sentences_for(chat, project):
+                self.reply(chat, self.t("QUEUE_STOPPED", project=project, chat=chat), project)
         except Exception:  # best effort: the stop goes on, and the class says what failed, never the content
             self.log("a waiting line's chat could not be told of the stop: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
 

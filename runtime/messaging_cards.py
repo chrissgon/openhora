@@ -45,6 +45,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import attachments  # noqa: E402  (the held file a card is drawn for)
 import phrases  # noqa: E402  (the same folder: the sentences of a card, in the project's language)
 import messaging_pending as pending_view  # noqa: E402  (what a question says in a list and on a card)
 
@@ -82,7 +83,7 @@ def decision_text(item: dict) -> str:
 
 
 def router_asks(item: dict) -> bool:
-    """Whether the decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks"
+    """Whether the decision is the question the router asked about a request (ops_requests._route_run writes it whole: the kind `question`, the title "The router asks"
     and the ending `question`). A card shows such a question as the question alone (phrases.asked_view); a task's question, whose title names its skill, is shown whole."""
     return phrases.is_router_question(item)      # the one test, shared with the conversation's reply (ops_say), so that the reply and the card stay in lockstep
 
@@ -135,6 +136,16 @@ def reads_private(policy, sender, operations) -> bool:
     return bool(sender) and bool(groups) and phrases.CARD_PRIVATE_GROUP in groups
 
 
+def private_groups(policy, sender, operations) -> frozenset:
+    """The groups of phrases.PRIVATE_GROUPS the sender holds (the groups that show a private line: `ask-mail` for the e-mail and calendar lines, `tasks-read` for the title of a task
+    the service holds now); none for no sender, no entry or a policy this function cannot read."""
+    try:
+        groups = operations.effective_groups(CHANNEL, policy, sender)
+    except Exception:      # a policy this function cannot read shows nothing private
+        return frozenset()
+    return frozenset(g for g in phrases.PRIVATE_GROUPS if g in groups) if sender and groups else frozenset()
+
+
 PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a card: a command's argument, which a phone does not type (the button binds to the hash the ledger recorded)
 # What a phone does not show of a card (slice S16c): the internals the page and the terminal keep. A raw id of an event, the name of a snapshot and the time it was read, the version of an
 # event or of a file, the id of a message, the path of a file on this machine and a file's hash are for the one who checks a card in the terminal; the card's hash and its effect document
@@ -145,10 +156,28 @@ PHONE_DROPPED = ("CARD_MAIL_HASH", "CARD_FILE_HASH")      # the hash line of a c
 PHONE_DROPPED += ("CARD_CAL_EVENT", "CARD_CAL_SNAPSHOT", "CARD_CAL_BASE", "CARD_MAIL_IN_REPLY", "CARD_BOX_SNAPSHOT")
 PHONE_LINE = {"CARD_FILE_SAVE": "PHONE_FILE_SAVE",      # the save line without the file's short hash
               "CARD_CAL_CHANGE": "PHONE_CAL_CHANGE", "CARD_CAL_DROP_WHERE": "PHONE_CAL_DROP_WHERE", "CARD_CAL_DROP_NOTES": "PHONE_CAL_DROP_NOTES",
-              "CARD_MAIL_REPLY_TO": "PHONE_MAIL_REPLY_TO", "CARD_MAIL_ATTACHMENT": "PHONE_MAIL_ATTACHMENT", "CARD_BOX_READ_AT": "PHONE_BOX_READ_AT",
+              "CARD_MAIL_REPLY_TO": "PHONE_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_AT": "PHONE_MAIL_REPLY_TO_AT", "CARD_MAIL_ATTACHMENT": "PHONE_MAIL_ATTACHMENT", "CARD_BOX_READ_AT": "PHONE_BOX_READ_AT",
               "CARD_BOX_DRAFT_REPLY": "PHONE_BOX_DRAFT_REPLY", "CARD_FILE_CODE_REPLACE": "PHONE_FILE_CODE_REPLACE", "CARD_FILE_CODE_TRASH": "PHONE_FILE_CODE_TRASH",
               "CARD_FILE_PROJECT": "PHONE_FILE_PROJECT", "CARD_FILE_BASE": "PHONE_FILE_BASE"}
 PHONE_DUPLICATE = {"CARD_CAL_NOW_WHEN": ("CARD_CAL_WHEN",), "CARD_CAL_NOW_TITLE": ("CARD_CAL_DROP_TITLE",)}      # a removal says the event twice (as it is now, and as what is removed): the phone says it once
+
+
+REFERENCE = re.compile(r"([a-z0-9][a-z0-9-]{0,39})#([0-9]{1,4})")      # the shape of a message reference `<source id>#<n>` (runtime/item_refs.py ITEM_REF: a test holds the two equal; the layer diagram gives this module no edge to it)
+PHONE_REF_LINES = ("PHONE_MAIL_REPLY_TO", "PHONE_MAIL_REPLY_TO_AT")      # the phone lines whose `ref` field is a message reference `<source id>#<n>`
+
+
+def _named_ref(line: list, cfg) -> list:
+    """BL5D: the phone line of a reply with its `ref` ("caixa-gmail#3") said by the plain name of the source ("3 do Gmail"), when `cfg["source_names"]` ({source id: name}, which the
+    bridge hands to every card) knows the source and the whole field is a reference; any other line, field or source is returned as it is. A copy of the line's fields: the stored card, whose
+    hash is the approval's (L55, L56), is never touched. Two cards that differ only in their target still read differently (S16c): the names of one project are unique."""
+    names = cfg.get("source_names") if isinstance(cfg, dict) else None
+    key, fields = line[0], line[1]
+    if not names or key not in PHONE_REF_LINES or not isinstance(fields, dict) or not isinstance(fields.get("ref"), str):
+        return line
+    found = REFERENCE.fullmatch(fields["ref"])
+    if not found or found.group(1) not in names:
+        return line
+    return [key, {**fields, "ref": phrases.text("SRC_ITEM_CARD", cfg, name=names[found.group(1)], n=int(found.group(2)))}]
 
 
 def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = False, approvable: bool = True):
@@ -164,13 +193,16 @@ def effect_card_text(item: dict, cfg=None, private: bool = True, owner: bool = F
         return None
     if phrases.card_text(card).strip() != (item.get("body") or "").strip():
         return None
-    shown = card if private else phrases.card_without_private(card, owner)
+    groups = frozenset(phrases.PRIVATE_GROUPS) if private is True else frozenset() if private is False else private      # True and False are the whole and the none; a set of groups is the sender's own (CB-5)
+    shown = card if groups >= frozenset(phrases.PRIVATE_GROUPS) else phrases.card_without_private(card, owner, groups)
     # `approvable` False is the phone (LIVE-2): the lines that are the platform's own how-to for a terminal go (the approve command, the hash line the command needs), and the
     # save line says no hash; every line of the person's data is as the card holds it. A reader offered no approval is not told how to approve either.
     present = {line[0] for line in shown}
     twice = {dup for key, dups in PHONE_DUPLICATE.items() if key in present for dup in dups}
     kept = shown if approvable else [[PHONE_LINE.get(line[0], line[0]), line[1]] for line in shown
                                      if not line[0].endswith("_APPROVE") and line[0] not in PHONE_DROPPED and line[0] not in twice]
+    if not approvable:      # BL5D: the phone says the message a reply answers by the plain name of its source, from a copy of the line
+        kept = [_named_ref(line, cfg) for line in kept]
     text = phrases.card_text(kept, cfg)
     return text + "\n" + phrases.text(phrases.hidden_note_key(card, shown), cfg) if len(shown) < len(card) else text
 
@@ -199,9 +231,10 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     blocked = _blocked or ("document" if delivery == "failed" else None)
     approval_ok = False
     private = reads_private(policy, sender, operations)
+    groups = private_groups(policy, sender, operations)
     owner = bool(sender) and item.get("reader_sent_file") is True      # the sender who sent the held file a save card writes (W4a) sees its name there and approves it
     unreadable = kind == "effect" and not private and item.get("effect_word") in operations.ACCOUNT_APPROVAL_WORDS and not phrases.card_valid((item.get("payload") or {}).get("card"))
-    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, private, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
+    shown_body = phrases.text("CARD_HIDDEN_NOTE_WHOLE", cfg) if unreadable else (effect_card_text(item, cfg, groups, owner, False) if kind == "effect" else None)      # an effect that carries its card as lines (FND), said line by line in the language; the line that tells how to approve is a command, which a phone is never given (limit L62)
     if shown_body is None and router_asks(item):
         shown_body = phrases.asked_view(item.get("body"), cfg)      # the router's question reaches a phone as the question and its framing, not as the template around it; the hash is made of the stored body
     shown_title = phrases.heading(item.get("title"), cfg)
@@ -213,7 +246,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
                               body=shown_body if shown_body is not None else phrases.body(item.get("body"), cfg)))      # the heading and the body code wrote whole, said in the language; the hash is made of the stored ones
     if shown_body is None and kind == "effect":      # a stored body (no card): only the platform's two frame lines are touched, every other line is the person's data and is shown as it is
         full = APPROVE_FRAME.sub("", LEDGER_LINE.sub(lambda m: m.group(1) + ": " + phrases.text("PHONE_LEDGER_FILE", cfg), full)).rstrip("\n")
-    cut_private = unreadable or (kind == "effect" and not private and effect_card_text(item, None, True) != effect_card_text(item, None, False, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
+    cut_private = unreadable or (kind == "effect" and effect_card_text(item, None, True) != effect_card_text(item, None, groups, owner))      # a line of the current text is left out; so is a card of an account write that cannot be read as a card (fail closed)
     if needs_whole and not blocked and notices == "text" and not cut_private:
         if kind == "effect":
             approval_ok = item.get("effect_on_cards") is True and operations.permitted("approve", CHANNEL, policy, effect_kind(item), sender) \
@@ -337,9 +370,8 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     words, already cleaned and cut); `accounts` the accounts ("google", "microsoft") the project lists with folders; `extra` is lines (already said) added under the question: the note that
     the text sent with the file is read only as a request to save it, or that the service the text named is not set up. Returns {"message", "content_sha256" (the one of attachments.card_sha256), "kind": "attachment", "attachment_id",
     "actionable", "words"}; the bridge records it in the ledger with the file's number in place of a decision's."""
-    import attachments as att
     t = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
-    save_only = bool(row.get("save_only")) or att.is_save_only(row.get("kind"))
+    save_only = bool(row.get("save_only")) or attachments.is_save_only(row.get("kind"))
     wanted = [f"save-{a}" for a in accounts if f"save-{a}" in SAVE_WORDS] + ([] if save_only else ["add"]) + ["discard"]
     words = [w for w in wanted if operations.permitted(ATTACH_OPERATION[w], CHANNEL, policy, None, sender)]
     buttons_ok = bool(caps.get("buttons")) and caps.get("max_buttons", 0) > 0
@@ -352,8 +384,8 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     if notices == "count":
         body = t("ATTACH_COUNT")
     else:
-        kind = att.IMAGE_WORDS.get(row.get("kind"), row.get("kind") or t("FILE_WORD")) if save_only else (row.get("kind") or t("FILE_WORD"))
-        body = t("ATTACH_WHAT", name=row["name"], size=att.size_text(row["bytes"], cfg), kind=kind)
+        kind = attachments.IMAGE_WORDS.get(row.get("kind"), row.get("kind") or t("FILE_WORD")) if save_only else (row.get("kind") or t("FILE_WORD"))
+        body = t("ATTACH_WHAT", name=row["name"], size=attachments.size_text(row["bytes"], cfg), kind=kind)
         if "add" in words:
             body += "\n" + (t("ATTACH_WHAT_VERSION", id=row["target"], n=next_version) if row.get("label") == "refresh" and next_version else t("ATTACH_WHAT_ADD", project=project_name, id=row["target"]))
         for line in extra:
@@ -363,5 +395,5 @@ def attachment_card(project_name: str, row: dict, next_version: int, caps: dict,
     message = {"text": text, "actions": [{"op": w, "label": t("LABEL_" + w.upper().replace("-", "_"))} for w in shown], "link": None, "document": None}
     if footer and caps.get("actions_need_reply"):
         message["footer"] = list(footer)
-    return {"message": message, "content_sha256": att.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
+    return {"message": message, "content_sha256": attachments.card_sha256(row["sha256"], row["target"], row["label"]), "kind": "attachment", "attachment_id": row["id"],
             "actionable": bool(words), "words": words}

@@ -7,8 +7,9 @@
 
   file_read(project, file, [account], [channel, sender])   the operation (the typed command, the page, a messaging app): {"status", ...}, below
   reply(project, ctx, args, said, channel, sender, extras) the reply a line in words gets (runtime/ops_natural.py `run` calls it for `file-read`)
-  take(project, ctx, said, channel, sender, extras)        the reply to a bare number said right after a list of files ("o 2"), or None (runtime/ops_natural.py `take`)
+  take(project, ctx, said, channel, sender, extras)        the reply to a bare number ("o 2") or an ordinal word ("o primeiro", "a última") said right after a list of files, or None (the row `file-list-number` of runtime/ops_turn.py)
   begin_turn(ctx, channel, sender)                         called at the start of every line (runtime/ops_say.py): a list is valid for the line right after it
+  read_whole(cfg, match)                                   (FA-1) the converted text of the one file chosen, WHOLE, with the count of images taken out of a Google Doc and the provider's version: the reader of `file-ask`
 
 What it searches, and nothing else (S8, widened by S17): the folders under `accounts.<google|microsoft>.folders` of the project's configuration (project_config `account_target`
 is the rule of every write; this is the rule of this read) AND THEIR SUBFOLDERS, walked breadth first through the providers' `children` (one folder's direct contents; the
@@ -23,9 +24,17 @@ OneDrive path's last name) and by the alias. A folder none of the walked ones ca
 outside (`..`, the root, an item id) is refused and nothing is listed. Every reply names a folder by its real name (the service's own name when it could not be read), never the alias.
 
 The match (S17): the name span is cut into the words code folds as every name of the platform is (`natural.normal`: case, accents, punctuation), and a file fits when every word
-occurs in its name (the extension optional; a typed extension must be the file's when the file has one). A file whose whole name is the span (S8's rule) wins over files that only
+occurs in its name (the extension optional; a typed extension must be the file's when the file has one). The span is searched as it is first; only when nothing fits, `_search` tries the name alone on the same walk (`_bare_name`: the span without a leading object noun, "planilha" or "o arquivo",
+and a trailing service phrase, "do drive" or "no onedrive", that the interpreter may have kept in it; never an inner word), so a file whose real name starts with such a noun is still found by it. A file whose whole name is the span (S8's rule) wins over files that only
 contain its words. One match is read; several are listed (a number, name, folder path, account) and the sender's next line "o 2" picks one (`take`, below); none gets one sentence
 naming the configured folders searched, by the names the configuration gives them (never an id or a path), and that their subfolders were included.
+
+An ordinal word picks too (LP-2, the maintainer's ok of 2026-10-28; runtime/list_pick.py): after a list, "o primeiro", "o segundo" and "a última" (or "the first one", "the last") are the file in that
+place of the list as it was printed (the files are numbered 1..k, so a position is the number the person read). The line is read whole by `list_pick.read` and decided by `list_pick.choose`
+against the printed places, in `_place`, so a pick is always one of the files the list showed this sender, in the list that is the last thing said, and from there it goes exactly as its number goes
+(the same checks of the right to read, of the grant and of the group `send-files`; a list for the trash or for a question opens that card or runs that question). What is NOT a pick of a file: a
+verb with it ("lê o primeiro"), a value the list shows (a clock, a day, an account, a sender: the list shows names and folders, OPEN-LP-7), a place beyond the list, a longer request, and "a última"
+when the list printed fewer files than fit (the sentence said "N arquivos" and showed 8: the last file of the list is not the last row printed, so the line goes on as before). Each list says whether it printed every file that fit (`whole`: the lists of `file-read`, of the trash and of a question). No interpreter slot, plan item or card word ever receives a number that the line did not write.
 
 The read goes through the providers of `integration:documents` that already read the files of a source (`sources.drive_call`, `sources_onedrive.onedrive_call`: `read`,
 with `children` for the listing), the same intake, the same converter and the same credential scan (limit L14) as a source, and registers nothing: no source, no version,
@@ -36,7 +45,7 @@ What is kept (limits L50, L61 and L63): the conversation stores a neutral word f
 the file's text, its name and the folder's name are in the reply to the chat that asked and nowhere else; nothing here logs, prints or stores a name, a folder or a text, and a
 provider's failure is a fixed sentence (its text is another service's). The one thing held is the list a pick answers: the ids, names and folder paths of the files a list showed,
 in the process's memory for the sender's next line (LIST_WINDOW_S at most), dropped by that line whatever it is; nothing of it is written, logged or sent. No model ever reads the file: the interpreter decides the operation and the name from the person's
-line alone. A question about the file is NOT answered from it: the answer from sources (`ask`) reads registered sources only, and this slice registers none, so the text is shown.
+line alone. A question about the file is NOT answered from it by this read: the answer from sources (`ask`) reads registered sources only, and this slice registers none, so the text is shown (FA-1's `file-ask`, runtime/ops_file_ask.py, answers such a question through the quarantined reader, with a group of its own, and uses `read_whole` and the list of this module).
 
 The file itself (S18): when the sender holds the group `send-files` (beside `read-files`) and the bridge says the messaging app can carry a file (`extras["can_send"]`, the messenger's
 capabilities: the most it takes, the most it takes as a photo, the image types it shows as a photo, the types it takes), the reply of a found file carries the file as
@@ -77,6 +86,10 @@ import project_config  # noqa: E402
 import send_scan  # noqa: E402
 import sources  # noqa: E402
 import sources_onedrive  # noqa: E402
+import event_lookup  # noqa: E402
+import list_pick  # noqa: E402
+import natural_writes  # noqa: E402
+import ops_natural  # noqa: E402
 
 MAX_DEPTH = 5            # levels of subfolders walked below a configured folder (S17)
 MAX_ITEMS = 2000         # items listed in all before the walk stops (S17)
@@ -267,8 +280,7 @@ def _walk(cfg: dict, account=None, names_only: bool = False, only_root=None) -> 
 
 
 def _phrases(tables, account: str) -> list:
-    from natural_writes import listed      # at call time: the closed lists of the language tables
-    return [tuple(natural.normal(p).split()) for p in listed(tables, "services", account)]
+    return [tuple(natural.normal(p).split()) for p in natural_writes.listed(tables, "services", account)]
 
 
 def _pieces(said: str, wanted: str) -> list:
@@ -282,7 +294,6 @@ def _accounts_of_line(said: str, wanted: str) -> set:
     """The accounts (`google`, `microsoft`) the line names outside the name span, by the closed lists of the language tables (`services`): a phrase of two words or more names an
     account alone ("google drive"), one word needs a word that introduces it ("no onedrive"). The bare word "drive" (GENERIC) names none: it is what a person calls their cloud
     folder, not a service ("do meu drive" is searched in both accounts)."""
-    from event_lookup import LEADS      # the words that introduce an account, as the calendar's reading uses them (S11)
     tables = natural._tables(None)
     found = set()
     for account in SERVICES:
@@ -292,7 +303,7 @@ def _accounts_of_line(said: str, wanted: str) -> set:
                 continue
             for words in _pieces(said, wanted):
                 for i in range(len(words) - n + 1):
-                    if tuple(words[i:i + n]) == phrase and (n >= 2 or (i and words[i - 1] in LEADS)):
+                    if tuple(words[i:i + n]) == phrase and (n >= 2 or (i and words[i - 1] in event_lookup.LEADS)):
                         found.add(account)
     return found
 
@@ -330,14 +341,63 @@ def _folder_of_line(said: str, wanted: str):
     return _folder_from(said, wanted)
 
 
+def _view(tree: dict, view, account, said):
+    """The walked tree a try is looked in: the whole tree, or, for the name alone (`_bare_name`) when the account was not decided, the files of the one account the cut service phrase
+    names in the line ("drive" alone names none)."""
+    if view is None or account is not None:
+        return tree
+    named = _accounts_of_line(said, view[1])
+    return dict(tree, files=[f for f in tree["files"] if f["service"] in named]) if len(named) == 1 else tree
+
+
+def _tail_phrases(tables) -> list:
+    """The service phrases of the tables (every account), as tuples of folded words, the longest first."""
+    return sorted({p for account in SERVICES for p in _phrases(tables, account) if p}, key=len, reverse=True)
+
+
+def _bare_name(span: str) -> str:
+    """`span` without the words around the file's name that are not part of it: a leading noun for the object of the tables' files list ("o arquivo", "a planilha") with the
+    articles before it, and a trailing service phrase of the tables with the word that introduces it ("do drive", "no onedrive", "do meu google drive"). The cut words are
+    still in the line, so the account they name is read from the line as before. Inner words are never cut, and a cut that would leave nothing is not made."""
+    tables = natural._tables(None)
+    spans = [m.span() for m in re.finditer(r"\S+", span)]
+    words = [(w, i) for i, (a, b) in enumerate(spans) for w in natural.normal(span[a:b]).split()]
+    first, last = 0, len(spans)
+    articles = tuple(natural.normal(w) for w in natural_writes.listed(tables, None, "articles"))
+    nouns = sorted((tuple(natural.normal(n).split()) for n in natural_writes.listed(tables, "files", "nouns")), key=len, reverse=True)
+    at = 0
+    while at < len(words) and words[at][0] in articles:
+        at += 1
+    for noun in nouns:
+        end = at + len(noun)
+        if noun and tuple(w for w, _ in words[at:end]) == noun and end < len(words) and words[end][1] != words[end - 1][1] and (not at or words[at][1] != words[at - 1][1]):
+            first = words[end][1]
+            break
+    joins = sorted((tuple(natural.normal(j).split()) for j in natural_writes.listed(tables, None, "service_in") + natural_writes.listed(tables, "files", "of")), key=len, reverse=True)
+    tail = [(w, i) for w, i in words if i >= first]
+    for phrase in _tail_phrases(tables):
+        start = len(tail) - len(phrase)
+        if start <= 0 or tuple(w for w, _ in tail[start:]) != phrase or tail[start][1] == tail[start - 1][1]:
+            continue
+        while start > 0 and tail[start - 1][0] in articles and tail[start - 1][1] != tail[start][1]:
+            start -= 1
+        for join in joins:
+            begin = start - len(join)
+            if begin > 0 and join and tuple(w for w, _ in tail[begin:start]) == join and tail[begin][1] != tail[begin - 1][1]:
+                last = tail[begin][1]
+                break
+        if last != len(spans):
+            break
+    return span[spans[first][0]:spans[last - 1][1]] if first < last else span
+
+
 def _embedded(wanted: str):
     """(name, folder) when the span itself ends with a folder phrase ("Plano da pasta coral"), else None: the model may have taken the whole tail as the name."""
-    from event_lookup import LEADS
     words = natural.normal(wanted).split()
     for i, word in enumerate(words):
         if i and word in FOLDER_WORDS and i + 1 < len(words):
             head = words[:i]
-            while head and head[-1] in LEADS:
+            while head and head[-1] in event_lookup.LEADS:
                 head.pop()
             folder = _folder_from(wanted, "")
             if head and folder is not None:
@@ -394,10 +454,13 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
     "truncated", "cut", "no_folder", "folder_missing", "incomplete"}. `account` google or microsoft narrows the search to one account; `said` is the line the folder named in it comes from
     (None: no folder). Only files under the folders the configuration lists are returned. A folder named in the line that none of the walked folders carries does not stop the search: the file
     is looked for in the whole walked tree and `folder_missing` is the name the person typed (the reply says so); `no_folder` (a refusal) is only for a folder that points outside, see `_outside`."""
-    tries = [(wanted, _folder_of_line(said, wanted) if said else None)]
+    tries = [(wanted, _folder_of_line(said, wanted) if said else None, None)]
     inner = _embedded(wanted)
     if inner:
-        tries.append(inner)
+        tries.append(inner + (None,))
+    bare = _bare_name(wanted) if said else wanted
+    if bare != wanted:
+        tries.append((bare, tries[0][1], ("bare", bare)))          # the name alone, tried last, on the walk already made
     outside = tries[0][1] is not None and tries[0][1]["outside"]
     tree = _walk(cfg, account, names_only=outside)
     out = {"folders": tree["roots"], "matches": [], "failed": tree["failed"], "truncated": tree["truncated"], "cut": tree["cut"], "no_folder": False, "all_failed": False,
@@ -409,16 +472,16 @@ def _search(cfg: dict, wanted: str, account=None, said=None) -> dict:
         return out
     out["all_failed"] = not tree["files"] and tree["failed"] >= len(tree["roots"])
     missing = []
-    for name, folder in tries:
-        got = _find(tree, name, folder)
+    for name, folder, view in tries:
+        got = _find(_view(tree, view, account, said), name, folder)
         if got["matches"]:
             out["matches"] = _matches_of(got["matches"])
             return out
         if folder is not None and got["no_folder"]:
             missing.append(folder)
-    if missing and len(missing) == len([1 for _, folder in tries if folder is not None]):          # every reading of the line names a folder the walk did not find: look everywhere, and say so
-        for name, _ in tries:
-            got = _find(tree, name, None)
+    if missing and len(missing) == len([1 for _, folder, _ in tries if folder is not None]):          # every reading of the line names a folder the walk did not find: look everywhere, and say so
+        for name, _, view in tries:
+            got = _find(_view(tree, view, account, said), name, None)
             if got["matches"]:
                 out["matches"] = _matches_of(got["matches"])
                 out["folder_missing"] = missing[0]["shown"]
@@ -486,9 +549,10 @@ def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
                 return {"text": None, "data": data, "type": found, "markdown": False}      # nothing to scan: an image is sent as it is
             elif found is None or found[1] not in send["types"]:
                 raise Unreadable("kind")
+        stripped = 0
         if info.get("content") == "markdown":
             try:
-                text = sources.strip_embedded_images(data.decode("utf-8"))[0]
+                text, stripped = sources.strip_embedded_images(data.decode("utf-8"))      # FA-1: the count of the images taken out of a Doc is kept for `read_whole` (it was discarded)
             except UnicodeDecodeError:
                 raise Unreadable("kind") from None
             converted = text.encode("utf-8")
@@ -501,7 +565,8 @@ def _read(cfg: dict, service: str, ident: str, send=None) -> dict:
             raise Unreadable("secret")
         if send is not None and send_scan.check(data, found[1], sources._workcopy().scan, markdown=info.get("content") == "markdown"):      # what is SENT is what is scanned: the bytes, not only the converter's text
             raise Unreadable("secret")
-        return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown"}
+        return {"text": text if text.strip() else None, "data": data if send is not None else None, "type": found, "markdown": info.get("content") == "markdown",
+                "images_stripped": stripped, "version": info.get("version") if isinstance(info.get("version"), str) else None}
     finally:
         shutil.rmtree(stage, ignore_errors=True)
 
@@ -538,6 +603,16 @@ def _cut(text: str) -> tuple:
         head = head[:space]
     head = head.rstrip()
     return head, len(whole) - len(head)
+
+
+def read_whole(cfg: dict, match: dict) -> dict:
+    """{"text", "images_stripped", "version", "name", "folder", "account"} of the one file the search found, for the reader of `file-ask` (FA-1): the converted text WHOLE (not cut at TEXT_MAX), the
+    number of embedded images taken out of a Google Doc exported as Markdown (0 for any other file), and the version the provider read. The same intake, converter and credential scan as every
+    read (limit L14); nothing is registered and the staging folder is removed. Unreadable (code) as `_read` raises it: "kind" (also a file the search marked unsupported), "size", "secret", "empty", "service"."""
+    if not match["supported"]:
+        raise Unreadable("kind")
+    got = _read(cfg, match["service"], match["id"])
+    return {"text": got["text"], "images_stripped": got["images_stripped"], "version": got["version"], "name": match["name"], "folder": match["folder"], "account": match["service"]}
 
 
 # --- the operation -----------------------------------------------------------------------------------------------------------------------------
@@ -627,20 +702,19 @@ def forget_lists() -> None:
         _LISTS.clear()
 
 
-def _natural():
-    return importlib.import_module("ops_natural")
-
-
 def _slot(ctx: dict, channel, sender) -> tuple:
-    return (_natural().project_key(ctx["cfg"]["project"]), channel, sender or "")
+    return (ops_natural.project_key(ctx["cfg"]["project"]), channel, sender or "")
 
 
-def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read") -> None:
-    now = _natural()._clock()
+def _remember(ctx: dict, channel, sender, items: list, incomplete: bool = False, purpose: str = "read", extra=None, whole: bool = False) -> None:
+    """Keep the list a pick answers, in process memory. `extra` (FA-1) is a small dict held beside the list for the pick that follows (for "ask": the person's question); it is never written, logged or sent, and it is dropped with the list.
+    `whole` (LP-2): the list printed every file that fit; only then does "o último" mean the last row printed (a caller that does not say so is read as "not whole")."""
+    now = ops_natural._clock()
     with _lock:
         for old in [k for k, v in _LISTS.items() if (now - v["at"]).total_seconds() > LIST_WINDOW_S]:
             del _LISTS[old]
-        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "seen": 0, "pending": importlib.import_module("event_lookup")._last_pending(ctx)}
+        _LISTS[_slot(ctx, channel, sender)] = {"at": now, "items": list(items), "incomplete": incomplete, "purpose": purpose, "extra": dict(extra) if isinstance(extra, dict) else None, "whole": whole is True, "seen": 0,
+                                               "pending": event_lookup._last_pending(ctx)}
 
 
 def _drop(ctx: dict, channel, sender) -> None:
@@ -657,11 +731,19 @@ def begin_turn(ctx: dict, channel, sender) -> None:
                 found["seen"] += 1
 
 
-def _live(ctx: dict, channel, sender):
-    now = _natural()._clock()
+def list_open(ctx: dict, channel, sender) -> bool:
+    """Whether the sender's list of files is still the last thing said to them (the checks of `_live` before the next line is read; nothing is dropped or counted): ACEITE-37, the bridge asks it."""
+    now = ops_natural._clock()
     with _lock:
         found = _LISTS.get(_slot(ctx, channel, sender))
-    if found is not None and ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 1 or importlib.import_module("event_lookup")._last_pending(ctx) > found["pending"]):
+    return found is not None and not ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 0 or event_lookup._last_pending(ctx) > found["pending"])
+
+
+def _live(ctx: dict, channel, sender):
+    now = ops_natural._clock()
+    with _lock:
+        found = _LISTS.get(_slot(ctx, channel, sender))
+    if found is not None and ((now - found["at"]).total_seconds() > LIST_WINDOW_S or found["seen"] > 1 or event_lookup._last_pending(ctx) > found["pending"]):
         _drop(ctx, channel, sender)
         return None
     return found
@@ -699,6 +781,21 @@ def _finish(cfg: dict, got: dict, extras: dict, pick: bool = True) -> str:
     return text
 
 
+def _place(said: str, record: dict):
+    """The place (1..k) in the list of the file the line names, or None. A number form (S11) names a place only without a verb; a line that is no number form may name a row by an
+    ordinal word or by the word for last (LP-2, runtime/list_pick.py: "o primeiro", "a última"), read against the rows as printed (1..k, so a position is the number printed). A value
+    the list shows (a clock, a day, an account, a sender) is no pick of a file (OPEN-LP-7), a verb with a pick is none, and "a última" of a list that printed fewer files than fit is none."""
+    count = len(record["items"])
+    form = event_lookup._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
+    if form is not None:
+        return form["n"] if form["verb"] is None and 1 <= form["n"] <= count else None
+    pick = list_pick.read(said)
+    if pick is None or pick["verb"] is not None or pick["kind"] not in ("ordinal", "last"):
+        return None
+    verdict = list_pick.choose(pick, [{"n": i, "position": i} for i in range(1, count + 1)], None, not record.get("whole"))
+    return verdict[1] + 1 if verdict[0] == "one" else None
+
+
 def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     """The reply to a number said right after a list of files ("o 2", "2", "the 2nd"), or None when the line is not one (no live list for this sender, a line that is no bare
     number, a number the list did not show). Any line ends the list, so a pick is used once. The sender's right to read files is asked again, and so is the grant: the configured
@@ -709,16 +806,18 @@ def take(project: str, ctx: dict, said: str, channel, sender, extras: dict):
     if record is None:
         return None
     _drop(ctx, channel, sender)
-    form = importlib.import_module("event_lookup")._number_form(said)          # the closed number forms of S11: "o 2", "#2", "the 2nd"; a verb with it is not a pick
-    if form is None or form["verb"] is not None or not 1 <= form["n"] <= len(record["items"]):
+    place = _place(said, record)
+    if place is None:
         return None
     cfg = ctx["cfg"]
     if record.get("purpose") == "trash":      # R2-A: the list was of files to move to the trash: the number opens that file's card (runtime/ops_file_trash.py)
-        return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][form["n"] - 1], channel, sender, extras)
+        return importlib.import_module("ops_file_trash").pick(project, ctx, record["items"][place - 1], channel, sender, extras)
+    if record.get("purpose") == "ask":      # FA-1: the list was of files to answer a question about: the number runs the question the list held (runtime/ops_file_ask.py)
+        return importlib.import_module("ops_file_ask").pick(project, ctx, record["items"][place - 1], record.get("extra"), channel, sender, extras)
     refused = operations.refusal("file-read", "messaging", cfg["channels"], sender=sender)
     if refused:
         return phone_refusal.said(refused, channel, cfg)
-    match = record["items"][form["n"] - 1]
+    match = record["items"][place - 1]
     folders = [(service, None) for service in SERVICES if (project_config.account_entry(cfg, service) or {}).get("folders")]          # the real names are not read again for a refusal
     granted = {(service, ident) for service in SERVICES for ident in ((project_config.account_entry(cfg, service) or {}).get("folders") or {}).values()}
     extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)
@@ -735,8 +834,7 @@ def _service_of(word):
     if word in SERVICES:
         return word
     folded = natural.ascii_normal(str(word))
-    from natural_writes import listed      # at call time: the closed lists of the language tables
-    hits = [s for s in SERVICES if folded in listed(natural._tables(None), "services", s)]
+    hits = [s for s in SERVICES if folded in natural_writes.listed(natural._tables(None), "services", s)]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -807,7 +905,7 @@ def reply(project: str, ctx: dict, args: dict, said: str, channel, sender, extra
     line_stage.publish("file")      # S19: the name is checked, the folders are searched
     got = _find_and_read(cfg, wanted, account, said, _sending(ctx, channel, sender, extras))
     if got["status"] == "several" and channel == "messaging":
-        _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")))
+        _remember(ctx, channel, sender, got["refs"], bool(got.get("incomplete")), whole=got["count"] <= len(got["refs"]))
     return _finish(cfg, got, extras, channel == "messaging")
 
 

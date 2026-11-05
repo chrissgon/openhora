@@ -12,7 +12,9 @@ A chat-completions request over HTTPS, standard library only (`dependencies = []
 | `--check` | exit 0 when `MODEL_TEXT_KEY` is set, else exit 3 (`E_KEY`); no connection |
 | `complete [--dry-run]` | reads one JSON request on standard input and prints one JSON reply; with `--dry-run` prints `{"would": {"method", "url", "body"}, "would_sha256"}` and reads no key and opens no connection |
 
-**The request** (standard input, version 1): `route` (`id`, `base_url`, `model`, `pin`, `allow_fallbacks`, `data_collection`, `zdr`, `cache_breakpoint`), `accepted` (the sha256 of each route the person accepted), `key_prefix` (4 to 32 printable characters: what every key of the service starts with), `params` (`temperature`, `max_tokens`, `reasoning` `off` or `on`), `system`, `user`, `deadline_ms`. The hash is over `json.dumps(route, ensure_ascii=False, sort_keys=True, separators=(",", ":"))` in UTF-8. The text goes on standard input, never on the command line and never in a file.
+**The request** (standard input, version 1): `route` (`id`, `base_url`, `model`, `pin`, `allow_fallbacks`, `data_collection`, `zdr`, `cache_breakpoint`, and optionally `pin_reply` and `reasoning_off`), `accepted` (the sha256 of each route the person accepted), `key_prefix` (4 to 32 printable characters: what every key of the service starts with), `params` (`temperature`, `max_tokens`, `reasoning` `off` or `on`), `system`, `user`, `deadline_ms`. The hash is over `json.dumps(route, ensure_ascii=False, sort_keys=True, separators=(",", ":"))` in UTF-8. The text goes on standard input, never on the command line and never in a file.
+
+**Reasoning off.** With `params.reasoning` `off` the body carries `reasoning: {enabled: false}` when the route's `reasoning_off` is `disable` or absent (the default), and `reasoning: {effort: minimal}` when it is `minimal`: for an endpoint that answers 400 "Reasoning is mandatory" to a disabled reasoning and accepts the lowest effort. With `on` no `reasoning` field is sent. Any other value of `reasoning_off` is `E_USAGE` (exit 2) before any connection. The key is part of the route, so part of its hash: a route accepted without it is another route once it is added (`E_ROUTE`). The source of the two forms is cited in `contracts/runtime.md` (L63).
 
 **The reply** (standard output): `v`, `text`, `finish` (`stop`, `length` or `other`), `usage` (`input`, `output`, `cache_read`, `cache_write`; an integer or null each), `latency_ms`, `upstream` (the provider that served it, lower case, or null).
 
@@ -33,7 +35,7 @@ A chat-completions request over HTTPS, standard library only (`dependencies = []
 | `E_TIMEOUT`, `E_NETWORK` | 1 | the deadline passed; the connection failed |
 | `E_RATE`, `E_UPSTREAM` | 1 | status 429; status 500 or above |
 | `E_HTTP` | 1 | any other status that is not 200, a redirect included |
-| `E_PIN` | 1 | the reply names another provider than the route's pin, or a `model` that does not start with the route's model (checked after the call, case-insensitive) |
+| `E_PIN` | 1 | the reply names another provider than the route's `pin_reply` (when the route has one) or its pin, or a `model` that does not start with the route's model (checked after the call, case-insensitive); when it is the provider that differs, one line `chat-http: provider <name>` (the name the service gave, lower case, printable, at most 64 characters) comes before the code line |
 | `E_RESPONSE` | 1 | the reply is not JSON, is over 65,536 bytes or has no text |
 | `E_INTERNAL` | 1 | anything else |
 

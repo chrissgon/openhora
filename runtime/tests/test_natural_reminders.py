@@ -13,14 +13,18 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
-from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, TEXT_CASES, UNSURE_LINES
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
+from natural_cases_pt_br import CANDIDATE_CASES, PLAIN_LINES, RECURRING_LINES, UNSURE_LINES
 from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, NOT_ENABLED, OTHER, SENDER, THIRD, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
+turn_gate = st.load("turn_gate")
 ops = st.load("ops")
 ops_reminders = st.load("ops_reminders")
 phrases = st.load("phrases")
@@ -30,10 +34,10 @@ NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
 
 
 def completed(draft, said, now=NOW):
-    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation: a free-text reminder is made only after a yes."""
-    got = natural.complete(draft, said, now)
+    """`turn_gate.complete_reminder` (`natural.complete` with the guard's verdict, CANDIDATE-OUT), and the "yes" that makes the reminder when the answer was a reading shown for confirmation: a free-text reminder is made only after a yes."""
+    got = turn_gate.complete_reminder(draft, said, now)
     if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
-        return natural.complete(got["ask"], "yes", now)
+        return turn_gate.complete_reminder(got["ask"], "yes", now)
     return got
 
 ENGLISH_CANDIDATES = [
@@ -93,20 +97,48 @@ ENGLISH_CANDIDATES = [
 ]
 
 
-@pytest.mark.parametrize("line,expected", CANDIDATE_CASES + ENGLISH_CANDIDATES)
-def test_a_line_is_matched_to_a_reminder_operation_by_the_tables_and_nothing_else_is(line, expected):
-    assert natural.candidate(line) == expected
+# CANDIDATE-OUT 2: `natural.candidate` (what a line is) is deleted; the question engine asks the code guard `turn_gate.new_request` whether a line starts a request of its own. The table above is kept as
+# the guard's oracle: a line the old table named is a request to the guard, and a line it left alone is none, except these (the line, the guard's verdict), each a difference the guard has on purpose:
+# a forget by its words and a bare undo are asked once more or taken as answers (OPEN-CO-3); "agenda consulta ..." is a calendar line the guard does not see: its step (c) reads `triggers.calendar`, `calendar_verb` and `calendar_loose`, never `calendar_noun`, and pt-BR "agenda" is only in `calendar_noun`; a line about reminders not working is a `form` (a reminder noun
+# in a short line) or a `reminder` (it starts with the noun), because the guard does not read the problem words; "every monday at 8am send me a summary" is a bare reading.
+GUARD_DIFFERENCES = {
+    "esquece o lembrete da aula de violão": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "agenda consulta com a nutricionista segunda que vem às 16h20 na clínica": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "desfaz": None, "undo": None, "undo that": None,
+    "desfaz isso": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "esquece o lembrete de pagar 2 boletos": None,      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "cancel the reminder of the 9 oclock one": None,
+    "lembretes funcionam no whatsapp?": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "lembretes não chegam no meu celular": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "meus lembretes não chegaram": "form",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "lembrete 3 não chegou": "reminder",      # validate: allow english-only -- a Portuguese line, the case of the tests
+    "delete reminder emails from inbox": "form", "reminders are broken": "form", "my reminders are not working": "form", "do reminders work on whatsapp?": "form",
+    "reminder 3 did not arrive": "reminder", "every monday at 8am send me a summary": "bare",
+}
 
 
-@pytest.mark.parametrize("line,expected", TEXT_CASES + [
-    ("remind me tomorrow at 1 pm to call the florist", "call the florist"),
-    ("remind me to phone the neighbour tomorrow at 9am", "phone the neighbour"),
-    ("Please remind me in 2 hours about the oven", "the oven"),
-    ("reminder: friday at 15:00 pay the rent", "pay the rent"),
-])
-def test_the_words_of_the_reminder_are_the_line_without_the_trigger_the_time_and_one_connector(line, expected):
-    got = made(natural, line, NOW, "trigger")
-    assert got["text"] == expected and got["when"]
+def guard_disagreements(guard):
+    """The lines of the table that `guard` (a function of a line) does not treat as the table does: a request (a verdict) for a line the old table named, none for a line it left alone, and the
+    pinned verdict for each line of GUARD_DIFFERENCES. Empty when the guard is `turn_gate.new_request`. This oracle checks request or no request only: which verdict (reminder, write, form, bare) a
+    line gets is covered by the per-step oracles of test_reply_guard.py (`test_each_step_of_the_guard_names_its_line`, `test_the_twins_that_lack_the_word_that_matters_are_no_request`,
+    `test_the_twin_pairs_differ_only_by_the_trigger`)."""
+    out = []
+    for line, expected in CANDIDATE_CASES + ENGLISH_CANDIDATES:
+        verdict = guard(line)
+        if line in GUARD_DIFFERENCES:
+            if verdict != GUARD_DIFFERENCES[line]:
+                out.append((line, verdict))
+        elif (expected is not None) != (verdict is not None):
+            out.append((line, verdict))
+    return out
+
+
+def test_the_guard_treats_the_lines_of_the_old_table_as_a_request_or_not_except_the_differences_it_has_on_purpose():
+    assert guard_disagreements(turn_gate.new_request) == []
+
+
+def test_vacuity_a_guard_that_says_nothing_or_always_form_disagrees_with_the_table_on_many_lines():
+    assert len(guard_disagreements(lambda line: None)) > 40 and len(guard_disagreements(lambda line: "form")) > 20
 
 
 def test_the_command_form_needs_no_trigger_and_keeps_the_words_in_their_order():
@@ -183,7 +215,7 @@ def test_every_new_sentence_is_a_key_of_the_phrase_table_in_both_languages():
 def test_the_table_of_classes_holds_the_reminders_and_the_calendar_event_is_an_operation_now():
     assert {op: natural.CLASSES[op] for op in ("remind", "reminders", "reminder-forget", "reminder-restore")} == \
         {"remind": "N", "reminders": "R", "reminder-forget": "N", "reminder-restore": "N"}
-    assert natural.CLASSES["event-create"] == "E" and natural.operation_of("calendar-event-create") == "event-create", "the intent is the operation the platform has"
+    assert natural.CLASSES["event-create"] == "E"
     assert natural.PLANNED == ()
 
 
@@ -293,7 +325,7 @@ def test_a_line_makes_a_reminder_for_the_sender_with_the_facts_a_chat_shows(worl
     got = said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to call the florist")
     assert got["reminder"]["text"] == "call the florist" and got["reminder"]["due"] == "2026-10-19 13:00"
     assert got["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
-    assert got["reply"] == "Reminder #1 set for 2026-10-19 13:00 (BRT)."
+    pk.assert_said(got["reply"], "RM_SET", None, id=1, wall="2026-10-19 13:00", zone="BRT")
     first = ops.remind(world.path, channel="messaging", sender=SENDER, said="13:00 stretch", how="command")["ask"]
     assert first["need"] == "confirm" and first["readings"][0]["rolled"] is True, "a time of day that had passed rolled over to tomorrow, and the question says so"
     rolled = ops.remind(world.path, channel="messaging", sender=SENDER, said="yes", how="command", draft=first)
@@ -330,22 +362,22 @@ def test_a_question_stores_nothing_and_keeps_nothing_and_an_answer_to_it_makes_t
 
 
 def test_the_checks_of_the_strict_grammar_stay_over_a_line_in_words(world):  # noqa: F811
-    for said, sentence in (("remind me today at 1pm to stretch", "That time has passed. Now it is 18/10/2026 14:00."),
-                           ("remind me in 400 days to stretch", "A reminder is at most 366 days ahead."),
-                           ("remind me 30/02 at 10:00 to stretch", "2027-02-30 is not a day of the calendar."),
+    for said, sentence in (("remind me today at 1pm to stretch", ("RM_PAST", {"now": "18/10/2026 14:00"})),
+                           ("remind me in 400 days to stretch", ("RM_TOO_FAR", {})),
+                           ("remind me 30/02 at 10:00 to stretch", ("RM_NO_SUCH_DATE", {"given": "2027-02-30"})),
                            ("remind me tomorrow at 9h with sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6", None)):
         with pytest.raises(ops.OpsError) as e:
             ops.remind(world.path, channel="messaging", sender=SENDER, said=said)
         if sentence:
-            assert str(e.value) == sentence, said
+            pk.assert_said(str(e.value), sentence[0], None, **sentence[1])
         else:
-            assert "looks like a credential" in str(e.value) and "A1b2C3d4E5f6" not in str(e.value)
+            assert pk.said(str(e.value), "RM_CREDENTIAL") and "A1b2C3d4E5f6" not in str(e.value)
     assert world.rows() == []
 
 
 def test_the_terminal_and_the_page_keep_the_strict_grammar_and_the_sentence_they_always_got(world):  # noqa: F811
     got = world.remind("15:00", "Call the florist")
-    assert got["reply"] == "Reminder #1 set for 2026-10-18 15:00 (BRT)." and got["human"]["time"] == "15:00"
+    assert pk.said(got["reply"], "RM_SET", id=1, wall="2026-10-18 15:00", zone="BRT") and got["human"]["time"] == "15:00"
     with pytest.raises(ops.OpsError):
         world.remind("13hrs", "x")
 
@@ -357,13 +389,13 @@ def test_a_cancelled_reminder_is_brought_back_as_a_new_one_with_the_same_words_a
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     ops.reminder_forget(world.path, 1, channel="messaging", sender=SENDER)
     back = ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert back["restored"] == 1 and back["reminder"]["id"] == 2 and back["reply"] == "Reminder #1 is back as #2." and back["reminder"]["text"] == "water the plants"
+    assert back["restored"] == 1 and back["reminder"]["id"] == 2 and pk.said(back["reply"], "RM_BACK", old=1, new=2) and back["reminder"]["text"] == "water the plants"
     assert back["human"] == {"date": "2026-10-19", "time": "13:00", "zone": "BRT", "rel": 1, "far": False, "rolled": False}
     rows = {r["id"]: r for r in world.rows()}
     assert rows[1]["status"] == "cancelled" and rows[2]["status"] == "open" and (rows[1]["text"], rows[1]["due_utc"], rows[1]["chat"]) == (rows[2]["text"], rows[2]["due_utc"], rows[2]["chat"])
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 1 is already back."
+    pk.assert_said(str(e.value), "RM_ALREADY_BACK", n=1)
 
 
 def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_is_about_to_fire(world):  # noqa: F811
@@ -382,15 +414,15 @@ def test_the_undo_is_the_senders_own_within_ten_minutes_and_not_a_reminder_that_
     world.clock.moment += datetime.timedelta(seconds=30)
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 2 is too close to its time to bring back."
+    pk.assert_said(str(e.value), "RM_RESTORE_TOO_LATE", n=2)
 
 
 def test_the_terminal_names_the_reminder_it_brings_back_and_the_old_sentence_of_the_forget_stays(world):  # noqa: F811
     said_yes(ops, world.path, SENDER, "remind me tomorrow at 1 pm to water the plants")
     forgot = ops.reminder_forget(world.path, 1, channel="terminal")
-    assert forgot["reply"] == "Forgot reminder #1." and forgot["reminder"]["text"] == "water the plants" and forgot["human"]["time"] == "13:00"
+    assert pk.said(forgot["reply"], "RM_FORGOT", id=1) and forgot["reminder"]["text"] == "water the plants" and forgot["human"]["time"] == "13:00"
     assert ops.reminder_restore(world.path, 9, channel="terminal") == {"none": True}
-    assert ops.reminder_restore(world.path, 1, channel="terminal")["reply"] == "Reminder #1 is back as #2."
+    pk.assert_said(ops.reminder_restore(world.path, 1, channel="terminal")["reply"], "RM_BACK", old=1, new=2)
 
 
 def test_a_forget_by_words_looks_among_the_senders_own_by_whole_words_and_numbers_are_words(world):  # noqa: F811

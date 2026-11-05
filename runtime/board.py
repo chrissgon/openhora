@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import importlib
 import json
 import os
 import re
@@ -61,6 +60,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import project_config  # noqa: E402  (the same folder: the resolver is loaded, and the bounds read, from here)
+import router  # noqa: E402  (the same folder: the router's skill name)
 
 CLASS = "integration:issue-tracker"
 TIMEOUT = 120
@@ -180,7 +180,7 @@ def asked(ctx: dict, tasks=None) -> list:
 
 def roles_router() -> str:
     """The router's skill, the one skill whose runs a request has besides an answer run."""
-    return importlib.import_module("router").ROUTER_SKILL
+    return router.ROUTER_SKILL
 
 
 def _open_pending(ctx: dict, task_id: int):
@@ -312,10 +312,9 @@ def _take_state(ctx: dict, task: dict, state, later=None):
 def _cancel_from_board(ctx: dict, request_id: int):
     """A request cancelled on the board is cancelled as anywhere else, at any moment (R18, runtime/ops_cancel.py): a task of it that
     runs is stopped. None when it is, else the reason it is refused (an effect of the request is executing)."""
-    cancel = importlib.import_module("ops_cancel")
     try:
-        cancel.cancel_request(ctx, request_id, by="board", channel="board")
-    except cancel.core.OpsError as e:
+        ops_cancel.cancel_request(ctx, request_id, by="board", channel="board")
+    except ops_cancel.core.OpsError as e:
         return str(e)
     return None
 

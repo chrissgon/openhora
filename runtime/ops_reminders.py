@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import datetime
 import os
-import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +46,7 @@ sys.path.insert(0, HERE)
 import operations  # noqa: E402
 import ops_actor  # noqa: E402
 import natural  # noqa: E402  (the same folder: a request in the person's own words, package NR-1)
+import turn_gate  # noqa: E402  (the same folder: `complete_reminder`, the one home of the call to the reminder question engine, and the code guard it passes)
 import ops_core as core  # noqa: E402
 import reminders as rm  # noqa: E402
 import workcopy  # noqa: E402
@@ -174,7 +174,7 @@ def remind(project: str, when: str | None = None, text: str | None = None, to: s
             raise _fail(rm.CREDENTIAL.format(labels=", ".join(sorted(set(labels)))), 2)
         return words, found
     if said is not None:
-        understood = natural.complete(draft, said, clock) if draft else natural.understand(said, clock, how)
+        understood = turn_gate.complete_reminder(draft, said, clock) if draft else natural.understand(said, clock, how)
         if understood is None:
             return {"declined": True}
         if understood.get("cancel"):
@@ -235,11 +235,12 @@ def reminders_read(project: str, channel: str | None = None, sender: str | None 
             "limits": {"open": rm.OPEN_MAX, "per_chat_per_day": rm.DAY_MAX, "text_characters": rm.TEXT_MAX, "late_window_hours": rm.LATE_WINDOW // 3600}}
 
 
-def _forget_matching(project: str, words: list, channel, sender, at: str | None = None) -> dict:
+def _forget_matching(project: str, words: list, channel, sender, at: str | None = None, preview: bool = False) -> dict:
     """Find, among the sender's waiting reminders, the one whose words hold every word of `words` (what the person said of it, folded) and, with `at` (the hour the
     person said: "the 9 o'clock one"), whose moment is that hour. Without `at` and exactly one match it is cancelled as `reminder-forget` by number does; with `at`
     it is only shown ({"preview": ...}: an hour is not a name, so the bridge confirms). {"choose": [the reminders that match]} when several do, {"none": True}
-    when none does."""
+    when none does. With `preview` (CB-8: a line the interpreter or the router read, never the bridge's own forms) the one reminder that matches is only shown, as `reminder-forget` by number
+    shows it ({"preview": ..., "human": ...}), whatever the words: the person's yes is what cancels it."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     ops_actor.guard(ctx, "reminder-forget", channel, sender)
@@ -256,16 +257,13 @@ def _forget_matching(project: str, words: list, channel, sender, at: str | None 
             times = {r["time"] for r in parsed["ask"]}
     waiting = core._stored(ctx, ctx["store"].reminders_list, ("open",), platform, chat)
 
-    def holds(row):
-        tokens = set(re.findall(r"[a-z0-9]+", natural.nt.normalise(row["text"])[0]))
-        return all(k in tokens for k in keys)          # whole words: "9" is not "9h", "dent" is not "dentist"
-    found = [r for r in waiting if (keys or times) and holds(r) and (not times or r["due_local"][11:16] in times)]
+    found = [r for r in waiting if (keys or times) and rm.holds(r["text"], keys) and (not times or r["due_local"][11:16] in times)]          # whole words (runtime/reminders.py `holds`): "9" is not "9h", "dent" is not "dentist"
     if not found or (at is not None and not times):
         return {"none": True}
     with_text = channel != MESSAGING or _notices_text(cfg)
     if len(found) > 1:
         return {"choose": [_shown(r, cfg, with_text) for r in found]}
-    if at is not None or (keys and all(k.isdigit() for k in keys)):          # an hour, or nothing but numbers, is no name: shown and confirmed, never acted on
+    if preview or at is not None or (keys and all(k.isdigit() for k in keys)):          # an hour, or nothing but numbers, is no name: shown and confirmed, never acted on
         return reminder_forget(project, found[0]["id"], channel, sender, preview=True)
     return reminder_forget(project, found[0]["id"], channel, sender)
 
@@ -276,7 +274,7 @@ def reminder_forget(project: str, reminder_id: int | None = None, channel: str |
     what the person said of it instead of its number, and `at` the hour they said (the messaging bridge passes them, package NR-1; no shell of the table does): see
     `_forget_matching`. With `preview` the reminder is checked and shown, not cancelled ({"preview": the reminder, "human": ...}): the bridge asks "cancel it?"."""
     if matching is not None or at is not None:
-        return _forget_matching(project, matching or [], channel, sender, at)
+        return _forget_matching(project, matching or [], channel, sender, at, preview)
     if type(reminder_id) is not int or reminder_id < 1:
         raise _fail("a reminder is a whole number", 2)
     ctx = core.context(project)

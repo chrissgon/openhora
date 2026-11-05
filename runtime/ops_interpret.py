@@ -5,8 +5,8 @@
 # ///
 """The natural-language interpreter on a messaging line (slice S1): what the conversation does with a plain line that no list of code took.
 
-A sibling of runtime/ops_say.py, which calls `enabled` and `turn` at its one seam (`_turn`, after `ops_natural.take` returned None and the sender may talk) and
-imports this file at call time. It reaches nothing of ops.py. Page, terminal and chat never get here; neither does a line that code claims (a typed command, a
+A sibling of runtime/ops_say.py, which calls `enabled` and `turn` at its one seam (runtime/ops_turn.py, the row `interpreter` of the table of runtime/turn_order.py: after every row of code returned None and the sender may talk) and
+imports this file. It reaches nothing of ops.py. Page, terminal and chat never get here; neither does a line that code claims (a typed command, a
 question about the state, a tier-1 form, a reminder or a write in the words of the pt/en tables, the answer to a draft): the order is the hybrid the maintainer
 confirmed on 2026-10-21, so the interpreter reads only the rest.
 
@@ -20,7 +20,11 @@ The typed frame (slice S4). When the sender has a router question bound to them 
 frame is the one item `{"id": "i1", "kind": "router-question", "need": "text", "age_s": <seconds>}` built by `interpreter.typed_frame`: the id, the kind, the need and the age
 and nothing else, so that neither the question's words nor its number ever reach the model. A decision `answer` of `i1` sets `extras["frame"] = "answer"` and returns None (the
 line is the answer to the question); a decision `route` sets `extras["frame"] = "new"` and returns None (a new request). `check` refuses any other item id (E_ITEM_UNKNOWN), and
-the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1.
+the sentence is IX_ASK_AGAIN with the question still open. Without a bound question the frame is none, as in S1. A sender with a live "Shall I go ahead?" (BL2a, limit L65: runtime/plan_confirm.py) has a second kind of item, `plan-confirm` (`frame_for`):
+its id (`i2` beside the router's `i1`, else `i1`), its need (`confirm`), the operation and the age and nothing else, and `last` holds the plan's own words (the spans code checked in the person's
+line), so that a correction ("no, for tomorrow") is a new turn that states a new plan or inherits a span of the old words. A decision `answer` of the plan item with `confirm` `no` that carries a new detail (BL5B) is the corrected request and asks a NEW plan (`interpreter._plan_correction`; the prompt's rule 9
+asks the model for an op object); a bare no, a no with a courtesy ("no, thanks") or a no that changes nothing drops the plan; with `yes`
+it runs nothing and says to reply to the question (`PLAN_NOT_LAST`): only code's reading of the person's yes, passed by the bridge as `plan_ok`, runs a plan.
 
 The steps of `turn`: `interpreter.precheck`; the limits below; `interpreter.build_messages` (the user turn is five lines made
 of the date, the time, the zone, the frame and the person's own collapsed line: nothing of any third party); one call to the daily route; `parse`; `check` against the line;
@@ -30,15 +34,25 @@ by the maintainer's decision of 2026-10-20 (slice S7): a new e-mail (`mail-send`
 text on that card may be worded by a second call (runtime/mail_compose.py), validated by code, with the person's own words as the fallback.
 
 A decision the model names (slice S20). The catalog lists `approve`, `reject`, `release`, `answer` and `go-ahead` as refused; the model names one and never gives its number, and code reads the number
-from the line (`natural.decision_numbers`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
+from the line (`turn_gate.the_number`: the one whole number written in it, none in a line that says a date or a time). `reject` and `release` are then the typed commands (`ops_natural.run` hands
 the bridge the typed line), `approve` sends the decision's card again and approves nothing, and `answer` and `go-ahead` have words of their own. No operation was added to the catalog.
 
-The call. The route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again in `_daily_call`, so a route of any other kind
-cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
+A message number the model gave (BL7-5, gap G1; limits L54 and L61). When the closed forms read nothing in the line of a mail operation that names messages (`MAIL_TARGET_OPS`) and the model
+gave `message` or `messages`, `ops_natural_mail.mail_number_seed` opens the family with the numbers, only when they are exactly the numbers the line writes as message numbers (`#n`, right after a mail noun, or chained to such a number by a joiner and an optional article; never a room, a year, a count, a time or a range)
+(`natural_writes_mail.free_numbers`) and the decision holds no `target`, `day`, `to` or `subject`: the numbers name `<source>#<n>` of the newest snapshot, never a refresh, origin
+`line-number`. A line the closed forms read opens the card it opened before; a project language other than pt-BR and en is still `IX_WRITE_LANGUAGE`.
 
-The limits (counts in memory, this slice's choice, not measured): RATE_MAX calls per sender in RATE_WINDOW seconds, DAY_MAX per project per local day, and an open
-breaker for BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row. When there is no call (entry off, a limit reached, a failed call, a zone that cannot be
+The call. It is the gate's (`turn_gate.call`, runtime/turn_gate.py): the route is taken from `interpreter_route.daily_routes()` (kind http only) and its kind is checked again
+there, so a route of any other kind cannot be called from here; the entry that enables the interpreter names the route and the hashes it was decided on (runtime/interpreter_enable.py).
+
+The limits live in `turn_gate` (counts in memory, this slice's choice, not measured): `turn_gate.admit` allows RATE_MAX calls per sender in RATE_WINDOW seconds, DAY_MAX per project
+per local day, and an open breaker for BREAKER_OPEN seconds after BREAKER_FAILS failed calls in a row (`turn_gate.record`); no state lives in this file. When there is no call (entry off, a limit reached, a failed call, a zone that cannot be
 named) a line that is not private and a project in pt-BR or en go to the planning agent as before; any other gets the sentence IX_OUTAGE.
+
+A question (ANY-QUESTION). A decision `question` is answered by code and changes nothing; no word the model wrote reaches the person. About the card that is the last message (`extras["waiting_card"]`, set by
+`ops_say.say` from runtime/line_card.py): its own lines as the sender may read them (runtime/ops_any_question.py), and the card is sent again, unchanged. About whether something was done: the plan of a read ("Posso?") that
+shows the reminders, the state of the work, or the person's cards of the last 7 days and how each ended. About whether the assistant can do something: a fixed sentence or the policy's refusal. Anything else: QUESTION_OTHER. A card word
+in question form ("sim?") with a card waiting, read as a `none` or a question, gets how to decide it and the card again (limit L64); it decides nothing. A question never opens, ends, approves or runs anything (limit L55).
 
 Privacy (limit L63): no line, span, model text or exception message is logged, printed or kept here. The conversation stores the person's line only after the decision,
 and as a neutral word unless the line was sent to the planning agent (`extras["interpreted"]`, read by ops_say.say); this file stores nothing.
@@ -47,52 +61,47 @@ Standard library only. Runs on Python 3.9: python3 runtime/ops_interpret.py --he
 """
 from __future__ import annotations
 
-import collections
+import datetime
 import importlib
 import os
 import re
 import sys
-import threading
-import time
 from zoneinfo import ZoneInfo
 
+import card_words
 import event_lookup
 import interpreter
 import interpreter_enable
-import interpreter_route
 import language as language_rules
 import line_stage
 import mail_compose
 import natural
 import operations
+import ops_any_question
+import ops_file_trash
+import ops_items
 import ops_natural
+import ops_natural_files
+import ops_natural_mail
+import ops_natural_writes
+import ops_todo
 import phone_refusal
 import phrases
+import plan_confirm
+import recurrence
+import route_pass
+import turn_gate
 
 CHANNEL = "messaging"
-RATE_MAX = 10          # calls per sender in RATE_WINDOW seconds
-RATE_WINDOW = 60.0
-DAY_MAX = 300          # calls per project per local day
-BREAKER_FAILS = 3        # failed calls in a row that open the breaker
-BREAKER_OPEN = 300.0     # seconds it stays open
 ROUTE_LANGUAGES = ("pt-BR", "en")      # the project languages whose tables detect a private line: only there a model failure may route a line to the agent
 ZONE_NAME = re.compile(r"[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*")
 WHY_SENTENCE = {"time-ask": "IX_ASK_TIME", "time-gap": "IX_ASK_TIME", "time-fold": "IX_ASK_TIME", "weekday": "IX_ASK_TIME", "time-past": "IX_ASK_PAST",
                 "time-far": "IX_ASK_FAR", "long-line": "IX_LONG_LINE"}      # every other why (model, invalid, private-route) is IX_ASK_AGAIN
-clock = time.monotonic   # the clock of the rate window and of the breaker (a test replaces it)
-
-_lock = threading.Lock()
-_calls = {}              # sender -> times of its calls inside the window
-_days = {}               # (project key, local day) -> calls
-_breaker = {"fails": 0, "until": 0.0}
 
 
 def forget_all() -> None:
-    """Drop the counts and close the breaker (a test, and a process that stops)."""
-    with _lock:
-        _calls.clear()
-        _days.clear()
-        _breaker.update(fails=0, until=0.0)
+    """Kept for the tests that reset a process; no state lives here: the counts and the breaker are the gate's (runtime/turn_gate.py)."""
+    turn_gate.forget_all()
 
 
 def _tag(cfg: dict) -> str:
@@ -105,38 +114,6 @@ def enabled(ctx: dict, channel, sender) -> bool:
         return False
     cfg = ctx["cfg"]
     return operations.holds("interpret", CHANNEL, cfg["channels"], sender) and interpreter_enable.active(_tag(cfg)) is not None
-
-
-# --- the limits ------------------------------------------------------------------------------------------------------------------------------------
-
-
-def _admit(ctx: dict, sender) -> bool:
-    """Whether one more call may be made now (the breaker is closed and neither limit is reached); the call is counted when it may."""
-    now = clock()
-    day = (ops_natural.project_key(ctx["cfg"]["project"]), ops_natural._clock().date().isoformat())
-    with _lock:
-        if now < _breaker["until"]:
-            return False
-        window = _calls.setdefault(sender or "", collections.deque())
-        while window and now - window[0] >= RATE_WINDOW:
-            window.popleft()
-        if len(window) >= RATE_MAX or _days.get(day, 0) >= DAY_MAX:
-            return False
-        window.append(now)
-        for old in [k for k in _days if k[1] != day[1]]:
-            del _days[old]
-        _days[day] = _days.get(day, 0) + 1
-    return True
-
-
-def _record(ok: bool) -> None:
-    with _lock:
-        if ok:
-            _breaker["fails"] = 0
-        else:
-            _breaker["fails"] += 1
-            if _breaker["fails"] >= BREAKER_FAILS:
-                _breaker["until"] = clock() + BREAKER_OPEN
 
 
 # --- the call and the decision -------------------------------------------------------------------------------------------------------------------------
@@ -153,16 +130,6 @@ def _zone(now) -> str:
                 continue
             return found
     raise ValueError("no zone")
-
-
-def _daily_call(entry: dict, system: str, user: str) -> dict:
-    """The one model call: the entry's route, taken from the daily routes (kind http) and checked again here, with the hash the entry was decided on as the only
-    one accepted and the protocol's own settings. Any other route is E_ROUTE and no request is made."""
-    rows = [r for r in interpreter_route.daily_routes() if r["id"] == entry["route"]]
-    if len(rows) != 1 or rows[0].get("kind") != "http" or interpreter_route.route_sha256(rows[0]) != entry["route_sha256"]:
-        return {"ok": False, "code": "E_ROUTE"}
-    protocol = interpreter.PROTOCOL
-    return interpreter_route.complete(rows[0]["id"], system, user, accepted=[entry["route_sha256"]], deadline_ms=protocol["deadline_ms"], **protocol["params"])
 
 
 def decide(line: str, text, now, zone: str, allowed, frame=None) -> dict:
@@ -206,11 +173,12 @@ def _log_ask_again(decision: dict) -> None:
 def _event_slots_fixed(obj: dict, line: str):
     """The object of an event to change or cancel with the slots the check cannot believe left out, or None when nothing is left out (slice S16). The event of such a line is found
     from the words of the line (runtime/event_lookup.py), so a number slot that is not a number written in the line (the model wrote the event's name there), and, for a removal, any
-    slot the operation does not have (a title, a time) are dropped; a time or a title of a change that does not pass stays refused as before."""
+    slot the operation does not have (a title, a time) are dropped, while the event's name (`target`) and day (`day`) a removal does have are kept (BL5C); a time or a title of a change
+    that does not pass stays refused as before."""
     slots = dict(obj["slots"])
     fixed = {k: v for k, v in slots.items() if not (k == "event" and not natural.check_operation(obj["op"], {"event": v}, None, line)["ok"])}
     if obj["op"] == "event-cancel":
-        fixed = {k: v for k, v in fixed.items() if k == "event"}
+        fixed = {k: v for k, v in fixed.items() if k in ("event", "target", "day")}
     if fixed == slots:
         return None
     out = {k: v for k, v in obj.items() if k != "slots"}
@@ -260,11 +228,40 @@ def lenient(line: str, text, strict: dict, now, zone: str, allowed, frame=None) 
     return _by_verb(line, strict, now, zone, allowed, frame, obj)
 
 
+def frame_for(age_s, plan=None):
+    """The typed frame for what the sender has open (BL2a): the router question bound to them (one item: `i1`, kind, need and age, none of its words), and their live plan, the
+    "Shall I go ahead?" code asked (a `plan-confirm` item: its operation and age, id `i2` when the router's item is there, else `i1`; `last` holds the plan's own words, the spans code
+    checked in their line, so that a correction may inherit one). None when nothing is open. A plan the frame cannot hold (an operation the catalog lacks) is left out."""
+    items = []
+    if age_s is not None:
+        items.append({"id": "i1", "kind": "router-question", "need": "text", "age_s": age_s})
+    last = None
+    if plan is not None:
+        item, last = plan_confirm.frame_parts(plan)
+        items.append(dict(item, id=plan_item_id(age_s)))
+        choice = plan_confirm.choice_item(plan)      # L65, the question of a list of mail: the options of a plan that asks for one are a `choice` item beside the plan's, so that a free answer ("nos dois") is read by the model and checked by code
+        if choice is not None:
+            items.append(dict(choice, id=f"i{len(items) + 1}"))
+    if not items:
+        return None
+    for attempt in ((items, last), (items, dict(last, own_words={})) if last else None, (items[:1], None) if age_s is not None else None):      # the plan with its words, the plan with none, the router's item alone
+        if attempt is None:
+            continue
+        try:
+            return interpreter.typed_frame(attempt[0], attempt[1], plan_confirm.option_names(plan))
+        except ValueError:
+            continue
+    return None
+
+
+def plan_item_id(age_s) -> str:
+    """The id the plan's item has in the frame: `i2` after the router's `i1`, else `i1`."""
+    return "i1" if age_s is None else "i2"
+
+
 def router_frame(age_s):
     """The typed frame for a router question bound to the sender: one item, the question's id (`i1`), kind, need and age, and none of its words (None: no question is bound)."""
-    if age_s is None:
-        return None
-    return interpreter.typed_frame([{"id": "i1", "kind": "router-question", "need": "text", "age_s": age_s}], None, {})
+    return frame_for(age_s, None)
 
 
 def _allowed(ctx: dict, sender) -> set:
@@ -273,17 +270,20 @@ def _allowed(ctx: dict, sender) -> set:
     return {row["op"] for row in interpreter.SERVED["ops"] if operations.permitted(row["op"], CHANNEL, policy, None, sender)}
 
 
-def _ask_model(ctx: dict, entry: dict, said: str, sender, frame=None):
-    """The decision for the line, or None when no call could be made or it failed."""
+def _ask_model(ctx: dict, entry: dict, said: str, sender, admission, frame=None, fallback=None):
+    """The decision for the line, or None when no call could be made or it failed. The call is the gate's (`turn_gate.call`) and needs the `admission` `turn_gate.admit` gave this line. `fallback` is
+    the entry's outage routes (S41-10): the gate decides whether this sender's line may go to one (the group `interpret-fallback`, the primary's failure or open breaker)."""
     line_stage.publish("think")      # S19: the stage a phone is told if the line is still unanswered after a while
     try:
         now = ops_natural._clock()
         zone = _zone(now)
         system, user = interpreter.build_messages(interpreter.SERVED, now, zone, frame, said)
-        got = _daily_call(entry, system, user)
+        protocol = interpreter.PROTOCOL
+        got = turn_gate.call(admission, entry, system, user, deadline_ms=protocol["deadline_ms"], params=protocol["params"], fallback=fallback)
     except Exception:      # noqa: BLE001 - nothing of the fault is kept: it can hold the line
         got = {"ok": False}
-    _record(bool(got.get("ok")))
+    if got.get("code") != "E_GATE":      # no usable admission is a fault of the caller, not of the provider: no call was made, so nothing is counted against the breaker
+        turn_gate.record_attempts(got)
     if not got.get("ok"):
         return None
     try:
@@ -300,10 +300,23 @@ def _said(text: str, extras: dict) -> tuple:
     return text, None, None, False, extras.get("run_id")
 
 
+def take_pass(project: str, sender, said: str, extras: dict) -> bool:
+    """S41-11 (SPEC-S41-11-BRAKE): the route leg of a line takes the route pass the decide leg issued instead of asking the model again. A valid pass (this project, this sender, this line, not
+    taken, not expired) leaves what the decision left (`interpreted` False: the line goes to the planning agent and is stored as it was said; `frame` "new" or "answer") and answers True; any other
+    answers False and the interpreter reads the line as it always did (at worst one more call, never a route with no decision)."""
+    found = route_pass.take(project, sender, said, extras.get("route_pass"))
+    if found is None:
+        return False
+    extras["interpreted"] = False
+    extras["frame"] = found["frame"]
+    return True
+
+
 def _no_decision(ctx: dict, said: str, extras: dict):
     """No decision (entry off, a limit, a failed call): a line that is not private, in a project whose tables detect private lines, goes to the planning agent as before;
     any other gets the sentence."""
-    if _tag(ctx["cfg"]) in ROUTE_LANGUAGES and not natural.private(said):
+    extras["no_decision"] = True      # S41-11: the decide leg knows that no model decided: a brake form gets its typed hint (runtime/ops_turn.py, the row `route-pass`)
+    if _tag(ctx["cfg"]) in ROUTE_LANGUAGES and not turn_gate.private_line(said):
         extras["interpreted"] = False
         return None
     return _said(phrases.text("IX_OUTAGE", ctx["cfg"]), extras)
@@ -324,6 +337,7 @@ def _refusal(ctx: dict, op: str, sender) -> str:
     return phrases.text("IX_ASK_AGAIN", ctx["cfg"])      # S10: a phone is told in one plain sentence, never "error:" or a command
 
 
+MAIL_TARGET_OPS = ("mail-reply", "mail-draft", "mail-archive", "mail-trash", "mail-move", "mail-mark")      # B''-lite: the mail operations whose message the person names by its words (target, day)
 CANNOT = {"event-create": "IX_CANNOT_EVENT_CREATE"}      # every other write: IX_CANNOT_WRITE (an event to change or cancel is answered by runtime/event_lookup.py)
 
 
@@ -335,27 +349,90 @@ def _cannot(ctx: dict, op: str) -> str:
     return phrases.text(CANNOT.get(op, "IX_CANNOT_WRITE"), ctx["cfg"])
 
 
+def _service_of(decision: dict, said):
+    """P5 (catalog version 4, the slot `service` of the six mail act ops): which service the decision's word names (`google` or `microsoft`), read as `mail-read` reads it (`ops_mail_read._service_of`: the
+    brand word must stand in the line, name exactly one service and agree with the one the line names), or None when the decision carries no word or the word names none (nothing is passed on: the
+    family asks which box, as before). The word is the argument of the slot `service` (the parameter the table gives it) or its span. The module is loaded when this runs, not at import:
+    `ops_mail_read` imports this one."""
+    slot = (natural.NATURAL.get(decision["op"]) or {}).get("slots", {}).get("service")
+    word = ((decision.get("args") or {}).get(slot[1]) if slot else None) or (decision.get("spans") or {}).get("service")
+    if not isinstance(word, str) or not word.strip():
+        return None
+    return importlib.import_module("ops_mail_read")._service_of(said, word)
+
+
+def _day_read(span: str, now) -> dict:
+    """The day a verified `day` span names, read by code for the mail family, which reads no calendar and no clock (runtime/ops_natural_mail.py `_on_day`): {"kind": "day" | "weekday" |
+    "none" | "unread", "value" (an ISO date, a weekday number 0-6 or None), "today" (an ISO date), "zone" (the machine's IANA zone name, or None when none can be named)}."""
+    kind, value = event_lookup._day_named(span, now)
+    try:
+        zone = _zone(now)
+    except ValueError:
+        zone = None
+    return {"kind": kind, "value": value.isoformat() if kind == "day" else value, "today": now.date().isoformat(), "zone": zone}
+
+
+def _repeat(decision: dict, said: str, time_):
+    """("daily" | "weekly" | None, whether the line is understood) for a new event (CB-7, limits L54 and L61). A line that holds a repetition phrase of the closed lists (or that the time engine
+    says repeats) and has none read by code opens NO card: never one event with "toda segunda" in its title. A repetition is read when ALL hold: the model named the span of the line that
+    holds it (the slot `repeat`, from catalog version 2), the time is one the time engine read, `recurrence.read` reads that span AND the whole line as the same daily or weekly
+    repetition (a weekly one on the weekday of the start; no end, no interval, no second weekday), and the title span holds no repetition phrase. The weekday of the start is the engine's."""
+    spans = decision.get("spans") or {}
+    span = spans.get("repeat")
+    mentioned = recurrence.mentions(said)
+    if not span and not mentioned:
+        return None, True
+    start = None
+    if isinstance(time_, dict) and time_.get("source") == "code" and isinstance(time_.get("local"), str):
+        try:
+            start = datetime.date.fromisoformat(time_["local"][:10]).weekday()
+        except ValueError:
+            start = None
+    read = recurrence.read(span, start) if span and start is not None else None
+    if read is None or recurrence.read(said, start) != read or recurrence.mentions(spans.get("title") or ""):
+        return None, False
+    return read["freq"], True
+
+
 def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> tuple:
     """An operation the check believed: a write opens its card through its family (a seed of the time when the model gave one; an event to change or cancel found by the
     words of the line, runtime/event_lookup.py), every other class goes through the dispatcher of the natural requests, which asks the policy again. Nothing is executed here."""
     op, time_ = decision["op"], decision.get("time")
     if natural.class_of(op) == "E":
-        writes = importlib.import_module("ops_natural_writes")
+        repeat = None
+        if op == "event-create":
+            repeat, understood = _repeat(decision, said, time_)
+            if not understood:      # a repetition the line says and code cannot read opens no event, one or many (scenario 20)
+                extras["stored"] = phrases.text("NW_PRIVATE_REPLY", ctx["cfg"])
+                return _said(phrases.text("RECUR_NOT_READ", ctx["cfg"]), extras)
         if op == "event-create" and time_:
             local = time_["local"]
-            seed = {"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or ""}
+            seed = turn_gate.Seed({"op": op, "reading": {"date": local[:10], "time": local[11:16]}, "text": decision["spans"].get("title") or "", **({"repeat": repeat} if repeat else {})},
+                                  {"start": turn_gate.time_origin(time_), "title": "line-span", **({"repeat": "time-engine"} if repeat else {})})      # S41-7: the time is the engine's (source "code") or the model's (source "model"); the title is a span of the line; `seed_service` declares what it adds; a repetition is the code's (CB-7)
             sentence = event_lookup.seed_service(ctx, decision, said, extras, seed)          # S11: "no outlook" chooses the service; one that is not set up is one sentence
             if sentence:
                 return _said(sentence, extras)
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed)
         elif (mail := mail_compose.seed(op, decision, said)) is not None:          # a new e-mail: the card is opened from the verified spans, never from the closed forms (slice S7)
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=mail)
         elif op in event_lookup.OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES:
-            opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, writes, ops_natural._clock())
+            opened = event_lookup.open_event(project, ctx, decision, said, sender, extras, ops_natural_writes, ops_natural._clock())
+        elif op in ("todo-add", "todo-done"):          # CB-5: the person's own to-do list: the task is a span of the line, or a number of the list shown, or found by its words (runtime/ops_todo.py)
+            opened = ops_todo.reply(project, ctx, op, decision["args"], said, CHANNEL, sender, extras)
         elif op == "file-trash":          # R2-A: the file is found by the words of the line, by the search of `file-read`, and its card opens (runtime/ops_file_trash.py)
-            opened = importlib.import_module("ops_file_trash").reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
+            opened = ops_file_trash.reply(project, ctx, decision["args"], said, CHANNEL, sender, extras)
+        elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
+              and "message" not in decision["args"] and "messages" not in decision["args"]):          # B''-lite: a message named by its words (target, day), found by code in the index (runtime/ops_natural_mail.py)
+            spans = decision["spans"]
+            seed = ops_natural_mail.mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said, service=_service_of(decision, said))
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
-            opened = writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
+            opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
+            if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
+                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said, ctx=ctx, channel=CHANNEL, sender=sender, service=_service_of(decision, said))) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
+            if opened is None and (new_file := ops_natural_files.seed(op, decision, said)) is not None:          # a new file the closed forms ("chamado <name>") read nothing of: the card is opened from the verified spans (name, content, folder) the model gave
+                opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=new_file)
         return _said(opened if opened is not None else _cannot(ctx, op), extras)
     when = time_["local"].replace("T", " ") if time_ else None
     reply = ops_natural.run(project, ctx, op, decision["args"], said, CHANNEL, sender, extras, when=when, routed=True)
@@ -373,10 +450,55 @@ def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) 
         if op == "answer":
             return _said(phrases.text("IX_ANSWER_ON_QUESTION", ctx["cfg"]), extras)
         return _said(ops_natural.phone_sentence(ctx, op), extras)
-    numbers = natural.decision_numbers(said)
-    if len(numbers) != 1:
+    number = turn_gate.the_number(said)
+    if number is None:
         return _said(phrases.text("NAT_WHICH_DECISION", ctx["cfg"]), extras)
-    return _said(ops_natural.run(project, ctx, op, {"pending_id": numbers[0]}, said, CHANNEL, sender, extras, routed=True), extras)
+    return _said(ops_natural.run(project, ctx, op, {"pending_id": number}, said, CHANNEL, sender, extras, routed=True), extras)
+
+
+def _unchanged(decision: dict, state: dict, said: str) -> bool:
+    """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
+    from the line with the old plan's), every other call by its arguments."""
+    if decision["op"] in ("items", "agenda"):      # P5: an `agenda` decision is the calendar list
+        spans = ops_items.span_args_of(decision.get("args"))
+        service = _service_of(decision, said)      # P5b: the brand word of `items`, read as the dispatcher reads it
+        spans = ops_items.service_spans(spans, service)
+        return ops_items.items_args(said, ops_natural._clock(), state["args"], spans, default_kind="calendar" if decision["op"] == "agenda" else None, service=service) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
+    return dict(decision.get("args") or {}) == dict(state["args"])
+
+
+def _question(project: str, ctx: dict, decision: dict, said: str, sender, extras: dict) -> str:
+    """The sentence for a decision `question` (ANY-QUESTION). Nothing is opened, ended, approved or run: a card is read and sent again, a read is a plan the person's own OK runs, the rest is a fixed sentence."""
+    cfg = ctx["cfg"]
+    about = decision["about"]
+    if about == "card":
+        waiting = extras.get("waiting_card")
+        got = ops_any_question.card_answer(ctx, waiting, decision["field"], sender) if waiting is not None else None
+        if got is None:
+            return phrases.text("QUESTION_NO_CARD", cfg)
+        extras["resend"] = waiting
+        extras["lead"] = got
+        extras["stored"] = phrases.text("NAT_READ_REPLY", cfg)      # the reply may hold the card's private lines: the conversation keeps a word
+        return got
+    if about == "can":
+        op = decision["op"]
+        if op in {row["op"] for row in interpreter.SERVED["refused"]}:
+            return phrases.text("CAN_CARD", cfg) if op in ("approve", "reject") else ops_natural.phone_sentence(ctx, op)
+        if op in _allowed(ctx, sender):
+            return phrases.text("CAN_YES", cfg)
+        return _refusal(ctx, op, sender)
+    if about == "done":
+        op = decision.get("op")
+        if op in ("remind", "reminder-forget", "reminder-restore", "reminders"):
+            return ops_natural.run(project, ctx, "reminders", {}, said, CHANNEL, sender, extras, routed=True)
+        if op is not None and natural.class_of(op) != "E":
+            return ops_natural.run(project, ctx, "status", {}, said, CHANNEL, sender, extras, routed=True)
+        if not operations.permitted("pending", CHANNEL, cfg["channels"], None, sender):
+            return phone_refusal.said(operations.not_enabled("pending", CHANNEL), CHANNEL, cfg)
+        if plan_confirm.needed(ctx, "pending", CHANNEL, sender, False):
+            return plan_confirm.ask(project, ctx, "pending", {}, said, sender, extras, question_done={"op": op})
+        return ops_any_question.done_reply(ctx, op, sender, extras)
+    return phrases.text("QUESTION_OTHER", cfg)
 
 
 def turn(project: str, ctx: dict, said: str, sender, extras: dict):
@@ -390,8 +512,14 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
     decision = interpreter.precheck(said)
     if decision is None:
         decision = importlib.import_module("ops_card_revise").decided(project, CHANNEL, sender, said)      # S13: the decision made while the line was checked as a change of a waiting card, once
+    plan = extras.get("plan_frame")      # D5: the sender's live "Shall I go ahead?" (runtime/ops_say.py), a typed item of the frame beside the router's question
+    frame = frame_for(age_s, plan)
+    plan_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "plan-confirm"), None)
+    choice_id = next((item["id"] for item in (frame or {"items": []})["items"] if item["kind"] == "choice"), None)      # L65, the question of a list of mail: the options of the plan
     if decision is None:
-        decision = _ask_model(ctx, entry["entry"], said, sender, router_frame(age_s)) if entry is not None and _admit(ctx, sender) else None
+        outage = (entry or {}).get("fallback") or None      # S41-10: the entry's outage routes in force; the gate asks the sender's group (`interpret-fallback`) before any line goes to one
+        admission = (turn_gate.admit(ctx, sender, fallback=outage) if outage else turn_gate.admit(ctx, sender)) if entry is not None else None
+        decision = _ask_model(ctx, entry["entry"], said, sender, admission, frame, fallback=outage) if admission is not None else None
     if decision is None:
         return _no_decision(ctx, said, extras)
     kind = decision.get("kind")
@@ -399,12 +527,37 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         extras["interpreted"] = False
         extras["frame"] = "new"
         return None
+    if kind == "answer" and choice_id is not None and decision.get("item") == choice_id:      # L65, the question of a list of mail: the model read the free answer as an option; code checks it against the options and states a NEW plan that names it, whose OK is the person's own yes: a model's answer never runs a plan
+        return _said(plan_confirm.restate(project, ctx, plan, decision["option"], sender, extras), extras)
+    if choice_id is not None and (kind == "clarify" or (kind == "answer" and decision.get("item") == plan_id and decision.get("confirm") != "no")):      # the model could not place the answer, or answered "yes" on the plan's item: the question again, nothing read
+        return _said(plan_confirm.again(plan, ctx, extras), extras)
+    if kind == "answer" and plan_id is not None and decision.get("item") == plan_id:
+        if decision.get("confirm") == "no":      # D5: a model's no drops the plan; a model's yes never runs it (only code's reading of the person's yes does: runtime/ops_say.py `_confirmed`)
+            plan_confirm.drop(project, sender)
+            return _said(phrases.text("PLAN_DROPPED", cfg), extras)
+        extras["plan_keep"] = True
+        return _said(phrases.text("PLAN_NOT_LAST", cfg), extras)
     if kind == "answer":
         extras["interpreted"] = False      # the line is sent to the planning agent as the answer to its question: the conversation keeps it
         extras["frame"] = "answer"
         return None
     if kind == "op":
+        state = (plan or {}).get("state") if plan_id is not None else None      # BL5B: the sender's own live plan, nobody else's
+        if state is not None and state["op"] == decision["op"]:
+            if decision.get("corrects") and _unchanged(decision, state, said):
+                plan_confirm.drop(project, sender)      # a correction that changes nothing is a no
+                return _said(phrases.text("PLAN_DROPPED", cfg), extras)
+            if decision.get("corrects") or interpreter.starts_with_no(said):
+                extras["plan_previous"] = dict(state["args"])      # a CORRECTION's inheritance (it opens with a no): the old plan's arguments, so that a corrected list keeps what the old line said and the new one does not; a new request inherits nothing (never logged, never sent anywhere)
+        extras["plan_words"] = dict(decision.get("spans") or {})      # D5: the spans code checked in the line become the new plan's own words (a correction may inherit one)
         return _carry_out(project, ctx, decision, said, sender, extras)
+    if kind in ("none", "question") and extras.get("waiting_card") is not None and card_words.card_shape(said) is not None and card_words.question_form(said):
+        sentence = phrases.text("QUESTION_CARD_WORD", cfg)      # ANY-QUESTION (OPEN-4): "sim?" with a card waiting decides nothing (L64); the person is told how to decide it and the card goes again
+        extras["resend"] = extras["waiting_card"]
+        extras["lead"] = sentence
+        return _said(sentence, extras)
+    if kind == "question":
+        return _said(_question(project, ctx, decision, said, sender, extras), extras)
     if kind == "none":
         return _said(phrases.text("IX_NONE", cfg), extras)
     if kind == "refuse" and decision.get("class") != "D":
@@ -413,6 +566,13 @@ def turn(project: str, ctx: dict, said: str, sender, extras: dict):
         return _decided(project, ctx, decision["op"], said, sender, extras)
     if kind == "refuse_policy":
         return _said(_refusal(ctx, decision["op"], sender), extras)
+    if kind == "clarify" and decision.get("why") == "time-ask" and decision.get("op") == "remind" and decision.get("spans", {}).get("when"):
+        # the decision of 2026-10-28: where the code's time reader has two readings (or one to confirm) the engine's own question is asked ("Which time do you mean: A or B?"); the generic sentence
+        # only when the engine has nothing to offer. It never makes a reminder before the person's yes.
+        spans = decision["spans"]
+        reply = ops_natural.run(project, ctx, "remind", {"text": spans.get("text", "")}, said, CHANNEL, sender, extras, when=spans["when"], routed=True)
+        if reply != phrases.text("NAT_NOT_BELIEVED", cfg):
+            return _said(reply, extras)
     key = WHY_SENTENCE.get(decision.get("why")) if kind == "clarify" else None
     if key is None:
         _log_ask_again(decision)

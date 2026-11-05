@@ -6,7 +6,7 @@ was not recognised"): nothing said what was asked, the old questions piled up, a
 question: the router's question is cancelled together with its request, by the cancel the conversation uses when code answers a request itself, when nothing else of the request is open; one
 plain sentence answers; `/pending` says what is asked; and a plan is rejected as before.
 
-THE ORACLE reads the phone's texts with this file's own literals (the sentences, the internal words, the English function words). It never calls the code under test to decide what is
+THE ORACLE reads the phone's texts with phrase keys and their fields (runtime/tests/phrase_kit.py; the wording is pinned by the phrase snapshot) and this file's own literals (the internal words, the English function words). It never calls the code under test to decide what is
 right. The vacuity cases plant the live lines of the maintainer's screen and show the same oracle flags them. Over the REAL operations layer on the chat tree with a stand-in router and a
 stand-in messenger provider; invented names.
 
@@ -18,8 +18,9 @@ import re
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
-from phone_literals import PLAIN_REFUSAL_PT
 from test_chat import FLOW, reply
 from test_chat import tree as chat_tree  # noqa: F401  (the chat tree fixture: a stand-in router)
 from test_router_question_phone import LINE, TEMPLATE, phone  # noqa: F401  (the bridge over the chat tree)
@@ -28,6 +29,8 @@ from test_sender_profiles import OWNER, STAFF
 ops = st.load("ops")
 ops_question = st.load("ops_question")
 ops_core = st.load("ops_core")
+phrases = st.load("phrases")
+PT = {"language": "pt-BR"}
 
 PROSE = "I looked around and I am not sure what you want.\n"
 INTERNAL = re.compile(r"\b(route|router|rota|rotas|roteador)\b|channels\.|\bflow-[a-z]|\bcore-[a-z]", re.I)
@@ -83,7 +86,7 @@ def test_discard_on_a_number_that_is_no_file_closes_the_question_too(phone):
     phone.configure("pt-BR")
     qid = ask(phone)
     phone.say(OWNER, f"/discard {qid}")
-    assert phone.texts(OWNER)[-1] == f"Pergunta #{qid} dispensada." and open_ids(phone) == [] and requests(phone) == ["cancelled"]  # validate: allow english-only -- the Portuguese sentence under test
+    assert ps.alone(phone.texts(OWNER)[-1], "QUESTION_DISMISSED", PT, id=qid) and open_ids(phone) == [] and requests(phone) == ["cancelled"]
     assert "Use o card" not in phone.texts(OWNER)[-1], "not the old line that pointed to /pending"
 
 
@@ -93,7 +96,7 @@ def test_a_question_is_closed_without_the_card_it_was_asked_on(phone):
     reply(phone.tree, TEMPLATE)
     asked = ops.say(phone.path, LINE)      # asked on the terminal: no chat was sent a card
     phone.say(OWNER, f"/reject {asked['pending_id']}")
-    assert phone.texts(OWNER)[-1] == f"Pergunta #{asked['pending_id']} dispensada." and requests(phone) == ["cancelled"]  # validate: allow english-only -- the Portuguese sentence under test
+    assert ps.alone(phone.texts(OWNER)[-1], "QUESTION_DISMISSED", PT, id=asked["pending_id"]) and requests(phone) == ["cancelled"]
 
 
 def test_a_sender_without_the_reject_group_cannot_close_it(phone):
@@ -102,7 +105,7 @@ def test_a_sender_without_the_reject_group_cannot_close_it(phone):
     qid = ask(phone)
     phone.say(STAFF, f"/reject {qid}")
     assert open_ids(phone) == [qid] and requests(phone) == ["requested"]
-    assert phone.texts(STAFF)[-1] == PLAIN_REFUSAL_PT, phone.texts(STAFF)[-1]
+    assert ps.refused(phone.texts(STAFF)[-1], PT), phone.texts(STAFF)[-1]
 
 
 def test_a_plan_is_rejected_as_before_and_its_request_is_cancelled(phone):
@@ -111,7 +114,7 @@ def test_a_plan_is_rejected_as_before_and_its_request_is_cancelled(phone):
     planned = ops.say(phone.path, "Qual mercado primeiro?")
     phone.bridge.tick()
     phone.say(OWNER, f"/reject {planned['pending_id']}")
-    assert phone.texts(OWNER)[-1] == f"#{planned['pending_id']} rejeitada." and requests(phone) == ["cancelled"]
+    assert ps.alone(phone.texts(OWNER)[-1], "REJECTED", PT, id=planned["pending_id"]) and requests(phone) == ["cancelled"]
 
 
 # --- the operation: every channel -------------------------------------------------------------------------------------------------------------------------
@@ -122,7 +125,7 @@ def test_the_terminal_and_the_page_close_a_question_the_same_way_and_keep_their_
     reply(phone.tree, TEMPLATE)
     asked = ops.say(phone.path, LINE)
     before = ops.pending(phone.path)["pending"]
-    assert [p["title"] for p in before] == ["The router asks"], "the stored title is English: the page and the terminal list what they always did"
+    assert len(before) == 1 and pk.said(before[0]["title"], "TITLE_ROUTER_ASKS"), "the stored title is English: the page and the terminal list what they always did"
     out = ops.reject(phone.path, asked["pending_id"])
     assert out["resolution"] == "dismissed" and out["kind"] == "question" and out["request"] == asked["request_id"]
     assert asked["request_id"] in out["cancelled"] and asked["pending_id"] in out["pending"]
@@ -179,16 +182,19 @@ def test_pending_says_what_is_asked_and_what_was_not_understood_and_how_to_dismi
     unread = ops.say(phone.path, "algo sem sentido", channel="page")      # on a page an unreadable line stays open, as the maintainer's old ones did
     qid = ask(phone)
     shown = listing(phone)
-    assert shown == (f"northwind-shop: #{unread['pending_id']} pedido não entendido\n"  # validate: allow english-only -- the Portuguese sentence under test
-                     f"#{qid} pergunta do assistente: Is this a reminder or an event of your calendar?\n"  # validate: allow english-only -- the Portuguese label under test
-                     "Para dispensar, responda: /reject <número>.")  # validate: allow english-only -- the Portuguese sentence under test
+    first, second, third = shown.split("\n")
+    project, _, row = first.partition(": ")
+    assert project == "northwind-shop" and pk.said(row, "PEND_NOT_UNDERSTOOD", PT, id=unread["pending_id"])
+    assert pk.said(second, "PEND_QUESTION", PT, id=qid, text="Is this a reminder or an event of your calendar?") and pk.said(third, "PEND_DISMISS_TYPED", PT)
     assert all(problems(t) == [] for t in phone.texts(OWNER)), [t for t in phone.texts(OWNER) if problems(t)]
 
 
 def test_pending_in_english_says_the_same_in_english(phone):
     phone.configure("en")
     qid = ask(phone)
-    assert listing(phone) == f"northwind-shop: #{qid} question from the assistant: Is this a reminder or an event of your calendar?\nTo dismiss one, reply: /reject <number>."
+    first, second = listing(phone).split("\n")
+    project, _, row = first.partition(": ")
+    assert project == "northwind-shop" and pk.said(row, "PEND_QUESTION", id=qid, text="Is this a reminder or an event of your calendar?") and pk.said(second, "PEND_DISMISS_TYPED")
 
 
 def test_the_card_of_a_question_the_router_could_not_read_is_one_plain_sentence(phone):
@@ -197,7 +203,9 @@ def test_the_card_of_a_question_the_router_could_not_read_is_one_plain_sentence(
     unread = ops.say(phone.path, "algo sem sentido", channel="page")
     phone.bridge.tick()
     [card] = [t for t in phone.texts(OWNER) if f"#{unread['pending_id']}" in t]
-    assert card.startswith(f"northwind-shop · pergunta #{unread['pending_id']}\n\nPedido não entendido\n\nNão entendi o pedido e não comecei nada. Pode dizer de outro jeito?")  # validate: allow english-only -- the Portuguese sentence under test
+    blocks = card.split("\n\n")
+    assert pk.said(blocks[0], "HEADER", PT, project="northwind-shop", kind=phrases.text("KIND_QUESTION", PT), id=unread["pending_id"])
+    assert pk.said(blocks[1], "PEND_NOT_UNDERSTOOD_TITLE", PT) and pk.said(blocks[2], "PHONE_NOT_UNDERSTOOD", PT)
     assert problems(card) == [], card
 
 
@@ -206,7 +214,7 @@ def test_a_dismissed_question_leaves_the_list_and_the_empty_list_is_the_old_sent
     qid = ask(phone)
     phone.say(OWNER, f"/reject {qid}")
     phone.say(OWNER, "/pending")
-    assert phone.texts(OWNER)[-1] == "northwind-shop: nada pendente para você."  # validate: allow english-only -- the Portuguese sentence under test
+    assert ps.alone(phone.texts(OWNER)[-1], "NOTHING_WAITS", PT, name="northwind-shop")
 
 
 def test_vacuity_the_maintainers_live_lines_fail_the_oracle_and_the_new_ones_pass():

@@ -263,7 +263,7 @@ def test_an_inline_reply_below_a_quote_is_cut_to_nothing_and_the_cut_says_so():
 
 @pytest.mark.parametrize("line,cut", [
     ("On the call you wrote:", True),                      # begins with On and ends with wrote:, though it introduces nothing quoted
-    ("--------------------", True),                        # ten or more dashes, underscores or equals: a separator, not a marker
+    ("--------------------", False),                       # ten or more dashes, underscores or equals: a bare rule line cuts only before a quoted block
     ("From: Ana Lima <ana@clinic.example>\nDate: Friday", True),   # a header-like pair in the body
     ("-- ", True),                                         # a signature delimiter
     ("Here is what Ana wrote:", False),                    # not an attribution form: a quote introduced this way is kept (too little)
@@ -272,3 +272,37 @@ def test_the_cases_where_a_line_of_the_body_cuts_the_text_are_pinned(line, cut):
     out = gmail.normalize(plain(f"Mine.\n\n{line}\nand more after it"), source="eml", own_words=True)
     assert (out["text"] == "Mine.") is cut, out["text"]
     assert (out["own_words_cut"] > 0) is cut
+
+
+# --- a bare rule line cuts only before a quoted block --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("quoted", [
+    "From: Assistant <assistant@office.example>\nSent: Friday, October 16, 2026 5:00 PM\nTo: Owner\nSubject: card",
+    "On Fri, Oct 16, 2026 at 5:00 PM Assistant <assistant@office.example> wrote:\n> the old card",
+    "On Fri, Oct 16, 2026 at 5:00 PM Assistant <assistant@office.example>\nwrote:\n> the old card",
+    "-----Original Message-----\nthe old card",
+])
+@pytest.mark.parametrize("rule", ["________________________________", "--------------------", "=========="])
+def test_a_rule_line_followed_by_a_quoted_block_cuts_at_the_rule(rule, quoted):
+    out = gmail.normalize(plain(f"Mine.\n\n{rule}\n{quoted}"), source="eml", own_words=True)
+    assert out["text"] == "Mine." and out["own_words_cut"] > 0
+
+
+def test_a_rule_line_followed_by_a_quoted_block_after_blank_lines_cuts_at_the_rule():
+    out = gmail.normalize(plain("Mine.\n\n____________\n\n\nFrom: Ana <ana@clinic.example>\nSent: Friday\nTo: Owner"), source="eml", own_words=True)
+    assert out["text"] == "Mine."
+
+
+def test_a_rule_line_with_the_quoted_block_further_than_four_lines_away_does_not_cut():
+    body = "Mine.\n\n____________\none\ntwo\nthree\nfour\nFrom: Ana <ana@clinic.example>\nSent: Friday"
+    out = gmail.normalize(plain(body), source="eml", own_words=True)
+    assert out["text"].startswith("Mine.\n\n____________\none") and "From: Ana" not in out["text"]
+
+
+def test_a_bilingual_notice_with_a_rule_line_keeps_both_languages():
+    body = ("English follows\n\n==========================\n\nNotice: your plan changes on 1 March.\nNo action is needed.\n\n"
+            "==========================\n\nAviso: seu plano muda em 1 de marco.\nNenhuma acao e necessaria.")      # validate: allow english-only -- fictional Portuguese half of a bilingual notice
+    out = gmail.normalize(plain(body), source="eml", own_words=True)
+    assert "English follows" in out["text"] and "No action is needed." in out["text"] and "Nenhuma acao" in out["text"]
+    assert out["own_words_cut"] == 0

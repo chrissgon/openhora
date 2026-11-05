@@ -8,16 +8,17 @@ the stop of the runs a process started, the conversation's commands as rows (`co
 proof, the costs, the connections, the service's start check and the project's artifacts.
 
 A sibling of runtime/ops.py, which exposes each of them under its name; no shell imports this file. The names every
-module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation or a helper that stays in
-runtime/ops.py is reached at call time through `_ops()`, never imported at module level, so that the two files do not
-import each other. The conversation's name comes from runtime/ops_say.py, which imports nothing of this file.
+module of the layer shares are read as `core.<name>` (runtime/ops_core.py); the helpers these reads need live in the siblings that
+own their jobs (the day's caps and the held record in runtime/ops_runs.py), and no helper of runtime/ops.py is reached from here (44-C2). The
+conversation's name comes from runtime/ops_say.py, which imports nothing of this file. `SERVICE`, the service's facts, lives here and
+runtime/ops.py re-exports it.
 
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
 import datetime
-import importlib
+import json
 import os
 import platform as platform_module
 import re
@@ -44,13 +45,13 @@ import proof as proof_rules  # the operation `proof` would hide the module
 import router
 import secret_state
 import skill_meta
+import ops_ask
+import ops_natural
+import ops_runs
+import ops_steps
 
 SERVICE_TEXT = 300  # characters of one verdict of service_check: an exception's text is bounded
-
-
-def _ops():
-    """runtime/ops.py, found at call time: the helpers of the dispatcher's round and the service's facts stay there."""
-    return importlib.import_module("ops")
+SERVICE = {}                   # the local service's facts, by project folder: set by service_check in the service's process only
 
 
 def with_routing(ctx: dict, requests: list) -> list:
@@ -73,8 +74,10 @@ def version(project: str) -> dict:
     again when it moved. It is the cheapest read there is: the configuration file and its hash, then on the store four
     statements (two pragmas of the connection, one plain SELECT of the cursor that holds the accepted configuration's hash,
     the header) with no transaction and so no write lock; no migration is run (every other operation runs one at its
-    start), and a configuration nobody accepted, or one that names another checkout, is refused as every operation refuses it. "changed_at" is the time the store's file
-    was last written (UTC, as the store writes times). A project whose store does not exist yet gets it made, as every
+    start), and a configuration nobody accepted, or one that names another checkout, is refused as every operation refuses it. "changed_at" is the later of the modification
+    times of the store file and its -wal, read when the call is made (UTC, as the store writes times). The number says whether
+    anything changed; this time is only close to it: the -wal is removed when the last connection to the file closes and made
+    again by the next one, so the time can move, and go back, with no write. Nothing decides on it. A project whose store does not exist yet gets it made, as every
     other operation does."""
     cfg = core._config_of(project)
     store = core.store_module()
@@ -92,7 +95,11 @@ def version(project: str) -> dict:
     finally:
         conn.close()
     core._accepted(cfg, accepted)
-    stamps = [os.stat(path).st_mtime for path in (db, db + "-wal") if os.path.exists(path)]
+    stamps = [os.stat(db).st_mtime]
+    try:
+        stamps.append(os.stat(db + "-wal").st_mtime)
+    except FileNotFoundError:      # the last close of another process removes the -wal at any moment: the store file stays
+        pass
     changed = datetime.datetime.fromtimestamp(max(stamps), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return {"version": number, "changed_at": changed}
 
@@ -115,7 +122,7 @@ def stop_runs(project: str | None = None, every: bool = False) -> dict:
     (`set-mode ... stopped`) is how to keep the dispatcher from starting more, and `set-mode --agent runtime --mode stopped` how to keep
     it from starting step tasks. Returns what lab.stop_runs returns, with
     "tasks" (the ids of the task runs signalled) when `every` is given."""
-    return importlib.import_module("ops_runs").stop(project, every)
+    return ops_runs.stop(project, every)
 
 
 # --- stage 9: the reads of the local interface ---------------------------------------------------------------------
@@ -133,6 +140,35 @@ OTHER_TYPES = ((b"%PDF-", "a PDF document"), (b"PK\x03\x04", "a zip archive"), (
                (b"wOFF", "a woff font"), (b"GIF8", "a GIF image"), (b"\x00\x01\x00\x00", "a font"))
 SECRET_RESOLVER = ("providers", "secrets", "resolver.py")
 CONFIGURED_PROVIDER = {"integration:vcs": "code", "integration:issue-tracker": "task_board", "integration:documents": "documents"}
+
+
+def _held_listed(ctx: dict, rows: list) -> list:
+    """The held tasks `status` and `agents` show: [{"task_id", "agent", "reason", "at", "next", "commands"}] for the ready tasks
+    among rows (the store's tasks). While the local service dispatches nothing, every ready task is held with `dispatch
+    off`; otherwise the last round's record, kept only for tasks still ready. `next` is the sentence that gets past the
+    reason, or None; `commands` is the same as fields, [{"name", "command"}], for the two reasons a command gets past
+    (ops_reads.held_commands), else []."""
+    ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
+    if not ready:
+        return []
+    project = ctx["cfg"]["project"]
+    service = SERVICE.get(os.path.realpath(project))
+    if service is not None and service["dispatch"] == "off":
+        return [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.DISPATCH_OFF, "at": service["at"],
+                 "next": core._command("run-next", project, uv=True), "commands": []} for t in ready]
+    try:
+        record = json.loads(core._stored(ctx, ctx["store"].cursor_get, ops_runs.HELD_CURSOR) or "null")
+    except ValueError:
+        record = None
+    if not isinstance(record, dict):
+        return []
+    ids = {t["id"] for t in ready}
+    out = []
+    for h in record.get("held") or []:
+        if h.get("task_id") in ids:
+            out.append({**h, "at": record.get("at"), "next": held_next(project, h["reason"], record.get("missing")),
+                        "commands": held_commands(project, h["reason"], record.get("missing"))})
+    return out
 
 
 def agents(project: str) -> dict:
@@ -169,8 +205,8 @@ def agents(project: str) -> dict:
     "steps": {"agent": "runtime", "mode": "autonomous" or "stopped"}: the brake of the step tasks (ops_steps.steps_mode; `set-mode --agent
     runtime`), beside the agents, whether or not the project has any. A project without area_agents: {"agents": [], "steps"}."""
     ctx = core.context(project)
-    day = _ops()._agents_of_the_day(ctx)
-    brake = {"agent": "runtime", "mode": _ops().ops_steps.steps_mode(ctx)}
+    day = ops_runs._agents_of_the_day(ctx)
+    brake = {"agent": "runtime", "mode": ops_steps.steps_mode(ctx)}
     if not day:
         return {"agents": [], "steps": brake}
     try:
@@ -179,7 +215,7 @@ def agents(project: str) -> dict:
         listed = []
     rows = core._stored(ctx, ctx["store"].tasks_list)
     ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
-    held = _ops()._held_listed(ctx, rows)
+    held = _held_listed(ctx, rows)
     holders = core._stored(ctx, ctx["store"].task_slot_holders)
     out = []
     for name, found in day.items():
@@ -351,8 +387,8 @@ def conversation(project: str, conversation: str | None = ops_say.CONVERSATION, 
     rows = core._stored(ctx, ctx["store"].messages_list, conversation, limit=MESSAGES_PAGE, after_id=after)
     keys = ("id", "role", "text", "task_id", "run_id", "created_at")
     queued = ops_say.queued_ids(ctx) if conversation == ops_say.CONVERSATION else set()
-    asker = importlib.import_module("ops_ask").asked_by
-    private = importlib.import_module("ops_natural").private_ids(rows) if channel not in ("terminal", "page", "chat") else {}      # the person's own shells see their line; no other reader sees a reminder's words (limit L51)
+    asker = ops_ask.asked_by
+    private = ops_natural.private_ids(rows) if channel not in ("terminal", "page", "chat") else {}      # the person's own shells see their line; no other reader sees a reminder's words (limit L51)
     return {"conversation": conversation,
             "messages": [{**{key: row[key] for key in keys}, "text": phrases.text(private[row["id"]], ctx["cfg"]) if row["id"] in private else _shown_text(ctx, row, asker, channel, sender),
                           "queued": row["id"] in queued}
@@ -478,12 +514,12 @@ def costs(project: str, since: str | None = None) -> dict:
         except ValueError:
             raise core.OpsError("since is a day: YYYY-MM-DD", 2) from None
     try:
-        used = _ops()._agents_of_the_day(ctx)
+        used = ops_runs._agents_of_the_day(ctx)
     except (lab.LabError, core.OpsError, KeyError, ValueError, OSError):  # a broken gate file leaves the day's use out; costs read the store
         used = None
     folder = os.path.realpath(os.path.join(cfg["data_dir"], core.RUNS_DIR)) + os.sep
     runs = []
-    owners = importlib.import_module("ops_ask").run_owners(ctx)    # the agent a run whose task is a request counts against
+    owners = ops_ask.run_owners(ctx)    # the agent a run whose task is a request counts against
     for task in core._stored(ctx, store.tasks_list):
         for run in core._stored(ctx, store.task_runs_list, task["id"]):
             agent = task.get("agent")
@@ -607,7 +643,7 @@ def connections(project: str) -> dict:
             "image": {"name": seen.get("name"), "present": present,
                       "evidence": (seen["digest"] in evidence) if present else None},
             "platform": _platform_row(platform_module.machine(), sys.platform, seen.get("evidence_platform")),
-            "service": dict(_ops().SERVICE[os.path.realpath(cfg["project"])]) if os.path.realpath(cfg["project"]) in _ops().SERVICE else None}
+            "service": dict(SERVICE[os.path.realpath(cfg["project"])]) if os.path.realpath(cfg["project"]) in SERVICE else None}
 
 
 def _price_warnings(ctx: dict) -> list:
@@ -633,12 +669,12 @@ def service_check(project: str, dispatch_every=None) -> dict:
     and `agents` while the process lives: {"secret_store", "credential", "docker", "image", "dispatch", "problems",
     "start", "at"}. Each verdict is "ok" or one sentence saying what is missing. secret_store and credential are the
     scheduler entry's check (dispatcher.inspect: can this interpreter read the secret store, is the default model's
-    credential set or in it), docker whether it is on PATH, image whether the eval image is on this machine,
+    credential set or in it), docker whether it is on PATH and its daemon is running (the daemon is read from the image lookup, no second docker call), image whether the eval image is on this machine,
     dispatch "every <n> s" or "off" (dispatch_every in seconds; 0 is off; None says the process is no service), problems
     the modules or the lab that did not load, start the command that starts the service with the secret store's
     library (uv run --with keyring==..., operations.service_line). It starts nothing and makes no network call."""
     ctx = core.context(project, check_config=False)
-    found = dispatcher.inspect(_ops())
+    found = dispatcher.inspect(core)
     seen = lab.image()
     if seen.get("problem"):
         image = f"the eval image cannot be looked up: {seen['problem']}"
@@ -649,17 +685,23 @@ def service_check(project: str, dispatch_every=None) -> dict:
     else:
         image = "ok"
     bounded = lambda text: core.CONTROL.sub(" ", str(text))[:SERVICE_TEXT]  # noqa: E731  (an exception's text, bounded)
+    if not found["tools"].get("docker"):
+        docker = "docker is not on the PATH of this process"
+    elif seen.get("setup") == lab.DAEMON_DOWN:      # the image lookup above already asked the daemon: no new docker call
+        docker = "docker is on the PATH but its daemon is not running: web research and contained runs cannot start until Docker is started"
+    else:
+        docker = "ok"
     problems = [bounded(f"{name}: {why}") for name, why in sorted(found["modules"].items()) if why != "ok"]
     if found["lab"] != "ok":
         problems.append(bounded(f"lab: {found['lab']}"))
     report = {"secret_store": bounded(found["secret_store"]), "credential": bounded(found["credential"]),
-              "docker": "ok" if found["tools"].get("docker") else "docker is not on the PATH of this process",
+              "docker": docker,
               "image": image,
               "dispatch": ("not a service" if dispatch_every is None else
                            f"every {dispatch_every:g} s" if dispatch_every else "off"),
-              "problems": problems, "start": operations.service_line(core.ROOT, [ctx["cfg"]["project"]], uv=True), "at": _ops()._now_iso()}
+              "problems": problems, "start": operations.service_line(core.ROOT, [ctx["cfg"]["project"]], uv=True), "at": ops_runs._now_iso()}
     if dispatch_every is not None:
-        _ops().SERVICE[os.path.realpath(ctx["cfg"]["project"])] = dict(report)
+        SERVICE[os.path.realpath(ctx["cfg"]["project"])] = dict(report)
     return report
 
 

@@ -29,6 +29,12 @@ one minute ahead (MIN_AHEAD) and at most 366 days ahead (MAX_AHEAD).
   retry_delay(attempts)       how long a reminder whose send failed waits before the next try (1, 2, 4, 8 ... minutes)
   verdict(due, now)           what to do with an open reminder: "wait", "send" or "missed" (the late window), and how late it is
   line(id, text, due_local, late[, cfg])  the line a due reminder goes out as, with the mark "(due at HH:MM)" when it went out late, in the language of `cfg` (runtime/phrases.py)
+  words_of(text)              the whole words of a text, folded (lower case, no accent): the words a reminder is found by
+  holds(text, keys)           whether the words of `text` hold EVERY one of `keys`, as whole words ("9" is not "9h", "dent" is not "dentist"); True for no key
+  matching(rows, keys)        the rows (each with a `text`) that hold every key, in their order; none for no key (CB-8: the one rule of "forget the reminder about the florist", for the
+                              messaging bridge and for the operations layer)
+  forget_words(span)          the words a person's span names a reminder by: the folded words of the span without the words that join a name to a sentence ("of", "da", "the",
+                              "please") and without the noun "reminder" of any language shipped; [] when none is left or when more than FORGET_WORDS_MAX are (a sentence, not a name)
 
 `now` is an aware datetime; `at(naive)` is the aware datetime of a local wall time, by the rules of the zone (the host's own, or a stand-in's). The
 caps and the sentences are constants of this file, read by the operations and the tests. Standard library only. Runs on Python 3.9.
@@ -42,6 +48,7 @@ import sys
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import natural_time as nt  # noqa: E402  (the same folder: the folding of words and the language tables; it imports nothing of this folder)
 import phrases  # noqa: E402  (the same folder: the sentences, in the project's language)
 
 UTC = datetime.timezone.utc
@@ -138,6 +145,35 @@ def strict(rest) -> "tuple | None":
 def is_time_only(when) -> bool:
     """Whether `when` is a time of day with no day (`HH:MM`): the form that means today, or tomorrow when today's has passed."""
     return bool(_TIME.fullmatch(" ".join((when or "").split())))
+
+
+FORGET_WORDS_MAX = 5          # "cancel the reminder about the florist": what the person says of the reminder is short (the same number runtime/natural.py reads a line by)
+
+
+def words_of(text) -> list:
+    """The whole words of `text`, folded as `natural_time.normalise` folds (lower case, no accent, a hyphen between letters is a space): letters and digits only."""
+    return re.findall(r"[a-z0-9]+", nt.normalise(text if isinstance(text, str) else "")[0])
+
+
+def holds(text, keys) -> bool:
+    """Whether the words of `text` hold every one of `keys` (already folded words), as whole words. True when `keys` is empty."""
+    tokens = set(words_of(text))
+    return all(k in tokens for k in keys)
+
+
+def matching(rows, keys) -> list:
+    """The rows of `rows` (dicts with a `text`) whose words hold every one of `keys`, in the order given; none when there is no key to hold (an empty list of words names nothing)."""
+    wanted = [k for k in keys if isinstance(k, str) and k]
+    return [row for row in rows if wanted and holds(row.get("text"), wanted)]
+
+
+def forget_words(span) -> list:
+    """The words a span of the person's line names a reminder by (see the module's text). Pure: it reads the language tables shipped, never a reminder."""
+    tables = nt.languages()
+    stop = {w for t in tables for w in t["edge_words"] + t["connectors"] + t.get("forget", {}).get("fillers", []) + t.get("forget", {}).get("nouns", []) + [x for p in t["polite"] for x in p.split()]}
+    tokens = words_of(span)
+    said = [t for t in tokens if t not in stop]
+    return said if said and len(tokens) <= FORGET_WORDS_MAX else []
 
 
 def clean_text(text) -> str:

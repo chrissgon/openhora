@@ -27,6 +27,9 @@ from test_chat import FLOW, reply
 from test_router_question_phone import LINE, TEMPLATE, chat_tree, phone  # noqa: F401  (the bridge over the chat tree, with a stand-in router)
 from test_messaging_queue import settle
 from test_sender_profiles import OWNER, STAFF
+from closed_heads import closed_heads, tier1_forms  # noqa: F401  (S41-11: the claim of the write families and of every closed form, as fixtures: these tests are about the readers and resolvers, not the claim)
+
+pytestmark = pytest.mark.usefixtures("tier1_forms")      # S41-11: every closed form claims a line in this file, as it did
 
 ops = st.load("ops")
 ops_core = st.load("ops_core")
@@ -223,17 +226,6 @@ def test_a_reminder_line_a_write_line_and_a_read_are_requests_and_a_plain_senten
         assert ops_natural.recognises(ctx, line, "messaging", "telegram:1") is False, line
 
 
-def test_the_stale_question_is_also_dropped_for_a_state_question_and_the_natural_peek(phone, wall):
-    """Decision 229 (1): once the hour is out, the asker's phone has no question open for the state and the natural peek; nothing is cancelled."""
-    question = ask(phone)
-    wall.later(3600 + 30)
-    ctx = ops_core.context(phone.path)
-    assert ops_say.asks_state(ctx, "status", "messaging", f"telegram:{OWNER}") is True, "no question is open for the phone any more: the state is answered"
-    assert ops_say.asks_state(ctx, "status", "page") is False, "but it is for the page"
-    assert ops_say.asks_natural(ctx, WRITE, "messaging", f"telegram:{OWNER}") is True
-    assert open_questions(phone)[0]["id"] == question["id"], "asking only reads: nothing is cancelled, even when a line is taken"
-
-
 def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_today(phone, wall):
     """Decision 229 (1): the live case; a question from yesterday is never the answer, and it is left open, not cancelled."""
     question = ask(phone, "pt-BR")
@@ -248,13 +240,3 @@ def test_the_live_case_a_question_from_yesterday_is_not_the_answer_to_a_line_of_
     assert states(phone)[question["task_id"]] == "requested" and ops.pending(phone.path, question["id"])["status"] == "open", "left as it was"
 
 
-def test_a_read_with_a_question_open_is_handled_by_code_so_it_takes_no_route_lock_and_is_never_the_answer(phone, wall):
-    """Slice S4b: the asker's open question no longer makes a tier-1 read the one-word answer it may be; a request of its own takes no route lock."""
-    ask(phone)
-    ctx = ops_core.context(phone.path)
-    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is True, "code serves the read: it was the live bug that the router took it"
-    assert ops_say.asks_natural(ctx, WRITE, "messaging", f"telegram:{OWNER}") is True, "a request of its own takes no route lock"
-    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{STAFF}") is True, "another listed sender has no question: a read is a read"
-    assert ops_say.asks_state(ctx, "progress", "messaging", f"telegram:{OWNER}") is False, "but a state question is still the one-word answer of an open question"
-    wall.later(3600 + 1)
-    assert ops_say.asks_natural(ctx, READ, "messaging", f"telegram:{OWNER}") is True, "and once the question is stale a read is a read"

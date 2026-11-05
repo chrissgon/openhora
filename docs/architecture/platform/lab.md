@@ -254,6 +254,8 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 
 ## Changes
 
+Closed on 2026-10-27: later changes are in `docs/decisions/`, one file per entry.
+
 - 2026-10-06: first version, written from the code at the central branch's head of that day.
 - 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the gate file's keys).
 - 2026-10-07: the execution kit leaves the measurement runner: `evals/execution.py` holds the names the runtime's facade reads (`__all__`, `STATUS_NAMES`), and `runtime/lab.py` has no list of the runner's names any more (WP-R.8).

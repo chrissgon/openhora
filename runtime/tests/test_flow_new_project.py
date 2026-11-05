@@ -3,7 +3,7 @@ the backlog. Three choices differ from the item NS6 (see the last test): the fea
 specification" because the design and the backlog read the specification and the PRD writes none; the design comes before the
 backlog because the backlog stops without it when the specification has more than three requirements; and the flow ends at the
 backlog, because the runtime already offers one implementation sub-task for each todo task of a released backlog (runtime/plan.py,
-backlog_tasks and subtasks; runtime/ops.py, _backlog_subtasks), so a static implementation task would implement the first task
+backlog_tasks and subtasks; runtime/ops_round.py, _backlog_subtasks), so a static implementation task would implement the first task
 twice. The change of each sub-task becomes its pull request in a later request. No model call.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_flow_new_project.py

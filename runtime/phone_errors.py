@@ -50,12 +50,20 @@ TEMPLATES = (
 )
 
 
+WITNESS_LETTERS = 4      # a template with fields is a witness that a text was said in the language only when its own text, outside the fields, holds this many letters
+
+
 @functools.lru_cache(maxsize=None)
 def _said_already(tag: str):
-    """One regular expression for every sentence of the language's table (its fields match any text): a text that matches was said in the language already."""
+    """One regular expression for the sentences of the language's table (its fields match any text): a text that matches was said in the language already. A template with
+    fields whose own text holds fewer than WITNESS_LETTERS letters (`{name} ({detail})`, `{n}. {title}`) matches any text that ends in a parenthesis or starts with a number, English
+    included, so it is no witness; a sentence with no field is matched as it is."""
     parts = []
     for sentence in (phrases.TABLE.get(tag) or {}).values():
-        made = "".join(re.escape(lit) + (".+?" if name is not None else "") for lit, name, _spec, _conv in string.Formatter().parse(sentence))
+        fields = list(string.Formatter().parse(sentence))
+        if any(name is not None for _lit, name, _spec, _conv in fields) and sum(c.isalpha() for lit, _n, _s, _c in fields for c in lit) < WITNESS_LETTERS:
+            continue
+        made = "".join(re.escape(lit) + (".+?" if name is not None else "") for lit, name, _spec, _conv in fields)
         if made:
             parts.append(made)
     return re.compile("|".join(parts), re.S) if parts else None

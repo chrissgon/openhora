@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, SENDER, decision, wait_for, world  # noqa: F401  (the bridge world of test_messaging.py)
 from test_messaging_card_revise import Revise, mail_card
@@ -29,6 +30,13 @@ KEY = "telegram:" + SENDER
 def hands_over(world, typed, reply=""):
     """The stand-in `say` answers every line with this typed line and this reply, as the operations layer does for a plain line that stands for a command."""
     world.fake.answers["say"] = lambda project, **kw: {"reply": reply, "request_id": None, "pending_id": None, "ran": False, "queued": False, "typed": typed}
+
+
+def only(texts, key, **fields):
+    """`texts` (what the bridge sent) is exactly one message, and it is the sentence of the phrase `key` with `fields` (these worlds have no project language: English)."""
+    assert len(texts) == 1, texts
+    pk.assert_said(texts[0], key, None, **fields)
+    return True
 
 
 def silence(world):
@@ -47,10 +55,10 @@ def test_a_reject_said_in_words_makes_the_call_the_typed_reject_makes(world):
     world.fake.calls.clear()
     hands_over(world, "/reject 5")
     world.say("rejeite o plano 5")
-    assert wait_for(lambda: rejections(world) == [5]) and silence(world)[-1] == "Rejected #5."
+    assert wait_for(lambda: rejections(world) == [5]) and pk.said(silence(world)[-1], "REJECTED", None, id=5)
     by_words = [dict(c[2]) for c in world.calls("reject")]
     world.say("/reject 6")
-    assert wait_for(lambda: rejections(world) == [5, 6]) and silence(world)[-1] == "Rejected #6."
+    assert wait_for(lambda: rejections(world) == [5, 6]) and pk.said(silence(world)[-1], "REJECTED", None, id=6)
     assert [dict(c[2]) for c in world.calls("reject")] == [by_words[0], dict(by_words[0], pending_id=6)], "the same keys, the same channel and sender, the second plan's own number"
     assert by_words == [{"pending_id": 5, "channel": "messaging"}] and approvals(world) == []      # the stand-in records the keywords the operation takes (no `sender`: the bridge passes it only to an operation that takes one)
 
@@ -59,16 +67,16 @@ def test_a_question_dismissed_in_words_needs_no_card_as_the_typed_reject_needs_n
     world.items[3] = decision("question", 3, title="Which warehouse?")
     hands_over(world, "/reject 3")
     world.say("reject question 3")
-    assert wait_for(lambda: rejections(world) == [3]) and silence(world)[-1] == "Question #3 dismissed."
+    assert wait_for(lambda: rejections(world) == [3]) and pk.said(silence(world)[-1], "QUESTION_DISMISSED", None, id=3)
 
 
 def test_a_decision_said_in_words_that_was_never_sent_to_the_chat_is_the_typed_commands_refusal_and_nothing_is_called(world):
     world.items[5] = decision("plan", 5)      # no tick: no card was sent to this chat
     hands_over(world, "/reject 5")
     world.say("rejeite o plano 5")
-    assert silence(world)[-1] == "Act on the card sent to you (send /pending)." and rejections(world) == []
+    assert pk.said(silence(world)[-1], "NO_CARD") and rejections(world) == []
     world.say("/reject 5")
-    assert silence(world)[-1] == "Act on the card sent to you (send /pending)." and rejections(world) == []
+    assert pk.said(silence(world)[-1], "NO_CARD") and rejections(world) == []
 
 
 def test_a_release_said_in_words_makes_the_call_the_typed_release_makes(world):
@@ -76,7 +84,7 @@ def test_a_release_said_in_words_makes_the_call_the_typed_release_makes(world):
     world.bridge.tick()
     hands_over(world, "/release 5")
     world.say("libere a entrega 5")
-    assert wait_for(lambda: world.calls("release")) and silence(world)[-1] == "Released #5."
+    assert wait_for(lambda: world.calls("release")) and pk.said(silence(world)[-1], "RELEASED", None, id=5)
     assert [dict(c[2]) for c in world.calls("release")] == [{"pending_id": 5, "channel": "messaging"}]
 
 
@@ -119,21 +127,22 @@ def test_the_pending_list_said_in_words_is_the_typed_pending(world):
 # --- a command the table answers: its reply is said as the typed one's ---------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("typed,reply,sentence", [
-    ("/cancel 4", {"request": 4, "cancelled": [4], "already": False}, "Request 4 cancelled."),
-    ("/cancel 4", {"request": 4, "cancelled": [], "already": True}, "Request 4 was already cancelled."),
-    ("/stop-task 8", {"task": 8, "already": False}, "Task 8 stopped."),
-    ("/stop-task 8", {"task": 8, "already": True}, "Task 8 was not running."),
-    ("/retry 9", {"task_id": 9}, "Task 9 is ready to run again."),
-    ("/attachments", {"held": [{"id": 1}, {"id": 2}]}, "Files waiting for your answer: 2."),
+@pytest.mark.parametrize("typed,reply,said", [
+    ("/cancel 4", {"request": 4, "cancelled": [4], "already": False}, ("CMD_CANCELLED", {"n": 4})),
+    ("/cancel 4", {"request": 4, "cancelled": [], "already": True}, ("CMD_CANCEL_ALREADY", {"n": 4})),
+    ("/stop-task 8", {"task": 8, "already": False}, ("CMD_TASK_STOPPED", {"n": 8})),
+    ("/stop-task 8", {"task": 8, "already": True}, ("CMD_TASK_NOT_RUNNING", {"n": 8})),
+    ("/retry 9", {"task_id": 9}, ("CMD_TASK_RETRY", {"n": 9})),
+    ("/attachments", {"held": [{"id": 1}, {"id": 2}]}, ("CMD_ATTACHMENTS", {"n": 2})),
 ])
-def test_a_command_the_table_answers_is_said_in_words_as_the_typed_command_is_said(world, typed, reply, sentence):
+def test_a_command_the_table_answers_is_said_in_words_as_the_typed_command_is_said(world, typed, reply, said):
+    key, fields = said
     hands_over(world, typed, json.dumps(reply))
     world.say("a line in words")
-    assert silence(world) == [sentence]
+    assert only(silence(world), key, **fields)
     world.fake.answers["say"] = lambda project, **kw: {"reply": json.dumps(reply), "request_id": None, "pending_id": None, "ran": False, "queued": False}
     world.say(typed)
-    assert silence(world) == [sentence, sentence], "the typed line says the same sentence"
+    assert len(silence(world)) == 2 and only(silence(world)[:1], key, **fields) and only(silence(world)[1:], key, **fields), "the typed line says the same sentence"
 
 
 def test_a_reply_with_no_typed_line_is_said_as_it_always_was(world):
@@ -151,9 +160,9 @@ def test_a_decision_or_an_act_in_a_closed_form_is_not_kept_behind_the_planning_a
     hands_over(world, "/reject 5")
     world.say("rejeite o plano 5")
     assert wait_for(lambda: rejections(world) == [5]), "a brake said in words works while the agent is busy, as the typed /reject does"
-    assert wait_for(lambda: world.texts()[-1] == "Rejected #5.") and len(world.calls("say")) == 1
+    assert wait_for(lambda: pk.said(world.texts()[-1], "REJECTED", None, id=5)) and len(world.calls("say")) == 1
     world.say("what time is it in Lisbon")
-    assert wait_for(lambda: world.texts()[-1] == "Got it: I will answer this after the current one."), "a plain line waits its turn"
+    assert wait_for(lambda: pk.said(world.texts()[-1], "QUEUED")), "a plain line waits its turn"
     assert len(world.calls("say")) == 1, "and has not been run"
     del world.bridge.exclusive[world.projects[0]["id"]]
 
@@ -173,7 +182,7 @@ def second_project(world):
 def test_a_project_chosen_in_words_is_the_one_the_typed_project_chooses(world, line):
     second_project(world)
     world.say(line)
-    assert wait_for(lambda: world.texts() == ["Your lines now go to second-shop."]) and world.calls("say") == []
+    assert wait_for(lambda: len(world.texts()) == 1 and pk.said(world.texts()[0], "PROJECT_SET", None, name="second-shop")) and world.calls("say") == []
     world.say("hello there")
     assert wait_for(lambda: world.calls("say") and world.calls("say")[-1][1] == str(world.tmp / "second-shop")), "the next line goes to the project chosen"
 
@@ -184,9 +193,10 @@ def test_the_project_asked_about_in_words_and_a_name_that_is_none_say_what_the_t
     world.say("which project am I using")
     world.say("muda para o projeto fantasma")
     world.say("/project fantasma")
-    shown = "Your lines go to northwind-shop. Projects: northwind-shop, second-shop."
-    none = "No such project. Projects: northwind-shop, second-shop."
-    assert wait_for(lambda: len(world.texts()) == 4) and world.texts() == [shown, shown, none, none] and world.calls("say") == []
+    assert wait_for(lambda: len(world.texts()) == 4) and world.calls("say") == []
+    shown, none = world.texts()[:2], world.texts()[2:]
+    assert only(shown[:1], "PROJECT_NOW", name="northwind-shop", projects="northwind-shop, second-shop") and only(shown[1:], "PROJECT_NOW", name="northwind-shop", projects="northwind-shop, second-shop")
+    assert only(none[:1], "PROJECT_NONE", projects="northwind-shop, second-shop") and only(none[1:], "PROJECT_NONE", projects="northwind-shop, second-shop")
 
 
 def test_a_line_that_only_begins_like_a_project_change_is_a_request_and_goes_to_the_conversation(world):
@@ -206,7 +216,7 @@ def test_an_approve_word_still_approves_the_card_that_is_the_last_message_and_no
     world.bridge.tick()
     world.fake.calls.clear()
     world.say(word)
-    assert approvals(world) == [(1, "a" * 64)] and world.calls("say") == [] and silence(world)[-1] == "Approved #1."
+    assert approvals(world) == [(1, "a" * 64)] and world.calls("say") == [] and pk.said(silence(world)[-1], "APPROVED", None, id=1)
 
 
 def test_a_change_of_the_waiting_card_still_goes_before_the_commands_in_words(world):
@@ -253,7 +263,7 @@ def test_the_typed_line_of_a_platform_whose_acts_are_replies_asks_for_the_card_a
     monkeypatch.setattr(world.bridge.messenger, "capabilities", lambda: dict(world.bridge.messenger.__class__.capabilities(world.bridge.messenger), actions_need_reply=True))
     hands_over(world, "/reject 5")
     world.say("rejeite o plano 5")
-    assert wait_for(lambda: world.texts()[-1] == "Reply to the card of this decision to act on it.") and rejections(world) == []
+    assert wait_for(lambda: pk.said(world.texts()[-1], "REPLY_TO_CARD")) and rejections(world) == []
 
 
 def cards_sent(world, number):
@@ -285,11 +295,11 @@ def test_after_a_list_a_position_with_a_word_still_chooses_from_the_list_and_the
     world.items[2] = decision("plan", 2, plan_sha256="b" * 64)
     world.bridge.tick()
     world.say("sim")      # two cards: the numbered list
-    assert wait_for(lambda: world.texts()[-1].startswith("More than one decision waits"))
+    assert wait_for(lambda: pk.said(world.texts()[-1], "WORD_LIST_HEAD"))
     world.fake.calls.clear()
     world.say("aprova o 2")
     assert wait_for(lambda: approvals(world) == [(2, "b" * 64)]) and world.calls("say") == []
-    assert not any("sent the card" in text for text in silence(world))
+    assert not any(pk.said(text, "NAT_DECISION_CARD") for text in silence(world))
 
 
 def test_vacuity_a_typed_line_run_back_through_handle_chooses_the_project_again_and_the_check_sees_it(world, monkeypatch):

@@ -1,0 +1,6 @@
+{"id": "fa-1.ask_take.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_shown", "text": "o 2", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "fa-1.ask_take.02", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_shown", "text": "2", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "fa-1.ask_take.03", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_shown", "text": "the 2nd", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "fa-1.ask_near.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_shown", "text": "o 3", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "fa-1.ask_near.02", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_shown", "text": "lê o 2", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "fa-1.ask_guard.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "file_ask_list_narrowed", "text": "o 2", "reply_to": null, "forwarded": false, "kind": "text", "action": null}

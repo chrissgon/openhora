@@ -14,6 +14,8 @@ import string
 
 import pytest
 
+import phone_said as ps
+import phrase_kit as pk
 import standin_tree as st
 from test_ops_natural import KEY, OWNER, OPERATION, READER, router_says, with_senders, world  # noqa: F401  (the real-operations world fixture)
 
@@ -81,11 +83,11 @@ def test_the_net_cuts_the_text_the_footer_and_the_document_adds_one_sentence_and
 
 
 def test_the_sentence_the_net_adds_names_the_page_with_its_link_when_there_is_one_and_never_a_terminal():
-    for cfg, tail in (({"language": "pt-BR", "page_url": "https://page.example/open"}, "O resto se faz na página da plataforma: https://page.example/open"),
-                      ({"language": "pt-BR"}, "O resto se faz na página da plataforma."), ({"page_url": "https://page.example/open"}, "The rest is done on the platform's page: https://page.example/open"),
-                      (None, "The rest is done on the platform's page.")):
-        assert guard.sentence(cfg) == tail
-    assert phrases.where_page({"messaging": {"page_url": "https://page.example/x"}}) == "on the platform's page: https://page.example/x"
+    for cfg, link in (({"language": "pt-BR", "page_url": "https://page.example/open"}, "https://page.example/open"), ({"language": "pt-BR"}, None),
+                      ({"page_url": "https://page.example/open"}, "https://page.example/open"), (None, None)):
+        said = guard.sentence(cfg)
+        assert ps.placed(said, "PHONE_STRIPPED", cfg) and (link is None or said.endswith(link)), said
+    pk.assert_said(phrases.where_page({"messaging": {"page_url": "https://page.example/x"}}), "PHONE_WHERE_LINK", url="https://page.example/x")
 
 
 # --- (2) every sentence of the table -----------------------------------------------------------------------------------------------------------------
@@ -123,9 +125,11 @@ def test_the_sentences_that_end_with_the_place_say_it_in_both_languages_and_a_li
     keys = [k for k, text in phrases.TABLE["en"].items() if text.endswith("{where}")]
     assert len(keys) >= 12 and all(phrases.TABLE["pt-BR"][k].endswith("{where}") for k in keys), "both columns end with the place"
     for key in keys:
-        assert rendering(key, "en", None).endswith("on the platform's page.") and rendering(key, "pt-BR", None).endswith("na página da plataforma.")
-        assert rendering(key, "en", "https://page.example/open").endswith("on the platform's page: https://page.example/open")
-        assert rendering(key, "pt-BR", "https://page.example/open").endswith("na página da plataforma: https://page.example/open")
+        fields = {name: "x" for _lit, name, _spec, _conv in string.Formatter().parse(phrases.en(key)) if name and name != "where"}
+        for tag in ("en", "pt-BR"):
+            assert ps.placed(rendering(key, tag, None), key, {"language": tag}, **fields), (key, tag)
+            linked = rendering(key, tag, "https://page.example/open")
+            assert ps.placed(linked, key, {"language": tag}, **fields) and linked.endswith("https://page.example/open"), (key, tag)
 
 
 # --- (3) every operation a line can name that is not a read -------------------------------------------------------------------------------------------
@@ -153,22 +157,20 @@ def test_every_operation_that_is_not_a_read_answers_a_phone_with_no_command_no_p
 def test_what_a_phone_is_told_is_the_family_sentence_with_the_page_link_when_the_project_has_one(world):
     with_senders(world)
     ctx = ops_core.context(world["path"])
-    assert ops_natural.phone_sentence(ctx, "accept-config") == "Settings, accounts and permissions are changed on the platform's page."
-    assert ops_natural.phone_sentence(ctx, "source-add") == "Sources and files are added to the project on the platform's page."
-    assert ops_natural.phone_sentence(ctx, "instructions-add") == "The project's standing instructions are changed on the platform's page."
-    assert ops_natural.phone_sentence(ctx, "routine-create") == "A routine is created, changed and approved on the platform's page."
-    assert ops_natural.phone_sentence(ctx, "dispatch") == "That is not done from a message. Do it on the platform's page."
-    assert ops_natural.phone_sentence(ctx, "event-create") == "A change to your accounts is made on the platform's page."
+    for name, key in (("accept-config", "PHONE_SETTINGS"), ("source-add", "PHONE_SOURCES"), ("instructions-add", "PHONE_INSTRUCTIONS"), ("routine-create", "PHONE_ROUTINES"),
+                      ("dispatch", "PHONE_ELSEWHERE"), ("event-create", "PHONE_ACCOUNT_WRITE")):
+        assert ps.placed(ops_natural.phone_sentence(ctx, name), key, ctx["cfg"]), (name, key)
     assert ops_natural.phone_sentence(ctx, "event-create", retry=True) == phrases.phone("PHONE_EVENT_AGAIN", ctx["cfg"])
     linked = dict(ctx, cfg=dict(ctx["cfg"], page_url="https://page.example/open", language="pt-BR"))
-    assert ops_natural.phone_sentence(linked, "set-model") == "Configurações, contas e permissões se mudam na página da plataforma: https://page.example/open"  # validate: allow english-only -- the expected Portuguese sentence of the phrase table's pt-BR column
+    said = ops_natural.phone_sentence(linked, "set-model")
+    assert ps.placed(said, "PHONE_SETTINGS", linked["cfg"]) and said.endswith("https://page.example/open"), said
 
 
 def test_the_terminal_the_page_and_the_conversation_keep_the_exact_command(world):
     ctx = ops_core.context(world["path"])
     for channel in ("page", "mcp"):
         said = ops_natural._gated(ctx, "set-model", {}, channel)
-        assert "set-model" in said and ("in the terminal or on the page" in said)
+        assert "set-model" in said and pk.said(said, "NAT_GATED", place=phrases.text("NAT_PLACE_BOTH", None))
     assert "python3" in ops_natural._gated(ctx, "accept-config", {}, "chat")
     assert ops_natural._command(ctx, "set-model", {}, "terminal", "messaging") is None, "a phone is never given the terminal's command"
     assert ops_natural._command(ctx, "cancel", {"request_id": 4}, "messaging", "messaging") == "/cancel 4", "a slash line a messaging app has is not a terminal command"

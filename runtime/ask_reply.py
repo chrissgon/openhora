@@ -18,7 +18,8 @@ and this module reads only those lines and decides what is sent. A model's text 
   1. A first line outside the closed list: the reply is shown whole after UNCHECKED.
   2. A quote line is read (a leading bullet or spaces and any case are allowed) and never shown as the model wrote it: a quote that is
      found in its source's prepared copy (Unicode NFC, white space collapsed) and is at least QUOTE_MIN_CHARS characters AND
-     QUOTE_MIN_WORDS words long is printed by code as `Checked quote [<id>]: "..."`, a form only code writes; any other quote is shown
+     QUOTE_MIN_WORDS words long is printed by code as `Checked quote [<id>]: "..."` (`Checked quote: "..."` for a reply with a `read_label` and one source, see
+     below), a form only code writes; any other quote is shown
      after a sentence that says what is wrong with it (QUOTE_NOT_FOUND, QUOTE_TOO_SHORT, QUOTE_TOO_LONG, UNKNOWN_SOURCE).
   3. Any other line that has `quote [` in it, or whose start is the opening of a checked quote (`checked quote`, and the same words of
      every other language of the phrase table, runtime/phrases.py: the form code writes is translated, so the check reads all of them), is
@@ -27,6 +28,7 @@ and this module reads only those lines and decides what is sent. A model's text 
      letters of Cyrillic and Greek folded to Latin and the case folded (fold()), so that `Checked quоte` (a Cyrillic o), a zero-width
      space and a full-width bracket do not pass.
   4. A `[<id>]` of the form of a source id that the run was not given is flagged UNKNOWN_SOURCE (`[1]`, a footnote, is not).
+     With a `read_label` and ONE source, a `[x]` that the copy of that source holds (a subject tag such as `[tag]`) is the message's own and is not flagged.
   5. `found` or `partial` with no verified quote: UNVERIFIED.
   6. `not-found`: the model's prose is dropped; only NOT_FOUND, the instructions lines and the footer are sent.
   7. After the instructions line the reply keeps only lines that name a source the run was given, say `not followed` and carry a
@@ -38,6 +40,11 @@ and this module reads only those lines and decides what is sent. A model's text 
      vowel signs and the virama of Devanagari, the vowel marks of Thai and the accents with no precomposed letter are part of the words of
      those languages. The imitation check (fold()) drops every combining mark, so that they cannot hide the form code writes. A line that holds a text-direction control (U+202A to U+202E, U+2066 to U+2069, U+200E, U+200F, U+061C) is left
      out and flagged BIDI_CONTROL, since such a character can make a line read differently from how it is stored.
+
+A reply that has a `read_label` and exactly one source (`file-ask`, `mail-ask`: ONE temporary source, which the footer already names) is written without the source id, since an id the person
+cannot choose between says nothing and `[file]` is an English word in a Portuguese reply (M41-3, the maintainer's answer of 2026-11-02): ` [<that id>]` is taken out of the prose, a quote that is found is printed
+as `Checked quote: "..."` (QUOTE_CHECKED_ONE) and a kept instruction line as `"<the passage>" (not followed)` (INSTRUCTION_LINE_ONE). The imitation check is the same (the opening `Checked quote` is read in every
+language of the table), so a model line that opens with it is still left out and flagged. Without a `read_label`, or with several sources, the reply is byte for byte the form above.
 
 Code appends the footer: READ (each source and version read) and, when the run is not proven, UNPROVEN. The sentences are the phrase
 table's (runtime/phrases.py, package LR-1) and `check` says them in the project's language (`cfg`); the form the skill writes, and the
@@ -190,15 +197,15 @@ def parse(response: str) -> dict:
     return {"answer": answer, "prose": prose, "quotes": quotes, "imitated": imitated, "bidi": bidi, "tail": tail}
 
 
-def _verified_instruction(line: str, ids: set, copies_flat: dict, cfg=None):
-    """The instruction line as code writes it, `[<id>] "<passage>" (not followed)`, for the first quoted passage of INSTRUCTION_MIN_WORDS words
-    or more that is in the copy of a source the line names; None when there is none."""
+def _verified_instruction(line: str, ids: set, copies_flat: dict, cfg=None, one=False):
+    """The instruction line as code writes it, `[<id>] "<passage>" (not followed)` (`"<passage>" (not followed)` when `one`, the reply has the one source its footer names),
+    for the first quoted passage of INSTRUCTION_MIN_WORDS words or more that is in the copy of a source the line names; None when there is none."""
     named = [i for i in sorted(ids) if _names(line, {i})]
     for passage in QUOTED.findall(line):
         flat = collapse(passage)
         for source_id in named:
             if len(flat.split()) >= INSTRUCTION_MIN_WORDS and flat in copies_flat.get(source_id, ""):
-                return phrases.text("INSTRUCTION_LINE", cfg, id=source_id, passage=flat)
+                return phrases.text("INSTRUCTION_LINE_ONE", cfg, passage=flat) if one else phrases.text("INSTRUCTION_LINE", cfg, id=source_id, passage=flat)
     return None
 
 
@@ -206,19 +213,62 @@ def _names(line: str, ids: set) -> bool:
     return any(re.search(r"(?<![\w-])" + re.escape(i) + r"(?![\w-])", line) for i in ids)
 
 
-def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None) -> dict:
+def _trim(text: str, room: int, mark: str) -> str:
+    """The text cut on a word so that it and the mark fit in `room` characters (the mark alone when there is no room)."""
+    if len(text) <= room:
+        return text
+    head = text[:max(room - len(mark) - 1, 0)]
+    space = head.rfind(" ")
+    if space > len(head) * 0.8:
+        head = head[:space]
+    return (head.rstrip() + " " + mark).strip()
+
+
+def _digit_runs(text: str) -> list:
+    """The runs of decimal digits of any script in `text` (ASCII, Arabic-Indic, full-width ...), each with its value as a string of ASCII digits (leading zeros ignored)."""
+    runs, current = [], ""
+    for char in text:
+        if char.isdecimal():
+            current += char
+        elif current:
+            runs.append(current)
+            current = ""
+    if current:
+        runs.append(current)
+    return [(run, "".join(str(unicodedata.decimal(c)) for c in run).lstrip("0") or "0") for run in runs]      # no int(): a run of thousands of digits is no error
+
+
+def absent_numbers(response: str, source: str) -> list:
+    """The runs of digits (any script) of a reply's prose that the source does not hold (leading zeros ignored, a full-width or Arabic-Indic digit is the digit it is), in order, none twice, as the prose
+    writes them. Quote lines are not read: code checked them. Pure."""
+    have = {value for _run, value in _digit_runs(source)}
+    return list(dict.fromkeys(run for line in parse(response)["prose"] for run, value in _digit_runs(line) if value not in have))
+
+
+def check(response: str, given: list, copies: dict, proven: bool, skill: str, model: str, cfg=None, read_label=None, max_chars=None, not_found="FA_NOT_FOUND") -> dict:
     """The reply the person is sent and what was found: {"text", "outcome": "found" | "partial" | "not-found" | "unchecked",
     "flags": [words], "verified": the number of quotes found in their sources}. `given` is [{"source", "version"}] of the copies
     the run received, `copies` {source id: the text of that copy}, `proven` whether the run was proven (autonomy "proven"). `cfg` carries
-    the project's `language` (runtime/phrases.py): the sentences code adds are said in it; the form the skill writes is English."""
+    the project's `language` (runtime/phrases.py): the sentences code adds are said in it; the form the skill writes is English. `read_label` (FA-1, `file-ask`) is the footer's
+    own sentence, a text code wrote (the file's name, account and folder, no id and no version: L62), shown in the place of the line that lists the sources and versions read;
+    left out (the default), every reply is byte for byte what it was; given, with ONE source, the reply carries no source id (the module's text, M41-3). `max_chars` (FA-1) is the most characters the reply may have: what is over is taken from the model's prose (or, for a reply in
+    another form, from its text), cut on a word with the sentence FA_CUT, so that the quotes code checked, the notes, the instruction lines and the footer are never the part that is cut; only when the
+    prose cannot give enough is the whole reply cut at the limit. Left out, nothing is cut. `not_found` (MAIL-SUMMARY) is the phrase key said for a `not-found` reply that has a `read_label`: the default is the file's own."""
     say = lambda key, **fields: phrases.text(key, cfg, **fields)  # noqa: E731
     read = read_line(given, cfg)
+    read_label = read_label if isinstance(read_label, str) and read_label else None
+    footer_read = read_label if read_label else say("READ", read=read)
     footer = [] if proven else [say("UNPROVEN", skill=skill, model=model)]
     parsed = parse(response)
     ids = {g["source"] for g in given}
+    one = next(iter(ids)) if read_label and len(ids) == 1 else None      # M41-3: the one source the footer already names
     flags = []
     if parsed["answer"] is None:
-        text = "\n\n".join([say("UNCHECKED"), clean(response or "").strip() or say("EMPTY_REPLY"), say("READ", read=read), *footer])
+        body = clean(response or "").strip() or say("EMPTY_REPLY")
+        text = "\n\n".join([say("UNCHECKED"), body, footer_read, *footer])
+        if max_chars is not None and len(text) > max_chars:
+            body = _trim(body, len(body) - (len(text) - max_chars), say("FA_CUT"))
+            text = "\n\n".join([say("UNCHECKED"), body, footer_read, *footer])
         return {"text": text, "outcome": "unchecked", "flags": ["UNCHECKED"], "verified": 0}
     copies_flat = {i: collapse(t) for i, t in copies.items()}
     kept, other, unverified = [], 0, 0
@@ -227,7 +277,7 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
         if not form:
             other += 1
         else:
-            written = _verified_instruction(line, ids, copies_flat, cfg)
+            written = _verified_instruction(line, ids, copies_flat, cfg, one is not None)
             if written:
                 kept.append(written)
             else:
@@ -240,8 +290,11 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
     if unverified:
         flags.append("INSTRUCTION_UNVERIFIED")
     if parsed["answer"] == "not-found":
-        return {"text": "\n\n".join([say("NOT_FOUND", read=read)] + ([instructions] if instructions else []) + footer),
-                "outcome": "not-found", "flags": flags, "verified": 0}
+        first = say(not_found) if read_label else say("NOT_FOUND", read=read)      # with a read_label the line that lists ids and versions is not written at all
+        text = "\n\n".join([first] + ([instructions] if instructions else []) + ([footer_read] if read_label else []) + footer)
+        if max_chars is not None and len(text) > max_chars:
+            text = _trim(text, max_chars, say("FA_CUT"))
+        return {"text": text, "outcome": "not-found", "flags": flags, "verified": 0}
     shown, verified = [], 0
     for source_id, passage in parsed["quotes"]:
         flat = collapse(passage)
@@ -256,12 +309,15 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
             shown.append(f'{say("QUOTE_TOO_SHORT", id=source_id)} "{passage}"')
         elif flat in copies_flat.get(source_id, ""):
             verified += 1
-            shown.append(say("QUOTE_CHECKED", id=source_id, text=passage))
+            shown.append(say("QUOTE_CHECKED_ONE", text=passage) if one is not None else say("QUOTE_CHECKED", id=source_id, text=passage))
         else:
             flags.append("QUOTE_NOT_FOUND")
             shown.append(f'{say("QUOTE_NOT_FOUND", id=source_id)} "{passage}"')
     prose = "\n".join(parsed["prose"]).strip()
-    unknown = [i for i in dict.fromkeys(BRACKET.findall(prose)) if i not in ids and not i.isdigit()]
+    if one is not None:
+        prose = re.sub(r"[ \t]*\[" + re.escape(one) + r"\]", "", prose).strip()
+    own_copy = copies_flat.get(one, "").lower() if one is not None else ""      # AF-4: a `[x]` the one source's copy holds (a subject tag) is the message's own, not an invented id
+    unknown = [i for i in dict.fromkeys(BRACKET.findall(prose)) if i not in ids and not i.isdigit() and f"[{i}]" not in own_copy]
     notes = [say("UNKNOWN_SOURCE", id=i) for i in unknown]
     if unknown:
         flags.append("UNKNOWN_SOURCE")
@@ -278,7 +334,14 @@ def check(response: str, given: list, copies: dict, proven: bool, skill: str, mo
         flags.append("UNVERIFIED")
         notes.append(say("UNVERIFIED"))
     pieces = [p for p in (prose, "\n".join(shown), "\n".join(notes), instructions) if p]
-    text = "\n\n".join(pieces + [say("READ", read=read), *footer])
+    text = "\n\n".join(pieces + [footer_read, *footer])
+    if max_chars is not None and len(text) > max_chars:      # FA-1: the prose gives way first; the whole is cut at the limit only when it cannot
+        over = len(text) - max_chars
+        if prose and over < len(prose):
+            pieces[0] = _trim(prose, len(prose) - over, say("FA_CUT"))
+            text = "\n\n".join(pieces + [footer_read, *footer])
+        if len(text) > max_chars:
+            text = _trim(text, max_chars, say("FA_CUT"))
     return {"text": text, "outcome": parsed["answer"], "flags": list(dict.fromkeys(flags)), "verified": verified}
 
 

@@ -67,7 +67,7 @@ def test_a_reply_to_the_card_of_another_decision_cannot_act_on_this_one(world):
     world.say("/approve 7", reply_to=card_id(world, 8))
     world.say("/reject 8", reply_to=card_id(world, 7))
     assert only_refused(world)
-    assert world.bridge.ledger.last_card(world.projects[0]["id"], 7, "4242")["message_id"] == card_id(world, 7)
+    assert world.bridge.ledger.last_card(world.projects[0]["id"], 7, "830461975213")["message_id"] == card_id(world, 7)
 
 
 def test_a_typed_approve_in_reply_to_its_card_is_bound_to_that_card_and_runs_once_with_its_hash(world):

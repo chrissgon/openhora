@@ -33,7 +33,7 @@ REPO = st.REPO
 
 # L57 -- the files the scan reads (writers, the mailers of the person's own account, the shared helpers, the authorize scripts and the readers, which send GET only)
 SCANNED = ["providers/writer/**/*.py", "providers/mailer/gmail.py", "providers/mailer/outlook.py", "providers/_*.py", "providers/accounts/**/*.py",
-           "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py"]
+           "providers/mailbox/*.py", "providers/calendar/*.py", "providers/documents/gdrive*.py", "providers/documents/onedrive*.py", "providers/tasks/*.py"]
 # (relative file, the approved path regex). W1: the Google calendar writer's one removal, an event of a calendar, which Google is expected to send to the
 # calendar's trash for 30 days (the person restores it there); S21: the Outlook calendar writer's two removals of one event, which may be unrecoverable (not
 # verified); each pair is honoured only in that file's own constant ALLOWED.
@@ -52,7 +52,7 @@ LOCAL_RECORD_TEXT = re.compile(r"secret store", re.I)
 TOKEN = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 CASE_METHODS = ("upper", "lower", "title", "casefold", "capitalize", "swapcase", "strip", "lstrip", "rstrip")
 # L58 -- the modules of runtime/ that may name a writer.
-WRITER_NAMERS = ("effect_calendar.py", "effect_mailbox.py", "effect_files.py", "ops_step_seams.py")
+WRITER_NAMERS = ("effect_calendar.py", "effect_mailbox.py", "effect_files.py", "effect_tasks.py", "ops_step_seams.py")
 
 
 def _docstrings(tree) -> set:
@@ -333,3 +333,79 @@ def test_limit_57_measure_the_outlook_writers_two_event_pairs_are_honoured_in_it
     assert any("HTTP DELETE" in f[2] for f in delete_findings(decoy, OUTLOOK_FILE))
     assert any("name for deleting" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nrequests.delete(url)\n", OUTLOOK_FILE))
     assert any("permanent-delete" in f[2] for f in delete_findings(OUTLOOK_PAIRS + "\nverb = 'permanentDelete'\n", OUTLOOK_FILE))
+
+
+# --- CB-4: the tasks readers and writers (Google Tasks, Microsoft To Do) -----------------------------------------------------------------------------
+
+TASKS_FILES = ("providers/tasks/google.py", "providers/tasks/microsoft.py", "providers/writer/google-tasks.py", "providers/writer/microsoft-todo.py", "providers/_writer_tasks.py")
+
+
+def test_limit_57_cb4_the_tasks_providers_are_scanned_and_hold_no_delete_no_move_and_no_clear_in_any_spelling():
+    scanned = [str(p.relative_to(REPO)) for p in scanned_files()]
+    for name in TASKS_FILES:
+        assert name in scanned, name
+        source = (REPO / name).read_text(encoding="utf-8")
+        assert delete_findings(source, name) == [], name
+        code = re.sub(r'"""[\s\S]*?"""', "", source)
+        assert not re.search(r"""["'](?:DELETE|PUT)["']|/clear|/move|\.clear\(""", code), name
+
+
+def test_limit_57_cb4_the_scan_would_find_a_delete_pair_planted_in_a_tasks_writer():
+    planted = (REPO / "providers/writer/google-tasks.py").read_text(encoding="utf-8").replace(
+        '("PATCH", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"))', '("PATCH", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"), ("DELETE", rf"/tasks/v1/lists/{LIST}/tasks/{TASK}"))')
+    assert planted != (REPO / "providers/writer/google-tasks.py").read_text(encoding="utf-8")
+    assert any("HTTP DELETE" in f[2] for f in delete_findings(planted, "providers/writer/google-tasks.py"))
+
+
+# --- CB-6: the cancel of a series and of one occurrence is a POST, never a DELETE ----------------------------------------------------------------------------------
+# Graph's `cancel` action moves an event to Deleted Items (its page, read 2026-10-27). The Outlook writer's `event-cancel-series` and `event-cancel-occurrence` send it
+# (`POST .../events/{id}/cancel`, an empty JSON object as the body) and never fall back to a DELETE if Graph refuses. These measures read the writers as syntax trees:
+# a path of that action may be named only by the two pairs of the Outlook writer's own `ALLOWED` (method POST) and by the one suffix `/cancel` its path builder appends.
+CANCEL_PAIRS = (("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel"),
+                ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel"))
+CANCEL_SUFFIX = (("providers/writer/outlook-calendar.py", "/cancel"),)
+
+
+def cancel_findings(source: str, name: str, pairs=CANCEL_PAIRS, suffix=CANCEL_SUFFIX) -> list:
+    """(file, line, why) for a string that names the cancel action's path outside what the allow-list says, and for an allowed pair whose method is not POST."""
+    tree = ast.parse(source)
+    docs = _docstrings(tree)
+    allowed_text = {p for f, p in pairs if f == name} | {p for f, p in suffix if f == name}
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs and re.fullmatch(r"\S*cancel\S*", node.value, re.I) and "/" in node.value \
+                and node.value not in allowed_text:      # a path has no space: a sentence or a page that says "cancel" is not one
+            found.append((name, node.lineno, f"names the cancel action's path outside the allow-list: {node.value[:60]}"))
+        if isinstance(node, ast.Tuple) and len(node.elts) == 2 and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts) \
+                and node.elts[1].value in allowed_text and node.elts[1].value != "/cancel" and node.elts[0].value != "POST":
+            found.append((name, node.lineno, f"a cancel pair whose method is {node.elts[0].value}, not POST"))
+    return found
+
+
+def test_limit_57_cb6_the_cancel_action_is_named_only_by_the_outlook_writers_two_post_pairs_and_its_path_builder():
+    scanned = scanned_files()
+    found = [f for path in scanned for f in cancel_findings(path.read_text(encoding="utf-8"), str(path.relative_to(REPO)))]
+    assert found == [], found
+    source = (REPO / OUTLOOK_FILE).read_text(encoding="utf-8")
+    for _, pattern in CANCEL_PAIRS:
+        assert pattern in source, "the writer does not hold a pair the allow-list names"
+    assert CANCEL_PAIRS == (("providers/writer/outlook-calendar.py", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel"),
+                            ("providers/writer/outlook-calendar.py", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel")), "no other cancel pair is allowed"
+
+
+CANCEL_LEGIT = '''ALLOWED = (("GET", r"/me/calendar/events/x"), ("POST", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel"),
+           ("POST", r"/me/calendars/(?:[A-Za-z0-9_-]|%3D)+/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel"))
+def cancel_path(base, event):
+    return base + "/cancel"
+'''
+
+
+def test_vacuity_cb6_the_cancel_measure_finds_a_decoy_a_wrong_method_another_file_and_a_second_path_and_passes_the_legitimate_text():
+    outlook = "providers/writer/outlook-calendar.py"
+    assert cancel_findings(CANCEL_LEGIT, outlook) == []
+    assert cancel_findings(CANCEL_LEGIT, "providers/writer/google-calendar.py") != [], "another file does not inherit the pairs"
+    assert cancel_findings(CANCEL_LEGIT.replace('("POST", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel")', '("GET", r"/me/calendar/events/(?:[A-Za-z0-9_-]|%3D|%2B)+/cancel")'), outlook) != [], \
+        "a cancel pair that is not a POST is a finding"
+    assert cancel_findings(CANCEL_LEGIT + "\nrequest('POST', '/me/calendar/events/' + event + '/cancelSeries')\n", outlook) != [], "a path of another spelling is a finding"
+    assert cancel_findings(CANCEL_LEGIT + '\nPATH = "/me/events/x/cancel"\n', outlook) != [], "a path outside the pairs is a finding"
+    assert cancel_findings(CANCEL_LEGIT + '\ndef note():\n    """/me/calendar/events/x/cancel is named in a docstring"""\n', outlook) == [], "a docstring is not code that sends"

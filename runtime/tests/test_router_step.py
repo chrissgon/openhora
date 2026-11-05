@@ -15,6 +15,7 @@ import sys
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 lab = st.load("lab")
@@ -212,8 +213,8 @@ def test_an_unrecognised_reply_reaches_the_person_whole_and_naming_the_flow_bypa
     assert (out["routed"], out["ending"], out["kind"]) == (False, "unclassified", "question")
     item = ops.pending(path, out["pending_id"])
     # A-25: the body is one sentence; the reply whole is in the payload, with the two actions the page draws.
-    assert item["title"] == "The route was not recognised"
-    assert item["body"] == f"The planning agent did not name a flow or a skill for request {request['request']}"
+    pk.assert_said(item["title"], "TITLE_ROUTE_UNRECOGNISED")
+    pk.assert_said(item["body"], "BODY_NOT_NAMED", request=request["request"])
     assert item["payload"]["raw"] == PROSE_REPLY and item["payload"]["actions"] == ["choose-flow", "cancel"]
     assert item["payload"]["why"] == "no route line"
     reply(tree, "Route: flow-missing (flow, pending)\n")

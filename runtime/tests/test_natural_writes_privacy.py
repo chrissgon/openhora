@@ -13,6 +13,7 @@ import re
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 from test_calendar_write import SEEDED, install_item_refs, seed_google, world  # noqa: F401  (the calendar world)
 from test_ops_natural_writes import OPEN, PLAIN, READER, SENDER, body, forget, phone, policy  # noqa: F401
 from test_reminders import Clock
@@ -42,14 +43,17 @@ def stored(world):
 
 
 @pytest.mark.parametrize("channel", [None, "page"])
-def test_the_line_its_question_and_its_answer_are_stored_as_a_neutral_word_and_so_are_the_replies(world, clock, channel):
+def test_a_write_line_said_on_the_terminal_or_the_page_is_stored_as_the_neutral_word_before_it_reaches_the_planning_agent(world, clock, monkeypatch, channel):
+    """S41-11: no plain line is claimed on a shell any more (a write form said on the page or the terminal reaches the planning agent); the conversation, which the MCP mode reads, still keeps the
+    neutral word for the line, stored before the agent is asked. The planning agent is a stand-in here (`_say_route`): what is checked is what the store keeps and what the MCP mode reads."""
     policy(world)
+    ops_say = st.load("ops_say")
+    monkeypatch.setattr(ops_say, "_say_route", lambda *a, **k: ("an answer of the agent", None, None, False, None))
     ops.say(world["path"], "cria um evento Zorbablax sexta no google", channel=channel)
-    ops.say(world["path"], "8h", channel=channel)
     rows = stored(world)
-    assert rows == [("user", LINE), ("assistant", REPLY), ("user", LINE), ("assistant", REPLY)]
+    assert rows[0] == ("user", LINE), "the line is stored as the neutral word"
     seen = ops.conversation(world["path"], channel="mcp")["messages"]
-    assert [m["text"] for m in seen] == [LINE, REPLY, LINE, REPLY] and "Zorbablax" not in str(seen)
+    assert "Zorbablax" not in str(seen)
 
 
 def test_the_neutral_words_are_in_both_columns_and_the_router_memory_leaves_them_out(world, clock):
@@ -57,9 +61,11 @@ def test_the_neutral_words_are_in_both_columns_and_the_router_memory_leaves_them
         assert all(phrases.every(key)) and len(phrases.every(key)) == 2
     assert ops_natural.is_placeholder(LINE) and ops_natural.is_placeholder(REPLY)
     policy(world)
-    ops.say(world["path"], "marca dentista quinta às 10h no google", channel="page")
     ctx = ops_core.context(world["path"])
+    ops_core._stored(ctx, ctx["store"].message_add, conversation=ops.CONVERSATION, role="user", text=ops_natural.stored_line(ctx, "marca dentista quinta às 10h no google"))
+    ops_core._stored(ctx, ctx["store"].message_add, conversation=ops.CONVERSATION, role="assistant", text=REPLY)
     messages = ctx["store"].messages_list(ctx["conn"], ops.CONVERSATION, limit=500)
+    assert [m["text"] for m in messages] == [LINE, REPLY]
     assert ops.chat_memory(messages, set()) == ""
 
 

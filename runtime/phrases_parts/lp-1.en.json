@@ -1,0 +1,16 @@
+{
+  "package": "lp-1",
+  "table": {
+    "LP_AND": "and",
+    "LP_DAY_OR_POSITION": "That can be the day ({a}) or {position} of the list ({b}). Say its number.",
+    "LP_LAST_NOT_SHOWN": "The list has more than I showed; say its number.",
+    "LP_NONE": "None in the list is {value}. Say its number.",
+    "LP_ORDINAL_CLASH": "Do you mean event {n}, or {position} of the list (event {m})? Say its number.",
+    "LP_SEVERAL": "More than one in the list is {value}: {rows}. Say its number.",
+    "LP_VALUE_ACCOUNT": "from {service}",
+    "LP_VALUE_CLOCK": "at {time}",
+    "LP_VALUE_DAY": "on {weekday} {date}",
+    "LP_VALUE_ORDINAL": "the one in position {p}",
+    "LP_VALUE_WEEKDAY": "on {weekday}"
+  }
+}

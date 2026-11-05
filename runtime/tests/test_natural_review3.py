@@ -14,23 +14,27 @@ import datetime
 import pytest
 
 import natural_cases_pt_br as pt
+import phrase_kit as pk
 import standin_tree as st
+from closed_heads import trigger_reading  # noqa: F401  (S41-11 PR 2b: the reminder engine's old entry, the way `trigger`, for the tests that read a line that starts with a remind word)
 from natural_kit import made, said_yes
 from test_attachments import case  # noqa: F401  (the project the attachment tests use, which the world fixture builds on)
 from test_reminders import BRT, OTHER, SENDER, world  # noqa: F401  (the world fixture: a project with four listed senders and a clock)
 
+pytestmark = pytest.mark.usefixtures("trigger_reading")
 natural = st.load("natural")
 nt = st.load("natural_time")
+turn_gate = st.load("turn_gate")
 ops = st.load("ops")
 
 NOW = datetime.datetime(2026, 10, 18, 14, 0, tzinfo=BRT)       # Sunday
 
 
 def completed(draft, said, now=NOW):
-    """`natural.complete`, and the "yes" that makes the reminder when the answer was a reading shown for confirmation (a free-text reminder is made only after a yes)."""
-    got = natural.complete(draft, said, now)
+    """`turn_gate.complete_reminder` (`natural.complete` with the guard's verdict, CANDIDATE-OUT), and the "yes" that makes the reminder when the answer was a reading shown for confirmation (a free-text reminder is made only after a yes)."""
+    got = turn_gate.complete_reminder(draft, said, now)
     if got and "ask" in got and got["ask"]["need"] == "confirm" and not got["ask"].get("retries"):
-        return natural.complete(got["ask"], "yes", now)
+        return turn_gate.complete_reminder(got["ask"], "yes", now)
     return got
 
 
@@ -157,8 +161,10 @@ def test_a_short_reply_that_does_not_fit_is_asked_once_and_a_longer_or_other_lin
     again = completed(draft, "thanks", NOW)["ask"]
     assert again["retries"] == 1 and again["need"] == "text"
     assert completed(again, "thanks", NOW) is None
-    for line in ("write the launch post for the shop", "what is the weather like today", "remind me tomorrow at 9am to call Ana", "cancel reminder 3", "undo"):
+    for line in ("write the launch post for the shop", "what is the weather like today", "remind me tomorrow at 9am to call Ana", "cancel reminder 3"):
         assert completed(confirm_draft(), line, NOW) is None, line
+    once = completed(confirm_draft(), "undo", NOW)      # CANDIDATE-OUT (OPEN-CO-3): a bare undo is no longer named by a table, so it is asked once more, and the next one is a new line
+    assert once["ask"]["retries"] == 1 and completed(once["ask"], "undo", NOW) is None
     for line in ("remind me tomorrow at 10am to call Ana", "cancel reminder 3", "me lembra amanhã às 9h de ligar"):      # validate: allow english-only -- a Portuguese line, the case of the tests
         assert completed(asked("remind me at 9 to stretch"), line, NOW) is None, "a line that starts a request of its own is never the answer"
 
@@ -203,50 +209,13 @@ def test_a_week_with_no_day_asks_which_day_of_it_and_never_offers_tomorrow():
     assert named["ask"]["need"] == "confirm", "a week and a day: the day is read and confirmed, nothing is asked again"
 
 
-# --- Q1: a forget by number --------------------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("line,expected", pt.FORGET_FORMS + [
-    ("forget reminder 3", {"id": 3}), ("cancel reminder #3", {"id": 3}), ("cancel reminder number 3", {"id": 3}),
-    ("cancel the reminder of 3", {"id": 3, "confirm": True}), ("cancel reminders 1 and 2", {"id": None, "ids": [1, 2], "confirm": True}),
-    ("cancel the reminder at 9", {"id": None, "at": "at 9", "confirm": True})])
-def test_a_number_is_an_explicit_id_only_in_the_forms_that_say_so_and_otherwise_it_is_shown_and_confirmed(line, expected):
-    got = natural.candidate(line)
-    assert got["op"] == "reminder-forget" and {key: got[key] for key in expected} == expected, line
-    assert "words" not in got and "many" not in got
-
-
-def test_a_forget_with_words_is_still_words_and_a_forget_with_too_many_numbers_is_asked():
-    assert natural.candidate("cancel the reminder about the florist")["words"] == ["florist"]
-    assert natural.candidate("cancel reminders 1 2 3 4 5 6")["many"] is True
-
-
-# --- the undo is the bare word -------------------------------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("line", ["undo", "undo that", "undo the reminder", "undo it please", "bring it back", pt.LINE_UNDO, "desfaz o lembrete", "desfaz por favor"])
-def test_the_undo_is_the_bare_word_optionally_with_the_reminder(line):
-    assert natural.candidate(line) == {"op": "reminder-restore", "how": "trigger"}, line
-
-
-@pytest.mark.parametrize("line", ["undo the deploy", "undo that commit", "undo the last change", "undo?", "bring it back to the shop", *pt.NOT_UNDO])
-def test_anything_else_with_the_word_undo_goes_on(line):
-    assert natural.candidate(line) is None or natural.candidate(line)["op"] != "reminder-restore", line
-
-
 # --- Q2: the word reminder wins over a scheduling verb ------------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("line", [pt.LINE_MARCA_LEMBRETE, pt.LINE_AGENDE_LEMBRETE, "schedule a reminder tomorrow at 9am to pay the invoice", "book a reminder tomorrow at 9am to pay the invoice"])
 def test_a_scheduling_verb_with_the_word_reminder_makes_a_reminder(line):
-    assert natural.candidate(line) == {"op": "remind", "how": "trigger"}
     got = made(natural, line, NOW)
     assert got["when"] == "2026-10-19 09:00" and got["text"] in ("pagar o boleto", "pay the invoice"), "the verb and the noun are not part of the words"
-
-
-def test_a_scheduling_verb_without_the_word_reminder_is_unchanged():
-    assert natural.candidate("schedule the plumber tomorrow at 9am") == {"op": "calendar-event-create", "how": "ask"}
-    assert natural.candidate("mark the rent as paid") is None
 
 
 # --- M3, MINOR 1: misspellings are data, a typo is never a name and never drops a word --------------------------------------------------------------------
@@ -296,7 +265,7 @@ def test_the_undo_brings_back_the_most_recent_cancelled_reminder_that_is_not_alr
     assert (first["restored"], second["restored"]) == (2, 1), "the last one cancelled first, then the one before it: each has its own ten minutes"
     with pytest.raises(ops.OpsError) as e:
         ops.reminder_restore(world.path, channel="messaging", sender=SENDER)
-    assert str(e.value) == "Reminder 2 is already back."
+    pk.assert_said(str(e.value), "RM_ALREADY_BACK", None, n=2)
     assert sorted(r["text"] for r in world.rows("open")) == ["call number 1", "call number 2"]
 
 
@@ -337,13 +306,25 @@ def test_a_yes_to_a_forget_question_is_the_ids_for_the_bridge_to_cancel_one_by_o
 # --- the documents ------------------------------------------------------------------------------------------------------------------------------------
 
 
+def module_entries(text: str) -> dict:
+    """{"seen": {name: line}, "twice": [names]} of the module entries of a document that name `remind` or `natural`: a paragraph that starts with the module's name in backticks and
+    a colon (`file.py`: what it owns; the form of the Modules and Pieces sections, SPEC-HOTSPOTS)."""
+    seen, twice = {}, []
+    for line in text.splitlines():
+        if line.startswith("`") and "`: " in line:
+            name = line.split("`: ", 1)[0] + "`"
+            if any(word in name for word in ("remind", "natural")):
+                if name in seen:
+                    twice.append(name)
+                seen[name] = line
+    return {"seen": seen, "twice": twice}
+
+
 def test_no_module_row_of_the_reminders_is_listed_twice_in_the_documents():
     root = st.RUNTIME.parent
     for path in ("contracts/runtime.md", "runtime/README.md"):
-        seen = {}
-        for line in (root / path).read_text(encoding="utf-8").splitlines():
-            if line.startswith("| `") and any(word in line.split("|")[1] for word in ("remind", "natural")):
-                name = line.split("|")[1].strip()
-                assert name not in seen, f"{path} lists {name} twice"
-                seen[name] = line
-        assert seen
+        found = module_entries((root / path).read_text(encoding="utf-8"))
+        assert found["twice"] == [], f"{path} lists {found['twice']} twice"
+        assert found["seen"]
+    planted = module_entries("`runtime/reminders.py`: one\n\n`runtime/natural.py`: two\n\n`runtime/reminders.py`: three\n")
+    assert planted["twice"] == ["`runtime/reminders.py`"] and len(planted["seen"]) == 2

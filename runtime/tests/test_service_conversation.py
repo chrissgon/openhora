@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_chat import FLOW, reply, tree  # noqa: F401  (the conversation's stand-in project and router)
 from test_service import WAIT, run_serve, service
@@ -110,7 +111,7 @@ def test_a_line_typed_during_a_run_is_queued_and_the_service_answers_it_when_the
         time.sleep(0.4)                                      # several rounds of the queue loop: the lock is still held
         assert st.calls(tree["adapter"]) == [] and [m["queued"] for m in page.messages()] == [True]
     answered = wait_for(lambda: [m for m in page.messages() if m["role"] == "assistant"], "the reply of the queued line")
-    assert "Estimate: 4 runs" in answered[0]["text"] and answered[0]["task_id"]
+    assert any(pk.said(line.partition(" (")[0], "PLAN_ESTIMATE", runs=4) for line in answered[0]["text"].splitlines()) and answered[0]["task_id"]
     assert [m["queued"] for m in page.messages()] == [False, False]
     assert st.calls(tree["adapter"]) == ["core-orchestrator 1"]
     status, pending = page.json("GET", "/pending")
@@ -124,8 +125,8 @@ def test_a_question_about_the_state_is_answered_at_once_during_a_run_with_no_mod
         done = page.job("/conversation", {"text": "Como estamos com o projeto?"})
         result = done["result"]
         assert result["queued"] is False and result["ran"] is False and result["request_id"] is None
-        assert result["reply"].startswith('Request 1, "Demo flow": 0 of 2 tasks done.')
-        assert "What waits for you: nothing." in result["reply"]
+        pk.assert_said(result["reply"].splitlines()[0], "STATE_PROGRESS", id=1, title="Demo flow", done=0, total=2, names="")
+        assert pk.said(result["reply"], "STATE_WAITS", items="nothing")
         assert [(m["role"], m["queued"]) for m in page.messages()] == [("user", False), ("assistant", False)]
     assert st.calls(tree["adapter"]) == []
     status, shown = page.json("GET", "/status")
@@ -152,7 +153,9 @@ def test_a_direct_reply_to_a_line_is_answered_by_code_through_the_service(served
     reply(tree, DIRECT)
     result = page.job("/conversation", {"text": "Tell me about the studio."})["result"]
     assert result["queued"] is False and result["request_id"] is None and result["pending_id"] is None
-    assert result["reply"].endswith("The planning agent proposes: Ask for the market analysis by name.")
+    proposed = "Ask for the market analysis by name."
+    assert result["reply"].endswith(proposed)
+    assert pk.said(result["reply"][:-len(proposed)].rsplit("\n", 1)[-1], "PROPOSES")
     assert page.json("GET", "/pending")[1]["pending"] == []
     assert [r["state"] for r in page.json("GET", "/status")[1]["requests"]] == ["cancelled"]
 

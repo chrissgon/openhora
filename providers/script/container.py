@@ -50,7 +50,7 @@ import importlib.util
 import json
 import os
 import re
-import select
+import selectors
 import signal
 import stat
 import subprocess
@@ -444,15 +444,18 @@ class Egress:
         fd = self.proc.stdout.fileno()
         end = time.monotonic() + PROXY_START_TIMEOUT
         data = b""
-        while b"\n" not in data and time.monotonic() < end:
-            ready, _, _ = select.select([fd], [], [], 1)
-            if ready:
-                chunk = os.read(fd, 4096)
-                if not chunk:
+        # A selector, not select.select: select.select refuses a descriptor numbered 1,024 or more (FD_SETSIZE) with ValueError, and a
+        # long-lived process (the service, a test worker) can hold that many open.
+        with selectors.DefaultSelector() as selector:
+            selector.register(fd, selectors.EVENT_READ)
+            while b"\n" not in data and time.monotonic() < end:
+                if selector.select(1):
+                    chunk = os.read(fd, 4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                elif self.proc.poll() is not None:
                     break
-                data += chunk
-            elif self.proc.poll() is not None:
-                break
         return data.decode("utf-8", errors="replace").split("\n")[0].strip()
 
     def __exit__(self, *exc):

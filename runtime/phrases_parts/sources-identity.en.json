@@ -1,0 +1,7 @@
+{
+  "package": "sources-identity",
+  "table": {
+    "NW_ITEMS_REFUSED_FOLDER": "I could not read {name}: this project's sources folder needs a step on the computer. Trying again here will not help.",
+    "NW_ITEMS_REFUSED_AUTH": "I could not read {name}: the authorization expired or is missing. The account has to be authorized again on the computer; trying again here will not help."
+  }
+}

@@ -44,21 +44,21 @@ What launchd does with the interval, from `launchd.plist(5)` (man page dated 30 
 - **Sleep:** an interval firing due while the system is asleep "will be missed due to shortcomings in kqueue(3)". The coalescing into one firing on wake that the man page describes belongs to `StartCalendarInterval`, not to `StartInterval`. The provider adds no catch-up: the next firing is the next interval launchd delivers.
 - **Overlap:** a firing due while the job still runs is missed by launchd itself; the lock covers any other way the runner is started twice.
 
-A command file for the agent runtime's tick:
+A command file for the social agent's tick (`runtime/handlers/social.py`):
 
 ```json
 {
-  "argv": ["/usr/bin/python3", "/abs/openhora/scripts/runtime.py", "tick",
+  "argv": ["/usr/bin/python3", "/abs/openhora/runtime/handlers/social.py", "tick",
            "--project", "/abs/project", "--pin", "/abs/data/tick-pin.json"],
   "cwd": "/abs/project",
-  "snapshot": ["/abs/openhora/scripts/runtime.py", "/abs/openhora/scripts/runtime_vote.py",
+  "snapshot": ["/abs/openhora/runtime/handlers/social.py", "/abs/openhora/runtime/handlers/social_vote.py",
                "/abs/openhora/scripts/redact.py", "/abs/openhora/providers/resolve.py",
                "/abs/data/tick-pin.json"],
   "timeout_minutes": 30
 }
 ```
 
-The agent is not an argument: the tick reads it from the project's `docs/workbench/runtime.json`. `argv[0]` is the system interpreter by its fixed path, whose hash does not change with a package upgrade (a bare `python3` is resolved on the approver's `PATH` and hashed wherever it was found). The job runs the copy of `runtime.py` kept in its folder, so whatever that script finds next to itself (its sibling module `runtime_vote.py`; `redact.py`, the credential formats every text is checked against before it is published; and `providers/resolve.py`; the last two it loads from its own folder first and from the configured workbench otherwise) has to be in the snapshot too or passed as an argument; a folder argument such as `--project` is not snapshotted or verified. `--pin` names the file `runtime.py pin --project <dir>` writes (in the runtime's `data_dir`): run it just before scheduling. It holds the sha256 of `runtime.json` and of the gate script, and, being in the snapshot, it is part of what the person approves; at every firing the tick refuses to run when either file differs. What the approval does not cover is listed in `contracts/runtime.md`, "What the approval of a recurring tick covers".
+The agent is not an argument: the tick reads it from the project's `docs/workbench/runtime.json`. `argv[0]` is the system interpreter by its fixed path, whose hash does not change with a package upgrade (a bare `python3` is resolved on the approver's `PATH` and hashed wherever it was found). The job runs the copy of `social.py` kept in its folder, so whatever that script finds next to itself (its sibling module `social_vote.py`; `redact.py`, the credential formats every text is checked against before it is published; and `providers/resolve.py`; the last two it loads from its own folder first and from the configured workbench otherwise) has to be in the snapshot too or passed as an argument; a folder argument such as `--project` is not snapshotted or verified. `--pin` names the file `social.py pin --project <dir>` writes (in the runtime's `data_dir`): run it just before scheduling. It holds the sha256 of `runtime.json` and of the gate script, and, being in the snapshot, it is part of what the person approves; at every firing the tick refuses to run when either file differs. What the approval does not cover is listed in `contracts/runtime.md`, "What the approval of a recurring tick covers".
 
 A command file for the task runtime's worker, as `/usr/bin/python3 runtime/dispatcher.py command-file --job work --project <dir> --pin <pin>` prints it (the poller's is the same with `poll` and `"timeout_minutes": 5`):
 
@@ -115,7 +115,7 @@ UV_PYTHON="$PY" python3 providers/scheduler/launchd.py schedule --id <id> --ever
 UV_PYTHON="$PY" python3 providers/scheduler/launchd.py schedule --id <id> --every 15 --command-file tick.json --confirmed --approved <digest>
 ```
 
-A job scheduled before this rule has no `python` and runs as it did: to gain the pin it is cancelled and scheduled again with the variable set (the digest is new, so the gate shows the dry run again). A pinned job is refused at its next firing when the file at the recorded path changes or disappears, and never runs on another interpreter: schedule it again with the new path, after the keychain trusts it. An upgrade that keeps the old patch folder leaves the pinned binary where it was, and the job keeps running on it. The vote post is scheduled by `approve --confirmed`: run it with `UV_PYTHON` set (`UV_PYTHON="$PY" python3 scripts/runtime.py approve ...`), or the post is scheduled unpinned and the result says so.
+A job scheduled before this rule has no `python` and runs as it did: to gain the pin it is cancelled and scheduled again with the variable set (the digest is new, so the gate shows the dry run again). A pinned job is refused at its next firing when the file at the recorded path changes or disappears, and never runs on another interpreter: schedule it again with the new path, after the keychain trusts it. An upgrade that keeps the old patch folder leaves the pinned binary where it was, and the job keeps running on it. The vote post is scheduled by `approve --confirmed`: run it with `UV_PYTHON` set (`UV_PYTHON="$PY" python3 runtime/handlers/social.py approve ...`), or the post is scheduled unpinned and the result says so.
 
 ### Requirements at run time
 

@@ -152,7 +152,7 @@ def effect_doc(world, task):
 
 
 def approve(world, item, channel="terminal"):
-    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+    return ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
 
 
 def skill_job_argv(world, key=KEY):
@@ -269,7 +269,7 @@ def test_limit_43_a_post_without_the_approval_of_its_exact_text_is_refused_by_st
     task, item = opened(world)
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
-            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:4242" if channel == "messaging" else None))
+            ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel=channel, sender=("telegram:830461975213" if channel == "messaging" else None))
         assert "approved in the terminal" in str(refused.value), channel
     with pytest.raises(ops_core.OpsError):
         ops.approve(world["path"], item["id"], sha256=None, channel="terminal")
@@ -668,7 +668,7 @@ def test_the_word_is_a_policy_kind_and_a_step_kind_and_a_bound_can_still_name_it
     kind = effects.module_for("publish")
     assert kind.POLICY is True and kind.STEP is True and kind.GATE is False and kind.PROVIDER_CLASS == "publisher:<platform>"
     assert "publish" in effects.policy_kinds() and "publish" in ops._bounds_words(), "the reply's bounds still name publish"
-    assert effects.step_only_words() == ["calendar", "files", "mailbox", "send", "write"] and "send" not in ops._bounds_words() and "write" not in ops._bounds_words()
+    assert effects.step_only_words() == ["calendar", "files", "mailbox", "send", "tasks", "write"] and "send" not in ops._bounds_words() and "write" not in ops._bounds_words()
     assert "calendar" not in ops._bounds_words(), "a standing approval cannot name the calendar word (W5 grants its own, bounded in code)"
     assert "mailbox" not in ops._bounds_words(), "a standing approval cannot name the mailbox word: every change is approved by the hash of its exact content (W3)"
     assert effects.gate_kind("publish", ["publisher:linkedin"]) is None, "no skill's gate opens an effect of this kind: it opens a review, as before"
@@ -779,10 +779,10 @@ def test_a_ledger_variable_of_the_persons_environment_that_names_another_file_op
 
 def test_a_scheduled_job_for_this_key_pinned_to_another_ledger_opens_no_effect_and_blocks_the_approval(world):
     mine = str(world["provider"] / "standin-ledger.json")
-    scheduled(world, [{"id": "2027-10-13-other", "argv": ["python", "/x/vote_job.py", "--key", "2027-10-13-other", "--ledger", "/elsewhere/l.json"]},
+    scheduled(world, [{"id": "2027-10-13-other", "argv": ["python", "/x/social_vote_job.py", "--key", "2027-10-13-other", "--ledger", "/elsewhere/l.json"]},
                       {"id": KEY, "argv": ["python", "/x/job.py", "--idempotency-key", KEY, "--ledger", mine]}, {"id": "no-argv"}, "junk"])
     task, item = opened(world)      # another key's job, and a job of this key on the same ledger, are no problem
-    scheduled(world, [{"id": KEY, "argv": ["python", "/x/vote_job.py", "--key", KEY, "--ledger", "/elsewhere/l.json"]}])
+    scheduled(world, [{"id": KEY, "argv": ["python", "/x/social_vote_job.py", "--key", KEY, "--ledger", "/elsewhere/l.json"]}])
     with pytest.raises(ops_core.OpsError) as refused:
         approve(world, item)
     assert "a scheduled job for this key is pinned to the ledger /elsewhere/l.json" in str(refused.value) and posts(world) == []

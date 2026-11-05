@@ -5,9 +5,12 @@
 # ///
 """The phrase table (package LR-1): the sentences the runtime says to a person in the project's language, and the one function that picks them.
 
-One table, `TABLE = {"en": {key: text}, "pt-BR": {key: text}}`. The English column is a pure literal here, and the Portuguese column is the pure literal
+One table, `TABLE = {"en": {key: text}, "pt-BR": {key: text}}`. The English core is a pure literal here (`_CORE_EN`), and the Portuguese core is the pure literal
 of its own data module, runtime/phrases_pt_br.py (the one file written in Portuguese on purpose, so that the check that every other file is English stays on
-this one), so that a reviewer reads the two columns side by side. English is the source: each key is the name of the constant it replaced (`STALE`, `QUEUED`,
+this one), so that a reviewer reads the two columns side by side. The keys a package adds are not written in either: a package adds them in its own pair of part
+files, `runtime/phrases_parts/<id>.en.json` and `<id>.pt-BR.json` (SPEC-HOTSPOTS: two packages that add keys at the same time edit different files), which
+`load_parts` reads once at import and merges after the core; a key twice, in the core and a part or in two parts, is refused at import, so no part overrides a
+sentence silently. A package may still change the text of an existing key in place, in the file that holds it. English is the source: each key is the name of the constant it replaced (`STALE`, `QUEUED`,
 `ASK_HINT`...), and the module that had the constant keeps it as the English text (`phrases.en(key)`), so that a project with no `language`
 key, and every test written before the table, sees the sentences byte for byte as they were. A key that two modules had as a name of its own
 carries the area as a prefix (`ATT_` for a file a sender sent, `RM_` for a reminder, `NW_` for a write asked in words, `ASK_` where the answer from sources shares a name with
@@ -30,7 +33,9 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
 
   text(key, cfg, **fields)    the sentence in the project's language, its `{fields}` filled in
   en(key)                     the English sentence, unfilled (what a module keeps as its constant)
-  tag(cfg)                    the tag text() uses: the project's, else `en`
+  tag(cfg)                    the tag text() uses: the scope's (below), else the project's, else `en`
+  sentence_tag(cfg, channel, sender)   the tag the fixed sentences for one person use: the sender's profile `sentence_language`, else the channel's profile, else the project's
+  scope(name)                 a `with` block (thread-local) inside which tag(cfg) is `name` when the table has it: opened where a line or a notice is handled for one person
   kind_word(kind, cfg)        a decision's kind (`plan`, `effect`...) as a word of the language; the kind itself when the table has none
   heads(key)                  the part of a sentence before its first `[` in every language of the table, for the check of an imitated quote
   every(key)                  the sentence of a key in every language of the table (the forms a model must not write, the headings a model's line may imitate)
@@ -46,22 +51,27 @@ text of a person that happens to be a word of the table. Sizes in a Portuguese s
   card_valid(card)            whether a decision's `card` (a list of [key, {field: text}] lines, every key of the family CARD_) can be said line by line
   card_text(card, cfg)        the lines of a valid card said in the project's language, one per line (the stored body of an effect that carries one is this in English)
 
+A test asserts a sentence by its key and its fields (runtime/tests/phrase_kit.py), and the wording of the table is pinned once, by runtime/tests/snapshots/ (python3 runtime/tests/phrase_snapshot.py --write after a change of a sentence; the batch does it for a package's pull request, which the lenient mode of its test allows).
+
 Standard library only. Runs on Python 3.9: python3 runtime/phrases.py --help
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
 import string
 import sys
+import threading
 import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import language  # noqa: E402  (the same folder: the order that decides the tag)
 import phrases_pt_br  # noqa: E402  (the same folder: the Portuguese column, data only)
 
-TABLE = {
-    "en": {
+_CORE_EN = (
+    {
         # --- the messaging bridge (messaging_bridge.py) ---
         "STALE": "This button is no longer valid. Send /pending.",
         "NO_CARD": "Act on the card sent to you (send /pending).",
@@ -442,6 +452,7 @@ TABLE = {
         "PHONE_CAL_DROP_WHERE": "Where: {location}",
         "PHONE_CAL_DROP_NOTES": "Notes: {notes}",
         "PHONE_MAIL_REPLY_TO": "Reply to: {address}, the sender of message {ref}: {subject}",
+        "PHONE_MAIL_REPLY_TO_AT": "Reply to: {address}, the sender of message {ref} of {received}: {subject}",
         "PHONE_FILE_BASE": "Replaces the version of {modified}.",
         "PHONE_MAIL_ATTACHMENT": "Attachment: {name}, {bytes} bytes",
         "PHONE_BOX_READ_AT": "Nothing is changed unless every message is still as listed.",
@@ -522,6 +533,7 @@ TABLE = {
         "CARD_MAIL_SUBJECT": "Subject: {subject}",
         "CARD_MAIL_SUBJECT_REPLY": "Subject: {subject}",
         "CARD_MAIL_REPLY_TO": "Reply to: {address}, the sender of {ref} (in the snapshot read at {read_at}): {subject}",
+        "CARD_MAIL_REPLY_TO_AT": "Reply to: {address}, the sender of {ref}, received {received} (in the snapshot read at {read_at}): {subject}",
         "CARD_MAIL_REPLY_TO_DIFFERS": "The message asks replies to go to {other}: this reply goes to the sender above, not there.",
         "CARD_MAIL_IN_REPLY": "In reply to the message {message_id}",
         "CARD_MAIL_COUNT": "Recipients in all: {count}",
@@ -697,6 +709,8 @@ TABLE = {
         # --- a mail write asked in words (package NR-5b, runtime/ops_natural_mail.py): the questions of a line left open and the refusals of one that can never be answered as asked ---
         "NW_MAIL_NO_SOURCE": "No mail source of your mailbox is registered for this: add one with source-mail first, then ask again.",
         "NW_MAIL_NONE": "No message of the newest snapshot of {source} has all of these words: {words}.",
+        "NW_MAIL_LIST_CHANGED": "Your mailbox changed since I listed those messages, so I did nothing. Ask again and I will list them again.",
+        "NW_MAIL_REFRESH_FAILED": "I couldn't refresh {source} just now, so I did nothing. Try again in a little while; if it keeps failing, look on the platform's page.",
         "NW_MAIL_TOO_MANY": "One card takes at most {max} messages: name fewer.",
         "NW_MAIL_BY_DATE": "I cannot pick e-mails by date yet: say their numbers (ask for your e-mails to see the list).",
         "NW_MAIL_NO_FORWARD": "I cannot forward an e-mail yet, and '{name}' is not one of your mail folders ({names}). A move goes to one of them.",
@@ -708,9 +722,10 @@ TABLE = {
         "NW_MAIL_ASK_SUBJECT": "What is the subject of the e-mail to {to}?",
         "NW_MAIL_ASK_BODY": "What should the e-mail to {to} say?",
         "NW_MAIL_ASK_BODY_REPLY": "What should the reply say?",
+        "MC_REPLY_NOT_WORDED": "I could not word this reply, so the card shows your own words as you wrote them. Check the text before you approve.",
         "MC_ASK_BODY": "What should the e-mail to {to} say? I will word the text, and you will see it on the card. To send your words exactly as you write them, start with \"exact text:\".",
         "RV_FAILED": "I could not make that change. Say it another way, or reject the card.",
-        "RV_RECIPIENTS": "I cannot change who receives an e-mail by editing its card. Reject this card and ask for a new e-mail to the right person.",
+        "RV_RECIPIENTS": "I can change who receives this e-mail only when this card has one recipient and the line holds just the request and the whole new address, with no name, copy or other change. The card stays as it was.",
         "RV_NOT_REVISABLE": "To change this card, reject it and ask again.",
         "RV_DONE_MAIL": "Done: here is the e-mail with your change. The previous card no longer works; approve or reject this one.",
         "RV_DONE_EVENT": "Done: here is the event with your change. The previous card no longer works; approve or reject this one.",
@@ -763,6 +778,7 @@ TABLE = {
         "EV_NONE": "I did not find that event in your calendar in the next {days} days.",
         "EV_NONE_DAY": "I did not find that event in your calendar on that day.",
         "EV_ASK_DAY": "I could not read the day you mean. Say the event's name and the day, for example: tomorrow or 22/10.",
+        "EV_ASK_WHICH_DAY": "You wrote two days for this event: {a} and {b}. Say the event and the day again.",
         "EV_MORE": "...and {k} more. Say the day to narrow it down.",
         "EV_MANY_CANCEL": "More than one event fits. Which one do you want to cancel?",
         "EV_MANY_CANCEL_HOW": "Say, for example: cancel event {n}.",
@@ -781,7 +797,6 @@ TABLE = {
         "NW_ITEMS_CMD_MAIL_ACCOUNT": "Your {service} mailbox has not been added to this project yet. Add it once, in the terminal, then ask again:\n{commands}",
         "NW_ITEMS_CMD_CAL": "Your calendar has not been added to this project yet. Add it once, in the terminal, then ask again:\n{commands}",
         "NW_ITEMS_CMD_CAL_ACCOUNT": "Your {service} calendar has not been added to this project yet. Add it once, in the terminal, then ask again:\n{commands}",
-        "NW_ITEMS_NAME_MAIL": "{service} inbox",
         "NW_ITEMS_NAME_CAL": "{service} calendar",
         "NW_ITEMS_HEAD_PHONE": "{name} (read {when}):",
         "NW_ITEMS_WHEN_TODAY": "at {time}",
@@ -807,6 +822,7 @@ TABLE = {
         "NW_ITEMS_TODAY": "today",
         "NW_ITEMS_YESTERDAY": "yesterday",
         "NW_ITEMS_PREVIEW": "Start of the text: {text}",
+        "NW_ITEMS_UNREAD_MARK": "\u2022",
         "NW_ITEMS_STATE_CHECKED": "checked {when}",
         "NW_ITEMS_STATE_READ": "read {when}",
         "NW_ITEMS_NAMEIN_MAIL": "{service} inbox",
@@ -824,6 +840,16 @@ TABLE = {
         "NW_ITEMS_EW_DAY": "on {day}",
         "NW_ITEMS_EW_RANGE": "between {first} and {last}",
         "NW_ITEMS_EMPTY_CAL_AT": "No event in the {name} {when} ({state}).",
+        # --- BL5D: the plain name a phone shows for a mail or calendar source (runtime/source_names.py): twins by a detail, a message by its number and its source ---
+        "SRC_TWIN": "{name} ({detail})",
+        "SRC_BOX_INBOX": "inbox",
+        "SRC_BOX_IMPORTANT": "important",
+        "SRC_BOX_STARRED": "starred",
+        "SRC_BOX_UNREAD": "unread",
+        "SRC_CAL_MAIN": "main",
+        "SRC_ITEM": "{name}, message {n}",
+        "SRC_ITEM_CARD": "{n} in {name}",
+        "NW_ITEMS_REFUSED_PHONE": "I could not read {name} just now.",
         "PHONE_NOT_UNDERSTOOD": "I did not understand the request and started nothing. Can you say it another way?",
         # --- one short acknowledgement when a reply takes time (slice S19: runtime/messaging_ack.py, runtime/line_stage.py): chosen by code from the stage the job had reached ---
         "ACK_GENERIC": "One moment, I am looking into it...",
@@ -833,7 +859,7 @@ TABLE = {
         "ACK_FILE": "Looking for the file...",
         "ACK_COMPOSE": "Writing the e-mail...",
         "ACK_CARD": "Preparing the card...",
-        "ACK_RESEARCH": "Searching...",
+        "ACK_RESEARCH": "Searching... Send 'Stop' to cancel.",
         "ACK_PLAN": "I will work on that...",
         "FR_GOOGLE": "Google Drive",
         "FR_MICROSOFT": "OneDrive",
@@ -910,16 +936,133 @@ TABLE = {
         "RS_NOTHING": "I searched but did not find a reliable answer to that.",
         "RS_ASK_AGAIN": "I could not tell what to look up. Can you write the question with more detail (a place, a date, a name)?",
         "RS_TIMEOUT": "The search took too long and was stopped.",
-        "RS_CAP": "The search reached its cost limit and was stopped.",
+        "RS_CAP": "The search reached its cost limit and was stopped. Try again, or raise research.max_cost_usd in the project's runtime.json and accept the configuration again.",
         "RS_FAILED": "I could not do the search right now. Try again in a few minutes.",
         "RS_LIMIT": "I already did {count} searches today, which is the limit for a day.",
         "RS_LIMIT_ONE": "I already did 1 search today, which is the limit for a day.",
         "RS_BUSY": "I am already searching another question; try again in a moment.",
         "RS_STORED": "(answered by a web search)",
         "RS_NOT_BUILT": "Searching the web is not available in this installation.",
-    },
-    "pt-BR": phrases_pt_br.TABLE,
+        # --- D5: the "Shall I go ahead?" of a plan code stated (package BL2a: runtime/plan_confirm.py); the research the person stopped ---
+        "PLAN_HEAD": "I understood: {what}.",
+        "PLAN_ASK": "Shall I go ahead?",
+        "PLAN_STORED": "(a plan was shown and waits for an OK)",
+        "PLAN_DROPPED": "All right, I did nothing.",
+        "PLAN_GONE": "That question has expired: ask again.",
+        "PLAN_NOT_LAST": "To confirm, reply yes to the question that ends in “Shall I go ahead?”, or ask again.",
+        "PLAN_TWO_OPEN": "Two questions wait for your answer: a card and “Shall I go ahead?”. Reply to the message you mean.",
+        "PLAN_REPLY_HOW_EMAIL": "Reply yes to this message to confirm.",
+        "PLAN_BTN_NO": "No",
+        "UNDERSTOOD_STATUS": "show where the work stands",
+        "UNDERSTOOD_PROGRESS": "show what happened lately",
+        "UNDERSTOOD_SINCE": " (since “{since}”)",
+        "UNDERSTOOD_PENDING": "list what waits for you",
+        "UNDERSTOOD_PENDING_ONE": "show decision #{id}",
+        "UNDERSTOOD_TASK": "show task #{id}",
+        "UNDERSTOOD_AGENTS": "show the agents and their use today",
+        "UNDERSTOOD_SKILLS": "list the skills and their proof",
+        "UNDERSTOOD_COSTS": "show the costs of the runs",
+        "UNDERSTOOD_ARTIFACTS": "list the project's files",
+        "UNDERSTOOD_ARTIFACT": "show the file “{path}”",
+        "UNDERSTOOD_INSTRUCTIONS": "show your standing instructions",
+        "UNDERSTOOD_ROUTINES": "list the routines",
+        "UNDERSTOOD_ROUTINE_ONE": "show routine #{id}",
+        "UNDERSTOOD_SOURCES": "list the project's sources",
+        "UNDERSTOOD_ATTACHMENTS": "list the files people sent",
+        "UNDERSTOOD_REMINDERS": "list your reminders",
+        "UNDERSTOOD_FLOWS": "list the flows",
+        "UNDERSTOOD_FLOW_CHECK": "check the flow “{flow}”",
+        "UNDERSTOOD_CONNECTIONS": "show the connections",
+        "UNDERSTOOD_ITEMS": "list your e-mails and events",
+        "UNDERSTOOD_ITEMS_MAIL": "list your e-mails",
+        "UNDERSTOOD_ITEMS_CALENDAR": "show the events of your calendar",
+        "UNDERSTOOD_ON_DAY": " for {day}",
+        "UNDERSTOOD_FILE_READ": "show the file “{file}” from your Drive or OneDrive",
+        "UNDERSTOOD_RESEARCH": "search the web for “{question}” (a paid model run, up to US$ {cap})",
+        "UNDERSTOOD_ASK": "answer your question from the project's sources (a model reads them)",
+        "UNDERSTOOD_CANCEL": "cancel request #{id}",
+        "UNDERSTOOD_STOP_TASK": "stop task #{id}",
+        "UNDERSTOOD_RETRY": "make task #{id} ready again",
+        "UNDERSTOOD_ROUTINE_PAUSE": "pause routine #{id}",
+        "UNDERSTOOD_ATTACHMENT_ADD": "add file #{id} to the project's sources",
+        "UNDERSTOOD_ATTACHMENT_DISCARD": "delete file #{id} that was sent",
+        "UNDERSTOOD_REJECT": "reject decision #{id}",
+        "UNDERSTOOD_RELEASE": "release delivery #{id}",
+        "RS_CANCELLED": "I stopped the search, as you asked. Nothing was answered.",
+    }
+)
+
+# The keys a package adds live in its own pair of part files in runtime/phrases_parts/ (SPEC-HOTSPOTS), so that two packages that add keys at the same time
+# edit different files: `<id>.en.json` is {"package": "<id>", "table": {KEY: sentence}} and `<id>.pt-BR.json` is {"package": "<id>", "table": {KEY: frase},
+# "same_as_english": [KEY, ...]}, the keys whose Portuguese is the English sentence on purpose. They are data, read with `json.load` and never imported. A key
+# is in one place only: the core (this file and phrases_pt_br.py) or one part; `load_parts` refuses a key twice, so a part can never override another silently.
+PARTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "phrases_parts")
+_PART_FILE = re.compile(r"^(?P<id>[a-z0-9]+(?:-[a-z0-9]+)*)\.(?P<tag>en|pt-BR)\.json$")
+
+
+def _read_part(path: str, name: str, tag: str) -> dict:
+    with open(path, encoding="utf-8") as handle:
+        try:
+            data = json.load(handle)
+        except ValueError as error:
+            raise ValueError(f"{name}: not valid JSON ({error})") from None
+    allowed = {"package", "table"} | ({"same_as_english"} if tag == "pt-BR" else set())
+    if not isinstance(data, dict) or not {"package", "table"} <= set(data) or set(data) - allowed:
+        raise ValueError(f"{name}: the keys must be {sorted(allowed)}")
+    stem = name[: -len("." + tag + ".json")]
+    if data["package"] != stem:
+        raise ValueError(f"{name}: package {data['package']!r} is not the file's stem {stem!r}")
+    table = data["table"]
+    if not isinstance(table, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in table.items()):
+        raise ValueError(f"{name}: table must map a key to a sentence")
+    same = data.get("same_as_english", [])
+    if not isinstance(same, list) or not all(isinstance(k, str) and k in table for k in same) or len(set(same)) != len(same):
+        raise ValueError(f"{name}: same_as_english must list keys of this file's table, once each")
+    return {"table": table, "same": same}
+
+
+def load_parts(folder: str, core=None) -> tuple:
+    """The keys the part files of `folder` add: `(en, pt, same)`, two dicts and a list of keys. `core` is the set of keys of the core table (default: the core's).
+
+    Raises ValueError, naming the files, for a key that is in the core or in two parts, a pair whose two files have different keys, a file without its pair, a
+    `package` that is not the file's stem, and a file of a shape that is not the one above. A folder that does not exist holds no part."""
+    core = set(_CORE_EN) | set(phrases_pt_br.TABLE) if core is None else set(core)
+    found = {}
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        if name.endswith(".json"):
+            match = _PART_FILE.match(name)
+            if not match:
+                raise ValueError(f"{name}: a part file is named <id>.en.json or <id>.pt-BR.json")
+            found.setdefault(match.group("id"), {})[match.group("tag")] = name
+    en, pt, same, owner = {}, {}, [], {}
+    for package in sorted(found):
+        pair = found[package]
+        for tag in ("en", "pt-BR"):
+            if tag not in pair:
+                other = next(iter(pair.values()))
+                raise ValueError(f"{other}: no pair, {package}.{tag}.json is missing")
+        read = {tag: _read_part(os.path.join(folder, pair[tag]), pair[tag], tag) for tag in pair}
+        if set(read["en"]["table"]) != set(read["pt-BR"]["table"]):
+            raise ValueError(f"{pair['en']} and {pair['pt-BR']}: the two files have different keys: {sorted(set(read['en']['table']) ^ set(read['pt-BR']['table']))}")
+        for tag in ("en", "pt-BR"):
+            for key in read[tag]["table"]:
+                if key in core:
+                    raise ValueError(f"{pair[tag]}: key {key} is already in the core table (runtime/phrases.py, runtime/phrases_pt_br.py)")
+                if (key, tag) in owner:
+                    raise ValueError(f"{owner[(key, tag)]} and {pair[tag]}: key {key} is in both")
+                owner[(key, tag)] = pair[tag]
+        en.update(read["en"]["table"])
+        pt.update(read["pt-BR"]["table"])
+        same.extend(read["pt-BR"]["same"])
+    return en, pt, same
+
+
+_PART_EN, _PART_PT, _PART_SAME = load_parts(PARTS_DIR)
+TABLE = {
+    "en": {**_CORE_EN, **_PART_EN},
+    "pt-BR": {**phrases_pt_br.TABLE, **_PART_PT},
 }
+SAME_AS_ENGLISH = frozenset(_PART_SAME)      # the keys of the parts whose Portuguese is the English sentence on purpose (the test of the table reads them)
 
 # The store's own status words (providers/store/sqlite.py: the CHECK lists of the tables and the state lists of its state machines), said to a person. They stay
 # English in the store, the operations layer, the logs, the terminal, the MCP mode and the API; only a sentence rendered for a person in a project whose language
@@ -983,9 +1126,64 @@ DECIMAL = {"pt-BR": ","}                                # the decimal mark of a 
 _patterns = {}
 
 
-def tag(cfg=None) -> str:
-    """The tag of the table `text` reads: the project's `language` (language.effective), else `en`."""
+_SCOPE = threading.local()      # the tag of the person a line or a notice is being handled for on this thread (`scope`); None outside one
+SENTENCE_CHANNELS = ("page", "mcp", "messaging")      # the channels a profile narrows: the terminal and the conversation's own shell keep the project's language
+
+
+def _project_tag(cfg=None) -> str:
     return language.effective(None, cfg.get("language") if cfg else None)[0]
+
+
+def tag(cfg=None) -> str:
+    """The tag of the table `text` reads: inside a `scope` whose tag the table has, that tag (the language of the fixed sentences for one person); else the project's
+    `language` (language.effective), else `en`. Only the fixed sentences read it: the language of an artifact is `language.effective` and never sees a scope."""
+    inside = getattr(_SCOPE, "tag", None)
+    return inside if inside in TABLE else _project_tag(cfg)
+
+
+def current_scope() -> str | None:
+    """The tag of the scope this thread is inside, or None (for a job that takes the scope of the thread that creates it)."""
+    return getattr(_SCOPE, "tag", None)
+
+
+@contextlib.contextmanager
+def scope(name):
+    """While the block lasts, `tag(cfg)` is `name` when the table has a column of that name; a `name` that is None, or has no column, makes the project's language
+    the answer again (it does not keep an outer scope). The tag before the block is restored when it ends, whatever the end, so that it never reaches the next line
+    handled on the same thread. Open it with `with`, never set it."""
+    before = getattr(_SCOPE, "tag", None)
+    _SCOPE.tag = name if isinstance(name, str) and name in TABLE else None
+    try:
+        yield
+    finally:
+        _SCOPE.tag = before
+
+
+def _profile_key(cfg, name):
+    """The `sentence_language` of the profile `name` in `cfg["policies"]`, when it is a tag of the table; else None."""
+    record = ((cfg or {}).get("policies") or {}).get(name) if isinstance(name, str) else None
+    found = record.get("sentence_language") if isinstance(record, dict) else None
+    return found if isinstance(found, str) and found in TABLE else None
+
+
+def sentence_override(cfg, channel=None, sender=None):
+    """The tag a profile sets for the fixed sentences said to one person, or None when no profile sets one: for `messaging`, the profile of the sender (`sender` is
+    `<platform>:<sender id>`, `messaging.sender_profiles` of `cfg`), else the profile of the channel (`channel_profiles`); for `page` and `mcp`, the channel's; for any other channel
+    (the terminal, the conversation's own shell) None. `cfg` is the configuration as project_config.load gives it (or what `ops.config` returns of it)."""
+    if channel not in SENTENCE_CHANNELS:
+        return None
+    if channel == "messaging" and isinstance(sender, str):
+        platform, _, ident = sender.partition(":")
+        named = (((cfg or {}).get("messaging") or {}).get("sender_profiles") or {}).get(platform) or {}
+        found = _profile_key(cfg, named.get(ident))
+        if found:
+            return found
+    return _profile_key(cfg, ((cfg or {}).get("channel_profiles") or {}).get(channel))
+
+
+def sentence_tag(cfg, channel=None, sender=None) -> str:
+    """The tag of the fixed sentences for one person: the sender's profile `sentence_language`, else the channel's profile, else the project's `language` rule (`tag` outside a scope)."""
+    return sentence_override(cfg, channel, sender) or _project_tag(cfg)
 
 
 def en(key: str) -> str:
@@ -1207,7 +1405,7 @@ def asked_view(reply, cfg=None) -> str:
 
 
 def is_router_question(item) -> bool:
-    """Whether a decision is the question the router asked about a request (ops._route_run writes it whole: the kind `question`, the title "The router asks" and
+    """Whether a decision is the question the router asked about a request (ops_requests._route_run writes it whole: the kind `question`, the title "The router asks" and
     the ending `question`). A messaging app shows such a question as the question alone, in the reply and on the card, by this one test."""
     payload = item.get("payload") if isinstance(item, dict) else None
     return isinstance(item, dict) and item.get("kind") == "question" and item.get("title") == en("TITLE_ROUTER_ASKS") \
@@ -1243,14 +1441,17 @@ CARD_LINES_MAX = 300        # lines in one card
 # e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
 # sender who also holds the group CARD_PRIVATE_GROUP (the answer from mail and calendar), and a card with such a line left out is not whole, so it is not approved there.
 CARD_PRIVATE = tuple(f"CARD_CAL_{prefix}_{word}" for prefix in ("BEFORE", "KEPT", "DROP") for word in ("TITLE", "WHERE", "NOTES")) + ("CARD_CAL_NOW_TITLE", "CARD_FILE_NOW") \
-    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
+    + ("CARD_MAIL_REPLY_TO", "CARD_MAIL_REPLY_TO_AT", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY") \
     + ("CARD_BOX_ITEM", "CARD_BOX_DRAFT_REPLY", "CARD_BOX_DRAFT_REPLY_DIFFERS", "CARD_BOX_DRAFT_REPLY_TO", "CARD_BOX_DRAFT_REPLY_SUBJECT") \
     + ("CARD_BOX_DRAFT_TO", "CARD_BOX_DRAFT_CC", "CARD_BOX_DRAFT_BCC", "CARD_BOX_DRAFT_SUBJECT", "CARD_BOX_DRAFT_TEXT")      # W2: what a reply shows of the message answered; W3: the same of a mailbox card, and who a draft goes to, its subject and its text
 CARD_PRIVATE += ("CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_BCC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT")      # the maintainer's decision of 2026-10-19: who an e-mail goes to, its subject, its text and the names of its attachments
 # W4a: the name of a file a sender sent (CARD_FILE_SAVE) is shown to that sender, who may approve the save, and to a reader of the person's own items, and to no one else: not to the MCP
 # mode, not to another messaging sender. (The name of a file the service holds now, CARD_FILE_NOW, is in CARD_PRIVATE above.)
+CARD_PRIVATE += ("CARD_TODO_NOW_TITLE",)      # CB-5: the title of a task as the service holds it now (a completion's card), shown by the group `tasks-read` (CARD_PRIVATE_GROUP_OF); the title of a task the person is adding is their own words and is not private
 CARD_PRIVATE_OWNER = ("CARD_FILE_SENT", "CARD_FILE_SAVE")
 CARD_PRIVATE_GROUP = "ask-mail"
+CARD_PRIVATE_GROUP_OF = {"CARD_TODO_NOW_TITLE": "tasks-read"}      # CB-5: a private key that names its own group; every other private key is gated by CARD_PRIVATE_GROUP
+PRIVATE_GROUPS = (CARD_PRIVATE_GROUP,) + tuple(g for g in dict.fromkeys(CARD_PRIVATE_GROUP_OF.values()) if g != CARD_PRIVATE_GROUP)      # the groups that show some private line
 CARD_MULTILINE = ("body", "text", "notes", "content", "change")      # the fields that may hold line ends and tabs (a message, a note, a file's text, a diff); every other field is one line
 CARD_REFUSED = ("Cc", "Cf", "Zl", "Zp", "Cs", "Co")      # control, format (a right-to-left override, a zero-width character), line and paragraph separator, surrogate, private use
 
@@ -1292,12 +1493,25 @@ def hidden_note_key(card, kept) -> str:
     left_out = [line[0] for line in card if line not in kept]
     if left_out and all(key.startswith("CARD_FILE") for key in left_out):
         return "CARD_HIDDEN_NOTE_FILE"
+    if left_out and all(key.startswith("CARD_TODO_") for key in left_out):
+        return "CARD_HIDDEN_NOTE_TODO"
     return "CARD_HIDDEN_NOTE_MAIL" if left_out and all(key.startswith(("CARD_MAIL_", "CARD_BOX_")) for key in left_out) else "CARD_HIDDEN_NOTE"
 
 
-def card_without_private(card, owner: bool = False) -> list:
-    """The lines of a valid card that are not in CARD_PRIVATE and, unless `owner` (the reader sent the held file the card saves), not in CARD_PRIVATE_OWNER."""
-    hidden = set(CARD_PRIVATE) | (set() if owner else set(CARD_PRIVATE_OWNER))
+def private_group(key: str) -> str:
+    """The group that shows the private line `key`: its own (CARD_PRIVATE_GROUP_OF) or CARD_PRIVATE_GROUP."""
+    return CARD_PRIVATE_GROUP_OF.get(key, CARD_PRIVATE_GROUP)
+
+
+def private_hidden(groups=()) -> set:
+    """The private keys a reader who holds `groups` is not shown: every key of CARD_PRIVATE whose group is not among them."""
+    return {key for key in CARD_PRIVATE if private_group(key) not in groups}
+
+
+def card_without_private(card, owner: bool = False, groups=()) -> list:
+    """The lines of a valid card a reader who holds `groups` (none by default) is shown: not the lines of CARD_PRIVATE whose group is not among them and, unless `owner` (the
+    reader sent the held file the card saves) or the reader holds CARD_PRIVATE_GROUP, not the lines of CARD_PRIVATE_OWNER."""
+    hidden = private_hidden(groups) | (set() if owner or CARD_PRIVATE_GROUP in groups else set(CARD_PRIVATE_OWNER))
     return [line for line in card if line[0] not in hidden]
 
 

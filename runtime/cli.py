@@ -61,6 +61,7 @@ Usage:
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py attachments --project <dir>
   python3 runtime/cli.py items --project <dir> [--kind mail|calendar] [--source <id>]
+  python3 runtime/cli.py agenda --project <dir> [--source <id>] [--match <words>]
   python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
   python3 runtime/cli.py attachment-discard --project <dir> --id <attachment id>
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
@@ -71,8 +72,14 @@ Usage:
   python3 runtime/cli.py file-replace --project <dir> --account google|microsoft --file <source id> (--content <text> | --content-file <path> | --from docs/<path>)
   python3 runtime/cli.py file-save --project <dir> --account google|microsoft --attachment <held file number> [--name <name>] [--folder <name>]
   python3 runtime/cli.py file-read --project <dir> --file <name> [--account google|microsoft]
+  python3 runtime/cli.py file-ask --project <dir> --file <name> --question <text> [--account google|microsoft]
+  python3 runtime/cli.py mail-ask --project <dir> --question <text> (--message <source>#<n> | --number <n> | --match <words> [--day <day>]) [--account google|microsoft]
+  python3 runtime/cli.py mail-read --project <dir> (--message <source>#<n> | --number <n> | --match <words> [--day <day>]) [--account google|microsoft]
   python3 runtime/cli.py research --project <dir> --question <words>
   python3 runtime/cli.py file-trash --project <dir> --file <name> [--account google|microsoft] [--folder <name or path>]
+  python3 runtime/cli.py todo-list --project <dir> [--account google|microsoft]
+  python3 runtime/cli.py todo-add --project <dir> --account google|microsoft --title <one line> [--list <name of accounts.<a>.task_lists>]
+  python3 runtime/cli.py todo-done --project <dir> --account google|microsoft --todo-item (todo:<n> | <words of the task>) [--list <name of accounts.<a>.task_lists>]
   python3 runtime/cli.py mail-send --project <dir> --account google|microsoft --to <addresses> [--cc <addresses>] [--bcc <addresses>] --subject <one line> (--text <words> | --text-file <path>) [--attach <docs/...>]...
   python3 runtime/cli.py mail-reply --project <dir> --account google|microsoft --message <source>#<n> (--text <words> | --text-file <path>)
   python3 runtime/cli.py mail-draft --project <dir> --account google|microsoft (--to <addresses> --subject <text> [--cc <addresses>] [--bcc <addresses>] | --message <source>#<n>) --body <text>
@@ -329,6 +336,8 @@ attachments  the files people sent through a messaging app that wait for your an
 items     the numbered items of the newest snapshot of each mail or calendar source (--kind and --source narrow it): a message by its sender and subject, an event by
           its line, numbered as the references <source>#<n> number them, so that "the e-mail 3" and "event 2" of a line in words point to something you can see. A
           snapshot older than 26 hours is not listed (refresh it first). Private: another person's words. Nothing is written and no model is called.
+agenda    the numbered events of the newest snapshot of each calendar source (--source and --match narrow it): the same as items --kind calendar, so that "event 2" of a line in
+          words points to something you can see. Private: another person's words. Nothing is written and no model is called.
 attachment-add  adds a held file (--id) as a source of the project, or as the next version of the source it names: the same container with no
           network, credential scan and immutable version as source-import, with where it came from (the platform and the profile, never
           who sent it). The held file is deleted whatever the result.
@@ -366,10 +375,36 @@ file-read  shows the text of a file of your Google Drive or OneDrive, found by i
           accounts.<account>.folders in runtime.json, and in no other folder (case, accents and the extension do not matter; --account narrows the search to one
           account). One match is read and its text printed (at most 3,500 characters, then how many remain); several are listed; none says which folders were
           searched. Nothing is written, registered or sent to a model. From a messaging app the sender needs the group read-files.
+file-ask  answers a question about what ONE file of your Google Drive or OneDrive says, found by its --file name by the search of file-read (the folders the project lists under
+          accounts.<account>.folders in runtime.json and the folders inside them; --account narrows the search; several matches are listed and none is picked for you). The converted text of
+          that file, read now, goes to ONE run of the answer skill in an isolated container with no web that can act on nothing, bounded by the project's runtime.json key `file_ask`
+          (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.25, 180 and 20), and the answer comes back here with the passages code
+          checked in the file; nothing of the file is registered, and the run folder keeps only the reply and the counts. From a messaging app the sender needs the groups ask-files and
+          read-files (ask-files is in no default policy; accept-config --widen turns it on).
+mail-ask  answers a question about ONE message of the newest snapshot of a mail source (a summary, a date, an amount), named as mail-read names it: --message <source>#<n> or --number <n>,
+          --match <words> with --day <day>, --account google|microsoft; two boxes with that number, or several matches, are listed and the reply never picks one. The text of that message,
+          as the snapshot keeps it (at most 4,000 characters), goes to ONE run of the answer skill in an isolated container with no web that can act on nothing, bounded by the project's
+          runtime.json key `file_ask` (max_cost_usd, timeout_seconds, max_per_day, each kind counted apart; the defaults are 0.25, 180 and 20), and the answer comes back here with the
+          passages code checked in the message; nothing of the message is registered, and the run folder keeps only the counts. From a messaging app the sender needs the groups ask
+          and ask-mail (both are in no default policy; accept-config --widen turns them on).
+mail-read  shows the text of ONE message of the newest snapshot of a mail source, as its sender wrote it (cleaned, links replaced, at most 4,000 characters): --message <source>#<n> or
+          --number <n> names it by its number (two boxes with that number are listed and nothing is chosen for you), --match <words> by words of its sender or subject (--day narrows
+          it to the day it came; one match is shown, up to five are listed, more ask for more words), --account narrows the boxes. The words are another person's and are shown as
+          they are, never read by a model and never followed. Nothing is written, sent or refreshed for a number (a refresh renumbers the snapshot). From a messaging app the sender
+          needs the groups read-mail-body and ask-mail (read-mail-body is in no default policy; accept-config --widen turns it on).
 research  answers a question of general information (the weather, a price or quote, the news, a fact) from a web search: one run of the research skill with web access, chosen by
-          code, bounded by the project's runtime.json key `research` (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.25, 300
+          code, bounded by the project's runtime.json key `research` (max_cost_usd per run, timeout_seconds per run, max_per_day runs in a local day; the defaults are 0.60, 300
           and 10). The question is sent to a web search service and to the model that runs the research; no file of the project and none of your standing instructions are. A question that holds "my calendar", "my e-mails", "my files" or the like does not run. The reply is the answer in plain words
           with its sources as links, and is not stored (the conversation holds a neutral word); the run folder keeps the prompt, which holds the question, and the brief for run_retention_days, outside git. From a messaging app the sender needs the group research.
+todo-list  lists the open tasks of the task lists the project names under accounts.<account>.task_lists in runtime.json (Google Tasks, Microsoft To Do; --account narrows it), numbered per
+          service in the order the service gives them. It reads the lists live and writes nothing; the list is remembered for you, so that todo:<n> of todo-done answers it. From a
+          messaging app the sender needs the group tasks-read. No model.
+todo-add  prepares a new task on a list the project names (--list; the first when absent) and stops at its card: the account, the list and the exact title (one line, at most 200 characters).
+          A task is a title only: no due date and no note in this version. Nothing is written until you approve the card's hash. From a messaging app the sender needs the group tasks-write
+          and approves with approve-effect-tasks. No model.
+todo-done  prepares marking an open task as completed and stops at its card: --todo-item is todo:<n> (the n-th task of the list todo-list showed you last, for the account) or the words of the
+          task's title, found among the open tasks of the account's lists (several matches are listed, none says so). Nothing is written until you approve the card's hash, and nothing is
+          if the task changed since the card; a task is only completed, never removed or opened again. No model.
 file-trash  prepares the move of a file of your Google Drive or OneDrive to the service's trash, found by its --file name by the search of file-read (the folders the project lists
           under accounts.<account>.folders and the folders inside them; --account and --folder narrow it), and stops at its card, which shows the file, its folder by the real names, the
           account, its size and last change, and where it goes. Several matches are listed; none says which folders were searched. The file goes to the TRASH of the service, where you

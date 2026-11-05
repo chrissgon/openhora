@@ -329,7 +329,7 @@ def cmd_check() -> int:
     if not address or not _mail.same_address(address, record.get("account") or address):
         raise ProviderError("Google says the account token belongs to another address than the one the record names: "
                             f"run {_google.AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
-    return _mail.emit({"ok": True, "from": address, "scope": sorted(_google.PLATFORM_SCOPES), "obtained_at": record.get("obtained_at")})
+    return _mail.emit({"ok": True, "from": address, "scope": sorted(_google.PREVIOUS_SCOPES), "obtained_at": record.get("obtained_at")})
 
 
 def cmd_send(args) -> int:

@@ -688,11 +688,11 @@ def test_limit_52_the_providers_of_mail_and_calendar_are_named_only_by_the_one_m
         if paths.search(source) and not rel.startswith("providers/"):   # the providers' own helpers describe themselves
             pathed[rel] = True
     assert found["integration:calendar"] == {"runtime/sources_mail.py"}, found
-    # reader:email is also named by the two older ticks that poll a platform's notification e-mails with the project's own fixed query (the
-    # handler's configuration, never a task's argument): runtime/handlers/social.py and scripts/runtime.py. scripts/validate.py holds the table of the
+    # reader:email is also named by the tick that polls a platform's notification e-mails with the project's own fixed query (the
+    # handler's configuration, never a task's argument): runtime/handlers/social.py. scripts/validate.py holds the table of the
     # classes' old names and providers/resolve.py defines the classes; neither calls a provider of mail. No other module of the runtime, of the
     # scripts or of the providers' own folder names one.
-    assert found["reader:email"] == {"runtime/sources_mail.py", "runtime/handlers/social.py", "scripts/runtime.py", "scripts/validate.py",
+    assert found["reader:email"] == {"runtime/sources_mail.py", "runtime/handlers/social.py", "scripts/validate.py",
                                      "providers/resolve.py"}, found
     # nor does any module build the path of one of those providers: the documentation of the authorization commands (cli.py, the help of the two
     # operations) and the module itself are the only places a path of providers/mailbox or providers/calendar is written outside the providers
@@ -854,6 +854,19 @@ def test_a_provider_gets_the_minimum_environment_and_its_own_secret_and_no_other
     assert seen["kwargs"]["timeout"] == sources_mail.PROVIDER_TIMEOUT
 
 
+def test_every_caller_but_the_one_that_asks_for_less_keeps_the_provider_timeout_at_300_seconds(desk):
+    """BL5E added a `timeout` keyword to `source_refresh` -> `snapshot_refresh` -> `read_snapshot`; the typed command, the page and the routine never pass it."""
+    assert sources_mail.PROVIDER_TIMEOUT == 300
+    desk.mail("inbox")
+    desk.refresh("inbox")
+    assert [c["timeout"] for c in desk.providers.calls] == [300, 300], "a first read and a refresh, both with the default"
+    del desk.providers.calls[:]
+    ops_sources.source_refresh(desk.path, "inbox", timeout=60)
+    assert [c["timeout"] for c in desk.providers.calls] == [60], "the keyword reaches the provider call: the control that the default is not the only value seen"
+    ops_sources.source_refresh(desk.path, "inbox", timeout=0)
+    assert [c["timeout"] for c in desk.providers.calls] == [60, 300], "0 is `no value`: the default"
+
+
 def test_a_failing_provider_call_reports_the_kind_and_a_cleaned_reason_and_nothing_of_the_environment(desk, monkeypatch):
     monkeypatch.setenv("OUTLOOK_MAIL_TOKEN", "the-secret-token-value")
 
@@ -992,7 +1005,7 @@ def test_the_outlook_calendar_provider_is_read_through_the_runtime_in_the_zone_o
 # --- the index of a snapshot (package SNAP-IDX) ---------------------------------------------------------------------------------------------
 
 
-MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key"]
+MAIL_KEYS = ["n", "id", "thread_id", "message_id", "from_address", "reply_to_address", "subject", "change_key", "received", "unread"]
 EVENT_KEYS = ["n", "id", "etag", "calendar", "organizer_self", "attendees_other", "recurring"]
 
 
@@ -1015,6 +1028,7 @@ def test_the_index_of_a_mail_snapshot_has_one_entry_for_each_numbered_message_in
     assert [e["message_id"] for e in index] == ["<a@clinic.example>", "<b@shop.example>", "<c@club.example>"]
     assert [e["from_address"] for e in index] == ["ana@clinic.example", "bob@shop.example", "cleo@club.example"]
     assert all(sorted(e) == sorted(MAIL_KEYS) for e in index) and all(e["reply_to_address"] is None and e["change_key"] is None for e in index)
+    assert [e["received"] for e in index] == ["2026-10-17T09:00:00Z", "2026-10-16T14:30:00Z", "2026-10-15T08:00:00Z"], "each entry has the moment its message came, in UTC (S16C-REPLY-DATE)"
     assert desk.manifest("inbox")["messages"] == len(index) == 3
 
 

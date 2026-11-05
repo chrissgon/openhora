@@ -116,7 +116,7 @@ ENDPOINTS = {
 MODEL_RE = re.compile(r"^(anthropic)/([A-Za-z0-9._:-]+)$|^(openrouter)/([A-Za-z0-9._-]+/[A-Za-z0-9._:-]+)$")
 URL_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://\S+")
 SPLIT_RE = re.compile(r"[\s\"'`()\[\]{}<>,;|*]+")
-# The task line that names the platform (scripts/runtime.py and scripts/runtime_vote.py write it).
+# The task line that names the platform (runtime/handlers/social.py and social_vote.py write it).
 PLATFORM_LINE_RE = re.compile(r"^Platform:[ \t]*([a-z0-9]+(?:-[a-z0-9]+)*)[ \t]*$", re.M)
 PLATFORMS_REL = Path("shared") / "references" / "platforms"
 SECRET_NAME_RE = re.compile(r"(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519|[^/]*\.(pem|key|p12|pfx|keystore|jks))$")

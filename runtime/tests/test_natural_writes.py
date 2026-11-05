@@ -11,6 +11,7 @@ import re
 import pytest
 
 import standin_tree as st
+from closed_heads import closed_heads  # noqa: F401  (S41-11: the claim of the write families, as a fixture: these tests are about the readers and resolvers, not the claim)
 
 natural = st.load("natural")
 nw = st.load("natural_writes")
@@ -54,7 +55,9 @@ def test_a_phrase_with_a_regular_expression_character_or_an_unknown_key_is_refus
 
 def test_the_registry_names_the_families_and_every_operation_has_one():
     assert set(nw.FAMILIES) <= {"calendar", "files", "mail"}
-    assert {name for name, cls in natural.CLASSES.items() if cls == "E"} == set(nw.OP_FAMILY)
+    not_in_a_family = {"todo-add", "todo-done"}      # CB-5: the to-do list's cards are opened by runtime/ops_todo.py (the interpreter's branch), never by a natural-writes family
+    assert {name for name, cls in natural.CLASSES.items() if cls == "E"} - not_in_a_family == set(nw.OP_FAMILY)
+    assert not not_in_a_family & set(nw.OP_FAMILY)
 
 
 def test_line_gives_back_the_persons_words_not_the_folded_ones():
@@ -137,9 +140,17 @@ def test_a_text_slot_is_the_persons_own_words_verbatim_and_never_rewritten():
     assert got["slots"]["title"] == "Dentista, de novo."
 
 
-def test_a_line_that_repeats_is_read_as_a_refusal_never_as_a_single_event():
+def test_a_line_that_repeats_is_read_as_a_refusal_never_as_a_single_event_at_catalog_version_1(monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 1)      # CB-9: since version 2 the closed forms do not claim a repeating line (the next test)
     for text in lines.RECURRING:
         got = nw.read(text, NOW)
+        assert got is not None and got["op"] == "event-create" and got["recurring"] is True and "start" not in got["slots"], text
+
+
+def test_at_catalog_version_2_the_operation_fixed_by_the_interpreters_decision_still_reads_a_line_that_repeats(monkeypatch):
+    monkeypatch.setattr(st.load("operations"), "LINE_CATALOG", 2)
+    for text in lines.RECURRING:      # CANDIDATE-OUT 2: the repeat scope of CB-9 is gone (nothing in the product claimed a line with it since PR 2b); the family reads a repeating line when the operation is fixed
+        got = nw.read(text, NOW, op="event-create")
         assert got is not None and got["op"] == "event-create" and got["recurring"] is True and "start" not in got["slots"], text
 
 
@@ -184,7 +195,7 @@ def test_a_reading_the_engine_is_unsure_of_is_carried_as_a_doubt_not_as_a_questi
 
 def test_the_write_mode_of_the_engine_leaves_the_results_of_nr_1_unchanged():
     assert natural.understand("dentista quinta às 10h", NOW, "write")["ask"]["need"] == "confirm"
-    first = natural.understand("me lembra amanhã às 9h de ligar para a gráfica", NOW, "trigger")
+    first = natural.understand("ligar para a gráfica amanhã às 9h", NOW, "command")      # S41-11 PR 2b: the way `trigger` is gone from the product; the words after `/remind` are read as they are
     assert first["ask"]["need"] == "confirm" and first["ask"]["text"] == "ligar para a gráfica"
 
 

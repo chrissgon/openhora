@@ -18,7 +18,8 @@ nothing outside them is touched, and a block is never edited by hand. Each table
                         (providers/resolve.py), its implementations and the verbs each one declares, read from
                         the file's text (a VERBS constant, the choices of its "verb" argument, a "--check" flag):
                         no provider is imported or run
-  limits                the limits table of contracts/runtime.md, and the test named after each limit
+  limits                the limits of contracts/runtime.md (one entry each, `**L<n>.** <limit>` then `Built by: <cell>. Test: <cell>.`), and the test
+                        named after each limit
                         (test_limit_<nn>_...) found under runtime/tests/ and providers/store/tests/
   operations            OPERATIONS of runtime/operations.py, the table of operations: each one's function, verb,
                         channels, whether it calls a model, and what it does (its `help`)
@@ -78,6 +79,7 @@ NONE = "-"
 NO_TEST = "no test named"
 LIMIT_TEST_DIRS = ("runtime/tests", "providers/store/tests")
 LIMIT_TEST_RE = re.compile(r"^def (test_limit_(\d+)_\w+)\(", re.M)
+LIMIT_ENTRY_RE = re.compile(r"\*\*(L\d+)\.\*\* (.+)\nBuilt by: (.+)\. Test: (.+)\.")
 SHOWN_TEXT_KEYS = re.compile(r"(_model|_harness|^grader)$")
 
 
@@ -261,8 +263,31 @@ def _limit_tests(root):
     return found
 
 
+def _limit_entries(text):
+    """The entries of "## The limits" (a paragraph each, a blank line between): [[`L<n>`, limit, built by, test], ...] in the order written.
+
+    An entry is `**L<n>.** <limit>` on one line, then `Built by: <cell>. Test: <cell>.` on the next. A paragraph that starts like an entry and does not
+    have that form is an error (a dropped limit would leave a limit with no test named after it unseen); a paragraph that does not start `**L<n>.**` is prose."""
+    start = text.find("\n## The limits\n")
+    if start == -1:
+        raise SourceError("no heading '## The limits'")
+    section = text[start + 1:].split("\n## ", 1)[0]
+    entries = []
+    for block in re.split(r"\n[ \t]*\n", section):
+        block = block.strip("\n")
+        if not re.match(r"\*\*L\d+\.\*\*", block):
+            continue
+        m = LIMIT_ENTRY_RE.fullmatch(block)
+        if not m:
+            raise SourceError(f"a limit entry is not '**L<n>.** <limit>' then 'Built by: <cell>. Test: <cell>.': {block[:60]!r}")
+        entries.append(list(m.groups()))
+    if not entries:
+        raise SourceError("no limit entry under '## The limits'")
+    return entries
+
+
 def limits(root):
-    rows_in = _markdown_rows(_read(root, "contracts/runtime.md"), "## The limits", "#")
+    rows_in = _limit_entries(_read(root, "contracts/runtime.md"))
     tests = _limit_tests(root)
     rows = []
     for cells in rows_in:

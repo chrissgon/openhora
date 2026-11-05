@@ -7,7 +7,7 @@
 on one route, scores every run with the taxonomy's rules (runtime/interpreter_score.py) and writes the evidence file IX-E reads (runtime/interpreter_evidence.py).
 
     interpreter_measure.py --corpus FILE --route ID [--runs N] [--jobs N] [--sample N --seed S] [--sequential]
-                           [--record DIR | --resume DIR | --replay DIR] [--evidence-dir DIR | --no-evidence] [--json]
+                           [--split-file FILE] [--record DIR | --resume DIR | --replay DIR [--golds FILE]] [--evidence-dir DIR | --no-evidence] [--json]
     interpreter_measure.py --corpus FILE --route ID --local-aggregates [--evidence-dir DIR]
 
   --route         an id of runtime/interpreter_routes.json; --runs defaults to `runs` of evals/interpreter/thresholds.json; --jobs (default 4) calls at once
@@ -17,8 +17,14 @@ on one route, scores every run with the taxonomy's rules (runtime/interpreter_sc
   --record DIR    keep the model's raw answers in DIR/<test>.answers.jsonl, one line per call, as they arrive (the prompt is never written). --resume DIR continues the
                   matching file of DIR: it re-reads the pairs present, calls only the missing ones and writes the complete event. --replay DIR reads one answers file
                   whose header hashes equal this checkout's, makes NO call and writes no evidence: a regression check of the code, not a measurement
+  --golds FILE    only with --replay: a labelled re-score. --corpus stays the file the answers were recorded on (the header check is unchanged); FILE must hold the same ids and,
+                  for each, every key but `gold` and `also` equal to the corpus item, and the runs are scored with FILE's `gold` and `also`. The summary says `rescore: true` and
+                  names the file and its sha256; nothing is ever written: a re-score is not a measurement and is no evidence
   --local-aggregates   the maintainer's own labelled lines (split local, ids local-NNNNN): one run, counts per language only; prints no id and no line
-  Test split: the corpus bytes must hash to evals/interpreter/test-split.json, --runs must be the configured number, --sample needs --sequential, and one of --record, --resume
+  --split-file FILE   only for a corpus of the test split: the summary the corpus is checked against and whose bytes the event's corpus_sha256 names (default
+                  evals/interpreter/test-split.json, the gate's split). A held-out set other than the gate's brings its own summary (its `sha256` must be the corpus's); the
+                  event it writes is never an event of the gate's split, and evals/interpreter_status.py reports it apart. Every other guard of the test split is unchanged
+  Test split: the corpus bytes must hash to the split file (evals/interpreter/test-split.json unless --split-file), --runs must be the configured number, --sample needs --sequential, and one of --record, --resume
                   or --replay is required with a directory outside this checkout, so that the model's answers to held-out lines stay out of the repository until the split is committed.
 
 The evidence file is written once, at the end, only when every (item, run) has a line, with an exclusive create. Standard output and standard error carry counts, categories, ids
@@ -142,6 +148,23 @@ def draw(items: list, n: int, seed: str, sequential: bool) -> list:
         raise Refused(f"the sample asks for {n} items and the pool holds {len(pool)}")
     ordered = sorted(pool, key=lambda i: hashlib.sha256(f"{seed}:{i['id']}".encode("utf-8")).hexdigest())
     return sorted(ordered[:n], key=lambda i: i["id"])
+
+
+def load_golds(path: str, items: list) -> tuple:
+    """(the corpus items with the gold and the also of the golds file, the sha256 of that file's bytes). The file holds exactly the corpus's ids and, per id, every key but
+    `gold` and `also` equal to the corpus item; a fault names the first id and key, never a value."""
+    other, data = load_corpus(path)
+    mine, theirs = {i["id"]: i for i in items}, {i["id"]: i for i in other}
+    for item_id in sorted(set(mine) | set(theirs)):
+        if item_id not in theirs:
+            raise Refused(f"the golds file lacks item {item_id}")
+        if item_id not in mine:
+            raise Refused(f"the golds file holds item {item_id}, which the corpus lacks")
+        for key in sorted((set(mine[item_id]) | set(theirs[item_id])) - {"gold", "also"}):
+            if mine[item_id].get(key) != theirs[item_id].get(key) or (key in mine[item_id]) != (key in theirs[item_id]):
+                raise Refused(f"the golds file differs from the corpus at item {item_id} in {key}")
+    widened = [dict(i, gold=theirs[i["id"]]["gold"], also=theirs[i["id"]]["also"]) for i in items]
+    return widened, hashlib.sha256(data).hexdigest()
 
 
 # --- the answers (record, resume, replay) -----------------------------------------------------------------------------------------------------------------
@@ -353,6 +376,7 @@ def text_report(result: dict, head: dict) -> str:
         lines.append(f"  {lang}: n {lm['n']}, correct_direct {pct(lm['correct_direct'])}, clarify_rate {pct(lm['clarify_rate'])}, "
                      + ", ".join(f"{c} {lm['counts'][c]}" for c in score.WRONG))
     lines.append("stages " + json.dumps(result["stages"]) + "; observed " + json.dumps(result["observed"]))
+    lines.append("question on other golds: " + json.dumps(result["question_on_other_golds"]))
     lines.append(f"time_disagree {result['time_disagree']}, private-route {result['private_route']}, errors {json.dumps(result['errors'])}, scope time {json.dumps(result['scope_time'])}")
     return "\n".join(lines)
 
@@ -375,6 +399,8 @@ def arguments(argv):
     where = p.add_mutually_exclusive_group()
     where.add_argument("--evidence-dir")
     where.add_argument("--no-evidence", action="store_true")
+    p.add_argument("--golds", help="with --replay: score the recorded answers with the gold and also of this file (a labelled re-score, never evidence)")
+    p.add_argument("--split-file", help="for a corpus of the test split: the summary the corpus is checked against (default evals/interpreter/test-split.json, the gate's split)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--local-aggregates", action="store_true")
     return p.parse_args(argv)
@@ -388,6 +414,8 @@ def measure(args) -> int:
         raise Usage("--jobs and --sample are whole numbers from 1, --runs from 1 to 10")
     if args.local_aggregates and (args.record or args.resume or args.replay or args.sample is not None or args.sequential):
         raise Usage("--local-aggregates refuses --record, --resume, --replay, --sample and --sequential")
+    if args.golds and not args.replay:
+        raise Usage("--golds is a re-score of recorded answers: it needs --replay")
     if args.replay and (args.evidence_dir or args.record or args.resume):
         raise Usage("--replay writes no evidence and keeps no answers")
     try:
@@ -401,14 +429,22 @@ def measure(args) -> int:
         raise Usage("local lines run once")
     modes = [m for m in ("record", "resume", "replay") if getattr(args, m)]
     directory = getattr(args, modes[0]) if modes else None
+    if args.split_file and split != "test":
+        raise Usage("--split-file is for a corpus of the test split")
+    split_file = args.split_file or SPLIT_FILE          # looked up at the call: the gate's split unless a held-out set brings its own summary
     if split == "test":
+        label = "evals/interpreter/test-split.json" if split_file == SPLIT_FILE else "the split file"
         try:
-            with open(SPLIT_FILE, encoding="utf-8") as handle:
-                declared = json.load(handle)["sha256"]
+            with open(split_file, encoding="utf-8") as handle:
+                summary = json.load(handle)
+            declared = summary["sha256"]
         except (OSError, ValueError, KeyError, TypeError):
-            raise Refused("evals/interpreter/test-split.json cannot be read") from None
+            raise Refused(f"{label} cannot be read") from None
         if hashlib.sha256(data).hexdigest() != declared:
-            raise Refused("the corpus is not the test split (its hash differs from test-split.json)")
+            raise Refused("the corpus is not the test split (its hash differs from test-split.json)" if split_file == SPLIT_FILE
+                          else "the corpus is not the set the split file declares (its hash differs from the split file's sha256)")
+        if split_file != SPLIT_FILE and summary.get("items") != len(items):
+            raise Refused("the split file states another number of items than the corpus holds")
         if runs != th["runs"]:
             raise Refused(f"the test split is run {th['runs']} times (thresholds.json), not {runs}")
         if args.sample is not None and not args.sequential:
@@ -419,7 +455,7 @@ def measure(args) -> int:
             raise Refused("the answers directory is inside this checkout: the model's answers to held-out lines stay outside it")
     chosen = draw(items, args.sample, args.seed, args.sequential) if (args.sample is not None or args.sequential) else items
     jobs = 1 if args.sequential else args.jobs
-    corpus = evidence.corpus_sha256(split, args.corpus, SPLIT_FILE)
+    corpus = evidence.corpus_sha256(split, args.corpus, split_file)
     sample = {"n": args.sample, "seed": args.seed} if args.sample is not None else None
     # the answers
     test, found, path, mode = evidence.new_test_id(), {}, None, "live"
@@ -454,6 +490,11 @@ def measure(args) -> int:
         answers.close()
     table = prices.load()
     metered = mode != "replay"          # a replay is not metered: no cost, no evidence
+    golds_sha = None
+    if args.golds:
+        graded, golds_sha = load_golds(args.golds, items)
+        by_id = {i["id"]: i for i in graded}
+        chosen = [by_id[i["id"]] for i in chosen]          # the pipeline ran on the corpus's items; only the scoring below reads the golds file's gold and also
     rows, time_rows, scored = score_runs(chosen, runs, done, route if metered else None, table)
     head = {"route": route["id"], "test": test, "split": split, "mode": mode, "sequential": "yes" if args.sequential else None}
     if metered and (split == "local" or not args.no_evidence):
@@ -479,7 +520,14 @@ def measure(args) -> int:
             evidence.write_exclusive(written, lines)
         except FileExistsError:
             raise Refused("the evidence file exists and is never overwritten") from None
-    print(json.dumps(result, indent=1, sort_keys=True) if args.json else text_report(result, head))
+    if args.golds:
+        result.update({"golds_file": os.path.basename(args.golds), "golds_sha256": golds_sha, "rescore": True})
+    if args.json:
+        print(json.dumps(result, indent=1, sort_keys=True))
+    else:
+        if args.golds:
+            print(f"re-score with golds {os.path.basename(args.golds)}: not a measurement, no evidence")
+        print(text_report(result, head))
     print(f"evidence: {'not written' if written is None else 'written'}; answers: {'kept' if path else 'not kept'}", file=sys.stderr)
     return 0
 

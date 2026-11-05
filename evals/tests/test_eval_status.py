@@ -869,6 +869,24 @@ def measurement(root, capsys, *args):
     return code, json.loads(capsys.readouterr().out)
 
 
+def test_the_measurement_command_names_a_new_decisions_file_and_never_the_closed_log(root, capsys):
+    """docs/decisions.md is closed (2026-10-27): the entry goes in its own file under docs/decisions/, and stderr says which one."""
+    measured(root)
+    (root / "evals" / "grading-prompt.md").write_text("the grader is shown a different thing\n")
+    code = es.main(["measurement", "--kind", "grader", "--cause", "A planted cause.", "--date", "2030-05-06"], root=str(root))
+    seen = capsys.readouterr()
+    out = json.loads(seen.out)
+    assert code == 0 and "docs/decisions/2030-05-06-measurement-grader.md" in seen.err
+    assert "docs/decisions.md is closed" in seen.err and "to docs/decisions.md," not in seen.err
+    assert es.decisions_file_name(out) == "2030-05-06-measurement-grader.md"
+    # the name has the shape the validator's decision-files check asks for, and its date is the entry's first line's date
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-[a-z0-9]+(-[a-z0-9]+)*\.md", es.decisions_file_name(out))
+    assert out["decisions_entry"].startswith("## 2030-05-06: ")
+    # vacuity: a name built from another date or kind is not the one asked for
+    assert es.decisions_file_name({"kind": "close", "decisions_entry": "## 2031-01-02: x\n"}) == "2031-01-02-measurement-close.md"
+    assert es.decisions_file_name(out) != "2030-05-06-measurement-close.md"
+
+
 def test_the_validator_fails_when_the_fingerprint_differs_from_the_committed_one(root):
     es.main(["inventory", "--write"], root=str(root))
     measured(root)

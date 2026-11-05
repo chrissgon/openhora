@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
 """Print the tests that a change can reach, one pytest target per line (a test file, or a whole test folder).
 
-The repository standard (docs/decisions.md, 2026-10-20): during development only the SELECTED tests run (every commit, every
-pull request into an integration branch); the whole suite runs at the end of a large delivery (a pull request into main, a push to
-main, a manual run, a pull request labelled `full-suite`). The pre-commit hook and the `tests` job of .github/workflows/checks.yml
-call this script (the job runs the whole list instead on the four events above).
+The repository standard (docs/decisions.md, 2026-10-20, and the entry of TEST-SPEED, 2026-10-27): CI runs the SELECTED tests of every
+pull request into an integration branch (the `tests-shard` jobs of .github/workflows/checks.yml run this script's selection in three
+shards) and the whole suite at the end of a large delivery (a pull request into main, a push to main, a manual run, a pull request
+labelled `full-suite`); the pre-commit hook runs only the `--direct` fast set below (rule 9) unless WB_HOOK_FULL=1 brings back the
+selection.
 
 Usage:
   python3 scripts/select_tests.py --files <path>...          # exactly these changed files (paths from the repository root)
   git diff --cached --name-only -z | python3 scripts/select_tests.py --files-from -     # NUL-separated names, from a file or stdin
   python3 scripts/select_tests.py --base origin/main         # git diff --name-only <merge-base of the ref and HEAD>, plus the working tree
   python3 scripts/select_tests.py                            # the working tree against HEAD
+  add --direct for the hook's fast set (rule 9): the guards, the changed tests and the tests named for each changed module, nothing followed
   add --explain to print, on stderr, why each target was chosen; --root <dir> reads another tree (the tests of this script use it)
+  add --within FILE to keep only the targets inside the targets listed in FILE (one target per line, whole-line `#` comments and blank
+  lines allowed; a relative FILE is read from --root): a selected file or folder under a listed target stays, a selected folder that
+  contains listed targets is replaced by those targets, anything else is dropped. The python39 job of .github/workflows/checks.yml uses it
+  with scripts/python39_tests.txt (docs/decisions.md, T4). An empty or missing FILE is a usage error (exit 2).
 
 Data goes to stdout (one target per line, sorted, repository-relative); diagnostics and --explain go to stderr. Nothing to run still
 prints the fixed guards (rule 6), so the output is never empty.
 
 THE RULES (conservative: when the selector is unsure it selects more)
- 1. A changed test file (test_*.py) selects itself (when it still exists) and every test that imports it, and theirs: a test file that
-    other tests import (a helper, a fixture builder) changes what they run.
+ 1. A changed or selected test file (test_*.py) selects every test that imports it, and theirs: a test file that other tests import
+    (a helper, a fixture builder) changes what they run. A changed test file also selects itself (when it still exists). The importers of
+    a test selected by rule 2, 3, 4 or 5 are followed too, once, after every rule has run (follow_test_importers): `test_messaging_natural_reply.py`
+    names nothing of `natural.py` and only imports the helpers of `test_messaging.py`, which rule 2 selects. A guard that only rule 6 adds is
+    never followed, and neither is a whole folder.
  2. A changed Python module selects every test file that references it: an `import x`, a `from x import y`, or a string that
     names it in a call that loads a module (`importlib.import_module("x")`, `st.load("x")`, `_load("x")`, `sys.modules["x"]`),
     or a string that names its file (`"x.py"`); and every test file named `test_<module stem>.py` or starting with `test_<module stem>_`. The reach follows
@@ -36,15 +45,30 @@ THE RULES (conservative: when the selector is unsure it selects more)
     file name or its path in a string) and every test of a module that names it (the module that reads it); under interface/ and flows/
     also the tests that name that folder. contracts/*.md, docs/architecture/** and AGENTS.md also run the documentation guards, which
     are always run (rule 6).
+    A data file under a folder of DATA_FOLDERS (the scenarios and goldens of runtime/tests/entry_ext/, the ledger runtime/tests/expected/, the phrase parts
+    runtime/phrases_parts/) is read by a test that reads the whole folder, so no test names it: it selects the tests the table lists for that folder, never the whole test folder
+    (a README.md there is a document, which selects nothing).
  5. Whole-folder fallbacks: a conftest.py, pytest.ini, pyproject.toml, a test kit (a module that is not a test inside a tests/ folder),
     a module or data file that nothing references (the graph cannot resolve it) and a file that does not parse select the whole test
-    folder that owns it; a change to this script, to scripts/test_slots.py, .githooks/**, .github/**, packs/, templates/ or agents/
-    selects scripts/tests; a root conftest.py, pytest.ini or pyproject.toml selects every test folder.
+    folder that owns it; a change to this script, to scripts/test_slots.py, scripts/test_dirs.py, scripts/shard_tests.py,
+    scripts/pytest_plugins/**, .githooks/**, .github/**, packs/, templates/ or agents/ selects scripts/tests (and with it the slow
+    meta-tests that are no guard: the import oracle, the CI wiring and the whole-tree scan, which otherwise run in the nightly run and
+    the whole-suite runs); a root conftest.py, pytest.ini or pyproject.toml selects every test folder.
  6. The guards (GUARDS below) always run: the validator and the security scan, the layer map, the runtime rules, the Python 3.9
-    script check, the architecture tables, the wiring of the hook and of CI, the test isolation and this script's own tests.
+    script check, the architecture tables, the wiring of the hook (the CI wiring, test_checks_wiring.py, is not a guard: rule 5 and the
+    nightly run it), the test isolation and this script's own tests.
  7. A change inside skills/<name>/ other than scripts/ selects nothing beyond the guards (the lab measures skills, the validator
-    checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4.
- 8. Fuzz files run in their default sampled mode; only the whole-suite job sets WB_FULL_FUZZ=1.
+    checks them); skills/*/evals/runtime-manifest.json is the one data file of a skill that the runtime reads, so it follows rule 4,
+    and skills/*/evals/evidence/*.jsonl (committed lab or field evidence, a file a change may add or delete) selects EVIDENCE_TESTS: the
+    tests that read the repository's own committed evidence, which no test names (a new file of another header shape once turned the base
+    red, 2026-10-28).
+ 8. Fuzz files run in their default sampled mode; only the whole-suite shards and the nightly run set WB_FULL_FUZZ=1.
+ 9. `--direct`: the hook's fast set; CI's selection, not this, is the gate. It prints, sorted and without duplicates, exactly: every
+    guard (rule 6); every changed test file that still exists, with no importers; for each changed .py file that is not inside a
+    test folder and is not a conftest.py or an __init__.py (a deleted file included), the tests named test_<stem>.py or
+    test_<stem>_*.py (`-` in the stem read as `_` too); and the identity tests of the copies when a shared script, one of its
+    generated copies or shared/scripts/copies.json changed; and EVIDENCE_TESTS when a committed evidence file of a skill changed (rule 7).
+    Nothing for any other file (data, documents, test kits, conftest files, the wiring, skills), and never a folder. A file of a DATA_FOLDERS folder is data: the hook does not run its tests; CI's selection does. It cannot be combined with --within.
 A shared script, its generated copies and the identity tests of the copies (scripts/tests/test_script_copies.py, test_sync_copies.py)
 go together: a change to either selects the others' tests.
 
@@ -78,7 +102,6 @@ GUARDS = (
     "runtime/tests/test_runtime_rules.py",
     "scripts/tests/test_runtime_python39.py",
     "scripts/tests/test_architecture_tables.py",
-    "scripts/tests/test_checks_wiring.py",
     "scripts/tests/test_hook_parallel.py",
     "scripts/tests/test_test_isolation.py",
     "scripts/tests/test_select_tests.py",
@@ -90,17 +113,41 @@ GUARDS = (
 UNLINKED_MODULES = (
     # (folder, module name glob, test name globs): the module is <folder>/<glob>.py, a test is <folder>/tests/<glob>.py. Written in pieces so that
     # the layer map (scripts/tests/test_layer_map.py) does not read a path of the runtime in this script.
-    ("runtime", "phrases_*", ("test_phrases*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
+    ("runtime", "phrases_*", ("test_phrases*", "test_phrase_snapshot*", "test_runtime_language*", "test_interface_*", "test_phone_*", "test_messaging_natural*")),
     ("runtime", "natural_lang_*", ("test_natural_*", "test_messaging_natural*")),
 )
+
+# Rule 4's table of data folders: a file of the folder is read by a test that reads the whole folder, so nothing names the file and the fallback would run the whole test folder. Each row is
+# (folder, test globs): a changed file under the folder selects the tests that match a glob (a glob over repository-relative test paths). A test (scripts/tests/test_select_tests.py) fails when a folder
+# or a glob matches nothing. Written in pieces for the layer map, as UNLINKED_MODULES is. The tests of the phrase parts are the tests of the `phrases_*` row of UNLINKED_MODULES.
+_RUNTIME = "runtime"
+_PHRASE_TESTS = tuple(_RUNTIME + "/tests/" + g + ".py" for folder, module_glob, globs in UNLINKED_MODULES if module_glob == "phrases_*" for g in globs)
+DATA_FOLDERS = (
+    (_RUNTIME + "/tests/entry_ext/", (_RUNTIME + "/tests/test_entry_replay.py", _RUNTIME + "/tests/test_entry_observed.py")),      # HOT-1: the scenarios and the golden of each package, read by the entry replay; SLOW-1: and by the observed replay
+    (_RUNTIME + "/tests/expected/", tuple(_RUNTIME + "/tests/test_" + name + ".py" for name in (
+        "expected_kit", "natural_table", "registry_rows", "messaging_policy", "mcp", "operations_table", "interpreter_coverage", "phone_plain_words", "run_limits"))),      # HOT-1: the ledger
+    (_RUNTIME + "/phrases_parts/", _PHRASE_TESTS),      # HOT-2: the phrase parts, read by runtime/phrases.py through a folder
+)
+
+# A data file under one of these folders does not link a module (rule 4's `data_files_naming`): a package golden quotes module stems inside its traces, and
+# those folders already select their tests through DATA_FOLDERS, so reading them as "named by a data file that no test names" would select the whole test folder.
+DATA_NAMING_SKIP = (_RUNTIME + "/tests/entry_ext/", _RUNTIME + "/tests/expected/")
+
+# The tests that read the repository's own committed evidence (skills/*/evals/evidence/*.jsonl) as a whole: no test names such a file, so a changed or added
+# evidence file selects them (rule 7, and rule 9 for the hook). A test (scripts/tests/test_select_tests.py) fails when one of them does not exist.
+EVIDENCE_TESTS = (
+    "evals/tests/test_evidence_lines.py", "evals/tests/test_local_model_event.py", "evals/tests/test_eval_status.py", "evals/tests/test_bands.py",
+    "evals/tests/test_quick_pool.py", "evals/tests/test_community_evidence.py", "scripts/tests/test_verify_community.py",
+)
+EVIDENCE_PATH = re.compile(r"^skills/[^/]+/evals/evidence/[^/]+\.jsonl$")
 
 # The two tests that read the manifest of generated copies (shared/scripts/copies.json).
 COPY_IDENTITY_TESTS = ("scripts/tests/test_script_copies.py", "scripts/tests/test_sync_copies.py")
 # The tests of the wiring that a change to the hook, the workflows or this selector can break (rule 5).
 WIRING_FOLDER = "scripts/tests"
 # Files whose change selects scripts/tests whole (rule 5): the selector and the slot helper are the hook's own machinery.
-WIRING_FILES = ("scripts/select_tests.py", "scripts/test_slots.py")
-WIRING_DIRS = (".githooks/", ".github/", "packs/", "templates/", "agents/")
+WIRING_FILES = ("scripts/select_tests.py", "scripts/test_slots.py", "scripts/test_dirs.py", "scripts/shard_tests.py")
+WIRING_DIRS = (".githooks/", ".github/", "packs/", "templates/", "agents/", "scripts/pytest_plugins/")
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".workbench-local", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 # Areas whose non-Python files can be named by a test (rule 4). The files at the root (AGENTS.md, README.md) are not: they
@@ -331,6 +378,8 @@ class Repo:
         pattern = re.compile(r"[\"']" + re.escape(stem) + r"(?:\.py)?[\"']")
         out = []
         for rel in self.data_files:
+            if rel.startswith(DATA_NAMING_SKIP):  # DATA_FOLDERS maps these to their tests; their traces quote module stems
+                continue
             try:
                 with open(os.path.join(self.root, rel), encoding="utf-8") as handle:
                     if pattern.search(handle.read(400000)):
@@ -480,6 +529,23 @@ def select_module(repo, sel, changed, label, stems=()):
     return chosen
 
 
+def follow_test_importers(repo, sel, seeds, reason):
+    """Rule 1: every test that imports a seed test, and theirs (a test file that other tests import, a helper or a fixture builder, changes
+    what they run). `reason` may hold `{stem}`, the module name the importer names. Returns the tests added."""
+    chosen, frontier = set(seeds), list(seeds)
+    added = []
+    while frontier:
+        stems = {os.path.basename(t)[:-3] for t in frontier}
+        frontier = []
+        for other, hit in sorted(repo.tests_referencing(stems).items()):
+            if other not in chosen:
+                chosen.add(other)
+                frontier.append(other)
+                sel.add(other, reason.format(stem=hit))
+                added.append(other)
+    return added
+
+
 def handle_file(repo, sel, rel):
     """The rules for one changed file (see the module text)."""
     base = os.path.basename(rel)
@@ -491,16 +557,16 @@ def handle_file(repo, sel, rel):
         if os.path.isfile(full):
             sel.add(rel, "rule 1: a changed test")
             # a test file that other tests import (a helper, a fixture builder) changes what they run: they follow, and theirs
-            chosen, frontier = {rel}, [rel]
-            while frontier:
-                stems = {os.path.basename(t)[:-3] for t in frontier}
-                frontier = []
-                for other in repo.tests_referencing(stems):
-                    if other not in chosen:
-                        chosen.add(other)
-                        frontier.append(other)
-                        sel.add(other, "rule 1: imports a changed test")
+            follow_test_importers(repo, sel, [rel], "rule 1: imports a changed test")
         return
+
+    # Rule 4, data folders: a file under a folder of DATA_FOLDERS selects the tests that read the folder.
+    for folder, test_globs in DATA_FOLDERS:
+        if rel.startswith(folder) and not base.endswith((".py", ".md")):
+            for test in repo.tests:
+                if any(fnmatch.fnmatchcase(test, g) for g in test_globs):
+                    sel.add(test, "rule 4: %s is in a data folder of %s" % (rel, test))
+            return
 
     # Rule 5: configuration of the test run.
     if base in ("pytest.ini", "pyproject.toml") or (base == "conftest.py" and len(parts) == 1):
@@ -524,6 +590,11 @@ def handle_file(repo, sel, rel):
         return
 
     # Rule 7: a skill's own content is measured by the lab and read by the validator.
+    if EVIDENCE_PATH.match(rel):  # committed evidence: read as a whole by the tests of EVIDENCE_TESTS
+        for test in EVIDENCE_TESTS:
+            if test in repo.tests:
+                sel.add(test, "rule 7: %s is committed evidence" % rel)
+        return
     if parts[0] == "skills":
         in_scripts = len(parts) > 3 and parts[2] == "scripts"
         manifest = len(parts) == 4 and parts[2] == "evals" and base == "runtime-manifest.json"
@@ -625,11 +696,48 @@ def select(repo, files, copies=None):
             handle_file(repo, sel, rel)
         if rel == "shared/scripts/copies.json":
             sel.add_folder("shared/scripts/tests", "copies: manifest of generated copies")
+    # Rule 1, second part: a test that rule 2, 3, 4 or 5 selected is a seed too (test_messaging_natural_reply.py only imports the helpers of
+    # test_messaging.py). The guards of rule 6 are added after this step, so a guard that only rule 6 adds is never a seed, and a whole
+    # folder is never one.
+    seeds = sorted(t for t in sel.targets if t not in repo.test_folders)
+    follow_test_importers(repo, sel, seeds, "rule 1: imports the selected test {stem}")
     for guard in GUARDS:
         sel.add(guard, "rule 6: always-run guard")
     for rel in files:
         if rel in ("AGENTS.md",) or rel.startswith(("contracts/", "docs/architecture/")):
             sel.notes.append("%s: the documentation guards run (rule 6)" % rel)
+    return sel
+
+
+def select_direct(repo, files, copies=None):
+    """Rule 9, the hook's fast set (CI's selection, not this, is the gate): the guards; each changed test that still exists, with no
+    importers; for each changed .py file outside the test folders (not a conftest.py or an __init__.py; a deleted file counts) the tests
+    named for its stem; the identity tests of the copies when a shared script, a generated copy or their manifest changed. Never a folder."""
+    sel = Selection(repo)
+    copies = copies if copies is not None else copies_map(repo.root)
+    destination_of = {dest: src for src, dests in copies.items() for dest in dests}
+    for rel in files:
+        base = os.path.basename(rel)
+        if rel in copies or rel in destination_of or rel == "shared/scripts/copies.json":
+            for test in COPY_IDENTITY_TESTS:
+                sel.add(test, "copies: %s is a shared script, a generated copy or their manifest" % rel)
+        if EVIDENCE_PATH.match(rel):
+            for test in EVIDENCE_TESTS:
+                if test in repo.tests:
+                    sel.add(test, "rule 9: %s is committed evidence" % rel)
+            continue
+        if repo.is_test_file(rel):
+            if os.path.isfile(os.path.join(repo.root, rel)):
+                sel.add(rel, "rule 9: a changed test")
+            continue
+        if not base.endswith(".py") or base in ("conftest.py", "__init__.py") or repo.test_folder_of(rel) is not None:
+            continue
+        stem = base[:-3]
+        for name in sorted({stem, stem.replace("-", "_")}):
+            for test in repo.tests_named_for(name):
+                sel.add(test, "rule 9: named for test_%s" % name)
+    for guard in GUARDS:
+        sel.add(guard, "rule 6: always-run guard")
     return sel
 
 
@@ -672,20 +780,62 @@ def read_names(source):
     return [n.decode("utf-8", "surrogateescape") for n in data.split(b"\0") if n]
 
 
+def read_within(path):
+    """The targets listed in a --within file: one per line, whole-line `#` comments and blank lines skipped, in file order."""
+    with open(path, encoding="utf-8") as handle:
+        lines = [line.strip() for line in handle.read().splitlines()]
+    return [posix(os.path.normpath(line)) for line in lines if line and not line.startswith("#")]
+
+
+def restrict(result, listed, reasons=None):
+    """`result` (a sorted target list) kept inside the `listed` targets: a target equal to or under a listed one stays; a target
+    that is a folder holding listed targets is replaced by them; every other target is dropped. Nothing is ever added that was not
+    selected, except the listed targets inside a selected folder. `reasons` (the Selection's) gets a line for a replacement."""
+    kept = set()
+    for target in result:
+        if any(target == item or target.startswith(item + "/") for item in listed):
+            kept.add(target)
+            continue
+        inside = [item for item in listed if item.startswith(target + "/")]
+        for item in inside:
+            kept.add(item)
+            if reasons is not None:
+                reasons.setdefault(item, ["within: listed target inside the selected folder %s" % target])
+    # a target under another kept target (a folder) is that folder's already
+    kept = {t for t in kept if not any(t.startswith(other + "/") for other in kept)}
+    return sorted(kept)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog="See the top of scripts/select_tests.py for the rules.")
     parser.add_argument("--base", help="a git ref: the changed files are those since its merge base with HEAD, plus the working tree")
     parser.add_argument("--files", nargs="+", metavar="PATH", help="exactly these changed files (repository-relative or absolute)")
     parser.add_argument("--files-from", metavar="FILE", help="NUL-separated changed files read from FILE, or from stdin with -")
+    parser.add_argument("--direct", action="store_true",
+                        help="the hook's fast set (rule 9): the guards, the changed tests and the tests named for each changed module; CI's selection is the gate")
     parser.add_argument("--explain", action="store_true", help="print on stderr why each target was chosen")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="the tree to read (default: this repository)")
+    parser.add_argument("--within", metavar="FILE",
+                        help="keep only the targets inside the targets this file lists (one per line, `#` comments); a relative FILE is read from --root")
     return parser
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     root = os.path.abspath(args.root)
+    if args.direct and args.within is not None:
+        parser.error("--direct and --within cannot be combined: the fast set is not restricted to a list")
+    listed = None
+    if args.within is not None:
+        path = args.within if os.path.isabs(args.within) else os.path.join(root, args.within)
+        try:
+            listed = read_within(path)
+        except (OSError, UnicodeDecodeError) as error:
+            parser.error("--within %s: %s" % (args.within, error))
+        if not listed:
+            parser.error("--within %s lists no target" % args.within)
     fell_back = None
     if args.files is not None or args.files_from is not None:
         names = list(args.files or [])
@@ -698,14 +848,25 @@ def main(argv=None):
         except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
             files, fell_back = [], str(error)
     repo = Repo(root)
-    if fell_back is not None:
+    if fell_back is not None and args.direct:
+        # The fast set never prints a folder: with no diff it is the guards, and CI's selection is the gate.
+        sys.stderr.write("select_tests: cannot compute the changed files (%s); the fast set is the guards only\n" % fell_back)
+        sel = select_direct(repo, [])
+    elif fell_back is not None:
         # The diff cannot be computed (an unknown ref, a shallow clone): never guess "nothing changed".
         sys.stderr.write("select_tests: cannot compute the changed files (%s); selecting every test folder\n" % fell_back)
         sel = Selection(repo)
         sel.add_all_folders("the diff could not be computed")
+    elif args.direct:
+        sel = select_direct(repo, files)
     else:
         sel = select(repo, files)
     result = sel.result()
+    if listed is not None:
+        before = len(result)
+        result = restrict(result, listed, sel.targets)
+        if args.explain:
+            sys.stderr.write("select_tests: within %s: %d of %d selected target(s) kept\n" % (args.within, len(result), before))
     if args.explain:
         sys.stderr.write("select_tests: %d changed file(s), %d target(s)\n" % (len(files), len(result)))
         for note in sel.notes:

@@ -90,62 +90,11 @@ class Reminders:
     # --- the person's own words (package NR-1) ----------------------------------------------------------------------------------------
 
     def natural(self, project: dict, chat: str, intent: dict) -> bool:
-        """A line in the person's own words that code matched to a reminder operation (runtime/natural.py `candidate`): no model, no route lock, no model
-        slot. The policy is the operation's own group, as for the typed command. False when the line is not for these operations after all (a line that only
-        looks like a request, from a sender who cannot make reminders): the caller then handles it as any plain line."""
-        bridge = self.bridge
-        cfg = bridge.cfg(project)
-        op = intent["op"]
-        if op == "reminders":
-            self.listing(project, chat)
-        elif op == "reminder-forget":
-            if intent.get("bare"):          # "cancela #3", "cancela o 3": no noun, so a sender with no such reminder (or no such group) has a plain line
-                try:
-                    bridge.allow(project, "reminder-forget", sender=chat)
-                    bridge.run_op(project, "reminder-forget", sender=chat, reminder_id=intent["id"], preview=True)
-                except (bridge.Refused, bridge.ops.OpsError):
-                    return False
-                self.forget_confirm(project, chat, [intent["id"]])
-            elif intent.get("ids") or (intent.get("id") and intent.get("confirm")):
-                self.forget_confirm(project, chat, intent.get("ids") or [intent["id"]])
-            elif intent.get("at"):
-                self.forget_at(project, chat, intent["at"])
-            elif intent.get("id"):
-                self.forget(project, chat, intent["id"])
-            elif intent.get("words"):
-                self.forget_words(project, chat, intent["words"])
-            elif self.listing(project, chat):
-                bridge.reply(chat, phrases.text("NT_WHICH", cfg), project)
-        elif op == "reminder-restore":
-            try:
-                bridge.allow(project, "reminder-restore", sender=chat)
-            except bridge.Refused:
-                return False          # "undo" may mean anything: for a sender who cannot make reminders it is a plain line
-            return self.restore(project, chat)
-        elif op == "calendar-event-create":
-            if intent.get("how") == "ask":
-                self.ask_event(project, chat, intent["text"])
-            else:
-                bridge.write(project, chat, intent["text"], {"op": "event-create"})
-        else:
-            if intent["how"] in ("bare", "note"):
-                try:
-                    bridge.allow(project, "remind", sender=chat)
-                except bridge.Refused:
-                    return False
-            self.said(project, chat, intent["text"], intent["how"], None)
+        """`/remind <free words>`, the one intent of kind `natural` left (messaging_inbound.parse): the operation `remind` reads the words with the clock; no model, no route lock, no model
+        slot. The policy is the operation's own group, as for the typed command. Always True. (The branches of the other operations, the question "an event or something else" and its draft `eventorother`
+        were unreachable once CANDIDATE-OUT 2 left this intent as the only producer, and 44-B 3b deleted them with the methods only they called.)"""
+        self.said(project, chat, intent["text"], intent["how"], None)
         return True
-
-    def ask_event(self, project: dict, chat: str, line: str, retries: int = 0) -> None:
-        """A scheduling verb with a time and no calendar word: ask whether it is an event or something else, and keep the line (memory only) so that
-        "something else" can send it on to the planning agent."""
-        bridge = self.bridge
-        try:
-            bridge.allow(project, "say", sender=chat)
-        except bridge.Refused as e:
-            bridge.reply(chat, str(e), project, guard=True)
-            return
-        self.question(project, chat, phrases.text("NT_ASK_EVENT_OR_OTHER", bridge.cfg(project)), {**natural._draft("eventorother", "ask", line, ""), "retries": retries})
 
     def question(self, project: dict, chat: str, sentence: str, draft: dict) -> None:
         """Send a question and keep its draft for the next line of the chat (memory only). A question that replaces one still open says so. A question that is answered
@@ -158,6 +107,22 @@ class Reminders:
         if not (draft["need"] in ("confirm", "forget") and bridge.ask_yes(project, chat, sentence)):
             bridge.reply(chat, sentence, project)
         self.drafts[chat] = {**draft, "project": project["id"], "at": bridge.monotonic(), "message_id": bridge.last_message.get(chat)}
+
+    def shared(self, chat: str):
+        """The question the interpreter's carry-out left for this chat in the store of drafts (S41-11), or None. Its owner is `remind`; the bridge holds no copy."""
+        return drafts.get("messaging", self.bridge.key(chat), "remind")
+
+    def ask_yes_shared(self, project: dict, chat: str, sentence: str) -> bool:
+        """Send the question of the shared draft with the one-tap Yes button and bind the message to it (review C2-d). False when the platform has no buttons or the send failed: the plain question goes."""
+        bridge = self.bridge
+        draft = self.shared(chat)
+        if draft is None or draft.get("need") not in ("confirm", "forget"):
+            return False
+        bridge.last_message.pop(chat, None)
+        if not bridge.ask_yes(project, chat, sentence):
+            return False
+        draft["message_id"] = bridge.last_message.get(chat)
+        return True
 
     def tapped(self, project: dict, chat: str, card: dict) -> None:
         """A tap on the "Yes" button of a question about a reminder: the same as the typed "yes", for the question the button belongs to. A button of a question that is
@@ -218,18 +183,6 @@ class Reminders:
             return False
         if reply_to and reply_to != draft.get("message_id"):          # a reply to another message is not the answer to this question
             return False
-        if draft["need"] == "eventorother":
-            chosen = natural.answer_kind(text)
-            if chosen is None and draft.get("retries", 0) < 1 and natural.short_answer(text, wide=True):
-                self.ask_event(project, chat, draft["line"], retries=1)          # a short reply that is neither: asked once more
-                return True
-            if chosen == "event":
-                bridge.write(project, chat, draft["line"], {"op": "event-create"})          # the loose verb's question answered "event": the line is read as an event (NR-5)
-            elif chosen == "other":
-                bridge.say(project, chat, draft["line"])
-            elif chosen == "notice":
-                self.said(project, chat, draft["line"], "trigger", None)
-            return chosen is not None
         return self.said(project, chat, text, draft["how"], draft)
 
     def said(self, project: dict, chat: str, text: str, how: str, draft) -> bool:
@@ -249,7 +202,7 @@ class Reminders:
         elif done.get("event"):          # the kind question answered "event": the event is opened with the reading the question SHOWED and its words (NR-5)
             seed = {"op": "event-create"}
             if done.get("reading"):
-                seed.update(reading=done["reading"], text=done.get("text") or "")
+                seed.update(reading=done["reading"], text=done.get("text") or "", origins={"start": "time-engine", "title": "line-span"})          # S41-7: the time is the engine's reading the question showed, the title the person's own words
             bridge.write(project, chat, done.get("line") or text, seed)
         elif done.get("forget"):
             for number in done["forget"]:
@@ -283,11 +236,8 @@ class Reminders:
         cfg = bridge.cfg(project)
         today = datetime.date.fromisoformat(found["now"][:10])
 
-        def line(r):
-            when = natural.describe(natural.info_of(r["due"][:10], r["due"][11:16], today), cfg)
-            return f"#{r['id']} {when}" + (f": {r['text']}" if "text" in r else "")
-        lines = [line(r) for r in found["open"]]
-        gone = [line(r) + f" ({phrases.text(WHY_KEYS.get(r.get('why'), 'RM_WHY_OTHER'), cfg)})" for r in found["not_sent"]]
+        lines = [natural.reminder_line(r, today, cfg) for r in found["open"]]
+        gone = [natural.reminder_line(r, today, cfg) + f" ({phrases.text(WHY_KEYS.get(r.get('why'), 'RM_WHY_OTHER'), cfg)})" for r in found["not_sent"]]
         if not lines and not gone:
             bridge.reply(chat, f"{project['name']}: {phrases.text('RM_NONE_WAIT', cfg)}", project)
             return False
@@ -307,87 +257,11 @@ class Reminders:
             return
         self.forgot(project, chat, done)
 
-    def forget_confirm(self, project: dict, chat: str, numbers: list) -> None:
-        """"Cancel reminder of 3", "cancel reminders 1 and 2": a number that is not written as an explicit id is shown with what it names, and cancelled only on a
-        "yes". Each reminder is checked under the sender's own policy (a number that is not theirs is answered as one that does not exist)."""
-        bridge = self.bridge
-        shown = []
-        for number in numbers:
-            try:
-                shown.append(bridge.run_op(project, "reminder-forget", sender=chat, reminder_id=number, preview=True))
-            except (bridge.Refused, bridge.ops.OpsError) as e:
-                bridge.reply(chat, bridge.attach.phone(e, project), project)
-                return
-        self.ask_forget(project, chat, shown)
-
-    def forget_at(self, project: dict, chat: str, at: str) -> None:
-        """"Cancel the 9 o'clock reminder": the sender's reminders due at that hour; the one found is shown and confirmed, several are listed and asked, none is said."""
-        bridge = self.bridge
-        try:
-            done = bridge.run_op(project, "reminder-forget", sender=chat, at=at)
-        except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e, project), project)
-            return
-        if done.get("none"):
-            bridge.reply(chat, phrases.text("NT_NO_MATCH", bridge.cfg(project)), project)
-        elif done.get("choose"):
-            if self.listing(project, chat):
-                bridge.reply(chat, phrases.text("NT_WHICH", bridge.cfg(project)), project)
-        else:
-            self.ask_forget(project, chat, [done])
-
-    def ask_forget(self, project: dict, chat: str, shown: list) -> None:
-        """Ask "cancel it?" with what would be cancelled (its moment and, in text mode, its words), and keep the numbers for the answer."""
-        bridge = self.bridge
-        settings = bridge.settings(project)
-        sentence, draft = natural.forget_question(shown, bridge.cfg(project), settings is None or settings["notices"] == "text")
-        self.question(project, chat, sentence, draft)
-
     def forgot(self, project: dict, chat: str, done: dict) -> None:
         """The reply to a reminder just cancelled: what it was (its moment and, in text mode, its words) and how to get it back."""
         bridge = self.bridge
         settings = bridge.settings(project)
         bridge.reply(chat, natural.forgot_sentence(done, bridge.cfg(project), settings is None or settings["notices"] == "text"), project)
-
-    def restore(self, project: dict, chat: str) -> bool:
-        """"Undo": the last reminder this sender cancelled in the last ten minutes comes back as a new one. False when there is none (the line is then a plain line)."""
-        bridge = self.bridge
-        cfg = bridge.cfg(project)
-        try:
-            done = bridge.run_op(project, "reminder-restore", sender=chat)
-        except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e, project), project)
-            return True
-        if done.get("none"):
-            return False
-        human, row = done["human"], done["reminder"]
-        when = natural.describe(human, cfg, human["zone"])
-        settings = bridge.settings(project)
-        if "text" in row and (settings is None or settings["notices"] == "text"):
-            bridge.reply(chat, phrases.text("NT_RESTORED_TEXT", cfg, old=done["restored"], id=row["id"], when=when, text=row["text"]), project)
-        else:
-            bridge.reply(chat, phrases.text("NT_RESTORED_COUNT", cfg, old=done["restored"], id=row["id"], when=when), project)
-        return True
-
-    def forget_words(self, project: dict, chat: str, words: list) -> None:
-        """"Cancel the florist reminder": the one waiting reminder of the sender that holds those words is forgotten and said (what it was, so a mistake shows);
-        when several hold them the list is sent and the number asked; when none does, the sender is told so and the line goes nowhere."""
-        bridge = self.bridge
-        cfg = bridge.cfg(project)
-        try:
-            done = bridge.run_op(project, "reminder-forget", sender=chat, matching=words)
-        except (bridge.Refused, bridge.ops.OpsError) as e:
-            bridge.reply(chat, bridge.attach.phone(e, project), project)
-            return
-        if done.get("none"):
-            bridge.reply(chat, phrases.text("NT_NO_MATCH", cfg), project)
-        elif done.get("choose"):
-            if self.listing(project, chat):
-                bridge.reply(chat, phrases.text("NT_WHICH", cfg), project)
-        elif done.get("preview"):
-            self.ask_forget(project, chat, [done])
-        else:
-            self.forgot(project, chat, done)
 
     # --- what is due ------------------------------------------------------------------------------------------------------------------
 
@@ -407,8 +281,9 @@ class Reminders:
                 bridge.log(f"reminders not sent: {due['missed']} missed, {due['dropped']} dropped")
             for item in due["send"]:
                 try:
-                    line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"], bridge.cfg(project))
-                    sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
+                    with bridge.sentences_for(item["chat"], project):      # TT-2: the reminder is said in the language of the sender it is for
+                        line = rm.line(item["id"], item.get("text"), item["due_local"], item["late"], bridge.cfg(project))
+                        sent = bridge.reply(item["chat"], line)      # True: went out; False: the send failed (logged by `reply`); None: the platform deferred it
                 except Exception as e:
                     bridge.log(f"a reminder could not be sent ({e.__class__.__name__})")      # it stays claimed and is open again when the claim goes stale
                     continue

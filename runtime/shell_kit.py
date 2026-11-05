@@ -106,16 +106,17 @@ class Jobs:
         """A job as a shell shows it. The caller holds the lock when the job may still change."""
         return {key: job[key] for key in JOB_FIELDS}
 
-    def start_job(self, project: str, op: str, call, queues: bool = False) -> tuple:
+    def start_job(self, project: str, op: str, call, queues: bool = False, slot=None) -> tuple:
         """Start an operation that calls a model or a platform in a thread and return (the job, its thread, its public
         form as it was before the thread started). `project` is the project's id, `op` the verb of its row, `call` a
         function with no argument that makes the one call. An operation whose row says it calls a model (`model` not
         false) takes the project's model slot: Busy when another job or the dispatch loop holds it. With `queues` (the
         row's key: the operation queues its call while the router answers another request) a held slot is not a refusal:
         the job starts without the slot, and the operation itself finds the route lock held and queues the call. A row
-        with `exclusive` false (dispatch, run-task) takes no slot. Stopping when the shell is shutting down."""
+        with `exclusive` false (dispatch, run-task) takes no slot. `slot=False` (S41-11, the decide leg of a line) takes no slot whatever the row says: the job is still listed and still a job,
+        but it is not the planning agent's turn; `None` keeps the row's rule. Stopping when the shell is shutting down."""
         row = self.ops.operations.by_name(op)
-        exclusive = bool(row.get("exclusive", bool(row["model"])))
+        exclusive = bool(row.get("exclusive", bool(row["model"]))) and slot is not False
         with self.lock:
             if self.stopping.is_set():
                 raise Stopping()

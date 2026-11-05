@@ -287,8 +287,10 @@ def part_text(part) -> str:
 ATTRIBUTION = re.compile(
     r"^(?:on|em|el)\b.{1,400}\b(?:wrote|escreveu|escribi[oó]):$",      # validate: allow english-only -- attribution forms of Portuguese and Spanish mail clients
     re.I)
+# A bare rule line (ten or more dashes, underscores or equals signs) is a separator, not a marker: it cuts only before a quoted block.
+RULE = re.compile(r"^[-_=]{10,}$")
 MARKERS = re.compile(
-    r"^(?:[-_=]{10,}|[-_=* ]{0,40}(?:"
+    r"^(?:[-_=* ]{0,40}(?:"
     r"original message|forwarded message|begin forwarded message:?|"
     r"mensagem original|mensagem encaminhada|mensagem reenviada|in[ií]cio da mensagem (?:reenviada|encaminhada):?|"      # validate: allow english-only -- forward markers of Portuguese mail clients
     r"mensaje original|mensaje reenviado|mensaje remitido|inicio del mensaje reenviado:?"      # validate: allow english-only -- forward markers of Spanish mail clients
@@ -297,14 +299,31 @@ HEADER_START = re.compile(r"^(?:from|de|von):", re.I)
 HEADER_FOLLOW = re.compile(r"^(?:sent|date|to|cc|subject|enviado|enviada|enviado el|data|para|assunto|asunto|fecha):", re.I)
 
 
+def starts_quoted_block(bare: str, following: str = "") -> bool:
+    """Whether a line opens a quoted block: a `From:` style header line, an attribution (on one line, or wrapped onto `following`) or a
+    worded original-message or forward marker."""
+    joined = (bare + " " + following.strip()).strip()
+    return bool(HEADER_START.match(bare) or ATTRIBUTION.match(bare) or MARKERS.match(bare)
+                or (bare.lower().split(" ", 1)[0] in ("on", "em", "el") and ATTRIBUTION.match(joined)))
+
+
+def rule_opens_quote(lines: list[str], i: int) -> bool:
+    """Whether one of the next four non-blank lines after line `i` opens a quoted block."""
+    rest = [n.strip() for n in lines[i + 1:] if n.strip()][:4]
+    return any(starts_quoted_block(n, rest[k + 1] if k + 1 < len(rest) else "") for k, n in enumerate(rest))
+
+
 def strip_quoted(text: str) -> str:
     """The text before the first quoted line (`>`), signature delimiter (`-- `), attribution ("On ... wrote:", "Em ... escreveu:",
-    "El ... escribio:", on one line or two), forward or original-message marker, or Outlook header block (From: then Sent:/To:/Subject:)."""
+    "El ... escribio:", on one line or two), forward or original-message marker, or Outlook header block (From: then Sent:/To:/Subject:).
+    A bare rule line (ten or more dashes, underscores or equals signs) cuts only when one of the next four non-blank lines opens such a
+    quoted block (a `From:` line, an attribution or a worded marker); otherwise it is part of what the sender wrote."""
     lines = text.split("\n")
     for i, line in enumerate(lines):
         bare = line.strip()
         joined = (bare + " " + lines[i + 1].strip()).strip() if i + 1 < len(lines) else bare
-        if bare.startswith(">") or bare == "--" or MARKERS.match(bare) or ATTRIBUTION.match(bare) \
+        if (RULE.match(bare) and rule_opens_quote(lines, i)) \
+                or bare.startswith(">") or bare == "--" or MARKERS.match(bare) or ATTRIBUTION.match(bare) \
                 or (bare.lower().split(" ", 1)[0] in ("on", "em", "el") and ATTRIBUTION.match(joined)) \
                 or (HEADER_START.match(bare) and any(HEADER_FOLLOW.match(n.strip()) for n in lines[i + 1:i + 5])):
             return "\n".join(lines[:i]).strip("\n")

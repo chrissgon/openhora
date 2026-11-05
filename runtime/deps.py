@@ -43,6 +43,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import lab  # noqa: E402  (the same folder: the install runs through lab.run_command)
 import path_rule  # noqa: E402  (the same folder)
 
 # The closed table of recipes. "files" are the dependency files relative to the project root; a recipe that takes
@@ -192,7 +193,6 @@ def ensure(data_dir: str, entry: dict, files, image_digest, run=None, settings=N
         if found is not None:
             return _result(entry, k, final, found, True)
         if run is None or settings is None:
-            import lab  # noqa: E402  (only when it installs: the module itself never runs a command)
             run = run or lab.run_command
             settings = lab.settings_names() if settings is None else settings
         tmp = os.path.join(base, f"tmp-{k}")
