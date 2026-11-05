@@ -255,7 +255,7 @@ def test_ops_plan_drop_drops_the_plan_and_says_whether_one_was_live(rig):
 
 def test_every_read_of_the_table_but_the_help_has_a_sentence_and_the_sets_hold():
     reads = sorted(name for name, cls in plan_confirm.natural.CLASSES.items() if cls == "R" and name not in plan_confirm.NOT_ASKED)
-    assert [name for name in reads if name not in plan_confirm.SENTENCES] == [], "a read with no sentence could never ask"
+    assert [name for name in reads if name not in plan_confirm.SENTENCES] == ["agenda"], "a read with no sentence could never ask; the one exception is `agenda` (P5), which `ops_natural.run` runs as `items`, so its plan, its hash and its sentence are `items`'s"
     assert set(plan_confirm.ALWAYS + plan_confirm.ACTS) <= set(plan_confirm.SENTENCES)
     for key in plan_confirm.SENTENCES.values():
         assert key in phrases.TABLE["en"] and key in phrases.TABLE["pt-BR"], key

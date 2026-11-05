@@ -461,14 +461,15 @@ def _reference_args(ctx: dict, op: str, slots: dict, channel, sender):
     return {"args": args, "origins": origins}
 
 
-def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
+def mail_target_seed(op: str, decision: dict, day=None, said: str = "", service=None):
     """The seed of a mail operation on a message the person named by its words (B''-lite), or None when the line gives no word to look for: `{"op", "by": "target", "slots"}`, the
     slots the family reads (`words` from `natural_writes_mail.target_words` over the verified `target` span; `plural` only when the target or the line `said` holds a noun of the tables'
     plural list (one card for every match, as the closed form), else the singular rule: one match is the card, several are a numbered list; `body`
     of a reply or a draft (and `_compose_reply` when that body DESCRIBES the text instead of dictating it, `mail_reply_compose.described`: BL7-2); `folder_name`; `state`; `day_read`, the day the verified `day` span names as the caller read it, see `_on_day`: a `day` span with no reading is a day
     that was not read). Nothing here is an address, a recipient or a message number: the message is chosen by code from the index afterwards (`_by_words`), and a reply goes to
     the index's From (L60). GROUNDING-FROM: for a decision that carries `target_ground` and `target_sender`, `slots["sender_words"]` holds the content words of the person's part when they are fewer than
-    the ground's words and all among them: `_by_words` requires them in the From."""
+    the ground's words and all among them: `_by_words` requires them in the From. P5 (catalog version 4): `service` is the account (`google` or `microsoft`) the decision's `service` word names, read by the caller as `mail-read` reads it
+    (`ops_interpret._service_of` over `ops_mail_read._service_of`: this family reaches no operation of the layer), or None; a given one goes in `slots["account"]` with the origin `line-span`, and None adds nothing: the family asks which box."""
     spans, args = decision.get("spans") or {}, decision.get("args") or {}
     tables = natural._tables(None)
     words = (nwm.ground_words(decision["target_ground"], tables) if decision.get("target_ground")          # BL7-1, BL7-5: a target widened with the line's subject, or one that holds its own, is grounded by the person and the subject, never the marker word (up to GROUND_WORDS_MAX words, every one required)
@@ -493,10 +494,12 @@ def mail_target_seed(op: str, decision: dict, day=None, said: str = ""):
             slots["state"] = got["slots"]["state"]
     if spans.get("day"):
         slots["day_read"] = day or {"kind": "unread", "value": None, "today": None, "zone": None}
-    return turn_gate.Seed({"op": op, "by": "target", "slots": slots}, {key: "line-span" for key in ("body", "folder_name", "state") if key in slots})      # S41-7: spans of the line that the interpreter's check verified (the message itself is found by code in the index: `grounded`)
+    if service in ACCOUNTS:
+        slots["account"] = service          # P5: the account the line names by its brand word (Gmail, Outlook), read by the caller; an unreadable word was never passed
+    return turn_gate.Seed({"op": op, "by": "target", "slots": slots}, {key: "line-span" for key in ("body", "folder_name", "state", "account") if key in slots})      # S41-7: spans of the line that the interpreter's check verified (the message itself is found by code in the index: `grounded`)
 
 
-def mail_number_seed(op: str, decision: dict, said: str, ctx=None, channel=None, sender=None):
+def mail_number_seed(op: str, decision: dict, said: str, ctx=None, channel=None, sender=None, service=None):
     """BL7-5 (gap G1). The seed of a mail operation on messages the model named by NUMBER when the closed forms read nothing in the line, or None: `{"op", "by": "numbers", "slots"}` with the
     slot `numbers` the closed forms' own shape would hold (`_messages` turns it into `<source>#<n>` of the newest snapshot, never a refresh, origin `line-number`). A seed only when all hold:
     the decision's spans hold no `target`, `day`, `to` or `subject` (a number is never joined with words, and no address or subject is dropped in silence); the numbers the model gave
@@ -529,7 +532,9 @@ def mail_number_seed(op: str, decision: dict, said: str, ctx=None, channel=None,
         got = nwm.answer("state", spans["state"], {}, tables)
         if got:
             slots["state"] = got["slots"]["state"]
-    return turn_gate.Seed({"op": op, "by": "numbers", "slots": slots}, {"numbers": "line-number", **{key: "line-span" for key in ("body", "folder_name", "state") if key in slots}})
+    if service in ACCOUNTS:
+        slots["account"] = service          # P5: as in `mail_target_seed`
+    return turn_gate.Seed({"op": op, "by": "numbers", "slots": slots}, {"numbers": "line-number", **{key: "line-span" for key in ("body", "folder_name", "state", "account") if key in slots}})
 
 
 def _body_key(ctx: dict, channel, sender) -> str:

@@ -2,8 +2,8 @@
 built from the records, the catalog version `operations.LINE_CATALOG`, the catalog generated from the rows and the reader `runtime/registry.py`.
 
 The key invariant: the views of version 1 equal, hash for hash, the two literals they replaced (pinned at commit ed6ea6b in scripts/tests/pinned_hashes.json), and the served catalog is byte for
-byte the one the newest enabling entry pins, so the interpreter stays on. Since package CB-9 (2026-10-28) `LINE_CATALOG` was 2 and since package MAIL-SUMMARY-FLIP (2026-10-31) it is 3: the served catalog
-is the one of version 3, the two entries before the newest pin the catalog of version 2 (CB-9 and LUNA-ENABLE) and `generate(version=1)` and `generate(version=2)` still write theirs byte for byte.
+byte the one the newest enabling entry pins, so the interpreter stays on. Since package CB-9 (2026-10-28) `LINE_CATALOG` was 2, since package MAIL-SUMMARY-FLIP (2026-10-31) it was 3 and since package P5 (2026-11-04) it is 4: the served catalog
+is the one of version 4, the five entries before the newest pin the catalog of version 3 (a copy is in evals/interpreter/replay/catalogs), the two before them pin version 2 (CB-9 and LUNA-ENABLE) and `generate(version=1)` still writes its own byte for byte.
 
 Every invariant is checked against the test's OWN literals (the closed words, the sets of operations, the origins of a few slots), never against the code under test; the
 pins are read from scripts/tests/pinned_hashes.json. Each family of checks has a vacuity case: the same check, run on a copy of the rows with one planted fault, must see it.
@@ -49,10 +49,12 @@ OFF_HOST = extend("registry_rows.OFF_HOST", {"research", "ask"})
 EFFECTS = extend("registry_rows.EFFECTS", {"event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
            "file-create", "file-replace", "file-save", "file-trash"})
 MODEL_ROWS = extend("registry_rows.MODEL_ROWS", {"route", "route-queued", "run-next", "run-task", "contained-run", "dispatch", "say", "ask", "research"})      # the rows whose `model` column is not False
+RUN_AS = {"agenda": "items"}      # P5: a read the dispatcher runs as another (runtime/ops_natural.py `run`), so that its plan, its hash and its sentence are the other's
 ALWAYS_V1 = ("research", "ask")
 ALWAYS_V2 = ("research", "ask", "file-ask")      # CB-9: the served reads that always ask, derived from the catalog of version 2 (FA-1 adds file-ask)
 ALWAYS_NOW = ("research", "ask", "mail-ask", "file-ask")      # MAIL-SUMMARY-FLIP: the catalog of version 3 serves mail-ask, a read whose cost is a model and whose privacy is off-host
-SERVED_NOW, REFUSED_NOW = 71, 21      # the catalog of version 3; version 2 served 70 and 21, version 1 served 65 and 21
+SERVED_NOW, REFUSED_NOW = 72, 21      # the catalog of version 4 (P5 serves `agenda`); version 3 served 71 and 21, version 2 served 70 and 21, version 1 served 65 and 21
+SERVED_V3, REFUSED_V3 = 71, 21
 SERVED_V2, REFUSED_V2 = 70, 21
 SERVED_V1, REFUSED_V1 = 65, 21
 FINDER = ("target", "day")
@@ -98,6 +100,24 @@ OLD_V2_ABOUT = {
     "ask": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If the line names a file of the person's Drive or OneDrive, choose file-ask. Not a web search (research), not mail, calendar or tasks.",
     "routine-resume": "Choose this to resume a paused routine; id is the routine's number written in the line.",
 }
+# The texts P5 (catalog version 4) re-worded, as MAIL-SUMMARY-FLIP and CB-9 served them (none of these rows changed between the two): with these back, a catalog of version 3 or 2 is the one its entries pin.
+OLD_REWORDED_BY_P5 = {
+    "items": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. To narrow it: the sender or subject words in target, the day or week in day, the words for unread in state. Not a web search.",
+    "file-ask": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it (a total, a date, a clause), even with the name mid-question; file is the name as written. Not to show it (file-read), not the project's sources when no file is named (ask), not the web (research).",
+    "routine-change": "Choose this to change a routine; id is the routine's number written in the line.",
+    "routine-pause": "Choose this to pause a routine; id is the routine's number written in the line.",
+    "routine-cancel": "Choose this to cancel a routine; id is the routine's number written in the line. Not cancel, which is for a request.",
+    "event-cancel": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
+    "mail-reply": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text.",
+    "mail-send": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft.",
+    "mail-draft": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent.",
+    "mail-archive": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers.",
+    "mail-move": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination.",
+    "mail-mark": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread.",
+    "mail-trash": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers.",
+}
+OLD_V2_ABOUT.update(OLD_REWORDED_BY_P5)
+OLD_V3_ABOUT = dict(OLD_REWORDED_BY_P5, ask="Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks.")      # `ask` as MAIL-SUMMARY-FLIP served it (the text of CB-9 for `ask` is the one in OLD_V2_ABOUT)
 
 
 def as_cb9_served(snapshot: dict) -> dict:
@@ -109,6 +129,15 @@ def as_cb9_served(snapshot: dict) -> dict:
     return out
 
 
+def as_flip_served(snapshot: dict) -> dict:
+    """A catalog of version 3 as MAIL-SUMMARY-FLIP served it: the texts P5 re-worded put back."""
+    out = copy.deepcopy(snapshot)
+    for row in out["ops"]:
+        if row["op"] in OLD_V3_ABOUT:
+            row["what"] = OLD_V3_ABOUT[row["op"]]
+    return out
+
+
 def entry_catalog_sha() -> str:
     return json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"][-1]["catalog_sha256"]
 
@@ -117,15 +146,16 @@ def entry_catalog_sha() -> str:
 
 
 def test_the_views_equal_the_literals_they_replace():
-    """The classes, the table, its order and its slot order of version 1 hash to what the literals at ed6ea6b hashed to; the module's own views are those of version 3 (MAIL-SUMMARY-FLIP)."""
-    assert operations.LINE_CATALOG == 3
+    """The classes, the table, its order and its slot order of version 1 hash to what the literals at ed6ea6b hashed to; the module's own views are those of version 4 (P5)."""
+    assert operations.LINE_CATALOG == 4
     assert views_hashes(1) == pinned_views()
     assert hashes_of(*natural.views(1)) == pinned_views()
-    assert (natural.CLASSES, natural.NATURAL) == natural.views(3), "the module's own pair is the views of the catalog version"
+    assert (natural.CLASSES, natural.NATURAL) == natural.views(4), "the module's own pair is the views of the catalog version"
     assert [op for op in natural.CLASSES if op in natural.NATURAL] == list(natural.NATURAL), "the classes are in the order of the table"      # CB-3: a row of a later catalog version has a class and no row of the table
-    assert len(natural.views(1)[1]) == 99 and len(natural.views(2)[1]) == 104 and len(natural.NATURAL) == 105 and len(natural.CLASSES) == len(operations.OPERATIONS) >= 105
-    assert set(natural.NATURAL) - set(natural.views(1)[1]) == {"mail-read", "todo-list", "todo-add", "todo-done", "file-ask", "mail-ask"}, "the rows a line reaches since the flips"
+    assert len(natural.views(1)[1]) == 99 and len(natural.views(2)[1]) == 104 and len(natural.views(3)[1]) == 105 and len(natural.NATURAL) == 106 and len(natural.CLASSES) == len(operations.OPERATIONS) >= 106
+    assert set(natural.NATURAL) - set(natural.views(1)[1]) == {"mail-read", "todo-list", "todo-add", "todo-done", "file-ask", "mail-ask", "agenda"}, "the rows a line reaches since the flips"
     assert set(natural.views(3)[1]) - set(natural.views(2)[1]) == {"mail-ask"}, "the flip of MAIL-SUMMARY-FLIP serves one row"
+    assert set(natural.views(4)[1]) - set(natural.views(3)[1]) == {"agenda"}, "the flip of P5 serves one row"
 
 
 def test_vacuity_a_changed_class_a_changed_order_or_a_new_v1_slot_moves_the_pinned_hashes(monkeypatch):
@@ -169,20 +199,26 @@ def test_a_row_and_a_slot_of_a_later_version_are_invisible_to_a_line_but_not_to_
 # --- the served catalog is byte for byte the one an enabling entry pins -------------------------------------------------------------------------------
 
 
-def test_the_served_catalog_is_byte_identical_at_version_3_and_the_two_before_it_are_still_what_their_entries_pin():
-    generated = catalog.generate(version=3)
-    assert sha(generated) == PINNED_HASHES["interpreter_catalog_mail_ask"] == entry_catalog_sha() == interpreter.SERVED_SHA256
+def test_the_served_catalog_is_byte_identical_at_version_4_and_the_three_before_it_are_still_what_their_entries_pin():
+    generated = catalog.generate(version=4)
+    assert sha(generated) == PINNED_HASHES["interpreter_catalog_v4"] == entry_catalog_sha() == interpreter.SERVED_SHA256
     assert catalog.generate() == generated and catalog.sha256(generated) == sha(generated)
     assert (RUNTIME / "interpreter_catalog.json").read_text(encoding="utf-8") == catalog.text(generated), "the file on disk is exactly what the rows generate"
-    assert (len(generated["ops"]), len(generated["refused"])) == (SERVED_NOW, REFUSED_NOW) and generated["v"] == 3
+    assert (len(generated["ops"]), len(generated["refused"])) == (SERVED_NOW, REFUSED_NOW) and generated["v"] == 4
+    version3 = catalog.generate(version=3)
     version2 = catalog.generate(version=2)
     version1 = catalog.generate(version=1)
     entries = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
-    assert sha(version2) != PINNED_HASHES["interpreter_catalog_cb9"], "the catalog of version 2 is no longer what CB-9 served: two texts were re-worded"
-    assert sha(as_cb9_served(version2)) == PINNED_HASHES["interpreter_catalog_cb9"] == entries[-6]["catalog_sha256"] == entries[-7]["catalog_sha256"] != entry_catalog_sha(), "with those two texts put back it is: the entries of LUNA-ENABLE and CB-9 pin it; the newest five (MAIL-SUMMARY-FLIP, CARD-MODEL-SEES, mail-card-recipient, the probe of ANY-QUESTION Q3 and RESERVE-V3) pin version 3"
-    assert entries[-5]["catalog_sha256"] == entries[-4]["catalog_sha256"] == entries[-3]["catalog_sha256"] == entries[-2]["catalog_sha256"] == entries[-1]["catalog_sha256"] == entry_catalog_sha(), "the entry of the flip and the four after it pin the same catalog"
+    assert sha(version3) != PINNED_HASHES["interpreter_catalog_mail_ask"], "the catalog of version 3 is no longer what MAIL-SUMMARY-FLIP served: the texts of thirteen rows were re-worded by P5"
+    assert sha(as_flip_served(version3)) == PINNED_HASHES["interpreter_catalog_mail_ask"] == entries[-2]["catalog_sha256"] == entries[-6]["catalog_sha256"] != entry_catalog_sha(), "with those texts put back it is: the five entries before the newest (MAIL-SUMMARY-FLIP, CARD-MODEL-SEES, mail-card-recipient, the probe of ANY-QUESTION Q3 and RESERVE-V3) pin it; the newest (P5, the probe of this draft) pins version 4"
+    assert (len(version3["ops"]), len(version3["refused"])) == (SERVED_V3, REFUSED_V3) and version3["v"] == 3
+    recorded3 = json.loads((REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-aed31af3.json").read_text(encoding="utf-8"))
+    assert sha(recorded3) == PINNED_HASHES["interpreter_catalog_mail_ask"] == sha(as_flip_served(version3)), "the copy the entries of version 3 are replayed against is the catalog MAIL-SUMMARY-FLIP served, byte for byte"
+    assert entries[-2]["catalog_sha256"] == entries[-3]["catalog_sha256"] == entries[-4]["catalog_sha256"] == entries[-5]["catalog_sha256"] == entries[-6]["catalog_sha256"] == PINNED_HASHES["interpreter_catalog_mail_ask"] and entries[-1]["catalog_sha256"] == entry_catalog_sha(), "the entry of the flip and the four after it pin the catalog of version 3; the newest pins version 4"
+    assert sha(version2) != PINNED_HASHES["interpreter_catalog_cb9"], "the catalog of version 2 is no longer what CB-9 served: texts were re-worded"
+    assert sha(as_cb9_served(version2)) == PINNED_HASHES["interpreter_catalog_cb9"] == entries[-7]["catalog_sha256"] == entries[-8]["catalog_sha256"] != entry_catalog_sha(), "with those texts put back it is: the entries of LUNA-ENABLE and CB-9 pin it"
     assert (len(version2["ops"]), len(version2["refused"])) == (SERVED_V2, REFUSED_V2) and version2["v"] == 2
-    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-8]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1"
+    assert sha(version1) == PINNED_HASHES["interpreter_catalog_blite"] == entries[-9]["catalog_sha256"] != entry_catalog_sha(), "the entry before the one of CB-9 (the 2026-10-26 one) pins the catalog of version 1"
     assert (len(version1["ops"]), len(version1["refused"])) == (SERVED_V1, REFUSED_V1) and version1["v"] == 1
     recorded = json.loads((REPO / "evals" / "interpreter" / "replay" / "catalogs" / "catalog-a77f8a8f.json").read_text(encoding="utf-8"))
     assert sha(recorded) == sha(version1), "the copy the recorded answers replay against is what version 1 still generates, byte for byte"
@@ -192,11 +228,11 @@ def test_the_served_catalog_is_byte_identical_at_version_3_and_the_two_before_it
 
 
 def test_vacuity_the_switch_is_load_bearing_a_catalog_of_version_2_turns_the_entry_off(monkeypatch):
-    """With LINE_CATALOG at 2 the generated catalog differs, and a served file written from it makes no entry match: the interpreter is off until an entry names it (the newest names version 3)."""
+    """With LINE_CATALOG at 2 the generated catalog differs, and a served file written from it makes no entry match: the interpreter is off until an entry names it (the newest names version 4)."""
     assert interpreter_enable.active("pt-BR") is not None
     monkeypatch.setattr(operations, "LINE_CATALOG", 2)
     flipped = catalog.generate()
-    assert sha(flipped) != PINNED_HASHES["interpreter_catalog_mail_ask"] and flipped["v"] == 2 and sha(as_cb9_served(flipped)) == PINNED_HASHES["interpreter_catalog_cb9"]
+    assert sha(flipped) != PINNED_HASHES["interpreter_catalog_v4"] and flipped["v"] == 2 and sha(as_cb9_served(flipped)) == PINNED_HASHES["interpreter_catalog_cb9"]
     monkeypatch.setattr(interpreter, "SERVED_SHA256", sha(flipped))      # what the served file would hash to if the number were put back
     assert interpreter_enable.active("pt-BR") is None
 
@@ -237,16 +273,16 @@ def record_problems(rows) -> list:
             out.append(f"{name}: keys")
             continue
         orders.append((rec["since"], rec["order"]))
-        if rec["class"] not in CLASS_WORDS or rec["since"] not in (1, 2, 3) or not isinstance(rec["order"], int) or isinstance(rec["order"], bool) or rec["order"] < 1:
+        if rec["class"] not in CLASS_WORDS or rec["since"] not in (1, 2, 3, 4) or not isinstance(rec["order"], int) or isinstance(rec["order"], bool) or rec["order"] < 1:
             out.append(f"{name}: class, since or order")
         if rec["privacy"] not in PRIVACY_WORDS or rec["cost"] not in COST_WORDS:
             out.append(f"{name}: privacy or cost")
         if not isinstance(rec["what"], str) or not rec["what"].strip():
             out.append(f"{name}: what")
-        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 450 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
+        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 500 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
             out.append(f"{name}: about")
         for slot, spec in rec["slots"].items():
-            if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2, 3) or spec["since"] < rec["since"] or not spec["param"]:
+            if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2, 3, 4) or spec["since"] < rec["since"] or not spec["param"]:
                 out.append(f"{name}: slot {slot}")
     numbers = [order for _since, order in orders]
     if len(set(numbers)) != len(numbers):
@@ -276,7 +312,7 @@ def test_the_privacy_and_cost_classes_follow_the_columns_of_the_row():
 def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
     for rec in [registry.row(row["name"]) for row in operations.OPERATIONS]:      # every row, a row of a later version included
         for key in ("about", "what"):
-            assert 1 <= len(rec[key]) <= (450 if key == "about" else 300) and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
+            assert 1 <= len(rec[key]) <= (500 if key == "about" else 300) and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
         assert not re.search(r"\b(ignore|you must|you should|system prompt|respond with|reply with)\b", rec["about"], re.I), rec["op"]      # it describes the operation, it does not instruct
     about = {row["name"]: row["natural"]["about"].lower() for row in operations.OPERATIONS}
     for op, words in SEPARATES.items():
@@ -285,7 +321,7 @@ def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
 
 
 def test_vacuity_the_record_check_sees_each_planted_fault(monkeypatch):
-    for fault in ({"class": "X"}, {"since": 4}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 451}, {"about": "write to a@b.example"},
+    for fault in ({"class": "X"}, {"since": 5}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 501}, {"about": "write to a@b.example"},
                   {"about": "a number 12345678 in it"}, {"what": " "}):
         rows = [copy.deepcopy(row) for row in operations.OPERATIONS]
         rows[3]["natural"].update(fault)
@@ -357,7 +393,8 @@ def test_rows_row_and_the_fields_read_the_records_and_give_copies(monkeypatch):
     assert [rec["op"] for rec in rows] == list(natural.NATURAL), "the served order is the table's order"
     assert [rec["op"] for rec in registry.rows(1)] == [rec["op"] for rec in rows if rec["since"] == 1], "version 1 has the rows of version 1, in their order"
     assert [rec["op"] for rec in registry.rows(2)] == [rec["op"] for rec in rows if rec["since"] <= 2], "version 2 has the rows of version 1, in their order, and the rows a package added at version 2"
-    assert [rec["op"] for rec in registry.rows(3)] == [rec["op"] for rec in rows], "version 3 is the served version: the rows of version 2 and the row a package added at version 3"
+    assert [rec["op"] for rec in registry.rows(3)] == [rec["op"] for rec in rows if rec["since"] <= 3], "version 3 has the rows of version 2 and the row a package added at version 3"
+    assert [rec["op"] for rec in registry.rows(4)] == [rec["op"] for rec in rows], "version 4 is the served version: the rows of version 3 and the row a package added at version 4"
     whole = registry.row("event-change")
     assert whole["class"] == "E" and whole["slots"]["target"] == {"kind": "span", "param": "target", "since": 1}
     assert registry.row("nothing") is None and registry.privacy("nothing") is None and registry.cost("nothing") is None and registry.about("nothing") is None
@@ -448,10 +485,10 @@ def test_vacuity_always_follows_the_cost_and_the_privacy_and_a_mistyped_class_is
 def test_every_served_read_has_a_sentence_so_that_a_new_read_cannot_skip_the_question():
     for rec in registry.rows():
         if rec["class"] == "R" or rec["op"] in natural.LINE_WORK:
-            assert rec["op"] in plan_confirm.NOT_ASKED or rec["op"] in plan_confirm.SENTENCES, rec["op"]
+            assert rec["op"] in plan_confirm.NOT_ASKED or RUN_AS.get(rec["op"], rec["op"]) in plan_confirm.SENTENCES, rec["op"]
     assert plan_confirm.NOT_ASKED == ("commands",)
     reads = {rec["op"] for rec in registry.rows() if rec["class"] == "R"}
-    assert len(reads) == 25 and set(plan_confirm.SENTENCES) >= reads - {"commands"}
+    assert len(reads) == 26 and set(plan_confirm.SENTENCES) >= {RUN_AS.get(op, op) for op in reads} - {"commands"}
 
 
 def test_vacuity_a_served_read_with_no_sentence_would_be_seen(monkeypatch):
@@ -464,7 +501,7 @@ def test_vacuity_a_served_read_with_no_sentence_would_be_seen(monkeypatch):
     by_name = {row["name"]: row for row in rows}
     change(by_name)
     monkeypatch.setattr(operations, "OPERATIONS", tuple(rows + [by_name["demo-list"]]))
-    missing = [rec["op"] for rec in registry.rows() if rec["class"] == "R" and rec["op"] not in plan_confirm.NOT_ASKED and rec["op"] not in plan_confirm.SENTENCES]
+    missing = [rec["op"] for rec in registry.rows() if rec["class"] == "R" and rec["op"] not in plan_confirm.NOT_ASKED and RUN_AS.get(rec["op"], rec["op"]) not in plan_confirm.SENTENCES]
     assert missing == ["demo-list"]
 
 
@@ -488,7 +525,7 @@ def test_the_command_line_helps_and_lists():
     listed = subprocess.run([sys.executable, str(RUNTIME / "registry.py"), "--list"], capture_output=True, text=True, timeout=60)
     assert listed.returncode == 0
     lines = listed.stdout.splitlines()
-    assert len(lines) == 105 and lines[0].split("\t")[:2] == ["status", "R"] and all(len(line.split("\t")) == 6 for line in lines)
+    assert len(lines) == 106 and lines[0].split("\t")[:2] == ["status", "R"] and all(len(line.split("\t")) == 6 for line in lines)
     plain = subprocess.run([sys.executable, str(RUNTIME / "registry.py")], capture_output=True, text=True, timeout=60)
     assert plain.returncode == 0 and "usage" in plain.stdout.lower()
 
@@ -497,8 +534,8 @@ def test_the_catalog_of_the_first_measurement_is_retired_and_the_served_one_is_t
     """CB-9 served `interpreter_catalog_cb9_round1` for its first measurement (2026-10-28), then re-worded five rows after it: that catalog is history, the epoch file says so, and no entry pins it."""
     epochs = json.loads((REPO / "evals" / "interpreter" / "epochs.json").read_text(encoding="utf-8"))
     by_hash = {e["catalog_sha256"]: e["state"] for e in epochs["epochs"]}
-    assert by_hash[PINNED_HASHES["interpreter_catalog_cb9_round1"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_cb9"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_mail_ask"]] == "served"
-    assert PINNED_HASHES["interpreter_catalog_cb9_round1"] != PINNED_HASHES["interpreter_catalog_cb9"] != PINNED_HASHES["interpreter_catalog_mail_ask"] == epochs["served"]
+    assert by_hash[PINNED_HASHES["interpreter_catalog_cb9_round1"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_cb9"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_mail_ask"]] == "retired" and by_hash[PINNED_HASHES["interpreter_catalog_v4"]] == "served"
+    assert PINNED_HASHES["interpreter_catalog_cb9_round1"] != PINNED_HASHES["interpreter_catalog_cb9"] != PINNED_HASHES["interpreter_catalog_mail_ask"] != PINNED_HASHES["interpreter_catalog_v4"] == epochs["served"]
     assert [e["state"] for e in epochs["epochs"]].count("served") == 1, "one epoch serves at a time"
     entries = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]
     assert PINNED_HASHES["interpreter_catalog_cb9_round1"] not in {e["catalog_sha256"] for e in entries}

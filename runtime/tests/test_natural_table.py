@@ -21,7 +21,7 @@ phrases = st.load("phrases")
 nt = st.load("natural_time")
 
 R = extend("natural_table.R", {"status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research"})      # NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
+     "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "agenda"})      # P5: agenda, the events of the calendar (a read the dispatcher runs as items); NR-5 (Q6): items, the numbered messages and events; S8: file-read, the text of a file by its name
 N = extend("natural_table.N", {"remind", "reminder-forget", "reminder-restore"})
 W = extend("natural_table.W", {"cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"})
 D = {"approve", "reject", "release", "answer", "go-ahead"}
@@ -29,7 +29,7 @@ E = extend("natural_table.E", {"event-create", "event-change", "event-cancel", "
      "file-create", "file-replace", "file-save", "file-trash"})
 WORK = extend("natural_table.WORK", {"say", "request", "route", "ask"})
 GROUNDING = {"target", "day"}      # the two slots that name an item of the person's own calendar or mailbox by its words (B''-lite); no operation has a parameter of that name
-WORDS_PARAMS = {("items", "day"): "day_span", ("items", "state"): "state_span", ("reminder-forget", "target"): "matching", ("todo-done", "target"): "target"}      # the test's own literal: CB-1, CB-5 and CB-8 (served since CB-9): words that name an item by itself, read by code from the span (runtime/ops_items.py SPAN_PARAMS, the reminders' matcher, runtime/ops_todo.py), never an argument of the operation
+WORDS_PARAMS = {("items", "day"): "day_span", ("agenda", "day"): "day_span", ("items", "state"): "state_span", ("items", "service"): "service_word", ("reminder-forget", "target"): "matching", ("todo-done", "target"): "target"}      # the test's own literal: CB-1, CB-5 and CB-8 (served since CB-9): words that name an item by itself, read by code from the span (runtime/ops_items.py SPAN_PARAMS, the reminders' matcher, runtime/ops_todo.py), never an argument of the operation
 CLASS_SET = {"R", "N", "W", "D", "E", "G", "work"}
 OPS = {row["name"] for row in operations.OPERATIONS}
 

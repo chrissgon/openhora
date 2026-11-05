@@ -61,6 +61,7 @@ Usage:
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py attachments --project <dir>
   python3 runtime/cli.py items --project <dir> [--kind mail|calendar] [--source <id>]
+  python3 runtime/cli.py agenda --project <dir> [--source <id>] [--match <words>]
   python3 runtime/cli.py attachment-add --project <dir> --id <attachment id>
   python3 runtime/cli.py attachment-discard --project <dir> --id <attachment id>
   python3 runtime/cli.py remind --project <dir> --when <HH:MM | YYYY-MM-DD HH:MM | in <n>m|h|d> (--text <words> | --text-file <path>) --to <platform>:<sender id>
@@ -335,6 +336,8 @@ attachments  the files people sent through a messaging app that wait for your an
 items     the numbered items of the newest snapshot of each mail or calendar source (--kind and --source narrow it): a message by its sender and subject, an event by
           its line, numbered as the references <source>#<n> number them, so that "the e-mail 3" and "event 2" of a line in words point to something you can see. A
           snapshot older than 26 hours is not listed (refresh it first). Private: another person's words. Nothing is written and no model is called.
+agenda    the numbered events of the newest snapshot of each calendar source (--source and --match narrow it): the same as items --kind calendar, so that "event 2" of a line in
+          words points to something you can see. Private: another person's words. Nothing is written and no model is called.
 attachment-add  adds a held file (--id) as a source of the project, or as the next version of the source it names: the same container with no
           network, credential scan and immutable version as source-import, with where it came from (the platform and the profile, never
           who sent it). The held file is deleted whatever the result.

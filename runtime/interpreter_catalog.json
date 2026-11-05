@@ -127,10 +127,11 @@
    "op": "items",
    "slots": {
     "day": "span",
+    "service": "word",
     "state": "span",
     "target": "span"
    },
-   "what": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. To narrow it: the sender or subject words in target, the day or week in day, the words for unread in state. Not a web search."
+   "what": "Choose this to list the numbered messages of the person's mail snapshots (messages and events asked together are items too); it only lists, another operation reads one message's full text. Narrow it with the sender or subject words in target, the day or week in day, and in state only the words for unread or read (\"o último\", \"the latest\" are a count, not a state: leave them out). The calendar alone is agenda. service only when the line says Gmail or Outlook. Not a web search."
   },
   {
    "class": "R",
@@ -205,7 +206,7 @@
    "slots": {
     "id": "int"
    },
-   "what": "Choose this to pause a routine; id is the routine's number written in the line."
+   "what": "Choose this to pause a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change."
   },
   {
    "class": "W",
@@ -213,7 +214,7 @@
    "slots": {
     "id": "int"
    },
-   "what": "Choose this to cancel a routine; id is the routine's number written in the line. Not cancel, which is for a request."
+   "what": "Choose this to cancel a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change. Not cancel, which is for a request."
   },
   {
    "class": "W",
@@ -227,7 +228,7 @@
    "slots": {
     "id": "int"
    },
-   "what": "Choose this to change a routine; id is the routine's number written in the line."
+   "what": "Choose this to change a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change."
   },
   {
    "class": "W",
@@ -277,7 +278,7 @@
     "event": "int",
     "target": "span"
    },
-   "what": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget."
+   "what": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. A whole repeating series too (todas, a série inteira, all of them): target holds the event's words. Not reminder-forget."
   },
   {
    "class": "E",
@@ -287,7 +288,7 @@
     "subject": "span",
     "to": "word"
    },
-   "what": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft."
+   "what": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, or the recipient's name as the line writes it when the line gives no address; subject and body the line's own words. Not a reply and not a draft."
   },
   {
    "class": "E",
@@ -296,9 +297,10 @@
     "body": "span",
     "day": "span",
     "message": "int",
+    "service": "word",
     "target": "span"
    },
-   "what": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text."
+   "what": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -306,11 +308,12 @@
    "slots": {
     "body": "span",
     "message": "int",
+    "service": "word",
     "subject": "span",
     "target": "span",
     "to": "word"
    },
-   "what": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent."
+   "what": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -318,9 +321,10 @@
    "slots": {
     "day": "span",
     "messages": "ints",
+    "service": "word",
     "target": "span"
    },
-   "what": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers."
+   "what": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -329,9 +333,10 @@
     "day": "span",
     "folder": "word",
     "messages": "ints",
+    "service": "word",
     "target": "span"
    },
-   "what": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination."
+   "what": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -339,10 +344,11 @@
    "slots": {
     "day": "span",
     "messages": "ints",
+    "service": "word",
     "state": "span",
     "target": "span"
    },
-   "what": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread."
+   "what": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -350,9 +356,10 @@
    "slots": {
     "day": "span",
     "messages": "ints",
+    "service": "word",
     "target": "span"
    },
-   "what": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers."
+   "what": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers. service only when the line says Gmail or Outlook."
   },
   {
    "class": "E",
@@ -416,6 +423,15 @@
   },
   {
    "class": "R",
+   "op": "agenda",
+   "slots": {
+    "day": "span",
+    "target": "span"
+   },
+   "what": "Choose this for the events of the person's own calendar: what they have, where they need to be, on a day or a week; day is the day or week the line gives, target the words of an event's title. A question about what the person has is this op too. Not the mail (items), not reminders (reminders)."
+  },
+  {
+   "class": "R",
    "op": "todo-list",
    "slots": {
     "service": "word"
@@ -448,13 +464,13 @@
     "file": "span",
     "service": "word"
    },
-   "what": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it (a total, a date, a clause), even with the name mid-question; file is the name as written. Not to show it (file-read), not the project's sources when no file is named (ask), not the web (research)."
+   "what": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it, even with the name mid-question. A name that looks like a file's (a hyphen inside it, or a dot and an ending: orcamento-teste, contrato.pdf) is a file even with no drive named; file is the name alone, without planilha, arquivo, documento or the drive. Not to show it (file-read), not the project's sources (ask), not the web (research)."
   },
   {
    "class": "work",
    "op": "ask",
    "slots": {},
-   "what": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks."
+   "what": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Never when the line holds a name that looks like a file's (that is file-ask). Not a web search (research), not mail, calendar or tasks."
   },
   {
    "class": "G",
@@ -668,5 +684,5 @@
    "what": "Execute an effect inside a standing approval."
   }
  ],
- "v": 3
+ "v": 4
 }

@@ -253,10 +253,12 @@ def test_a_changed_compose_prompt_turns_composing_off_and_the_interpreter_stays_
 def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_prompt():
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
+    p5, every = every[-1], every[:-1]
+    assert {k for k in set(p5) | set(every[-1]) if p5.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "catalog_sha256", "reason", "status_line", "fallback"}, "P5: the newest entry changes only the date, the two hashes, the two texts and drops the outage path; the rest of this test reads the entries before it"
     reserve, every = every[-1], every[:-1]
     assert {k for k in set(reserve) | set(every[-1]) if reserve.get(k) != every[-1].get(k)} == {"reason", "status_line", "fallback"} and [{k: v for k, v in i.items() if k != "measured"} for i in reserve["fallback"]] == [{k: v for k, v in i.items() if k != "measured"} for i in every[-1]["fallback"]], "RESERVE-V3: the newest entry changes only the reason, the status line and the outage path's `measured` against the probe entry; the rest of this test reads the entries before them"
     probe, every = every[-1], every[:-1]
-    assert {k for k in probe if probe.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "reason", "status_line"} and probe["prompt_sha256"] == PINNED_HASHES["interpreter_prompt"], "ANY-QUESTION Q3: the probe entry changes only the interpreter prompt; the rest of this test reads the entries before it"
+    assert {k for k in probe if probe.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "reason", "status_line"} and probe["prompt_sha256"] == PINNED_HASHES["interpreter_prompt_9e63"], "ANY-QUESTION Q3: the probe entry changes only the interpreter prompt; the rest of this test reads the entries before it"
     assert "event_card_prompt_sha256" in every[-1] and "event_card_prompt_sha256" in every[-2] and "event_card_prompt_sha256" not in every[-3] and all("fallback" in every[-n] for n in (1, 2, 3, 4)) and "fallback" not in every[-5], "the newest two entries pin the event card text (the newest is that of mail-card-recipient, the one before it that of CARD-MODEL-SEES), the one before them is the entry of MAIL-SUMMARY-FLIP and the one before that the outage-path entry of LUNA-ENABLE (each carries every pin of the one before it, checked in test_interpreter_enable.py); this test reads the entries before them"
     every = every[:-4]
     entries = every[:-5]      # without the five newest entries (R2-A adds `file-trash` to the catalog, B″-lite the target and day slots, BL5B the interpreter's rule 9, BL7-3 its rules 10 and 11, CB-9 the catalog of version 2), which carry every pin of the one before them but the interpreter prompt of BL5B and BL7-3

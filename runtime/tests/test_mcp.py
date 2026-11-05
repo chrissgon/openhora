@@ -33,7 +33,7 @@ plans = st.load("plan")
 service = st.load("service")
 
 # The operations that take the channel as an argument (the shell gives it, the client cannot), in the order of the table; a package adds its own through expected/ (HOT-1).
-CHANNEL_ARG_BASE = ["route", "task", "pending", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "instructions-set",
+CHANNEL_ARG_BASE = ["route", "task", "pending", "answer", "release", "approve", "reject", "retry", "cancel", "stop-task", "set-mode", "set-model", "give-consent", "dispatch", "say", "ask", "conversation", "source-add", "attachments", "items", "agenda", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore", "file-create", "file-replace", "file-save", "file-trash", "file-read", "research", "instructions-set",
     "instructions-add", "routine-create", "routine-change", "routine-pause", "event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"]
 CHANNEL_ARG = extend("mcp.CHANNEL_ARG", CHANNEL_ARG_BASE)
 

@@ -100,6 +100,14 @@ def _account_of(said, args: dict):
     return found, False
 
 
+def _service_of(said, word):
+    """P5 (catalog version 4, the slot `service` of the six mail act ops): the account (`google` or `microsoft`) that the brand word of a `service` slot names in the line, read exactly as this
+    module reads it for `mail-read` (`_account_of`), or None when the word names none or is unreadable. The interpreter's caller of the seeds of the mail acts (`ops_interpret`, a module whose
+    source holds no word of an account of its own) takes it from here."""
+    found, _unreadable = _account_of(said, {"account": word})
+    return found
+
+
 def _check(args: dict) -> dict:
     """The arguments of the call, checked: {"ref" (source, n) | None, "number", "match" (the span), "day" (the span)}. core.OpsError (2) for a value that is not of its shape."""
     message, number, match, day = args.get("message"), args.get("number"), args.get("match"), args.get("day")

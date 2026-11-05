@@ -107,7 +107,11 @@ HELP_WIDTH = 27
 # Package MAIL-SUMMARY-FLIP (2026-10-31) raised it from 2 to 3: the row `mail-ask` and its slots are served, and the texts of `mail-read` and `ask` say when to choose `mail-ask`. A draft pull request that
 # no one merges before the maintainer's paid runs (the arm of the flip, the lab cases of `asst-answer`). The `about` texts of `mail-read` and `ask` changed with it, so `--version 2 --print` no longer
 # writes the catalog CB-9 served byte for byte (its hash stays pinned as history, `interpreter_catalog_cb9`); the catalog of version 1 is worded with `what` and is unchanged.
-LINE_CATALOG = 3
+# Package P5 (2026-11-05, SPEC-P5-CATALOG-V4) raised it from 3 to 4: `items` is the mail and a new read `agenda` is the calendar, the texts of the routine and event rows say a routine is a routine and a series is
+# an event, `file-ask` and `ask` say a name that looks like a file's is a file, and the six mail act ops serve the slot `service` (the account word). A draft pull request that no one merges before the measurement
+# (the probe entry of runtime/interpreter_enable.json). The `about` texts of `items` and of the rows above changed with it, so `--version 3 --print` no longer writes the catalog MAIL-SUMMARY-FLIP served byte
+# for byte (its hash stays pinned as history, `interpreter_catalog_mail_ask`; the copy is evals/interpreter/replay/catalogs/catalog-aed31af3.json).
+LINE_CATALOG = 4
 
 OPERATIONS = (
     {"name": "request", "call": "request",
@@ -461,7 +465,7 @@ OPERATIONS = (
      "help": "answer a question from the text of the project's sources, with the quotes it rests on and the sources and versions read: one run of the answer skill, no plan to approve; the sources are chosen by code (@<id> to name them), the answer goes only to the shell or chat that asked; never the MCP mode, and on a messaging app only for a sender whose profile lists the group ask",
      "natural": {"class": "work", "since": 1, "order": 99, "privacy": "off-host", "cost": "model",
                  "what": "answer a question from the text of the project's sources (the question is the person's whole line)",
-                 "about": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks.",
+                 "about": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Never when the line holds a name that looks like a file's (that is file-ask). Not a web search (research), not mail, calendar or tasks.",
                  "slots": {}}},
     {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "each area agent: its mode, its caps, what it used today and how many tasks wait for it",
@@ -641,8 +645,19 @@ OPERATIONS = (
      "help": "the numbered items of the newest snapshot of each mail or calendar source (--kind mail|calendar and --source <id> narrow it; --match <words> keeps the messages whose sender or subject hold every word, and the events whose title holds them; --unread keeps the messages the provider says are not read): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is written",
      "natural": {"class": "R", "since": 1, "order": 19, "privacy": "account", "cost": "provider",
                  "what": "the numbered messages and events of the mail and calendar snapshots",
-                 "about": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. To narrow it: the sender or subject words in target, the day or week in day, the words for unread in state. Not a web search.",
-                 "slots": {"target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day_span", "since": 2}, "state": {"kind": "span", "param": "state_span", "since": 2}}}},
+                 "about": "Choose this to list the numbered messages of the person's mail snapshots (messages and events asked together are items too); it only lists, another operation reads one message's full text. Narrow it with the sender or subject words in target, the day or week in day, and in state only the words for unread or read (\"o último\", \"the latest\" are a count, not a state: leave them out). The calendar alone is agenda. service only when the line says Gmail or Outlook. Not a web search.",
+                 "slots": {"target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day_span", "since": 2}, "state": {"kind": "span", "param": "state_span", "since": 2},
+                           "service": {"kind": "word", "param": "service_word", "since": 4}}}},
+    # P5 (catalog version 4): the calendar alone. The typed `/agenda` is `items --kind calendar`; a line the interpreter reads as `agenda` is run as `items` with the kind calendar (runtime/ops_natural.py), so
+    # the policy, the plan, its hash and the list are the ones of `items`.
+    {"name": "agenda", "call": "agenda",
+     "args": ({"name": "source", "kind": "str"}, {"name": "match", "kind": "str"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "the numbered events of the newest snapshot of each calendar source; --match keeps the events whose title holds every word; nothing is written",
+     "natural": {"class": "R", "since": 4, "order": 102, "privacy": "account", "cost": "provider",
+                 "what": "the numbered events of the calendar snapshots",
+                 "about": "Choose this for the events of the person's own calendar: what they have, where they need to be, on a day or a week; day is the day or week the line gives, target the words of an event's title. A question about what the person has is this op too. Not the mail (items), not reminders (reminders).",
+                 "slots": {"target": {"kind": "span", "param": "match", "since": 4}, "day": {"kind": "span", "param": "day_span", "since": 4}}}},
     {"name": "attachment-hold", "call": "attachment_hold",
      "args": ({"name": "incoming", "kind": "str", "required": True},
               {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"},
@@ -798,7 +813,7 @@ OPERATIONS = (
      "help": "answer a question about what ONE file of your Google Drive (account google) or OneDrive (account microsoft) says, found by its name by the search of file-read (the folders the project lists under accounts.<account>.folders and the folders inside them; several matches are listed to choose from on a messaging app, and the full name is asked elsewhere): the converted text of that file, read now, goes to one run of the answer skill in an isolated container with no web that can act on nothing, within the project's file_ask bounds (max_cost_usd, timeout_seconds, max_per_day); the answer comes back only to the shell or chat that asked, with the passages code checked in the file; nothing of the file is registered or kept. A messaging sender needs the groups ask-files and read-files",
      "natural": {"class": "R", "since": 2, "order": 150, "privacy": "off-host", "cost": "model",
                  "what": "answer a question about what ONE file of the person's own Drive or OneDrive says (the name is the file span; the service word only when the line says Google Drive or OneDrive; the question is the person's whole line)",
-                 "about": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it (a total, a date, a clause), even with the name mid-question; file is the name as written. Not to show it (file-read), not the project's sources when no file is named (ask), not the web (research).",
+                 "about": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it, even with the name mid-question. A name that looks like a file's (a hyphen inside it, or a dot and an ending: orcamento-teste, contrato.pdf) is a file even with no drive named; file is the name alone, without planilha, arquivo, documento or the drive. Not to show it (file-read), not the project's sources (ask), not the web (research).",
                  "slots": {"file": {"kind": "span", "param": "file", "since": 2}, "service": {"kind": "word", "param": "account", "since": 2}}}},
     # R2-F1: a question of general information (the weather, a price, the news, a fact) answered by a web search. One run of the skill core-research with web access, chosen by code, outside any
     # area agent's pack; the question and the answer's links pass a web search service and the model that runs it. The group research is in no default policy; never on the page or the MCP mode.
@@ -862,7 +877,7 @@ OPERATIONS = (
      "help": "change a routine: what is given replaces what is there; its approval is cleared and it is a draft until routine-approve; a change of the model clears the consent",
      "natural": {"class": "W", "since": 1, "order": 31, "privacy": "own", "cost": "none",
                  "what": "change a routine",
-                 "about": "Choose this to change a routine; id is the routine's number written in the line.",
+                 "about": "Choose this to change a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change.",      # validate: allow english-only -- the Portuguese words of the text the model reads
                  "slots": {"id": {"kind": "int", "param": "routine_id", "since": 1}}}},
     {"name": "routine-approve", "call": "routine_approve",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"}),
@@ -876,7 +891,7 @@ OPERATIONS = (
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up",
      "natural": {"class": "W", "since": 1, "order": 28, "privacy": "own", "cost": "none",
                  "what": "pause a routine",
-                 "about": "Choose this to pause a routine; id is the routine's number written in the line.",
+                 "about": "Choose this to pause a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change.",      # validate: allow english-only -- the Portuguese words of the text the model reads
                  "slots": {"id": {"kind": "int", "param": "routine_id", "since": 1}}}},
     {"name": "routine-resume", "call": "routine_resume", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page"), "model": False, "help": "resume a paused routine; its approval stands and every fire still compares the hash",
@@ -888,7 +903,7 @@ OPERATIONS = (
      "channels": ("terminal", "page", "messaging"), "model": False, "help": "cancel a routine for good (it is never deleted; its fires stay on record)",
      "natural": {"class": "W", "since": 1, "order": 29, "privacy": "own", "cost": "none",
                  "what": "cancel a routine",
-                 "about": "Choose this to cancel a routine; id is the routine's number written in the line. Not cancel, which is for a request.",
+                 "about": "Choose this to cancel a routine, only when the line names a routine (rotina, routine) or its number; id is the routine's number written in the line. An event of the person's calendar, once or repeating (academia, aula, reunião), is event-cancel or event-change. Not cancel, which is for a request.",      # validate: allow english-only -- the Portuguese words of the text the model reads
                  "slots": {"id": {"kind": "int", "param": "routine_id", "since": 1}}}},
     # W1: the person's own calendar (SPEC-SECRETARY-WRITES 3.1). Each one PREPARES a card and writes nothing: the event is written when its card is approved with its hash
     # (limit L55). Off for a messaging app until a profile lists the group calendar-write; never on the MCP mode.
@@ -927,7 +942,7 @@ OPERATIONS = (
      "help": "prepare the removal of an event of your own calendar and stop at a card (nothing is removed until you approve it with its hash, and only if the event is still as it was read): only an event you organize with no other attendee; for an event of a daily or weekly series give --series (the whole series) or --occurrence YYYY-MM-DD (only that day's occurrence: the series stays), and a series is never changed; Google is expected to move it to the calendar's trash for 30 days (to verify live); on Outlook the removed event may not be recoverable (not verified); nobody is told",
      "natural": {"class": "E", "since": 1, "order": 41, "privacy": "account", "cost": "provider",
                  "what": "a card that removes an event of the person's own calendar (the event is named by its words in target, with the day the line gives in day; event only when the line writes the event's number)",
-                 "about": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
+                 "about": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. A whole repeating series too (todas, a série inteira, all of them): target holds the event's words. Not reminder-forget.",
                  "slots": {"event": {"kind": "int", "param": "event", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
     # CB-5: the person's own to-do list (SPEC-CATALOG-BATCH 6.5): Google Tasks and Microsoft To Do, only the lists the project names under `accounts.<a>.task_lists`. The names are `todo-*`, not `task-*`: the
     # platform's own work already has `task`, `stop-task` and `run-task`. Rows of the catalog version 2: a typed command reaches them at once, a line in words since the flip of CB-9 (LINE_CATALOG).
@@ -970,7 +985,7 @@ OPERATIONS = (
      "help": "prepare an e-mail from your own Google or Microsoft account and stop at a card that shows the whole e-mail (nothing is sent until you approve the card with its hash): --text or --text-file is the body; --to, --cc and --bcc are plain comma-separated addresses, at most 20 in all (a Google account sends no Bcc in this version); --attach is a file under docs/ (repeat it), and an e-mail with a file is approved in the terminal or on the page, never on a messaging card; the sender is the address of the account in runtime.json (the key accounts); it is sent once",
      "natural": {"class": "E", "since": 1, "order": 42, "privacy": "account", "cost": "provider",
                  "what": "a card that sends an e-mail from the person's own account",
-                 "about": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft.",
+                 "about": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, or the recipient's name as the line writes it when the line gives no address; subject and body the line's own words. Not a reply and not a draft.",
                  "slots": {"to": {"kind": "word", "param": "to", "since": 1}, "subject": {"kind": "span", "param": "subject", "since": 1}, "body": {"kind": "span", "param": "text", "since": 1}}}},
     {"name": "mail-reply", "call": "mail_reply",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},
@@ -979,8 +994,8 @@ OPERATIONS = (
      "help": "prepare a reply to a message of a mail snapshot and stop at a card (nothing is sent until you approve the card with its hash): --message is <source>#<n>, the n-th message of the newest snapshot of a mail source of that account; --text or --text-file is the body; the reply goes to the sender of that message and to no one else (a Reply-To is shown on the card and not used; there is no reply to all), with the subject after Re:, in the message's conversation; from a messaging app the sender also needs the group ask-mail to name a message",
      "natural": {"class": "E", "since": 1, "order": 43, "privacy": "account", "cost": "provider",
                  "what": "a card that sends a reply to an e-mail (the message is named by its words in target: its sender or its subject, with the day it came in day; message only when the line writes its number; the reply's text in body)",
-                 "about": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text.",
-                 "slots": {"message": {"kind": "int", "param": "message", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "body": {"kind": "span", "param": "text", "since": 1}}}},
+                 "about": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text. service only when the line says Gmail or Outlook.",
+                 "slots": {"message": {"kind": "int", "param": "message", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "body": {"kind": "span", "param": "text", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
     # W3: the person's own mailbox (SPEC-SECRETARY-WRITES 3.3). Each one PREPARES a card and writes nothing: the change is made when its card is approved with its hash
     # (limit L55); nothing is sent and nothing is deleted for good. `messages` is references <source id>#<n> to the messages of a mail snapshot, comma-separated. Off for a
     # messaging app until a profile lists the group mail-organize; never on the MCP mode.
@@ -992,40 +1007,40 @@ OPERATIONS = (
      "help": "prepare a draft in your own mailbox and stop at a card that shows it whole (nothing is saved until you approve it with its hash, and it is NEVER sent): a new one (--to, --subject, --body; --cc and --bcc optional; comma-separated plain addresses, at most 20 in all) or a reply (--message <source>#<n> and --body: it goes to that message's sender, never to its Reply-To)",
      "natural": {"class": "E", "since": 1, "order": 44, "privacy": "account", "cost": "provider",
                  "what": "a card that saves a draft in the person's own mailbox (to answer a message, the message is named by its words in target; message only when the line writes its number)",
-                 "about": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent.",
-                 "slots": {"to": {"kind": "word", "param": "to", "since": 1}, "subject": {"kind": "span", "param": "subject", "since": 1}, "body": {"kind": "span", "param": "body", "since": 1}, "message": {"kind": "int", "param": "message", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}}}},
+                 "about": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent. service only when the line says Gmail or Outlook.",
+                 "slots": {"to": {"kind": "word", "param": "to", "since": 1}, "subject": {"kind": "span", "param": "subject", "since": 1}, "body": {"kind": "span", "param": "body", "since": 1}, "message": {"kind": "int", "param": "message", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
     {"name": "mail-archive", "call": "mail_archive",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "prepare taking 1 to 20 messages out of the inbox (Gmail: the label INBOX is removed; Outlook: they move to the Archive folder) and stop at a card that lists each one by its subject and sender as the mailbox holds them now (nothing changes until you approve it with its hash, and only if every message is still as listed); --messages are references <source>#<n> to the messages of a mail snapshot",
      "natural": {"class": "E", "since": 1, "order": 45, "privacy": "account", "cost": "provider",
                  "what": "a card that takes messages out of the inbox (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)",
-                 "about": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers.",
-                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
+                 "about": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers. service only when the line says Gmail or Outlook.",
+                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
     {"name": "mail-move", "call": "mail_move",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}, {"name": "folder", "kind": "str", "required": True}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "prepare moving 1 to 20 messages to a mail folder or label (--folder is a name of the account's mail_folders in runtime.json; no other folder is written to) and stop at a card that lists each message (nothing changes until you approve it with its hash, and only if every message is still as listed)",
      "natural": {"class": "E", "since": 1, "order": 46, "privacy": "account", "cost": "provider",
                  "what": "a card that moves messages to a folder (named by their words in target, the day in day, or by the numbers the line writes in messages; the folder in folder)",
-                 "about": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination.",
-                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "folder": {"kind": "word", "param": "folder", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
+                 "about": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination. service only when the line says Gmail or Outlook.",
+                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "folder": {"kind": "word", "param": "folder", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
     {"name": "mail-mark", "call": "mail_mark",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}, {"name": "state", "kind": "choice", "choices": ("read", "unread"), "required": True}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "prepare marking 1 to 20 messages as read or unread and stop at a card that lists each message (nothing changes until you approve it with its hash, and only if every message is still as listed)",
      "natural": {"class": "E", "since": 1, "order": 47, "privacy": "account", "cost": "provider",
                  "what": "a card that marks messages read or unread (named by their words in target, the day in day, or by the numbers the line writes in messages)",
-                 "about": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread.",
-                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "state": {"kind": "span", "param": "state", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
+                 "about": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread. service only when the line says Gmail or Outlook.",
+                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "state": {"kind": "span", "param": "state", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
     {"name": "mail-trash", "call": "mail_trash",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True}, {"name": "messages", "kind": "str", "required": True, "label": "<source>#<n>,..."}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "prepare moving 1 to 20 messages to the trash (Gmail empties it after 30 days; Outlook empties Deleted Items after 30 days; this code deletes nothing) and stop at a card that lists each message (nothing moves until you approve it with its hash, and only if every message is still as listed)",
      "natural": {"class": "E", "since": 1, "order": 48, "privacy": "account", "cost": "provider",
                  "what": "a card that moves messages to the trash (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)",
-                 "about": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers.",
-                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}}}},
+                 "about": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers. service only when the line says Gmail or Outlook.",
+                 "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1042,7 +1057,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw", "items"),
+                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw", "items", "agenda"),
              "kind": None},
     # POL-2: what a limited reader sees on a messaging app: `read` without the spend (costs, agents' caps and spend), the connections and
     # the configuration, and without `task` and `progress`, which carry a run's cost. A profile lists `read` or `read-limited`, not both.

@@ -594,10 +594,10 @@ def good_item(route=FIRST, **over):
     return dict({"route": route, "route_sha256": hash_of(route) if known else "0" * 64, "measured": "2026-10-30 RESULT-X"}, **over)
 
 
-def test_a_valid_fallback_in_the_newest_entry_is_in_force_and_the_committed_entry_names_only_luna(tmp_path):
+def test_a_valid_fallback_in_the_newest_entry_is_in_force_and_the_committed_entry_names_none_since_p5(tmp_path):
     committed = json.loads((RUNTIME / "interpreter_enable.json").read_text(encoding="utf-8"))["entries"]      # LUNA-ENABLE (2026-10-28): the maintainer's dated entry names the outage route; MAIL-SUMMARY-FLIP (2026-10-31) copies it
-    assert [item["route"] for item in committed[-1]["fallback"]] == [SECOND] and interpreter_enable.active("en")["fallback"] == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}]
-    assert interpreter_enable.fallbacks(committed[-1]) == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}] and committed[-2]["fallback"] == committed[-3]["fallback"] == committed[-4]["fallback"] == committed[-5]["fallback"] == committed[-6]["fallback"] and [{k: v for k, v in i.items() if k != "measured"} for i in committed[-1]["fallback"]] == [{k: v for k, v in i.items() if k != "measured"} for i in committed[-2]["fallback"]] and all("fallback" not in earlier for earlier in committed[:-6])      # the entries of MAIL-SUMMARY-FLIP, CARD-MODEL-SEES, mail-card-recipient, ANY-QUESTION Q3 and RESERVE-V3 (which copy it) carry the outage path of LUNA-ENABLE
+    assert "fallback" not in committed[-1] and interpreter_enable.fallbacks(committed[-1]) == [] and interpreter_enable.active("en")["fallback"] == [], "P5 (2026-11-05, the maintainer's decision): catalog 4 has no outage path, Luna failed bar line 3 in both rounds"
+    assert [item["route"] for item in committed[-2]["fallback"]] == [SECOND] and interpreter_enable.fallbacks(committed[-2]) == [{"route": SECOND, "route_sha256": PINNED_HASHES["route_or_gpt_6_luna"]}] and committed[-3]["fallback"] == committed[-4]["fallback"] == committed[-5]["fallback"] == committed[-6]["fallback"] == committed[-7]["fallback"] and [{k: v for k, v in i.items() if k != "measured"} for i in committed[-2]["fallback"]] == [{k: v for k, v in i.items() if k != "measured"} for i in committed[-3]["fallback"]] and all("fallback" not in earlier for earlier in committed[:-7])      # the entries of MAIL-SUMMARY-FLIP, CARD-MODEL-SEES, mail-card-recipient, ANY-QUESTION Q3 and RESERVE-V3 (which copy it) carry the outage path of LUNA-ENABLE; P5 (the newest) drops it
     for value in (good_item(), [good_item()], [good_item(), good_item(SECOND)]):
         path, entry_ = newest_with(tmp_path, value=value)
         found = interpreter_enable.active("en", path=path)
@@ -681,7 +681,7 @@ def test_the_status_script_reads_an_entry_with_a_fallback_as_in_force(tmp_path):
 
 
 def test_the_retention_of_the_fallback_routes_in_force(tmp_path):
-    assert interpreter_enable.fallback_retention() == [interpreter_route.find(SECOND)["retention"]], "the committed newest entry names the second route only (LUNA-ENABLE, 2026-10-28)"
+    assert interpreter_enable.fallback_retention() is None, "the committed newest entry names no route since P5 (2026-11-05); the entries from LUNA-ENABLE (2026-10-28) to RESERVE-V3 named the second route only"
     path, _ = newest_with(tmp_path / "none", value=None)
     assert interpreter_enable.fallback_retention(path) is None and interpreter_enable.active("en", path=path)["fallback"] == [], "the same entry without the field: the interpreter on, no fallback"
     path, _ = newest_with(tmp_path, value=[good_item(), good_item(SECOND)])
@@ -779,7 +779,8 @@ def test_widening_the_group_says_that_no_fallback_is_enabled_when_the_newest_ent
     assert policy_widening.widening_sha256([{"place": KEY["owner"], "group": "interpret-fallback"}]) is not None
 
 
-def test_widening_the_group_names_luna_and_its_retention_on_the_committed_entry(world):
+def test_widening_the_group_names_luna_and_its_retention_on_an_entry_that_names_it(world, monkeypatch, tmp_path):
+    monkeypatch.setattr(interpreter_enable, "ENABLE_FILE", newest_with(tmp_path, value=[good_item(SECOND)])[0])      # since P5 the committed entry names no route: an entry that names Luna stands for the entries before it
     accept(world["path"], policies=PROFILES, messaging={"senders": SENDERS})
     write_config(world["path"], policies=dict(PROFILES, owner=PROFILES["owner"] + ["interpret", "interpret-fallback"]))
     mine = [item for item in ops.config(world["path"])["widening"] if item["group"] == "interpret-fallback"]

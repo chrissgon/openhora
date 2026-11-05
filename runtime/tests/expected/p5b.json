@@ -1,0 +1,6 @@
+{
+ "package": "p5b",
+ "add": {
+  "operations_table.NOT_OPERATIONS": ["service_spans"]
+ }
+}
