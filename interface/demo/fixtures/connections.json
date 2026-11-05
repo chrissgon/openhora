@@ -116,6 +116,11 @@
       "where": null
     },
     {
+      "name": "MICROSOFT_ACCOUNT_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "NOTION_SOURCES_TOKEN",
       "found": false,
       "where": null
