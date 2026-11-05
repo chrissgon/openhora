@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_messaging.py
 """
 from __future__ import annotations
 
+from phone_literals import PLAIN_REFUSAL  # noqa: E402
+
 import hashlib
 import json
 import os
@@ -17,6 +19,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_service import Standin, WAIT
 
@@ -30,7 +33,7 @@ providers = st.load("messaging_provider")
 shell_kit = st.load("shell_kit")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_standin.py"
-SENDER = "4242"
+SENDER = "830461975213"
 OPEN_POLICY = ["read", "talk", "answer", "release", "approve-plans", "approve-acceptances", "reject-cancel", "retry"]
 PLAN_HASH = "p" * 64
 SECRET_TEXT = "Northwind shop launch plan, the private paragraph"
@@ -111,7 +114,13 @@ def world(tmp_path, monkeypatch):
         w.bridge.handle(update)
     w.say = say
     w.calls = lambda name: [c for c in w.fake.calls if c[0] == name]
-    return w
+    yield w
+    # A release, a say or an answer runs in a job thread of the bridge and replies from it. A thread a test did not wait
+    # for would send its reply after the test, through the provider of whichever test runs next (the provider reads
+    # STANDIN_DIR when it is started), and that test would find a stranger's message in its folder.
+    w.bridge.stopping.set()
+    for thread in list(w.bridge.threads):
+        thread.join(WAIT)
 
 
 def wait_for(condition, seconds=WAIT):
@@ -131,7 +140,8 @@ def test_a_new_plan_gets_one_card_with_approve_and_reject_and_the_same_plan_gets
     world.bridge.tick()
     [card] = world.sent()
     message = card["message"]
-    assert card["chat"] == SENDER and message["text"].startswith("northwind-shop · plan #1\n\n")
+    assert card["chat"] == SENDER and message["text"].count("\n\n") >= 1
+    pk.assert_said(message["text"].split("\n\n")[0], "HEADER", None, project="northwind-shop", kind="plan", id=1)
     assert SECRET_TEXT in message["text"]
     assert [a["label"] for a in message["actions"]] == ["Approve", "Reject"]
     assert all(len(a["id"].encode()) <= 64 for a in message["actions"])
@@ -147,8 +157,9 @@ def test_twelve_new_decisions_make_ten_cards_and_the_line_about_the_two_waiting(
         world.items[number] = decision("question", number, title=f"Q{number}")
     world.bridge.tick()
     sent = world.sent()
-    assert len(sent) == 11 and sent[-1]["message"]["text"] == "And 2 more waiting. Send /pending to list them."
-    assert all("· question #" in s["message"]["text"] for s in sent[:10])
+    assert len(sent) == 11 and "\n" not in sent[-1]["message"]["text"]
+    pk.assert_said(sent[-1]["message"]["text"], "MORE_LINE", None, n=2)
+    assert all(pk.said(s["message"]["text"].splitlines()[0], "HEADER", None, kind="question") for s in sent[:10])
     world.bridge.tick()  # the two left come now, one line is not repeated for the same number
     assert len(world.sent()) == 13
 
@@ -160,7 +171,8 @@ def test_notices_in_count_mode_carry_none_of_the_projects_text(world):
     world.bridge.tick()
     blob = json.dumps(world.sent())
     assert "Secret" not in blob and "secret" not in blob and "body" not in blob and SECRET_TEXT not in blob
-    assert "A plan waits for you." in blob and "A question waits for you." in blob
+    notices = [s["message"]["text"] for s in world.sent()]
+    assert any(pk.said(t, "WAITS_COUNT", None, kind="plan") for t in notices) and any(pk.said(t, "WAITS_COUNT", None, kind="question") for t in notices)
 
 
 def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
@@ -170,19 +182,21 @@ def test_the_closed_default_policy_draws_no_action_and_says_where_to_act(world):
     world.items[2] = decision("question", 2)
     world.bridge.tick()
     plan, question = [s["message"] for s in world.sent()]
-    assert plan["actions"] == [] and "/approve" not in plan["text"] and "Act on it on the page or in the terminal." in plan["text"]
+    assert plan["actions"] == [] and "/approve" not in plan["text"] and pk.said(plan["text"], "PAGE_LINE", None)
     assert plan["link"] == {"label": "Open the page", "url": "https://page.example/open"}
-    assert question["actions"] == [] and "Reply to this message to answer." in question["text"]
-    assert "Act on it on the page" not in question["text"] and question["link"] is None
+    assert question["actions"] == [] and pk.said(question["text"], "REPLY_LINE", None)
+    assert not pk.said(question["text"], "PAGE_LINE", None) and question["link"] is None
 
 
-def test_without_buttons_the_actions_are_typed_lines_and_with_one_button_the_second_is_a_line(world):
+def test_without_buttons_the_card_ends_with_the_words_that_decide_it_and_with_one_button_the_second_is_a_line(world):
+    """S2 (limit L64): a card with no buttons ends with the words that decide it, not with a command to send (decision 233)."""
     world.caps(buttons=False)
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     [first] = world.sent()
     assert first["message"]["actions"] == []
-    assert "Send /approve 1" in first["message"]["text"] and "Send /reject 1" in first["message"]["text"]
+    assert first["message"]["text"].endswith("Reply yes to approve or no to decline.")      # literal: the approval words on the last card are the text itself
+    assert "/approve" not in first["message"]["text"] and "/reject" not in first["message"]["text"]
     world.caps(buttons=True, max_buttons=1)
     world.items[2] = decision("plan", 2, plan_sha256="r" * 64)
     world.bridge.tick()
@@ -196,7 +210,7 @@ def test_a_long_text_is_cut_with_a_line_about_the_page_or_sent_as_a_document(wor
     world.items[1] = decision("plan", 1, body="x" * 2000)
     world.bridge.tick()
     [cut] = world.sent()
-    assert len(cut["message"]["text"]) <= 300 and cut["message"]["text"].rstrip().endswith("(continues on the page)")
+    assert len(cut["message"]["text"]) <= 300 and pk.said(cut["message"]["text"].rstrip().splitlines()[-1], "CUT", None)
     assert cut["message"]["document"] is None
     world.caps(max_text=300, documents=True)
     world.items[2] = decision("plan", 2, body="y" * 2000, plan_sha256="s" * 64)
@@ -205,20 +219,18 @@ def test_a_long_text_is_cut_with_a_line_about_the_page_or_sent_as_a_document(wor
     assert len(doc["text"]) <= 300 and doc["document"]["text"].endswith("y" * 2000) and doc["document"]["name"] == "plan-2.txt"
 
 
-def test_an_effect_card_has_no_approve_and_carries_the_exact_command_and_the_link(world):
+def test_an_effect_card_has_no_approve_names_the_page_and_carries_no_command_and_the_link(world):
     world.config["messaging"]["page_url"] = "https://page.example/open"
     world.items[7] = decision("effect", 7, title="Pull request", payload_sha256="e" * 64)
     world.bridge.tick()
     [card] = world.sent()
     message = card["message"]
     assert [a["label"] for a in message["actions"]] == ["Reject"]
-    assert "Approve it on the page or in the terminal:" in message["text"]
-    command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64)
-    assert message["text"].rstrip().endswith(f"`{command}`") and "e" * 64 in command  # on its own line, tap-to-copy
-    assert message["text"].rstrip().splitlines()[-1] == f"`{command}`"
+    assert pk.said(message["text"], "EFFECT_LINE", None)
+    assert "cli.py" not in message["text"] and "uv run" not in message["text"] and "--sha256" not in message["text"] and "e" * 64 not in message["text"]      # a phone is never given the command or the hash (LIVE-2)
     assert message["link"]["url"] == "https://page.example/open"
-    world.say("/approve 7")  # typed: no operation, the command again
-    assert world.calls("approve") == [] and command in world.texts()[-1]
+    world.say("/approve 7")  # typed: no operation, and the page is named, with its link
+    assert world.calls("approve") == [] and "cli.py" not in world.texts()[-1] and "https://page.example/open" in world.texts()[-1] and "e" * 64 not in world.texts()[-1]
 
 
 # --- the ledger -----------------------------------------------------------------------------------------------------
@@ -271,7 +283,7 @@ def test_a_tapped_approve_runs_approve_with_the_ledger_hash_as_the_channel_messa
 
 def test_a_stale_button_is_answered_and_a_changed_plan_is_refused_with_a_new_card(world):
     world.say(None, action="99:approve")
-    assert world.texts() == ["This button is no longer valid. Send /pending."] and world.calls("approve") == []
+    assert len(world.texts()) == 1 and pk.said(world.texts()[0], "STALE", None) and world.calls("approve") == []
     world.items[1] = decision("plan", 1)
     world.bridge.tick()
     action = world.sent()[-1]["message"]["actions"][0]["id"]
@@ -293,7 +305,7 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
     world.say(None, action=action)
     assert world.calls("approve") == []
     texts = world.texts()
-    assert "This decision changed since you saw it." in texts and "Accept 5 deliveries." in texts[-1]
+    assert any(pk.said(t, "CHANGED", None) for t in texts) and "Accept 5 deliveries." in texts[-1]
     fresh = world.sent()[-1]["message"]["actions"][0]["id"]
     world.fake.answers["approve"] = {"accepted": True}
     world.say(None, action=fresh)
@@ -304,21 +316,22 @@ def test_an_acceptance_whose_content_changed_after_its_card_is_not_approved_and_
 def test_typed_commands_are_bound_to_the_last_card_and_approve_needs_one(world):
     world.items[1] = decision("plan", 1)
     world.say("/approve 1")
-    assert world.texts() == ["Send /pending first, so you see what you approve."] and world.calls("approve") == []
+    assert len(world.texts()) == 1 and pk.said(world.texts()[0], "NO_CARD", None) and world.calls("approve") == []
     world.bridge.tick()
     world.fake.answers["approve"] = {"approved": True}
     world.say("/approve 1")
     assert world.calls("approve")[0][2] == {"pending_id": 1, "sha256": PLAN_HASH, "channel": "messaging"}
     world.fake.answers["reject"] = {"rejected": True}
     world.say("/reject 1 not now")
-    assert world.calls("reject")[0][2] == {"pending_id": 1, "note": "not now"}
+    assert world.calls("reject")[0][2] == {"pending_id": 1, "note": "not now", "channel": "messaging"}
     world.items[2] = decision("review", 2)
+    world.bridge.tick()
     world.fake.answers["release"] = {"released": True}
     world.say("/release 2")
-    assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2}
+    assert wait_for(lambda: world.calls("release")) and world.calls("release")[0][2] == {"pending_id": 2, "channel": "messaging"}
     assert wait_for(lambda: world.texts()[-1] == "Released #2.")
     world.say("/approve")
-    assert world.texts()[-1] == "Usage: /approve <id>"
+    pk.assert_said(world.texts()[-1], "USAGE_APPROVE", None)
 
 
 def test_the_closed_default_refuses_every_acting_command_in_the_bridge_and_calls_nothing(world):
@@ -326,10 +339,11 @@ def test_the_closed_default_refuses_every_acting_command_in_the_bridge_and_calls
     world.items[1] = decision("plan", 1)
     world.items[2] = decision("review", 2)
     world.bridge.tick()
-    for line in ("/approve 1", "/reject 1", "/release 2"):
-        world.say(line)
-        assert wait_for(lambda: "is not enabled for this channel" in world.texts()[-1]), line
-        assert "(channels.messaging) turns it on" in world.texts()[-1]
+    before = len(world.texts())  # what the tick sent
+    for count, line in enumerate(("/approve 1", "/reject 1", "/release 2"), start=1):
+        world.say(line)  # a release replies from a job thread: wait for this line's own reply, not the last one's
+        assert wait_for(lambda: len(world.texts()) >= before + count), line
+        assert world.texts()[-1] == PLAIN_REFUSAL, line      # one plain sentence: no command, no "error:", no key of the configuration
     assert world.calls("approve") == world.calls("reject") == world.calls("release") == []
     world.say("/status")  # a typed command the bridge does not handle goes to say, where the operations layer decides
     assert wait_for(lambda: world.calls("say")) and world.calls("say")[0][2] == {"text": "/status", "channel": "messaging"}
@@ -342,7 +356,8 @@ def test_pending_lists_and_sends_the_cards_the_person_lacks(world):
     assert texts[0] == "northwind-shop: #1 plan: Plan one" and "plan #1" in texts[1]
     world.items.clear()
     world.say("/pending")
-    assert world.texts()[-1] == "northwind-shop: nothing waits for you."
+    assert "\n" not in world.texts()[-1]
+    pk.assert_said(world.texts()[-1], "NOTHING_WAITS", None, name="northwind-shop")
 
 
 # --- answers and free text --------------------------------------------------------------------------------------------
@@ -352,19 +367,20 @@ def test_a_reply_to_a_questions_card_answers_that_decision_and_free_text_goes_to
     world.items[5] = decision("question", 5, title="Which market first?")
     world.bridge.tick()
     card_id = "101"
-    assert world.sent()[0]["message"]["text"].endswith("Reply to this message to answer.")
-    world.fake.answers["answer"] = {"answered": True}
+    assert pk.said(world.sent()[0]["message"]["text"].splitlines()[-1], "REPLY_LINE", None)
+    world.fake.answers["answer_proposing"] = {"answered": True}
     world.say("The home market.", reply_to=card_id)
-    assert world.calls("answer")[0][2] == {"pending_id": 5, "text": "The home market."}
+    assert world.calls("answer_proposing")[0][2] == {"pending_id": 5, "text": "The home market.", "channel": "messaging"}
     world.say("Plan a launch for Northwind shop.")
     assert wait_for(lambda: world.calls("say"))
     assert world.calls("say")[0][2] == {"text": "Plan a launch for Northwind shop.", "channel": "messaging"}
     assert wait_for(lambda: world.texts()[-1] == "Noted.")
     world.say("/answer 5 Another way")
-    assert world.calls("answer")[1][2] == {"pending_id": 5, "text": "Another way"}
+    assert world.calls("answer_proposing")[1][2] == {"pending_id": 5, "text": "Another way", "channel": "messaging"}
 
 
-def test_a_second_model_call_during_the_first_gets_still_working(world):
+def test_a_second_model_call_during_the_first_is_queued_and_a_command_gets_still_working(world):
+    """BQ-1: a line that meets a busy project waits (runtime/tests/test_messaging_queue.py has the rest); a command never waits."""
     entered, release = threading.Event(), threading.Event()
 
     def slow(project, text, channel):
@@ -375,10 +391,12 @@ def test_a_second_model_call_during_the_first_gets_still_working(world):
     world.say("first")
     assert entered.wait(WAIT)
     world.say("second")
-    assert world.texts() == ["Still working on the last message."]
+    assert world.texts() == [bridge.QUEUED]
+    world.say("/progress")
+    assert len(world.texts()) == 2 and world.texts()[0] == bridge.QUEUED and pk.said(world.texts()[1], "STILL_WORKING", None)
     release.set()
-    assert wait_for(lambda: world.texts()[-1] == "Done thinking.")
-    assert len(world.calls("say")) == 1
+    assert wait_for(lambda: world.texts()[-2:] == ["Done thinking.", "Done thinking."])
+    assert [c[2]["text"] for c in world.calls("say")] == ["first", "second"]
 
 
 def test_a_run_in_progress_gets_its_sentence_and_every_reply_is_split_to_the_text_limit(world):

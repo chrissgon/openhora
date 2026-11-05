@@ -105,8 +105,8 @@ def test_a_class_is_checked_through_the_resolution_function(monkeypatch):
     assert [c[-2:] for c in ran] == [[str(Path(doctor.PROVIDERS) / rel), "--check"] for rel in
                                      ("store/sqlite.py", "scheduler/systemd.py", "scheduler/launchd.py")]
     # Nothing to choose, or a name that is not a shipped provider: missing, and nothing is run.
-    status, detail = doctor.check_class("sender:email")
-    assert status == "missing" and "MAILER_PROVIDER" in detail
+    status, detail = doctor.check_class("generator:image")
+    assert status == "missing" and "GENERATOR_IMAGE_PROVIDER" in detail
     monkeypatch.setenv("SCHEDULER_PROVIDER", "../x")
     assert doctor.check_class("scheduler:job")[0] == "missing" and len(ran) == 3
     # A skill that still declares an old bare name is checked as the class it became, and told so.
@@ -150,6 +150,7 @@ def test_a_class_the_resolver_does_not_know_is_reported_as_unknown_without_a_tra
     """RS3: secrets_report raised UnknownClass for a class the resolution function did not have."""
     run_recorder(monkeypatch)
     monkeypatch.setitem(sys.modules, "keyring", None)  # the secrets report never reaches the OS secret store here
+    monkeypatch.setenv("MAILBOX_PROVIDER", "gmail")  # two readers ship since package M1: the class resolves once one is named
     declared = {"teleporter": ["eng-demo"], "reader:rss": ["eng-demo"], "store:runtime": ["eng-demo"],
                 "mailbox": ["mkt-demo"]}
     monkeypatch.setattr(doctor, "collect_requires", lambda: declared)

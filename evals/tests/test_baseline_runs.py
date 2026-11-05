@@ -39,7 +39,7 @@ def own_lock_folder(tmp_path, monkeypatch):
 
 def demo(tmp_path, monkeypatch, **gate):
     skill = t.scores_demo(tmp_path, monkeypatch)
-    t.configure_gate(tmp_path, strong_tolerance=0.05, runs=3, **gate)
+    t.configure_gate(tmp_path, tolerance=0.05, runs=3, **gate)
     return skill
 
 
@@ -109,3 +109,32 @@ def test_a_baseline_of_one_line_within_the_margin_is_a_thin_baseline_and_three_l
     row = b.band(tmp_path / "three", folder, cfg)
     assert "thin baseline" not in [c["kind"] for c in row["causes"]]
     assert row["band"] == "reliable"
+
+
+def tied(root, cases, with_score, base_score, results):
+    """A skill whose full test has 3 runs per case at with_score with the skill and one baseline line per case at base_score."""
+    folder = b.skill(root)
+    ids = range(1, cases + 1)
+    lines = [(c, "with", with_score, None) for c in ids for _ in range(3)]
+    lines += [(c, "without", base_score, {"results": results}) for c in ids]
+    b.event(folder, "full", "1.0.0", "2030-01-01", lines)
+    return folder
+
+
+@pytest.mark.parametrize("cases", [3, 6, 7])
+def test_a_distance_of_exactly_the_margin_is_not_a_thin_baseline_whatever_the_float_arithmetic_gives(tmp_path, cases):
+    """1.0 against 0.8 with a margin of 0.2 is a tie in decimals; in floats it is 0.19999999999999996 or 0.20000000000000007,
+    which differ between Python 3.11 and 3.12 (the slack of the gate, FLOAT_SLACK, decides it)."""
+    cfg = {**b.CFG, "baseline_margin": 0.2}
+    folder = tied(tmp_path, cases, 1.0, 0.8, [1, 1, 1, 1, 0])
+    row = b.band(tmp_path, folder, cfg)
+    assert row["gate"]["computed"] and row["gate"]["passed"]
+    assert "thin baseline" not in [c["kind"] for c in row["causes"]]
+    assert row["band"] == "reliable"
+
+
+def test_a_distance_clearly_under_the_margin_is_still_a_thin_baseline(tmp_path):
+    cfg = {**b.CFG, "baseline_margin": 0.2}
+    folder = tied(tmp_path, 3, 1.0, 0.85, [1, 1, 1, 1, 1, 1, 0])
+    row = b.band(tmp_path, folder, cfg)
+    assert (row["band"], row["kind"]) == ("watch", "thin baseline")

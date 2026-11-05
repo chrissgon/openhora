@@ -1,0 +1,312 @@
+{
+ "v": 1,
+ "entries": [
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "a43735d2073b926d34e3deefc0c8a8791b729fbe7601d059aefbd73c36d2885d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "IX-3b go false (wrong_card Wilson upper: DeepSeek 5.59%, reference 2.29%, limit 2%); correct per item DeepSeek 84%, current pipeline 21%; actions without confirmation 0. The maintainer chose to proceed (DECISIONS 2026-10-21).",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "S8 adds the operation file-read (class R: the text of a file found by its name in the folders the project lists for the person's own accounts), so the served catalog changed; the prompt, the protocol and the route did not. The maintainer approved the slice on 2026-10-21 (translated from Portuguese): \"Yes: build S8, read a file by its name in the folders already configured for the account, before the release.\" Basis of the earlier entry unchanged: IX-3b go false, the maintainer chose to proceed. The replay gate keeps replaying the recorded answers against the catalog they were recorded with.",
+   "status_line": "enabled by maintainer decision 2026-10-21 (S8: file-read added to the catalog), below the gate"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-21",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Adds the e-mail compose prompt (runtime/mail_compose_prompt.txt) to the decisions above, which stand; this entry carries every current checkout hash (catalog with file-read, S8) so the interpreter stays on. The maintainer on 2026-10-20: \"para emails eu iria pedir para a IA criar um texto melhor escrito\". The model words a new e-mail from what the person described; the card shows the whole text and nothing is sent before the person approves it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt pinned)",
+   "compose_prompt_sha256": "f95c0a758591032311741b04cfad8c4b7d8c19869d7757790984aea556a482cf"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Re-pins the e-mail compose prompt after the live test of 2026-10-22; every other hash stands, so the interpreter stays on. The prompt now asks for correct spelling and accents in subject and body and a body that ends with a courtesy sentence, not a bare closing formula; code accepts a corrected subject only as the same words in the same order. The maintainer: \"a IA deve verificar a ortografia do assunto do email\". The card shows the whole text; nothing is sent before the person approves it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded by the model (compose prompt re-pinned 2026-10-22)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90c93343e471048c0a2f67c5c33fa69d711ea1bffbce68bcb00557030be6e9c1",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Adds the e-mail revise prompt (runtime/mail_revise_prompt.txt) to the decisions above, which stand; this entry carries every current checkout hash, the compose prompt as re-pinned by the entry above, and the revise prompt's. The maintainer on 2026-10-22: \"Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível\". The model changes a waiting e-mail card as one line asks; code keeps the recipients and the account, refuses a new address or link, and the new card is approved by its own hash.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "R2-F1 adds the operation research (class R: a question of general information answered by a web search by the research skill, behind the group research), so the served catalog changed; the prompt, the protocol, the route and the e-mail prompts did not. The maintainer on 2026-10-22 (translated from Portuguese): \"As for R2-F, wouldn't it just be pointing to a web research skill?\" and \"Yes: start R2-F1 (web research through core-research) now, in parallel.\" The earlier decisions stand; the replay gate replays the recorded answers against their own catalog.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned and revise prompts pinned); research added to the catalog 2026-10-22 (R2-F1)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "0d8e9ef055270765d32a2abd7ec7beff75a51d0f468e8ed740b304ec0a0eba3c"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "fd05b3d27bf994935dae860053652fdeeae10a90e23bb1bc75aa8c29081eedc7",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Re-pins the e-mail revise prompt (runtime/mail_revise_prompt.txt) after the live test of 2026-10-22: a text after a colon and a line break is a text asked for, and an e-mail that already says what is asked is returned as it is. Every other hash stands (the catalog is the one of R2-F1), so the interpreter stays on. The maintainer: \"Caso eu queira ajustar alguma informacao antes de enviar, deve ser possível\".",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-22",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "90877edd84f53f4c91ce546a94e96bd42ddfeb7959c075d75d216c44a665a212",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "R2-A adds the operation file-trash (class E: a card that moves a file of the person's own Drive or OneDrive to the service's trash) on top of the catalog with research, so the served catalog changed; every other pin stands and this entry carries them all, the revise pin of S13b included. The maintainer on 2026-10-22 (translated): \"Yes: start R2-A (move a file to the trash) as soon as S17b is in.\" Earlier basis unchanged: IX-3b go false, the maintainer chose to proceed. Nothing is moved before the person approves the card's hash.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22); file-trash added to the catalog 2026-10-22 (R2-A)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-24",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "5bee55ceb50ea932e6cefe71837268fa9c2d773c1937ea4dcaa2008d7343cb06",
+   "catalog_sha256": "a77f8a8f88e2c76516bc3b4f54fc120859b8f86d647016a8ac5d56a4aac4c263",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "B″-lite adds the slots target and day to event-change, event-cancel and the mail operations, so the served catalog changed; the number slots stay; the prompt, protocol, route and e-mail prompts did not change. The maintainer on 2026-10-23 (translated): \"You may go ahead along these lines.\" (PLAN-BRAIN v3 section 1) and on 2026-10-24: \"I accept all your recommendations for the open decisions.\" Earlier basis unchanged: IX-3b go false. Served before the BL3 measurement; the release waits for it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22); file-trash added to the catalog 2026-10-22 (R2-A); target and day slots added to the catalog 2026-10-24 (B″-lite), served before its measurement",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-25",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "1423ba89cbc4b9cced3baa13b9a79589f918ae7fbdea6888d848d7e308425606",
+   "catalog_sha256": "a77f8a8f88e2c76516bc3b4f54fc120859b8f86d647016a8ac5d56a4aac4c263",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The prompt gained rule 9 and three worked examples: a no that carries a new detail after \"Posso?\" is the corrected request, an op object. Code also turns the protocol's own correction shapes into a revised op that asks a NEW \"Posso?\"; nothing runs, no number is carried and a model's yes never runs a plan. Catalog, protocol, route and e-mail prompts unchanged. The maintainer on 2026-10-25 (translated): \"Yes: make adjustments A, B (teach the correction after Posso?) and C, and ask me for the go to measure again.\" Served before its measurement; the release waits for it.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22); file-trash added to the catalog 2026-10-22 (R2-A); target and day slots added to the catalog 2026-10-24 (B″-lite), served before its measurement; the prompt revised 2026-10-25 (BL5B: a correction after \"Posso?\" states a new plan), served before its measurement",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-26",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "a77f8a8f88e2c76516bc3b4f54fc120859b8f86d647016a8ac5d56a4aac4c263",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The prompt gained rule 10 (a described reply is mail-reply, not route), rule 11 (sender and subject both kept in target), two sentences in rule 9 (no inherit of a slot the line fills) and two worked examples; code checks every span and words a described reply on the card the person approves. Catalog, protocol, route and e-mail prompts unchanged. Maintainer, 2026-10-26: the four product gaps. Measured on this PR's head before merge (OPEN-BL7-C); the PR merges only after the maintainer's decision on that measurement.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model (compose re-pinned, revise prompt re-pinned 2026-10-22); file-trash added to the catalog 2026-10-22 (R2-A); target and day slots added to the catalog 2026-10-24 (B″-lite), served before its measurement; the prompt revised 2026-10-25 (BL5B: a correction after \"Posso?\" states a new plan), served before its measurement; the prompt revised 2026-10-26 (BL7-3: described replies, subject kept in target, inherit and correction rules), measured on this PR's head before merge",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-28",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The served catalog moves to version 2 (CB-9): the rows and slots of CB-1, CB-3, CB-5, CB-7, CB-8 and FA-1 (a filtered items read, mail-read, todo-list, todo-add, todo-done, a repeat slot on event-create, reminder-forget by words, file-ask) and every row worded with its model-facing description; after the first measurement the texts of file-ask, file-read, ask, routine-create and event-create say what each is for and is not. Prompt, protocol, route and e-mail prompts unchanged. Measured on this PR's head before merge; the PR merges only after the maintainer's decision on that measurement.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14"
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-28",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "160f083113e11d11fdf23a379bdc0b4a00347a29bb992a606f74899d0eff834d",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The outage path: or-gpt-6-luna (OpenAI GPT-6 Luna, pinned to Azure, zero data retention through OpenRouter) is named as the fallback route, on the maintainer's decision of 2026-10-28. It was measured at these same pins on ix-test-v1 beside the primary and judged by the rule chosen before the figure; a sender's lines reach it only when they widened interpret-fallback and consented to the company. Catalog, prompt, protocol, route and e-mail prompts unchanged.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9: the catalog batch, file-ask and the model-facing descriptions, re-worded once after the first measurement), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-10-31",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The served catalog moves to version 3 (MAIL-SUMMARY-FLIP): the row mail-ask (a summary of, or a question about, ONE e-mail, read by the isolated reader of asst-answer) and its slots are served, and the texts of mail-read and ask say when to choose it. Prompt, protocol, route and e-mail prompts unchanged. Measured on this PR's head before merge (the arm of the flip and the lab cases of asst-answer); the PR merges only after the maintainer's decision on that measurement.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-01",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The card of an event is shown to the model on the line sent after it (fixed text event_card_prompt.txt), on the maintainer's decision of 2026-10-30. Measured on this PR's head 826ffe08, RESULT-CARD-MODEL-2026-11-01: every rule of the bar met on the daily route but one, wrong_card 2 items of 140 against at most 1, both in the dev set, none in the blind set; enabled below that rule by the maintainer's decision of 2026-11-01. The interpreter's prompt, catalog, protocol and route and the e-mail prompts are unchanged.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; the event card shown to the model (2026-11-01)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "b736ddd9442b3308539830d237f4274dc7dec00583546d7b15d5fb486279fb14",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-01",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "3112db68e1493e4a93f00366b33ba6cf6ad02300702a81b038af49c19ee82b42",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The e-mail revise prompt (rule 3) gained a sentence: a question about who receives the e-mail asks for no change, even when it writes an address, and a polite request with a question mark is still a request. Two earlier paid proofs failed. Measured on this PR's head 8430a9ae, RESULT-MAIL-CARD-RECIPIENT-2026-11-01: 3 of 12 rows of the bar not met, one call of 102 in group D changed the recipient; enabled below the bar by the maintainer's decision of 2026-11-01. Only revise_prompt_sha256 changes.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew (file-read, research, file-trash, the target and day slots) and the prompt was revised twice (BL5B, BL7-3); the catalog moved to version 2 on 2026-10-28 (CB-9) and to version 3 on 2026-10-31 (MAIL-SUMMARY-FLIP: mail-ask), measured on this PR's head before merge; the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-03",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "9e637e3244b7938224fccf9570ba8277cbd4d9060bf538f0e3a2e55fee575bfa",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The prompt gains rule 12, an OUTPUT row and four examples (ANY-QUESTION Q3): a question no op answers is the kind question, answered by code; a request worded as a question stays that request. Other pins unchanged; the outage path serves the new prompt unmeasured. Head 405bfd30, RESULT-ANY-QUESTION-2026-11-03: rules 1, 2, 3, 5 and the card harness met; rule 4 not met on both routes against RESULT-ANY-QUESTION-BASE-2026-11-03 (R2-R4 wrong items 10 against 10 daily, wrong_card 1 against 4; 10 against 8 reference); enabled below that rule by the maintainer's decision of 2026-11-03.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28) and 3 (MAIL-SUMMARY-FLIP, 2026-10-31); the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-03: the kind question, below rule 4); the outage path or-gpt-6-luna enabled on 2026-10-28 by maintainer decision; the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-10-28: ix-test-v1 full step, 2 runs, events 20261028T201315Z-daa387c8 (Luna) and 20261028T214447Z-751dcc45 (primary), judged by the relative rule; docs/decisions/2026-10-28-luna-enable-fallback.md"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-03",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "9e637e3244b7938224fccf9570ba8277cbd4d9060bf538f0e3a2e55fee575bfa",
+   "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "The outage route or-gpt-6-luna was measured at this prompt (9e637e32) and catalog (aed31af3), head e1527213, beside the primary or-deepseek-v4.1-flash on the same sets (RESULT-RESERVE-V3-2026-11-03): rules 1 and 4 met, rule 2 not met (correct_direct pt-BR 12.7 and en 11.9 points below the primary, against at most 10), no effect without confirmation; kept as the fallback below rule 2 by the maintainer's decision of 2026-11-03.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28) and 3 (MAIL-SUMMARY-FLIP, 2026-10-31); the prompt revised three times (BL5B, BL7-3, ANY-QUESTION 2026-11-03: the kind question, below rule 4); the outage path or-gpt-6-luna re-measured 2026-11-03, kept below rule 2; the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01 (a question about the recipient)",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
+   "fallback": [
+    {
+     "route": "or-gpt-6-luna",
+     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
+     "measured": "2026-11-03: ix-test-v1 full step and question-dev-v1, 2 runs, at e1527213, events 20261103T184754Z-5dad949d (Luna) and 20261103T184655Z-19a743ea (primary), judged by the relative rule (rule 2 not met, kept by decision); docs/decisions/2026-11-03-reserve-route-kept.md; first measured 2026-10-28 (docs/decisions/2026-10-28-luna-enable-fallback.md)"
+    }
+   ]
+  },
+  {
+   "basis": "maintainer-decision",
+   "date": "2026-11-05",
+   "route": "or-deepseek-v4.1-flash",
+   "route_sha256": "1365ea7c385a28f38103f9b2d3b959faee6012691ed6ef50478a560d1014c9fd",
+   "prompt_sha256": "24a8865acdd26966d6776656ad4e30238ea1a8eba887b79bf74898e29739c1ab",
+   "catalog_sha256": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
+   "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
+   "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
+   "reason": "Catalog version 4 and prompt rule 3 (P5, round 2): the read agenda, a routine is a routine and a series is an event, a name like a file's is a file, the slot service on the six mail act ops and on items; rule 3 gains a second exception, a recipient's name kept in to. Other pins unchanged. Round 1 failed bar line 3 (RESULT-P5-CATALOG-V4-2026-11-05). Head 8e4d23db, RESULT-P5B-ROUND2-2026-11-05: lines 1, 2, 4 met; line 3 met on the reference route (16, 16), not on the daily route (13, 12); no fallback (or-gpt-6-luna failed line 3); enabled below line 3 by the maintainer's decision of 2026-11-05.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28), 3 (MAIL-SUMMARY-FLIP, 2026-10-31) and 4 (P5, 2026-11-05: agenda, service); the prompt revised four times (BL5B, BL7-3, ANY-QUESTION 2026-11-03, P5 rule 3); enabled below bar line 3 by maintainer decision 2026-11-05, no outage path (or-gpt-6-luna failed that line); the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01",
+   "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
+   "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641"
+  }
+ ]
+}

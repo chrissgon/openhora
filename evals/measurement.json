@@ -4,7 +4,9 @@
   "grading_retries": 2,
   "redact_min": 8,
   "early_end": {
-    "markup": ["<skill_tool", "<tool_call", "<function_calls", "<invoke", "<system-reminder", "<|tool", "<｜tool"],
+    "markup": ["<skill_tool", "<tool_call", "<function_calls", "<invoke", "<system-reminder", "<|tool", "<｜tool",
+               "<|dsml", "<｜dsml"],
+    "collapse": {"min_lines": 20, "share": 0.5},
     "announce": ["let me", "now i", "now let me", "now, let me", "first, i", "first, let me", "first let me",
                  "next, i", "next, let me", "i'm going to", "i am going to",
                  "i'll start", "i'll begin", "i'll now", "i'll first", "i will now", "i will start", "i will first"],

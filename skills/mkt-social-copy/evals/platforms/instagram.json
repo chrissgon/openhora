@@ -4,7 +4,7 @@
   "evals": [
     {
       "id": 101,
-      "prompt": "write the post for the 2027-11-12 slot, the subscription one",
+      "prompt": "write the post for the 2038-11-12 slot, the subscription one",
       "expected_output": "The slot's platform, Instagram, offers more than one format and neither the calendar row nor the request names one, so the skill writes no file and asks which format, recommending the one the idea fits.",
       "files": [
         "evals/files/mira-brand",
@@ -13,7 +13,7 @@
       ],
       "assertions": [
         {
-          "text": "No file under docs/marketing/content/ is among the files the run produced, and the 2027-11-12 row of docs/marketing/calendar.md is not among the changed files",
+          "text": "No file under docs/marketing/content/ is among the files the run produced, and the 2038-11-12 row of docs/marketing/calendar.md is not among the changed files",
           "tags": [
             "guard"
           ]
@@ -34,8 +34,8 @@
     },
     {
       "id": 102,
-      "prompt": "write the 2027-11-12 slot as an Instagram carousel, the subscription one",
-      "expected_output": "docs/marketing/content/2027-11-12-<slug>.md has Format: carousel and a ```script block above the ```post block in which each beat is one slide: a line with the exact text the slide carries, no preset and no on-screen field. The slides use only facts of docs/notes/budget-month.md (a video streaming plan used twice, cancelled). The caption follows the voice and ends with a question. check_script.py and check_post.py passed.",
+      "prompt": "write the 2038-11-12 slot as an Instagram carousel, the subscription one",
+      "expected_output": "docs/marketing/content/2038-11-12-<slug>.md has Format: carousel and a ```script block above the ```post block in which each beat is one slide: a line with the exact text the slide carries, no preset and no on-screen field. The slides use only facts of docs/notes/budget-month.md (a video streaming plan used twice, cancelled). The caption follows the voice and ends with a question. check_script.py and check_post.py passed.",
       "files": [
         "evals/files/mira-brand",
         "evals/files/mira-notes",
@@ -46,7 +46,7 @@
       ],
       "assertions": [
         {
-          "text": "A file docs/marketing/content/2027-11-12-*.md exists with a line `Format: carousel` and a ```script block above its ```post block",
+          "text": "A file docs/marketing/content/2038-11-12-*.md exists with a line `Format: carousel` and a ```script block above its ```post block",
           "tags": [
             "format"
           ]

@@ -1,5 +1,5 @@
 """Tests of runtime/costs.py: the cost of a run recomputed from the token counts the adapter left in its folder and the
-prices the person typed into the configuration. Run folders are built by hand in the form the adapters leave
+prices of the one price table (runtime/prices.json, here a table of invented prices). Run folders are built by hand in the form the adapters leave
 (outputs/raw.json for the reference adapter, outputs/stream.jsonl for the floor adapter). Offline; invented model ids.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_costs.py
@@ -17,12 +17,17 @@ import standin_tree as st
 costs = st.load("costs")
 
 PRICE = {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
-         "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "date": "2026-10-01"}
+         "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "accessed": "2026-10-01"}
 CHEAP = dict(PRICE, input_usd_per_mtok=1.0, output_usd_per_mtok=2.0, cache_read_usd_per_mtok=0.1,
              cache_write_usd_per_mtok=1.25)
 USAGE = {"input_tokens": 1000, "output_tokens": 2000, "cache_read_input_tokens": 100000, "cache_creation_input_tokens": 4000}
 # By hand: 1000*3 + 2000*15 + 100000*0.3 + 4000*3.75 = 3000 + 30000 + 30000 + 15000 = 78000 per million = 0.078
 HAND = 0.078
+
+
+def table(**by_model) -> dict:
+    """The price table of the tests: {"models": {id: entry}}."""
+    return {"models": by_model}
 
 
 @pytest.fixture
@@ -111,13 +116,22 @@ def test_a_run_without_usage_or_a_model_without_a_price_has_no_recomputed_cost(t
     # In a summary: a group with a run of unknown usage has no recomputed cost and counts the run; so has a model
     # with no price, whatever its runs hold.
     known = reference_run(tmp_path / "known")
-    rows = costs.summary([run(known, cost=None, tokens=10), run(str(tmp_path / "empty"), tokens=5)], {"model-alpha": PRICE})
+    rows = costs.summary([run(known, cost=None, tokens=10), run(str(tmp_path / "empty"), tokens=5)], table(**{"model-alpha": PRICE}))
     assert len(rows) == 1 and rows[0]["recomputed_usd"] is None and rows[0]["unknown_runs"] == 1 and rows[0]["runs"] == 2
-    rows = costs.summary([run(known, model="model-gamma")], {"model-alpha": PRICE})
+    rows = costs.summary([run(known, model="model-gamma")], table(**{"model-alpha": PRICE}))
     assert rows[0]["recomputed_usd"] is None and rows[0]["unknown_runs"] == 0 and rows[0]["price"] is None
-    rows = costs.summary([run(known)], {"model-alpha": PRICE})
+    rows = costs.summary([run(known)], table(**{"model-alpha": PRICE}), today="2026-10-15")
     assert rows[0]["recomputed_usd"] == pytest.approx(HAND) and rows[0]["unknown_runs"] == 0
-    assert rows[0]["price"] == {"source": PRICE["source"], "date": PRICE["date"]}
+    assert rows[0]["price"] == {"source": PRICE["source"], "accessed": PRICE["accessed"], "age_days": 14, "stale": False}
+    stale = costs.summary([run(known)], table(**{"model-alpha": PRICE}), today="2026-10-15", max_days=7)
+    assert stale[0]["price"]["stale"] is True, "a price older than the project's price_max_age_days is shown as stale"
+    # a price that lacks a kind the run used is unknown for that run, never a guess; a model is also found by an alias
+    no_cache = {k: v for k, v in PRICE.items() if not k.startswith("cache")}
+    assert costs.summary([run(known)], table(**{"model-alpha": no_cache}))[0]["recomputed_usd"] is None
+    aliased = costs.summary([run(known, model="alias-alpha")], table(**{"model-alpha": dict(PRICE, aliases=["alias-alpha"])}))
+    assert aliased[0]["recomputed_usd"] == pytest.approx(HAND)
+    named = costs.summary([run(known, model="other")], table(**{"model-alpha": PRICE}), names_of=lambda model: ["model-alpha"])
+    assert named[0]["recomputed_usd"] == pytest.approx(HAND)
 
 
 def test_the_summary_groups_by_day_agent_model_and_adapter(tmp_path, utc):
@@ -131,7 +145,7 @@ def test_the_summary_groups_by_day_agent_model_and_adapter(tmp_path, utc):
             run(a, started="2026-10-06T11:00:00.000000Z", tokens=107000),                  # another day
             run(a, model="model-beta", adapter="adapter-a", started="2026-10-06T12:00:00.000000Z", cost=0.5),
             run(b, agent=None, started="2026-10-06T13:00:00.000000Z")]                     # a run with no agent
-    prices = {"model-alpha": PRICE, "model-beta": CHEAP}
+    prices = table(**{"model-alpha": PRICE, "model-beta": CHEAP})
     rows = costs.summary(runs, prices)
     keys = [(r["day"], r["agent"], r["model"], r["adapter"], r["runs"]) for r in rows]
     assert keys == [("2026-10-05", "business", "model-alpha", "adapter-a", 2),
@@ -154,7 +168,7 @@ def test_the_summary_groups_by_day_agent_model_and_adapter(tmp_path, utc):
     assert costs.summary([], prices) == []
 
 
-def test_the_first_comment_above_the_first_function_says_when_the_recomputation_leaves():
+def test_the_first_comment_above_the_first_function_says_the_recomputation_stays_by_design():
     text = open(os.path.join(st.RUNTIME, "costs.py"), encoding="utf-8").read()
     head = text[:text.index("def usage_of")].rstrip().splitlines()
     comment = []
@@ -162,5 +176,89 @@ def test_the_first_comment_above_the_first_function_says_when_the_recomputation_
         if not line.startswith("#"):
             break
         comment.insert(0, line)
-    assert comment and comment[0].startswith("# T23:") and "change of the reference model" in " ".join(comment)
+    # T23 workaround 3 was dropped on 2026-10-16: the key proxy meters every request, so the recomputation is the design, not a workaround that leaves.
+    flat = " ".join(line.lstrip("# ").strip() for line in comment)
+    assert comment and comment[0].startswith("# The recomputation of a run's cost") and "stays by design (T23, workaround 3" in flat
+    assert "leaves" not in flat
     assert "def " not in text[:text.index("def usage_of")]  # it is above the first function of the file
+
+
+# --- the key proxy's count (package P2b): the run could not change it, so the run's own report is never read in its place ---
+
+
+def metered_run(folder, meter, own=USAGE):
+    """A run folder with the reference adapter's own report AND the key proxy's meter beside it."""
+    reference_run(folder, own)
+    (folder / "outputs" / "meter.json").write_text(json.dumps(meter), encoding="utf-8")
+    return str(folder)
+
+
+def meter(input=10, output=20, cache_read=30, cache_write=40, unknown=0):
+    return {"input": input, "output": output, "cache_read": cache_read, "cache_write": cache_write, "total": input + output + cache_read + cache_write,
+            "responses": 3, "unknown_responses": unknown}
+
+
+def test_a_run_with_a_meter_is_counted_from_it_and_never_from_what_the_run_reports(tmp_path):
+    run = metered_run(tmp_path / "run", meter())
+    assert costs.metered_usage(run) == {"input": 10, "output": 20, "cache_read": 30, "cache_write": 40, "unknown_responses": 0}
+    assert costs.usage_of(run)["input"] == 10 and costs.usage_of(run)["cache_read"] == 30  # not the 1000 and 100000 of raw.json
+    assert costs.recompute(costs.usage_of(run), PRICE) == pytest.approx((10 * 3 + 20 * 15 + 30 * 0.3 + 40 * 3.75) / 1e6)
+
+
+def test_a_run_without_a_meter_is_read_from_its_own_output_as_before(tmp_path):
+    run = reference_run(tmp_path / "run")
+    assert costs.metered_usage(run) is None and costs.usage_of(run)["input"] == 1000
+
+
+def test_a_meter_that_could_not_count_every_answer_is_a_lower_bound_flagged_and_never_replaced_by_the_run_s_report(tmp_path):
+    run = metered_run(tmp_path / "run", meter(unknown=2))
+    found = costs.usage_of(run)
+    assert found["unknown_responses"] == 2 and found["input"] == 10 and found["output"] == 20  # what was counted, not 1000
+    for broken in ("{", json.dumps([1]), json.dumps({"input": "many"}), json.dumps({**meter(), "output": -1})):
+        run = metered_run(tmp_path / f"b{len(broken)}", meter())
+        (tmp_path / f"b{len(broken)}" / "outputs" / "meter.json").write_text(broken)
+        found = costs.usage_of(run)
+        assert found["unknown_responses"] == 1 and found["input"] == 0 and found["output"] == 0  # a meter that exists: no fallback
+
+
+def test_the_attempts_a_run_set_aside_are_in_the_count_and_one_without_a_meter_is_flagged(tmp_path):
+    run = metered_run(tmp_path / "run", meter())
+    for name, content in (("failed-1", meter(1, 2, 3, 4)), ("early-end-1", None), ("paused-1", meter(5, 5, 5, 5))):
+        (tmp_path / "run" / name / "outputs").mkdir(parents=True)
+        if content:
+            (tmp_path / "run" / name / "outputs" / "meter.json").write_text(json.dumps(content))
+    found = costs.metered_usage(run)
+    assert (found["input"], found["output"], found["cache_read"], found["cache_write"]) == (16, 27, 38, 49)
+    assert found["unknown_responses"] == 1  # the attempt with no meter spent something that is not in the counts
+
+
+def test_the_summary_counts_the_runs_that_are_a_lower_bound(tmp_path, utc):
+    whole = metered_run(tmp_path / "a", meter())
+    partial = metered_run(tmp_path / "b", meter(unknown=1))
+    rows = costs.summary([{"started_at": "2026-10-01T12:00:00Z", "agent": "x", "model": "m", "adapter": "h", "cost_usd": None,
+                           "tokens": None, "run_dir": whole},
+                          {"started_at": "2026-10-01T13:00:00Z", "agent": "x", "model": "m", "adapter": "h", "cost_usd": None,
+                           "tokens": None, "run_dir": partial}], table(m=PRICE))
+    assert len(rows) == 1 and rows[0]["lower_bound_runs"] == 1 and rows[0]["unknown_runs"] == 0
+    assert rows[0]["recomputed_usd"] == pytest.approx(2 * (10 * 3 + 20 * 15 + 30 * 0.3 + 40 * 3.75) / 1e6, abs=1e-6)
+
+
+def test_a_meter_that_still_had_a_request_under_way_or_could_not_be_written_is_a_lower_bound_flagged(tmp_path):
+    for name, extra, flagged in (("whole", {"in_flight": 0}, 0), ("under_way", {"in_flight": 2}, 1), ("failed", {"failed": True}, 1),
+                                 ("both", {"in_flight": 1, "failed": True}, 1), ("said_too", {"in_flight": 1, "unknown_responses": 2}, 3)):
+        run = metered_run(tmp_path / name, {**meter(), **extra})
+        found = costs.usage_of(run)
+        assert (found["unknown_responses"] > 0) == bool(flagged), (name, found)
+        assert found["input"] == 10 and found["output"] == 20  # what was counted, never the run's 1000
+    assert costs.usage_of(str(tmp_path / "said_too"))["unknown_responses"] == 3
+
+
+def test_an_attempt_set_aside_with_a_request_under_way_flags_the_run(tmp_path, utc):
+    run = metered_run(tmp_path / "run", meter())
+    (tmp_path / "run" / "failed-1" / "outputs").mkdir(parents=True)
+    (tmp_path / "run" / "failed-1" / "outputs" / "meter.json").write_text(json.dumps({**meter(1, 2, 3, 4), "in_flight": 1}))
+    found = costs.metered_usage(run)
+    assert found["unknown_responses"] == 1 and found["input"] == 11
+    rows = costs.summary([{"started_at": "2026-10-01T12:00:00Z", "agent": "x", "model": "m", "adapter": "h", "cost_usd": None,
+                           "tokens": None, "run_dir": run}], table(m=PRICE))
+    assert rows[0]["lower_bound_runs"] == 1

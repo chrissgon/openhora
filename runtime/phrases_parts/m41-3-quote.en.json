@@ -1,0 +1,7 @@
+{
+ "package": "m41-3-quote",
+ "table": {
+  "QUOTE_CHECKED_ONE": "Checked quote: \"{text}\"",
+  "INSTRUCTION_LINE_ONE": "\"{passage}\" (not followed)"
+ }
+}

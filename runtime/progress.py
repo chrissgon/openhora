@@ -24,7 +24,9 @@ reads the rows with the store's functions and passes them, with `now`, as plain 
 A row belongs to the period by its own time: a run by `ended_at`, a resolved pending decision by `resolved_at`, an
 executed effect by `executed_at`. A row without that time is not counted; it is added to "undated". A run whose
 cost is unknown is counted under "runs_without_cost", never as 0. A release whose `resolved_by` starts with `mode:`
-was made by an agent's autonomy mode, and is counted apart from a release by the person.
+was made by an agent's autonomy mode, and is counted apart from a release by the person. A delivery's `released_by` is the row's `acted_by`
+when it has one (POL-2: `<profile> on <platform>` for a person on a messaging app, or the channel's name; never the sender's id, which stays in the
+store), else its `resolved_by`.
 
 Usage (a library; the shell is runtime/cli.py, verb progress): python3 runtime/progress.py --help
 
@@ -146,7 +148,7 @@ def summary(tasks, runs, pending, effects, start: datetime.datetime, end: dateti
             continue
         task = by_id.get(item["task_id"], {})
         deliveries.append({"task_id": item["task_id"], "title": task.get("title"), "skill": task.get("skill"),
-                           "released_by": item.get("resolved_by")})
+                           "released_by": item.get("acted_by") or item.get("resolved_by")})
     by_model, by_failure = {}, {}
     for run in ended:
         by_model[run["model"]] = by_model.get(run["model"], 0) + 1
@@ -161,6 +163,7 @@ def summary(tasks, runs, pending, effects, start: datetime.datetime, end: dateti
             "tasks_done": len({d["task_id"] for d in deliveries}), "deliveries": deliveries,
             "runs": {"total": len(ended), "ok": sum(1 for r in ended if r.get("status") == "ok"),
                      "failed": sum(1 for r in ended if r.get("status") == "failed"),
+                     "cancelled": sum(1 for r in ended if r.get("status") == "cancelled"),
                      "by_model": by_model, "by_failure": by_failure},
             "cost_usd": {"known": round(sum(known), 6), "runs_without_cost": len(ended) - len(known)},
             "decisions": {"answered": words("answered"), "released_by_you": len(released) - by_mode,
@@ -192,9 +195,10 @@ def render(progress_out: dict, summary_out: dict) -> str:
     runs = summary_out["runs"]
     failures = ", ".join(f"{kind} {n}" for kind, n in sorted(runs["by_failure"].items()))
     failed = f'{runs["failed"]} failed' + (f": {failures}" if failures else "")
+    cancelled = f", {runs['cancelled']} cancelled" if runs.get("cancelled") else ""
     cost = summary_out["cost_usd"]
     lines.append(f'From {summary_out["from"]} to {summary_out["to"]}: {_plural(summary_out["tasks_done"], "task")} done, '
-                 f'{_plural(runs["total"], "run")} ({runs["ok"]} ok, {failed}), cost known {cost["known"]:g} USD, '
+                 f'{_plural(runs["total"], "run")} ({runs["ok"]} ok, {failed}{cancelled}), cost known {cost["known"]:g} USD, '
                  f'{_plural(cost["runs_without_cost"], "run")} without cost')
     delivered = [f'task {d["task_id"]} "{d["title"]}" released by {d["released_by"]}' for d in summary_out["deliveries"]]
     lines.append("Deliveries: " + ("; ".join(delivered) or "none"))

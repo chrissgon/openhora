@@ -13,12 +13,12 @@ license: MIT
 metadata:
   area: brand
   kind: capability
-  inputs: [docs/workbench/state.md, docs/brand/profile.md, docs/business/icp.md, docs/business/positioning.md, AGENTS.md]
+  inputs: [docs/workbench/state.md, docs/brand/profile.md, docs/business/icp.md, docs/business/positioning.md, docs/workbench/runtime.json]
   outputs: [docs/brand/strategy.md]
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Brand strategy
@@ -40,7 +40,7 @@ Turn the profile (a person) or the ICP and positioning (a company) into the choi
 | docs/brand/profile.md (a person) | yes for a person | Stop rule 1. A strategy without the proof table invents claims. |
 | docs/business/icp.md and positioning.md (a company) | yes for a company | Stop rule 2. |
 | docs/workbench/state.md: rhythm, languages, decisions | no | Ask in step 4. |
-| The project `AGENTS.md`: language of artifacts | no | Use the state file; else ask in step 4. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | Names of the products the brand should grow (npm packages, repositories) | no | Ask in step 4; skip baselines without them. |
 | `search:web`: the package registry and code-host APIs that `baselines.py` reads | no | Every item comes back `not_measured`: write `not measured (<error>)` as its starting point and ask the user for the number in the open questions. |
 
@@ -72,7 +72,7 @@ Nothing was written: <what is missing or undecided, in one line>.
 The scripts are in the `scripts/` folder next to this file, not in the project. Run each from the project root by that path, one command at a time: `python3 <this skill's folder>/scripts/<name>.py`.
 
 Progress:
-- [ ] Step 1: Read the state file, the project `AGENTS.md` (language), and the profile (or the ICP and positioning). A missing one: Stop rule 1 or 2. List: the goal, the audiences, the wanted themes with their gaps, the proof table with what may be cited, the never-expose list, open conflicts. Unanswered open questions of the profile that change the goal or the claims: Stop rule 3.
+- [ ] Step 1: Read the state file, the project language (the artifact language), and the profile (or the ICP and positioning). A missing one: Stop rule 1 or 2. List: the goal, the audiences, the wanted themes with their gaps, the proof table with what may be cited, the never-expose list, open conflicts. Unanswered open questions of the profile that change the goal or the claims: Stop rule 3.
 - [ ] Step 2: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 5: ask which platform, and take none by default. Read the reference of that platform, `../../shared/references/platforms/<platform>.md`; if there is no such file, stop and say the platform is not supported. Read no other file of that folder.
 - [ ] Step 3: Measure the starting point of every product the goal names: `python3 <this skill's folder>/scripts/baselines.py --npm <package> --github <owner/repo> ...`. When the request or the state file names a file of recorded answers, add `--responses <file>`: the script reads the answers from it and sends no request. Cite each number with its period and URL. For an item under `errors`, its `status` decides the starting point, never 0: `not_found` (the service answered 404) is `not found`; `not_measured` (a blocked network, a timeout, another answer) is `not measured (<error>)`, with an open question asking the user for the number. The numbers the platform's reference says cannot be read from outside (followers, impressions, comments) go to the open questions, asked of the user once and dated.
 - [ ] Step 4: Decision gate. Skip every item the state file records: no options, no confirmation question for it. For each remaining item below, build two or three options from steps 1 to 3, each with its reason and one marked recommended; any item to ask: Stop rule 4.
@@ -111,6 +111,7 @@ Progress:
 # Brand strategy: <name>
 
 - Owner: brand-strategy
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>
 - Subject: person | company
 - Status: draft (waiting for the open questions) | approved
 - Date: <YYYY-MM-DD>

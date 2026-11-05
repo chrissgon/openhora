@@ -7,8 +7,9 @@ bound to the card the person saw (runtime/messaging.py).
 
 One file, <state folder>/messaging-<platform>.json (the per-user state folder; the first versions kept it in <data_dir of the first project>), mode 0600, written through a temporary file of mode 0600 (O_EXCL, random name, fsync) and published with os.link the first time
 (refusing a path someone placed) and os.replace after. It holds no text of a project: for each card the project's id, the pending decision's id and kind, the
-content hash (a plan's hash, an effect's payload hash, else the sha256 of the card's decision text), the chat, the
-platform's message id, the action ids made for it and the time it was sent; and the platform's next update offset.
+content hash (a plan's hash, an effect's payload hash, else the sha256 of the card's decision text; for a file a sender sent, kind `attachment`, the hash of the file, its target and its label, and the attachment's number in place of a decision's), the chat, the
+platform's message id, the action ids made for it and the time it was sent; and the platform's next update offset. A card of a file a sender sent (ATT-1) has
+the kind `attachment`, its `attachment_id` in place of a decision's number (`pending_id` is None) and, as its hash, the one of attachments.card_sha256.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -212,6 +213,14 @@ class Ledger:
         with self.lock:
             found = [c for c in self.data["cards"] if self._mine(c) and c["project"] == project
                      and c["pending_id"] == pending_id and c["chat"] == chat]
+            return dict(found[-1]) if found else None
+
+    def attachment_card(self, project: str, attachment_id: int, chat: str):
+        """The newest card of a file a sender sent (ATT-1; kind `attachment`, bound to the attachment's number and not to a decision's: its `pending_id` is
+        None, so no lookup by a decision's number can meet it), in a chat, or None."""
+        with self.lock:
+            found = [c for c in self.data["cards"] if self._mine(c) and c.get("kind") == "attachment" and c["project"] == project
+                     and c.get("attachment_id") == attachment_id and c["chat"] == chat]
             return dict(found[-1]) if found else None
 
     def by_action(self, chat: str, action_id: str):

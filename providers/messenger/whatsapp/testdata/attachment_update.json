@@ -1,0 +1,21 @@
+{
+  "event": "update",
+  "update": {
+    "update_id": "3EB0AAAA0001",
+    "sender": "5511900000000",
+    "chat": "5511900000000",
+    "private": true,
+    "text": null,
+    "action": null,
+    "action_ref": null,
+    "reply_to": null,
+    "attachments": [
+      {
+        "ref": "0123456789abcdef0123456789abcdef",
+        "name": "Plan Q3 ü.pdf",
+        "size": 13,
+        "type": "application/pdf"
+      }
+    ]
+  }
+}

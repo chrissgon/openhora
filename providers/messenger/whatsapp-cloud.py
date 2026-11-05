@@ -22,7 +22,14 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
                                       writes to the number meanwhile; refuses while a bridge runs
   listen --platform whatsapp-cloud    the long-lived verb (the protocol of providers/messenger/README.md)
-  receive, send, ack                  exit 2: whatsapp-cloud works only in listen mode
+  receive, send, ack, fetch-attachment
+                                      exit 2: whatsapp-cloud works only in listen mode (a file a sender sent is fetched by the
+                                      listen op `fetch` of the protocol, never by a one-shot verb)
+
+Files a sender sends (ATT-3): a document, image, audio, video or sticker becomes an update with `attachments` (ref = the media id, the
+caption as `text`). The op `fetch` asks Graph for the media's short-lived address at that moment (GET /<media id>), requests it only on Meta's
+media host (MEDIA_HOSTS, an exact list) with the token the platform requires there, follows no redirect, counts the bytes while they stream, checks
+the SHA-256 Graph declares and writes `<out>/content` (O_EXCL, O_NOFOLLOW, 0600). The bridge hands it a folder and a number, never an address.
 
 Secrets (read only through providers/secrets/resolver.py, never in an argument, a log, an output or an exception):
   MESSENGER_WHATSAPP_CLOUD_TOKEN         the system user's permanent token (store username messenger-whatsapp-cloud)
@@ -94,8 +101,14 @@ KEYRING_USERNAMES = dict(zip((SECRET_TOKEN, SECRET_APP, SECRET_VERIFY),
                              ("messenger-whatsapp-cloud", "messenger-whatsapp-cloud-app-secret", "messenger-whatsapp-cloud-verify-token")))
 GRAPH_BASE = "https://graph.facebook.com/v25.0"
 CAPABILITIES = {"max_text": 4096, "buttons": True, "max_buttons": 3, "max_button_label": 20, "lists": False,
-                "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True}
+                "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": True, "listen": True,
+                "attachments": True, "max_attachment_bytes": 104857600}      # 100 MiB: the largest document Meta's media API serves (to confirm in the live test)
 FOLDER = "whatsapp-cloud"
+MEDIA_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")           # closed: it goes into the path of an address, so no dot, slash, query or space
+MEDIA_HOSTS = ("lookaside.fbsbx.com",)                   # Meta's media host, an exact list (never a suffix); the token is sent only here and to graph.facebook.com
+MEDIA_KINDS = {"image": "photo", "audio": "audio", "video": "video", "sticker": "sticker", "document": None}   # type -> the update's `type` when it is not the media type
+CAPTION_KINDS = ("document", "image", "video")
+CODE_NO_OBJECT = 100                            # Graph: the object (a medium that was deleted or expired) does not exist
 PHONE_NUMBER_ID = re.compile(r"[0-9]{5,25}")
 TEMPLATE_NAME = re.compile(r"[a-z0-9_]{1,512}")
 TEMPLATE_LANGUAGE = re.compile(r"[a-z]{2,3}(?:_[A-Za-z]{2,4})?")
@@ -205,17 +218,63 @@ class RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 
 OPENER = urllib.request.build_opener(RefuseRedirect)
+MEDIA_OPENER = urllib.request.build_opener(RefuseRedirect)       # the media host's: no redirect is followed either, since the request carries the token
 
 
 class Graph:
     """The Graph API with the standard library. Every failure is a GraphError built from numbers only."""
 
-    def __init__(self, token: str, phone_number_id: str, opener=None, base: str = GRAPH_BASE):
+    def __init__(self, token: str, phone_number_id: str, opener=None, base: str = GRAPH_BASE, media_opener=None):
         self.token, self.phone, self.opener, self.base = token, phone_number_id, opener or OPENER, base
+        self.media_opener = media_opener or MEDIA_OPENER
+
+    def authorization(self) -> dict:
+        """The one place the token becomes a header: the Graph API and the media host both require it."""
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def fetch_media(self, media_id, out_dir, max_bytes: int) -> dict:
+        """Fetch the medium `media_id` into `<out_dir>/content`, at most `max_bytes`: {"bytes", "sha256"}. The address Meta serves it at is short-lived,
+        so Graph is asked for it now (GET /<media id>); it is requested only if it is https on MEDIA_HOSTS, with the token (the media host requires
+        it), never after a redirect. A medium Meta no longer has is a ProviderError of kind `gone`; a size Graph declares over the cap is refused before
+        the download; the SHA-256 Graph declares is checked after it."""
+        if not isinstance(media_id, str) or not MEDIA_ID.fullmatch(media_id):
+            raise ProviderError("the reference is not the id of a WhatsApp medium", EXIT_USAGE, "usage")
+        end = time.monotonic() + FETCH_DEADLINE
+        try:
+            found = self.call("GET", f"/{media_id}")
+        except GraphError as e:
+            if e.status == 404 or (e.status == 400 and e.error_code == CODE_NO_OBJECT):
+                raise ProviderError("WhatsApp no longer serves that file", EXIT_SERVICE, "gone") from None
+            raise
+        url = url_on_hosts(found.get("url"), MEDIA_HOSTS)
+        if url is None:
+            raise ProviderError("WhatsApp did not give the address of the file on its media host", EXIT_SERVICE, "failed")
+        size = found.get("file_size")
+        if isinstance(size, str) and re.fullmatch(r"[0-9]{1,18}", size):      # Graph may give the size as a string of digits
+            size = int(size)
+        if type(size) is int and size > max_bytes:
+            raise too_large()
+        declared = declared_digest(found.get("sha256"))
+        request = urllib.request.Request(url, method="GET", headers={**self.authorization(), "Accept": "*/*"})
+        try:
+            with self.media_opener.open(request, timeout=FETCH_CONNECT) as response:
+                return save_stream(response, out_dir, max_bytes, declared, end)
+        except ProviderError:
+            raise                               # includes a redirect refused (GraphError) and what save_stream refused: built from numbers and kinds
+        except urllib.error.HTTPError as e:
+            status = e.code
+            e.close()
+            if status in (404, 410):
+                raise ProviderError("WhatsApp no longer serves that file", EXIT_SERVICE, "gone") from None
+            raise ProviderError(f"WhatsApp's media host answered {status}", EXIT_SERVICE, "failed") from None
+        except urllib.error.URLError as e:
+            raise ProviderError(f"WhatsApp's media host could not be reached ({type(getattr(e, 'reason', e)).__name__})", EXIT_SERVICE, "failed") from None
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            raise ProviderError(f"the call to WhatsApp's media host failed ({type(e).__name__})", EXIT_SERVICE, "failed") from None
 
     def call(self, method: str, path: str, body=None, raw=None, content_type="application/json", timeout=GRAPH_TIMEOUT):
         data = raw if raw is not None else (None if body is None else json.dumps(body).encode("utf-8"))
-        headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+        headers = {**self.authorization(), "Accept": "application/json"}
         if data is not None:
             headers["Content-Type"] = content_type
         request = urllib.request.Request(self.base + path, data=data, method=method, headers=headers)
@@ -361,6 +420,7 @@ class Sender(meta.BaseSender):
             follow.append(("document", lambda: self.graph.post_message(
                 document_body(to, self.graph.upload(document_name(document["name"]), document["text"]),
                               document_name(document["name"]), first))))
+        document_failed = False
         for what, step in follow:
             try:
                 got = step()
@@ -372,7 +432,8 @@ class Sender(meta.BaseSender):
                     raise
                 # the text is delivered: failing the send would make the bridge send it twice
                 self.log(f"the {what} after the text could not be sent ({e.status}, {e.error_code})")
-        return first
+                document_failed = document_failed or what == "document"
+        return meta.SentId(first, document_failed)      # a str: the id; `document_failed` says the document did not go out
 
 
 # --- the webhook ------------------------------------------------------------------------------------------------------
@@ -466,8 +527,12 @@ class Webhook(meta.HookBase):
         if not isinstance(wamid, str) or not wamid or len(wamid) > 512 or self.store.is_seen(wamid):
             return
         kind = message.get("type")
-        text = action = None
-        if kind == "text":
+        text = action = attachments = None
+        if kind in MEDIA_KINDS:
+            attachments, text = self.medium(kind, as_dict(message.get(kind)))
+            if attachments is None:
+                return
+        elif kind == "text":
             body = as_dict(message.get("text")).get("body")
             if not isinstance(body, str) or not body.strip():
                 return
@@ -487,9 +552,31 @@ class Webhook(meta.HookBase):
         context = as_dict(message.get("context")).get("id")
         reply_to = self.alias(context) if isinstance(context, str) and context and kind != "button" else None
         self.store.note_inbound(chat, self.when(message))        # before the update: the bridge's reply must find the window open
-        self.emit({"update_id": wamid, "sender": chat, "chat": chat, "private": True, "text": text, "action": action,
-                   "action_ref": None, "reply_to": reply_to}, uid)
+        update = {"update_id": wamid, "sender": chat, "chat": chat, "private": True, "text": text, "action": action,
+                  "action_ref": None, "reply_to": reply_to}
+        if attachments:
+            update["attachments"] = attachments
+        if action is None and meta.forwarded_context(message):
+            update["forwarded"] = True      # the key is there only for a forward (providers/messenger/README.md); a tap is never one
+        self.emit(update, uid)
         self.store.mark_seen(wamid)
+
+    @staticmethod
+    def medium(kind: str, body: dict):
+        """(attachments, caption) of a document, image, audio, video or sticker; (None, None) when it has no usable media id. The ref is the media id
+        (the address is asked for at fetch time); the name is the document's file name and nothing else; the type is the media type for a document
+        and the kind the bridge refuses before it downloads (photo, voice, audio, video, sticker) for the rest. The size is not in the webhook."""
+        media_id = body.get("id")
+        if not isinstance(media_id, str) or not MEDIA_ID.fullmatch(media_id):
+            return None, None
+        if kind == "document":
+            declared_type, name = clean_mime(body.get("mime_type")), clean_name(body.get("filename"))
+        else:
+            declared_type = "voice" if kind == "audio" and body.get("voice") is True else MEDIA_KINDS[kind]
+            name = None
+        caption = body.get("caption") if kind in CAPTION_KINDS else None
+        caption = caption if isinstance(caption, str) and caption.strip() else None
+        return [{"ref": media_id, "name": name, "size": None, "type": declared_type}], caption
 
 
 # --- the listen mode --------------------------------------------------------------------------------------------------
@@ -501,6 +588,7 @@ class Listener(meta.Listener):
     refused_reason = "WhatsApp refused the token"
     refused_fatal = "WhatsApp refused the token: store a new one"
     rate_codes = (CODE_RATE, CODE_RATE_2)
+    can_fetch = True
 
     def __init__(self, settings: dict, secrets: dict, store: Store, *, graph=None, **options):
         super().__init__(settings, secrets, store, max_body=MAX_BODY, **options)
@@ -509,6 +597,9 @@ class Listener(meta.Listener):
 
     def check(self, message) -> dict:
         return check_message(message)
+
+    def fetch(self, ref, out_dir, max_bytes: int) -> dict:
+        return self.graph.fetch_media(ref, out_dir, max_bytes)
 
     def make_hook(self):
         return Webhook(self.settings, self.secrets, self.store, self.emit, late=lambda wamid: self.requests.put(("late", wamid)),
@@ -664,10 +755,10 @@ def build_parser() -> argparse.ArgumentParser:
     who = sub.add_parser("whoami")
     who.add_argument("--seconds", type=int, default=120)
     who.set_defaults(func=cmd_whoami)
-    for name in ("receive", "send", "ack"):
+    for name in ("receive", "send", "ack", "fetch-attachment"):
         one = sub.add_parser(name)
         one.set_defaults(func=cmd_one_shot)
-        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref"):
+        for flag in ("--offset", "--timeout", "--chat", "--message-file", "--action-ref", "--ref", "--out", "--max-bytes"):
             one.add_argument(flag)
     for parser in sub.choices.values():
         parser.add_argument("--platform", default="whatsapp-cloud", choices=PLATFORMS)

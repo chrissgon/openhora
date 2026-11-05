@@ -30,7 +30,7 @@ Contract: contracts/runtime.md. Configuration: <project>/docs/workbench/runtime.
 
 Providers are reached by requirement class through providers/resolve.py, never by a path built here. The keys
 below are configuration keys of runtime.json and keep their names; the class each one maps to is named beside it:
-  mailbox    class `reader:email`. "auto" resolves it; "none" means no mailbox; any other value names the
+  mailbox    class `reader:email`. "auto" resolves only while one reader ships (since M1 name gmail or outlook, or set MAILBOX_PROVIDER); "none" means no mailbox; any other value names the
              implementation explicitly and wins over the environment (a runtime.json written before resolution
              by class, with "mailbox": "gmail", keeps working unchanged).
   publisher  class `publisher:<platform>`; the value is the platform, passed as --platform. The resolution
@@ -96,11 +96,11 @@ replay   For the cut-over onto the operation: judges the stored run folders unde
 Weekly vote (docs/architecture/weekly-vote.md), when runtime.json has a "vote" section:
   "vote": {"repo": "<owner>/<name>", "branch": "<branch>", "pillars": ["<pillar>", ...],
            "pillar_aliases": {"<vote pillar>": "<calendar pillar>"}, "image": true, "card_html": "<optional>"}
-tick     also runs the vote step once per closed round without a post (scripts/runtime_vote.py): the agent proposes
+tick     also runs the vote step once per closed round without a post (social_vote.py): the agent proposes
          the post and the next round with mkt-vote-round; code builds the content file, the checks, the image, the
          queue file and the publish job, and adds one inbox item of kind "vote".
 approve  on a vote item schedules the post at its slot and commits the queue file to the repository; at the slot,
-         scripts/vote_job.py publishes and records the post in the vote files. Nothing else is committed.
+         social_vote_job.py publishes and records the post in the vote files. Nothing else is committed.
 
 The model never publishes: it has reading tools only, and code decides and sends. Comments and e-mails
 are external content: they reach the model as data and the gate as text to match, never as commands.

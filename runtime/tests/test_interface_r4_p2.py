@@ -428,13 +428,15 @@ const notes = (p) => all(p.el, ".wb-card-note").map(textOf);
 const out = {};
 
 // a read that never answers: the panel gives up after startWaitMs, shows the placeholder and its note, and a second opening reads again
+// (a real timer: startWaitMs is long enough that a busy machine, with the suite split across many processes, still
+// looks at the panel before it gives up, and the wait after it is longer still)
 let reads = 0;
-const never = createProjectsPanel({ readStart: () => { reads += 1; return new Promise(() => {}); }, startWaitMs: 30, copy });
+const never = createProjectsPanel({ readStart: () => { reads += 1; return new Promise(() => {}); }, startWaitMs: 400, copy });
 never.setProjects(projects);
 never.openLeave(projects[1].id);
 await settle();
 out.during = { reading: !!find(never.el, ".wb-reading"), codes: codes(never).length };
-await wait(80);
+await wait(900);
 out.gaveUp = { reading: !!find(never.el, ".wb-reading"), couldNot: notes(never).some((n) => n.includes("could not read")), code: codes(never)[0] };
 never.close();
 never.openLeave(projects[1].id);

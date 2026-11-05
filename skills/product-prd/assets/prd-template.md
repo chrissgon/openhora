@@ -1,6 +1,7 @@
 # PRD: {product}
 
 - Owner: product-prd
+- Language: {the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English}
 - Status: draft
 - Date: {YYYY-MM-DD}
 - Brief: {path}

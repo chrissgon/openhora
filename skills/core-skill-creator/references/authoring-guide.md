@@ -12,6 +12,7 @@ This document holds the rules and practices for creating and maintaining skills 
 - [Patterns for Effective Instructions](#patterns-for-effective-instructions)
 - [Canonical Sentences](#canonical-sentences)
 - [The Platform Step](#the-platform-step)
+- [The Security Step](#the-security-step)
 - [Using Scripts](#using-scripts)
 - [Eval Cases](#eval-cases)
 - [Reading Results and Iterating](#reading-results-and-iterating)
@@ -221,7 +222,7 @@ python3 <this skill's folder>/scripts/migrate.py --verify --backup
 Do NOT modify the command or add flags.
 ```
 
-Constrain the contract, not the content: the output structure and the quality criteria are mandatory; the procedure is the default path to them, and a model that meets the criteria another way is not wrong. Prefer "at least N" over "exactly N". A reference model that does worse with the skill than without it means the skill is over-specified: loosen the procedure, keep the criteria.
+Constrain the contract, not the content: the output structure and the quality criteria are mandatory; the procedure is the default path to them, and a model that meets the criteria another way is not wrong. Prefer "at least N" over "exactly N". A model that does worse with the skill than without it means the skill is over-specified: loosen the procedure, keep the criteria.
 
 ### 5. Provide Defaults, Not Menus
 
@@ -437,6 +438,18 @@ A skill's procedure names no social platform (`AGENTS.md`, design rule 2): it de
 
 ---
 
+## The Security Step
+
+Step 7 of `SKILL.md` reads [../../../shared/references/security.md](../../../shared/references/security.md) and runs `python3 scripts/security_scan.py skills/<name>`, plus any agent, provider or script the change touches, until it reports zero findings. Then:
+
+1. Answer every checklist item of `security.md` as found, before any fix: `yes`, `no` or `n/a: <why>`, and for a `yes` the line of the skill that makes it so.
+2. Fix every `no` before the cases are written, and keep reporting it as `no as found` with its fix.
+3. A name, id or path the skill takes from outside is item 6 even when nothing is written outside the project.
+4. A fixture that plants a bad pattern on purpose is declared in `.security-scan-allow` with its case; a finding that is intended is silenced on its line with `security-scan: allow <rule> -- <reason>`, never without a reason.
+5. A side effect, a credential or a permission that neither the request nor the skill's `docs/inventory.md` entry names is not written into the skill: Stop rule 4 of `SKILL.md`.
+
+---
+
 ## Using Scripts
 
 ### When to Bundle Scripts
@@ -631,6 +644,7 @@ A failed guard verdict is graded a second time before it counts, and a confirmed
 
 ### The prompt and the fixture
 
+- **No expected output where the skill must stop and ask.** A case whose right answer is a question or a stop carries no `expected_output` that states an answer, unless the prompt or a fixture gives that answer; otherwise the case asks the model to know what only the user can say.
 - **A prompt names no path the case does not have.** Every path a prompt cites exists in the case folder, is an output the run creates, or is listed in `absent_on_purpose`. Since a folder in `files` is copied by content, the folder's own name is not in the case: a prompt that says "audit `web-summarizer/`" points at nothing. Put the folder one level down in the fixture, or name what is inside it.
 - **`absent_on_purpose`** is for the case that tests a missing input: it lists each path the prompt cites that is left out, so that the preflight accepts it and a reader knows it is the point of the case.
 - **A fixture is a small real project in the project's layout.** Files sit where a project has them (`docs/product/prd.md`, `src/`, a manifest), with only what the case needs. A file copied whole from a project is cut down to that and renamed.
@@ -654,7 +668,7 @@ A case changes for a stated reason, never to raise a score: when the output is n
 
 - An assertion changes only when it never influences the score (it passes in every run of every variant and is a language assertion or content any model produces), fails a good output for a formality, rests on something the grader cannot see, is conditional, or contradicts the skill.
 - Every change to an assertion, a prompt, an expected output or a fixture is listed before and after in the pull request, with its reason; a new case is listed with the behaviour it measures, a deleted one with its reason.
-- A change to a case needs no version bump of the skill. Each case has a hash of its own, over the whole case: an **added** case is `pending` and moves no band until it has run (`eval_run.py --skill <name> --cases <id> --baseline`); a **changed** case loses its evidence and its baseline and enters the gate through a full test of the skill, never run alone.
+- A change to a case needs no version bump of the skill. Each case has a hash of its own, over the whole case: an **added** case is `pending` and moves no band until it has run (`eval_run.py --skill <name> --cases <id> --baseline`); a **changed** case loses its evidence and its baseline, is `pending` like an added one until `--cases <id> --baseline` has run it, and a case changed a second time since the newest full test asks for a full test of the skill.
 
 ### Designing Cases
 

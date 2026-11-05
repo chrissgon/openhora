@@ -40,6 +40,7 @@ def _definitions(path):
         elif isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             names += [t.id for t in targets if isinstance(t, ast.Name)]
+            names += [t.attr for t in targets if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) and t.value.id == "self"]   # `self.<name> = ...` shadows the kit's too
     return names
 
 
@@ -164,6 +165,19 @@ def test_a_job_runs_in_a_thread_is_polled_and_gives_back_its_model_slot():
     done = jobs.job_shown(job["job"])
     assert done["state"] == "done" and done["result"] == {"ok": 1} and done["error"] is None and done["ended_at"]
     assert not jobs.exclusive and not jobs.running("aaaaaaaaaaaa") and jobs.job_shown(99) is None
+
+
+def test_the_end_of_a_job_calls_the_hook_after_the_slot_is_free_and_outside_the_lock():
+    seen = []
+
+    class Hooked(kit.Jobs):
+        def job_ended(self, job):
+            seen.append((job["state"], dict(self.exclusive), self.lock.locked()))
+    jobs = Hooked(Ops(), [{"id": "aaaaaaaaaaaa", "name": "p", "path": "/p"}])
+    job, thread, _ = jobs.start_job("aaaaaaaaaaaa", "route", lambda: {"ok": 1})
+    thread.join(5)
+    assert seen == [("done", {}, False)]
+    kit.Jobs(Ops(), []).job_ended({})      # the kit's own hook does nothing
 
 
 def test_a_second_model_job_is_busy_a_stopping_registry_starts_none_and_a_job_without_a_model_takes_no_slot():

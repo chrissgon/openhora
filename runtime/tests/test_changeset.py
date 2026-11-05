@@ -144,7 +144,7 @@ def test_a_docs_folder_the_project_versions_travels_in_the_change_set(tree, tmp_
                                                          "modified": ["docs/guide.md"], "deleted": []}}
     project = tmp_path / "elsewhere"
     (project / "docs").mkdir(parents=True)
-    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-code", versioned=made["versioned"])
+    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-code", versioned=made["versioned"], cfg={})
     assert returned == [] and kept == []  # never a loose document: it travels in the change set
     assert not (project / "docs" / "engineering").exists()
 

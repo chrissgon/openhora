@@ -132,12 +132,12 @@ class StandIn:
         text = self.read_text(os.path.join(out_dir, "error.log"), 4000)
         return "LIMIT" if "LIMIT" in text and "LIMIT" in markers else None
 
-    def Slots(self, control, tier, web=False):
+    def Slots(self, control, model, web=False):
         stand_in = self
 
         class Held:
             def __enter__(self):
-                stand_in.log.append(("slots", tier, web))
+                stand_in.log.append(("slots", model, web))
                 return self
 
             def __exit__(self, *exc):
@@ -173,7 +173,7 @@ def spec_for(dest, **more):
     spec = {"dest": str(dest), "names": ["demo-writes"], "label": "task run 31", "runner": "/x/run-prompt.sh",
             "model": "m", "account": {"key": "h", "markers": ["LIMIT"], "probe": None},
             "refusal_markers": ["REFUSED"], "pass_env": ["H_KEY"], "values": ["secret-value"],
-            "settings": [".tool"], "control": {"total_jobs": 2}, "tier": "strong", "web": False, "timeout": 30,
+            "settings": [".tool"], "control": {"total_jobs": 2}, "web": False, "timeout": 30,
             "max_cost": None, "retries": 2, "prompt": "do it\n", "response_limit": 200000, "counts": None,
             "env_extra": None}
     spec.update(more)
@@ -226,7 +226,7 @@ def test_env_extra_is_set_in_the_adapter_call_and_named_in_its_box_never_replace
     run_call = next(entry for entry in lab.log if entry[0] == "run_failure")
     assert run_call[1]["pass"] == ["H_KEY", "TMPDIR"] and run_call[1]["network"] == "open"
     assert run_call[2]["TMPDIR"] == "/run/tmp"
-    assert ("slots", "strong", True) in lab.log
+    assert ("slots", "m", True) in lab.log
     roots = []
     lab = StandIn(tmp_path / "t", [{}])
     ra.run(lab, spec_for(tmp_path / "run2", env_extra=lambda root: roots.append(root) or {"TMPDIR": root + "/tmp"}))

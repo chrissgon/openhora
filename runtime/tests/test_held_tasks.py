@@ -25,7 +25,8 @@ operations = st.load("operations")
 
 WORDS = ("stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", "dispatch off",
          "no enabled agent owns the task", "waiting", "other", "project at max_running",
-         "agent at max_parallel", "a code task of the request runs", "artifact in use", "could not start, tried again shortly")
+         "agent at max_parallel", "a code task of the request runs", "artifact in use", "could not start, tried again shortly",
+         "start it by hand")
 
 
 @pytest.fixture(autouse=True)
@@ -258,8 +259,8 @@ def test_a_narrowing_accepted_in_the_middle_of_a_round_stops_the_next_start(tree
     real = ops_runs.run_task
     done = []
 
-    def run_then_narrow(project, task_id, tier=None, checked=True):
-        out = real(project, task_id, tier=tier, checked=checked)
+    def run_then_narrow(project, task_id, requested=None, checked=True):
+        out = real(project, task_id, requested=requested, checked=checked)
         done.append(task_id)
         if len(done) == 1:  # the person (or the page) stops the agent while the round goes on
             assert ops.set_mode(path, "business", "stopped")["accepted"] is True

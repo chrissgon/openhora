@@ -292,9 +292,10 @@ def merge(base, current, returned: str, skill: str) -> str:
     return merge_report(base, current, returned, skill)["text"]
 
 
-def with_answer(text: str, *, date: str, skill: str, pending_id: int, answer: str) -> str:
+def with_answer(text: str, *, date: str, skill, pending_id: int, answer: str) -> str:
     """The state file's text with the person's answer added as the last line of ## Decisions. Code calls it; no
-    run can produce its effect (merge_report() refuses a decision that names the user)."""
+    run can produce its effect (merge_report() refuses a decision that names the user). A stop of a step task has no skill:
+    the line says "a step task" (the pending decision's number leads to it)."""
     parsed = parse(text)
     target = _section(parsed, DECISIONS)
     if target is None:
@@ -302,7 +303,7 @@ def with_answer(text: str, *, date: str, skill: str, pending_id: int, answer: st
     said = WHITESPACE.sub(" ", answer or "").strip()
     if len(said) > ANSWER_MAX:
         said = said[:ANSWER_MAX] + CUT
-    _append(target, f"- {date}: Answer to {skill} (pending decision {pending_id}): {said} (user)")
+    _append(target, f"- {date}: Answer to {skill or 'a step task'} (pending decision {pending_id}): {said} (user)")
     return _render(parsed)
 
 

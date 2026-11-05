@@ -1,0 +1,44 @@
+{
+  "flow": "new-project",
+  "title": "A new project, from the idea to its backlog",
+  "tasks": [
+    {
+      "key": "brief",
+      "skill": "core-clarify",
+      "title": "Clarify the idea",
+      "text": "turn the loose description in this request into decisions before anyone builds on it: ask the questions the person alone can answer (who it is for, what it must do first, what is out of scope), surface contradictions instead of smoothing them over, and write the brief, docs/workbench/briefs/<topic>.md.",
+      "depends_on": [],
+      "milestone": true
+    },
+    {
+      "key": "spec",
+      "skill": "product-feature-spec",
+      "title": "The first feature, specified",
+      "text": "the brief is done (docs/workbench/briefs/). Specify the first feature to build, docs/product/specs/<feature>.md: what it is and is not, the requirements with numbers, the edge cases and the acceptance criteria. Ask the person what only they can answer and never invent a requirement; it is ready when its Readiness line says `Ready for architecture: yes`.",
+      "depends_on": [
+        "brief"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "design",
+      "skill": "eng-architecture",
+      "title": "The design",
+      "text": "the specification is done and ready (docs/product/specs/). Design what it needs: the parts, what each owns, the contracts between them and how each acceptance criterion will be checked. Write docs/engineering/designs/<feature>.md, and a decision record in docs/engineering/adr/ for every decision that could reasonably have gone another way, the choice of stack included.",
+      "depends_on": [
+        "spec"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "backlog",
+      "skill": "product-backlog",
+      "title": "The backlog",
+      "text": "the specification and the design are done (docs/product/specs/ and docs/engineering/designs/). Cut them into tasks that can be started today, each with its check, in an order that never blocks on something not yet built: write docs/product/backlog.md. Create no ticket: that is a separate request with its own confirmation. This flow ends here: when the backlog is released, the runtime offers one implementation task for each todo task of it, and the change of each becomes its pull request in a later request.",
+      "depends_on": [
+        "design"
+      ],
+      "milestone": true
+    }
+  ]
+}

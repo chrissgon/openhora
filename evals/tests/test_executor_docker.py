@@ -70,7 +70,11 @@ def code(url):
 
 def test_the_environment_names_the_definition_the_image_its_digest_and_its_platform(environment, root):
     assert environment["kind"] == "container" and environment["definition_sha256"] == ex.definition_hash()
-    assert environment["image_id"].startswith("sha256:") and environment["image_digest"] == environment["image_id"]
+    assert environment["image_source"] in ("local", "published")
+    if environment["image_source"] == "local":  # a local build is identified by its id; a published image by its repo digest
+        assert environment["image_id"].startswith("sha256:") and environment["image_digest"] == environment["image_id"]
+    else:
+        assert environment["image_id"] is None and environment["image_digest"].startswith("sha256:")
     assert environment["image_platform"] == ex.image_platform()
     machine = {"linux/arm64": "aarch64", "linux/amd64": "x86_64"}[ex.image_platform()]
     assert inside(root, "uname -m").stdout.strip() == machine
@@ -129,12 +133,14 @@ def test_a_secret_reaches_the_run_by_name_and_only_when_passed(environment, root
 
 def test_the_image_carries_the_pinned_tools(environment, root):
     r = inside(root, "claude --version; opencode --version; uv --version; git --version; python3 --version; "
-                     "node --version; chromium --version; gh --version; file --version; patch --version")
+                     "node --version; chromium --version; gh --version; file --version; patch --version; "
+                     "pdftotext -v; pdftoppm -v; python3 -c 'import pypdf; print(pypdf.__version__)'")
     assert r.returncode == 0, r.stderr
-    assert "2.1.283" in r.stdout and "1.18.32" in r.stdout and "0.12.19" in r.stdout and "v24.10.0" in r.stdout
+    assert "2.1.284" in r.stdout and "1.18.32" in r.stdout and "0.12.19" in r.stdout and "v24.10.0" in r.stdout
     assert "gh version 2.102.0" in r.stdout and "GNU patch" in r.stdout and "magic file from" in r.stdout
+    assert "pdftotext version" in r.stdout + r.stderr and "pdftoppm version" in r.stdout + r.stderr and "3.4.1" in r.stdout  # poppler-utils, python3-pypdf
     lock = (Path(ex.DEFINITION) / "runners" / "package-lock.json").read_text()
-    assert '"version": "2.1.283"' in lock and '"version": "1.18.32"' in lock  # the lock file is what was installed
+    assert '"version": "2.1.284"' in lock and '"version": "1.18.32"' in lock  # the lock file is what was installed
 
 
 def test_the_code_hosts_tool_is_installed_and_signed_out(environment, root):
@@ -201,6 +207,30 @@ def test_removing_a_container_by_name_ends_it(environment, root):
         assert not ex.docker("ps", "-aq", "--filter", f"name={name}").stdout.strip()
     finally:
         proc.kill()
+
+
+def test_the_containers_the_harness_starts_carry_its_labels_and_the_long_lived_ones_a_log_limit(environment, root):
+    """So that an orphan left by a crash is found by label (package P-OPS), and a log never fills the disk."""
+    argv, name = ex.command(["sleep", "300"], str(root))
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        import time
+        for _ in range(100):
+            if ex.docker("ps", "-q", "--filter", f"name={name}").stdout.strip():
+                break
+            time.sleep(0.1)
+        found = ex.docker("inspect", "--format", '{{index .Config.Labels "wb.eval"}} {{index .Config.Labels "wb.eval.run"}}', name).stdout.split()
+        assert found == ["1", ex.run_id_of(name)]
+        assert ex.docker("ps", "-q", "--filter", "label=wb.eval=1", "--filter", f"name={name}").stdout.strip()
+    finally:
+        ex.remove(name)
+        proc.kill()
+    n = ex.names()
+    log = ex.docker("inspect", "--format", "{{json .HostConfig.LogConfig.Config}}", n["proxy"]).stdout.strip()
+    assert json.loads(log) == {"max-file": "3", "max-size": "10m"}  # the egress proxy
+    assert ex.docker("inspect", "--format", '{{index .Config.Labels "wb.eval"}}', n["proxy"]).stdout.strip() == "1"
+    networks = ex.docker("network", "ls", "--filter", "label=wb.eval=1", "--format", "{{.Name}}").stdout.split()
+    assert {n["network"], ex.route_network("anthropic", n), ex.route_network("openrouter", n)} <= set(networks)
 
 
 def test_the_version_control_facts_are_read_in_a_container_with_no_network(environment, root):
@@ -379,9 +409,11 @@ def test_the_grading_path_with_a_stub_grader_runs_in_the_container_and_a_stub_ru
     (wb / "evals").mkdir()
     (wb / "evals" / "grading-prompt.md").write_text((REPO / "evals" / "grading-prompt.md").read_text())
     (wb / "evals" / "eval-gate.json").write_text(json.dumps({  # the measurement is open: a stub run is a trial
-        "strong_model": "m", "strong_harness": "stub", "floor_model": "f", "floor_harness": "stub", "floor_pass_env": [],
-        "strong_pass_env": [], "grader": "m", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_version": 5,
-        "measurement_floor": 5, "runs": 1}))
+        "grader": "m", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5, "runs": 1,
+        "lab_models": ["m", "f"],
+        "models": {name: {"aliases": [], "adapter": "stub", "pass_env": [], "route": None, "provider_pin": None,
+                          "upstream_models": ["x"], "price_source": "https://example.test/price", "run_token_budget": 1000}
+                   for name in ("m", "f")}}))
     monkeypatch.setattr(er, "ROOT", str(wb))
     monkeypatch.setattr(er.KIT, "ROOT", str(wb))
     monkeypatch.setattr(er, "GRADING_TEMPLATE", str(wb / "evals" / "grading-prompt.md"))

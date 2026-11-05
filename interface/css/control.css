@@ -87,7 +87,7 @@
 
 /* the list of skills (R-53): five columns, the chevron first; the head row is for the eye, each row names its cells for a screen reader */
 .wb-skill-list { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); overflow: hidden; font-size: 13px; }
-.wb-skill-head, .wb-skill-sum { display: grid; grid-template-columns: 16px minmax(0, 1.5fr) 56px minmax(0, 0.9fr) 132px 132px; align-items: center; gap: 10px; padding: 9px 12px; }
+.wb-skill-head, .wb-skill-sum { display: grid; grid-template-columns: 16px minmax(0, 1.5fr) 56px minmax(0, 0.9fr) 220px; align-items: center; gap: 10px; padding: 9px 12px; }
 .wb-skill-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
 .wb-skill-row + .wb-skill-row, .wb-skill-head + .wb-skill-row { border-top: var(--pui-border-width) solid var(--pui-border); }
 .wb-skill-row > summary, .wb-skill-card > summary { list-style: none; cursor: pointer; }
@@ -96,7 +96,7 @@
 .wb-skill-sum:hover { background-color: var(--wb-ground); }
 .wb-skill-ver, .wb-skill-area { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-skill-name { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
-.wb-skill-tier { min-width: 0; white-space: nowrap; }
+.wb-skill-models { min-width: 0; white-space: nowrap; }
 .wb-band { display: inline-flex; align-items: center; gap: 6px; }
 .wb-score { font-variant-numeric: tabular-nums; }
 .wb-skill-detail { display: grid; gap: 3px; padding: 4px 12px 12px 38px; color: var(--pui-text-muted); font-size: 12px; }
@@ -104,12 +104,12 @@
 .wb-results { display: grid; gap: 10px; }
 .wb-skill-cards { display: none; }
 
-/* the phone's card of a skill (R-55): the name and "version · area", the manifest and the runs, the two tiers; opened: the two sentences */
+/* the phone's card of a skill (R-55): the name and "version · area", the manifest and the runs, the models cell; opened: the recommendation and one sentence for each model */
 .wb-skill-card { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); font-size: 13px; }
 .wb-skill-card > summary { display: grid; gap: 4px; padding: 10px 12px; }
 .wb-sc-1 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
 .wb-sc-2 { font-size: 12px; }
-.wb-sc-3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+.wb-sc-3 { display: grid; grid-template-columns: 1fr; gap: 8px; font-size: 12px; }
 .wb-sc-3 > span { display: grid; gap: 2px; justify-items: start; }
 .wb-skill-card .wb-skill-detail { padding: 0 12px 10px; }
 
@@ -223,7 +223,7 @@
   .wb-control .wb-tablist .wb-tab { font-size: 16px; }
   .wb-control :is(input, select, textarea) { font-size: 16px; }
   .wb-control :is(button, .pui-btn), .wb-filters > summary, .wb-chart-acc > summary { font-size: 16px; }
-  .wb-skill-name, .wb-skill-detail { font-size: 16px; }     /* a skill's name and its sentences are list rows: reading text; the version, area and tier lines stay meta */
+  .wb-skill-name, .wb-skill-detail { font-size: 16px; }     /* a skill's name and its sentences are list rows: reading text; the version, area and models lines stay meta */
   .wb-cnotice, .wb-cnotice-line, .wb-empty-block, .wb-skill-card, .wb-caps, .wb-chart-head, .wb-ccard, .wb-ccard p, .wb-ctable.wb-stackable :is(th, td) { font-size: 16px; }
   .wb-plot-labels { font-size: 12px; }
   .wb-ctable .wb-code, .wb-ctable.wb-stackable td[data-label] .wb-code { font-size: 14px; }

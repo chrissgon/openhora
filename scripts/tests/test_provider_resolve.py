@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -152,6 +153,21 @@ def test_the_declaration_is_read_as_text_and_a_file_that_declares_nothing_serves
     assert resolve.served_platforms("publisher:chirp", "odd", root=root) == ["chirp"]
 
 
+def test_the_serves_line_is_found_after_a_long_module_docstring_and_a_file_that_is_not_text_declares_nothing(tmp_path):
+    root = workbench(tmp_path, "writer/late.py", "writer/plain.py", "writer/binary.py", "writer/other.py")
+    docstring = '"""' + ("A long account of what the writer does. " * 400) + '"""\n'      # about 16000 characters, past the old read of 8192
+    assert len(docstring) > 8192
+    (root / "providers/writer/late.py").write_text(docstring + 'SERVES = "writer:files"\n')
+    (root / "providers/writer/binary.py").write_bytes(b"\xff\xfe\x00 not text")
+    (root / "providers/writer/other.py").write_text(docstring + 'SERVES = "writer:calendar"\n')
+    assert resolve.serves_class("writer:files", "late", root=root) and resolve.serves_class("writer:files", "late", root=root, strict=True)
+    assert not resolve.serves_class("writer:calendar", "late", root=root)
+    assert not resolve.serves_class("writer:files", "other", root=root) and resolve.serves_class("writer:calendar", "other", root=root, strict=True)
+    assert resolve.serves_class("writer:files", "plain", root=root) and not resolve.serves_class("writer:files", "plain", root=root, strict=True)
+    assert resolve.serves_class("writer:files", "binary", root=root) and not resolve.serves_class("writer:files", "binary", root=root, strict=True)
+    assert resolve.implementations("writer:files", root=root) == ["binary", "late", "plain"]
+
+
 def test_scheduler_default_follows_the_platform(tmp_path):
     root = workbench(tmp_path, "scheduler/launchd.py", "scheduler/systemd.py")
     for platform, name in (("darwin", "launchd"), ("linux", "systemd")):
@@ -247,7 +263,12 @@ def test_cli_list_names_every_class_and_what_resolves(tmp_path):
 def test_this_checkout_resolves_what_it_ships():
     env = {}
     assert resolve.resolve("store:runtime", env=env)["implementation"] == "sqlite"
-    assert resolve.resolve("reader:email", env=env)["implementation"] == "gmail"
+    # Two readers ship since package M1 (gmail.py, outlook.py): nothing chooses one, so the class does not resolve until it is named
+    # (providers/mailbox/tests/test_mailbox_resolution.py pins the exit 3 and the sentence).
+    with pytest.raises(resolve.Unresolved) as several:
+        resolve.resolve("reader:email", env=env)
+    assert "MAILBOX_PROVIDER" in str(several.value)
+    assert resolve.resolve("reader:email", env={"MAILBOX_PROVIDER": "gmail"})["implementation"] == "gmail"
     assert resolve.resolve("integration:vcs", env=env)["implementation"] == "github"
     assert resolve.resolve("scheduler:job", env=env, platform="darwin")["implementation"] == "launchd"
     assert resolve.resolve("scheduler:job", env=env, platform="linux")["implementation"] == "systemd"
@@ -281,7 +302,7 @@ def test_a_verbs_row_says_when_no_implementation_ships():
     assert rows
     for row in rows:
         cls = row.split("|")[1].strip().strip("`")
-        shipped = bool(resolve.implementations_in(resolve.folder(cls), root=REPO))
+        shipped = bool(resolve.implementations(cls, root=REPO))      # a writer that declares it serves another class is not one of this class
         reserved = row.split("|")[2].strip().startswith("No implementation ships.")
         assert shipped != reserved, cls
     assert 'A row that starts "No implementation ships" is a reserved shape' in contract
@@ -361,6 +382,19 @@ def test_the_configuration_goes_in_a_private_file_removed_afterwards(tmp_path):
     assert out["args"][:2] == ["list", "--config-file"] and out["args"][-1] == "--x"
     assert out["config"]["mode"] == 0o600 and json.loads(out["config"]["text"]) == {"provider": "standin"}
     assert not Path(out["config"]["path"]).exists()
+
+
+def test_the_last_non_empty_line_of_stderr_is_kept_beside_the_tail_that_lost_its_line_ends(tmp_path):
+    """ATT-1b: a messenger's fetch says a reference is gone by exiting 1 with the word `gone` as the LAST line of stderr; the tail joins the lines, so it cannot say."""
+    import types
+    script = tmp_path / "p.py"
+    script.write_text("# /// script\n# dependencies = []\n# ///\n", encoding="utf-8")
+    for stderr, last in (("detail\ngone\n", "gone"), ("gone: not really\nthe platform said 500\n\n", "the platform said 500"), ("", ""), ("   \n\n", ""),
+                         ("x" * 500 + "\n", "x" * 200)):
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.invoke(str(script), "v", [], run=lambda argv, e=stderr: types.SimpleNamespace(returncode=1, stdout="", stderr=e))
+        assert caught.value.stderr_last == last and caught.value.exit_code == 1
+        assert " ".join(stderr.split())[-300:] == caught.value.stderr_tail
 
 
 def test_exit_codes_are_mapped_and_the_tail_is_kept(tmp_path):
@@ -525,3 +559,74 @@ def test_start_names_a_class_that_does_not_resolve_and_a_program_that_cannot_sta
     with pytest.raises(resolve.ProviderCallError) as caught:
         resolve.start("integration:vcs", "listen", [], root=root, env={})
     assert caught.value.kind == "failed" and "PermissionError" in caught.value.reason
+
+
+# --- package IX-2b: the class model:text and the standard input of a call ------------------------------------------
+
+STDIN_ECHO = ("# /// script\n# requires-python = \">=3.9\"\n# dependencies = []\n# ///\nimport json, sys\n"
+              "print(json.dumps({\"args\": sys.argv[1:], \"stdin\": sys.stdin.read()}))\n")
+
+
+def echo_workbench(tmp_path):
+    root = workbench(tmp_path, "model/echo.py")
+    (root / "providers" / "model" / "echo.py").write_text(STDIN_ECHO)
+    return root
+
+
+def test_model_text_is_a_runtime_only_class_that_resolves_to_chat_http_in_this_checkout():
+    assert "model" in resolve.ROLES and "model:text" not in resolve.LISTED
+    assert resolve.folder("model:text") == "model" and resolve.variables("model:text") == ["MODEL_TEXT_PROVIDER", "MODEL_PROVIDER"]
+    got = resolve.resolve("model:text", root=REPO, env={})
+    assert got["implementation"] == "chat-http" and Path(got["path"]) == REPO / "providers" / "model" / "chat-http.py"
+    assert got["source"] == "only-implementation"
+    with pytest.raises(resolve.Unresolved):                     # a name from the environment is accepted only when shipped
+        resolve.resolve("model:text", root=REPO, env={"MODEL_TEXT_PROVIDER": "chat_http"})
+    with pytest.raises(resolve.UnknownClass):                   # a bare role is none
+        resolve.resolve("model", root=REPO, env={})
+
+
+def test_a_text_on_stdin_reaches_the_child_and_no_file_is_written_for_it(tmp_path, monkeypatch):
+    root = echo_workbench(tmp_path)
+    made = []
+    monkeypatch.setattr(resolve.tempfile, "mkstemp", lambda *a, **k: made.append(a) or (_ for _ in ()).throw(AssertionError("a temp file")))
+    text = "line one\né 中\n" + "x" * 200000                 # more than a pipe buffer, with non-ASCII text
+    out = resolve.call("model:text", "complete", ["--dry-run"], root=root, env={}, stdin=text)
+    assert out == {"args": ["complete", "--dry-run"], "stdin": text} and made == []
+    assert resolve.call("model:text", "complete", [], root=root, env={}, stdin="")["stdin"] == ""
+
+
+def test_stdin_is_refused_with_a_configuration_and_when_it_is_not_a_text(tmp_path):
+    root = echo_workbench(tmp_path)
+    for kw in ({"stdin": "x", "config": {"a": 1}}, {"stdin": b"bytes"}, {"stdin": 5}):
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.call("model:text", "complete", [], root=root, env={}, **kw)
+        assert caught.value.kind == "usage"
+
+
+def test_a_stand_in_run_gets_the_stdin_only_when_there_is_one(tmp_path):
+    root = echo_workbench(tmp_path)
+    seen = []
+
+    def old(argv):                       # a stand-in written before stdin existed keeps working
+        seen.append(("old", argv))
+        return subprocess.CompletedProcess(argv, 0, '{"ok": true}', "")
+
+    def new(argv, stdin):
+        seen.append(("new", argv, stdin))
+        return subprocess.CompletedProcess(argv, 0, '{"ok": true}', "")
+
+    assert resolve.call("model:text", "complete", [], root=root, env={}, run=old) == {"ok": True}
+    assert resolve.call("model:text", "complete", [], root=root, env={}, run=new, stdin="body") == {"ok": True}
+    assert [s[0] for s in seen] == ["old", "new"] and seen[1][2] == "body" and len(seen[0]) == 2
+
+
+def test_vacuity_a_stand_in_that_takes_no_stdin_cannot_be_given_one(tmp_path):
+    root = echo_workbench(tmp_path)
+    with pytest.raises(TypeError):
+        resolve.call("model:text", "complete", [], root=root, env={}, stdin="x", run=lambda argv: subprocess.CompletedProcess(argv, 0, "{}", ""))
+
+
+def test_the_config_file_is_still_written_when_there_is_no_stdin(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    out = resolve.call("integration:vcs", "list", [], root=root, config={"a": 1}, env={}, stdin=None)
+    assert out["config"]["mode"] == 0o600 and not Path(out["config"]["path"]).exists()

@@ -32,8 +32,8 @@ def plain_start(monkeypatch):
 def test_a_command_with_the_checkout_is_absolute_and_quotes_what_needs_it():
     got = operations.command_line("accept-config", "/p q", checkout=CHECKOUT, sha256="ab")
     assert got == "python3 '/work/ai workbench/runtime/cli.py' accept-config --project '/p q' --sha256 ab"
-    assert operations.command_line("run-next", "/p", checkout="/w", tier="strong") == \
-        "python3 /w/runtime/cli.py run-next --project /p --tier strong"
+    assert operations.command_line("run-next", "/p", checkout="/w", model="auto") == \
+        "python3 /w/runtime/cli.py run-next --project /p --model auto"
     assert operations.command_line("accept-config", "/p", sha256="ab") == "python3 runtime/cli.py accept-config --project /p --sha256 ab"
 
 

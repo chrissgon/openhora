@@ -1,0 +1,8 @@
+{
+ "package": "s41-11",
+ "add": {
+  "operations_table.NOT_OPERATIONS": [
+   "reads_words"
+  ]
+ }
+}

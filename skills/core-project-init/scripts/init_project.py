@@ -187,8 +187,27 @@ def name_guess(root):
     return os.path.basename(os.path.abspath(root))
 
 
+def has_version_control(root):
+    """True when .git is a folder, or a regular file whose first line is "gitdir: <path>" and <path> (relative to
+    the root, or absolute) names an existing folder: a linked worktree or a submodule keeps a file there."""
+    marker = os.path.join(root, ".git")
+    if os.path.isdir(marker):
+        return True
+    if not os.path.isfile(marker):
+        return False
+    try:
+        with open(marker, encoding="utf-8") as f:
+            first = f.readline().rstrip("\r\n")
+    except (OSError, ValueError):
+        return False
+    if not first.startswith("gitdir:"):
+        return False
+    target = first[len("gitdir:"):].strip()
+    return bool(target) and os.path.isdir(os.path.join(root, target))
+
+
 def detect(root):
-    is_root = os.path.isdir(os.path.join(root, ".git")) or any(os.path.isfile(os.path.join(root, m)) for m in MANIFESTS)
+    is_root = has_version_control(root) or any(os.path.isfile(os.path.join(root, m)) for m in MANIFESTS)
     root_docs, excluded = [], []
     for fn in sorted(os.listdir(root)):
         if not fn.lower().endswith(".md") or not os.path.isfile(os.path.join(root, fn)):

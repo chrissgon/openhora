@@ -1,0 +1,94 @@
+{
+ "v": 1,
+ "routes": [
+  {
+   "id": "or-deepseek-v4.1-flash",
+   "kind": "http",
+   "model": "openrouter/deepseek/deepseek-v4.1-flash",
+   "upstream_model": "deepseek/deepseek-v4.1-flash",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "deepinfra",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": false,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "key_prefix": "sk-or-v1-",
+   "reference": false,
+   "retention": "Zero data retention is not confirmed for the pinned provider deepinfra: the request asks for no training on the prompt and no other provider (data_collection deny, no fallbacks), and the pinned provider deepinfra's own terms and OpenRouter's terms decide how long a prompt is kept."
+  },
+  {
+   "id": "acct-claude-sonnet-5.5",
+   "kind": "account",
+   "model": "claude-sonnet-5-5",
+   "upstream_model": "claude-sonnet-5-5",
+   "lab_model": "claude-sonnet-5-5",
+   "pin": "anthropic",
+   "params": {
+    "max_tokens": 2000,
+    "reasoning": "low",
+    "temperature": null
+   },
+   "deadline_ms": 60000,
+   "runner_version": "run-text/1 cli/2.1.283",
+   "runner_sha256": "e265b8c3c726e1bc4edf82c3f42737359b5197446be04384723c4635ae5a7efd",
+   "envelope_sha256": "3ef9b0668fc2798353994e820aab652bc745a106b1655353636bad8ff54b232f",
+   "reference": true,
+   "retention": "Sent to the vendor under the maintainer's subscription account terms; zero data retention is not confirmed."
+  },
+  {
+   "id": "acct-claude-haiku-4.5",
+   "kind": "account",
+   "model": "claude-haiku-4-5",
+   "upstream_model": "claude-haiku-4-5",
+   "lab_model": "claude-sonnet-5-5",
+   "pin": "anthropic",
+   "params": {
+    "max_tokens": 300,
+    "reasoning": "off",
+    "temperature": null
+   },
+   "deadline_ms": 60000,
+   "runner_version": "run-text/1 cli/2.1.283",
+   "runner_sha256": "e265b8c3c726e1bc4edf82c3f42737359b5197446be04384723c4635ae5a7efd",
+   "envelope_sha256": "7203a61429bff45e54353b8cef836dd38c0307a2a058ece600455b649a75f646",
+   "reference": false,
+   "retention": "Sent to the vendor under the maintainer's subscription account terms; zero data retention is not confirmed."
+  },
+  {
+   "id": "or-gemini-3.5-flash-lite",
+   "kind": "http",
+   "model": "openrouter/google/gemini-3.5-flash-lite",
+   "upstream_model": "google/gemini-3.5-flash-lite",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "google-vertex",
+   "pin_reply": "google",
+   "reasoning_off": "minimal",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": true,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "key_prefix": "sk-or-v1-",
+   "reference": false,
+   "retention": "Sent to Google Vertex through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Google among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its Google toggle removes the AI Studio endpoints while Vertex remains. Google's own written terms for this use are not confirmed here: nothing is sent to this route before the maintainer accepts that evidence."
+  },
+  {
+   "id": "or-gpt-6-luna",
+   "kind": "http",
+   "model": "openrouter/openai/gpt-6-luna",
+   "upstream_model": "openai/gpt-6-luna",
+   "base_url": "https://openrouter.ai/api/v1",
+   "pin": "azure",
+   "pin_reply": "azure",
+   "allow_fallbacks": false,
+   "data_collection": "deny",
+   "zdr": true,
+   "cache_breakpoint": false,
+   "key": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
+   "key_prefix": "sk-or-v1-",
+   "reference": false,
+   "retention": "Sent to Microsoft Azure, not to the model maker's own endpoint, through OpenRouter. The request asks for zero data retention (zdr), no training on the prompt (data_collection deny) and no other provider (no fallbacks). OpenRouter lists this model on Azure among the endpoints that have a zero-data-retention policy (its ZDR page, read 2026-10-26) and says its OpenAI toggle removes the first-party OpenAI endpoints while Azure remains. Azure's own written terms for this use were not checked: on 2026-10-28 the maintainer accepted OpenRouter's ZDR page as the written evidence."
+  }
+ ]
+}

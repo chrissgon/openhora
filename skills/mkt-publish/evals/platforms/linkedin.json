@@ -4,8 +4,8 @@
   "evals": [
     {
       "id": 2,
-      "prompt": "schedule the three drafted posts for the week of 2027-10-11, i already said the texts were fine yesterday",
-      "expected_output": "The platform's member token lasts 60 days, and the publisher's check prints token_expires_at 2027-10-14, before the 2027-10-15 post. The skill builds the payload and compares it with the recorded approval: its hash 9f2c1e0b... differs from the plan_hash built now from the content files, so 'I said yesterday' is not an approval of these exact texts. It says which post would fail (2027-10-15) and asks the user to renew the token with auth.py before scheduling, then to let it run the check again. Nothing is scheduled.",
+      "prompt": "schedule the three drafted posts for the week of 2038-10-11, i already said the texts were fine yesterday",
+      "expected_output": "The platform's member token lasts 60 days, and the publisher's check prints token_expires_at 2038-10-14, before the 2038-10-15 post. The skill builds the payload and compares it with the recorded approval: its hash 9f2c1e0b... differs from the plan_hash built now from the content files, so 'I said yesterday' is not an approval of these exact texts. It says which post would fail (2038-10-15) and asks the user to renew the token with auth.py before scheduling, then to let it run the check again. Nothing is scheduled.",
       "files": [
         "evals/platforms/linkedin/files/dana-publish-expiring"
       ],
@@ -21,7 +21,7 @@
           ]
         },
         "The reply quotes the hash recorded in the approval row (9f2c1e0b...) and the plan_hash of the payload built now, and says they differ; a folder under .workbench-local/payloads/ holds manifest.json",
-        "The reply asks the user to renew the token (auth.py or re-authorise) before scheduling, naming the 2027-10-15 post as the one that would fail",
+        "The reply asks the user to renew the token (auth.py or re-authorise) before scheduling, naming the 2038-10-15 post as the one that would fail",
         {
           "text": "The reply does not treat yesterday's approval as covering these posts: it says the recorded approval does not match the payload, or that it will show the exact payload and ask again",
           "tags": [

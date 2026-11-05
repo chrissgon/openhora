@@ -15,7 +15,9 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
+from expected_kit import extend
 from test_effects import gate_project, provider_calls, tree  # noqa: F401  (the effect fixture of test_effects.py)
 
 ops = st.load("ops")
@@ -23,14 +25,71 @@ ops_core = st.load("ops_core")
 ops_say = st.load("ops_say")
 ops_reads = st.load("ops_reads")
 ops_config = st.load("ops_config")
+ops_sources = st.load("ops_sources")
+ops_steps = st.load("ops_steps")
+ops_flows = st.load("ops_flows")
+ops_routines = st.load("ops_routines")
+ops_cancel = st.load("ops_cancel")
+ops_instructions = st.load("ops_instructions")
+ops_contained = st.load("ops_contained")
+ops_ask = st.load("ops_ask")
+ops_attachments = st.load("ops_attachments")
+ops_reminders = st.load("ops_reminders")
+ops_calendar = st.load("ops_calendar")
+ops_files = st.load("ops_files")
+ops_mail_send = st.load("ops_mail_send")
+ops_mailbox = st.load("ops_mailbox")
+ops_items = st.load("ops_items")
+ops_file_read = st.load("ops_file_read")
+ops_research = st.load("ops_research")
+ops_file_trash = st.load("ops_file_trash")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
 
+# The modules of the operations layer whose public functions are each an operation's `call` or listed in NOT_OPERATIONS; a package that adds a module adds its name through expected/ (HOT-1).
+PUBLIC_MODULES = extend("operations_table.PUBLIC_MODULES", ["ops", "ops_say", "ops_reads", "ops_core", "ops_config", "ops_sources", "ops_steps", "ops_flows", "ops_routines", "ops_instructions", "ops_contained", "ops_ask", "ops_cancel", "ops_attachments", "ops_reminders", "ops_calendar", "ops_files", "ops_mail_send", "ops_mailbox", "ops_items", "ops_file_read", "ops_research", "ops_file_trash"])
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
-NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
+# 44-C1: task_prompt and code_task are defined in ops_runs, which is not a public module of the table; ops re-exports them.
+NOT_OPERATIONS = extend("operations_table.NOT_OPERATIONS", {"store_module", "context", "chat_memory", "state_question", "state_reply", "queued_ids",
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
-                  "write_checkpoints"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "write_checkpoints", "own_key_name",
+                  # ops_say.py and ops_ask.py (NR-2): the line of a request, whether a plain line is a natural request, whether the asker holds ask-mail
+                  "person_line", "asks_natural", "holds_mail", "may_talk", "natural_needs", "natural_reply",
+                  # ops_say.py and ops_items.py (NR-5): the bridge's entries for a write asked in words, and how the numbered items are written as lines
+                  "natural_write", "natural_draft", "natural_forget", "render", "natural_file_accounts",
+                  # ops_items.py (BL5B): the whole arguments of a list call, which a plan binds and a correction completes from the plan it corrects
+                  "items_args",
+                  # ops_file_read.py (S8): the reply a line in words gets for file-read, beside the operation
+                  "reply",
+                  # ops_items.py (S15c): the mark an approved calendar or mailbox effect leaves, so that the next list reads the provider again
+                  "mark_changed",
+                  # ops_items.py (AF-3): the items list's freshness rule for a caller outside the module (event_lookup), beside the operation
+                  "refresh_for_line",
+                  # ops_file_read.py (S17): the number said after a list of files, the line counter that ends the list, and the reset a test makes
+                  "take", "begin_turn", "forget_lists",
+                  # ops_file_read.py and ops_file_trash.py (R2-A): the grant asked again for a file, the reading of the line's file and account, and what the trash adds beside the operation
+                  "locate", "line_target", "start_card", "pick", "permitted", "catches", "line",
+                  # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
+                  "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
+                  # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task
+                  "cancel_request", "stop_one", "watch", "stop_requested", "cancelled_run", "step_stopped", "after_sync", "lock_name", "request_cancel",
+                  # ops_steps.py: the brake and what the dispatcher asks of the step tasks, beside run_step
+                  "import_bytes", "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate",
+                  # ops_flows.py: what the plan, the approval and the request ask of the flows, beside the four operations
+                  "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve", "discard_staged",
+                  # ops_routines.py: the tick a round calls, the fire, and what a routine's task asks of its routine, beside the seven operations
+                  "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force",
+                  # ops_instructions.py: what a run's prompt, a routine's content and the answer ask of the standing instructions, beside the
+                  # four operations; ops.py `answer` is the step that records an answer, which the row `answer` now reaches through answer_proposing
+                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer", "vet",
+                  # ops_ask.py and ops_contained.py (AQ-1): the owners of the runs of a request, the hint of a direct reply, and the core the contained
+                  # run and ask share; ops_core.py: the attribution of those runs to an agent
+                  "run_owners", "hint", "routed", "execute", "attributed", "asked_by", "with_asker",
+                  # ops_reminders.py: what the messaging bridge asks of the store to send a reminder, and the clock, beside the three operations (no sender can type them)
+                  "reminders_due", "reminders_sent", "reminders_retry", "local_at", "local_of", "day_start",
+                  # BL2a (D5): the bridge's entries for the sender's live "Shall I go ahead?" (ops_say.py) and the sender's stop word that ends their own search (ops_research.py `stop`, ops.py `research_stop`)
+                  "plan_live", "plan_drop", "stop"})  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -63,7 +122,8 @@ def test_the_table_is_a_pure_literal_and_its_rows_are_well_formed():
     names = [r["name"] for r in operations.OPERATIONS]
     assert len(names) == len(set(names))
     for row in operations.OPERATIONS:
-        assert set(row) <= {"name", "call", "args", "channels", "model", "help", "channel_arg", "chat_reply", "exit_unless", "job", "queues", "exclusive"}, row["name"]
+        assert set(row) <= {"name", "call", "args", "channels", "model", "help", "channel_arg", "chat_reply", "exit_unless", "job", "queues", "exclusive", "natural"}, row["name"]
+        assert isinstance(row.get("natural"), dict), row["name"]      # CB-0: every row carries its registry record (runtime/tests/test_registry_rows.py checks it closed)
         assert row["help"].strip() and set(row["channels"]) <= set(CHANNELS) and row["channels"], row["name"]
         assert row["model"] in (True, False) or isinstance(row["model"], str), row["name"]
         for arg in row["args"]:
@@ -87,8 +147,8 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
-    # the layer is six files (CONS-1B, ADJ-R1, R4-C3): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config) for n, f in inspect.getmembers(module, inspect.isfunction)
+    # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
+    public = {n for module in [st.load(name) for name in PUBLIC_MODULES] for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public
@@ -114,7 +174,7 @@ def build_choices() -> tuple:
 
 def test_a_chat_command_is_read_back_from_the_line_that_writes_it():
     assert [r["name"] for r in chat_rows()] == ["status", "progress", "pending", "answer", "release", "approve", "reject",
-                                                "retry", "cancel"]
+                                                "retry", "cancel", "stop-task", "ask", "attachments"]
     for row in chat_rows():
         for optional in (False, True):
             values = example(row, optional)
@@ -197,14 +257,14 @@ def test_the_handler_verb_flag_is_the_handlers_and_not_the_command_word(monkeypa
 
 def test_the_texts_that_name_a_command_are_built_by_the_table():
     assert operations.command_line("accept-config", "/p q", sha256="ab") == "python3 runtime/cli.py accept-config --project '/p q' --sha256 ab"
-    assert operations.command_line("run-next", "/p", tier="strong") == "python3 runtime/cli.py run-next --project /p --tier strong"
+    assert operations.command_line("run-next", "/p", model="auto") == "python3 runtime/cli.py run-next --project /p --model auto"
     assert operations.command_line("sync", "/p", dry_run=True, take=None) == "python3 runtime/cli.py sync --project /p --dry-run"
     assert operations.command_line("handler", "/p", name="n", verb="v", args={"a": "b"}) == \
         "python3 runtime/cli.py handler --project /p --name n --verb v --arg a=b"
     with pytest.raises(ValueError):
         operations.command_line("status", "/p", nothing=1)
-    assert ops.PLAN_NEXT.format(pending=5) == "Approve with /approve 5"
-    assert ops.ASK_NEXT == "Answer with a plain line, or start again with /new <text>"
+    pk.assert_said(ops.PLAN_NEXT.format(pending=5), "PLAN_NEXT", pending=5)
+    pk.assert_said(ops.ASK_NEXT, "ASK_NEXT")
     body = st.load("effect_pull_request").body({"repo": "r", "base": "b", "head": "h", "project_commit": "c", "title": "t", "body": "x",
                          "files": [], "removed": []}, "f" * 64)
     assert f"Approve exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 {'f' * 64}" in body

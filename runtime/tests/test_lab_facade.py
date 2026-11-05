@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_lab_facade.py
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import sys
@@ -44,7 +45,7 @@ def test_a_run_sees_the_staged_skill_and_the_given_files_and_nothing_else(tree, 
     assert not [p for p in seen if "AGENTS.md" in p or "runtime.json" in p]  # only what the caller listed
     assert out["staged"] == [os.path.join(".h", "skills", "demo-asks")]
     assert out["changes"] == {"created": [], "modified": [], "deleted": [], "unchanged": ["docs/workbench/state.md"]}
-    assert (out["model"], out["adapter"], out["tier"], out["web"]) == ("m", "h", "strong", False)
+    assert (out["model"], out["adapter"], out["web"]) == ("m", "h", False) and "tier" not in out
     assert out["timing"]["skills_loaded"] == ["demo-asks"] and out["counts"]["attempts"] == 1
 
 
@@ -154,6 +155,70 @@ def test_the_runtime_never_builds_the_eval_image_a_missing_one_is_an_error(tree,
         run(tree, tmp_path)
     assert e.value.kind == "container" and "never builds it" in e.value.reason
     assert called == [("image", "inspect")] and st.calls(tree["adapter"]) == []
+
+
+class _ExecutorError(Exception):
+    """Stands for evals/executor.py's ExecutorError (the lab matches it by its name, since the executor is loaded by path)."""
+
+
+_ExecutorError.__name__ = "ExecutorError"
+
+
+def _container_error(monkeypatch, tree, tmp_path, runner):
+    """The LabError that run_skill raises when the container environment cannot be had, with an executor whose `docker` is `runner`. `ensure` is never to be reached."""
+    reached = []
+
+    class Executor:
+        @staticmethod
+        def names():
+            return {"image": "wb-eval:invented"}
+
+        docker = staticmethod(runner)
+
+        @staticmethod
+        def ensure():
+            reached.append("ensure")
+            return {}
+
+    er = lab.load()
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er, "load_executor", lambda: Executor)
+    with pytest.raises(lab.LabError) as e:
+        run(tree, tmp_path)
+    assert reached == [] and st.calls(tree["adapter"]) == []
+    return e.value
+
+
+def test_a_docker_daemon_that_is_not_running_is_the_kind_docker_and_not_a_missing_image(tree, tmp_path, monkeypatch):
+    seen = []
+
+    def docker(*args, check=True, **kwargs):
+        seen.append(args[:2])
+        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"})()
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "docker" and error.reason == lab.DAEMON_DOWN and seen == [("image", "inspect")]
+    assert "eval container is not available" not in str(error)
+
+
+@pytest.mark.parametrize("raised", [FileNotFoundError(2, "No such file or directory", "docker"), _ExecutorError("docker is not installed or not on PATH: evals run only in a container")],
+                         ids=["no client (OS error)", "no client (executor error)"])
+def test_a_missing_docker_client_is_the_kind_docker(tree, tmp_path, monkeypatch, raised):
+    def docker(*args, **kwargs):
+        raise raised
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "docker" and error.reason == "docker is not installed or not on the PATH"
+
+
+@pytest.mark.parametrize("raised", [FileNotFoundError(2, "No such file or directory", "evals/image-lock.json"), _ExecutorError("docker image inspect failed: something else"),
+                                    RuntimeError("the executor broke")], ids=["another missing file", "another executor error", "another error"])
+def test_vacuity_any_other_failure_of_the_container_environment_stays_the_kind_container(tree, tmp_path, monkeypatch, raised):
+    def docker(*args, **kwargs):
+        raise raised
+
+    error = _container_error(monkeypatch, tree, tmp_path, docker)
+    assert error.kind == "container" and "the eval container is not available" in error.reason
 
 
 # Names of the lab's runner (evals/eval_run.py): the event runner, the case files, the variants, the baseline's
@@ -275,12 +340,29 @@ def test_the_names_of_a_tools_settings_come_from_the_adapters_lists(tree):
     assert lab.settings_names() == sorted(st.EVAL_JSON["settings"])
 
 
-def test_the_standing_of_a_real_skill_has_a_band_for_the_reference_model_and_names_the_evidences_image():
+def test_the_standing_of_a_real_skill_has_a_band_for_every_lab_model_and_names_the_evidences_image():
     found = lab.standing("biz-market-analysis")
-    strong = found["tiers"]["strong"]["model"]
-    assert strong and strong in found["models"] and found["models"][strong]["band"]
+    assert found["lab_models"] and set(found["lab_models"]) <= set(found["adapters"]) and "tiers" not in found
+    for model in found["lab_models"]:
+        assert found["models"][model]["band"] and found["models"][model]["source"] == "lab" and found["adapters"][model]
     assert found["evidence_images"] and all(d.startswith("sha256:") for d in found["evidence_images"])
-    assert found["version"] and found["tiers"]["floor"]["model"] and found["web_cases"]
+    assert found["version"] and found["web_cases"] and found["local"] == {} or isinstance(found["local"], dict)
+
+
+def test_the_facade_is_keyed_by_model_the_first_lab_model_is_the_default_and_an_unlisted_one_is_refused():
+    models = lab.models()
+    assert models[:len(lab.standing("biz-market-analysis")["lab_models"])] == lab.standing("biz-market-analysis")["lab_models"]
+    assert lab.default_model() == models[0] == lab.reference()["model"]
+    for model in models:
+        found = lab.reference(model)
+        assert found["model"] == model and found["adapter"] and isinstance(found["pass_env"], list)
+        assert lab.credential_missing(model) is not None and lab.names_of(model)[0] == model
+    assert lab.resolve_model(lab.names_of(models[0])[-1]) == models[0]  # an alias is written as the id
+    with pytest.raises(lab.LabError) as refused:
+        lab.reference("strong")
+    assert refused.value.kind == "config" and "is not a model of evals/eval-gate.json" in refused.value.reason
+    with pytest.raises(lab.LabError):
+        lab.credential_missing("floor")
 
 
 class _Done:
@@ -307,12 +389,43 @@ def test_the_image_is_only_inspected_and_never_built(monkeypatch):
     # platform is what the image runs as here; evidence_platform is the one the lab evidence is made on (the executor's
     # IMAGE_PLATFORM): the two may differ, and the proof holds for the second.
     assert lab.image() == {"name": "wb-eval:demo", "digest": "sha256:" + "c" * 64, "platform": "linux/arm64",
-                           "evidence_platform": "linux/amd64"}
+                           "evidence_platform": "linux/amd64", "source": "local", "setup": None, "problem": None}
     assert seen and all(a[:2] == ("image", "inspect") for a in seen)
+    # Evidence is made on either accepted platform: an image that runs as one of them is not a mismatch with the other.
+    both = type("Executor", (), {**{k: v for k, v in vars(fake).items() if not k.startswith("__")},
+                                 "IMAGE_PLATFORMS": ("linux/arm64", "linux/amd64"), "IMAGE_PLATFORM": "linux/arm64"})
+    monkeypatch.setattr(er, "load_executor", lambda: both)
+    for runs_as in ("linux/amd64", "linux/arm64"):
+        monkeypatch.setattr(both, "image_platform", staticmethod(lambda runs_as=runs_as: runs_as))
+        assert lab.image()["platform"] == runs_as and lab.image()["evidence_platform"] == runs_as
+    monkeypatch.setattr(both, "image_platform", staticmethod(lambda: "linux/riscv64"))  # not accepted: the default one, a mismatch
+    assert lab.image()["evidence_platform"] == "linux/arm64"
+    monkeypatch.setattr(er, "load_executor", lambda: fake)
     monkeypatch.setattr(fake, "docker", staticmethod(lambda *a, **k: _Done(1)))
     assert lab.image()["digest"] is None
     monkeypatch.setattr(er, "EXECUTOR", "host")
     assert lab.image()["digest"] is None
+
+
+def test_the_image_lookup_with_the_daemon_down_says_so_after_one_docker_call_and_is_not_a_missing_image(monkeypatch):
+    er = lab.load()
+    seen = []
+    answer = {"stderr": "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"}
+
+    def docker(*args, **kwargs):
+        seen.append(args[:2])
+        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": answer["stderr"]})()
+
+    fake = type("Executor", (), {"names": staticmethod(lambda: {"image": "wb-eval:demo"}), "ensure": staticmethod(lambda: (_ for _ in ()).throw(AssertionError("may only inspect"))),
+                                 "image_platform": staticmethod(lambda: "linux/arm64"), "docker": staticmethod(docker), "IMAGE_PLATFORM": "linux/arm64"})
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er, "load_executor", lambda: fake)
+    found = lab.image()
+    assert found["setup"] == lab.DAEMON_DOWN and found["problem"] == lab.DAEMON_DOWN and found["digest"] is None and found["name"] == "wb-eval:demo"
+    assert seen == [("image", "inspect")]
+    answer["stderr"] = "Error: No such image: wb-eval:demo"      # the control: an image that is simply not there says nothing about the daemon
+    missing = lab.image()
+    assert missing["setup"] == lab.BUILD and missing["problem"] is None and missing["digest"] is None
 
 
 def test_the_measurement_problem_is_the_status_scripts_own():
@@ -333,6 +446,43 @@ def test_the_proof_inputs_change_when_an_evidence_file_or_the_gate_file_changes(
     gate.parent.mkdir(parents=True, exist_ok=True)
     gate.write_text("{}\n", encoding="utf-8")
     assert REAL_PROOF_INPUTS("demo-asks") != second
+
+
+def test_the_proof_inputs_change_when_a_case_file_or_a_dependency_of_a_case_changes(tree):
+    skills = tree["tree"] / "skills"
+    cases = skills / "demo-asks" / "evals" / "evals.json"
+    cases.parent.mkdir(parents=True, exist_ok=True)
+    cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "p", "skills": ["demo-writes"]}]}),
+                     encoding="utf-8")
+    first = REAL_PROOF_INPUTS("demo-asks")
+    assert first == REAL_PROOF_INPUTS("demo-asks")
+    # The case file: the bytes of evals/evals.json.
+    cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "q", "skills": ["demo-writes"]}]}),
+                     encoding="utf-8")
+    second = REAL_PROOF_INPUTS("demo-asks")
+    assert second != first
+    # A platform's case file.
+    platforms = cases.parent / "platforms"
+    platforms.mkdir()
+    (platforms / "demo.json").write_text("{}\n", encoding="utf-8")
+    third = REAL_PROOF_INPUTS("demo-asks")
+    assert third != second
+    # The context of the case: the dependency skill it installs (here the case file is left alone).
+    dependency = skills / "demo-writes" / "SKILL.md"
+    dependency.write_text(dependency.read_text(encoding="utf-8") + "\nA changed line.\n", encoding="utf-8")
+    assert REAL_PROOF_INPUTS("demo-asks") != third
+
+
+def test_a_malformed_case_does_not_stop_the_proof_inputs(tree):
+    cases = tree["tree"] / "skills" / "demo-asks" / "evals" / "evals.json"
+    cases.parent.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    for bad in ({"skills": 1}, {"platforms": 1}):
+        cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "p", **bad}]}), encoding="utf-8")
+        found = REAL_PROOF_INPUTS("demo-asks")  # no TypeError
+        assert len(found) == 64 and found == REAL_PROOF_INPUTS("demo-asks")
+        seen.add(found)
+    assert len(seen) == 2  # the case file's bytes still count
 
 
 def test_run_command_runs_with_no_model_no_credential_and_no_network_unless_asked(tree, tmp_path, monkeypatch):

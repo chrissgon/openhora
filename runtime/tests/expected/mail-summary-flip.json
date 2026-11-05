@@ -1,0 +1,8 @@
+{
+ "package": "mail-summary-flip",
+ "add": {
+  "interpreter_coverage.PENDING_CORPUS": {
+   "mail-ask": "added by package MAIL-SUMMARY-FLIP (the flip to catalog version 3) after the corpus was drawn; its dev lines are in evals/interpreter/dev-mail-ask-v1.jsonl, which this test does not count, and its test items wait for the next revision of the corpus"
+  }
+ }
+}

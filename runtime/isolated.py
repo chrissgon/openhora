@@ -20,7 +20,7 @@ the caller's:
   LANG, LC_ALL   C.UTF-8
 
 So no WB_* variable, no credential name and no secret of the caller reaches a skill's code. The container, which is
-the stronger boundary, stays an open option (docs/architecture/platform/review-2026-10-06.md, finding 9).
+the stronger boundary, stays an open option (finding 9 of the platform review, removed on 2026-10-14: git show d3e60770:docs/architecture/platform/review-2026-10-06.md).
 
 Functions:
   clean_env(home)                        the environment above, for a HOME folder

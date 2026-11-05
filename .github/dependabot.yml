@@ -1,5 +1,5 @@
 # Proposes updates for the pinned actions in .github/workflows. Provider dependencies are inline
-# (PEP 723) and pinned by hand; the pre-commit hook runs their tests when a pin changes.
+# (PEP 723) and pinned by hand; CI's selection runs their tests when a pin changes (the hook runs those named for the file).
 version: 2
 updates:
   - package-ecosystem: github-actions

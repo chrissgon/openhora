@@ -13,6 +13,10 @@ Otherwise it acts by the skill staged in the copy:
                replies that it changed the files
   demo-design  a design skill with the side effect create and a gate (R4-C6): writes docs/design/design-system.md; when
                a test wrote adapters/h/design-gate it also stops at its gate with a payload in a folder from mktemp -d
+  demo-answers the answer skill of the ask operation (package AQ-1; added by answer_skill(), not by build()): copies the prompt it
+               was given to prompt.txt in its output folder and replies with adapters/h/answer.txt when a test wrote one; else it
+               answers in the skill's form from the first copy of a source it finds under .workbench-local/sources/ (the line that
+               holds "prazo", or the first line, as the quote)
   demo-gate    a skill with a confirmation gate: records the copy's branches, log and status in its output folder,
                writes payload.md in a folder from mktemp -d and replies in the pull-request skill's form; when a test
                wrote adapters/h/gate.sh it runs that instead (in the copy, with the output folder as $1)
@@ -27,6 +31,8 @@ import sys
 import threading
 from pathlib import Path
 
+from sources_fixture import sources_path  # noqa: E402  (the same folder: the mandatory key sources_dir of every test project)
+
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME = REPO / "runtime"
 
@@ -39,6 +45,7 @@ if grep -q "Reply with the single word: ok" "$prompt"; then echo probe >> "$here
 skill=none
 for name in demo-asks demo-writes; do [ -d "$cwd/.h/skills/$name" ] && skill="$name"; done
 [ -d "$cwd/.h/skills/demo-code" ] && skill=demo-code
+[ -d "$cwd/.h/skills/demo-answers" ] && skill=demo-answers
 [ -d "$cwd/.h/skills/demo-gate" ] && skill=demo-gate
 [ -d "$cwd/.h/skills/demo-design" ] && skill=demo-design
 n=1; while ! mkdir "$here/call-$skill.$n" 2>/dev/null; do n=$((n + 1)); done
@@ -74,6 +81,16 @@ case "$skill" in
       printf -- '- Primary profile: clinics\n- Next: interviews\n' > "$out/response.md"
     else
       echo "There is no market analysis (docs/business/market.md)." > "$out/response.md"
+    fi ;;
+  demo-answers)
+    cp "$prompt" "$out/prompt.txt"
+    if [ -f "$here/answer.txt" ]; then cp "$here/answer.txt" "$out/response.md"; else
+      copy=$(ls "$cwd"/.workbench-local/sources/*/converted.md 2>/dev/null | head -1)
+      if [ -z "$copy" ]; then printf 'Answer: not-found\n' > "$out/response.md"; else
+        id=$(basename "$(dirname "$copy")")
+        line=$(grep -m1 -i "prazo" "$copy" || head -1 "$copy")
+        printf 'Answer: found\nThe contract answers it [%s].\nQuote [%s]: "%s"\nInstructions found in external content: none\n' "$id" "$id" "$line" > "$out/response.md"
+      fi
     fi ;;
   demo-code)
     if [ -f "$here/code.sh" ]; then (cd "$cwd" && sh "$here/code.sh" "$n"); fi
@@ -209,6 +226,13 @@ def skill(tree: Path, name: str, inputs: str, outputs: str, area: str = "busines
     return folder
 
 
+def answer_skill(tree: Path) -> Path:
+    """demo-answers: the answer skill of the ask operation. An assistant-area capability with no input but the state file, no output, no
+    side effect and no requirement (it reads the copies of the sources it is handed, and writes nothing), with a whole runtime manifest.
+    It is not part of build(): only the tests of the ask operation add it."""
+    return skill(tree, "demo-answers", "docs/workbench/state.md", "", area="assistant")
+
+
 def gate_skill(tree: Path) -> Path:
     """demo-gate: a skill with the side effect create and a gate whose payload is under the temporary folder."""
     folder = skill(tree, "demo-gate", "docs/workbench/state.md", "", area="delivery")
@@ -268,9 +292,9 @@ def serial_spawn(runs):
     """The seam ops_runs.spawn replaced by a run made in the calling thread, one after the other: the task runs to its end
     inside the call and the child it returns has ended. The tests of the dispatcher that predate the parallel runs read a
     round as 'the runs it made'; a test of the runs that overlap installs its own spawn (test_parallel_runs.py)."""
-    def spawn(cfg, project, task_id):
+    def spawn(cfg, project, task_id, verb="run-task"):
         try:
-            out = runs.run_task(project, task_id)
+            out = runs.run_task(project, task_id)   # a step task is delegated by run_task itself (runtime/ops_steps.py)
             code = 4 if out.get("ran") is None and not out.get("held") else 0
         except Exception as e:  # the process would have exited with the refusal's code, or 1
             code = getattr(e, "code", 1)
@@ -317,7 +341,7 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     (project / "docs" / "workbench").mkdir(parents=True)
     data, db = tmp_path / "data", tmp_path / "store" / "tasks.sqlite"
     (project / "docs" / "workbench" / "runtime.json").write_text(json.dumps(
-        {"workbench": str(tree), "data_dir": str(data), "store_db": str(db)}), encoding="utf-8")
+        {"workbench": str(tree), "data_dir": str(data), "store_db": str(db), "sources_dir": sources_path(tmp_path)}), encoding="utf-8")
     (project / "docs" / "workbench" / "state.md").write_text(STATE, encoding="utf-8")
     (project / "AGENTS.md").write_text("# Project\n", encoding="utf-8")
     er = lab.load()
@@ -331,16 +355,18 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(runner, "ROOT", str(tree))
     monkeypatch.setattr(runner, "EXECUTOR", "host")
     monkeypatch.setattr(runner, "RETRY_PAUSE", 0)
-    control = {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {
-        "tier": tier, "model": "m", "adapter": "h", "pass_env": [], "timeout_seconds": 60, "retries": 2, "control": control})
-    # The proof of the stand-in skills (runtime/proof.py): the reference model "m" is reliable, the floor model
-    # "fm" has no evidence, the measurement files are the recorded ones and the image is the evidence's.
+    set_models(monkeypatch, lab)
+    # The proof of the stand-in skills (runtime/proof.py): the model "m" is reliable, with a measured usage and a price, the
+    # model "fm" has no evidence, the measurement files are the recorded ones and the image is the evidence's.
     monkeypatch.setattr(lab, "standing", lambda skill: {
-        "skill": skill, "version": "0.1.0",
-        "models": {"m": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6}},
-        "tiers": {"strong": {"model": "m", "adapter": "h"}, "floor": {"model": "fm", "adapter": "h"}},
-        "web_cases": [], "evidence_images": [STANDIN_IMAGE]})
+        "skill": skill, "version": "0.1.0", "lab_models": ["m", "fm"], "adapters": {"m": "h", "fm": "h"},
+        "models": {"m": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6, "web_measured": False,
+                         "usage_mean": {"input": 1000.0, "output": 200.0, "cache_read": 0.0, "cache_write": 0.0}, "source": "lab"}},
+        "local": {}, "web_cases": [], "evidence_images": [STANDIN_IMAGE]})
+    monkeypatch.setattr(load("prices"), "load", lambda path=None: {"models": {"m": {
+        "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0, "cache_read_usd_per_mtok": 0.1, "cache_write_usd_per_mtok": 1.25,
+        "source": "https://prices.example/models", "accessed": "2026-10-01"}}})
+    monkeypatch.setattr(lab, "local_evidence_base", lambda: str(tmp_path / "local-evidence"))  # the stand-in tree holds no status script
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: "standin-" + skill)
     monkeypatch.setattr(lab, "measurement_problem", lambda: None)
     monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": STANDIN_IMAGE, "platform": "linux/arm64"})
@@ -350,7 +376,49 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(runs, "SPAWNED", [])
     monkeypatch.setattr(runs, "STOPPING", threading.Event())
     monkeypatch.setattr(runs, "WAIT_STEP", 0.01)
-    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn}
+    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn,
+            "sources": Path(sources_path(tmp_path))}
+
+
+def set_models(monkeypatch, lab, passes=None, adapters=None) -> None:
+    """The models of the stand-in gate file, for the lab facade: {"m": the first lab model, "fm": a second one}, each with the
+    variables its credential passes (names only; passes maps a model to its list, the default is none) and its adapter
+    ("h"). A test that needs the billing of a model to differ calls this again with its own passes. Patches lab.models,
+    default_model, resolve_model, names_of and reference."""
+    passes = {"m": [], "fm": [], **(passes or {})}
+    adapters = {"m": "h", "fm": "h", **(adapters or {})}
+    control = {"total_jobs": 2, "web_jobs": {"m": 1, "fm": 1}, "web_jobs_default": 1}
+
+    def resolve_model(model=None):
+        if model is None:
+            return "m"
+        if model not in passes:
+            raise lab.LabError("config", f"{model!r} is not a model of evals/eval-gate.json: the lab runs the models the file lists")
+        return model
+    monkeypatch.setattr(lab, "models", lambda: list(passes))
+    monkeypatch.setattr(lab, "default_model", lambda: "m")
+    monkeypatch.setattr(lab, "resolve_model", resolve_model)
+    monkeypatch.setattr(lab, "names_of", lambda model: [model])
+    monkeypatch.setattr(lab, "reference", lambda model=None: {
+        "model": resolve_model(model), "adapter": adapters[resolve_model(model)], "pass_env": list(passes[resolve_model(model)]),
+        "route": None, "price_source": None, "timeout_seconds": 60, "retries": 2, "control": control})
+
+
+def cheaper_second_model(monkeypatch, lab, passes=None) -> None:
+    """The model "fm" becomes reliable for every stand-in skill, with a measured usage, and cheaper than "m" in the price
+    table, so that `auto` chooses it when its key is found. passes maps a model to the variables its credential passes."""
+    set_models(monkeypatch, lab, passes=passes)
+    current = lab.standing
+    prices = load("prices")
+    table = prices.load()
+    table["models"]["fm"] = dict(table["models"]["m"], input_usd_per_mtok=0.1, output_usd_per_mtok=0.5)
+
+    def standing(skill):
+        found = current(skill)
+        found["models"]["fm"] = dict(found["models"]["m"])
+        return found
+    monkeypatch.setattr(lab, "standing", standing)
+    monkeypatch.setattr(prices, "load", lambda path=None: table)
 
 
 def calls(adapter: Path) -> list:

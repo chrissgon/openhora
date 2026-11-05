@@ -17,6 +17,16 @@
     "remote_id": null,
     "remote_version": null,
     "remote_written_sha256": null,
+    "model": null,
+    "sources": null,
+    "step_kind": null,
+    "step_args": null,
+    "step_footprint": null,
+    "step_state": null,
+    "web_off": null,
+    "stop_requested_at": null,
+    "stop_requested_by": null,
+    "language": null,
     "after": null,
     "waiting_for": []
   },
@@ -49,7 +59,8 @@
       "run_dir": null,
       "error": null,
       "redactions": null,
-      "billing": "subscription"
+      "billing": "subscription",
+      "autonomy": null
     }
   ],
   "pending": []

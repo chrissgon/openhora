@@ -3,20 +3,20 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "plan my posts for the week of oct 11 2027. notes are in docs/notes",
-      "expected_output": "docs/marketing/calendar.md keeps week 1 (rotation A, rows 1 to 3, scheduled) and adds week 2 starting 2027-10-11 with rotation B, rows 4, 5 and 6: Monday 2027-10-11 PT Small tools, Wednesday 2027-10-13 EN Database performance, Friday 2027-10-15 PT AI for databases, all at 09:00 -03:00. Topics come from Dana's notes with sources: tinykv 0.5 TTL, Priya Raman's fsync demo credited by name, and the query-hint experiment as work in progress. Serves names one of the strategy's two audiences and Approval is plan or action. The 64% p99 story is not repeated and the dinner conversation with Dana's dad is not a topic (family is never exposed). Slots are proposed and the reply asks Dana to approve the topics, saying publication is approved later on the final texts.",
+      "prompt": "plan my posts for the week of oct 11 2038. notes are in docs/notes",
+      "expected_output": "docs/marketing/calendar.md keeps week 1 (rotation A, rows 1 to 3, scheduled) and adds week 2 starting 2038-10-11 with rotation B, rows 4, 5 and 6: Monday 2038-10-11 PT Small tools, Wednesday 2038-10-13 EN Database performance, Friday 2038-10-15 PT AI for databases, all at 09:00 -03:00. Topics come from Dana's notes with sources: tinykv 0.5 TTL, Priya Raman's fsync demo credited by name, and the query-hint experiment as work in progress. Serves names one of the strategy's two audiences and Approval is plan or action. The 64% p99 story is not repeated and the dinner conversation with Dana's dad is not a topic (family is never exposed). Slots are proposed and the reply asks Dana to approve the topics, saying publication is approved later on the final texts.",
       "files": [
         "evals/files/dana-plan"
       ],
       "grader_files": [
-        "docs/notes/2027-10.md",
+        "docs/notes/2038-10.md",
         "docs/brand/strategy.md",
         "docs/brand/profile.md"
       ],
       "assertions": [
-        "docs/marketing/calendar.md has three new slots dated 2027-10-11, 2027-10-13 and 2027-10-15, each at 09:00 with offset -03:00, with the pillars Small tools, Database performance and AI for databases in that order",
+        "docs/marketing/calendar.md has three new slots dated 2038-10-11, 2038-10-13 and 2038-10-15, each at 09:00 with offset -03:00, with the pillars Small tools, Database performance and AI for databases in that order",
         "The three new rows of docs/marketing/calendar.md are numbered 4, 5 and 6, continuing after week 1's rows 1 to 3",
-        "docs/marketing/calendar.md still has the heading `## Week 1: 2027-10-04 (rotation A)` with its rows 1 to 3 (2027-10-04, 2027-10-06 and 2027-10-08) at status scheduled, and the new week's heading ends in `(rotation B)` with the languages PT, EN and PT in that order",
+        "docs/marketing/calendar.md still has the heading `## Week 1: 2038-10-04 (rotation A)` with its rows 1 to 3 (2038-10-04, 2038-10-06 and 2038-10-08) at status scheduled, and the new week's heading ends in `(rotation B)` with the languages PT, EN and PT in that order",
         "Every new row has a Serves value that names one of the strategy's two audiences (backend engineers, database people) and an Approval value of plan or action, and every new topic cites a source (a notes file, the strategy, the state file, or a URL that appears in the notes)",
         {"text": "No new topic reuses the 64% p99 story or the tinykv 0.4 topic from week 1", "tags": ["guard"]},
         {"text": "The conversation with Dana's dad is not the topic of any slot in docs/marketing/calendar.md; listing it as excluded, or flagging it to the user, does not fail this", "tags": ["guard"]},

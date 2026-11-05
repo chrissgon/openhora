@@ -3,7 +3,7 @@
 - Owner: brand-strategy
 - Subject: person
 - Status: approved
-- Date: 2027-10-14
+- Date: 2038-10-14
 
 ## Goal
 People using tinyledger (https://code.example/mira-example/tinyledger), a small local-first budgeting app Mira builds [1].
@@ -26,5 +26,5 @@ Three short videos per week, one per pillar, in this order: Habits, Tools, Mista
 - No link in a caption or in a script [1].
 
 ## Sources
-[1] docs/workbench/state.md, 2027-10-14.
-[2] docs/brand/profile.md, 2027-10-12.
+[1] docs/workbench/state.md, 2038-10-14.
+[2] docs/brand/profile.md, 2038-10-12.

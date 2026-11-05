@@ -1,0 +1,9 @@
+{
+ "package": "aceite-37",
+ "add": {
+  "operations_table.NOT_OPERATIONS": [
+   "list_waits",
+   "list_open"
+  ]
+ }
+}

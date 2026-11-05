@@ -35,13 +35,54 @@ Usage:
   uv run providers/documents/notion.py --check --config-file <f>
   uv run providers/documents/notion.py stat  --config-file <f> --id <id>
   uv run providers/documents/notion.py read  --config-file <f> --id <id>
+  uv run providers/documents/notion.py read  --id <id> --as-source
   uv run providers/documents/notion.py comments --config-file <f> --id <id>
   uv run providers/documents/notion.py write --config-file <f> [--id <id>] --path <project-relative path>
                                        --markdown-file <f> --idempotency-key <k> [--notice <text>]
                                        (--dry-run | --confirmed)
   uv run providers/documents/notion.py notice --config-file <f> --id <id> --text <text> (--dry-run | --confirmed)
-  uv run providers/documents/notion.py resolve --config-file <f> --idempotency-key <k>
+  uv run providers/documents/notion.py resolve --config-file <f> [--parent <page id>] --idempotency-key <k>
                                        (--id <id> | --not-created) (--dry-run | --confirmed)
+  uv run providers/documents/notion.py page-create --config-file <f> --parent <page id> --title <text>
+                                       --markdown-file <f> --idempotency-key <k> (--dry-run | --confirmed)
+  uv run providers/documents/notion.py table-read --config-file <f> --id <data source id>
+  uv run providers/documents/notion.py table-create --config-file <f> --parent <page id> --title <text>
+                                       --table-file <json> --idempotency-key <k> (--dry-run | --confirmed)
+  uv run providers/documents/notion.py rows-append --config-file <f> --id <data source id> --table-file <json>
+                                       --schema-sha256 <hash> [--scope <word>] --idempotency-key <k> (--dry-run | --confirmed)
+  uv run providers/documents/notion.py rows-state --config-file <f> --id <data source id> --table-file <json> --scope <word>
+                                       [--idempotency-key <k>]
+
+The outputs of a task (package NOTION-OUT; runtime/effect_write.py is the only caller of the three that write): `page-create` makes
+a page under the page `--parent` (any page the integration was given, not only the configured parent), titled `--title`, with the
+Markdown as its body; `table-create` makes a database under `--parent` with the columns and rows of the table file and fills it;
+`rows-append` adds the rows of the table file to an existing data source after checking that its columns are the file's (and that
+its whole schema hashes to `--schema-sha256`, when given); `table-read` prints the data source's name, columns, the hash of them, its
+select options, its row count and the time of its newest edit, and changes nothing; `stat` also prints a page's title. The table file is
+described in notion_tables.py: at most 500 rows and 30 columns, a text of at most 2,000 UTF-16 code units, a date as a date or a
+date-time with its Z or offset. These verbs retry a 429 and a 529 (up to 4 times, waiting the `Retry-After` the service names, at most
+60 s) and keep to 2.8 calls a second, under the 3 a second of a workspace that is not on a Business or Enterprise plan; the verbs above
+never retry.
+
+Idempotency, per operation and per row: the key is recorded in the ledger before the call and marked done after it (a page or a
+database under its parent; a row under its data source, as `<key>/row-<n>`, with the hash of its values and the `--scope`). A row
+whose outcome is unknown (a lost answer, a timeout, a 5xx) is looked for in the table on the next run (a row created since the attempt
+began, holding exactly the row's values, dates compared as moments, that NO entry of the ledger, under any key, claims) and written
+only if it is not there. A page or a database whose outcome is unknown is looked for the same way among its parent's children (exactly
+one with the title, created since, claimed by no entry), and, when there is none or more than one, the key stays pending until
+`resolve`. `--scope` names the approvals of one task: a row of this attempt that hashes like a row an EARLIER attempt of the same scope
+wrote under another key is that row and is not written again (the entry moves under this key); `rows-state` counts such rows. A row
+counts as done only if the table lists the page it made now (a page a person trashed is a row to write), so a write and `rows-state`
+list the table (at most 2,000 rows: a longer table is refused, not guessed at); only the dry run counts the ledger alone. A write
+holds an exclusive lock on its key for its life. A page or a database that the person put in the trash since is not the one a key made: it is made again. A done entry of
+these verbs older than 90 days is dropped when the ledger is next saved. A dry run of these verbs reads the ledger and prints what a
+run would do, and makes no call and reads no credential.
+
+`read --as-source` reads a page the person chose as a SOURCE of the project (runtime/sources.py, decision D13), not a document of the
+project: it takes no --config-file (a page chosen as a source has no parent in the project's documents object), and it uses a
+SEPARATE secret, NOTION_SOURCES_TOKEN, the token of an integration that can only read content and was given only the pages chosen
+as sources (secret S7). It never uses NOTION_TOKEN, which can write. It prints the page's text and version, and no comments: a
+source is the page's content, and the integration needs no comment capability. No other verb takes --as-source.
 
 --config-file is a JSON file holding the documents object, whole: {"provider": "notion", "parent": "<page id>",
 "expires": "YYYY-MM-DD"}. An id that is not a page identifier names no document (exit 1).
@@ -56,12 +97,14 @@ elsewhere), mode 0600.
 Environment:
   NOTION_TOKEN                             the integration's token, read only through providers/secrets/resolver.py
                                            (else the OS secret store, username notion); never printed
+  NOTION_SOURCES_TOKEN                     the read-only integration of `read --as-source` (else the OS secret store, username
+                                           notion-sources); the only token that verb uses
   INTEGRATION_DOCUMENTS_NOTION_LEDGER      another ledger file (an absolute path)
   INTEGRATION_DOCUMENTS_NOTION_API_BASE    tests only: a loopback URL that replaces the service's address; the
                                            secret store is then never read
 
 No redirect is followed: every request carries the token. Too many requests (429) or a 5xx: exit 1 with the status
-on stderr; a verb never retries. A dry run reads no credential and makes no call.
+on stderr; the verbs that write or read a page never retry (those of the outputs above do). A dry run reads no credential and makes no call.
 
 Prints one JSON object on stdout; diagnostics on stderr. Exit codes: 0 ok, 1 failed (the service answered an error
 or could not be reached, a document that does not exist), 2 usage (a path that is absolute, holds "..", or does not
@@ -83,7 +126,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # The one table of the service. Every call and header this file makes, from the public API reference
@@ -97,6 +140,10 @@ CALLS = {
     "append_children": ("PATCH", "/v1/blocks/{id}/children"),
     "delete_block": ("DELETE", "/v1/blocks/{id}"),
     "list_comments": ("GET", "/v1/comments"),
+    "create_database": ("POST", "/v1/databases"),
+    "retrieve_database": ("GET", "/v1/databases/{id}"),
+    "retrieve_base": ("GET", "/v1/data_sources/{id}"),
+    "query_base": ("POST", "/v1/data_sources/{id}/query"),
 }
 PAGE_SIZE = 100  # the maximum of every paginated call
 MAX_CHILDREN_PER_CALL = 100  # append: children per request
@@ -106,11 +153,22 @@ HTTP_TIMEOUT_SECONDS = 30
 LOCK_TIMEOUT_SECONDS = 10
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 UNKNOWN_OUTCOME = (408, 429)  # with every 5xx: the request may have been carried out
+RETRY_STATUSES = (429, 529)  # the verbs of the outputs retry these and only these, with the service's Retry-After
+RETRY_MAX = 4  # retries of one call, after the first attempt
+RETRY_WAIT_CAP = 60  # seconds: the service's Retry-After for a connection is at most 60
+PACE_SECONDS = 0.35  # between two calls of the verbs of the outputs: 2.8 a second, under the 3 a second of the plans without a Business tier
+KEY_LOCK_WAIT = 2  # seconds a write waits for the lock of its key before it says another run holds it
+ADOPT_SKEW_SECONDS = 120  # a row, page or database created this long before the attempt began still counts as made by it (clock skew)
+OUTPUT = "output"  # the `kind` of a ledger entry made by the verbs of the outputs (the only ones that are ever pruned)
+RETENTION_DAYS = 90  # a done entry of the outputs older than this is dropped from the ledger when it is next saved
+TABLE_ROWS_MAX = 2000  # table-read counts a table's rows by listing them: a longer table is refused (21 calls at most)
 
 ENV_BASE = "INTEGRATION_DOCUMENTS_NOTION_API_BASE"
 ENV_LEDGER = "INTEGRATION_DOCUMENTS_NOTION_LEDGER"
 SECRET = "NOTION_TOKEN"
 KEYRING_USERNAME = "notion"
+SOURCES_SECRET = "NOTION_SOURCES_TOKEN"   # the separate, read-only secret of `read --as-source` (secret S7)
+SOURCES_USERNAME = "notion-sources"
 LEDGER_NAME = "documents-notion.json"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 
@@ -132,11 +190,24 @@ def load_blocks():
 nb = load_blocks()
 
 
+def load_tables():
+    """The pure half of the tables, next to this file."""
+    path = Path(__file__).resolve().parent / "notion_tables.py"
+    spec = importlib.util.spec_from_file_location("notion_tables_for_documents", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+nt = load_tables()
+
+
 class ProviderError(Exception):
-    def __init__(self, message: str, code: int = EXIT_SERVICE, status: int | None = None):
+    def __init__(self, message: str, code: int = EXIT_SERVICE, status: int | None = None, retry_after: float | None = None):
         super().__init__(message)
         self.code = code
         self.status = status
+        self.retry_after = retry_after
 
 
 def emit(data: dict) -> int:
@@ -191,12 +262,12 @@ def secret_resolver():
     return module
 
 
-def load_token(test_mode: bool) -> str:
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
+def load_token(test_mode: bool, secret: str = SECRET, username: str = KEYRING_USERNAME) -> str:
+    found = secret_resolver().resolve(secret, allow_store=not test_mode)
     token = found[0] if found else ""
     if not token:
-        raise ProviderError(f"no Notion token: export {SECRET}, or store one with "
-                            f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}",
+        raise ProviderError(f"no Notion token: export {secret}, or store one with "
+                            f"uv run --with keyring==25.7.0 keyring set openhora {username}",
                             EXIT_NOT_CONFIGURED)
     if any(ch.isspace() or not ch.isprintable() for ch in token):
         raise ProviderError("the Notion token contains whitespace or control characters", EXIT_NOT_CONFIGURED)
@@ -221,11 +292,34 @@ OPENER = urllib.request.build_opener(RefuseRedirect)
 
 
 class Service:
-    def __init__(self):
+    def __init__(self, secret: str = SECRET, username: str = KEYRING_USERNAME, bulk: bool = False):
+        """bulk: the verbs of the outputs, which retry a 429 or a 529 and keep to PACE_SECONDS between calls (in the tests, which
+        reach the loopback stand-in only, neither waits more than a few hundredths of a second)."""
         self.base, test_mode = api_base()
-        self.token = load_token(test_mode)
+        self.token = load_token(test_mode, secret, username)
+        self.retries = RETRY_MAX if bulk else 0
+        self.pace = (0.0 if test_mode else PACE_SECONDS) if bulk else 0.0
+        self.test_mode = test_mode
+        self.last_call = 0.0
 
     def call(self, name: str, ident: str | None = None, body=None, query=None) -> dict:
+        for attempt in range(self.retries + 1):
+            if self.pace:
+                wait = self.last_call + self.pace - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+            try:
+                return self.call_once(name, ident, body, query)
+            except ProviderError as exc:
+                if exc.status in RETRY_STATUSES and attempt < self.retries:
+                    time.sleep(0.05 if self.test_mode else min(max(exc.retry_after or 1.0, 1.0) * (1 + attempt / 4), RETRY_WAIT_CAP))
+                    continue
+                raise
+            finally:
+                self.last_call = time.monotonic()
+        raise AssertionError("unreachable")
+
+    def call_once(self, name: str, ident: str | None = None, body=None, query=None) -> dict:
         method, template = CALLS[name]
         path = template.replace("{id}", ident or "")
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
@@ -250,8 +344,12 @@ class Service:
             retry = exc.headers.get("Retry-After") if exc.headers else None
             if retry:
                 detail += f" (Retry-After {one_line(retry, 20)} s)"
+            try:
+                seconds = float(retry) if retry else None
+            except ValueError:
+                seconds = None
             code = EXIT_NOT_CONFIGURED if exc.code == 401 else EXIT_SERVICE
-            raise ProviderError(f"Notion returned {exc.code} on {where}{detail}", code, exc.code) from None
+            raise ProviderError(f"Notion returned {exc.code} on {where}{detail}", code, exc.code, seconds) from None
         except urllib.error.URLError as exc:
             raise ProviderError(f"cannot reach Notion on {where}: {one_line(exc.reason)}") from None
         except TimeoutError:
@@ -400,8 +498,23 @@ def ledger_entry(scope: str, key: str):
     return ledger_read()["entries"].get(f"{scope}/{key}")
 
 
+def ledger_prune(data: dict) -> None:
+    """Drop the done entries of the outputs older than RETENTION_DAYS: a key that old is not run again, and the ledger would only grow.
+    A key that still has an entry of unknown outcome (pending) loses nothing, whatever the age of its done entries: dropping the
+    rows it wrote would let the next run write them again. (A pending entry, a page made by `write` and an entry the person recorded
+    with `resolve` are kept.)"""
+    floor = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    # A key's entries: a page or a database is `<parent>/<key>`, its rows `<data source>/<key>/row-<n>`; the key is what they share.
+    group = lambda full: full.split("/")[1] if "/" in full else full
+    open_groups = {group(k) for k, e in data["entries"].items() if isinstance(e, dict) and e.get("status") == "pending"}
+    for full in [k for k, e in data["entries"].items() if isinstance(e, dict) and e.get("kind") == OUTPUT and e.get("status") == "done"
+                 and str(e.get("recorded_at") or "9") < floor and group(k) not in open_groups]:
+        del data["entries"][full]
+
+
 def ledger_set(scope: str, key: str, entry) -> None:
     with ledger_locked() as data:
+        ledger_prune(data)
         if entry is None:
             data["entries"].pop(f"{scope}/{key}", None)
         else:
@@ -423,7 +536,8 @@ def ledger_claim(scope: str, key: str):
 def pending_message(key: str, entry: dict) -> str:
     return (f"idempotency key {key!r} has a pending creation from {entry.get('started_at', 'an unknown time')} whose outcome "
             "is unknown; nothing was sent this time. Look under the parent page, then run resolve --idempotency-key <k> with "
-            "--id <id> if the page exists or --not-created if it does not, and --confirmed")
+            "--id <id> if the page exists or --not-created if it does not, and --confirmed (with --parent <the page it was "
+            "made under> when that is not the configured parent)")
 
 
 
@@ -583,10 +697,12 @@ def cmd_stat(args: dict) -> int:
     documents_config(args.get("--config-file"))
     ident = doc_id(args.get("--id"))
     page = retrieve(Service(), ident)
-    return emit({"id": ident, "version": page.get("last_edited_time"), "archived": archived(page)})
+    return emit({"id": ident, "version": page.get("last_edited_time"), "archived": archived(page), "title": page_title(page)})
 
 
 def cmd_read(args: dict) -> int:
+    if args.get("--as-source"):
+        return read_as_source(args)
     documents_config(args.get("--config-file"))
     ident = doc_id(args.get("--id"))
     service = Service()
@@ -596,6 +712,21 @@ def cmd_read(args: dict) -> int:
     body = blocks[1:] if notice is not None else blocks
     return emit({"id": ident, "version": page.get("last_edited_time"), "markdown": nb.to_markdown(body),
                  "notice": notice, "comments": comments_of(service, ident, blocks)})
+
+
+def read_as_source(args: dict) -> int:
+    """A page chosen as a source: its text and version, read with the read-only secret of sources, no comments, no documents
+    configuration. The page is a person's page and may hold anything: what comes back is text for the caller to treat as data."""
+    ident = doc_id(args.get("--id"))
+    service = Service(SOURCES_SECRET, SOURCES_USERNAME)
+    page = retrieve(service, ident)
+    if archived(page):
+        raise ProviderError(f"the page {ident} is in the trash")
+    blocks = service.blocks(ident)
+    notice = notice_of(blocks[0]) if blocks else None
+    body = blocks[1:] if notice is not None else blocks
+    return emit({"id": ident, "version": page.get("last_edited_time"), "markdown": nb.to_markdown(body), "notice": notice,
+                 "comments": [], "as_source": True})
 
 
 def cmd_comments(args: dict) -> int:
@@ -697,17 +828,512 @@ def cmd_resolve(args: dict) -> int:
     if (given is None) == (not not_created):
         raise ProviderError("give --id <id> or --not-created", EXIT_USAGE)
     ident = notion_id(given, "--id") if given is not None else None
+    scope = notion_id(args["--parent"], "--parent") if args.get("--parent") else cfg["parent"]  # a page or a table made under another parent
     if mode == "dry":
         return emit({"dry_run": True, "would": {"verb": "resolve", "key": key, "id": ident}})
-    ledger_set(cfg["parent"], key, {"status": "done", "id": ident, "recorded_at": now_iso(), "resolved": True}
+    ledger_set(scope, key, {"status": "done", "id": ident, "recorded_at": now_iso(), "resolved": True}
                if ident else None)
     return emit({"key": key, "id": ident, "resolved": True})
 
 
+# --- the outputs of a task: a page, a table, rows (package NOTION-OUT) ---------------------------------------------
+
+
+def table_file(args: dict) -> dict:
+    path = args.get("--table-file")
+    if not path:
+        raise ProviderError("--table-file is required", EXIT_USAGE)
+    try:
+        return nt.load(path)
+    except nt.TableError as exc:
+        raise ProviderError(f"the table file is refused: {exc}", EXIT_USAGE) from None
+
+
+def title_arg(args: dict) -> str:
+    value = args.get("--title")
+    if not isinstance(value, str) or not value.strip() or len(value) > 200 or re.search(r"[\x00-\x1f\x7f]", value):
+        raise ProviderError("--title is one line of 1 to 200 characters", EXIT_USAGE)
+    return value.strip()
+
+
+def scope_arg(args: dict):
+    """The scope of an approval's rows (--scope): the name under which rows already written by earlier attempts of the same task are
+    found again, whatever the key of the attempt. One word of letters, digits and . _ : -; None when absent."""
+    value = args.get("--scope")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", value):
+        raise ProviderError("--scope is a word of at most 80 letters, digits and . _ : -", EXIT_USAGE)
+    return value
+
+
+def page_title(page: dict):
+    """The title of a page the service describes, one line, or None."""
+    for prop in (page.get("properties") or {}).values():
+        if isinstance(prop, dict) and prop.get("type") == "title":
+            return one_line(nt.plain(prop.get("title")), 200) or None
+    return None
+
+
+def since_of(entry: dict) -> str:
+    """When an attempt began, less the clock skew: what a thing made by it is looked for after."""
+    try:
+        began = datetime.fromisoformat(str(entry.get("started_at")).replace("Z", "+00:00"))
+    except ValueError:
+        began = datetime.now(timezone.utc)
+    return (began - timedelta(seconds=ADOPT_SKEW_SECONDS)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def claimed(scope: str, prefix: str = "") -> set:
+    """The ids the ledger holds as made under a scope (a parent page or a data source), by ANY key."""
+    return {e.get("id") for k, e in ledger_read()["entries"].items()
+            if k.startswith(scope + "/" + prefix) and isinstance(e, dict) and e.get("status") in ("done", "created") and e.get("id")}
+
+
+def ledger_drop(full_key: str) -> None:
+    """Remove one entry of the ledger by its whole key (`<scope>/<key>`)."""
+    with ledger_locked() as data:
+        data["entries"].pop(full_key, None)
+        ledger_save(data)
+
+
+def adopt_child(service: Service, parent: str, kind: str, title: str, entry: dict):
+    """The page (kind child_page) or database (child_database) an attempt of unknown outcome made, found among the parent's children:
+    exactly one with this title, created since the attempt began and not claimed by the ledger. Else None."""
+    since = since_of(entry)
+    taken = claimed(parent)
+    found = []
+    for block in service.paged("list_children", parent)[0]:
+        if block.get("type") != kind or (block.get(kind) or {}).get("title") != title or block.get("in_trash"):
+            continue
+        if made_since(block, since) and flat_id(block.get("id")) not in {flat_id(i) for i in taken}:
+            found.append(block.get("id"))
+    return notion_id(found[0], "the found object's id", EXIT_SERVICE) if len(found) == 1 else None
+
+
+def refused_status(exc: ProviderError) -> bool:
+    return exc.status is not None and 400 <= exc.status < 500 and exc.status not in UNKNOWN_OUTCOME
+
+
+def query_rows(service: Service, source: str, limit: int = TABLE_ROWS_MAX) -> tuple[list, bool]:
+    """The rows of a data source (pages), at most `limit`; (rows, capped)."""
+    out, cursor = [], None
+    for _ in range(MAX_PAGES):
+        body = {"page_size": PAGE_SIZE, **({"start_cursor": cursor} if cursor else {})}
+        answer = service.call("query_base", source, body=body)
+        results = answer.get("results")
+        if not isinstance(results, list):
+            raise ProviderError("the answer to a query has no results list")
+        out += results
+        if len(out) > limit:
+            return out[:limit], True
+        if not answer.get("has_more"):
+            return out, False
+        cursor = answer.get("next_cursor")
+        if not isinstance(cursor, str) or not cursor:
+            raise ProviderError("the answer to a query has more and no cursor")
+    return out, True
+
+
+def fetch_source(service: Service, source: str) -> dict:
+    """The data source as the service describes it. A data source the integration was not given is exit 3."""
+    try:
+        return service.call("retrieve_base", source)
+    except ProviderError as exc:
+        raise not_given(exc, "the table") from None
+
+
+def retrieve_source(service: Service, source: str) -> list:
+    """The data source's columns: [{"name", "type"}], sorted by name."""
+    try:
+        return nt.schema_of(fetch_source(service, source))
+    except nt.TableError as exc:
+        raise ProviderError(str(exc)) from None
+
+
+def cmd_table_read(args: dict) -> int:
+    documents_config(args.get("--config-file"))
+    source = notion_id(args.get("--id"), "--id")
+    service = Service(bulk=True)
+    answer = fetch_source(service, source)
+    try:
+        schema = nt.schema_of(answer)
+    except nt.TableError as exc:
+        raise ProviderError(str(exc)) from None
+    rows, capped = query_rows(service, source)
+    if capped:
+        raise ProviderError(f"the table holds more than {TABLE_ROWS_MAX} rows: this provider does not count a table longer than that",
+                            EXIT_SERVICE)
+    edited = max((str(r.get("last_edited_time") or "") for r in rows), default="") or None
+    return emit({"id": source, "name": one_line(nt.plain(answer.get("title")), 200) or None, "schema": schema,
+                 "schema_sha256": nt.schema_sha256(schema), "select_options": nt.select_options(answer), "row_count": len(rows),
+                 "last_edited": edited, "title": next((c["name"] for c in schema if c["type"] == "title"), None)})
+
+
+def flat_id(value) -> str:
+    """A page identifier with no hyphens and in lower case, to compare two that the service and the ledger wrote."""
+    return str(value or "").replace("-", "").lower()
+
+
+def live_rows(service: Service, source: str) -> list:
+    """Every row the table holds now (the listing, at most TABLE_ROWS_MAX). A longer table is refused: with rows the listing does not
+    reach, a row the ledger says was written could not be told from one that is gone, and this provider does not guess."""
+    rows, capped = query_rows(service, source)
+    if capped:
+        raise ProviderError(f"the table holds more than {TABLE_ROWS_MAX} rows, more than this provider lists: it will not guess which of "
+                            "the rows it wrote are still there", EXIT_SERVICE)
+    return rows
+
+
+# The ledger of the rows. A row's entry is `<data source>/<key>/row-<nnnn>` with its status (pending, done), the page it made, the hash of
+# its values (`row_sha`) and, when the call gave one, the scope of the approval (`--scope`). The scope is what finds again, in a LATER
+# attempt with another key (a task started over after the table changed), the rows an EARLIER attempt of the same task already wrote:
+# a row of this attempt whose values hash like a row of an entry with the scope, under another key, is that row; it is not written
+# again and the entry is moved under this attempt's key. The ledger is trusted only as far as the table agrees: a row counts as done
+# only if the page it made is among the rows the table lists now (`live`); a page that is gone, trashed by a person, is a row to write.
+
+
+def row_entry(status: str, sha: str, scope, **more) -> dict:
+    return {"status": status, "kind": OUTPUT, "row_sha": sha, **({"scope": scope} if scope else {}), **more}
+
+
+def plan_rows(source: str, key, table: dict, scope, live=None) -> list:
+    """For each row of the table, what the ledger says: ("done", None, entry) and ("pending", None, entry) under this key; ("pool-done",
+    full key, entry) and ("pool-pending", full key, entry) under another key with the same scope and the same row (each entry
+    matches one row); ("new", None, None). live: the set of the flat ids of the rows the table holds now, or None to take the ledger
+    alone (the dry run, which makes no call): an entry that made a page missing from `live` is no row done. Reads the ledger only."""
+    entries = ledger_read()["entries"]
+    hashes = [nt.row_sha256(table["columns"], row) for row in table["rows"]]
+    own_prefix = f"{source}/{key}/" if key else None
+    standing = lambda entry: entry.get("status") != "done" or live is None or flat_id(entry.get("id")) in live
+    pool = {}
+    if scope:
+        for full, entry in sorted(entries.items()):
+            if not full.startswith(f"{source}/") or (own_prefix and full.startswith(own_prefix)):
+                continue
+            if isinstance(entry, dict) and entry.get("scope") == scope and entry.get("row_sha") and entry.get("status") in ("done", "pending") \
+                    and standing(entry):
+                pool.setdefault((entry["row_sha"], entry["status"]), []).append((full, entry))
+    plan = []
+    for n, sha in enumerate(hashes):
+        own = entries.get(f"{source}/{key}/row-{n + 1:04d}") if key else None
+        if isinstance(own, dict) and own.get("status") in ("done", "pending") and standing(own):
+            plan.append((own["status"], None, own))
+        elif pool.get((sha, "done")):
+            full, entry = pool[(sha, "done")].pop(0)
+            plan.append(("pool-done", full, entry))
+        elif pool.get((sha, "pending")):
+            full, entry = pool[(sha, "pending")].pop(0)
+            plan.append(("pool-pending", full, entry))
+        else:
+            plan.append(("new", None, None))
+    return plan
+
+
+def plan_counts(plan: list) -> dict:
+    done = sum(1 for state, _, _ in plan if state in ("done", "pool-done"))
+    pending = sum(1 for state, _, _ in plan if state in ("pending", "pool-pending"))
+    return {"rows": len(plan), "rows_done": done, "rows_pending": pending, "rows_new": len(plan) - done - pending}
+
+
+def made_since(page: dict, since: str) -> bool:
+    """Whether a page was created at or after `since` (both ISO 8601, compared as moments)."""
+    try:
+        return datetime.fromisoformat(str(page.get("created_time")).replace("Z", "+00:00")) >= datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+
+
+def fill(service: Service, source: str, table: dict, key: str, scope) -> dict:
+    """The rows of the table into the data source, one by one, each once. A row the ledger holds as done AND the table still lists (under
+    this key, or under another key of the same scope) is skipped; a row of unknown outcome is looked for in the table and written
+    only if it is not there. {"created", "replayed"}."""
+    columns, rows = table["columns"], table["rows"]
+    created = replayed = 0
+    listing = live_rows(service, source)
+    live = {flat_id(p.get("id")) for p in listing}
+    taken = {flat_id(i) for i in claimed(source)}      # the ids any key of the ledger holds: a row found in the table is never one another entry owns
+    plan = plan_rows(source, key, table, scope, live)
+    for n, (state, owner, entry) in enumerate(plan):
+        row_key = f"{key}/row-{n + 1:04d}"
+        sha = nt.row_sha256(columns, rows[n])
+        if state == "done":
+            replayed += 1
+            continue
+        if state == "pool-done":
+            ledger_set(source, row_key, row_entry("done", sha, scope, id=entry["id"], recorded_at=now_iso(), adopted="earlier approval"))
+            ledger_drop(owner)
+            replayed += 1
+            continue
+        if state in ("pending", "pool-pending"):  # did it land?
+            since = min(since_of(e) for s, _, e in plan if s in ("pending", "pool-pending"))
+            hits = [p for p in listing if made_since(p, since) and flat_id(p.get("id")) not in taken and nt.row_matches(p, columns, rows[n])]
+            if owner:
+                ledger_drop(owner)
+            if hits:
+                page = notion_id(hits[0].get("id"), "a row's id", EXIT_SERVICE)
+                taken.add(flat_id(page))
+                ledger_set(source, row_key, row_entry("done", sha, scope, id=page, recorded_at=now_iso(), adopted="found in the table"))
+                replayed += 1
+                continue
+        ledger_set(source, row_key, row_entry("pending", sha, scope, started_at=now_iso()))
+        try:
+            made = service.call("create_page", body={"parent": {"type": "data_source_id", "data_source_id": source},
+                                                     "properties": nt.row_properties(columns, rows[n])})
+        except ProviderError as exc:
+            if refused_status(exc):
+                ledger_set(source, row_key, None)
+                raise ProviderError(f"row {n + 1} was refused ({exc}); {created} rows were written by this run, {replayed} were already "
+                                    "there", EXIT_SERVICE, exc.status) from None
+            ledger_set(source, row_key, row_entry("pending", sha, scope, started_at=now_iso(), error=one_line(exc, 120)))
+            raise ProviderError(f"row {n + 1}: {exc}; its outcome is unknown ({created} rows written by this run, {replayed} already "
+                                "there): running again looks for it in the table before it writes it", EXIT_SERVICE, exc.status) from None
+        try:
+            page = notion_id(made.get("id"), "a row's id", EXIT_SERVICE)
+        except ProviderError:
+            raise ProviderError(f"row {n + 1}: the answer named no page; running again looks for the row before it writes it") from None
+        taken.add(flat_id(page))
+        ledger_set(source, row_key, row_entry("done", sha, scope, id=page, recorded_at=now_iso()))
+        created += 1
+    return {"created": created, "replayed": replayed}
+
+
+def cmd_rows_state(args: dict) -> int:
+    """What the ledger holds of a table file's rows under a scope (and, with a key, under that key), counting a row done only if the table
+    lists the page it made now. It lists the table (up to TABLE_ROWS_MAX rows), so it reads a credential; it writes nothing."""
+    documents_config(args.get("--config-file"))
+    source = notion_id(args.get("--id"), "--id")
+    scope = scope_arg(args)
+    if scope is None:
+        raise ProviderError("--scope is required", EXIT_USAGE)
+    key = key_of(args) if args.get("--idempotency-key") is not None else None
+    table = table_file(args)
+    live = {flat_id(p.get("id")) for p in live_rows(Service(bulk=True), source)}
+    return emit({"id": source, "scope": scope, "verified": True, **plan_counts(plan_rows(source, key, table, scope, live))})
+
+
+@contextlib.contextmanager
+def key_locked(identity: str):
+    """An exclusive lock for the life of a write: a provider that outlives a killed runtime cannot run beside the next one that approves
+    the same work. The identity is the SCOPE of the approvals of a task when the call gives one (`scope/<scope>`: a run under a new key
+    of the same task, after the table changed, is held back by an orphan still writing under the old one), else the key under its
+    target (`key/<target>/<key>`). Not waited for (KEY_LOCK_WAIT seconds), then refused. Released when the process ends."""
+    path = ledger_path()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock = path.parent / f"{path.name}.{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]}.key.lock"
+    deadline = time.monotonic() + KEY_LOCK_WAIT
+    while True:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            if time.monotonic() > deadline:
+                raise ProviderError("another run of this provider is writing this key now; wait for it to finish") from None
+            time.sleep(0.05)
+            continue
+        try:
+            if os.fstat(fd).st_ino == os.stat(lock).st_ino:
+                break
+        except OSError:
+            pass
+        os.close(fd)      # the file was removed between the open and the lock: lock the one that is there
+    try:
+        yield
+    finally:
+        try:
+            os.unlink(lock)      # as the last act while it is held, before the descriptor is closed (the check above depends on it)
+        except OSError:
+            pass
+        os.close(fd)
+
+
+def under_key_lock(scope_flag: str):
+    """A verb that writes, run holding the lock of its scope or key (a dry run takes none)."""
+    def decorate(verb):
+        def run(args: dict) -> int:
+            if not args.get("--confirmed"):
+                return verb(args)
+            scope = scope_arg(args)
+            identity = f"scope/{scope}" if scope else f"key/{notion_id(args.get(scope_flag), scope_flag)}/{key_of(args)}"
+            with key_locked(identity):
+                return verb(args)
+        return run
+    return decorate
+
+
+@under_key_lock("--id")
+def cmd_rows_append(args: dict) -> int:
+    documents_config(args.get("--config-file"))
+    mode = mode_of(args)
+    key = key_of(args)
+    source = notion_id(args.get("--id"), "--id")
+    table = table_file(args)
+    scope = scope_arg(args)
+    expected = args.get("--schema-sha256")
+    if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ProviderError("--schema-sha256 is the 64-hex hash table-read printed", EXIT_USAGE)
+    if mode == "dry":      # no call: it counts what the ledger says, which `rows-state` checks against the table
+        return emit({"dry_run": True, "would": {"verb": "rows-append", "id": source, "verified": False,
+                                                 **plan_counts(plan_rows(source, key, table, scope))}})
+    service = Service(bulk=True)
+    schema = retrieve_source(service, source)
+    if expected is not None and nt.schema_sha256(schema) != expected:
+        raise ProviderError("the table's columns are not the ones the task read: nothing was written")
+    problem = nt.problem_with(table["columns"], schema)
+    if problem:
+        raise ProviderError(f"the rows do not fit the table ({problem}): nothing was written")
+    done = fill(service, source, table, key, scope)
+    return emit({"id": source, "rows": len(table["rows"]), "rows_created": done["created"], "rows_replayed": done["replayed"],
+                 "schema_sha256": nt.schema_sha256(schema)})
+
+
+def database_of(service: Service, made: dict) -> tuple[str, str, str | None]:
+    """(database id, data source id, url) from the answer to a creation, asking for the database when the answer is partial."""
+    ident = notion_id(made.get("id"), "the created database's id", EXIT_SERVICE)
+    sources = made.get("data_sources")
+    if not isinstance(sources, list):
+        made = service.call("retrieve_database", ident)
+        sources = made.get("data_sources")
+    if not isinstance(sources, list) or len(sources) != 1 or not isinstance(sources[0], dict):
+        raise ProviderError("the created database does not have exactly one data source")
+    return ident, notion_id(sources[0].get("id"), "the data source's id", EXIT_SERVICE), made.get("url")
+
+
+@under_key_lock("--parent")
+def cmd_table_create(args: dict) -> int:
+    documents_config(args.get("--config-file"))
+    mode = mode_of(args)
+    key = key_of(args)
+    parent = notion_id(args.get("--parent"), "--parent")
+    title = title_arg(args)
+    table = table_file(args)
+    scope = scope_arg(args)
+    entry = ledger_entry(parent, key)
+    state = "new" if not entry else ("done" if entry.get("status") == "done" else "pending")
+    if mode == "dry":
+        counts = plan_counts(plan_rows(entry["data_source"], key, table, scope)) if state == "done" and entry.get("data_source") \
+            else {"rows": len(table["rows"]), "rows_done": 0, "rows_pending": 0, "rows_new": len(table["rows"])}
+        return emit({"dry_run": True, "would": {"verb": "table-create", "parent": parent, "state": state,
+                                                 "id": entry.get("id") if entry else None, **counts}})
+    service = Service(bulk=True)
+    created = state == "new"
+    if state == "done":  # a database the person put in the trash since is not the one this key made: it is made again
+        ident, source, url = database_of(service, {"id": entry["id"]})
+        if archived(service.call("retrieve_database", ident)):
+            ledger_set(parent, key, None)
+            state, created = "new", True
+    if state == "new":
+        if ledger_claim(parent, key):  # another run claimed it meanwhile
+            raise ProviderError(pending_message(key, ledger_entry(parent, key) or {}))
+        body = {"parent": {"type": "page_id", "page_id": parent}, "title": nt.text_objects(title),
+                "initial_data_source": {"properties": nt.schema_properties(table["columns"], table["rows"])}}
+        try:
+            made = service.call("create_database", body=body)
+        except ProviderError as exc:
+            ledger_set(parent, key, None if refused_status(exc) else {"status": "pending", "started_at": now_iso(), "error": str(exc)})
+            raise not_given(exc, "the parent page") if refused_status(exc) else exc from None
+        except BaseException:
+            ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "interrupted"})
+            raise
+        try:
+            ident, source, url = database_of(service, made)
+        except ProviderError:
+            ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "the answer named no usable database"})
+            raise ProviderError("the answer to the creation names no usable database; running again looks for it among the "
+                                "parent's children before it creates another") from None
+        ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "data_source": source, "url": url, "title": title,
+                                 "recorded_at": now_iso()})
+    elif state == "pending":
+        found = adopt_child(service, parent, "child_database", title, entry)
+        if found is None:
+            raise ProviderError(pending_message(key, entry))
+        ident, source, url = database_of(service, {"id": found})
+        ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "data_source": source, "url": url, "title": title,
+                                 "recorded_at": now_iso(), "adopted": True})
+        created = False
+    schema = retrieve_source(service, source)
+    problem = nt.problem_with(table["columns"], schema)
+    if problem:
+        raise ProviderError(f"the database made is not the one asked for ({problem}): nothing more was written")
+    done = fill(service, source, table, key, scope)
+    return emit({"id": ident, "data_source_id": source, "url": url, "created": created, "rows": len(table["rows"]),
+                 "rows_created": done["created"], "rows_replayed": done["replayed"], "schema_sha256": nt.schema_sha256(schema)})
+
+
+@under_key_lock("--parent")
+def cmd_page_create(args: dict) -> int:
+    documents_config(args.get("--config-file"))
+    mode = mode_of(args)
+    key = key_of(args)
+    parent = notion_id(args.get("--parent"), "--parent")
+    title = title_arg(args)
+    source = args.get("--markdown-file")
+    if not source:
+        raise ProviderError("--markdown-file is required", EXIT_USAGE)
+    try:
+        with open(source, encoding="utf-8") as f:
+            markdown = f.read()
+    except (OSError, UnicodeDecodeError):
+        raise ProviderError(f"the Markdown file {source} cannot be read as UTF-8 text", EXIT_USAGE) from None
+    blocks = nb.to_blocks(markdown)
+    expected = hashlib.sha256(nb.round_trip(markdown).encode("utf-8")).hexdigest()
+    entry = ledger_entry(parent, key)
+    state = "new" if not entry else entry.get("status", "pending")
+    if mode == "dry":
+        return emit({"dry_run": True, "would": {"verb": "page-create", "parent": parent, "state": state,
+                                                 "id": entry.get("id") if entry else None, "blocks": len(blocks),
+                                                 "bytes": len(markdown.encode("utf-8")), "expected_sha256": expected}})
+    service = Service(bulk=True)
+    if state in ("created", "done"):  # a page the person put in the trash since is not the one this key made: it is made again
+        ident = notion_id(entry.get("id"), "the ledger's page id", EXIT_SERVICE)
+        if archived(retrieve(service, ident)):
+            ledger_set(parent, key, None)
+            state = "new"
+    replayed = state != "new"
+    if state == "new":
+        if ledger_claim(parent, key):
+            raise ProviderError(pending_message(key, ledger_entry(parent, key) or {}))
+        body = {"parent": {"type": "page_id", "page_id": parent}, "properties": {"title": {"title": nt.text_objects(title)}}}
+        try:
+            made = service.call("create_page", body=body)
+        except ProviderError as exc:
+            ledger_set(parent, key, None if refused_status(exc) else {"status": "pending", "started_at": now_iso(), "error": str(exc)})
+            raise not_given(exc, "the parent page") if refused_status(exc) else exc from None
+        except BaseException:
+            ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "interrupted"})
+            raise
+        try:
+            ident = notion_id(made.get("id"), "the created page's id", EXIT_SERVICE)
+        except ProviderError:
+            ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "the answer named no page"})
+            raise ProviderError("the answer to the creation names no page; running again looks for it among the parent's children "
+                                "before it creates another") from None
+        ledger_set(parent, key, {"status": "created", "kind": OUTPUT, "id": ident, "title": title, "recorded_at": now_iso()})
+        service.append(ident, blocks)
+    else:
+        if state == "pending":
+            found = adopt_child(service, parent, "child_page", title, entry)
+            if found is None:
+                raise ProviderError(pending_message(key, entry))
+            ident = found
+        else:
+            ident = notion_id(entry.get("id"), "the ledger's page id", EXIT_SERVICE)
+        retrieve(service, ident)
+        if state != "done":  # made by this key but not finished: the body is written again whole (the page is ours alone)
+            service.replace_body(ident, blocks)
+    ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "title": title, "recorded_at": now_iso()})
+    page = retrieve(service, ident)
+    return emit({"id": ident, "version": page.get("last_edited_time"), "created": not replayed, "replayed": replayed,
+                 "url": page.get("url"), "expected_sha256": expected})
+
+
 VERBS = {"stat": cmd_stat, "read": cmd_read, "comments": cmd_comments, "write": cmd_write, "notice": cmd_notice,
-         "resolve": cmd_resolve}
-VALUE_FLAGS = ("--config-file", "--id", "--path", "--markdown-file", "--idempotency-key", "--notice", "--text")
-SWITCHES = ("--dry-run", "--confirmed", "--not-created", "--check")
+         "resolve": cmd_resolve, "page-create": cmd_page_create, "table-read": cmd_table_read, "table-create": cmd_table_create,
+         "rows-append": cmd_rows_append, "rows-state": cmd_rows_state}
+VALUE_FLAGS = ("--config-file", "--id", "--path", "--markdown-file", "--idempotency-key", "--notice", "--text", "--parent", "--title",
+               "--table-file", "--schema-sha256", "--scope")
+SWITCHES = ("--dry-run", "--confirmed", "--not-created", "--check", "--as-source")
 
 
 def parse_args(argv: list) -> tuple:
@@ -743,6 +1369,8 @@ def main(argv=None) -> int:
             return cmd_check(args)
         if verb is None:
             raise ProviderError("give a verb or --check; see --help", EXIT_USAGE)
+        if args.get("--as-source") and verb != "read":
+            raise ProviderError("--as-source is for the verb read only", EXIT_USAGE)
         return VERBS[verb](args)
     except ProviderError as e:
         print(f"error: {e}", file=sys.stderr)

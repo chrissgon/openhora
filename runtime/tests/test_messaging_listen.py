@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 from test_messaging import OPEN_POLICY, PLAN_HASH, SECRET_TEXT, decision, Fake, wait_for
 from test_service import WAIT
@@ -30,7 +31,7 @@ shell_kit = st.load("shell_kit")
 messaging = st.load("messaging")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_listen_standin.py"
-SENDER = "4242"
+SENDER = "830461975213"
 FAST = dict(ready_seconds=30, send_seconds=10, backoff=(0.02, 0.05), stdin_wait=5, term_wait=2, join_wait=3)
 
 
@@ -158,7 +159,7 @@ def rig(tmp_path, monkeypatch):
 def test_listen_is_optional_in_capabilities_false_when_absent_and_a_bool_when_present(rig):
     r = rig(caps={"listen": None})
     assert r.messenger.capabilities()["listen"] is False
-    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | {"listen"}
+    assert set(r.messenger.capabilities()) == set(providers.CAPABILITY_KEYS) | set(providers.OPTIONAL_KEYS)
     r.messenger.open_session()
     assert r.messenger.session is None and r.starts() == []   # nothing is started for a provider that does not listen
     r = rig(caps={"listen": "yes"})
@@ -206,8 +207,8 @@ def test_a_reply_answers_a_question_and_free_text_goes_to_say(tmp_path, monkeypa
     r = rig(script={"default": {"after_send": {"1": [reply, free]}}})
     r.items[2] = decision("question", 2, title="Which colour?", actions=["answered"])
     r.run()
-    assert wait_for(lambda: r.calls("answer") and r.calls("say"))
-    assert r.calls("answer")[0][2] == {"pending_id": 2, "text": "blue"}
+    assert wait_for(lambda: r.calls("answer_proposing") and r.calls("say"))
+    assert r.calls("answer_proposing")[0][2] == {"pending_id": 2, "text": "blue", "channel": "messaging"}
     assert r.calls("say")[0][2]["text"] == "what is the plan?"
     assert wait_for(lambda: "Noted." in r.texts() and "Answered #2." in r.texts())
     r.finish()
@@ -251,6 +252,17 @@ def test_the_answers_of_the_provider_map_to_the_kinds_and_a_missing_message_id_i
     r.finish()
 
 
+def test_a_send_answer_carries_whether_the_document_went_out_and_the_id_is_still_a_string(tmp_path, monkeypatch, rig):
+    r = rig()
+    r.messenger.open_session(r.log.append)
+    assert wait_for(r.messenger.session.is_ready)
+    plain = {"text": "x", "actions": [], "link": None, "document": {"name": "d.txt", "text": "whole"}}
+    ok, failed = r.messenger.send("somebody", plain), r.messenger.send("doc-failed", plain)
+    assert isinstance(ok, str) and isinstance(failed, str) and ok.startswith("m") and failed.startswith("m")
+    assert ok.document_failed is False and failed.document_failed is True
+    r.finish()
+
+
 def test_a_send_that_is_never_answered_fails_after_send_seconds(tmp_path, monkeypatch, rig):
     r = rig(options={"send_seconds": 0.3})
     r.messenger.open_session(r.log.append)
@@ -275,12 +287,26 @@ def test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_
     first, second = (s["message"]["actions"][0]["id"] for s in r.sent())
     assert first == "1:approve" and second == "2:approve"
     assert any("exited (1)" in line for line in r.log) and any("could not be sent (failed)" in line for line in r.log)
+    assert wait_for(lambda: r.bridge.ledger.by_action("crash-1", second) is not None), "the bridge has recorded the second copy (the provider logs a send before the bridge's record of it is written)"
     stale = {"sender": "crash-1", "chat": "crash-1", "private": True, "text": None, "action": first, "action_ref": None, "reply_to": None}
     r.bridge.handle(stale)
     assert bridge.STALE in r.texts() and not r.calls("approve")
     r.bridge.handle({**stale, "action": second})
     assert r.calls("approve") and "Approved #1." in r.texts()
     r.finish()
+
+
+def test_the_crash_test_does_not_race_the_bridges_ledger_write(tmp_path, monkeypatch, rig):
+    """The provider logs a send before the bridge's record of the card is written (the send returns to the bridge first). The crash test above taps the second copy's button, and a tap on a card
+    the bridge has not recorded yet is `STALE`: it waits for the record. Here every record is written 0.4 s late, which is that order on any machine: the test must still pass."""
+    ledger = st.load("messaging_ledger")
+    real = ledger.Ledger.add
+
+    def add(self, record, *args, **kwargs):
+        time.sleep(0.4)
+        return real(self, record, *args, **kwargs)
+    monkeypatch.setattr(ledger.Ledger, "add", add)
+    test_a_crash_restarts_the_provider_and_the_card_is_sent_again_and_the_first_copys_button_is_stale(tmp_path, monkeypatch, rig)
 
 
 def test_exit_3_and_exit_2_stop_the_bridge_with_the_reason_the_provider_gave(tmp_path, monkeypatch, rig):
@@ -433,9 +459,11 @@ class Fake:
     operations = operations
     def config(self, project):
         return {{"path": project, "sha256": "a" * 64, "accepted": True, "data_dir": {data!r},
-                "messaging": {{"senders": {{"chirp": ["4242"]}}}}, "channels": {{"messaging": ["read"]}}}}
+                "messaging": {{"senders": {{"chirp": ["830461975213"]}}}}, "channels": {{"messaging": ["read"]}}}}
     def pending(self, project, pending_id=None):
         return {{"pending": []}}
+    def reminders_due(self, project, platform):
+        return {{"send": [], "missed": 0, "dropped": 0}}
     def stop_runs(self):
         open({marker!r}, "w").write("stopped")
         return {{}}
@@ -475,7 +503,7 @@ def test_sigterm_of_the_bridge_and_the_end_of_its_stdin_stop_the_provider_after_
                 proc.kill()
                 proc.wait()
         assert (r.base / "stopped").read_text() == "stopped" and not alive(pid)
-        assert b"4242" not in proc.stderr.read()
+        assert b"830461975213" not in proc.stderr.read()
 
 
 def test_a_killed_bridge_cannot_leave_the_provider_behind_because_its_stdin_ends(tmp_path, monkeypatch, rig):
@@ -623,7 +651,7 @@ def test_deferred_is_an_answer_kind_and_not_an_error_kind_and_other_words_stay_f
     with pytest.raises(providers.MessengerError) as caught:
         r.messenger.send("fail-deferred", plain)
     assert caught.value.kind == "deferred" and caught.value.reason == "refused by the stand-in"
-    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred"}, "paused is an event kind, not an answer kind"
+    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred", "gone"}, "paused is an event kind, not an answer kind; gone is the answer to a fetch"
     r.finish()
 
 
@@ -670,7 +698,8 @@ def test_a_deferred_card_goes_out_as_soon_as_the_person_writes_without_waiting_f
     [card] = [s for s in r.sent() if s["message"]["actions"]]
     assert card["chat"] == "defer-once" and SECRET_TEXT in card["message"]["text"]
     assert [q["message"]["actions"] != [] for q in r.requests() if q["op"] == "send"][0] is True, "the card was the first request, deferred"
-    assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once")
+    # the provider writes the card before the bridge's thread records it in the ledger: wait for the record
+    assert wait_for(lambda: r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once"))
     assert len([x for x in r.log if "kept for later" in x]) == 1
     r.finish()
 
@@ -682,8 +711,9 @@ def test_the_line_about_more_waiting_is_not_lost_when_its_chat_is_deferred_and_g
     for number in range(1, 13):
         r.items[number] = decision("question", number, title=f"Q{number}")
     r.run(notice_every=600)
-    more = "And 2 more waiting. Send /pending to list them."
-    assert wait_for(lambda: more in r.texts()), r.log
-    assert r.texts().count(more) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
+    def more(text):
+        return pk.said(text, "MORE_LINE", n=2)
+    assert wait_for(lambda: any(more(t) for t in r.texts())), r.log
+    assert sum(1 for t in r.texts() if more(t)) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
     assert not any("could not be sent" in line for line in r.log), "a deferral is not logged as a failure"
     r.finish()

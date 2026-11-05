@@ -1,0 +1,28 @@
+{
+  "flow": "publish-post",
+  "title": "Publish one drafted post now, after you approve its exact text",
+  "params": {
+    "post": {
+      "description": "the drafted post: its content file, docs/marketing/content/<name>.md (the name without .md is the key the publishing skill uses)",
+      "type": "text"
+    },
+    "platform": {
+      "description": "the platform to publish on: its name in lowercase, as the publisher and its data file are named",
+      "type": "text"
+    }
+  },
+  "tasks": [
+    {
+      "key": "publish",
+      "step": "publish-post",
+      "args": {
+        "post": "{post}",
+        "platform": "{platform}"
+      },
+      "title": "Publish the post",
+      "text": "Prepare the post for the person to approve: nothing is published until the person approves the hash of its exact text, first comment and image. It is published now, once, under the key the publishing skill uses; scheduling stays with that skill.",
+      "depends_on": [],
+      "milestone": true
+    }
+  ]
+}

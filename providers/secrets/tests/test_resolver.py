@@ -4,11 +4,14 @@ Run: uv run --with pytest pytest providers/secrets/tests
 """
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -160,8 +163,14 @@ def test_report_never_carries_a_value():
     assert SENTINEL not in json.dumps(rows)
 
 
+# A child process gets its own empty home and config folders, never the person's: the password-manager mapping file (S16) is looked for
+# under XDG_CONFIG_HOME, else under HOME, and a file there must not make a test start the real tool.
+EMPTY_HOME = tempfile.mkdtemp(prefix="wb-resolver-home-")
+atexit.register(shutil.rmtree, EMPTY_HOME, ignore_errors=True)
+
+
 def run(*args, env=None):
-    base = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp")}
+    base = {"PATH": os.environ["PATH"], "HOME": EMPTY_HOME, "XDG_CONFIG_HOME": EMPTY_HOME}
     return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True,
                           env={**base, **(env or {})}, timeout=60)
 
@@ -299,3 +308,27 @@ def test_the_pull_request_token_has_a_row_of_its_own_and_the_everyday_token_lost
     store = FakeStore({"github": "everyday", "github-pr": "own"})
     assert res.resolve("VCS_GITHUB_PR_TOKEN", environ={"VCS_GITHUB_TOKEN": "x", "GITHUB_TOKEN": "y"}, store=store) \
         == ("own", "secret store")
+
+
+def test_the_subprocess_helper_never_reaches_a_mapping_under_the_real_home(tmp_path, monkeypatch):
+    """The reviewer's probe: a fake home with a 0600 mapping for several registered names, a recording FAKE `op` first on the PATH and
+    XDG_CONFIG_HOME unset. The child resolver of `run` must see neither: zero calls."""
+    from fake_op import FakeOp
+    op = FakeOp(tmp_path / "bin")
+    op.answer("*", stdout=SENTINEL)
+    home = tmp_path / "home"
+    (home / ".config" / "openhora").mkdir(parents=True)
+    mapping = home / ".config" / "openhora" / "password-manager.json"
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
+                       encoding="utf-8")
+    mapping.chmod(0o600)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{op.folder}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    for name in (*names, "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    for args in (("--list",), ("--list", "--json"), *(("--check", n) for n in names)):
+        done = run(*args)
+        assert SENTINEL not in done.stdout + done.stderr, args
+    assert op.calls() == []

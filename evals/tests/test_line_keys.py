@@ -95,3 +95,35 @@ def test_the_validator_accepts_a_run_line_with_cost_and_run_hash_and_one_with_ne
 ])
 def test_the_validator_refuses_a_cost_or_a_run_hash_outside_its_form(change, why):
     assert es.run_line_problems(run_line(**change)) == [why]
+
+
+# --- package P2b: the CPU platform of a run, and where the image came from -----------------------------------------
+
+
+def test_cpu_platform_is_an_optional_key_of_a_run_line_that_is_never_a_social_platform():
+    assert "cpu_platform" in es.RUN_OPTIONAL and "platform" in es.RUN_OPTIONAL  # two keys: the social platform keeps its own
+    for platform in ("linux/arm64", "linux/amd64", "linux/arm/v7"):
+        assert es.run_line_problems(run_line(cpu_platform=platform)) == []
+    assert es.run_line_problems(run_line()) == []  # the lines written before it have none
+
+
+@pytest.mark.parametrize("value", ["arm64", "windows/amd64", "linux/", "", 5, None, "linux/arm64; rm"])
+def test_a_cpu_platform_outside_its_form_is_refused(value):
+    assert es.run_line_problems(run_line(cpu_platform=value)) == [
+        "cpu_platform must be the CPU platform the run's container ran on, such as linux/arm64 or linux/amd64"]
+
+
+def test_lines_of_a_social_platform_and_of_a_cpu_platform_do_not_mix():
+    line = run_line(kind="partial", platform="chirp", cpu_platform="linux/amd64")
+    assert es.run_line_problems(line) == []
+    assert es.run_line_problems(run_line(platform="linux/amd64")) == ["platform must be a platform name",
+                                                                       "a line of a platform's case runs in a partial test, with the skill only"][:1]
+
+
+def test_a_run_lines_cpu_platform_must_be_the_image_platform_of_its_event_line():
+    event = {"image_platform": "linux/amd64", "models": ["s-model"], "adapters": {"s-model": "h"}}
+    message = "cpu_platform must equal the image_platform of the event line: the run ran in that image"
+    about = lambda line: [p for p in es.run_line_problems(line, event) if p.startswith("cpu_platform")]  # the event is a stub: other keys differ
+    assert about(run_line(cpu_platform="linux/amd64")) == []
+    assert about(run_line(cpu_platform="linux/arm64")) == [message]
+    assert about(run_line()) == []  # a line written before the key

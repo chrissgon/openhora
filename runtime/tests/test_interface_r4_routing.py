@@ -80,7 +80,7 @@ def test_the_model_names_a_router_run_for_the_bar_the_building_and_the_planning_
     assert got["others"] == [[2, True], [1, False]], "the request list marks the one with a run as running"
     assert got["words"] == ["Planning agent · routing request #2 · for 3 min", "Planning agent · routing request #2", 2, None, None]
     assert got["rows"] == [[1, "0 of 0 steps done"], [2, "0 of 0 steps done · being routed"]]
-    assert got["cancellable"] == [[1, True], [2, False]], "the Building's request row offers no Cancel request while a run holds the request"
+    assert got["cancellable"] == [[1, True], [2, True]], "the Building's request row offers Cancel request while a run holds the request (R18: the cancel stops the run)"
     assert [row[0] for row in got["labels"]] == ["routing request #2", "task #5 running", "no task running", "task #5 running"]
     assert "routing request #2" in got["labels"][0][1] and "routing request #2" in got["labels"][0][2] and "no task running" in got["labels"][2][1], "the City's label names the router's run (routing_request)"
     assert got["again"] == ["Planning agent · routing request #2", "0 of 1 steps done · being routed"], "a router run wins over a step that waits"
@@ -126,12 +126,12 @@ console.log(JSON.stringify(out));
 
 
 @needs_node
-def test_a_request_line_a_run_holds_says_routing_with_no_route_it_no_flow_select_and_no_cancel(tmp_path):
+def test_a_request_line_a_run_holds_says_routing_with_no_route_it_no_flow_select_and_a_cancel_that_stops_the_run(tmp_path):
     got = run_node(tmp_path, BLOCK)
     assert got["idle"]["route"] == ["Route it", False, "Route request 2", None] and got["idle"]["select"] is True and got["idle"]["cancel"] == 1, "a request nobody routes keeps its line"
     for key in ("served", "clicked"):
         assert got[key]["route"][0] == "Routing..." and got[key]["route"][1] is True and got[key]["route"][2] == "Request 2 is being routed", key
-        assert got[key]["select"] is False and got[key]["cancel"] == 0, f"{key}: no flow select, and no Cancel request (the store refuses it while a run holds the request)"
+        assert got[key]["select"] is False and got[key]["cancel"] == 1, f"{key}: no flow select; Cancel request stays (R18: the cancel stops the run)"
     assert got["served"]["route"][3] == "Planning agent · routing request #2 · for 3 min", "the button's tooltip names the run and how long it has lasted"
     assert got["clicked"]["route"][3] is None
     assert got["clicks"] == 0, "a second click is not sent"

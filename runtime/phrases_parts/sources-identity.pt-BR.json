@@ -1,0 +1,8 @@
+{
+  "package": "sources-identity",
+  "table": {
+    "NW_ITEMS_REFUSED_FOLDER": "Não consegui ler {name}: a pasta de fontes deste projeto precisa de um ajuste no computador. Tentar de novo por aqui não resolve.",
+    "NW_ITEMS_REFUSED_AUTH": "Não consegui ler {name}: a autorização expirou ou não existe. A conta precisa ser autorizada de novo no computador; tentar de novo por aqui não resolve."
+  },
+  "same_as_english": []
+}

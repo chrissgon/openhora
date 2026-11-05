@@ -41,17 +41,25 @@ def run_node(tmp_path: Path, body: str) -> dict:
 MODEL_SCRIPT = r"""
 import * as m from "@JS@/views/control-model.js";
 
-const pair = (tier, band, score, extra = {}) => ({ tier, model: tier === "strong" ? "reference-model-1" : "floor-model-1", adapter: tier === "strong" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, ...extra });
-const skill = (name, area, strong, floor, extra = {}) => ({ name, version: "1.0.0", area, manifest: true, runs_here: 0, proof: [strong, floor], ...extra });
+const pair = (model, band, score, extra = {}) => ({ model, adapter: model === "model-a" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, source: "lab",
+  price: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, source: "https://prices.example/models", accessed: "2026-10-01", age_days: 14, stale: false }, expected_cost: 0.0012, ...extra });
+const skill = (name, area, first, second, extra = {}) => ({ name, version: "1.0.0", area, manifest: true, runs_here: 0, proof: [first, second], ...extra });
 const skills = [
-  skill("brand-voice", "brand", pair("strong", "reliable", 0.8657), pair("floor", "watch", 0.58, { cause: "pessimistic score under 0.70" })),
-  skill("brand-identity", "brand", pair("strong", "watch", 0.66), pair("floor", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model" })),
-  skill("mkt-publish", "marketing", pair("strong", "reliable", 1), pair("floor", "needs a test", null, { mean: null, runs: 0 }), { manifest: false }),
+  skill("brand-voice", "brand", pair("model-a", "reliable", 0.8657), pair("model-b", "watch", 0.58, { cause: "pessimistic score under 0.70" }), { recommended: "model-a" }),
+  skill("brand-identity", "brand", pair("model-a", "watch", 0.66), pair("model-b", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model", source: null, expected_cost: null, price: null })),
+  skill("mkt-publish", "marketing", pair("model-a", "reliable", 1), pair("model-b", "needs a test", null, { mean: null, runs: 0 }), { manifest: false }),
 ];
 const out = {};
 // the chips: the library's classes by band, the score to two decimals, "-" for a null score (never 0.00)
-out.chips = skills.map((s) => ["strong", "floor"].map((t) => { const c = m.chipOf(s, t); return [c.band, c.className, c.score]; }));
-out.noPair = m.chipOf({ proof: [] }, "strong");
+out.chips = skills.map((s) => ["model-a", "model-b"].map((t) => { const c = m.chipOf(s, t); return [c.band, c.className, c.score]; }));
+out.noPair = m.chipOf({ proof: [] }, "model-a");
+out.summaries = skills.map((s) => { const c = m.summaryOf(s); return [c.band, c.reliable, c.total, c.text]; });
+out.noSummary = m.summaryOf({ proof: [] });
+out.models = m.modelsOf(skills);
+out.prices = [m.priceWords({ input: 3, output: 15 }), m.priceWords({ input: 0.02376, output: 0.72 }), m.priceWords(null), m.priceWords({})];
+out.dates = [m.priceDate({ accessed: "2026-10-01", age_days: 14, stale: false }), m.priceDate({ accessed: "2026-07-01", age_days: 106, stale: true }), m.priceDate(null)];
+out.costs = [m.costWords({ expected_cost: 0.0012 }), m.costWords({ expected_cost: 0.5 }), m.costWords({ expected_cost: null, price: {} }), m.costWords({ expected_cost: null, price: null })];
+out.recommended = [m.recommendedLine(skills[0]), m.recommendedLine(skills[1])];
 out.oddBand = m.bandClass("surprise");
 out.scores = [m.scoreText(0), m.scoreText(0.126), m.scoreText(null), m.scoreText(undefined), m.scoreText("0.5"), m.scoreText(NaN)];
 // the filters narrow the rows: area, band on either tier, the name case-insensitively
@@ -66,8 +74,8 @@ out.none = m.filterSkills(skills, { name: "zzz" }).length;
 // the open row: two sentences from the pairs; a null cause is "none"; a null mean is "-"
 out.detail = m.detailLines(skills[0]);
 out.detailUntested = m.detailLines(skills[1]);
-out.detailOneRun = m.detailLine({ proof: [pair("strong", "watch", 0.5, { runs: 1 })] }, "strong", "Reference model");
-out.detailMissing = m.detailLine({ proof: [] }, "floor", "Floor model");
+out.detailOneRun = m.detailLine(pair("model-a", "watch", 0.5, { runs: 1 }));
+out.detailMissing = m.detailLines({ proof: [] });
 out.manifest = [m.manifestText(skills[0]), m.manifestText(skills[2]), m.manifestText({})];
 // the notice: shown when either check is not ok, both lines whole
 out.noticeOk = m.checksNotice({ measurement: "ok", image: "ok" });
@@ -86,7 +94,7 @@ out.classes = m.classRows({ classes: [{ class: "publisher:social", provider: nul
 out.secrets = m.secretRows({ secrets: [{ name: "CODE_HOST_TOKEN", found: true, where: "secret store", value: "never", masked: "xxx", length: 40 }, { name: "FLOOR_MODEL_KEY", found: false, where: null }] });
 out.secretNames = out.secrets.map((r) => m.secretName(r));
 // costs words
-const row = (day, agent, runs, extra = {}) => ({ day, agent, model: "m", adapter: "a", runs, tokens: 1000 * runs, recorded_usd: null, recomputed_usd: 1.5, unknown_runs: 0, price: { source: "provider price page", date: "2026-09-30" }, ...extra });
+const row = (day, agent, runs, extra = {}) => ({ day, agent, model: "m", adapter: "a", runs, tokens: 1000 * runs, recorded_usd: null, recomputed_usd: 1.5, unknown_runs: 0, price: { source: "provider price page", accessed: "2026-09-30", age_days: 14, stale: false }, ...extra });
 out.recorded = [m.recordedCell(row("d", "x", 1)), m.recordedCell(row("d", "x", 1, { recorded_usd: 1.87 })), m.recordedCell(row("d", "x", 1, { recorded_usd: 0 }))];
 out.recomputed = [
   m.recomputedCell(row("d", "x", 1, { recomputed_usd: 3.84 })),
@@ -98,7 +106,7 @@ out.tokens = [m.tokensText(412300), m.tokensText(null), m.tokensText(0)];
 out.agentLabel = [m.agentLabel(null), m.agentLabel("brand")];
 out.newest = m.newestFirst([row("2026-10-06", "b", 1), row("2026-10-07", "a", 1), row("2026-10-06", "a", 1), row("2026-10-07", "b", 1)]).map((r) => `${r.day} ${r.agent}`);
 out.footnote = m.footnote([row("d", "x", 1)]);
-out.footnoteTwo = m.footnote([row("d", "x", 1), row("d", "y", 1, { price: { source: "other page", date: "2026-10-01" } })]);
+out.footnoteTwo = m.footnote([row("d", "x", 1), row("d", "y", 1, { price: { source: "other page", accessed: "2026-10-01", age_days: 13, stale: true } })]);
 out.footnoteNone = m.footnote([row("d", "x", 1, { price: null })]);
 out.caps = m.capsLine([{ agent: "engineering", max_runs_per_day: 12, max_usd_per_day: 4 }, { agent: "marketing", max_runs_per_day: 6, max_usd_per_day: 3.5 }], [{ name: "engineering", runs_today: 5, usd_today: 1.87 }]);
 out.capsNoAgents = m.capsLine([{ agent: "engineering", max_runs_per_day: 12, max_usd_per_day: 4 }], null).text;
@@ -140,25 +148,33 @@ def test_the_control_models_chips_filters_notice_platform_chart_and_words_follow
         [["watch", muted, "0.66"], ["needs a test", error, "-"]],
         [["reliable", ok, "1.00"], ["needs a test", error, "-"]],
     ], "the band is the operation's word with the library's class; a score is two decimals; an untested pair has no score: '-', never 0.00"
+    assert got["summaries"] == [["reliable", 1, 2, "1 of 2 models"], ["watch", 0, 2, "0 of 2 models"], ["reliable", 1, 2, "1 of 2 models"]], "the best band of a skill's models, and how many are reliable"
+    assert got["noSummary"]["total"] == 0 and got["noSummary"]["text"] == "no model" and got["models"] == ["model-a", "model-b"]
+    assert got["prices"] == ["$3.00 in, $15.00 out per million tokens", "$0.0238 in, $0.72 out per million tokens", "no price known", "no price known"]
+    assert got["dates"] == ["read 2026-10-01", "read 2026-07-01, stale (106 days)", ""], "the date of a price is beside it, and a stale one says so"
+    assert got["costs"] == ["about $0.0012 a run", "about $0.50 a run", "no cost estimate: its runs measured no usage yet", "no cost estimate: no price known"]
+    assert got["recommended"] == ["Recommended: model-a, the cheapest model on which this skill is reliable.",
+                                  "Recommended: none yet (no model is reliable for this skill with a price and a measured usage)."]
     assert got["noPair"] is None and got["oddBand"] == muted
     assert got["scores"] == ["0.00", "0.13", "-", "-", "-", "-"], "only a number is a score (a real 0 stays 0.00; a string, null and NaN are '-')"
     assert got["areas"] == ["brand", "marketing"]
     assert got["byArea"] == ["brand-voice", "brand-identity"] and got["none"] == 0
-    assert got["byBandReliable"] == ["brand-voice", "mkt-publish"], "a band matches either tier"
+    assert got["byBandReliable"] == ["brand-voice", "mkt-publish"], "a band matches any of a skill's models"
     assert got["byBandWatch"] == ["brand-voice", "brand-identity"] and got["byBandNeeds"] == ["brand-identity", "mkt-publish"]
     assert got["byName"] == ["brand-voice"] and got["byAll"] == ["brand-identity"]
+    priced = "Price: $3.00 in, $15.00 out per million tokens (read 2026-10-01). about $0.0012 a run."
     assert got["detail"] == [
-        "Reference model: reference-model-1, adapter-a, mean 0.87, 9 runs. Cause: none.",
-        "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70.",
+        f"model-a (lab evidence): adapter-a, reliable, mean 0.87, 9 runs. {priced} Cause: none.",
+        f"model-b (lab evidence): adapter-b, watch, mean 0.58, 9 runs. {priced} Cause: pessimistic score under 0.70.",
     ]
-    assert got["detailUntested"][1] == "Floor model: floor-model-1, adapter-b, mean -, 0 runs. Cause: no evidence on this model."
-    assert got["detailOneRun"] == "Reference model: reference-model-1, adapter-a, mean 0.50, 1 run. Cause: none."
-    assert got["detailMissing"] == "Floor model: the service sent no proof for this model."
+    assert got["detailUntested"][1] == "model-b (no evidence): adapter-b, needs a test, mean -, 0 runs. Price: no price known. no cost estimate: no price known. Cause: no evidence on this model."
+    assert got["detailOneRun"] == f"model-a (lab evidence): adapter-a, watch, mean 0.50, 1 run. {priced} Cause: none."
+    assert got["detailMissing"] == ["The service sent no proof for this skill."]
     assert got["manifest"] == ["yes", "no", "no"]
     assert got["noticeOk"] is None and got["noticeNone"] is None, "the notice is hidden when both checks are ok"
     assert got["noticeImage"] == {
         "title": "A check of the proof failed",
-        "sentence": "These skills run as not proven: on the reference model and without autonomy.",
+        "sentence": "These skills run as not proven: without autonomy, on any model.",
         "lines": ["Measurement check: ok", "Image check: the image on this machine is not the one the evidence of 2 skill(s) was measured in"],
     }
     assert got["noticeMeasure"]["lines"] == ["Measurement check: the gate file changed", "Image check: ok"], "either check shows it; both lines are always printed"
@@ -184,8 +200,8 @@ def test_the_control_models_chips_filters_notice_platform_chart_and_words_follow
     assert got["recomputed"] == [{"text": "$3.84", "muted": False}, {"text": "no price", "muted": True}, {"text": "unknown (1 run)", "muted": True}, {"text": "unknown (3 runs)", "muted": True}]
     assert got["tokens"] == ["412,300", "-", "0"] and got["agentLabel"] == ["no agent", "brand"]
     assert got["newest"] == ["2026-10-07 a", "2026-10-07 b", "2026-10-06 b", "2026-10-06 a"], "newest day first; within a day the operation's order stays"
-    assert got["footnote"] == "Recomputed from token counts and the prices in the project's configuration (source: provider price page, 2026-09-30). A run whose usage is unknown shows unknown and is counted."
-    assert "(source: provider price page, 2026-09-30; other page, 2026-10-01)" in got["footnoteTwo"]
+    assert got["footnote"] == "Recomputed from token counts and the prices of the workbench's price table (runtime/prices.json; source: provider price page, read 2026-09-30). A run whose usage is unknown shows unknown and is counted."
+    assert "source: provider price page, read 2026-09-30; other page, read 2026-10-01, stale)" in got["footnoteTwo"]
     assert "source:" not in got["footnoteNone"] and "A model with no price shows no price." in got["footnoteNone"]
     assert got["caps"]["text"] == "Caps · engineering: runs 5 / 12, spend $1.87 / $4.00; marketing: runs - / 6, spend - / $3.50"
     assert "subscription or free credential" in got["caps"]["title"] and "metered credential" in got["caps"]["title"]
@@ -277,12 +293,13 @@ import { createSkillsTab } from "@JS@/views/control-skills.js";
 import { createConnectionsTab } from "@JS@/views/control-connections.js";
 import { createCostsTab } from "@JS@/views/control-costs.js";
 
-const pair = (tier, band, score, extra = {}) => ({ tier, model: tier === "strong" ? "reference-model-1" : "floor-model-1", adapter: tier === "strong" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, ...extra });
-const skill = (name, area, strong, floor, extra = {}) => ({ name, version: "1.2.0", area, manifest: true, runs_here: 3, proof: [strong, floor], ...extra });
+const pair = (model, band, score, extra = {}) => ({ model, adapter: model === "model-a" ? "adapter-a" : "adapter-b", band, cause: null, score, mean: score, runs: 9, source: "lab",
+  price: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75, source: "https://prices.example/models", accessed: "2026-10-01", age_days: 14, stale: false }, expected_cost: 0.0012, ...extra });
+const skill = (name, area, first, second, extra = {}) => ({ name, version: "1.2.0", area, manifest: true, runs_here: 3, proof: [first, second], ...extra });
 const skillsData = {
-  skills: [skill("brand-voice", "brand", pair("strong", "reliable", 0.86), pair("floor", "watch", 0.58, { cause: "pessimistic score under 0.70" })),
-    skill("brand-identity", "brand", pair("strong", "watch", 0.66), pair("floor", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model" })),
-    skill("mkt-publish", "marketing", pair("strong", "reliable", 0.86), pair("floor", "needs a test", null, { mean: null, runs: 0 }))],
+  skills: [skill("brand-voice", "brand", pair("model-a", "reliable", 0.86), pair("model-b", "watch", 0.58, { cause: "pessimistic score under 0.70" }), { recommended: "model-a" }),
+    skill("brand-identity", "brand", pair("model-a", "watch", 0.66), pair("model-b", "needs a test", null, { mean: null, runs: 0, cause: "no evidence on this model", source: null, expected_cost: null, price: null })),
+    skill("mkt-publish", "marketing", pair("model-a", "reliable", 0.86), pair("model-b", "needs a test", null, { mean: null, runs: 0 }))],
   checks: { measurement: "ok", image: "ok" },
 };
 const flat = (n) => (n.children === undefined ? n.data : n.children.filter((c) => !(c.attrs && c.attrs["aria-hidden"] === "true")).map(flat).join(" "));
@@ -296,7 +313,7 @@ out.skillsLoading = text(skills.el);
 const busy = skills.el.find((n) => n.attrs["aria-busy"] === "true");
 out.skillsBusy = Boolean(busy);
 skills.set({ status: "ready", data: skillsData });
-// R-53: the table is a list of accordions in five columns (the chevron, the name, the version, the area, the two tiers); Manifest and Runs here are in the open row
+// R-53: the table is a list of accordions in five columns (the chevron, the name, the version, the area, the models); Manifest and Runs here are in the open row
 const listNow = () => skills.el.find((n) => has(n, "wb-skill-list"));
 out.headers = listNow().find((n) => has(n, "wb-skill-head")).children.map(text);
 const rowsNow = () => listNow().all((n) => n.tagName === "DETAILS" && has(n, "wb-skill-row"));
@@ -315,7 +332,7 @@ out.filtersSummary = text(skills.el.find((n) => n.tagName === "SUMMARY"));
 const cellsOf = (r) => r.children[0].children.map(text).slice(1);
 out.firstRow = cellsOf(rowsNow()[0]);
 out.untestedRow = cellsOf(rowsNow()[2]);
-out.noZero = !text(skills.el).includes("0.00");
+out.noZero = !/(^|[^0-9.$])0\.00(?![0-9])/.test(text(skills.el));      // no score of 0.00 (a cost such as $0.0012 is not one)
 out.detailHiddenAtFirst = rowsNow().every((r) => !r.open);
 const bodyOf = (r) => r.find((n) => has(n, "wb-skill-detail")).all((n) => n.tagName === "P").map(text);
 out.detailText = bodyOf(rowsNow()[0]);
@@ -380,7 +397,7 @@ out.connLoading = text(conn.el);
 // --- Costs
 const sinceCalls = [];
 const costs = createCostsTab({ onSince: (t) => sinceCalls.push(t) });
-const price = { source: "provider price page", date: "2026-09-30" };
+const price = { source: "provider price page", accessed: "2026-09-30", age_days: 14, stale: false };
 const crow = (day, agent, model, adapter, runs, tokens, recorded, recomputed, unknown, p) => ({ day, agent, model, adapter, runs, tokens, recorded_usd: recorded, recomputed_usd: recomputed, unknown_runs: unknown, price: p });
 const costsData = {
   since: "2026-09-07",
@@ -433,27 +450,28 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
     got = run_node(tmp_path, TABS_SCRIPT.replace("@FAKE@", fake.as_uri()))
     # Skills
     assert got["skillsLoading"] == "Loading the proof, costs and connections..." and got["skillsBusy"] is True
-    assert got["headers"] == ["", "Skill", "Version", "Area", "Reference model", "Floor model"], "R-53, E-13: five columns after the chevron; Manifest and Runs here moved into the open row"
+    assert got["headers"] == ["", "Skill", "Version", "Area", "Models"], "R-53, E-13: four columns after the chevron; Manifest and Runs here moved into the open row"
     assert got["rowCount"] == 3, "R-53: three skills, each an accordion"
-    assert got["firstChild"] == "wb-legend" and got["legend"] == "reliable watch needs a test band per model tier, with the score"
+    assert got["firstChild"] == "wb-legend" and got["legend"] == "reliable watch needs a test best band of the skill's models; each model's band, price and cost are in the open row"
     assert got["filterLabels"] == ["Area All areas brand marketing", "Band All bands reliable watch needs a test", "Search by name"]
     assert got["placeholder"] is None, "the search field has no placeholder text"
     assert got["areaOptions"] == ["All areas", "brand", "marketing"] and got["bandOptions"] == ["All bands", "reliable", "watch", "needs a test"]
     assert got["filtersSummary"] == "Filters"
-    assert got["firstRow"] == ["brand-voice", "1.2.0", "brand", "0.86 reliable", "0.58 watch"], "R-53, M-2: in a tier the score comes first, then the band's chip"
-    assert got["untestedRow"] == ["mkt-publish", "1.2.0", "marketing", "0.86 reliable", "- needs a test"], "an untested pair shows '-' and never 0.00"
+    assert got["firstRow"] == ["brand-voice", "1.2.0", "brand", "reliable 1 of 2 models"], "R-53: the best band of the skill's models, then how many are reliable"
+    assert got["untestedRow"] == ["mkt-publish", "1.2.0", "marketing", "reliable 1 of 2 models"], "an untested pair shows '-' and never 0.00"
     assert got["noZero"] is True
     assert got["detailHiddenAtFirst"] is True and got["openAfter"] is True, "R-53: a row is a `details`: it opens and stays open"
-    assert got["detailText"] == ["Manifest: yes", "Runs here: 3",
-                                 "Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
-                                 "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."], "E-13: Manifest and Runs here, then the two sentences"
-    assert got["card"]["summary"].startswith("brand-voice 1.2.0 · brand Manifest yes · 3 runs here Reference 0.86 reliable Floor 0.58 watch"), "R-53 on the phone's card: the score first"
+    priced = "Price: $3.00 in, $15.00 out per million tokens (read 2026-10-01). about $0.0012 a run."
+    assert got["detailText"] == ["Manifest: yes", "Runs here: 3", "Recommended: model-a, the cheapest model on which this skill is reliable.",
+                                 f"model-a (lab evidence): adapter-a, reliable, mean 0.86, 9 runs. {priced} Cause: none.",
+                                 f"model-b (lab evidence): adapter-b, watch, mean 0.58, 9 runs. {priced} Cause: pessimistic score under 0.70."], "E-13: Manifest and Runs here, the recommendation, then one sentence for each model"
+    assert got["card"]["summary"].startswith("brand-voice 1.2.0 · brand Manifest yes · 3 runs here Models reliable 1 of 2 models"), "R-53 on the phone's card"
     assert got["card"]["body"] == got["detailText"][2:], "the card says the manifest and the runs in its summary"
     assert got["afterArea"] == ["mkt-publish"] and got["afterBand"] == ["brand-voice", "brand-identity"] and got["afterName"] == ["brand-voice"]
     assert got["afterNothing"] == "No skill matches these filters." and got["afterReset"] == ["brand-voice", "brand-identity", "mkt-publish"]
     assert got["searchKept"] == [True, 0] and got["searchKeptAfterNotice"] == [0, "" ], "a redraw of the Skills tab never takes the search field out of the page: it keeps its focus"
     assert got["noticeFirst"] == "notice pui-soft pui-error wb-cnotice" and got["noticeRole"] == "alert", "R-54: the soft error style"
-    assert got["notice"] == ["A check of the proof failed", "These skills run as not proven: on the reference model and without autonomy.",
+    assert got["notice"] == ["A check of the proof failed", "These skills run as not proven: without autonomy, on any model.",
                              "Measurement check: ok", "Image check: the eval image is not on this machine"]
     assert got["empty"] == "No skills are in scope of this project."
     assert got["failed"] == ["The read failed", "the proof of x cannot be read: y"]
@@ -495,7 +513,7 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
         ["2026-10-07", "marketing", "reference-model-1", "adapter-a", "2", "150,000", "not recorded", "$1.20"],
         ["2026-10-06", "engineering", "reference-model-1", "adapter-a", "4", "340,100", "not recorded", "unknown (1 run)"],
     ], "newest day first; not recorded, no price and unknown (n run) are the cells' words"
-    assert got["footnote"] == "Recomputed from token counts and the prices in the project's configuration (source: provider price page, 2026-09-30). A run whose usage is unknown shows unknown and is counted."
+    assert got["footnote"] == "Recomputed from token counts and the prices of the workbench's price table (runtime/prices.json; source: provider price page, read 2026-09-30). A run whose usage is unknown shows unknown and is counted."
     assert got["sinceKept"] == [0, True], "a read of the Costs tab never takes the Since field out of the page: it keeps its focus"
     assert got["sinceCalls"] == ["2026-10-01"], "a change of the field asks the page to read costs again with the typed text"
     assert got["refused"] == ["Date refused", "since is a day: YYYY-MM-DD", "2026-13-07", "true", 0]
@@ -522,7 +540,7 @@ globalThis.fetch = async (url, init) => {
 };
 const ok = (body) => ({ body });
 answers.skills = ok({ skills: [{ name: "brand-voice", version: "1.0.0", area: "brand", manifest: true, runs_here: 0, proof: [] }], checks: { measurement: "ok", image: "ok" } });
-answers.costs = ok({ since: "2026-09-08", rows: [{ day: "2026-10-07", agent: "engineering", model: "m", adapter: "a", runs: 2, tokens: 10, recorded_usd: null, recomputed_usd: 0.5, unknown_runs: 0, price: { source: "page", date: "2026-09-30" } }], caps: [{ agent: "engineering", max_runs_per_day: 12, max_usd_per_day: 4 }] });
+answers.costs = ok({ since: "2026-09-08", rows: [{ day: "2026-10-07", agent: "engineering", model: "m", adapter: "a", runs: 2, tokens: 10, recorded_usd: null, recomputed_usd: 0.5, unknown_runs: 0, price: { source: "page", accessed: "2026-09-30", age_days: 14, stale: false } }], caps: [{ agent: "engineering", max_runs_per_day: 12, max_usd_per_day: 4 }] });
 answers["costs?since=2026-13-07"] = { status: 400, body: { error: "usage", message: "since is a day: YYYY-MM-DD" } };
 answers["costs?since=2026-10-01"] = ok({ since: "2026-10-01", rows: [], caps: [] });
 answers.agents = ok({ agents: [{ name: "engineering", runs_today: 5, usd_today: 1.87 }] });

@@ -48,7 +48,57 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent planning --mode autonomous-with-policy --accept"
         }
-      ]
+      ],
+      "model": null,
+      "consent": null,
+      "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model m",
+          "skills": 1,
+          "reliable": 1,
+          "community_only": 0,
+          "expected_cost": 0.002,
+          "band": "reliable",
+          "price": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 16,
+            "stale": false
+          }
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model fm",
+          "skills": 1,
+          "reliable": 0,
+          "community_only": 0,
+          "expected_cost": null,
+          "band": "needs a test",
+          "price": null
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model default"
+        }
+      ],
+      "recommended_model": "m"
     },
     {
       "name": "design",
@@ -96,7 +146,57 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent design --mode autonomous-with-policy --accept"
         }
-      ]
+      ],
+      "model": null,
+      "consent": null,
+      "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model m",
+          "skills": 1,
+          "reliable": 1,
+          "community_only": 0,
+          "expected_cost": 0.002,
+          "band": "reliable",
+          "price": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 16,
+            "stale": false
+          }
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model fm",
+          "skills": 1,
+          "reliable": 0,
+          "community_only": 0,
+          "expected_cost": null,
+          "band": "needs a test",
+          "price": null
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model default"
+        }
+      ],
+      "recommended_model": "m"
     },
     {
       "name": "engineering",
@@ -142,7 +242,57 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent engineering --mode autonomous-with-policy --accept"
         }
-      ]
+      ],
+      "model": null,
+      "consent": null,
+      "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model m",
+          "skills": 2,
+          "reliable": 2,
+          "community_only": 0,
+          "expected_cost": 0.002,
+          "band": "reliable",
+          "price": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 16,
+            "stale": false
+          }
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model fm",
+          "skills": 2,
+          "reliable": 0,
+          "community_only": 0,
+          "expected_cost": null,
+          "band": "needs a test",
+          "price": null
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model default"
+        }
+      ],
+      "recommended_model": "m"
     },
     {
       "name": "content",
@@ -190,7 +340,68 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous-with-policy --accept"
         }
-      ]
+      ],
+      "model": null,
+      "consent": null,
+      "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model m",
+          "skills": 1,
+          "reliable": 1,
+          "community_only": 0,
+          "expected_cost": 0.002,
+          "band": "reliable",
+          "price": {
+            "input": 1.0,
+            "output": 5.0,
+            "cache_read": 0.1,
+            "cache_write": 1.25,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 16,
+            "stale": false
+          }
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model fm",
+          "skills": 1,
+          "reliable": 0,
+          "community_only": 0,
+          "expected_cost": null,
+          "band": "needs a test",
+          "price": null
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model default"
+        }
+      ],
+      "recommended_model": "m"
     }
-  ]
+  ],
+  "steps": {
+    "agent": "runtime",
+    "mode": "autonomous"
+  },
+  "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
+  "default_model": null,
+  "models": [
+    "m",
+    "fm"
+  ],
+  "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4"
 }

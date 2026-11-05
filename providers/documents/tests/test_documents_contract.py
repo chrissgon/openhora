@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -24,7 +25,12 @@ import documents_harness  # noqa: E402
 spec = importlib.util.spec_from_file_location("provider_resolve_for_documents", REPO / "providers" / "resolve.py")
 resolve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resolve)
-IMPLEMENTATIONS = resolve.implementations("integration:documents", root=REPO)
+ALL_IMPLEMENTATIONS = resolve.implementations("integration:documents", root=REPO)
+# An implementation that serves the files a person picked as sources and writes nothing (providers/documents/gdrive.py, onedrive.py) says so with
+# `SOURCES_ONLY = True` at the top level of its file; the write-and-read contract below does not apply to it (its own suites do).
+SOURCES_ONLY = [name for name in ALL_IMPLEMENTATIONS
+                if re.search(r"^SOURCES_ONLY\s*=\s*True\b", (REPO / "providers" / "documents" / f"{name}.py").read_text(encoding="utf-8"), re.M)]
+IMPLEMENTATIONS = [name for name in ALL_IMPLEMENTATIONS if name not in SOURCES_ONLY]
 TEXT = "# Brand strategy\n\n- Owner: brand-strategy\n- Status: draft\n\n## Goal\n\nPeople using the tool.\n"
 
 
@@ -74,6 +80,14 @@ def documents(request, tmp_path):
 
 def test_every_implementation_has_a_harness():
     assert IMPLEMENTATIONS and set(IMPLEMENTATIONS) <= set(documents_harness.HARNESSES)
+
+
+def test_only_the_drive_and_onedrive_providers_are_sources_only_and_say_which_verbs_they_refuse():
+    assert SOURCES_ONLY == ["gdrive", "onedrive"]
+    for name in SOURCES_ONLY:
+        done = subprocess.run([sys.executable, str(REPO / "providers" / "documents" / f"{name}.py"), "write", "--path", "docs/a.md"],
+                              capture_output=True, text=True, timeout=60)
+        assert done.returncode == 2 and "not supported" in done.stderr
 
 
 def test_a_document_that_was_written_is_read_back_as_the_harness_expects(documents):

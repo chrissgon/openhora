@@ -1,0 +1,10 @@
+{
+  "package": "aceite-fix-1",
+  "table": {
+    "FAIL_TASKS_API_OFF": "O Google Tasks não está ativado no projeto do Google Cloud que a plataforma usa, então nada foi escrito. Ative a API do Google Tasks nesse projeto e aprove o card de novo.",
+    "TODO_API_OFF": "Não consigo ler o Google Tasks: a API do Google Tasks não está ativada no projeto do Google Cloud que a plataforma usa.",
+    "TODO_NOT_CONNECTED": "Não consigo ler o {service}: a conta não está conectada para tarefas. Conecte-a de novo na página da plataforma.",
+    "FAIL_EVENT_GONE": "Esse evento não está mais na agenda (foi removido ou está em outra agenda), então nada foi feito."
+  },
+  "same_as_english": []
+}

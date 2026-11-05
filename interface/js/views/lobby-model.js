@@ -237,6 +237,7 @@ export function requestLine(request, open) {
     tone: stateTone(request.state),     // C-23: the chip takes the state's colour (R-47)
     cancellable: !final,
     routable: request.state === "requested" && open === 0,
+    model: typeof request.model === "string" ? request.model : "",     // the model the person chose for the request ("" when none)
   };
 }
 
@@ -255,11 +256,17 @@ export function requestWords(request, body) {
 /** The count line of the cancel dialog, from the request's tasks (`status`). */
 export function cancelCount(request) {
   const tasks = Array.isArray(request && request.tasks) ? request.tasks : [];
-  if (!tasks.length) return "No task has been created yet.";
+  if (!tasks.length) return "No task has been created yet." + runningNote(tasks, request && request.routing);
   const untouched = new Set(["planned", "ready", "requested"]);
   const started = tasks.filter((t) => !untouched.has(t.state)).length;
   const n = `${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
-  return started === 0 ? `${n}, none started` : `${n}, ${started} started`;
+  return (started === 0 ? `${n}, none started` : `${n}, ${started} started`) + runningNote(tasks, request && request.routing);
+}
+
+/** R18: what cancelling costs while a run is in progress, said in the cancel dialog: its tokens so far are spent and nothing it made is kept. */
+export const RUNNING_NOTE = " Something of it is running: the run is stopped, what it has used so far is spent, and nothing it made is kept.";
+export function runningNote(tasks, routing) {
+  return routing || (Array.isArray(tasks) && tasks.some((t) => t && t.state === "running")) ? RUNNING_NOTE : "";
 }
 
 /** The words of a decision that is no longer open: "Plan approved", "Question cancelled". */

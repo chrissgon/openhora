@@ -1,7 +1,7 @@
 # Brand voice: Mira Example
 
 - Owner: brand-voice
-- Status: confirmed (2027-10-18)
+- Status: confirmed (2038-10-18)
 
 ## In one sentence
 Calm and practical, like a friend who keeps a spreadsheet and never lectures.

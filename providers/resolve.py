@@ -23,6 +23,9 @@ Usage:
 A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and to its variables:
   <role>:<target>        -> providers/<role>/      generator:image -> providers/generator/
                             <ROLE>_<TARGET>_PROVIDER, then <ROLE>_PROVIDER
+                         (the runtime-only roles, which no skill requires, are the same: messenger:<platform> ->
+                         providers/messenger/, converter:document -> providers/converter/, exporter:document -> providers/exporter/, writer:calendar -> providers/writer/,
+                         model:text -> providers/model/ with MODEL_TEXT_PROVIDER, then MODEL_PROVIDER)
   integration:<service>  -> providers/<service>/   integration:vcs -> providers/vcs/
                             INTEGRATION_<SERVICE>_PROVIDER only: one integration never serves another
   the four classes of the table FIXED keep the folder and the variable they had when their names
@@ -91,8 +94,12 @@ NOT_IMPLEMENTATIONS = {"auth"}  # helpers that live next to providers (providers
 LISTED = ["generator:image", "generator:video", "integration:design-tool", "integration:issue-tracker",
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
-# Roles whose folder and variables are derived from the text of the class.
-ROLES = {"integration", "search", "generator", "publisher", "messenger"}
+# Roles whose folder and variables are derived from the text of the class. `messenger`, `converter`, `exporter`, `script` and `writer` (writes to the person's
+# own accounts: writer:calendar, writer:mailbox, writer:files; folder providers/writer/, always named explicitly, never `auto`) are in ROLES and not in
+# LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
+# not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
+# `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -102,8 +109,14 @@ ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "sc
 # The roles whose part after the colon is a parameter handed to the implementation (--platform).
 PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
+SERVES_LINE = re.compile(r'^SERVES\s*=\s*"([^"\n]*)"', re.M)
+SERVES_READ = 32768      # characters of an implementation read for its SERVES line (a long module docstring comes first)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
+# What "auto" means for a class that ships several implementations, when nothing chooses one (package W2): the SMTP outbox is the sender:email of a project that
+# sets none; the mailers of the person's own account (gmail.py, outlook.py) are named explicitly by the runtime, from a document that says whose account it is,
+# and are never what "auto" picks. A variable or a caller's implementation still wins.
+CLASS_DEFAULTS = {"sender:email": "smtp"}
 
 EXIT_OK, EXIT_USAGE, EXIT_UNRESOLVED = 0, 2, 3
 
@@ -175,6 +188,28 @@ def variables(cls: str) -> list[str]:
     return names
 
 
+# What a provider's process keeps of the environment besides the variables that select its class: what finds a program, a home, the
+# user's secret store, the folder of the credentials directory, a docker daemon and the state folder. No key, no token and no choice of
+# another class's provider is here. OPENHORA_CREDENTIALS_DIR and CREDENTIALS_DIRECTORY (what a systemd unit sets) carry a path and never
+# a value: without them a provider's process, which reads its secret through the resolver, would not find a credentials directory that
+# only these variables name (it looks in ~/.config/openhora/credentials alone), and the secret would read as missing (package S16).
+# UV_PYTHON names the interpreter a scheduled job pins for `uv run` (a path, never a value): without it a provider that reads the keychain would
+# run on whichever interpreter uv finds, and the keychain trusts a binary, not a version (providers/scheduler/README.md).
+ENV_MINIMUM = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+               "OPENHORA_STATE_DIR", "OPENHORA_CREDENTIALS_DIR", "CREDENTIALS_DIRECTORY",
+               "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "UV_PYTHON")
+
+
+def provider_environment(cls: str, env=None, passes=()) -> dict:
+    """The whole environment a provider's process gets for the class `cls`: ENV_MINIMUM plus the variables `variables(cls)` returns,
+    plus the names in `passes` (the one secret a provider reads from its environment), each only if it is set and not empty. No
+    other variable of `env` (default: this process's) passes: not a key, not a token, not the choice of another class's provider.
+    An unknown class is refused (UnknownClass). `call(..., env=provider_environment(cls))` starts the provider with it."""
+    env = os.environ if env is None else env
+    names = ENV_MINIMUM + tuple(variables(cls)) + tuple(passes)
+    return {k: env[k] for k in names if env.get(k)}
+
+
 def workbench_root(root=None, env=None) -> Path:
     """The workbench checkout: the argument, else WORKBENCH_ROOT, else the checkout this file is in."""
     env = os.environ if env is None else env
@@ -199,9 +234,22 @@ def implementations_in(folder_name: str, root=None, env=None) -> list[str]:
                   if p.is_file() and NAME.fullmatch(p.stem) and p.stem not in NOT_IMPLEMENTATIONS)
 
 
+def serves_class(cls: str, name: str, root=None, env=None, strict: bool = False) -> bool:
+    """Whether providers/<folder>/<name>.py serves the class: true unless the file declares, in one line at the top level, `SERVES = "<class>"` (read as
+    text, never imported) and the class it names is another. The writers share one folder, `providers/writer/`, and each declares the one class it
+    serves, so a caller of `writer:calendar` can never start the writer of files. With `strict` a file that declares nothing serves nothing (the runtime asks it
+    of a writer before it starts one)."""
+    path = workbench_root(root, env) / "providers" / folder(cls) / f"{name}.py"
+    try:
+        found = SERVES_LINE.search(path.read_text(encoding="utf-8")[:SERVES_READ])
+    except (OSError, ValueError):      # a missing file serves what its folder says; a file that is not text declares nothing (UnicodeDecodeError is a ValueError)
+        return not strict
+    return (found is None and not strict) or (found is not None and found.group(1) == canonical(cls))
+
+
 def implementations(cls: str, root=None, env=None) -> list[str]:
-    """Implementation names shipped for a class."""
-    return implementations_in(folder(cls), root, env)
+    """Implementation names shipped for a class (a file that declares it serves another class is not one)."""
+    return [name for name in implementations_in(folder(cls), root, env) if serves_class(cls, name, root, env)]
 
 
 def served_platforms(cls: str, name: str, root=None, env=None) -> list[str]:
@@ -239,7 +287,7 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     """Choose the provider script for a class. Returns class (as contracts/environment.md writes it),
     implementation, path, source, variable, variables.
 
-    source is one of: configuration (the caller's `implementation`), environment, platform-default,
+    source is one of: configuration (the caller's `implementation`), environment, platform-default, class-default,
     only-implementation. Raises UnknownClass (not a class) or Unresolved (nothing to choose).
     `platform` is the operating system (sys.platform), for the platform default; the platform of a class
     with a parameter is part of the class.
@@ -279,6 +327,8 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     for prefix, name in PLATFORM_DEFAULTS.get(cls, {}).items():
         if platform.startswith(prefix) and name in candidates:
             return chosen(name, "platform-default")
+    if CLASS_DEFAULTS.get(cls) in candidates:
+        return chosen(CLASS_DEFAULTS[cls], "class-default")
     if len(candidates) == 1:
         return chosen(candidates[0], "only-implementation")
     if not shipped:
@@ -311,12 +361,13 @@ class ProviderCallError(Exception):
     """A provider's verb did not give one JSON object. kind: "usage" (exit 2), "not-configured" (exit 3, or the
     class does not resolve), "failed" (any other exit, no JSON, a program that could not start) or "timeout"."""
 
-    def __init__(self, kind: str, reason: str, exit_code=None, stderr_tail: str = ""):
+    def __init__(self, kind: str, reason: str, exit_code=None, stderr_tail: str = "", stderr_last: str = ""):
         super().__init__(f"{kind}: {reason}")
         self.kind = kind
         self.reason = reason
         self.exit_code = exit_code
         self.stderr_tail = stderr_tail
+        self.stderr_last = stderr_last     # the last non-empty line of stderr, trimmed, at most 200 characters (the tail has lost its line ends)
 
 
 def interpreter_for(path) -> list:
@@ -334,17 +385,21 @@ def interpreter_for(path) -> list:
     return ["uv", "run", "--locked"] if os.path.isfile(f"{path}.lock") else ["uv", "run"]
 
 
-def _run(argv, timeout, env):
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env)
+def _run(argv, timeout, env, stdin=None):
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env, input=stdin)
 
 
-def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) -> dict:
+def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None, stdin=None) -> dict:
     """Start the provider script at `path` with one verb and return the one JSON object it printed. `verb` may be
     None (the verb is then the first of `args`). `config`, when given, is written as JSON to a temporary file of
     mode 0600, passed after the verb as `--config-file`, and removed afterwards. `env`, when given, is the whole
-    environment of the child; else it inherits the caller's. `run(argv)` replaces the process start (a stand-in
-    in tests) and returns an object with returncode, stdout and stderr. No credential is read or passed here: a
+    environment of the child; else it inherits the caller's. `stdin`, a str, is what the child reads on its standard
+    input (a prompt, a request body: nothing written to a file, nothing on the command line); it is refused with
+    `config` (kind "usage"). `run(argv)` replaces the process start (a stand-in in tests; `run(argv, stdin)` when
+    `stdin` is given) and returns an object with returncode, stdout and stderr. No credential is read or passed here: a
     provider reads its own. Raises ProviderCallError."""
+    if stdin is not None and (config is not None or not isinstance(stdin, str)):
+        raise ProviderCallError("usage", "stdin is a str and is not given with config")
     argv = interpreter_for(path) + [str(path)] + ([verb] if verb else [])
     config_file = None
     try:
@@ -356,7 +411,10 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
             argv += ["--config-file", config_file]
         argv += [str(a) for a in args]
         try:
-            done = (run or (lambda a: _run(a, timeout, env)))(argv)
+            if run is None:
+                done = _run(argv, timeout, env, stdin)
+            else:
+                done = run(argv) if stdin is None else run(argv, stdin)
         except subprocess.TimeoutExpired:
             raise ProviderCallError("timeout", f"the provider ran over {timeout} s") from None
         except (OSError, subprocess.SubprocessError) as e:
@@ -368,9 +426,10 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
             except OSError:
                 pass
     tail = " ".join((done.stderr or "").split())[-STDERR_TAIL:]
+    last = next((line.strip()[:200] for line in reversed((done.stderr or "").splitlines()) if line.strip()), "")
     if done.returncode != 0:
         kind = {2: "usage", 3: "not-configured"}.get(done.returncode, "failed")
-        raise ProviderCallError(kind, tail or f"exit {done.returncode}", done.returncode, tail)
+        raise ProviderCallError(kind, tail or f"exit {done.returncode}", done.returncode, tail, last)
     try:
         out = json.loads(done.stdout)
     except ValueError:
@@ -381,7 +440,7 @@ def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) ->
 
 
 def call(cls: str, verb, args, *, root=None, implementation=None, platform=None, config=None, timeout=600,
-         env=None, run=None) -> dict:
+         env=None, run=None, stdin=None) -> dict:
     """Resolve the class (see resolve: `implementation` names one, `platform` is the operating system), start the
     provider's verb with `invoke`, and return the one JSON object it printed. A class that does not resolve is a
     ProviderCallError of kind "not-configured"."""
@@ -389,7 +448,7 @@ def call(cls: str, verb, args, *, root=None, implementation=None, platform=None,
         path = resolve(cls, root=root, env=env, platform=platform, implementation=implementation)["path"]
     except (UnknownClass, Unresolved) as e:
         raise ProviderCallError("not-configured", str(e)) from None
-    return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run)
+    return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run, stdin=stdin)
 
 
 def start(cls: str, verb: str, args, *, root=None, implementation=None, platform=None, env=None):

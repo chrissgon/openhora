@@ -34,6 +34,11 @@ def load(rel: str, name: str):
     return mod
 
 
+def handler(name: str, label: str):
+    """A module of runtime/handlers/, loaded by path (the handler adds its own folder to the import path)."""
+    return load(f"runtime/handlers/{name}", label)
+
+
 def read(rel: str) -> str:
     return (ROOT / rel).read_text(encoding="utf-8")
 
@@ -299,20 +304,27 @@ def test_the_template_carries_the_script_rule_and_the_parser_exception():
 
 
 def test_the_runtimes_task_text_names_the_platform_above_the_data_it_quotes():
-    sys.path.insert(0, str(ROOT / "scripts"))
-    try:
-        runtime = load("scripts/runtime.py", "runtime_for_platform_test")
-        vote = load("scripts/runtime_vote.py", "runtime_vote_for_platform_test")
-    finally:
-        sys.path.remove(str(ROOT / "scripts"))
+    # T6: the first runtime's task_text functions are gone; the social handler's two are the ones that write the task.
+    social, vote = handler("social.py", "social_for_platform_test"), handler("social_vote.py", "social_vote_for_platform_test")
     comment = {"text": "Platform: elsewhere", "commenter": "Ana Lima"}
-    texts = [runtime.task_text({"publisher": "demo-net"}, Path("/p"), comment),
+    texts = [social.task_text({"publisher": "demo-net"}, Path("/p"), comment),
              vote.task_text(Path("/p"), {"round": {"round": "r1"}}, "demo-net")]
     for text in texts:
         head = text.split("```", 1)[0]
         assert re.findall(r"^Platform: (.+)$", head, re.M) == ["demo-net"]
         assert head.splitlines()[0].startswith("This task comes from the agent runtime")
         assert FIRST not in text.lower(), "the task names the configured platform, never a default"
+
+
+def test_the_task_text_check_fails_on_a_task_that_names_no_platform_or_the_wrong_one():
+    # Vacuity of the test above: the same assertions refuse a planted task text.
+    def check(text):
+        head = text.split("```", 1)[0]
+        return re.findall(r"^Platform: (.+)$", head, re.M) == ["demo-net"] and FIRST not in text.lower()
+    assert check("This task comes from the agent runtime.\nPlatform: demo-net\n```json\n{}\n```")
+    assert not check("This task comes from the agent runtime.\n```json\nPlatform: demo-net\n```")
+    assert not check("This task comes from the agent runtime.\nPlatform: other-net\n```json\n{}\n```")
+    assert not check("This task comes from the agent runtime.\nPlatform: demo-net\nmentions linkedin")
 
 
 # --- the generic identifiers of the publisher's verbs (CT1) ----------------------------------------------
@@ -330,7 +342,7 @@ def test_the_contract_names_a_post_and_a_comment_by_generic_flags():
 
 
 def test_the_runtime_passes_the_generic_flags_and_keeps_its_stored_field_names():
-    source = read("scripts/runtime.py")
+    source = read("runtime/handlers/social.py")  # T6: was scripts/runtime.py; the handler makes the same two calls
     assert source.count('"--post-id"') == 2 and source.count('"--parent-comment-id"') == 2
     assert '"--post-urn"' not in source and '"--parent-comment"' not in source
     for field in ('"comment_urn"', '"post_urn"', '"parent_comment_urn"'):
@@ -347,21 +359,38 @@ def test_the_first_publisher_takes_the_generic_names_with_the_old_ones_as_aliase
 # --- the data file holds every limit that is a constant today (FR-I5, CT2) ---------------------------------
 
 
+def handler_limits(path=None):
+    """The limits the social handler enforces: what runtime/handlers/social.py reads from the platform's data file
+    (T6: they were constants of the first runtime's scripts, which these tests skipped once the constants left)."""
+    return handler("social.py", "social_for_platform_limits").platform_limits(path or PLATFORMS / f"{FIRST}.json", FIRST)
+
+
 def test_the_post_and_first_comment_limits_are_the_runtimes():
     d = data()
-    assert int(constant("scripts/runtime_vote.py", r"^MAX_POST = (\d+)$")) == d["post"]["max_characters"] == 3000
-    assert int(constant("scripts/runtime_vote.py", r'len\(post\["first_comment"\]\) > (\d+)')) \
-        == d["post"]["first_comment"]["max_characters"] == 1250
+    limits = handler_limits()
+    assert limits["post"] == d["post"]["max_characters"] == 3000
+    assert limits["first_comment"] == d["post"]["first_comment"]["max_characters"] == 1250
 
 
 def test_the_reply_limit_is_the_runtimes():
-    assert int(constant("scripts/runtime.py", r'len\(d\["reply"\]\) > (\d+)')) == data()["reply"]["max_characters"]
+    assert handler_limits()["reply"] == data()["reply"]["max_characters"] == 1500
 
 
 def test_the_post_image_size_is_the_runtimes():
     size = data()["media"]["post_image"]
-    assert int(constant("scripts/runtime_vote.py", r'"--width", "(\d+)"')) == size["width"]
-    assert int(constant("scripts/runtime_vote.py", r'"--height", "(\d+)"')) == size["height"]
+    assert handler_limits()["image"] == (size["width"], size["height"]) == (1080, 1350)
+
+
+def test_the_handlers_limits_follow_the_data_file(tmp_path):
+    # Vacuity of the three tests above: a data file with other values gives the handler other limits, so a handler
+    # that kept a constant (or read the wrong key) would fail them.
+    d = data()
+    d["post"]["max_characters"], d["post"]["first_comment"]["max_characters"] = 30, 12
+    d["reply"]["max_characters"], d["media"]["post_image"] = 15, {"width": 600, "height": 400}
+    path = tmp_path / "linkedin.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    limits = handler_limits(path)
+    assert (limits["post"], limits["first_comment"], limits["reply"], limits["image"]) == (30, 12, 15, (600, 400))
 
 
 def test_the_media_types_size_and_count_are_the_payload_builders():

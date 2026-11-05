@@ -4,8 +4,8 @@
   "evals": [
     {
       "id": 201,
-      "prompt": "write the 2027-11-15 video, the three habits one",
-      "expected_output": "docs/marketing/content/2027-11-15-<slug>.md has Network: tiktok, Format: video, a ```script block above the ```post block and a TikTok caption of its own. The script covers the three habits and the 340 euros with presets of the closed list and no time. check_post.py ran with the TikTok data file and passed.",
+      "prompt": "write the 2038-11-15 video, the three habits one",
+      "expected_output": "docs/marketing/content/2038-11-15-<slug>.md has Network: tiktok, Format: video, a ```script block above the ```post block and a TikTok caption of its own. The script covers the three habits and the 340 euros with presets of the closed list and no time. check_post.py ran with the TikTok data file and passed.",
       "files": [
         "evals/files/mira-brand",
         "evals/files/mira-notes",
@@ -16,7 +16,7 @@
       ],
       "assertions": [
         {
-          "text": "A file docs/marketing/content/2027-11-15-*.md exists with the lines `Network: tiktok` and `Format: video`, and a ```script block above its ```post block",
+          "text": "A file docs/marketing/content/2038-11-15-*.md exists with the lines `Network: tiktok` and `Format: video`, and a ```script block above its ```post block",
           "tags": [
             "format"
           ]

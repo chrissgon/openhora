@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -48,12 +49,17 @@ type listener struct {
 	exit    chan int
 	once    sync.Once
 
+	// refs holds the files the updates announced, by the random reference the bridge fetches them with; fetcher serves the op
+	// `fetch` from it (nil: this listener takes no fetch, which only a test builds).
+	refs    *refTable
+	fetcher *fetcher
+
 	mu        sync.Mutex
 	connected bool
 }
 
 func newListener(ctx context.Context, w *Writer, sender Sender, resolve Resolver) *listener {
-	return &listener{ctx: ctx, w: w, sender: sender, resolve: resolve, exit: make(chan int, 1)}
+	return &listener{ctx: ctx, w: w, sender: sender, resolve: resolve, exit: make(chan int, 1), refs: newRefTable()}
 }
 
 func (l *listener) write(v any) {
@@ -113,6 +119,12 @@ func (l *listener) handle(raw any) {
 
 func (l *listener) message(evt *events.Message) {
 	u, why := inbound(l.ctx, evt, l.resolve)
+	if u != nil {
+		for i := range u.Attachments {
+			// the key names the message and the place of the file in it, so a message delivered twice keeps its reference
+			u.Attachments[i].Ref = l.refs.add(u.Sender, u.Sender+":"+u.UpdateID+":"+strconv.Itoa(i), u.Attachments[i].msg)
+		}
+	}
 	switch {
 	case u != nil:
 		err := l.w.Write(updateEvent{Event: "update", Update: u})
@@ -144,6 +156,23 @@ func (l *listener) serveRequests(in io.Reader, done chan<- struct{}) {
 			l.write(answer)
 		}
 	}()
+	// A fetch can take two minutes, so it has a worker of its own: a card is not held up behind a download. The bridge asks for
+	// one fetch at a time; a few more may wait here, and any beyond them is refused at once.
+	fetches := make(chan Request, 4)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for req := range fetches {
+			if l.ctx.Err() != nil {
+				continue
+			}
+			answer := l.fetch(req)
+			if l.ctx.Err() != nil {
+				continue
+			}
+			l.write(answer)
+		}
+	}()
 	r := bufio.NewReaderSize(in, 64*1024)
 	for {
 		line, err := ReadLine(r, maxLine)
@@ -160,6 +189,12 @@ func (l *listener) serveRequests(in io.Reader, done chan<- struct{}) {
 			logf("a line without a usable id was dropped")
 		case bad != nil:
 			l.write(*bad)
+		case req.Op == "fetch":
+			select {
+			case fetches <- req:
+			default:
+				l.write(Answer{ID: req.ID, Kind: kindFailed, Reason: "too many fetches are waiting"})
+			}
 		default:
 			requests <- req
 		}
@@ -168,7 +203,16 @@ func (l *listener) serveRequests(in io.Reader, done chan<- struct{}) {
 	// in-flight send) and the 3 s bound of the disconnect applies. The worker is waited for only after that.
 	close(done)
 	close(requests)
+	close(fetches)
 	wg.Wait()
+}
+
+// fetch answers one fetch request.
+func (l *listener) fetch(req Request) Answer {
+	if l.fetcher == nil {
+		return Answer{ID: req.ID, Kind: kindUsage, Reason: "this program does not fetch files"}
+	}
+	return l.fetcher.Handle(l.ctx, req)
 }
 
 func cmdListen(args []string, stdin io.Reader, stderr io.Writer) int {
@@ -214,7 +258,9 @@ func cmdListen(args []string, stdin io.Reader, stderr io.Writer) int {
 	cli := whatsmeow.NewClient(device, newStderrLogger("whatsmeow"))
 	cli.EnableAutoReconnect = true
 	cli.InitialAutoReconnect = true
+	cli.SetMediaHTTPClient(newMediaClient())
 	l := newListener(ctx, w, clientSender{cli}, storeResolver(device))
+	l.fetcher = newFetcher(l.refs, clientDownloader{cli})
 	cli.AddEventHandler(l.handle)
 
 	inputDone := make(chan struct{})

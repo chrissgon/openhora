@@ -282,7 +282,8 @@ def test_a_word_outside_the_vocabulary_is_refused_with_the_vocabulary_named(tree
 
 
 def standin_kind(monkeypatch, word: str, **names):
-    """A kind module registered under a word of the vocabulary, as a later package adds one: a module and a row."""
+    """A kind module registered under a word of the vocabulary that has no real kind, as a later package adds one: a module and a row. (The tests use
+    `deploy`: `send` is a real kind since EMAIL-SEND, and a STEP kind that no standing approval can name.)"""
     import sys
     import types
     kind = types.ModuleType("standin_policy_kind")
@@ -299,12 +300,12 @@ def standin_kind(monkeypatch, word: str, **names):
 
 
 def test_the_operation_asks_the_kind_module_for_the_effect_and_the_argv_it_checks_and_runs(tree, monkeypatch):
-    write_bounds(tree, {**BOUNDS, "effects": ["send"]})
+    write_bounds(tree, {**BOUNDS, "effects": ["deploy"]})
     approve(tree)
-    standin_kind(monkeypatch, "send",
-                 policy_effect=lambda doc: {"kind": "send", "target": TARGET, "files": ["data/posts.json"], "items": 1},
+    standin_kind(monkeypatch, "deploy",
+                 policy_effect=lambda doc: {"kind": "deploy", "target": TARGET, "files": ["data/posts.json"], "items": 1},
                  policy_argv=lambda doc: ["commit-files", "--repo", "example-owner/example-profile", "--branch", "main"])
-    out = execute(tree, kind="send", target="an-alias-the-module-resolves")  # the bounds name the resolved target
+    out = execute(tree, kind="deploy", target="an-alias-the-module-resolves")  # the bounds name the resolved target
     assert out["executed"] is True
     real = calls(tree)[1]["argv"]
     assert real[:5] == ["commit-files", "--repo", "example-owner/example-profile", "--branch", "main"]
@@ -316,12 +317,12 @@ def test_the_operation_asks_the_kind_module_for_the_effect_and_the_argv_it_check
 
 
 def test_a_kind_whose_module_says_it_may_not_run_under_a_policy_is_refused_before_anything_is_checked(tree, monkeypatch):
-    write_bounds(tree, {**BOUNDS, "effects": ["send"]})
+    write_bounds(tree, {**BOUNDS, "effects": ["deploy"]})
     approve(tree)
-    standin_kind(monkeypatch, "send", POLICY=False)
+    standin_kind(monkeypatch, "deploy", POLICY=False)
     with pytest.raises(ops.OpsError) as refused:
-        execute(tree, kind="send")
-    assert refused.value.code == 2 and "the effect kind 'send' cannot run under a policy" in str(refused.value)
+        execute(tree, kind="deploy")
+    assert refused.value.code == 2 and "the effect kind 'deploy' cannot run under a policy" in str(refused.value)
     assert calls(tree) == []
 
 
@@ -340,11 +341,11 @@ def publisher_tree(tree, platforms=("standin",)) -> None:
 
 def test_a_kind_on_a_publisher_is_resolved_with_the_platform_its_module_names(tree, monkeypatch):
     publisher_tree(tree)
-    write_bounds(tree, {**BOUNDS, "effects": ["send"]})
+    write_bounds(tree, {**BOUNDS, "effects": ["deploy"]})
     approve(tree)
-    standin_kind(monkeypatch, "send", PROVIDER_CLASS="publisher:<platform>", policy_platform=lambda doc: "standin",
+    standin_kind(monkeypatch, "deploy", PROVIDER_CLASS="publisher:<platform>", policy_platform=lambda doc: "standin",
                  policy_argv=lambda doc: ["post", "--platform", "standin", *doc["args"]])
-    out = execute(tree, kind="send")
+    out = execute(tree, kind="deploy")
     assert out["executed"] is True and out["result"] == {"posted": True}
     made = [json.loads(line) for line in (tree["tree"] / "providers" / "publisher" / "calls.jsonl").read_text().splitlines()]
     assert [m[0] for m in made] == ["post", "post"] and made[0][-1] == "--dry-run" and made[1][-1] == "--confirmed"
@@ -370,10 +371,10 @@ def test_the_provider_path_takes_the_platform_in_the_class_and_refuses_a_class_a
 
 
 def test_a_kind_module_whose_argv_holds_a_flag_only_the_operation_adds_runs_nothing(tree, monkeypatch):
-    write_bounds(tree, {**BOUNDS, "effects": ["send"]})
+    write_bounds(tree, {**BOUNDS, "effects": ["deploy"]})
     approve(tree)
-    standin_kind(monkeypatch, "send", policy_argv=lambda doc: ["commit-files", "--allow", "**"])
+    standin_kind(monkeypatch, "deploy", policy_argv=lambda doc: ["commit-files", "--allow", "**"])
     with pytest.raises(ops.OpsError) as refused:
-        execute(tree, kind="send")
+        execute(tree, kind="deploy")
     assert refused.value.code == 1 and "--allow" in str(refused.value)
     assert calls(tree) == [] and executed_today(tree) == 0

@@ -40,9 +40,11 @@ def test_the_script_sees_only_the_listed_environment_and_runs_isolated(tmp_path,
     done = isolated.run_script(script(tmp_path), ["--a", "b c"], cwd=str(work), timeout=30, stdin="hello")
     assert done.returncode == 0, done.stderr
     seen = json.loads(done.stdout)
-    names = set(seen["env"]) - {"__CF_USER_TEXT_ENCODING"}   # the one name the operating system adds on macOS
+    # The names the operating system adds on macOS, and the one the root conftest.py puts into every env a test starts a child with
+    # (the null keyring backend: no test reaches the real secret store). runtime/isolated.py adds neither.
+    names = set(seen["env"]) - {"__CF_USER_TEXT_ENCODING", "PYTHON_KEYRING_BACKEND"}
     assert names == set(isolated.NAMES)
-    assert not [n for n in seen["env"] if n.startswith("WB_") or "CREDENTIAL" in n or n.startswith("PYTHON")]
+    assert not [n for n in seen["env"] if n.startswith("WB_") or "CREDENTIAL" in n or (n.startswith("PYTHON") and n != "PYTHON_KEYRING_BACKEND")]
     assert seen["isolated"] == 1 and seen["argv"] == ["--a", "b c"] and seen["stdin"] == "hello"
     assert os.path.realpath(seen["cwd"]) == os.path.realpath(str(work))
     assert seen["path_has_script_dir"] is False, "an isolated script does not import its neighbours"

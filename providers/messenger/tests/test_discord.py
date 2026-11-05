@@ -241,10 +241,25 @@ class Rig:
     def eof(self):
         self.writer.close()
 
-    def join(self, timeout=5):
+    def join(self, timeout=5, threads=True):
+        """Wait for the listener to exit and return its code. threads: also wait for every thread it started (the Gateway,
+        the sender and the stdin reader) and assert that each ended, so that none outlives the test and posts through the
+        next test's router. False only for a test that holds a send on purpose; it ends the threads with `threads_ended`."""
         self.thread.join(timeout)
         assert not self.thread.is_alive(), "the listener did not exit"
+        if threads:
+            self.threads_ended(timeout)
         return self.code
+
+    def threads_ended(self, timeout=5):
+        """The test's end of the stdin pipe is closed (the reader of a listener that stopped on a fatal error or a signal is
+        still blocked on it), then every thread of the listener is waited for."""
+        self.writer.close()
+        end = time.time() + timeout
+        for thread in self.listener.threads:
+            thread.join(max(0.0, end - time.time()))
+        alive = [t for t in self.listener.threads if t.is_alive()]
+        assert not alive, f"{len(alive)} listener thread(s) did not end"
 
     def end(self):
         self.eof()
@@ -744,8 +759,10 @@ def test_a_blocked_send_does_not_delay_the_exit(monkeypatch):
     wait_for(lambda: opener.calls("POST", "channels$"))
     began = time.time()
     rig.eof()
-    assert rig.join(5) == 0 and time.time() - began < 4
-    gate.set()
+    assert rig.join(5, threads=False) == 0 and time.time() - began < 4  # the held send does not keep the exit
+    gate.set()  # let the held send go: it posts through this test's router, and no thread outlives the test
+    wait_for(lambda: opener.calls("POST", "^/channels/7001/messages$"))
+    rig.threads_ended()
 
 
 # --- sends ----------------------------------------------------------------------------------------------------------
@@ -1085,25 +1102,28 @@ def test_a_table_cell_cannot_close_the_fence_it_sits_in():
     assert "\u200b" not in SCRIPT.read_text(encoding="utf-8")         # and none in the source either
 
 
+def code_span(command):
+    """A command as a Markdown code span (a longer fence when it holds a backtick): the form a platform renderer must keep byte for byte. The runtime's cards no longer carry
+    a command (LIVE-2), so the shape is built here, for the renderer's own tests."""
+    longest = max((len(r) for r in re.findall(r"`+", command)), default=0)
+    if not longest and not (command.startswith(" ") or command.endswith(" ")):
+        return f"`{command}`"
+    fence = "`" * (longest + 1)
+    return f"{fence} {command} {fence}"
+
+
 EFFECT_COMMANDS = ["python3 /w/ops.py approve --project /p/northwind-shop --id 7 --sha256 " + "e" * 64,
                    "run '/p/_a_/__init__/*' \"q\" 'a b' <@x> & y", "echo `hi`", "echo ``hi``", "`lead", "trail`", "a ` b `` c ``` d",
                    " spaced ", "echo '<@123>' '||' '[a](b)'"]
 
 
 @pytest.mark.parametrize("command", EFFECT_COMMANDS)
-def test_a_real_effect_card_keeps_its_command_byte_for_byte(command):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "runtime"))
-    import messaging_cards as cards  # noqa: E402
-    import operations  # noqa: E402
-    item = {"kind": "effect", "id": 7, "title": "Pull request in [the repo](https://x.example)", "text": "Open it",
-            "actions": ["approved", "rejected"], "payload_sha256": "e" * 64}
-    card = cards.build("northwind-shop", item, dict(discord.CAPABILITIES), {"messaging": {"approve": True}}, "text", None,
-                       operations=operations, effect_command=command)
-    text = card["message"]["text"]
+def test_a_command_in_a_code_span_on_the_last_line_stays_byte_for_byte(command):
+    text = "northwind-shop \u00b7 request #7\n\nPull request in [the repo](https://x.example)\n\nOpen it\n\n" + code_span(command)
     assert len(text) <= discord.CAPABILITIES["max_text"]
     out = render(text)
-    assert cards.code_span(command) in out.split("\n")
-    assert out.split("\n")[-1] == cards.code_span(command)
+    assert code_span(command) in out.split("\n")
+    assert out.split("\n")[-1] == code_span(command)
     assert "the repo (https://x.example)" in out
 
 
@@ -1389,3 +1409,17 @@ def test_the_protocol_descriptor_gets_only_json_lines_a_library_print_goes_to_st
 def test_the_module_never_sets_a_session_of_its_own():
     source = SCRIPT.read_text(encoding="utf-8")
     assert "setsid" not in source and "start_new_session" not in source
+
+
+def test_a_document_that_does_not_arrive_fails_the_whole_send_because_discord_takes_text_and_file_in_one_message(monkeypatch):
+    """POL-1: the card an approval needs is whole only if its file was delivered. Discord sends the text and the file as one multipart message, so
+    there is no half-delivered card to report: either the answer is ok and the file is in it, or the answer is not ok and nothing went out."""
+    opener = router()
+    opener.routes = [r for r in opener.routes if "messages" not in r[1].pattern]
+    opener.on("POST", r"^/channels/7001/messages$", http_error(400, {"message": "Invalid Form Body", "code": 50035}))
+    rig, conn = started(monkeypatch, ready(), opener=opener)
+    rig.request(1, message={"text": "see the file", "actions": [], "link": None, "document": {"name": "plan", "text": "the whole plan"}})
+    answer = rig.answer(1)
+    assert answer["ok"] is False and "message_id" not in answer and "document_failed" not in answer
+    assert len(opener.calls("POST", "^/channels/7001/messages$")) == 1, "one request carries both"
+    rig.end()

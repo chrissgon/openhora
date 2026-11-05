@@ -1,0 +1,15 @@
+{
+  "skill": "eng-code-review",
+  "documents": [
+    {
+      "path": "docs/engineering/reviews/<change>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null
+}

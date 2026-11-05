@@ -1,0 +1,7 @@
+{
+  "package": "research-no-docker",
+  "table": {
+    "ASK_NO_ENV": "O ambiente que lê as suas fontes está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo.",
+    "RS_NO_ENV": "O ambiente de pesquisa está desligado neste computador (o Docker não está aberto). Abra o Docker e peça de novo."
+  }
+}

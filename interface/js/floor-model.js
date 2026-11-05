@@ -40,7 +40,7 @@ export const FAILURE = Object.freeze({
   timeout: "Timed out", refused: "Refused", auth: "Credential refused", adapter: "The adapter failed", early_end: "Ended early",
   settings: "A setting is wrong", stopped: "Stopped", internal: "Internal error",
 });
-export const RUN_STATUS = Object.freeze({ running: "Running", ok: "Done", failed: "Failed" });
+export const RUN_STATUS = Object.freeze({ running: "Running", ok: "Done", failed: "Failed", cancelled: "Cancelled" });
 export const RESOLUTION = Object.freeze({
   approved: "approved", accepted: "accepted", released: "released", answered: "answered", rejected: "rejected", cancelled: "cancelled",
 });
@@ -53,7 +53,7 @@ export const HELD_SENTENCES = Object.freeze({
   stopped: "The agent is stopped, so it starts nothing.",
   "cap: runs per day": "The agent used all its runs for today.",
   "cap: usd per day": "The agent used all its spend for today.",
-  credential: "The reference model's credential is not set.",
+  credential: "The credential of the model is not set.",
   "secret store": "The service cannot read the secret store.",
   image: "The eval image is not on this machine.",
   "dispatch off": "The service is not dispatching tasks.",
@@ -62,6 +62,7 @@ export const HELD_SENTENCES = Object.freeze({
   "artifact in use": "Another running task writes the same document; it starts when that one ends.",
   "a code task of the request runs": "Another code task of this request is running; code of one request runs one task at a time.",
   "could not start, tried again shortly": "It could not start just now; the next round tries again.",
+  "start it by hand": "The dispatcher never starts this kind of task on its own; run it from the terminal (run-next or run-step).",
   waiting: "The task waits for another task; its reason is on its row.",
   "no enabled agent owns the task": "No enabled agent owns this task.",
   other: "The dispatcher held this task for a reason the page does not know.",
@@ -350,7 +351,7 @@ export function requestRows(status, projectId) {
     const steps = `${done} of ${tasks.length} steps done${now ? ` · ${now}` : ""}`;
     return {
       id: request.id, title, state: word, tone: stateTone(state), steps, selected: Boolean(shown) && shown.id === request.id, link: router.requestHash(projectId, request.id),
-      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state) && !request.routing, request,   // A-51: the store refuses to cancel a request a run holds
+      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state), request,   // R18: a request is cancelled at any moment, a run that holds it is stopped
     };
   });
 }

@@ -107,9 +107,10 @@ def test_the_real_skills_that_declare_a_gate_get_the_kind_they_mean():
         gate = json.load(open(os.path.join(folder, "evals", "runtime-manifest.json"), encoding="utf-8")).get("gate")
         if gate:
             got[name] = ops._effect_kind(gate, skill_meta.declared(folder)["requires"])
-    assert set(got) == {"design-system", "design-execute", "ops-pull-request", "mkt-engage"}
+    assert set(got) == {"design-system", "design-execute", "ops-pull-request", "mkt-engage", "product-backlog"}
     assert got["ops-pull-request"] is effect_pull_request  # a code skill's create is still the pull request
     assert got["design-system"] is None and got["design-execute"] is None and got["mkt-engage"] is None
+    assert got["product-backlog"] is None  # its create is a ticket in an issue tracker, no pull request: the task stops at its gate and opens a review
 
 
 def test_a_kind_module_names_the_class_that_executes_it():

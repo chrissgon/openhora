@@ -19,7 +19,7 @@ Nine areas: seven form the lifecycle chain of a digital solution, two are horizo
 | Area | Prefix | Sub-areas | Note |
 |------|--------|-----------|------|
 | AI and machine learning | `ai-` | AI strategy (opportunity, build vs. buy, feasibility, cost, risk); AI product design (UX for uncertainty, feedback, human-in-the-loop, guardrails); AI engineering (LLM integration, prompts, RAG, agents and tool use, evals, cost and observability); ML (classical modelling, training data, MLOps); governance (privacy, prompt injection, compliance) | AI *inside the solution being built*. Not the workbench itself. |
-| Core | `core-` | orchestration and routing; research method; interview and clarification method; skill and agent creation and evaluation; project `AGENTS.md` generation; project memory and state | The workbench improving and operating itself, plus methods every area reuses. |
+| Core | `core-` | orchestration and routing; process diagnosis (planned); research method; interview and clarification method; skill and agent creation and evaluation; project `AGENTS.md` generation; project memory and state | The workbench improving and operating itself, plus methods every area reuses. |
 
 ## Optional areas
 
@@ -56,7 +56,7 @@ Security, accessibility, performance, privacy and documentation are references i
 ## Invocation shapes
 
 1. **Single capability**: "validate the business model of product X" → orchestrator → `biz-business-model`.
-2. **Flow inside one area**: "marketing strategy for launch X" → `flow-launch` (planned, not built), reading Brand and Business artifacts as inputs. The one flow built today is `flow-fix-bug` ("fix this bug end to end").
+2. **Flow inside one area**: "marketing strategy for launch X" → `flow-launch` (planned, not built), reading Brand and Business artifacts as inputs. The flows built today are flow files (`flows/<name>.json`), among them `flow-fix-bug` ("fix this bug end to end"), `flow-build-feature` and `flow-improve-code`.
 3. **Flow across areas**: "build a digital product from scratch" → `flow-new-product` (planned, not built), one checkpoint per phase, resumable through `docs/workbench/state.md`.
 4. **Actuator**: "schedule a post about X tomorrow at 9" → `flow-social-post` (planned, not built) → copy → asset → confirmation gate → publish → record.
 

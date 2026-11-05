@@ -29,6 +29,7 @@ import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { reader, wordOf } from "../permissions.js";
+import { runningNote } from "../views/lobby-model.js";
 import { agoText, chip, errorText, field, isGone, jobText, notice, ring, withheldLine } from "./widgets.js";
 
 // The buttons of each kind, in the drawn order, by the word of `actions` they send, with their "-ing" word.
@@ -82,11 +83,11 @@ export function planRows(payload) {
 const PLAN_COLUMNS = [["n", "#"], ["title", "Task"], ["skill", "Skill"], ["agent", "Agent"], ["after", "After"], ["milestone", "Milestone"], ["web", "Web"]];
 
 /** The count line of the cancel dialog, built from the request's tasks (display words, never a guess). */
-export function cancelCount(tasks) {
+export function cancelCount(tasks, routing = null) {
   const list = Array.isArray(tasks) ? tasks : [];
-  if (!list.length) return "No task has been created yet.";
+  if (!list.length) return "No task has been created yet." + runningNote(list, routing);
   const started = list.filter((t) => !["planned", "ready", "requested"].includes(t.state)).length;
-  return `${list.length} task${list.length === 1 ? "" : "s"}, ${started ? `${started} started` : "none started"}`;
+  return `${list.length} task${list.length === 1 ? "" : "s"}, ${started ? `${started} started` : "none started"}${runningNote(list, routing)}`;
 }
 
 let counter = 0;
@@ -121,7 +122,7 @@ export function createCard(item, env) {
     if (word === "answered") return ["answer"];
     if (word === "released") return ["release"];
     if (word === "rejected") return ["reject"];
-    if (word === "approved" || word === "accepted") return ["approve", kind];
+    if (word === "approved" || word === "accepted") return ["approve", kind === "effect" && state.item.effect_word ? `effect:${state.item.effect_word}` : kind];   // an effect is covered by its word (POL-1)
     if (word === "route" || word === "choose-flow") return ["route"];
     return null;
   }
@@ -717,7 +718,7 @@ export function createRequestLine(request, env) {
     fill(dialog, h("div", { class: "pui-card wb-card" },
       h("div", { class: "pui-card-content wb-card-content" },
         h("strong", { class: "wb-card-title", id: `${uid}-title`, text: "Cancel this request and what is still open under it?" }),
-        h("div", { class: "wb-card-hint", text: `Request #${current.id}: ${current.title || ""} · ${cancelCount(current.tasks)}` }),
+        h("div", { class: "wb-card-hint", text: `Request #${current.id}: ${current.title || ""} · ${cancelCount(current.tasks, current.routing)}` }),
         error ? notice(error, "error") : null,
         h("div", { class: "wb-card-actions is-end" }, keep, go))));
     if (dialog.open && keep.focus) keep.focus();

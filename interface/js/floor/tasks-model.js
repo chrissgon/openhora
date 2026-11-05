@@ -41,11 +41,13 @@ export function groupTasks(tasks) {
 }
 
 /**
- * The actions a task's state allows, the one source of both the Tasks tab and the Agent tab: Retry on failed or blocked; "Open in the Inbox"
+ * The actions a task's state allows, the one source of both the Tasks tab and the Agent tab: Stop task on a running task (R18, asked to be
+ * confirmed by task-actions.js; the request's cancel is the request line's); Retry on failed or blocked; "Open in the Inbox"
  * when a decision waits (the task's oldest decision of `pending`, or `null` when none is found, which points at the tab); "Go ahead" on a
  * planned or ready task with a derived wait open and "Drop the after" on one with an `after` wait (A-29); nothing else (cancel is the request's).
  */
 export function actionsFor(task, pending) {
+  if (task.state === "running") return [{ kind: "stop" }];      // R18: Stop task, after a confirmation (task-actions.js)
   if (task.state === "failed" || task.state === "blocked") return [{ kind: "retry" }];
   if (task.state === "waiting") {
     const found = (Array.isArray(pending) ? pending : []).find((item) => item.task_id === task.id);

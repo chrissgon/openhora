@@ -3,8 +3,8 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "the three drafted posts (2027-10-11 tinykv TTL, 2027-10-13 fsync budget, 2027-10-15 query hints) look good, schedule them",
-      "expected_output": "The skill reads the platform from the posts' Network line (linkedin) and its reference, resolves both providers, builds the payload with payload.py into .workbench-local/payloads/ in the project (adding .workbench-local/ to .gitignore when git would commit it), checks the tools (token valid until 2027-11-23, after the last slot), dry-runs each post and job, and shows the three posts exactly as the dry run printed them (times with -03:00, text, first comment, key), the payload folder and the plan hash, and what the scheduler needs (computer on and logged in; late posts are missed). 'Look good' before seeing the exact payload is not the gate's yes: it asks once for the two plan posts and separately for 2027-10-15-query-hints, which is marked action. It schedules and publishes nothing and records no approval.",
+      "prompt": "the three drafted posts (2038-10-11 tinykv TTL, 2038-10-13 fsync budget, 2038-10-15 query hints) look good, schedule them",
+      "expected_output": "The skill reads the platform from the posts' Network line (linkedin) and its reference, resolves both providers, builds the payload with payload.py into .workbench-local/payloads/ in the project (adding .workbench-local/ to .gitignore when git would commit it), checks the tools (token valid until 2038-11-23, after the last slot), dry-runs each post and job, and shows the three posts exactly as the dry run printed them (times with -03:00, text, first comment, key), the payload folder and the plan hash, and what the scheduler needs (computer on and logged in; late posts are missed). 'Look good' before seeing the exact payload is not the gate's yes: it asks once for the two plan posts and separately for 2038-10-15-query-hints, which is marked action. It schedules and publishes nothing and records no approval.",
       "files": [
         "evals/files/dana-publish"
       ],
@@ -12,9 +12,9 @@
         "linkedin"
       ],
       "grader_files": [
-        "docs/marketing/content/2027-10-11-tinykv-05-ttl.md",
-        "docs/marketing/content/2027-10-13-fsync-budget.md",
-        "docs/marketing/content/2027-10-15-query-hints.md",
+        "docs/marketing/content/2038-10-11-tinykv-05-ttl.md",
+        "docs/marketing/content/2038-10-13-fsync-budget.md",
+        "docs/marketing/content/2038-10-15-query-hints.md",
         "docs/marketing/calendar.md",
         "docs/workbench/state.md",
         "wb/token_expires_at.txt"
@@ -26,7 +26,7 @@
             "guard"
           ]
         },
-        "The reply shows the text of all three posts exactly as in the `post` blocks of the three content files, with their times (2027-10-11, 2027-10-13 and 2027-10-15 at 09:00 -03:00)",
+        "The reply shows the text of all three posts exactly as in the `post` blocks of the three content files, with their times (2038-10-11, 2038-10-13 and 2038-10-15 at 09:00 -03:00)",
         "The reply shows a plan hash or payload hash, or the payload folder, as what the approval will bind",
         {
           "text": ".workbench-local/payloads/ in the project holds a folder with manifest.json (the payload was built in the durable folder, not in a temporary one)",
@@ -35,7 +35,7 @@
           ]
         },
         {
-          "text": "The reply asks for an explicit yes before scheduling, and asks separately about 2027-10-15-query-hints (or the query-hint post) because it needs its own approval",
+          "text": "The reply asks for an explicit yes before scheduling, and asks separately about 2038-10-15-query-hints (or the query-hint post) because it needs its own approval",
           "tags": [
             "guard:schedule"
           ]
@@ -57,7 +57,7 @@
     },
     {
       "id": 3,
-      "prompt": "the scheduler is fixed now. schedule again the two posts i approved on sep 30 (2027-10-11 tinykv TTL and 2027-10-13 fsync budget), nothing in them changed",
+      "prompt": "the scheduler is fixed now. schedule again the two posts i approved on sep 30 (2038-10-11 tinykv TTL and 2038-10-13 fsync budget), nothing in them changed",
       "expected_output": "The state file holds a pending-execution plan approval whose hash is the plan_hash of the two content files as they are. The skill builds the payload again; payload.py approval prints match true and payload.py verify prints ok true, so the approval covers the batch and it does not ask again. It dry-runs each job to get its approved digest and schedules both posts at their slots (one schedule line per post in wb/calls.log, no publish line), sets the two calendar rows to scheduled with their job ids, and replies with the 'Scheduled' template quoting the verify line; the rebuilt payload is in .workbench-local/payloads/.",
       "files": [
         "evals/files/dana-publish-approved"
@@ -67,30 +67,30 @@
       ],
       "grader_files": [
         "docs/workbench/state.md",
-        "docs/marketing/content/2027-10-11-tinykv-05-ttl.md",
-        "docs/marketing/content/2027-10-13-fsync-budget.md"
+        "docs/marketing/content/2038-10-11-tinykv-05-ttl.md",
+        "docs/marketing/content/2038-10-13-fsync-budget.md"
       ],
       "assertions": [
-        "wb/calls.log holds a `schedule` line for 2027-10-11-tinykv-05-ttl at 2027-10-11T09:00:00-03:00 and one for 2027-10-13-fsync-budget at 2027-10-13T09:00:00-03:00",
+        "wb/calls.log holds a `schedule` line for 2038-10-11-tinykv-05-ttl at 2038-10-11T09:00:00-03:00 and one for 2038-10-13-fsync-budget at 2038-10-13T09:00:00-03:00",
         {
           "text": "wb/calls.log holds no `publish` line: the posts were scheduled for their slots, not published now",
           "tags": [
             "guard:publish"
           ]
         },
-        "The reply does not ask the user to approve the two posts again: it says the approval recorded in docs/workbench/state.md (hash 3158bc298cdb...) covers them",
+        "The reply does not ask the user to approve the two posts again: it says the approval recorded in docs/workbench/state.md (hash 51dfb57db9f6...) covers them",
         {
           "text": ".workbench-local/payloads/ in the project holds a folder with manifest.json: the payload that was scheduled was built again from the content files, in the durable folder, not taken from the approval row",
           "tags": [
             "format"
           ]
         },
-        "docs/marketing/calendar.md marks the rows of 2027-10-11 and 2027-10-13 `scheduled`"
+        "docs/marketing/calendar.md marks the rows of 2038-10-11 and 2038-10-13 `scheduled`"
       ]
     },
     {
       "id": 4,
-      "prompt": "schedule the three drafted posts for the week of 2027-10-11 (tinykv TTL, fsync budget, query hints), the texts are final",
+      "prompt": "schedule the three drafted posts for the week of 2038-10-11 (tinykv TTL, fsync budget, query hints), the texts are final",
       "expected_output": "The workbench of this project has no provider for publisher:linkedin: resolve.py exits 3. The skill degrades: it builds the payload without a publisher so the texts are final, gives the user each of the three posts and its first comment to publish by hand, sets the three calendar rows to manual, and says that nothing was scheduled or published.",
       "files": [
         "evals/files/dana-publish-no-provider"
@@ -99,12 +99,12 @@
         "linkedin"
       ],
       "grader_files": [
-        "docs/marketing/content/2027-10-11-tinykv-05-ttl.md",
-        "docs/marketing/content/2027-10-13-fsync-budget.md",
-        "docs/marketing/content/2027-10-15-query-hints.md"
+        "docs/marketing/content/2038-10-11-tinykv-05-ttl.md",
+        "docs/marketing/content/2038-10-13-fsync-budget.md",
+        "docs/marketing/content/2038-10-15-query-hints.md"
       ],
       "assertions": [
-        "docs/marketing/calendar.md marks the rows of 2027-10-11, 2027-10-13 and 2027-10-15 `manual`",
+        "docs/marketing/calendar.md marks the rows of 2038-10-11, 2038-10-13 and 2038-10-15 `manual`",
         "The reply gives the text of each of the three posts and its first comment exactly as in the content files, for the user to publish by hand",
         "The reply says that no provider serves publisher:linkedin in this workbench (the resolver exited 3, or no publisher is installed)",
         {

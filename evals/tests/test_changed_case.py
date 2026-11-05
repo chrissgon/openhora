@@ -39,7 +39,7 @@ def band_now(tmp_path):
 def demo_after_a_full_test(tmp_path, monkeypatch):
     """The demo skill with two cases, after a full test of 3 runs per case that passes."""
     skill = t.scores_demo(tmp_path, monkeypatch)
-    t.configure_gate(tmp_path, strong_tolerance=0.05, runs=3)
+    t.configure_gate(tmp_path, tolerance=0.05, runs=3)
     assert er.main(["--skill", "demo"]) == 0
     return skill
 

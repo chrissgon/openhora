@@ -1,0 +1,23 @@
+{
+  "skill": "eng-architecture",
+  "documents": [
+    {
+      "path": "docs/engineering/designs/<feature>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    },
+    {
+      "path": "docs/engineering/adr/<NNNN>-<title>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [
+    "docs/engineering/designs/<feature>.check.json"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null
+}

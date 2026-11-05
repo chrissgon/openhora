@@ -1,0 +1,39 @@
+{
+  "flow": "send-email",
+  "title": "Send an e-mail from the project's outbox, after you approve it",
+  "params": {
+    "to": {
+      "description": "who it goes to: plain addresses separated by commas (no names), at most 20 in all with the copies",
+      "type": "text"
+    },
+    "cc": {
+      "description": "who is copied: plain addresses separated by commas, or the word none",
+      "type": "text",
+      "default": "none"
+    },
+    "subject": {
+      "description": "the subject: one line of at most 200 characters",
+      "type": "text"
+    },
+    "body": {
+      "description": "the text of the e-mail, exactly as it will be sent",
+      "type": "text"
+    }
+  },
+  "tasks": [
+    {
+      "key": "send",
+      "step": "send-email",
+      "args": {
+        "to": "{to}",
+        "cc": "{cc}",
+        "subject": "{subject}",
+        "body": "{body}"
+      },
+      "title": "Send the e-mail",
+      "text": "Prepare the e-mail for the person to approve: nothing is sent until the person approves the hash of the whole message, every recipient included.",
+      "depends_on": [],
+      "milestone": true
+    }
+  ]
+}

@@ -56,6 +56,70 @@ def test_detect_on_an_empty_folder_is_not_a_project_root(tmp_path):
     assert "NOT a project root" in out["summary"] and out["proposed_registrations"] == []
 
 
+def bare_folder(tmp_path):
+    """A folder with no manifest, so that only the .git marker decides whether it is a project root."""
+    proj = tmp_path / "linked"
+    proj.mkdir()
+    return proj
+
+
+def is_root(proj):
+    code, out, _ = run("--root", str(proj), "--detect")
+    assert code == 0
+    return out["is_project_root"]
+
+
+def test_a_git_folder_makes_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    (proj / ".git").mkdir()
+    assert is_root(proj) is True
+
+
+def test_a_git_file_naming_a_folder_relative_to_the_root_makes_a_project_root(tmp_path):
+    """A linked worktree keeps a file named .git that holds "gitdir: <path>"."""
+    proj = bare_folder(tmp_path)
+    (proj / "admin/worktrees/linked").mkdir(parents=True)
+    (proj / ".git").write_text("gitdir: admin/worktrees/linked\n", encoding="utf-8")
+    assert is_root(proj) is True
+
+
+def test_a_git_file_naming_an_absolute_folder_makes_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    target = tmp_path / "main-checkout/.git/worktrees/linked"
+    target.mkdir(parents=True)
+    (proj / ".git").write_text(f"gitdir: {target}\n", encoding="utf-8")
+    assert is_root(proj) is True
+
+
+def test_a_git_file_with_the_usual_relative_layout_of_a_linked_worktree_makes_a_project_root(tmp_path):
+    """The layout git writes: the worktree sits beside the main checkout and points at ../main/.git/worktrees/<name>."""
+    (tmp_path / "main/.git/worktrees/linked").mkdir(parents=True)
+    proj = tmp_path / "linked"
+    proj.mkdir()
+    (proj / ".git").write_text("gitdir: ../main/.git/worktrees/linked\n", encoding="utf-8")
+    assert is_root(proj) is True
+
+
+def test_a_git_file_naming_a_regular_file_is_not_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    (proj / "admin").write_text("not a folder\n", encoding="utf-8")
+    (proj / ".git").write_text("gitdir: admin\n", encoding="utf-8")
+    assert is_root(proj) is False
+
+
+def test_a_git_file_naming_a_missing_folder_is_not_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    (proj / ".git").write_text("gitdir: admin/worktrees/gone\n", encoding="utf-8")
+    assert is_root(proj) is False
+
+
+def test_a_git_file_of_other_content_is_not_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    (proj / "admin").mkdir()
+    (proj / ".git").write_text("notes about the repository\ngitdir: admin\n", encoding="utf-8")
+    assert is_root(proj) is False
+
+
 def test_apply_writes_state_keeps_agents_md_and_prints_the_report(tmp_path):
     proj = project(tmp_path)
     code, out, err = run("--root", str(proj), "--apply", "--name", "Lumen Notes", "--autonomy", "milestones",

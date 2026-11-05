@@ -15,12 +15,12 @@ license: MIT
 metadata:
   area: marketing
   kind: capability
-  inputs: [docs/workbench/state.md, docs/brand/strategy.md, docs/brand/profile.md, docs/marketing/launch-plan.md, docs/marketing/calendar.md, AGENTS.md]
+  inputs: [docs/workbench/state.md, docs/brand/strategy.md, docs/brand/profile.md, docs/marketing/launch-plan.md, docs/marketing/calendar.md, docs/workbench/runtime.json]
   outputs: [docs/marketing/calendar.md]
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Content plan
@@ -42,7 +42,7 @@ Turn the strategy's pillars and rhythm into dated slots, each with a topic that 
 |----------|----------|------------|
 | docs/brand/strategy.md: pillars, rhythm (posts per week), languages and rotation, what may be claimed, audiences, examples from real material | yes | Stop rule 1 |
 | docs/workbench/state.md: decisions (posting days and time, timezone, anything restricted to one-by-one approval) | yes | Stop rule 2 asks for the missing decisions. |
-| AGENTS.md: the artifact language | no | Write the calendar in the language of the strategy. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | docs/brand/profile.md: proof, never-expose list, `sensitive-topics` block | no | Topics come only from the strategy and the user; the sensitive check in step 5 is not run, and the reply says so. |
 | docs/marketing/launch-plan.md: dated launch posts, written by the user until `mkt-launch-plan` (planned) exists | no | No launch posts to place. |
 | docs/marketing/calendar.md: the previous calendar | no | This is the first calendar; the rotation starts at its first week and rows at 1. |
@@ -78,7 +78,7 @@ Nothing was written: <what is missing or undecided, in one line>.
 The scripts are in the `scripts/` folder next to this file, not in the project. Run each from the project root by that path, one command at a time: `python3 <this skill's folder>/scripts/<name>.py`.
 
 Progress:
-- [ ] Step 1: Read the state file, the project `AGENTS.md` (artifact language), the strategy (pillars in order, posts per week, rotation of languages, claim rules, audiences, examples, risks) and, if present, the profile, the launch plan and the previous calendar (its last week's rotation label, its highest row number and its topics, so none repeats). If the strategy is missing: Stop rule 1.
+- [ ] Step 1: Read the state file, the project language (the artifact language), the strategy (pillars in order, posts per week, rotation of languages, claim rules, audiences, examples, risks) and, if present, the profile, the launch plan and the previous calendar (its last week's rotation label, its highest row number and its topics, so none repeats). If the strategy is missing: Stop rule 1.
 - [ ] Step 2: Decisions. The posting days, the time of day, the timezone, the start date and the number of weeks come from the state file or the user's message. If any is missing: Stop rule 2. Record the user's answers as decisions in the state file.
 - [ ] Step 3: Compute the slots. Never count dates or row numbers by hand:
   ```bash
@@ -102,6 +102,7 @@ Progress:
 # Content calendar: <person or brand>
 
 - Owner: mkt-content-plan
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>
 - Status: proposed | topics approved (<date>)
 - Updated: <YYYY-MM-DD>
 - Reads: <strategy, state, launch plan, previous calendar>

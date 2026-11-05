@@ -194,8 +194,10 @@ def plain_document(**changes) -> dict:
 
 
 def test_the_kind_is_registered_under_publish_and_runs_only_under_a_policy():
-    assert effects.KINDS["publish"] == "effect_reply"
-    assert effects.module_for("publish") is effect_reply
+    # PUBLISH-EFFECT: the word's row is the facade runtime/effect_publish.py, which re-exports this module's policy names as they are
+    # (test_publish_post.py holds that); this module is the policy half and is still the one that defines them.
+    assert effects.KINDS["publish"] == "effect_publish"
+    assert effects.module_for("publish") is st.load("effect_publish")
     assert effect_reply.POLICY is True and effect_reply.GATE is False
     assert effect_reply.PROVIDER_CLASS == "publisher:<platform>"
     assert "publish" in effects.policy_kinds()

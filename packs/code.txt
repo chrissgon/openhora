@@ -1,3 +1,14 @@
-# The code change: the scope of the task runtime's engineering area agent (runtime/manifest.py, PACKS_IN_USE).
+# The engineering area agent's scope (runtime/manifest.py, PACKS_IN_USE): the two skills of the code-change flow
+# (flows/code-change.json) and the engineering skills of the build-feature, improve-code and fix-bug flows
+# (flows/build-feature.json, flows/improve-code.json, flows/fix-bug.json).
 eng-implement
 ops-pull-request
+eng-architecture
+eng-unit-tests
+eng-integration-tests
+eng-code-review
+eng-docs
+eng-impact-analysis
+eng-tradeoffs
+eng-refactor
+eng-root-cause

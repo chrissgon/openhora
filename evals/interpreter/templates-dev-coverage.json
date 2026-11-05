@@ -1,0 +1,914 @@
+{
+ "v": 1,
+ "split": "dev",
+ "notes": "Dev-only coverage templates (supervisor decision, option a): one template per missing dev item of the catalog ops that had fewer than 3 dev items counting the relabelled ones; generate takes --count equal to the set size so the round robin uses each template once. Pools come from values-dev.json.",
+ "sets": [
+  {
+   "v": 1,
+   "lang": "pt-BR",
+   "templates": [
+    {
+     "op": "status",
+     "text": "e aí, no geral, como é que tá andando o trabalho do projeto?",
+     "gold": {
+      "outcome": "op",
+      "op": "status",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-pt-br-001"
+    },
+    {
+     "op": "skills",
+     "text": "me passa a lista das skills que esse projeto pode usar",
+     "gold": {
+      "outcome": "op",
+      "op": "skills",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-pt-br-002"
+    },
+    {
+     "op": "instructions",
+     "text": "quero reler as instruções fixas que deixei pro projeto",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-pt-br-003"
+    },
+    {
+     "op": "attachments",
+     "text": "tem algum arquivo meu que chegou por aqui? lista pra mim",
+     "gold": {
+      "outcome": "op",
+      "op": "attachments",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-pt-br-004"
+    },
+    {
+     "op": "flow-check",
+     "text": "dá uma conferida se o fluxo {flow} tá ok",
+     "gold": {
+      "outcome": "op",
+      "op": "flow-check",
+      "slots": {
+       "flow": [
+        "{flow}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-pt-br-005"
+    },
+    {
+     "op": "reminder-forget",
+     "text": "o lembrete {id} pode apagar, já resolvi",
+     "gold": {
+      "outcome": "op",
+      "op": "reminder-forget",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-pt-br-006"
+    },
+    {
+     "op": "routine-create",
+     "text": "bora criar uma rotina nova pro projeto",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-create",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-pt-br-007"
+    },
+    {
+     "op": "routine-change",
+     "text": "quero mexer na rotina {id}, mudar o horário dela",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-change",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-pt-br-008"
+    },
+    {
+     "op": "attachment-discard",
+     "text": "joga fora o anexo {id} que te enviei, era o errado",
+     "gold": {
+      "outcome": "op",
+      "op": "attachment-discard",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-pt-br-009"
+    },
+    {
+     "op": "instructions-set",
+     "text": "reescreve as instruções do projeto inteiras: responder sempre em português e com tom leve",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions-set",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-pt-br-010"
+    },
+    {
+     "op": "instructions-add",
+     "text": "coloca mais uma regra nas instruções: nunca prometer prazo sem me consultar",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions-add",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-pt-br-011"
+    },
+    {
+     "op": "source-describe",
+     "text": "me descreve direitinho a fonte da tabela de preços",
+     "gold": {
+      "outcome": "op",
+      "op": "source-describe",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-pt-br-012"
+    },
+    {
+     "op": "stage-file",
+     "text": "passa o {path} pro plano do pedido {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "stage-file",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-pt-br-013"
+    },
+    {
+     "op": "hand-over",
+     "text": "copia o {path} pra pasta de entrega da tarefa {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "hand-over",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-pt-br-014"
+    },
+    {
+     "op": "dispatch",
+     "text": "faz o despachante girar uma vez",
+     "gold": {
+      "outcome": "op",
+      "op": "dispatch",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-pt-br-015"
+    },
+    {
+     "op": "run-next",
+     "text": "pega o que tiver liberado na fila e já executa",
+     "gold": {
+      "outcome": "op",
+      "op": "run-next",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-pt-br-016"
+    },
+    {
+     "op": "run-task",
+     "text": "quero rodar agora só a tarefa {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "run-task",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-pt-br-017"
+    },
+    {
+     "op": "run-step",
+     "text": "executa o passo de ingestão da tarefa {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "run-step",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-pt-br-018"
+    },
+    {
+     "op": "stop-runs",
+     "text": "mata os runs que você mesmo disparou nessa sessão",
+     "gold": {
+      "outcome": "op",
+      "op": "stop-runs",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-pt-br-019"
+    }
+   ]
+  },
+  {
+   "v": 1,
+   "lang": "en",
+   "templates": [
+    {
+     "op": "pending",
+     "text": "anything sitting there waiting on me?",
+     "gold": {
+      "outcome": "op",
+      "op": "pending",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-en-001"
+    },
+    {
+     "op": "skills",
+     "text": "list out the skills this project is allowed to use",
+     "gold": {
+      "outcome": "op",
+      "op": "skills",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-en-002"
+    },
+    {
+     "op": "artifact",
+     "text": "pull up {path} for me, want to reread it",
+     "gold": {
+      "outcome": "op",
+      "op": "artifact",
+      "slots": {
+       "path": [
+        "{path}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-en-003"
+    },
+    {
+     "op": "instructions",
+     "text": "quick one, the rules I set for how the project works, show me those",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-en-004"
+    },
+    {
+     "op": "connections",
+     "text": "which provider is hooked up for each requirement?",
+     "gold": {
+      "outcome": "op",
+      "op": "connections",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-en-005"
+    },
+    {
+     "op": "reminder-forget",
+     "text": "drop reminder {id}, not needed anymore",
+     "gold": {
+      "outcome": "op",
+      "op": "reminder-forget",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-en-006"
+    },
+    {
+     "op": "routine-pause",
+     "text": "put routine {id} on hold for a bit",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-pause",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-en-007"
+    },
+    {
+     "op": "routine-change",
+     "text": "need to edit routine {id}, the timing is off",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-change",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-en-008"
+    },
+    {
+     "op": "attachment-add",
+     "text": "that file {id} I sent, make it a source",
+     "gold": {
+      "outcome": "op",
+      "op": "attachment-add",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-en-009"
+    },
+    {
+     "op": "instructions-set",
+     "text": "overwrite the project instructions with: answer in plain English, no jargon",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions-set",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-010"
+    },
+    {
+     "op": "instructions-add",
+     "text": "append to the instructions: always cc me on client mail",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions-add",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "chat",
+     "id": "tc-en-011"
+    },
+    {
+     "op": "source-describe",
+     "text": "give me a description of the supplier list source",
+     "gold": {
+      "outcome": "op",
+      "op": "source-describe",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-en-012"
+    },
+    {
+     "op": "stage-file",
+     "text": "attach {path} to request {id}'s plan",
+     "gold": {
+      "outcome": "op",
+      "op": "stage-file",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-en-013"
+    },
+    {
+     "op": "sync",
+     "text": "mirror tasks and documents now",
+     "gold": {
+      "outcome": "op",
+      "op": "sync",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-014"
+    },
+    {
+     "op": "hand-over",
+     "text": "drop {path} into task {id}'s file drop",
+     "gold": {
+      "outcome": "op",
+      "op": "hand-over",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-en-015"
+    },
+    {
+     "op": "dispatch",
+     "text": "do a single dispatcher round",
+     "gold": {
+      "outcome": "op",
+      "op": "dispatch",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-016"
+    },
+    {
+     "op": "run-task",
+     "text": "run only task {id}, leave the rest",
+     "gold": {
+      "outcome": "op",
+      "op": "run-task",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-017"
+    },
+    {
+     "op": "run-step",
+     "text": "fire off the step task for request {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "run-step",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-018"
+    },
+    {
+     "op": "stop-runs",
+     "text": "shut down every run this process kicked off",
+     "gold": {
+      "outcome": "op",
+      "op": "stop-runs",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-en-019"
+    }
+   ]
+  },
+  {
+   "v": 1,
+   "lang": "es",
+   "templates": [
+    {
+     "op": "status",
+     "text": "¿cómo vamos en general con el trabajo?",
+     "gold": {
+      "outcome": "op",
+      "op": "status",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-es-001"
+    },
+    {
+     "op": "costs",
+     "text": "cuánto llevamos gastado desde {since}?",
+     "gold": {
+      "outcome": "op",
+      "op": "costs",
+      "slots": {
+       "since": [
+        "{since}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-es-002"
+    },
+    {
+     "op": "flows",
+     "text": "dime qué flujos tiene montados el proyecto",
+     "gold": {
+      "outcome": "op",
+      "op": "flows",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-es-003"
+    },
+    {
+     "op": "connections",
+     "text": "con qué proveedor está conectado cada servicio?",
+     "gold": {
+      "outcome": "op",
+      "op": "connections",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-es-004"
+    },
+    {
+     "op": "routine-pause",
+     "text": "deja en pausa la rutina {id} unos días",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-pause",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-es-005"
+    },
+    {
+     "op": "routine-change",
+     "text": "quiero cambiar la rutina {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-change",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-es-006"
+    },
+    {
+     "op": "instructions-add",
+     "text": "añade a las instrucciones: contestar siempre antes de las 18h",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions-add",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-es-007"
+    },
+    {
+     "op": "stage-file",
+     "text": "pásale {path} al plan de la solicitud {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "stage-file",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-es-008"
+    },
+    {
+     "op": "dispatch",
+     "text": "haz una ronda del despachador",
+     "gold": {
+      "outcome": "op",
+      "op": "dispatch",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-es-009"
+    },
+    {
+     "op": "run-next",
+     "text": "ejecuta la siguiente tarea que esté lista",
+     "gold": {
+      "outcome": "op",
+      "op": "run-next",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-es-010"
+    },
+    {
+     "op": "proof",
+     "text": "con qué modelo correría cada skill?",
+     "gold": {
+      "outcome": "op",
+      "op": "proof",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "chat",
+     "id": "tc-es-011"
+    }
+   ]
+  },
+  {
+   "v": 1,
+   "lang": "fr",
+   "templates": [
+    {
+     "op": "skills",
+     "text": "montre-moi les skills disponibles pour ce projet",
+     "gold": {
+      "outcome": "op",
+      "op": "skills",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-fr-001"
+    },
+    {
+     "op": "attachments",
+     "text": "tu as reçu quoi comme pièces jointes de ma part sur cette appli ?",
+     "gold": {
+      "outcome": "op",
+      "op": "attachments",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-fr-002"
+    },
+    {
+     "op": "items",
+     "text": "affiche les mails et les événements numérotés",
+     "gold": {
+      "outcome": "op",
+      "op": "items",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-fr-003"
+    },
+    {
+     "op": "routine-create",
+     "text": "on crée une nouvelle routine ?",
+     "gold": {
+      "outcome": "op",
+      "op": "routine-create",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-fr-004"
+    },
+    {
+     "op": "source-describe",
+     "text": "décris-moi la source du catalogue",
+     "gold": {
+      "outcome": "op",
+      "op": "source-describe",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-fr-005"
+    },
+    {
+     "op": "verdict",
+     "text": "enregistre le verdict de cette exécution : réussi",
+     "gold": {
+      "outcome": "op",
+      "op": "verdict",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-fr-006"
+    },
+    {
+     "op": "proof",
+     "text": "sur quel modèle tournerait chaque skill ?",
+     "gold": {
+      "outcome": "op",
+      "op": "proof",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-fr-007"
+    }
+   ]
+  },
+  {
+   "v": 1,
+   "lang": "de",
+   "templates": [
+    {
+     "op": "agents",
+     "text": "was machen die Agenten heute, wie viel haben sie verbraucht?",
+     "gold": {
+      "outcome": "op",
+      "op": "agents",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-de-001"
+    },
+    {
+     "op": "reminders",
+     "text": "welche Erinnerungen stehen noch aus?",
+     "gold": {
+      "outcome": "op",
+      "op": "reminders",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-de-002"
+    },
+    {
+     "op": "reminder-forget",
+     "text": "Erinnerung {id} kannst du streichen",
+     "gold": {
+      "outcome": "op",
+      "op": "reminder-forget",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-de-003"
+    },
+    {
+     "op": "attachment-discard",
+     "text": "die Datei {id}, die ich geschickt hab, bitte wegwerfen",
+     "gold": {
+      "outcome": "op",
+      "op": "attachment-discard",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-de-004"
+    },
+    {
+     "op": "sync",
+     "text": "gleich die Aufgaben und Dokumente ab",
+     "gold": {
+      "outcome": "op",
+      "op": "sync",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-de-005"
+    },
+    {
+     "op": "run-task",
+     "text": "starte nur Aufgabe {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "run-task",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-de-006"
+    },
+    {
+     "op": "stop-runs",
+     "text": "beende alle Läufe, die dieser Prozess gestartet hat",
+     "gold": {
+      "outcome": "op",
+      "op": "stop-runs",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-de-007"
+    }
+   ]
+  },
+  {
+   "v": 1,
+   "lang": "it",
+   "templates": [
+    {
+     "op": "pending",
+     "text": "c'è qualcosa che aspetta una mia decisione?",
+     "gold": {
+      "outcome": "op",
+      "op": "pending",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-it-001"
+    },
+    {
+     "op": "instructions",
+     "text": "fammi rileggere le istruzioni fisse del progetto",
+     "gold": {
+      "outcome": "op",
+      "op": "instructions",
+      "slots": {}
+     },
+     "tags": [],
+     "id": "tc-it-002"
+    },
+    {
+     "op": "flow-check",
+     "text": "controllami il flusso {flow}",
+     "gold": {
+      "outcome": "op",
+      "op": "flow-check",
+      "slots": {
+       "flow": [
+        "{flow}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-it-003"
+    },
+    {
+     "op": "reminder-restore",
+     "text": "ho cancellato per sbaglio il promemoria {id}, rimettilo",
+     "gold": {
+      "outcome": "op",
+      "op": "reminder-restore",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-it-004"
+    },
+    {
+     "op": "attachment-add",
+     "text": "il file {id} che ti ho mandato aggiungilo alle fonti",
+     "gold": {
+      "outcome": "op",
+      "op": "attachment-add",
+      "slots": {
+       "id": [
+        "{id}"
+       ]
+      }
+     },
+     "tags": [],
+     "id": "tc-it-005"
+    },
+    {
+     "op": "hand-over",
+     "text": "copia il file nella cartella di consegna del compito {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "hand-over",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "page",
+     "id": "tc-it-006"
+    },
+    {
+     "op": "run-step",
+     "text": "lancia lo step task legato alla richiesta {id}",
+     "gold": {
+      "outcome": "op",
+      "op": "run-step",
+      "slots": {}
+     },
+     "tags": [],
+     "channel": "terminal",
+     "id": "tc-it-007"
+    }
+   ]
+  }
+ ]
+}

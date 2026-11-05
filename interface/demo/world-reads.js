@@ -38,7 +38,7 @@ export function listRow(item) {
 function requestRow(P, request) {
   const live = P.routing && P.routing.request === request.id ? fill(F["status-routing"].requests.find((r) => r.routing).routing, { run_id: P.routing.run_id, skill: P.routing.skill, started_at: P.routing.started_at }) : null;
   return fill(REQUEST, {
-    id: request.id, flow: request.flow, state: request.state, title: request.title, on_board: false, open_comments: 0,
+    id: request.id, flow: request.flow, state: request.state, model: request.model || null, title: request.title, on_board: false, open_comments: 0,
     tasks: childrenOf(P, request.id).map((t) => fill(TASK_ROW, { id: t.id, key: t.key, title: t.title, agent: t.agent, skill: t.skill, state: t.state, note: t.note, on_board: false, open_comments: 0, holds_slot: holdsSlot(t), waiting_for: [] })),
     after: request.after, routing: request.state === "cancelled" ? null : live,
   });
@@ -50,9 +50,20 @@ function heldRows(P) {
     .map((t) => ({ task_id: t.id, agent: t.agent, reason: P.held[t.id], at: P.changedAt, next: null, commands: [] }));
 }
 
+/** The project's standing instructions as `instructions` answers: the demo has no file (it writes nothing to a project's files), with the keys the operation returns. */
+export function instructions() {
+  return { path: "docs/workbench/instructions.md", present: false, sha256: null, characters: 0, cap: 4000, problem: null, text: "" };
+}
+
+/** The files people sent through a messaging app, as `attachments` answers: the demo has none (it reads no messaging app and holds no file), with the keys the operation returns. */
+export function attachments() {
+  return { held: [], recent: [], today: { files: 0, bytes: 0 },
+    limits: { file_cap: 26214400, day_files: 20, day_bytes: 104857600, held_max: 10, per_message: 5, held_days: 7 } };
+}
+
 export function status(P) {
   return fill(F.status, {
-    config: { path: `${P.folder}/docs/workbench/runtime.json`, sha256: P.configSha },
+    config: { file: "runtime.json", sha256: P.configSha },
     requests: requestsOf(P).map((r) => requestRow(P, r)), pending: openItems(P).map(listRow), documents: [], board: null, held: heldRows(P),
   });
 }
@@ -76,9 +87,26 @@ export function task(P, id) {
   });
 }
 
+const AUTONOMOUS = ["autonomous", "autonomous-with-policy"];
+
+/** The set-model commands of an agent, as the service gives them: every model of the demo, then auto and default; --consent and --accept where the agent's mode would make the model a consent. */
+function modelCommands(P, agent) {
+  const ids = (F.skills.models || []).map((m) => m.model);
+  return [...ids, "auto", "default"].map((model) => {
+    const consent = AUTONOMOUS.includes(agent.mode) && !["auto", "default"].includes(model);
+    const line = (F.skills.models || []).find((m) => m.model === model);      // the demo's figures for the model, over all its skills
+    const figures = line ? { skills: line.skills, reliable: line.reliable, community_only: line.community_only, expected_cost: line.expected_cost, band: line.band, price: line.price } : {};
+    return { model, consent, command: `python3 ${CLI} set-model --project ${P.folder} --agent ${agent.name} --model ${model}${consent ? " --consent --accept" : ""}`, ...figures };
+  });
+}
+
 export function agents(P) {
   const template = F.agents.agents[0];
   return {
+    consent_warning: F.agents.consent_warning,
+    default_model: null,
+    models: (F.skills.models || []).map((m) => m.model),
+    config_sha256: P.configSha,
     agents: P.agents.map((a) => {
       const queued = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready" && t.agent === a.name).length;
       const holders = taskRows(P).filter((t) => t.agent === a.name && holdsSlot(t)).map((t) => t.id).sort((x, y) => x - y);
@@ -90,7 +118,11 @@ export function agents(P) {
         usd_reserved: 0, runs_total_today: a.runs + (metered ? 1 : 0), billing: clone(template.billing), caps_in_use: { runs: true, spend: metered },
         max_parallel: a.maxParallel, max_parallel_ceiling: MAX_PARALLEL_CEILING, holders, slots_held: holders.length,
         queued, held: heldRows(P).filter((h) => h.agent === a.name).length,
-        wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept` })),
+        wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept${a.model && a.model !== "auto" && AUTONOMOUS.includes(mode) ? " --consent" : ""}` })),
+        model: a.model || null, consent: a.consent || null, config_sha256: P.configSha,
+        consent_in_force: Boolean(a.consent && a.model && a.consent.model === a.model && a.consent.mode === a.mode && AUTONOMOUS.includes(a.mode)),
+        consent_needed: Boolean(a.model && a.model !== "auto" && AUTONOMOUS.includes(a.mode)),
+        model_commands: modelCommands(P, a), recommended_model: F.skills.recommended_model || null,
       });
     }),
   };
@@ -124,7 +156,7 @@ export function costs(ctx, P, query) {
       const runs = back === 0 ? a.runs : (back * 7 + i * 3 + P.name.length) % 5;
       if (!runs) return;
       const usd = a.maxUsd > 0 && a.usd > 0 ? (back === 0 ? a.usd : Math.round(runs * 11) / 100) : null;
-      rows.push(fill(rowTemplate, { day, agent: a.name, model: MODEL, adapter: ADAPTER, runs, tokens: runs * 15000, recorded_usd: usd, recomputed_usd: usd, unknown_runs: 0, price }));
+      rows.push(fill(rowTemplate, { day, agent: a.name, model: MODEL, adapter: ADAPTER, runs, tokens: runs * 15000, recorded_usd: usd, recomputed_usd: usd, unknown_runs: 0, lower_bound_runs: 0, price }));
     });
   }
   return {
@@ -148,7 +180,7 @@ export function connections() {
   body.secrets = [
     fill(secret, { name: "LINKEDIN_ACCESS_TOKEN", found: true, where: "secret store" }),
     fill(secret, { name: "VCS_GITHUB_TOKEN", found: true, where: "secret store" }),
-    fill(secret, { name: "WB_RUNTIME_FLOOR_KEY", found: false, where: null }),
+    fill(secret, { name: "WB_RUNTIME_KEY_OPENROUTER_API_KEY", found: false, where: null }),
   ];
   body.image = { name: "openhora-eval", present: true, evidence: true };
   body.platform = { machine: "arm64", evidence: "linux/arm64", here: "linux/arm64", same: true };
@@ -195,7 +227,7 @@ export function progress(ctx, P) {
   const summary = clone(template.summary);
   summary.tasks_done = P.tasks.filter((t) => t.parent_id !== null && t.state === "done").length;
   summary.deliveries = [];
-  summary.runs = { total: P.runs.length, ok: P.runs.filter((r) => r.status === "ok").length, failed: 0, by_model: { [MODEL]: P.runs.length }, by_failure: {} };
+  summary.runs = { total: P.runs.length, ok: P.runs.filter((r) => r.status === "ok").length, failed: 0, cancelled: 0, by_model: { [MODEL]: P.runs.length }, by_failure: {} };
   const text = `${requests.length} open request${requests.length === 1 ? "" : "s"}, ${waiting.length} waiting for you.`;
   return { progress: { requests, waiting_for_you: waiting, stuck: [] }, summary, text };
 }

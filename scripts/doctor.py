@@ -2,6 +2,8 @@
 """Report which environment requirement classes are satisfied.
 
 Usage: python3 scripts/doctor.py [--harness <name>] [--json] [--strict]
+       python3 scripts/doctor.py --unattended [--project <dir>] [--min-free-gib <n>] [--ack-lease] [--json] [--strict]
+       python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)
 
 Collects `metadata.requires` from every skill, then checks each class against:
   1. connectors declared by the chosen adapter in adapters/<harness>/connectors.json
@@ -21,13 +23,51 @@ yet). An unknown class counts as missing. A class written with one of the four o
 Options:
   --harness <name>  include connectors declared by that adapter
   --json            machine-readable report on stdout
-  --strict          exit 1 when any required class is missing
+  --strict          exit 1 when any required class is missing (with --unattended: or when an unattended check warns)
+  --unattended      also run the checks for a machine that runs the task runtime for weeks with nobody logged in (package P-OPS,
+                    scripts/doctor_ops.py): the user manager's linger on Linux, whether a macOS scheduler job can read the sources
+                    folder, free disk on data_dir and sources_dir, the log limits of the harness's proxy containers, whether the
+                    OS secret store answers, whether the password manager answers (`password_manager`: na without a
+                    mapping file, otherwise `op whoami`, S16), and the eval image with the command that sets it up. Each
+                    check says what it can and cannot verify (see the text of scripts/doctor_ops.py); in --json they are the "unattended" key. It asks docker
+                    to list and inspect the harness's containers, which no other mode does.
+  --project <dir>   with --unattended: the project whose runtime.json names data_dir and sources_dir
+  --min-free-gib <n>  with --unattended: the free space under which a disk warns (default 5)
+  --ack-lease       with --unattended and --project: acknowledge a takeover of another host's lease (removes the record
+                    <data_dir>/lease-takeover.json, which the `lease` check warns about), then run the checks
+  --remove-old-images  remove the images of earlier definitions of the providers that build one (the converter, the exporter), and
+                    print one JSON object: {"removed" (each with "freed": true only when the image id is gone, not when only a tag was), "would_remove", "kept" (each with its reason), "freed_bytes" (the freed ones only), "dry_run"}. An image
+                    is a candidate only when ALL of these hold: it carries the label org.openhora.definition, its repository is that
+                    provider's exactly, and the label value and the tag differ from the provider's current definition. An image without
+                    the label, an untagged image, a reference that starts with wb-eval and the current image are never selected. It
+                    removes by tag (`docker image rm <repository:tag>`), never with --force and never with prune, looks at each image
+                    again just before, and keeps one that is in use or that docker refuses. It needs one of --dry-run (sends no
+                    removal) or --confirmed (removes). Nothing else removes an image: no run, no upkeep pass, no other doctor mode.
   --help            show this text
 
+It also reports the eval image (evals/image-lock.json, evals/executor.py), in one of four states, and never pulls or
+builds it:
+  published and present     the lock file names a published image for this checkout's definition and this platform,
+                            and it is on this machine with that repo digest
+  published, not pulled     the lock names one and it is not here: run `python3 scripts/image_lock.py pull`
+                            (it verifies the provenance, then pulls)
+  no published image        the lock names none for this definition; an image built locally is here, so evidence
+                            measured in it is local-only (it holds on this machine only)
+  missing                   nothing is here (run `python3 evals/executor.py ensure`), docker cannot be reached,
+                            or the lock file is not well formed ("lock unreadable": a lock that cannot be read is
+                            never taken for an empty one)
+The image does not change the exit code. In --json it is the "image" key: {"state", "detail"}, and, when it is not present, "setup": the
+command to run (the first pull of the published image is an explicit step, never automatic: decision D39).
+
 It also lists every secret registered in providers/secrets/resolver.py or by an adapter (the
-"secrets" list of its adapter.json): found or missing, where
-it was found (environment or OS secret store), which classes read it and how to set it. It never
-prints a value. Missing secrets do not change the exit code; see contracts/secrets.md.
+"secrets" list of its adapter.json): found, missing, locked or unsafe, where
+it was found (environment, the credentials directory, the OS secret store or the password manager), which classes read it and how to
+set it. A name found earlier that the person also mapped in the password manager is marked "mapped in the password manager, not asked:
+found earlier" (the manager is not called to say it). "locked" means the OS
+secret store raised instead of answering (a locked keychain or collection, or no backend on a machine with no desktop session): the secret
+may be stored, and unlocking the store clears it (the line says which: the OS secret store, or the password manager that is locked or
+not installed); "unsafe" means the credentials directory or its file, or the password-manager mapping file, is readable by others or is a link.
+It never prints a value. Missing secrets do not change the exit code; see contracts/secrets.md.
 
 Exit codes: 0 ok, 1 missing classes with --strict, 2 usage error.
 """
@@ -127,6 +167,155 @@ def _which(name):
     return False
 
 
+IMAGE_STATES = {
+    "published-present": "published and present",
+    "published-not-pulled": "published, not pulled: run `python3 scripts/image_lock.py pull`",
+    "local-only": "no published image for this definition: built locally, evidence is local-only",
+    "missing": "missing",
+}
+
+
+class DockerUnavailable(Exception):
+    pass
+
+
+def docker_inspect(args):
+    """`docker image inspect <args>` as (returncode, stdout). Raises DockerUnavailable when there is no docker client or
+    no daemon to ask: an image that cannot be asked about is not reported as absent."""
+    try:
+        r = subprocess.run(["docker", "image", "inspect", *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise DockerUnavailable(f"docker cannot be run: {e}") from None
+    if r.returncode != 0 and "daemon" in r.stderr.lower():
+        raise DockerUnavailable("the docker daemon cannot be reached")
+    return r.returncode, r.stdout
+
+
+def image_state(inspect=docker_inspect, root=ROOT):
+    """The eval image of this checkout: {"state": one of IMAGE_STATES' keys, "detail": a sentence}. It reads the lock
+    file and inspects the image; it never pulls or builds one. `inspect` is what a test replaces."""
+    try:
+        executor = _load("workbench_doctor_executor", os.path.join(root, "evals", "executor.py"))
+        lock_module = _load("workbench_doctor_image_lock", os.path.join(root, "scripts", "image_lock.py"))
+    except Exception as e:  # noqa: BLE001  (an executor that cannot be loaded is reported, not raised)
+        return {"state": "missing", "detail": f"the image cannot be looked up: {e}"}
+    try:
+        definition, platform = executor.definition_hash(), executor.image_platform()
+        wanted = lock_module.published(lock_module.read_lock(os.path.join(root, "evals", "image-lock.json")),
+                                       definition, platform)
+        if wanted:
+            if lock_module.present(wanted, inspect):
+                return {"state": "published-present", "detail": wanted["ref"]}
+            return {"state": "published-not-pulled", "detail": wanted["ref"]}
+        local = executor.names()["image"]
+        code, _ = inspect(["--format", "{{.Id}}", local])
+    except lock_module.Refused as e:
+        return {"state": "missing", "detail": f"lock unreadable: {e}"}
+    except DockerUnavailable as e:
+        return {"state": "missing", "detail": str(e)}
+    except Exception as e:  # noqa: BLE001
+        return {"state": "missing", "detail": f"the image cannot be looked up: {e}"}
+    if code == 0:
+        return {"state": "local-only", "detail": f"{local}; no entry for the definition {definition[:12]} in evals/image-lock.json"}
+    return {"state": "missing", "detail": f"{local} is not built: run `python3 evals/executor.py ensure`"}
+
+
+def image_setup(image):
+    """The command that sets the eval image up when it is not present, or None (decision D39: an explicit step, never automatic and never
+    in the middle of a dispatch). A published image is pulled by digest with the provenance check; a local build is the other way."""
+    state, detail = image["state"], image.get("detail") or ""
+    if state in ("published-present", "local-only"):
+        return None
+    if state == "published-not-pulled":
+        return "python3 scripts/image_lock.py pull"
+    if "daemon" in detail or "docker cannot be run" in detail:
+        return "start docker (its client or daemon cannot be reached), then run the doctor again"
+    if detail.startswith("lock unreadable"):
+        return "repair evals/image-lock.json (git checkout -- evals/image-lock.json), then python3 scripts/image_lock.py pull"
+    return "python3 scripts/image_lock.py pull (a published image), or python3 evals/executor.py ensure (build it here)"
+
+
+def manager_probe():
+    """The state of the password manager, by the resolver's probe_manager (`op whoami`, no secret read): {"state", "detail"}; "na" when
+    the person has no mapping file."""
+    path = str(resolution.secret_resolver(root=ROOT))
+    return _load("workbench_secret_resolver_manager_probe", path).probe_manager()
+
+
+IMAGE_FAMILIES = ("converter", "exporter", "script")   # providers/<name>/container.py; a provider that builds an image adds its name here, with its own test
+
+
+def container_box():
+    """providers/_container.py, the home of the selection and the removal of the images of earlier definitions."""
+    return _load("workbench_doctor_container", os.path.join(PROVIDERS, "_container.py"))
+
+
+def image_families(providers=PROVIDERS):
+    """[{"family", "repository", "hash", "tag"}] of the providers that build an image and are in this checkout: the repository and the
+    current definition's hash and tag, read from the provider's container.py (IMAGE_REPOSITORY, definition_hash(), image_tag())."""
+    out = []
+    for name in IMAGE_FAMILIES:
+        path = os.path.join(providers, name, "container.py")
+        if not os.path.isfile(path):
+            continue
+        module = _load(f"workbench_doctor_family_{name}", path)
+        out.append({"family": name, "repository": module.IMAGE_REPOSITORY, "hash": module.definition_hash(), "tag": module.image_tag()})
+    return out
+
+
+def remove_old_images(argv, tool=None, families=None, box=None):
+    """`--remove-old-images (--dry-run | --confirmed)`: the exit code. One JSON object on stdout; usage errors on stderr (2)."""
+    flags = set(argv)
+    if not flags <= {"--remove-old-images", "--dry-run", "--confirmed"} or len(argv) != len(flags) or len(flags & {"--dry-run", "--confirmed"}) != 1:
+        print("Error: --remove-old-images takes exactly one of --dry-run (sends no removal) or --confirmed (removes), and nothing else.",
+              file=sys.stderr)
+        return 2
+    dry_run = "--dry-run" in flags
+    import doctor_ops
+    tool = tool or doctor_ops.docker_tool
+    box = box or container_box()
+    families = image_families() if families is None else families
+    code, _out = tool("version", "--format", "{{.Server.Version}}")
+    if code != 0:
+        print(json.dumps({"error": "docker cannot be asked (not installed, or the daemon is not running): nothing was looked at or removed",
+                          "dry_run": dry_run}))
+        return 1
+    result = {"removed": [], "would_remove": [], "kept": [], "dry_run": dry_run, "families": [f["family"] for f in families]}
+    for family in families:
+        done = box.remove_old_definition_images(tool, family["repository"], family["hash"], dry_run=dry_run)
+        for key in ("removed", "would_remove", "kept"):
+            result[key] += [{"family": family["family"], **item} for item in done[key]]
+    result["freed_bytes"] = sum(item["size"] for item in result["removed"] if item.get("freed"))
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def store_probe():
+    """The state of the OS secret store, by the resolver's probe_store (it asks for a name nothing stores): {"state", "detail"}."""
+    path = str(resolution.secret_resolver(root=ROOT))
+    resolver = _load("workbench_secret_resolver_probe", path)
+    folder = resolver.credentials_status()
+    if folder["state"] == "unsafe":   # a refused directory hides every secret: said before the store is asked
+        return {"state": "credentials-unsafe", "detail": folder["detail"]}
+    return resolver.probe_store()
+
+
+def load_project_config(project):
+    """The two folders the unattended checks look at, from the project's docs/workbench/runtime.json: {"data_dir", "sources_dir"}, each an
+    absolute path. Only these two keys are read (the file is checked as a whole by the task runtime, not here); raises when the file or a
+    key is missing."""
+    path = os.path.join(os.path.abspath(project), "docs", "workbench", "runtime.json")
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    out = {}
+    for key in ("data_dir", "sources_dir"):
+        value = raw.get(key) if isinstance(raw, dict) else None
+        if not isinstance(value, str) or not os.path.isabs(value):
+            raise ValueError(f"{path} needs {key}: an absolute path")
+        out[key] = value
+    return out
+
+
 def load_connectors(harness):
     if not harness:
         return {}
@@ -154,7 +343,8 @@ def secrets_report(classes):
     for row in resolver.report():
         folders = {r.split("/")[1] for r in row["readers"] if r.startswith("providers/")}
         row["classes"] = sorted(c for c in classes if provider_folder(c) in folders)
-        rows.append({k: row[k] for k in ("name", "found", "source", "service", "store", "classes", "readers", "set")})
+        rows.append({k: row[k] for k in ("name", "found", "state", "source", "service", "backend", "also_mapped", "store", "detail", "classes",
+                                         "readers", "set")})
     return rows
 
 
@@ -162,10 +352,29 @@ def main(argv):
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 0
+    if "--remove-old-images" in argv:
+        return remove_old_images(argv)
     harness, as_json, strict = None, "--json" in argv, "--strict" in argv
+    unattended, project, min_free, ack_lease = "--unattended" in argv, None, None, "--ack-lease" in argv
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a in ("--project", "--min-free-gib"):
+            if i + 1 >= len(argv):
+                print(f"Error: {a} needs a value.", file=sys.stderr)
+                return 2
+            if a == "--project":
+                project = argv[i + 1]
+            else:
+                try:
+                    min_free = float(argv[i + 1])
+                except ValueError:
+                    min_free = -1.0
+                if min_free <= 0:
+                    print("Error: --min-free-gib needs a number above 0.", file=sys.stderr)
+                    return 2
+            i += 2
+            continue
         if a == "--harness":
             if i + 1 >= len(argv):
                 print("Error: --harness needs a value, e.g. --harness claude-code", file=sys.stderr)
@@ -173,7 +382,7 @@ def main(argv):
             harness = argv[i + 1]
             i += 2
             continue
-        if a not in ("--json", "--strict"):
+        if a not in ("--json", "--strict", "--unattended", "--ack-lease"):
             print(f"Error: unknown option {a!r}. See --help.", file=sys.stderr)
             return 2
         i += 1
@@ -181,6 +390,9 @@ def main(argv):
         print(f"Error: adapter {harness!r} not found under adapters/.", file=sys.stderr)
         return 2
 
+    if ack_lease and not (unattended and project):
+        print("Error: --ack-lease goes with --unattended and --project <dir>.", file=sys.stderr)
+        return 2
     connectors = load_connectors(harness)
     report, missing = {}, 0
     for cls, skills in sorted(collect_requires().items()):
@@ -192,20 +404,63 @@ def main(argv):
             missing += 1
         report[cls] = {"status": status, "detail": detail, "skills": skills}
 
+    image = image_state()
+    setup = image_setup(image)
+    if setup:
+        image = {**image, "setup": setup}
     secrets = secrets_report(report)
-    secrets_missing = [s["name"] for s in secrets if not s["found"]]
+    secrets_missing = [s["name"] for s in secrets if not s["found"] and s["state"] == "missing"]
+    secrets_locked = [s["name"] for s in secrets if s["state"] in ("locked", "unsafe")]
+    checks = None
+    if unattended:
+        import doctor_ops
+        if ack_lease:
+            try:
+                acknowledged = doctor_ops.ack_lease(load_project_config(project)["data_dir"])
+            except (OSError, ValueError) as e:
+                print(f"Error: --ack-lease could not read the project: {e}", file=sys.stderr)
+                return 2
+            print("lease takeover acknowledged" if acknowledged else "no lease takeover was recorded", file=sys.stderr)
+        checks = doctor_ops.run_all(project=project, min_free_gib=min_free or doctor_ops.MIN_FREE_GIB, image=image,
+                                    probe=store_probe, load_config=load_project_config, manager_probe=manager_probe, families=image_families(), box=container_box())
     if as_json:
-        print(json.dumps({"harness": harness, "classes": report, "missing": missing, "secrets": secrets}, indent=2))
+        out = {"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}
+        if checks is not None:
+            out["unattended"] = checks
+        print(json.dumps(out, indent=2))
     else:
         for cls, r in report.items():
             print(f"{r['status']:<9} {cls:<28} {r['detail']}  <- {', '.join(r['skills'])}", file=sys.stderr)
+        shown = IMAGE_STATES[image["state"]] + ("" if image["state"] == "published-not-pulled" else f" ({image['detail']})")
+        print(f"{'image':<9} {'eval image':<28} {shown}", file=sys.stderr)
+        if setup:
+            print(f"{'':<9} {'':<28} setup: {setup}", file=sys.stderr)
         for sec in secrets:
-            state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}" if sec["found"] else \
-                f"missing   {sec['name']:<28} set it: {sec['set']}"
+            if sec["found"]:
+                state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}"
+                if sec.get("also_mapped"):
+                    state += "; mapped in the password manager, not asked: found earlier"
+            elif sec["state"] == "locked":
+                # the sentence of the backend that failed (the OS secret store or the password manager), from the resolver's own Lookup
+                state = f"locked    {sec['name']:<28} {sec['detail'] or 'the secret store is locked or unavailable: unlock it (it may hold this secret)'}"
+            elif sec["state"] == "unsafe":
+                state = f"unsafe    {sec['name']:<28} {sec['detail']}"
+            else:
+                state = f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
-        print(json.dumps({"harness": harness, "classes": len(report), "missing": missing,
-                          "secrets_missing": secrets_missing}))
-    return 1 if (strict and missing) else 0
+        if checks is not None:
+            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "images", "project"):
+                c = checks[name]
+                print(f"{c['status']:<10} {name:<28} {c['detail']}", file=sys.stderr)
+                if c.get("fix") and (c["status"] in ("warn", "unverified") or name == "images"):
+                    print(f"{'':<10} {'':<28} fix: {c['fix']}", file=sys.stderr)
+        summary = {"harness": harness, "classes": len(report), "missing": missing, "image": image["state"],
+                   "secrets_missing": secrets_missing, "secrets_locked": secrets_locked}
+        if checks is not None:
+            summary["unattended_warnings"] = sorted(n for n, c in checks.items() if c["status"] == "warn")
+        print(json.dumps(summary))
+    warned = bool(checks) and any(c["status"] == "warn" for c in checks.values())
+    return 1 if (strict and (missing or warned)) else 0
 
 
 if __name__ == "__main__":

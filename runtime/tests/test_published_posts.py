@@ -1,4 +1,4 @@
-"""The weekly routine that lists the published posts (stage 6, WP-6.9; backlog item PB16), the first handler.
+"""The weekly routine that lists the published posts (stage 6, WP-6.9; backlog item PB16 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)), the first handler.
 
 A stand-in workbench is built in a temporary folder: the handler, providers/resolve.py and the store are the real
 files; the publisher, the code provider and runtime/cli.py are stand-ins written here, and `uv` is a stand-in that
@@ -140,7 +140,7 @@ def env(tmp_path, monkeypatch):
     (remote / "data").mkdir(parents=True)
     (remote / FILE).write_text(dump([]), encoding="utf-8")
     config = {"workbench": str(bench), "data_dir": str(data), "store_db": str(data / "tasks.sqlite"),
-              "area_agents": {"marketing": {"pack": "marketing", "mode": "autonomous-with-policy",
+              "sources_dir": str(tmp_path / "sources"), "area_agents": {"marketing": {"pack": "marketing", "mode": "autonomous-with-policy",
                                             "max_runs_per_day": 6, "max_usd_per_day": 1.0}},
               "handlers": {"published-posts": {"agent": "marketing", "dispatch": True, "platform": PLATFORM,
                                                "repo": TARGET_REPO, "branch": BRANCH, "file": FILE, "weekday": 1,

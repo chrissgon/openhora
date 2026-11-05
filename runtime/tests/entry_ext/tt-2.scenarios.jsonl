@@ -1,0 +1,4 @@
+{"id": "tt-2.two_languages_agenda.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "two_languages", "text": "mostra minha agenda de amanhã", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "tt-2.two_languages_agenda.02", "channel": "messaging", "platform": "buttons", "sender": "asker_en", "prestate": "two_languages", "text": "mostra minha agenda de amanhã", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "tt-2.two_languages_greeting.01", "channel": "messaging", "platform": "buttons", "sender": "owner", "prestate": "two_languages", "text": "oi", "reply_to": null, "forwarded": false, "kind": "text", "action": null}
+{"id": "tt-2.two_languages_greeting.02", "channel": "messaging", "platform": "buttons", "sender": "asker_en", "prestate": "two_languages", "text": "oi", "reply_to": null, "forwarded": false, "kind": "text", "action": null}

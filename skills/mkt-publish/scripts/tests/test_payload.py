@@ -344,8 +344,8 @@ def test_the_recorded_approval_of_the_eval_fixture_is_the_hash_its_files_build(t
     work = tmp_path / "p"
     shutil.copytree(fixture, work)
     recorded = re_hash.search((fixture / "docs/workbench/state.md").read_text()).group(1)
-    code, out, err = run(work, "build", "--content", "docs/marketing/content/2027-10-11-tinykv-05-ttl.md",
-                         "--content", "docs/marketing/content/2027-10-13-fsync-budget.md", *PLATFORM,
+    code, out, err = run(work, "build", "--content", "docs/marketing/content/2038-10-11-tinykv-05-ttl.md",
+                         "--content", "docs/marketing/content/2038-10-13-fsync-budget.md", *PLATFORM,
                          "--publisher", work / "wb/providers/publisher/stub.py", "--workbench", work / "wb",
                          "--out", tmp_path / "out")
     assert code == 0 and out["plan_hash"] == recorded, err

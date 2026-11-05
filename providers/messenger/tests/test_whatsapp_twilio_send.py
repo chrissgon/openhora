@@ -135,8 +135,9 @@ def test_without_the_three_template_sids_buttons_are_off_and_a_card_with_actions
 def test_capabilities_follow_the_settings():
     off = wt.capabilities(kit.settings())
     assert off == {"max_text": 1600, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False, "max_list_rows": 0,
-                   "url_buttons": False, "reply_context": True, "documents": False, "listen": True}
-    on = wt.capabilities(kit.settings(buttons=BUTTONS))
+                   "url_buttons": False, "reply_context": True, "documents": False, "listen": True, "attachments": True,
+                   "max_attachment_bytes": 16777216}
+    on =wt.capabilities(kit.settings(buttons=BUTTONS))
     assert on == {**off, "buttons": True, "max_buttons": 3, "max_button_label": 20}
     assert wt.capabilities(None) == off
 

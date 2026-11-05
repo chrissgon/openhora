@@ -90,6 +90,33 @@ def inbound(n=1, body=TEXT, frm=FROM, to=SENDER, account=ACCOUNT, **more):
     return fields
 
 
+MEDIA_HOST = "media.twiliocdn.com"
+
+
+def media_ids(n=1, i=0):
+    """(message SID, media SID) of the i-th medium of message n."""
+    return f"MM{n:032x}", f"ME{n * 10 + i:032x}"
+
+
+def media_url(n=1, account=ACCOUNT, i=0):
+    message, media = media_ids(n, i)
+    return f"https://api.twilio.com/2010-04-01/Accounts/{account}/Messages/{message}/Media/{media}"
+
+
+def media_ref(n=1, i=0):
+    return ":".join(media_ids(n, i))
+
+
+def with_media(n=1, kinds=("application/pdf",), body="", account=ACCOUNT, **more):
+    """An inbound message that carries media: NumMedia, MediaUrl0.. and MediaContentType0.. (the fields Twilio sends)."""
+    fields = inbound(n, body=body, MessageSid=media_ids(n)[0], SmsSid=media_ids(n)[0], NumMedia=str(len(kinds)), account=account)
+    for i, kind in enumerate(kinds):
+        fields[f"MediaUrl{i}"] = media_url(n, account, i)
+        fields[f"MediaContentType{i}"] = kind
+    fields.update(more)
+    return fields
+
+
 def card_tap(n=2, payload="7:approve", title="Approve", **more):
     return inbound(n, body=title, ButtonPayload=payload, ButtonText=title, ButtonType="QUICK_REPLY", **more)
 
@@ -151,6 +178,70 @@ class Opener:
         return [f for f in self.sent() if "ContentSid" in f]
 
 
+class StreamResponse:
+    """A body that is read as a socket is read: `read(n)` hands out the next bytes, `total` counts what was handed out."""
+
+    def __init__(self, data=b"", headers=None, error=None):
+        self.data, self.pos, self.total, self.headers, self.error = data, 0, 0, dict(headers or {}), error
+
+    def read(self, n=-1):
+        if self.error is not None and self.pos >= len(self.data):
+            raise self.error
+        end = len(self.data) if n is None or n < 0 else min(len(self.data), self.pos + n)
+        chunk = self.data[self.pos:end]
+        self.pos = end
+        self.total += len(chunk)
+        return chunk
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class EndlessResponse(StreamResponse):
+    """A body that never ends (a host that sends more than it declared)."""
+
+    def read(self, n=-1):
+        n = 65536 if n is None or n < 0 else n
+        self.total += n
+        return b"x" * n
+
+
+def redirect(location, code=307):
+    """The error urllib raises for a redirect it does not follow."""
+    headers = {"Location": location} if location is not None else {}
+    return urllib.error.HTTPError("https://api.invalid/x", code, "redirect", headers, io.BytesIO(b""))
+
+
+class MediaOpener:
+    """A fake of Twilio's media path. `rules` is a list of (needle, function(call) -> StreamResponse | Exception | bytes) tried in order on the URL;
+    by default api.twilio.com redirects (307) to the CDN and the CDN answers `payload`. Every call is recorded with its URL, its Authorization
+    header and its timeout."""
+
+    def __init__(self, rules=None, payload=b"%PDF-1.4 fake body", cdn_url=None):
+        self.rules, self.payload, self.calls, self.lock = list(rules or []), payload, [], threading.Lock()
+        self.cdn_url = cdn_url or f"https://{MEDIA_HOST}/{ACCOUNT}/fakecdntoken"
+
+    def open(self, request, timeout=None):
+        call = {"url": request.full_url, "auth": request.get_header("Authorization"), "timeout": timeout, "method": request.get_method()}
+        with self.lock:
+            self.calls.append(call)
+        for needle, rule in self.rules:
+            if needle in call["url"]:
+                answer = rule(call) if callable(rule) else rule
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer if isinstance(answer, StreamResponse) else StreamResponse(answer)
+        if call["url"].startswith("https://api.twilio.com/"):
+            raise redirect(self.cdn_url)
+        return StreamResponse(self.payload)
+
+
 class Pipe:
     """A binary stdin the test writes to and closes."""
 
@@ -205,14 +296,15 @@ class Clock:
 class Rig:
     """A Listener over a state folder, a fake Twilio API and a pipe for stdin, run in a thread. `port` is the server's."""
 
-    def __init__(self, tmp_path, opener=None, clock=None, config=None, **options):
+    def __init__(self, tmp_path, opener=None, clock=None, config=None, media=None, **options):
         self.folder = str(tmp_path / "wt")
         os.makedirs(self.folder, mode=0o700, exist_ok=True)
         self.opener = opener or Opener()
         self.clock = clock or Clock()
         self.out, self.pipe, self.logs = Capture(), Pipe(), []
         self.store = wt.Store(self.folder, self.clock)
-        api = wt.Twilio(KEY_SID, KEY_SECRET, ACCOUNT, opener=self.opener)
+        self.media = media or MediaOpener()
+        api = wt.Twilio(KEY_SID, KEY_SECRET, ACCOUNT, opener=self.opener, media_opener=self.media)
         self.settings = settings(**(config or {}))
         self.listener = wt.Listener(self.settings, dict(SECRETS), self.store, out=self.out, stdin=self.pipe.reader, api=api,
                                     clock=self.clock, log=self.logs.append, **options)
@@ -254,6 +346,13 @@ class Rig:
 
     def ask(self, number, chat, message):
         self.pipe.send({"id": number, "op": "send", "chat": chat, "message": message})
+        assert wait_for(lambda: any(a["id"] == number for a in self.out.answers())), (self.out.lines, self.logs)
+        return next(a for a in self.out.answers() if a["id"] == number)
+
+    def fetch(self, number, ref, out, max_bytes, wait=True):
+        self.pipe.send({"id": number, "op": "fetch", "ref": ref, "out": str(out), "max_bytes": max_bytes})
+        if not wait:
+            return None
         assert wait_for(lambda: any(a["id"] == number for a in self.out.answers())), (self.out.lines, self.logs)
         return next(a for a in self.out.answers() if a["id"] == number)
 

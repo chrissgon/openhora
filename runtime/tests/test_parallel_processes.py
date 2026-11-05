@@ -20,6 +20,7 @@ import pytest
 import standin_tree as st
 
 ops = st.load("ops")
+ops_round = st.load("ops_round")
 ops_core = st.load("ops_core")
 ops_runs = st.load("ops_runs")
 
@@ -38,7 +39,7 @@ def real(tmp_path, monkeypatch):
               for name in ("business", "brand")}
     (project / "docs" / "workbench" / "runtime.json").write_text(json.dumps({
         "workbench": REPO, "data_dir": str(data), "store_db": str(tmp_path / "store" / "tasks.sqlite"),
-        "area_agents": agents, "max_running": 3}), encoding="utf-8")
+        "sources_dir": str(tmp_path / "sources"), "area_agents": agents, "max_running": 3}), encoding="utf-8")
     path = str(project)
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
     ctx = ops_core.context(path)
@@ -54,8 +55,8 @@ def real(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
                                                if p and not os.path.exists(os.path.join(p, "docker"))))
     assert_cannot_reach_a_model(os.environ)
-    monkeypatch.setattr(ops, "_credential_stop", lambda: None)
-    monkeypatch.setattr(ops, "_image_stop", lambda: None)
+    monkeypatch.setattr(ops_round, "_credential_stop", lambda model=None: None)
+    monkeypatch.setattr(ops_round, "_image_stop", lambda: None)
     monkeypatch.setattr(ops_runs, "SPAWNED", [])
     monkeypatch.setattr(ops_runs, "STOPPING", threading.Event())
     started = []
@@ -67,11 +68,12 @@ def real(tmp_path, monkeypatch):
 
 
 def model_variables() -> list:
-    """Every variable the lab passes to a model's provider, for both tiers, and the runtime's own key."""
-    lab = st.load("lab")
-    names = {"WB_RUNTIME_FLOOR_KEY"}
-    for tier in ("strong", "floor"):
-        names |= set(lab.reference(tier)["pass_env"])
+    """Every variable the lab passes to a model's provider, for each model of the gate file, and the runtime's own key for it."""
+    lab, core = st.load("lab"), st.load("ops_core")
+    names = set()
+    for model in lab.models():
+        for variable in lab.reference(model)["pass_env"]:
+            names |= {variable, core.own_key_name(variable)}
     return sorted(names)
 
 
@@ -141,9 +143,9 @@ def test_real_children_hold_their_task_locks_with_their_pids_and_a_waiting_round
 ROUND = """
 import json, sys, threading, time
 sys.path.insert(0, %(runtime)r)
-import ops, ops_runs
-ops._credential_stop = lambda: None
-ops._image_stop = lambda: None
+import ops, ops_round, ops_runs
+ops_round._credential_stop = lambda model=None: None
+ops_round._image_stop = lambda: None
 def watch():
     while len(ops_runs.SPAWNED) < 2:
         time.sleep(0.05)
@@ -171,9 +173,13 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
                 break
         assert len(pids) == 2 and all(alive(p) for p in pids)
         process.send_signal(signal.SIGINT)
+        for pid in pids:      # the round ends its children first: TERM, then KILL after its grace
+            until(lambda pid=pid: not alive(pid), ops_runs.STOP_GRACE + 15, f"child {pid} to be gone")
+        # Every child is gone, so none can claim. The round records their refusal under the claim lock (ops_runs.reap), which it would
+        # otherwise wait for up to ops_core.CLAIM_LOCK_WAIT seconds, and ends.
+        os.close(blocker)
+        blocker = None
         process.wait(60)
-        for pid in pids:
-            until(lambda pid=pid: not alive(pid), 30, f"child {pid} to be gone")
     finally:
         if process.poll() is None:  # the round and every child first, the claim lock last: a child that gets it would claim
             process.kill()
@@ -181,7 +187,8 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
         for pid in pids:
             if alive(pid):
                 os.kill(pid, signal.SIGKILL)
-        os.close(blocker)
+        if blocker is not None:
+            os.close(blocker)
 
 
 # --- c: a refusal ------------------------------------------------------------------------------------------------------------------

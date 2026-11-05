@@ -11,6 +11,7 @@ import re
 
 import pytest
 
+import phrase_kit as pk
 import standin_tree as st
 
 lab = st.load("lab")
@@ -81,7 +82,8 @@ def test_a_plain_line_becomes_a_request_and_the_reply_shows_its_plan(tree):
     item = ops.pending(str(tree["project"]), out["pending_id"])
     assert item["kind"] == "plan"
     assert "- market: Market (demo-asks)" in out["reply"] and "- profile: Profile (demo-writes)" in out["reply"]
-    assert "Estimate: 4 runs" in out["reply"] and out["reply"].endswith(f"Approve with /approve {out['pending_id']}")
+    assert "Estimate: 4 runs" in out["reply"]      # literal: the sentence sits inside a longer line the kit does not match
+    pk.assert_said(out["reply"].splitlines()[-1], "PLAN_NEXT", None, pending=out["pending_id"])
 
 
 def test_a_line_after_the_router_s_question_is_its_answer(tree):
@@ -105,7 +107,7 @@ def test_new_starts_another_request_whatever_is_open(tree):
 
 def test_a_command_calls_its_operation_once_and_no_model(tree, monkeypatch):
     calls = []
-    monkeypatch.setattr(ops, "release", lambda project, pending_id: calls.append(pending_id) or {"released": pending_id})
+    monkeypatch.setattr(ops, "release", lambda project, pending_id, **kw: calls.append(pending_id) or {"released": pending_id})   # POL-2: release takes the channel and the sender
     out = say(tree, "/release 7")
     assert calls == [7] and json.loads(out["reply"]) == {"released": 7} and out["ran"] is False
     assert "Waiting for you" in say(tree, "/progress 7d")["reply"]
@@ -155,14 +157,12 @@ def test_a_reply_of_the_model_is_never_read_as_a_command(tree):
     out = say(tree, "Something else.")
     # The reply names no route: the person gets one sentence, the model's text is kept whole in the decision's payload
     # (A-25) and is shown, never executed.
-    assert out["reply"].startswith(f"The planning agent did not name a flow or a skill for request {out['request_id']}")
+    pk.assert_said(out["reply"], "BODY_NOT_NAMED", None, request=out["request_id"])
     assert ops.pending(str(tree["project"]), out["pending_id"])["payload"]["raw"] == f"/release {first['pending_id']}\n"
     assert ops.pending(str(tree["project"]), first["pending_id"])["status"] == "open"
 
 
 def test_the_planning_agent_at_its_cap_runs_nothing_and_says_why(tree, monkeypatch):
-    stand_in = lab.reference
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": dict(stand_in(tier), model="m" if tier == "strong" else "fm"))
     configure(tree, {**AGENTS, "planning": {"pack": "planning", "max_runs_per_day": 1}})
     say(tree, "Which market first?")
     out = say(tree, "/new Who buys first?")

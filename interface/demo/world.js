@@ -114,6 +114,8 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
           case "progress": return get(reads.progress(ctx, P));
           case "version": return get(reads.version(state, P));
           case "commands": return get(clone(F.commands));
+          case "instructions": return get(reads.instructions());
+          case "attachments": return get(reads.attachments());
           default: break;
         }
       }
@@ -142,12 +144,17 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
     if (parts[0] === "tasks" && parts.length === 3) {
       const id = idOf(parts[1]);
       if (parts[2] === "retry") return plain(P, async () => writes.retry(ctx, P, id));
+      if (parts[2] === "stop") throw notInDemo("Stopping a running task");
       if (parts[2] === "go-ahead") throw notInDemo("Going ahead on a task that waits for another request");
       if (parts[2] === "files") throw notInDemo("Handing a file to a task");
     }
     if (parts[0] === "runs" && parts[2] === "verdict") return plain(P, async () => writes.verdict(ctx, P, idOf(parts[1]), body));
     if (parts[0] === "agents" && parts[2] === "mode") return plain(P, async () => writes.setMode(ctx, P, parts[1], body));
+    if (parts[0] === "agents" && parts[2] === "model") return plain(P, async () => writes.setModel(ctx, P, parts[1], body));
+    if (parts[0] === "agents" && parts[2] === "consent") return plain(P, async () => writes.giveConsent(ctx, P, parts[1], body));
     if (key === "POST conversation") return job(P, "say", async () => writes.say(ctx, P, body));
+    if (parts[0] === "instructions") throw notInDemo("Writing the project's instructions");
+    if (parts[0] === "attachments") throw notInDemo("Adding or discarding a file sent from a messaging app");
     if (key === "POST sync") throw notInDemo("Syncing with the platform");
     if (key === "POST dispatch") throw notInDemo("Running the next task");
     throw notFound("no such route, project or file");

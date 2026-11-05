@@ -18,7 +18,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Codebase map

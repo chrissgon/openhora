@@ -1,0 +1,29 @@
+{
+ "package": "cb-3",
+ "table": {
+  "MR_HEAD": "{box} · {line}",
+  "MR_BODY_CUT": "… (text cut)",
+  "MR_NO_TEXT": "(no text)",
+  "MR_ROW": "{n}. {box} · {line}",
+  "MR_WHICH_BOX": "{count} of your mailboxes have an e-mail {n}: {list}.",
+  "MR_SEVERAL": "I found {count} e-mails that fit:\n{rows}",
+  "MR_TOO_MANY": "I found {count} e-mails that fit; say more words of the sender or the subject.",
+  "MR_NONE": "I found no e-mail with those words in the newest snapshot of your mailboxes.",
+  "MR_ASK": "Which e-mail? Say its number, or some words of its sender or subject.",
+  "MR_PAST_END": "{box} has {count} e-mails in its newest snapshot, so there is no e-mail {n} there.",
+  "MR_UNAVAILABLE": "I could not read that e-mail just now. Ask for the list of your e-mails again, then for its number.",
+  "MR_FOUND_ONE": "I found 1 e-mail that fits:\n{rows}",
+  "MR_PICK": "Say “read {n} from {box}”, with the number and the mailbox of the one you want.",
+  "MR_WHICH_SAY_TWO": "Say “read {n} from {first_box}” or “from {second_box}”.",
+  "MR_WHICH_SAY_ONE": "Say “read {n} from {box}” to read the one in {box}.",
+  "MR_WHICH_PAGE": "Some of these mailboxes belong to the same account, so I cannot tell them apart by words here: choose it {where}",
+  "MR_WHICH_TYPED": "Name the one you mean with --message {refs}.",
+  "MR_BOX_NOTE": "I could not read {boxes} just now, so there may be more.",
+  "MR_BOX_FAILED": "I could not read {boxes} just now, so I will not guess which e-mail {n} you mean. Try again in a few minutes.",
+  "MR_DAY_UNREAD": "I could not tell which day you mean, or an e-mail has no time recorded, so I did not choose by date. Say its number or some words of its sender or subject.",
+  "UNDERSTOOD_MAIL_READ_N": "show the text of e-mail {n}",
+  "UNDERSTOOD_MAIL_READ_WORDS": "show the text of the e-mail with “{words}”",
+  "UNDERSTOOD_MAIL_READ_DAY": "show the text of the e-mail of “{day}”",
+  "UNDERSTOOD_MAIL_READ_WORDS_DAY": "show the text of the e-mail with “{words}” of “{day}”"
+ }
+}

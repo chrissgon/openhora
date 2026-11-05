@@ -3,15 +3,17 @@
   "runs": 1,
   "timeout": 900,
   "max_cost_usd": null,
-  "harness": "agents-dir",
-  "floor_harness": "agents-dir",
-  "models": {
-    "strong": "example-strong-1",
-    "floor": "example-floor-1"
+  "adapters": {
+    "example-model-1": "agents-dir",
+    "example-model-2": "agents-dir"
   },
-  "grader": "example-strong-1",
+  "models": {
+    "m1": "example-model-1",
+    "m2": "example-model-2"
+  },
+  "grader": "example-model-1",
   "threshold": 0.8,
-  "strong_tolerance": 0.05,
+  "tolerance": 0.05,
   "measurement_version": 5,
   "ablate": null,
   "run_summary": {
@@ -55,7 +57,7 @@
         }
       ]
     },
-    "with_skill.floor": {
+    "with_skill.m2": {
       "pass_rate": {
         "mean": 0.389,
         "stddev": 0.283,
@@ -131,7 +133,7 @@
         }
       ]
     },
-    "without_skill.floor": {
+    "without_skill.m2": {
       "pass_rate": {
         "mean": 0.111,
         "stddev": 0.157,
@@ -169,12 +171,12 @@
     }
   },
   "conditions": {
-    "strong_delta": 0.111,
-    "strong_delta_ok": true,
-    "strong_pass_rate": 0.833,
-    "strong_ok": true,
-    "floor_pass_rate": 0.389,
-    "floor_ok": false
+    "delta": 0.111,
+    "delta_ok": true,
+    "pass_rate": 0.833,
+    "ok": true,
+    "pass_rate.m2": 0.389,
+    "ok.m2": false
   },
   "failures": 0,
   "date": "2026-09-14",
@@ -191,13 +193,13 @@
   "infra_failures": [],
   "contaminated": [],
   "early_ends": {
-    "strong": {
+    "example-model-1": {
       "attempts": 6,
       "early_ends": 0,
       "rate": 0.0,
       "by_case": {}
     },
-    "floor": {
+    "example-model-2": {
       "attempts": 6,
       "early_ends": 0,
       "rate": 0.0,

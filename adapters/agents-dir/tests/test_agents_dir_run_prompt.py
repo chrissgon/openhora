@@ -308,3 +308,69 @@ def test_allow_web_reaches_a_custom_runner(case):
     assert r.returncode == 0 and (case / "out" / "response.md").read_text() == "web=1\n"
     r = run(case, cmd="echo web=$RUN_PROMPT_ALLOW_WEB")
     assert r.returncode == 0 and (case / "out" / "response.md").read_text() == "web=0\n"
+
+
+# --- R12: what a run did with a skill's folder (skills_loaded, skills_used) -------------------------------
+
+def timing_after(case, *calls):
+    """The timing.json of a run whose events are one tool_use per call: (tool, input)."""
+    events = [{"type": "step_start", "part": {"type": "step-start"}}]
+    for tool, args in calls:
+        events.append({"type": "tool_use", "part": {"type": "tool", "tool": tool, "state": {"status": "completed", "input": args}}})
+    events.append({"type": "text", "part": {"type": "text", "text": "done"}})
+    lines = "\n".join(json.dumps(e) for e in events)
+    r = run_fake(case, fake_runner(case, f"cat <<'EOF'\n{lines}\nEOF\n"))
+    assert r.returncode == 0, r.stderr
+    return json.loads((case / "out" / "timing.json").read_text())
+
+
+def test_a_follow_up_that_only_ran_the_skills_script_used_the_skill_and_did_not_load_it(case):
+    timing = timing_after(case, ("bash", {"command": "python3 .agents/skills/demo/scripts/check.py --help"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], ["demo"])
+
+
+def test_reading_the_skills_text_with_a_shell_command_is_loading_it(case):
+    timing = timing_after(case, ("bash", {"command": "cat /eval/case/.agents/skills/demo/SKILL.md | head -40"}),
+                          ("grep", {"pattern": "Stop rules", "path": ".agents/skills/dep/SKILL.md"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])
+
+
+def test_a_reference_read_or_a_listing_of_the_skills_folder_is_use_and_a_listing_of_all_skills_is_neither(case):
+    timing = timing_after(case, ("read", {"filePath": "/eval/case/.agents/skills/demo/references/guide.md"}),
+                          ("bash", {"command": "ls .agents/skills"}), ("bash", {"command": "ls .agents/skills/"}),
+                          ("bash", {"command": "ls '.agents/skills/dep'"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], ["demo", "dep"])
+    assert timing_after(case, ("bash", {"command": "ls .agents/skills"}))["skills_used"] == []
+
+
+@pytest.mark.parametrize("path", [".agents/skills/../demo/SKILL.md", ".agents/skills/./demo/SKILL.md", ".agents/skills/.hidden/SKILL.md",
+                                  "/eval/case/x.agents/skills/demo/SKILL.md"])
+def test_a_path_that_does_not_name_a_skill_folder_is_neither(case, path):
+    timing = timing_after(case, ("read", {"filePath": path}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], [])
+
+
+def test_the_skill_tool_loads_and_uses(case):
+    timing = timing_after(case, ("skill", {"name": "demo"}), ("skill", {"name": "dep"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])
+
+
+@pytest.mark.parametrize("command", ["ls .agents/skills/demo;echo done", "(cd .agents/skills/demo)", "ls .agents/skills/demo|wc -l",
+                                     "ls .agents/skills/demo&&true", "cat < .agents/skills/demo>x", "grep -c x .agents/skills/demo:", "echo `ls .agents/skills/demo`"])
+def test_the_folder_ends_at_a_shell_delimiter_too(case, command):
+    assert timing_after(case, ("bash", {"command": command}))["skills_used"] == ["demo"]
+
+
+def test_a_writes_content_an_edits_text_and_a_subagents_prompt_are_not_use(case):
+    timing = timing_after(case, ("write", {"filePath": "notes.md", "content": "see .agents/skills/demo/SKILL.md and .agents/skills/dep/scripts/x.py"}),
+                          ("edit", {"filePath": "notes.md", "oldString": "a", "newString": ".agents/skills/demo/SKILL.md"}),
+                          ("task", {"prompt": "read .agents/skills/demo/SKILL.md", "description": ".agents/skills/dep/"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], [])
+    timing = timing_after(case, ("write", {"filePath": ".agents/skills/demo/notes.md", "content": "x"}), ("glob", {"pattern": ".agents/skills/dep/**"}))
+    assert timing["skills_used"] == ["demo", "dep"]
+
+
+def test_one_command_over_several_skills_text_loads_none_of_them_and_uses_all(case):
+    timing = timing_after(case, ("bash", {"command": "cat .agents/skills/demo/SKILL.md .agents/skills/dep/SKILL.md"}),
+                          ("grep", {"pattern": "x", "path": ".agents/skills/demo/SKILL.md"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo"], ["demo", "dep"])

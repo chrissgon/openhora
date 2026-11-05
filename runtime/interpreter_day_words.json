@@ -1,0 +1,31 @@
+{
+  "v": 1,
+  "what": "Words that name a day, a month or a length of days in languages that have no time table (es, fr, de, it), accent-folded and lower case, written as phrases of words. Used ONLY to detect: a line whose time code read, and that holds one of these words outside the time phrase, is asked about (time-ask) and never read as the clock's own day. Nothing here is ever read as a date. weekdays, months and relative are checked for every reading; units (day, week and month words: \"en dos dias\", \"dans 2 jours\") only for a reading with no day; dotted (a two-letter weekday that needs its period: \"Do.\") is a list of letters matched with the period. A word that is also a name or a common word of another language is listed all the same: a question costs less than a card on a wrong day. Add a language by adding a key.",
+  "languages": {
+    "es": {
+      "weekdays": ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo", "lun", "mar", "mie", "jue", "vie", "sab", "dom"],
+      "months": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "setiembre", "octubre", "noviembre", "diciembre", "ene", "abr", "ago", "sept", "oct", "nov", "dic"],
+      "relative": ["hoy", "manana", "pasado manana", "proxima semana", "semana proxima", "semana que viene", "proximo mes", "fin de semana"],
+      "units": ["dia", "dias", "semana", "semanas", "mes", "meses"]
+    },
+    "fr": {
+      "weekdays": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche", "lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
+      "months": ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre", "janv", "fevr", "avr", "juil", "sept", "oct", "nov", "dec"],
+      "relative": ["aujourd hui", "demain", "apres demain", "semaine prochaine", "prochaine semaine", "mois prochain", "week end"],
+      "units": ["jour", "jours", "semaine", "semaines", "mois"]
+    },
+    "de": {
+      "weekdays": ["montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonnabend", "sonntag", "montags", "dienstags", "mittwochs", "donnerstags", "freitags", "samstags", "sonntags", "sonnabends"],
+      "months": ["januar", "janner", "jaenner", "februar", "marz", "maerz", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "dezember", "jan", "feb", "mrz", "okt", "dez"],
+      "relative": ["heute", "morgen", "ubermorgen", "uebermorgen", "nachste woche", "naechste woche", "kommende woche", "nachsten monat", "wochenende"],
+      "units": ["tag", "tage", "tagen", "woche", "wochen", "monat", "monate", "monaten"],
+      "dotted": ["mo", "di", "mi", "do", "fr", "sa", "so"]
+    },
+    "it": {
+      "weekdays": ["lunedi", "martedi", "mercoledi", "giovedi", "venerdi", "sabato", "domenica", "lun", "mar", "mer", "gio", "ven", "sab", "dom"],
+      "months": ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre", "mag", "giu", "lug", "ago", "ott", "dic"],
+      "relative": ["oggi", "domani", "dopodomani", "settimana prossima", "prossima settimana", "mese prossimo", "fine settimana"],
+      "units": ["giorno", "giorni", "settimana", "settimane", "mese", "mesi"]
+    }
+  }
+}

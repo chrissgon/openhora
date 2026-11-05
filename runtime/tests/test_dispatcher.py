@@ -250,10 +250,10 @@ def test_run_next_returns_what_it_returned_before(tree):
     assert ops.run_next(path) == {"ran": None, "reason": "no task is ready", "recovered": [], "pending": 1}
 
 
-def test_a_round_without_the_reference_model_s_credential_starts_nothing_and_says_why(tree, monkeypatch):
+def test_a_round_without_the_credential_of_the_tasks_model_starts_nothing_and_says_why(tree, monkeypatch):
     path = str(tree["project"])
     planned(tree, "chain")
-    monkeypatch.setattr(lab, "credential_missing", lambda tier: ["EXAMPLE_REFERENCE_KEY"])
+    monkeypatch.setattr(lab, "credential_missing", lambda model=None: ["EXAMPLE_REFERENCE_KEY"])
     out = ops.dispatch(path)
     assert out["ran"] == [] and st.calls(tree["adapter"]) == []
     assert "EXAMPLE_REFERENCE_KEY" in out["stopped"] and "secret store" in out["stopped"] and "Python" in out["stopped"]

@@ -40,6 +40,9 @@ PERSON = "5511900000000"
 BSUID = "BR.fakeuserid1234567"
 TEXT = "the quarterly plan for northwind-shop is ready"
 NOW = 1_800_000_000.0
+MEDIA_ID = "1234567890123456"
+MEDIA_HOST = "lookaside.fbsbx.com"
+MEDIA_URL = f"https://{MEDIA_HOST}/whatsapp_business/attachments/?mid={MEDIA_ID}&ext=1800000300&hash=fakehash"
 
 
 def settings(**more):
@@ -79,6 +82,19 @@ def button_reply(wamid="wamid.B1", action="7:approve", context="wamid.CARD", sen
 def template_tap(wamid="wamid.T1", sender=PERSON, uid=BSUID, at=NOW):
     return {"id": wamid, "type": "button", "from": sender, "from_user_id": uid, "timestamp": str(int(at)),
             "button": {"payload": "See decisions", "text": "See decisions"}}
+
+
+def media_message(kind, media=None, wamid="wamid.M1", sender=PERSON, uid=BSUID, at=NOW, context=None, **fields):
+    """An inbound medium of the Cloud API: `kind` is document, image, audio, video or sticker; `media` the object under that key."""
+    body = {"id": MEDIA_ID, "mime_type": "application/pdf", "sha256": "ZmFrZWhhc2g="} if media is None else media
+    message = {"id": wamid, "type": kind, kind: {**body, **fields}, "timestamp": str(int(at))}
+    if sender is not None:
+        message["from"] = sender
+    if uid is not None:
+        message["from_user_id"] = uid
+    if context:
+        message["context"] = {"id": context}
+    return message
 
 
 def body_of(payload) -> bytes:
@@ -142,6 +158,67 @@ class Opener:
         return [b for b in self.sent() if b.get("type") == kind]
 
 
+class StreamResponse:
+    """A body that is read as a socket is read: `read(n)` hands out the next bytes, `total` counts what was handed out."""
+
+    def __init__(self, data=b"", headers=None, error=None):
+        self.data, self.pos, self.total, self.headers, self.error = data, 0, 0, dict(headers or {}), error
+
+    def read(self, n=-1):
+        if self.error is not None and self.pos >= len(self.data):
+            raise self.error
+        end = len(self.data) if n is None or n < 0 else min(len(self.data), self.pos + n)
+        chunk = self.data[self.pos:end]
+        self.pos = end
+        self.total += len(chunk)
+        return chunk
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class EndlessResponse(StreamResponse):
+    """A body that never ends (a host that sends more than it declared)."""
+
+    def read(self, n=-1):
+        n = 65536 if n is None or n < 0 else n
+        self.total += n
+        return b"x" * n
+
+
+class MediaOpener:
+    """A fake media host. `rule` is a function(call) -> StreamResponse | Exception | bytes; the default answers `payload`. Every call is recorded
+    with its URL, its Authorization header and its timeout."""
+
+    def __init__(self, rule=None, payload=b"%PDF-1.4 fake body"):
+        self.rule, self.payload, self.calls, self.lock = rule, payload, [], threading.Lock()
+
+    def open(self, request, timeout=None):
+        call = {"url": request.full_url, "auth": request.get_header("Authorization"), "timeout": timeout, "method": request.get_method()}
+        with self.lock:
+            self.calls.append(call)
+        answer = self.rule(call) if self.rule else self.payload
+        if isinstance(answer, Exception):
+            raise answer
+        return answer if isinstance(answer, StreamResponse) else StreamResponse(answer)
+
+
+def lookup(url=MEDIA_URL, size=None, sha=None, mime="application/pdf"):
+    """What Graph answers to GET /<media id>."""
+    found = {"messaging_product": "whatsapp", "url": url, "mime_type": mime, "id": MEDIA_ID}
+    if size is not None:
+        found["file_size"] = size
+    if sha is not None:
+        found["sha256"] = sha
+    return found
+
+
 class Pipe:
     """A binary stdin the test writes to and closes."""
 
@@ -196,14 +273,15 @@ class Clock:
 class Rig:
     """A Listener over a state folder, a fake Graph API and a pipe for stdin, run in a thread. `port` is the server's."""
 
-    def __init__(self, tmp_path, opener=None, clock=None, **options):
+    def __init__(self, tmp_path, opener=None, clock=None, media=None, **options):
         self.folder = str(tmp_path / "wc")
         os.makedirs(self.folder, mode=0o700, exist_ok=True)
         self.opener = opener or Opener()
         self.clock = clock or Clock()
         self.out, self.pipe, self.logs = Capture(), Pipe(), []
         self.store = wc.Store(self.folder, self.clock)
-        graph = wc.Graph(TOKEN, PHONE_ID, opener=self.opener)
+        self.media = media or MediaOpener()
+        graph = wc.Graph(TOKEN, PHONE_ID, opener=self.opener, media_opener=self.media)
         self.listener = wc.Listener(settings(), dict(SECRETS), self.store, out=self.out, stdin=self.pipe.reader, graph=graph,
                                     clock=self.clock, log=self.logs.append, **options)
         self.result = []
@@ -236,6 +314,13 @@ class Rig:
 
     def ask(self, number, chat, message):
         self.pipe.send({"id": number, "op": "send", "chat": chat, "message": message})
+        assert wait_for(lambda: any(a["id"] == number for a in self.out.answers())), (self.out.lines, self.logs)
+        return next(a for a in self.out.answers() if a["id"] == number)
+
+    def fetch(self, number, ref, out, max_bytes, wait=True):
+        self.pipe.send({"id": number, "op": "fetch", "ref": ref, "out": str(out), "max_bytes": max_bytes})
+        if not wait:
+            return None
         assert wait_for(lambda: any(a["id"] == number for a in self.out.answers())), (self.out.lines, self.logs)
         return next(a for a in self.out.answers() if a["id"] == number)
 

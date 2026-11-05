@@ -1,0 +1,5 @@
+## 2026-10-28: the second batch regenerates the platform blocks (BATCH-KEEPER regen 2; no model call, no lab run, fingerprint unchanged)
+
+After the merges of CB-3 (#595), CB-8, FA-0, SLOW-1 and the keeper's own fixes, seven generated blocks of `docs/architecture/platform/` differed from their sources: `channel-groups` (`messaging.md`), `runtime-modules`, `limits`, `cli-verbs` and `operations` (`runtime.md`), and `cli-verbs` and `service-routes` (`shells.md`). `python3 scripts/architecture_tables.py --write` rewrote them, and `--check` is clean afterwards. `python3 scripts/owner_table.py --check` found the table of owning skills current, so it was not rewritten. The commit holds only the regenerated output and this entry.
+
+Principle 13: a batch pays for the regeneration once per group of merges, which is what lets a package's own pull request leave these blocks alone (HOT-1); the loss is that a block can be stale on the integration branch between two batches, which the lenient mode of the check allows there and the strict mode on a batch closes.

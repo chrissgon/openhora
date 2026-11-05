@@ -23,32 +23,62 @@ import itertools
 import json
 import os
 import queue
+import re
 import signal
 import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CAPABILITY_KEYS = {"max_text": int, "buttons": bool, "max_buttons": int, "max_button_label": int, "lists": bool,
                    "max_list_rows": int, "url_buttons": bool, "reply_context": bool, "documents": bool}
-OPTIONAL_KEYS = {"listen": bool}   # a capability a provider may leave out; absent is stored as False
+OPTIONAL_KEYS = {"listen": bool, "actions_need_reply": bool, "attachments": bool, "max_attachment_bytes": int, "typing": bool,
+                 "send_files": bool, "max_send_bytes": int, "max_photo_bytes": int, "photo_types": list, "send_types": list}   # a capability a provider may leave out; absent is stored as False (0 for a number)
+# actions_need_reply: the bridge acts on a typed approve, reject, release or answer only when the update is a reply to the card of that decision
+# (e-mail: an address proves little, and a reply that names the card's random Message-ID also proves the card reached the person)
+# attachments: the provider maps a file a sender sends into the update's `attachments` and serves `fetch-attachment` (and the listen op `fetch`); without it the bridge
+# typing: the provider serves the verb `typing --chat <id>` (the platform's "typing..." indicator, S10); a platform without it is simply not asked
+# sends no attachment intent anywhere and answers "This app's connection does not take files yet." max_attachment_bytes: the most the platform serves for one file (0: none said)
+# send_files (S18): the provider takes a `file` entry in the neutral message and sends the file at its path, as a photo or as a document; max_send_bytes the most it sends as a document, max_photo_bytes the most as a
+# photo, photo_types the image types (subtypes read from the bytes: png, jpeg...) it shows as a photo, send_types the types of file it takes at all; without send_files no file is ever handed to it
 SEND_SECONDS = 60
+FILE_SEND_EXTRA = 120              # seconds more for a send with a file: a provider makes up to four calls of its own (the text, its plain resend, the file; Telegram: 30 s each), so the bridge never gives up before it does
+TYPING_SECONDS = 15                # the typing indicator is a small call; the bridge does not wait for it
 MAX_LINE = 1 << 20                 # the longest line of the listen protocol, either way, without its newline
 READY_SECONDS = 180                # the first start of a provider with pinned dependencies installs them
 BACKOFF = (1.0, 300.0)             # the first wait before a restart and its ceiling; each wait doubles the last
 RESET_AFTER = 600.0                # a provider ready this long has earned the first wait again
 MAX_STARTS = 200                   # starts per rolling window: a platform may reset a credential that connects too often
 START_WINDOW = 86400.0
+GONE_LINE = "gone"                 # the last non-empty line of stderr of a `fetch-attachment` that exits 1 for a reference the platform no longer serves
+FETCH_SECONDS = 150                # one fetch of an attachment (the provider's own limit is 120 s; the connect, the stream and the hash fit in the rest)
+ATTACHMENTS_MAX = 10               # elements of an update's `attachments`
+ATTACHMENT_NAME_MAX = 1024         # characters of a name an update may carry (the bridge cuts it to 100 for a person)
+ATTACHMENT_TYPE_MAX = 127          # a media type is `type/subtype` of at most 127 characters (RFC 6838)
+MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
+MEDIA_WORDS = ("photo", "voice", "video", "audio", "sticker")     # what a provider names a medium it has no media type for (attachments.MEDIA_KINDS)
 STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGTERM, before SIGKILL
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
-ERROR_KINDS = ("usage", "not-configured", "failed", "paused")
-ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred")   # "paused" is an error-event kind only: a send answer cannot be paused today; the kinds of a send that did not go out; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
+ERROR_KINDS = ("usage", "not-configured", "failed", "paused", "skipped")   # "skipped" is not the state of the run: a message the provider gave up (ListenSession.take_unread)
+ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred", "gone")   # "paused" is an error-event kind only: a send answer cannot be paused today; the kinds of a send or a fetch that did not go out; "gone" is a fetch of a reference the platform no longer serves; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
 PAUSED_WAIT = 300.0                # a provider that exits 3 after an error event of kind "paused" (its session is gone) is asked again after this
 PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
+
+
+class Sent(str):
+    """The id of the message a send answered, a str as it always was, with `document_failed`: true when the text went out and the document that
+    was to follow it did not (the provider's answer says so). A card whose approval needs its whole text delivered reads it
+    (messaging_bridge.send_card): the id alone never said the document arrived."""
+
+    def __new__(cls, value, document_failed: bool = False):
+        found = super().__new__(cls, value)
+        found.document_failed = bool(document_failed)
+        return found
 
 
 class MessengerError(Exception):
@@ -84,6 +114,8 @@ class Messenger:
             return self.module.call(f"messenger:{self.platform}", verb, ["--platform", self.platform, *args], root=self.root,
                                     implementation=self.implementation, timeout=timeout)
         except self.module.ProviderCallError as e:
+            if verb == "fetch-attachment" and e.kind == "failed" and getattr(e, "exit_code", None) == 1 and getattr(e, "stderr_last", None) == GONE_LINE:
+                raise MessengerError("gone", "the platform no longer serves the file") from None      # exit 1 and the LAST non-empty line of stderr is exactly `gone`
             raise MessengerError(e.kind, e.stderr_tail or e.reason) from None
 
     def capabilities(self) -> dict:
@@ -96,8 +128,13 @@ class Messenger:
             for key, kind in OPTIONAL_KEYS.items():
                 if key in found and type(found[key]) is not kind:
                     raise MessengerError("failed", f"capabilities has a {key} that is not a {kind.__name__}")
+            if found.get("max_attachment_bytes", 0) < 0:
+                raise MessengerError("failed", "capabilities has a max_attachment_bytes below 0")
+            if found.get("max_send_bytes", 0) < 0 or found.get("max_photo_bytes", 0) < 0:
+                raise MessengerError("failed", "capabilities has a send limit below 0")
             self._caps = {key: found[key] for key in CAPABILITY_KEYS}
-            self._caps.update({key: found.get(key, False) for key in OPTIONAL_KEYS})
+            self._caps.update({key: found.get(key, kind()) for key, kind in OPTIONAL_KEYS.items() if kind is not bool})
+            self._caps.update({key: found.get(key, False) for key, kind in OPTIONAL_KEYS.items() if kind is bool})
         return self._caps
 
     def open_session(self, log=None) -> None:
@@ -109,6 +146,11 @@ class Messenger:
     def close_session(self) -> None:
         if self.session is not None:
             self.session.close()
+
+    def take_unread(self) -> int:
+        """How many messages the provider gave up since the last call (error events of kind `skipped`), and forget them. 0 for a provider that
+        does not listen: a provider that is polled writes no events."""
+        return self.session.take_unread() if self.session is not None else 0
 
     def receive(self, offset: int, timeout: int) -> dict:
         if self.session is not None:
@@ -126,7 +168,7 @@ class Messenger:
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(message, f)
-            found = self._call("send", ["--chat", str(chat), "--message-file", path])
+            found = self._call("send", ["--chat", str(chat), "--message-file", path], timeout=SEND_SECONDS + (FILE_SEND_EXTRA if message.get("file") else 0))
         finally:
             try:
                 os.unlink(path)
@@ -134,7 +176,30 @@ class Messenger:
                 pass
         if not isinstance(found.get("message_id"), str):
             raise MessengerError("failed", "send did not return a message_id")
-        return found["message_id"]
+        return Sent(found["message_id"], found.get("document_failed") is True)
+
+    def typing(self, chat: str) -> bool:
+        """Show the platform's typing indicator in `chat` once (S10). False, and nothing asked, for a platform that does not declare `typing` and for a provider that listens
+        (its protocol has no such op); a failed call is the caller's to ignore (MessengerError)."""
+        if self.session is not None or not self.capabilities().get("typing"):
+            return False
+        self._call("typing", ["--chat", str(chat)], timeout=TYPING_SECONDS)
+        return True
+
+    def fetch(self, ref: str, out_dir: str, max_bytes: int) -> dict:
+        """Ask the provider to fetch the attachment `ref` of this platform into `<out_dir>/content`, at most `max_bytes`. Returns {"bytes", "sha256"}, checked
+        for shape. MessengerError `gone` when the platform no longer serves it. The bridge passes a reference the provider handed it in an update, a folder it made and
+        a number: never an address."""
+        if not isinstance(ref, str) or not ref or not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+            raise MessengerError("usage", "a fetch names a reference and a positive byte cap")
+        if self.session is not None:
+            found = self.session.fetch(ref, out_dir, max_bytes)
+        else:
+            found = self._call("fetch-attachment", ["--ref", ref, "--out", out_dir, "--max-bytes", str(max_bytes)], timeout=FETCH_SECONDS)
+        if type(found.get("bytes")) is not int or found["bytes"] < 0 or not isinstance(found.get("sha256"), str) or len(found["sha256"]) != 64 \
+                or any(c not in "0123456789abcdef" for c in found["sha256"]):
+            raise MessengerError("failed", "fetch did not return the byte count and the sha256")
+        return {"bytes": found["bytes"], "sha256": found["sha256"]}
 
     def ack(self, action_ref: str) -> None:
         if self.session is not None:
@@ -163,7 +228,8 @@ def line_of(value: dict) -> bytes:
 
 def valid_update(raw):
     """The update the bridge handles, or None when `raw` is not one: a private chat, a non-empty sender and chat, and text,
-    action and reply_to each a string or null. `action_ref` is always null here: the provider has already acknowledged."""
+    action and reply_to each a string or null. `action_ref` is always null here: the provider has already acknowledged. `forwarded` is
+    always there, a boolean (`forwarded_of`)."""
     if not isinstance(raw, dict) or raw.get("private") is not True:
         return None
     for key in ("sender", "chat"):
@@ -172,8 +238,61 @@ def valid_update(raw):
     for key in ("text", "action", "reply_to"):
         if raw.get(key) is not None and not isinstance(raw[key], str):
             return None
-    return {"sender": raw["sender"], "chat": raw["chat"], "private": True, "text": raw.get("text"), "action": raw.get("action"),
-            "action_ref": None, "reply_to": raw.get("reply_to")}
+    out = {"sender": raw["sender"], "chat": raw["chat"], "private": True, "text": raw.get("text"), "action": raw.get("action"),
+           "action_ref": None, "reply_to": raw.get("reply_to"), "forwarded": forwarded_of(raw)}
+    if raw.get("attachments") is not None:
+        found = valid_attachments(raw["attachments"])
+        if found is None:
+            return None
+        if found:
+            out["attachments"] = found      # the key is there only when the update carries a file
+    return out
+
+
+def forwarded_of(raw: dict) -> bool:
+    """Whether the provider marked the update as forwarded (FWD): `forwarded` absent or `false` is no; `true`, and any other value (a string, a number, `null`), is yes. An
+    unreadable mark fails closed: a forward is never a request, and a line wrongly taken for one costs the person one sentence."""
+    return "forwarded" in raw and raw["forwarded"] is not False
+
+
+def valid_attachments(raw):
+    """The `attachments` of an update, checked, or None when they are not valid (the update is then dropped, logged by class): a list of at most ATTACHMENTS_MAX
+    objects with `ref` (a string of 1 to 512 characters, opaque to the bridge), `name` (a string or null), `size` (a whole number of bytes, not a boolean, or null) and
+    `type` (a string or null: a media type, or photo, voice, video, audio, sticker). Only these four keys are kept."""
+    if not isinstance(raw, list) or len(raw) > ATTACHMENTS_MAX:
+        return None
+    out = []
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("ref"), str) or not 1 <= len(item["ref"]) <= 512:
+            return None
+        for key in ("name", "type"):
+            if item.get(key) is not None and not isinstance(item[key], str):
+                return None
+        size = item.get("size")
+        if size is not None and (type(size) is not int or size < 0):
+            return None
+        out.append({"ref": item["ref"], "name": clean_attachment_name(item.get("name")), "size": size, "type": clean_attachment_type(item.get("type"))})
+    return out
+
+
+def clean_attachment_name(name):
+    """A name from a platform, as the bridge keeps it: control, format, separator and unassigned characters out (a bidirectional override cannot disguise an
+    extension), white space collapsed, at most ATTACHMENT_NAME_MAX characters; None for none or for a name that leaves nothing."""
+    if not isinstance(name, str):
+        return None
+    text = "".join(c if unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else " " for c in name[:4 * ATTACHMENT_NAME_MAX])
+    return " ".join(text.split())[:ATTACHMENT_NAME_MAX] or None
+
+
+def clean_attachment_type(kind):
+    """A declared type, or None: `type/subtype` of at most ATTACHMENT_TYPE_MAX characters made of the characters a media type has (parameters after `;` are
+    dropped), or one of MEDIA_WORDS. Anything else is not a type: the bytes decide what the file is."""
+    if not isinstance(kind, str):
+        return None
+    word = kind[:ATTACHMENT_TYPE_MAX + 200].split(";", 1)[0].strip().lower()
+    if word in MEDIA_WORDS:
+        return word
+    return word if len(word) <= ATTACHMENT_TYPE_MAX and MEDIA_TYPE.fullmatch(word) else None
 
 
 class Run:
@@ -210,12 +329,13 @@ class ListenSession:
     again after the next ready. The options are injectable so tests need no clock."""
 
     def __init__(self, module, platform, root, implementation, log=None, ready_seconds=READY_SECONDS, send_seconds=SEND_SECONDS,
-                 backoff=BACKOFF, reset_after=RESET_AFTER, stdin_wait=STDIN_WAIT, term_wait=TERM_WAIT, max_starts=MAX_STARTS,
+                 fetch_seconds=FETCH_SECONDS, backoff=BACKOFF, reset_after=RESET_AFTER, stdin_wait=STDIN_WAIT, term_wait=TERM_WAIT, max_starts=MAX_STARTS,
                  window=START_WINDOW, clock=time.monotonic, queue_size=UPDATE_QUEUE, env=None, join_wait=5.0,
                  paused_wait=PAUSED_WAIT, paused_repeat=PAUSED_REPEAT):
         self.module, self.platform, self.root, self.implementation = module, platform, root, implementation
         self.log = log or (lambda text: print(text, file=sys.stderr, flush=True))
         self.ready_seconds, self.send_seconds, self.backoff, self.reset_after = ready_seconds, send_seconds, backoff, reset_after
+        self.fetch_seconds = fetch_seconds
         self.stdin_wait, self.term_wait, self.max_starts, self.window = stdin_wait, term_wait, max_starts, window
         self.clock, self.env, self.join_wait = clock, env, join_wait
         self.paused_wait, self.paused_repeat, self.paused_logged = paused_wait, paused_repeat, None
@@ -223,6 +343,8 @@ class ListenSession:
         self.inbox = deque()                     # the updates, bounded by queue_size
         self.inbox_cv = threading.Condition()    # its own lock: the reader takes it for an instant and never waits on it
         self.woken = False
+        self.skip_noted = False                  # one log line for a burst of skipped events, until the bridge takes the count
+        self.unread = 0                          # messages the provider gave up (error events of kind "skipped") and the bridge has not taken; under inbox_cv
         self.cv = threading.Condition()          # guards run, closing, fatal, generation
         self.run = None
         self.closing = threading.Event()
@@ -259,6 +381,12 @@ class ListenSession:
             self.woken = True
             self.inbox_cv.notify_all()
 
+    def take_unread(self) -> int:
+        """The number of messages the provider gave up since the last call, and reset it. Only the count: what the provider said of them is never kept."""
+        with self.inbox_cv:
+            found, self.unread, self.skip_noted = self.unread, 0, False
+            return found
+
     def send(self, chat: str, message: dict) -> str:
         with self.cv:
             run = self.run
@@ -268,7 +396,29 @@ class ListenSession:
         line = line_of({"id": number, "op": "send", "chat": str(chat), "message": message})
         if len(line) - 1 > MAX_LINE:
             raise MessengerError("usage", "the message is over the limit of one protocol line")
-        entry = [threading.Event(), None]
+        answer = self.request(run, number, line, "send", self.send_seconds + (FILE_SEND_EXTRA if message.get("file") else 0))
+        if answer.get("ok") is True:
+            return Sent(answer["message_id"], answer.get("document_failed") is True)
+        raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the send failed"))
+
+    def fetch(self, ref: str, out_dir: str, max_bytes: int) -> dict:
+        """The listen op `fetch`: the provider downloads the attachment `ref` into `<out_dir>/content`, at most `max_bytes`, and answers {"bytes", "sha256"}; a failure
+        is the same line as a send's (kind `gone` for a reference the platform no longer serves). The wait is `fetch_seconds`, not the send's."""
+        with self.cv:
+            run = self.run
+            if self.closing.is_set() or run is None or not run.ready:
+                raise MessengerError("failed", "the messenger provider is not ready")
+        number = next(self.ids)
+        line = line_of({"id": number, "op": "fetch", "ref": str(ref), "out": str(out_dir), "max_bytes": int(max_bytes)})
+        answer = self.request(run, number, line, "fetch", self.fetch_seconds)
+        if answer.get("ok") is True:
+            return {"bytes": answer.get("bytes"), "sha256": answer.get("sha256")}
+        raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the fetch failed"))
+
+    def request(self, run, number: int, line: bytes, op: str, seconds: float) -> dict:
+        """Write one request line and wait for its answer (the one path of a send and a fetch). The waiting entry remembers the op, so that the reader
+        knows the shape of the answer it must be."""
+        entry = [threading.Event(), None, op]
         with self.waiting_lock:
             self.waiting[number] = entry
         if run.exited or self.closing.is_set():   # exit_loop and close() set their flag before they fail the waiting requests, so one of them sees this request
@@ -276,14 +426,11 @@ class ListenSession:
                 self.waiting.pop(number, None)
             raise MessengerError("failed", "the messenger provider exited or is stopping")
         run.out.put((number, line))
-        if not entry[0].wait(self.send_seconds):
+        if not entry[0].wait(seconds):
             with self.waiting_lock:
                 self.waiting.pop(number, None)
             raise MessengerError("failed", "the messenger provider did not answer in time")
-        answer = entry[1]
-        if answer.get("ok") is True:
-            return answer["message_id"]
-        raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the send failed"))
+        return entry[1]
 
     def close(self) -> None:
         """Stop: close the provider's stdin, wait stdin_wait, SIGTERM to its group, wait term_wait, SIGKILL, by group only.
@@ -546,6 +693,12 @@ class ListenSession:
             elif not self.full_noted:
                 self.full_noted = True
                 self.log("the update queue is full; the newest updates are dropped")
+        elif event == "error" and found.get("kind") == "skipped":
+            with self.inbox_cv:      # a skip is not the state of the run: `kind` and `reason` stay as they were, and the reason is never stored, logged or forwarded
+                self.unread += 1
+                first, self.skip_noted = not self.skip_noted, True
+            if first:      # one line for a burst (a list of 200 given up at once), like full_noted
+                self.log("the messenger provider gave up a message it could not read (skipped)")
         elif event == "error":
             kind = found.get("kind") if found.get("kind") in ERROR_KINDS else "other"
             run.kind = kind
@@ -555,8 +708,15 @@ class ListenSession:
         elif event is not None:
             self.log("an event of a kind that is not known was dropped")
         elif type(found.get("id")) is int and type(found.get("ok")) is bool:
-            if found["ok"]:
-                answer = {"ok": True, "message_id": found.get("message_id")}
+            with self.waiting_lock:
+                asked = self.waiting.get(found["id"])
+            fetching = asked is not None and len(asked) > 2 and asked[2] == "fetch"
+            if found["ok"] and fetching:
+                answer = {"ok": True, "bytes": found.get("bytes"), "sha256": found.get("sha256")}
+                if type(answer["bytes"]) is not int or not isinstance(answer["sha256"], str):
+                    answer = {"ok": False, "kind": "failed", "reason": "the answer to a fetch has no byte count and sha256"}
+            elif found["ok"]:
+                answer = {"ok": True, "message_id": found.get("message_id"), "document_failed": found.get("document_failed") is True}
                 if not isinstance(answer["message_id"], str):
                     answer = {"ok": False, "kind": "failed", "reason": "the answer to a send has no message_id"}
             else:

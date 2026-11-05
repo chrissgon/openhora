@@ -154,7 +154,7 @@ def test_the_request_line_the_cancel_dialogs_count_and_the_resolved_words_come_f
     assert line["name"] == "Request 14, Spring campaign, requested"
     assert got["line"][1] is False, "a request that has an open question is not offered a route"
     assert got["line"][2] is False and got["line"][3] is False, "a final request cannot be cancelled; a planned one waits for its plan, not a route"
-    assert got["cancel"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started", "1 task, none started"]
+    assert got["cancel"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started Something of it is running: the run is stopped, what it has used so far is spent, and nothing it made is kept.", "1 task, none started"]
     assert got["resolved"] == ["Plan approved", "Question cancelled", "Review released"]
 
 
@@ -574,7 +574,7 @@ def test_the_new_request_form_is_closed_by_default_in_the_drawn_order_and_report
     got = run_node(tmp_path, CARD)
     f = got["form"]
     assert f["open"] is False and f["summary"] == [] and f["hidden"] is True, "R-44: no disclosure; the form is hidden until New request"
-    assert f["labels"] == ["What do you want done?", "Flow", "Title (optional)", "After request (optional)"] and f["button"] == ["Back to the conversation", "Create request"]       # A-29: the field after the title; R-46: a select
+    assert f["labels"] == ["What do you want done?", "Flow", "Model", "Language", "Title (optional)", "After request (optional)"] and f["button"] == ["Back to the conversation", "Create request"]       # A-29: the field after the title; R-46: a select
     assert f["options"] == [["", "Let the planning agent route it"], ["brand", "Brand"], ["design", "Design"]]
     assert f["hint"] == "A flow plans the request from a predefined route. Without one, the planning agent routes it."
     assert got["created"] == [{"text": "Add a sale page, <b>please</b>", "flow": "design", "title": ""}], "the form reports the typed text, the chosen flow and the title"

@@ -1,6 +1,6 @@
 {
   "config": {
-    "path": "/home/demo/northwind-shop/docs/workbench/runtime.json",
+    "file": "runtime.json",
     "sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4"
   },
   "requests": [
@@ -8,6 +8,7 @@
       "id": 1,
       "flow": "demo",
       "state": "done",
+      "model": null,
       "title": "Do the market analysis.",
       "on_board": false,
       "open_comments": 0,
@@ -46,6 +47,7 @@
       "id": 4,
       "flow": "gate-demo",
       "state": "planned",
+      "model": null,
       "title": "Carry the providers",
       "on_board": false,
       "open_comments": 0,
@@ -84,6 +86,7 @@
       "id": 7,
       "flow": "code-demo",
       "state": "planned",
+      "model": null,
       "title": "Two deliveries",
       "on_board": false,
       "open_comments": 0,
@@ -122,6 +125,7 @@
       "id": 10,
       "flow": null,
       "state": "requested",
+      "model": null,
       "title": "Name the app.",
       "on_board": false,
       "open_comments": 0,
@@ -133,6 +137,7 @@
       "id": 11,
       "flow": "demo",
       "state": "planned",
+      "model": null,
       "title": "Look at the market again.",
       "on_board": false,
       "open_comments": 0,

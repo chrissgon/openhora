@@ -1,6 +1,6 @@
 # Routing table: intent → area → skill
 
-Match the intent column, not the example words. Skills marked (planned) are not built yet, capabilities and flows alike: route to one by its name (the mark is not part of the name) with the status `pending`, say that it is not built, and propose the fallback of SKILL.md Stop rule 2. Of the flows, only `flow-fix-bug` is built; every other flow below is planned. Every built skill has a row, and a name without the mark is built.
+Match the intent column, not the example words. Skills marked (planned) are not built yet, capabilities and flows alike: route to one by its name (the mark is not part of the name) with the status `pending`, say that it is not built, and propose the fallback of SKILL.md Stop rule 2. A flow is built when it is a flow file of the workbench, `flows/<name>.json`, routed as `flow-<name>`; it is not a skill, so it is not among the skills installed in a session, and its route is `ready` all the same. The built flows are `flow-fix-bug`, `flow-build-feature`, `flow-improve-code`, `flow-new-project`, `flow-code-change`, `flow-website`, `flow-brand`, `flow-design`, `flow-market-positioning` and `flow-short-video`; every other flow below is planned. Every built skill and every built flow has a row, and a name without the mark is built.
 
 ## Business (`biz-`)
 
@@ -13,6 +13,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | How we reach and acquire the first customers | biz-gtm (planned) |
 | The whole plan in one document; investor narrative | biz-business-plan (planned) |
 | Validate or build a business end to end | flow-business-plan (planned) |
+| Size the market, then choose who to sell to first and how to stand out | flow-market-positioning |
 
 ## Product (`product-`)
 
@@ -35,7 +36,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | The brand book that compiles it all | brand-guidelines |
 | Find or check a name, a handle or a domain: is it free, who else uses it, is it the same everywhere | brand-name |
 | The profile a personal brand stands on: who the person is, the proof, the goal, the audiences, the themes | brand-profile |
-| Create a brand from nothing | flow-brand (planned) |
+| Create a brand from nothing: strategy, name, identity, voice and guidelines | flow-brand |
 
 ## Design (`design-`)
 
@@ -49,7 +50,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Does the implementation match the design | design-implementation-validation (planned) |
 | Run a brief in a design tool, a generator or a code prototype; review what a tool produced | design-execute |
 | Accessibility audit | design-accessibility-review (planned) |
-| Design a product's experience end to end | flow-design (planned) |
+| Design the screens of the workbench's own interface (today five: the City, the Building, the Floor, the Lobby and the Control room): the specification, the UX flows, the design system and a brief for each screen. A general flow to design any product end to end is not built | flow-design |
 
 ## Engineering (`eng-`)
 
@@ -67,10 +68,11 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Review a diff; security, edge cases, regressions, performance | eng-code-review |
 | Triage dependency security alerts (advisories, vulnerable packages): update or dismiss, with evidence | eng-security-review |
 | Update documentation for a change | eng-docs |
-| Fix a bug end to end | flow-fix-bug |
-| Build a feature end to end | flow-build-feature (planned) |
-| Improve existing code end to end | flow-improve-code (planned) |
-| Start a codebase from nothing | flow-new-project (planned) |
+| Fix a bug end to end: cause, failing tests, fix, review, pull request | flow-fix-bug |
+| Build a feature end to end: specification, design, tests, code, review, pull request | flow-build-feature |
+| Improve existing code end to end: impact, options, refactor, review, pull request | flow-improve-code |
+| Start a codebase from nothing: clarify the idea, specify the first feature, design it and write the backlog; each todo task of the backlog then becomes its own implement sub-task | flow-new-project |
+| A change to existing code that you describe, with the check that proves it, to its pull request | flow-code-change |
 | Take a ticket and implement it ("check ticket N and implement it", any ticket id or issue link) | flow-implement-ticket (planned) |
 
 ## Delivery and operations (`ops-`)
@@ -92,7 +94,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Plan a launch | mkt-launch-plan (planned) |
 | Content calendar | mkt-content-plan |
 | Write a social post (text only, nothing published) | mkt-social-copy |
-| A script and a caption for a short video post (a Reel, a TikTok, a Short): the text only, nothing recorded, edited or published | mkt-social-copy |
+| A script and a caption for a short video post (a Reel, a TikTok, a Short): the text only, nothing recorded, edited or published | flow-short-video |
 | Publish or schedule a post that is already written and illustrated | mkt-publish |
 | Reply to comments on the person's own posts; write an engagement policy or set up automatic replies | mkt-engage |
 | An audience vote closed: write the post on the winning topic and propose the next round | mkt-vote-round |
@@ -131,4 +133,5 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Intent | Skill |
 |--------|-------|
 | Build a digital product from scratch, business through launch | flow-new-product (planned) |
+| A website or a landing page, from the idea to its static pages | flow-website |
 | Where are we; what's next | read state, summarize, propose the next phase (no skill) |

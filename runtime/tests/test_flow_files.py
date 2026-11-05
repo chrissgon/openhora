@@ -91,3 +91,64 @@ def test_the_code_change_flow_is_valid_and_its_last_task_is_a_milestone():
     gate = manifest.load(str(REPO), "ops-pull-request")["gate"]
     assert gate == {"effect": "create", "payload_file": "<tmp>/payload.md"}
     assert manifest.load(str(REPO), "eng-implement")["gate"] is None
+
+
+def real_info(*skills):
+    info = {}
+    for name in skills:
+        folder = REPO / "skills" / name
+        meta = skill_meta.declared(str(folder))
+        info[name] = {"inputs": meta["inputs"], "outputs": meta["outputs"], "updates": meta["updates"],
+                      "skill_md": (folder / "SKILL.md").read_text(encoding="utf-8")}
+    return info
+
+
+def chain(*tasks):
+    return {"flow": "demo", "tasks": [{"key": k, "skill": sk, "depends_on": d} for k, sk, d in tasks]}
+
+
+def test_a_required_row_of_alternatives_is_met_by_one_path_written_or_updated_upstream():
+    skills = {"reader": {"inputs": ["docs/a.md", "docs/b.md"], "outputs": [],
+                         "skill_md": "## Inputs\n\n| Artifact | Required | If missing |\n|---|---|---|\n| `docs/a.md`, or `docs/b.md` | yes | Stop |\n"},
+              "writer": {"inputs": [], "outputs": ["docs/b.md"], "skill_md": ""},
+              "editor": {"inputs": [], "outputs": [], "updates": ["docs/b.md"], "skill_md": ""},
+              "other": {"inputs": [], "outputs": ["docs/a.md"], "skill_md": ""}}
+    assert flow_files.dependency_problems(chain(("writer", "writer", []), ("reader", "reader", ["writer"])), skills) == []
+    assert flow_files.dependency_problems(chain(("editor", "editor", []), ("reader", "reader", ["editor"])), skills) == []
+    # an unrelated writer is a miss, and the text says what to add
+    parallel = chain(("reader", "reader", []), ("writer", "writer", []))
+    assert flow_files.dependency_problems(parallel, skills) == ['task reader reads docs/b.md, which task writer writes: add "writer" to its depends_on']
+    # a row that no task upstream meets reports every path that a task of the flow writes, later or unrelated
+    both = chain(("reader", "reader", []), ("other", "other", []), ("writer", "writer", ["reader"]))
+    assert flow_files.dependency_problems(both, skills) == [
+        'task reader reads docs/a.md, which task other writes: add "other" to its depends_on',
+        "task reader reads docs/b.md, which only a later task writer writes: reorder the tasks"]
+    # a row that nobody in the flow writes is not computed
+    assert flow_files.dependency_problems(chain(("reader", "reader", [])), skills) == []
+
+
+def test_the_real_flows_in_the_right_order_have_no_problem_and_the_alternatives_row_of_implement_is_met_upstream():
+    skills = real_info("product-feature-spec", "eng-architecture", "eng-unit-tests", "eng-implement", "eng-code-review",
+                       "eng-root-cause", "product-backlog")
+    right = chain(("spec", "product-feature-spec", []), ("design", "eng-architecture", ["spec"]), ("tests", "eng-unit-tests", ["design"]),
+                  ("implement", "eng-implement", ["tests"]), ("review", "eng-code-review", ["implement"]))
+    assert flow_files.dependency_problems(right, skills) == []
+    fix = chain(("cause", "eng-root-cause", []), ("tests", "eng-unit-tests", ["cause"]), ("implement", "eng-implement", ["tests"]),
+                ("review", "eng-code-review", ["implement"]))
+    assert flow_files.dependency_problems(fix, skills) == []
+
+
+@pytest.mark.parametrize("tasks, reader, path, later", [
+    ([("design", "eng-architecture", []), ("spec", "product-feature-spec", ["design"])], "design",
+     "docs/product/specs/<feature>.md", "spec"),                                               # architecture before the specification
+    ([("implement", "eng-implement", []), ("cause", "eng-root-cause", ["implement"])], "implement",
+     "docs/engineering/plans/<task>.md", "cause"),                                               # implement before the root cause
+    ([("backlog", "product-backlog", []), ("spec", "product-feature-spec", ["backlog"])], "backlog",
+     "docs/product/specs/<feature>.md", "spec"),                                                 # the backlog before the specification
+    ([("design", "eng-architecture", []), ("tests", "eng-unit-tests", ["design"]), ("spec", "product-feature-spec", ["tests"])], "design",
+     "docs/product/specs/<feature>.md", "spec"),                                                 # a reversal through another task
+])
+def test_a_flow_in_the_wrong_order_is_refused_with_the_task_that_only_comes_later(tasks, reader, path, later):
+    skills = real_info(*{sk for _, sk, _ in tasks})
+    found = flow_files.dependency_problems(chain(*tasks), skills)
+    assert f"task {reader} reads {path}, which only a later task {later} writes: reorder the tasks" in found

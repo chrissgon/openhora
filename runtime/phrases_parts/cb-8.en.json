@@ -1,0 +1,7 @@
+{
+  "package": "cb-8",
+  "table": {
+    "RM_FORGET_WORDS_NONE": "I did not find a waiting reminder of yours with those words. Ask me to list your reminders to see them.",
+    "RM_FORGET_WORDS_WHICH": "More than one waiting reminder of yours matches. Which one should I cancel? Say its number, for example “cancel reminder 3”."
+  }
+}

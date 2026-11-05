@@ -4,7 +4,7 @@
   "private": true,
   "description": "The two runners of the eval image, at exact versions; package-lock.json pins what they depend on.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.283",
+    "@anthropic-ai/claude-code": "2.1.284",
     "opencode-ai": "1.18.32"
   }
 }

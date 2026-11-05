@@ -1,4 +1,4 @@
-"""Offline tests of the runtime's weekly vote step (scripts/runtime_vote.py, scripts/vote_job.py).
+"""Offline tests of the runtime's weekly vote step (runtime/handlers/social_vote.py, runtime/handlers/social_vote_job.py).
 
 The vcs provider, the contained run (a stand-in runtime/cli.py), the post checker, the renderer, the scheduler and the publisher are fakes;
 the store, vote_state.py, vote_update.py and payload.py are the real scripts, copied into a fake workbench.
@@ -104,7 +104,10 @@ args = sys.argv[1:]
 with open(os.environ["FAKE_CALLS"], "a") as f:
     f.write(json.dumps(["scheduler"] + args) + "\n")
 if "--dry-run" in args:
-    print(json.dumps({"dry_run": True, "approved": "d" * 64}))
+    out = {"dry_run": True, "approved": "d" * 64}
+    if os.environ.get("FAKE_SCHEDULER_WARNING"):
+        out["warnings"] = [os.environ["FAKE_SCHEDULER_WARNING"]]
+    print(json.dumps(out))
 else:
     assert args[args.index("--approved") + 1] == "d" * 64
     print(json.dumps({"scheduled": True, "id": args[args.index("--id") + 1]}))
@@ -184,7 +187,7 @@ def env(tmp_path, monkeypatch):
     data = tmp_path / "data"
     (proj / "docs/workbench/runtime.json").write_text(json.dumps({
         "agent": "social-manager", "workbench": str(wb), "data_dir": str(data),
-        "store_db": str(data / "store.sqlite"), "mailbox": "none", "publisher": "linkedin", "daily_cost_cap_usd": 1,
+        "store_db": str(data / "store.sqlite"), "sources_dir": str(tmp_path / "sources"), "mailbox": "none", "publisher": "linkedin", "daily_cost_cap_usd": 1,
         "vote": {"repo": "dana/dana", "branch": "main", "pillars": PILLARS}}))
     calls = tmp_path / "calls.jsonl"
     resp = tmp_path / "response.md"
@@ -411,6 +414,26 @@ def test_approve_schedules_the_post_and_commits_only_the_queue(env):
     assert inbox(env) == []
 
 
+def test_approve_carries_the_schedulers_warnings_into_its_result(env, monkeypatch):
+    # The vote post is scheduled by `approve`, which passes its own environment to the scheduler: when UV_PYTHON is
+    # unset there the scheduler's dry run warns that the interpreter is not pinned, and the person must see it.
+    rt(env, "tick")
+    item = inbox(env)[0]
+    monkeypatch.setenv("FAKE_SCHEDULER_WARNING", "the interpreter of uv run is not pinned")
+    code, out, err = rt(env, "approve", "--id", str(item["id"]), "--confirmed", "--sha256", item["payload_sha256"])
+    assert code == 0, err
+    assert out["warnings"] == ["the interpreter of uv run is not pinned"]
+    assert out["scheduled"]["id"]
+
+
+def test_approve_without_scheduler_warnings_adds_no_key(env):
+    rt(env, "tick")
+    item = inbox(env)[0]
+    code, out, err = rt(env, "approve", "--id", str(item["id"]), "--confirmed", "--sha256", item["payload_sha256"])
+    assert code == 0, err
+    assert "warnings" not in out
+
+
 def test_wrong_hash_or_edited_post_does_nothing(env):
     rt(env, "tick")
     item = inbox(env)[0]
@@ -625,7 +648,7 @@ def test_vote_job_without_a_post_address_records_nothing(env, tmp_path):
 
 
 def test_vote_job_with_its_publisher_gone_records_nothing(env, tmp_path):
-    # Test gap of the report: vote_job.py when the publisher is not found.
+    # Test gap of the report: social_vote_job.py when the publisher is not found.
     rt(env, "tick")
     job = json.loads(Path(inbox(env)[0]["payload"]["files"]["job"]["path"]).read_text())
     i = job["argv"].index("--publisher")

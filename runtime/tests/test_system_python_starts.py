@@ -19,8 +19,9 @@ REPO = st.REPO
 # source opens with it (`[sys.executable`); a mention elsewhere (a report, a message) starts nothing. "<skill scripts>" stands for the scripts of skills the runtime runs isolated: the checkers a runtime manifest names (the third test) and the backlog reader;
 # "<handlers>" for every file of runtime/handlers/ (the first test).
 STARTS = {
-    "runtime/ops.py": ["scripts/evidence.py", "<handlers>"],
-    "runtime/ops_runs.py": ["runtime/cli.py"],  # the dispatcher starts `run-task` for each task it runs, one process each
+    "runtime/ops.py": ["<handlers>"],
+    # the recorder of a use (scripts/evidence.py) moved here from ops.py in 44-C3; the dispatcher starts `run-task` for each task it runs, one process each
+    "runtime/ops_runs.py": ["scripts/evidence.py", "runtime/cli.py"],
     "runtime/plan.py": ["scripts/select_skills.py"],
     "runtime/isolated.py": ["<skill scripts>"],  # a manifest's checkers and the backlog reader, through run_script
     "runtime/handlers/published_posts.py": ["runtime/cli.py"],
@@ -42,7 +43,7 @@ STARTS = {
 }
 # The programs a module of the runtime starts by name; the lab's own starts (docker, the adapters) go through the
 # facade, runtime/lab.py, and are the lab's.
-PROGRAMS = ("git", "uv", "bash", "/usr/bin/osascript")  # osascript: the macOS notification the old script already sent
+PROGRAMS = ("git", "uv", "bash", "/usr/bin/osascript", "ps")  # osascript: the macOS notification the old script already sent; ps: the process listing a stop reads (runtime/run_stop.py)
 # A start whose argument list is built elsewhere in the module: where it is built.
 BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/published_posts.py": "def _cli",
                    # the ported social agent (WP-7.1): its run() and call() take a list built by the callers
@@ -52,11 +53,13 @@ BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/
 
 
 def system_list() -> list:
-    tree = ast.parse((REPO / "scripts" / "tests" / "test_runtime_python39.py").read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "ON_SYSTEM_PYTHON" for t in node.targets):
-            return list(ast.literal_eval(node.value))
-    raise AssertionError("ON_SYSTEM_PYTHON is gone from scripts/tests/test_runtime_python39.py")
+    """ON_SYSTEM_PYTHON of scripts/tests/test_runtime_python39.py: since HOT-1 it is derived (the runtime folders plus the literal OTHERS), so the module is loaded, not read as a literal."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("system_python_list_under_test", REPO / "scripts" / "tests" / "test_runtime_python39.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert hasattr(module, "ON_SYSTEM_PYTHON"), "ON_SYSTEM_PYTHON is gone from scripts/tests/test_runtime_python39.py"
+    return list(module.ON_SYSTEM_PYTHON)
 
 
 def modules() -> list:

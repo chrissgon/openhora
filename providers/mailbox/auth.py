@@ -5,6 +5,11 @@
 # ///
 """One-time OAuth 2.0 authorization for mailbox providers.
 
+LEGACY, one cycle (decision of 2026-10-18): the platform now signs in to a Google account with ONE token that carries its whole scope set
+(providers/accounts/google_auth.py authorize, secret GOOGLE_ACCOUNT_TOKEN). This command still works and its behaviour is unchanged, so that a
+record made before keeps working: the reader uses the account record when there is one and this record only when there is not (with a warning on
+stderr). It is removed in the cycle after the integration branch reaches main (backlog ACCT-LEGACY); the record it made is never deleted by code.
+
 Gmail (--provider gmail), sources accessed 2026-09-29:
 - OAuth 2.0 for iOS and desktop apps: loopback redirect http://127.0.0.1:port with "an HTTP listener
   on a random available port" ("localhost" works too "but this configuration may cause issues with

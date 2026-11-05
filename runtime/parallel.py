@@ -33,6 +33,14 @@ if HERE not in sys.path:
 import path_rule  # noqa: E402  (the same folder)
 import skill_meta  # noqa: E402
 
+# The runtime's own pseudo-agent (package P5): the owner of every step task. A step task runs no skill and no model, so no area agent's
+# pack holds it and no daily cap, mode or credential applies to it; it is not in runtime.json and the name cannot be given to an area
+# agent (runtime/autonomy.py). It has a running cap of its own, RUNTIME_PARALLEL, which `admit` applies as it applies an area agent's
+# `max_parallel`, so the held reason of a step task that waits for a slot is the same word, "agent at max_parallel". Both are copied by
+# value in runtime/dispatcher.py, runtime/steps.py and runtime/autonomy.py, and in the store (STEP_OWNER); a test holds them equal.
+RUNTIME = "runtime"
+RUNTIME_PARALLEL = 2
+
 # The words of the held-reasons vocabulary (runtime/dispatcher.py copies them by value; a test holds them equal).
 PROJECT_FULL = "project at max_running"
 AGENT_FULL = "agent at max_parallel"
@@ -89,7 +97,10 @@ def admit(task: dict, running: list, holding: list, agents: dict, max_running: i
     holding: {"id", "agent"} of every slot holder (the running ones included); agents: name -> normalised entry with
     "max_parallel". First failure wins: the project is full; the agent is full (skipped for a task that already holds a
     slot and for a task with no configured agent); a code task, or an effect that executes, of the same request runs (an
-    effect is an item with "effect": True, "code": True and no footprint); the footprint is in use."""
+    effect is an item with "effect": True, "code": True and no footprint); the footprint is in use. The agent of a step task is the
+    pseudo-agent RUNTIME, which `agents` need not list: it has RUNTIME_PARALLEL slots."""
+    if RUNTIME not in agents:
+        agents = {**agents, RUNTIME: {"max_parallel": RUNTIME_PARALLEL}}
     # an executing effect (item "effect": True) is not a task run: it fills no slot, only keeps a code task of its request out
     if sum(1 for r in running if not r.get("effect")) >= max_running:
         return False, PROJECT_FULL

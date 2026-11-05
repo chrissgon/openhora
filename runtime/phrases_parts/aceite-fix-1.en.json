@@ -1,0 +1,9 @@
+{
+  "package": "aceite-fix-1",
+  "table": {
+    "FAIL_TASKS_API_OFF": "Google Tasks is not enabled in the Google Cloud project the platform uses, so nothing was written. Enable the Google Tasks API in that project and approve the card again.",
+    "TODO_API_OFF": "I cannot read Google Tasks: the Google Tasks API is not enabled in the Google Cloud project the platform uses.",
+    "TODO_NOT_CONNECTED": "I cannot read {service}: the account is not connected for tasks. Connect it again on the platform's page.",
+    "FAIL_EVENT_GONE": "That event is no longer on the calendar (it was removed, or it is on another calendar), so nothing was done."
+  }
+}
