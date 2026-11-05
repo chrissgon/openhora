@@ -9,6 +9,7 @@ Read at step 5 of `SKILL.md`. Each rule is a lesson from a real analysis, kept w
 - A deadline comes from the official body's page; when it replaced an earlier date, say which.
 - Marketplace counts (proposals per posted job, listed providers) measure competition directly; quote them with the date you read them.
 - When your fetch tool returns a summary instead of the page text, re-read the key numbers verbatim before writing them, or mark the quote `summary`.
+- A figure seen only in a search snippet is a source of its own (Tier 3, the snippet text as its quote) or it is left out; a contradiction is written only between two source entries. A figure restated in the Summary, the Risks or the Contradictions keeps the source number or command label it had where it was first cited.
 
 ## Where the evidence hides
 

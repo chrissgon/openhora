@@ -101,6 +101,7 @@ The workbench is a set of instructions that models execute with a terminal, file
 
 - [ ] **T44. Recompute and compare `approval_digest` at every firing.** Found on 2026-10-17 in the review of the pinned interpreter (F2-C): a firing checks the hashes of the copies, the program, the interpreter and the runner, but never recomputes the approval digest from `job.json`, so a job record edited after approval (the `python` key removed, `argv` or `cwd` changed) runs as it now reads. Recompute `approval_digest(job)` at each firing and compare it with the recorded `approved` (it covers `python`, `argv`, `cwd`, `outputs` and the rest); both providers, with the parity test.
   - Done when: a firing refuses a job whose recomputed digest differs from `approved`, for both providers, with tests.
+- [ ] **T45. `check_refs.py`: accept a file in the project as a source location.** Found on 2026-11-05 in the full test of `biz-market-analysis` (case 4): a source that is a file in the project cannot pass the `url` part of the shared `check_refs.py`, so a run either invents an address (seen once) or ends with `"ok": false`. Accept `file:<project path>` as the location, in `shared/scripts/check_refs.py` with its test in `shared/scripts/tests/`, then `python3 scripts/sync_copies.py` and a Y bump of `biz-market-analysis` and `biz-icp-positioning`.
 
 ## Agent runtime
 
@@ -398,7 +399,7 @@ The audit of 2026-10-02 (`docs/architecture/audit-2026-10-02/` (removed on 2026-
 Not listed: the degraded-mode cases proposed for `design-execute`, `design-system` and `product-backlog`, which their guard cases cover.
 
 - [ ] **K1.** `biz-icp-positioning`: degraded mode, no web search: a query plan, `Status: limited`, nothing scored. (group-1, biz-icp-positioning, should-fix 8.)
-- [ ] **K2.** `biz-market-analysis`: degraded mode on the scoped fixture, no web search: `Status: limited`, a query plan and no scores. (group-1, biz-market-analysis, should-fix 7.)
+- [ ] **K2.** `biz-market-analysis`: degraded mode on the scoped fixture, no web search: `Status: limited`, a query plan and no scores. (group-1, biz-market-analysis, should-fix 7.) Case 4 runs without web search and reaches degraded mode (seen 2026-11-05); a dedicated case is still open.
 - [ ] **K3.** `brand-guidelines`: the trigger "after any brand file changes": a guide older than the strategy gets its stale quotes named and corrected. (group-1, brand-guidelines, should-fix 2.)
 - [ ] **K4.** `brand-identity`: the stop on a missing `docs/brand/strategy.md`: it says which skill writes it. (group-1, brand-identity, should-fix 6.)
 - [ ] **K5.** `brand-name`: research mode after the answers: a state file with the three answers gives checked candidates. (group-1, brand-name, should-fix 4.)

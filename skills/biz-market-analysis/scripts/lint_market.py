@@ -7,6 +7,7 @@ Usage:
          [--implications-heading "Implications for the next decisions"]
          [--alternatives-heading "Alternatives and competitors per offer"]
          [--price-column price] [--not-found-label "price not found"] [--sources-heading Sources]
+         [--quote-free-headings "Method,Assumptions"]
 
 Checks, each reported with the line number:
   implications_currency: a currency amount (a currency sign or code next to a number) in the
@@ -20,6 +21,11 @@ Checks, each reported with the line number:
     the question the next skill must answer, not an answer.
   uncited_figure: a bullet or table row with a percentage or a currency amount and no source number,
     command label or assumption label, outside the sources section and the --free-headings.
+  figure_not_in_quote: a bullet or table row, outside the sources section and the --quote-free-headings,
+    that cites sources ([3], [2b]) and holds a percentage or a currency amount whose number is in none of
+    the quotes of those sources (a quote is the text of the source entry from its first quote mark; 4,100,
+    4.100 and 4 100 are the same number, so are 15 and 15,00). Skipped: a line with a command label,
+    an assumption label, no source number, or a cited source with no entry or no quote.
 Headings are matched by their text after "## " (the alternatives heading also matches "### "
 subsections below it), case-insensitive; pass the translated text for an artifact not in English.
 The price column is the first header cell that contains --price-column, case-insensitive.
@@ -34,8 +40,21 @@ CURRENCY = re.compile(
     r"(?:[€$£]|R\$|US\$|\b(?:EUR|USD|BRL|GBP)\b)\s?\d|\d[\d.,]*\s?(?:[€£]|\b(?:EUR|USD|BRL|GBP)\b)")
 CITATION = re.compile(r"\[([^\]\n]+)\](?!\()")
 GOOD_CITATION = re.compile(r"^(\d+[a-z]?|M\d+)$")
+CUR_NUM = re.compile(
+    r"(?:[€$£]|R\$|US\$|\b(?:EUR|USD|BRL|GBP)\b)\s?(\d[\d.,]*)|(\d[\d.,]*)\s?(?:[€£]|\b(?:EUR|USD|BRL|GBP)\b)")
+PCT_NUM = re.compile(r"(\d+(?:[.,]\d+)?)\s?%")
+SRC_REF = re.compile(r"\[(\d+[a-z]?)\]")
+SRC_ENTRY = re.compile(r"^\s*\[(\d+[a-z]?)\]")
+NUM_TOKEN = re.compile(r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d(?:[\d.,]*\d)?")
+SKIP_QUOTE = re.compile(r"\[M\d+\]|\bM\d+\b|\(assumed\)", re.I)
 FIGURE = re.compile(r"\d+(?:[.,]\d+)?\s?%|" + CURRENCY.pattern)
 CITED = re.compile(r"\[(\d+[a-z]?|M\d+)\]|\bM\d+\b|assumption:|\(assumed\)|\bassumed\b", re.I)
+
+
+def num_key(tok):
+    tok = tok.strip().rstrip(".,")
+    tok = re.sub(r"[.,]0{1,2}$", "", tok)
+    return re.sub(r"\D", "", tok)
 
 
 def main():
@@ -50,6 +69,8 @@ def main():
                     help="comma-separated sections exempt from uncited_figure (translate for other languages)")
     ap.add_argument("--assumed-label", default="Assumption:",
                     help="label that marks an assumption in the artifact's language")
+    ap.add_argument("--quote-free-headings", default="Method,Assumptions",
+                    help="comma-separated sections exempt from figure_not_in_quote (translate for other languages)")
     args = ap.parse_args()
     try:
         with open(args.file, encoding="utf-8") as fh:
@@ -60,6 +81,16 @@ def main():
     impl, alts, srcs = (h.strip().lower() for h in
                         (args.implications_heading, args.alternatives_heading, args.sources_heading))
     free = {h.strip().lower() for h in args.free_headings.split(",") if h.strip()} | {srcs}
+    qfree = {h.strip().lower() for h in args.quote_free_headings.split(",") if h.strip()} | {srcs}
+    quotes, sec = {}, ""
+    for line in lines:
+        m = re.match(r"^##\s+(.+?)\s*$", line)
+        if m:
+            sec = m.group(1).strip().lower()
+        elif sec == srcs and SRC_ENTRY.match(line):
+            q = re.search(r"[\"\u201c](.*)$", line)
+            quotes[SRC_ENTRY.match(line).group(1)] = (
+                {num_key(t) for t in NUM_TOKEN.findall(q.group(1))} if q else None)
     assumed = args.assumed_label.strip().lower()
     findings, section, price_col = [], "", None
     seen = {impl: False, alts: False}
@@ -79,6 +110,17 @@ def main():
         if (section not in free and section and line.lstrip().startswith(("-", "*", "|"))
                 and FIGURE.search(line) and not CITED.search(line) and assumed not in line.lower()):
             findings.append({"line": n, "check": "uncited_figure", "text": line.strip()[:160]})
+        if (section and section not in qfree and line.lstrip().startswith(("-", "*", "|"))
+                and not SKIP_QUOTE.search(line) and assumed not in line.lower()):
+            refs = SRC_REF.findall(line)
+            if refs and all(quotes.get(r) for r in refs):
+                pool = set().union(*(quotes[r] for r in refs))
+                figs = [a or b for a, b in CUR_NUM.findall(line)] + PCT_NUM.findall(line)
+                miss = [f.strip().rstrip(".,") for f in figs if num_key(f).strip("0") and num_key(f) not in pool]
+                if miss:
+                    findings.append({"line": n, "check": "figure_not_in_quote",
+                                     "text": f"{', '.join(miss)} not in the quote of {', '.join(sorted(set(refs)))}: "
+                                             f"{line.strip()[:120]}"})
         if section == alts and line.lstrip().startswith("|"):
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
             if price_col is None:
