@@ -325,6 +325,9 @@ EV_NAME_NONE_DAY: I did not find an event with a similar name on that day. Ask f
 EV_NONE: I did not find that event in your calendar in the next 2 days.
 EV_NONE_DAY: I did not find that event in your calendar on that day.
 EV_NONE_NO_SOURCE: I did not find that event. No calendar of yours is added to this project yet, so I can only find events that I created here. Add your calendar to find the others.
+EV_POS_CANCEL_HOW: Say the number from the list, for example: cancel 3.
+EV_POS_CHANGE_HOW: Say the number from the list and the new time, for example: move 3 to Friday at 3 pm.
+FAIL_EVENT_GONE: That event is no longer on the calendar (it was removed, or it is on another calendar), so nothing was done.
 FAIL_FILE: I could not open that file in your Example Calendar. Check that it still exists and that you may write to it.
 FAIL_FOLDER: I could not open the folder "Inbox" in your Example Calendar. Check that it exists and that its name in the configuration is right.
 FAIL_FOLDER_HINT: On an account set to another language, the default folder usually has that language's name (for example Documents).
@@ -349,6 +352,7 @@ FAIL_SERVICE_MAIL_GOOGLE: Gmail
 FAIL_SERVICE_MAIL_MICROSOFT: Outlook
 FAIL_SERVICE_TASKS_GOOGLE: Google Tasks
 FAIL_SERVICE_TASKS_MICROSOFT: Microsoft To Do
+FAIL_TASKS_API_OFF: Google Tasks is not enabled in the Google Cloud project the platform uses, so nothing was written. Enable the Google Tasks API in that project and approve the card again.
 FAIL_TOO_LARGE: That is too large to be written there, so nothing was done.
 FAIL_UNKNOWN: The result is unknown: the service did not confirm whether it was done. Before asking again, look in Room 4.
 FA_BUSY: I am already answering another question; try again in a moment.
@@ -1002,6 +1006,7 @@ TITLE_ROUTER_ASKS: The router asks
 TITLE_ROUTE_UNRECOGNISED: The route was not recognised
 TITLE_TODO_ADD: Tasks: add a task
 TITLE_TODO_DONE: Tasks: complete a task
+TODO_API_OFF: I cannot read Google Tasks: the Google Tasks API is not enabled in the Google Cloud project the platform uses.
 TODO_ASK_ACCOUNT: Which one: Google Tasks or Microsoft To Do? Say it again naming it.
 TODO_BAD_TITLE: I could not use that as a task: it must be one line of at most 200 characters.
 TODO_EMPTY: No open tasks in Example Calendar, list one, two, three.
@@ -1009,6 +1014,7 @@ TODO_HEAD: Open tasks in Example Calendar, list one, two, three:
 TODO_ITEM: 3. Quarterly review
 TODO_MORE: There are more open tasks than the ones shown.
 TODO_NONE: I found no open task like that.
+TODO_NOT_CONNECTED: I cannot read Example Calendar: the account is not connected for tasks. Connect it again on the platform's page.
 TODO_NO_LISTS: No task list is set up yet. Name one in the project's configuration, under the account's task lists.
 TODO_NO_LIST_SHOWN: I have no list of tasks to point to. Ask for your tasks first, then say the number.
 TODO_SEVERAL: Which task? 3 open tasks fit:
