@@ -58,10 +58,10 @@ Measurement version 10, measurement floor 6.
 | `retries` | 2 |
 | `max_resumes` | 3 |
 | `total_jobs` | 14 |
-| `web_jobs` | `claude-sonnet-5-5`: 2, `openrouter/deepseek/deepseek-v4.1-flash`: 2 |
+| `web_jobs` | `claude-sonnet-5-5`: 2, `openrouter/deepseek/deepseek-v4.1-flash`: 2, `claude-haiku-4-5`: 2, `openrouter/openai/gpt-6-luna`: 2 |
 | `web_cases` | 7 keys: `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture` |
-| `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
-| `lab_models` | 2 names, not shown |
+| `models` | 4 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash`, `claude-haiku-4-5`, `openrouter/openai/gpt-6-luna` |
+| `lab_models` | 4 names, not shown |
 | `epochs` | 4 entries, each with `date`, `models`, `skills`, `cause` |
 | `measurement_sha256` | text, not shown |
 <!-- /generated -->
