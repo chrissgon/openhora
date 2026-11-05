@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The measurement harness of the interpreter experiment (package IX-2c, plan `PLAN-NL-INTERPRETER-FINAL.md`): runs a corpus through the B-prime arm (runtime/interpreter_pipeline.py)
+"""The measurement harness of the interpreter experiment (package IX-2c; the plan is outside the repository): runs a corpus through the B-prime arm (runtime/interpreter_pipeline.py)
 on one route, scores every run with the taxonomy's rules (runtime/interpreter_score.py) and writes the evidence file IX-E reads (runtime/interpreter_evidence.py).
 
     interpreter_measure.py --corpus FILE --route ID [--runs N] [--jobs N] [--sample N --seed S] [--sequential]

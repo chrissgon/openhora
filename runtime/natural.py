@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""Natural requests, tier 1 (package NR-1): a line a person writes in their own words, matched by code to an operation the platform already has, with no model.
+"""Natural requests (package NR-1): the engine of the reminder question and the table of the operations a line may reach, with no model of its own: since S41-11 the interpreter (L63) names the operation, and only a decision said in words is still matched by code.
 
 Pure: the clock is passed in, nothing is stored, logged or sent. The words are not here: they are the language tables (`runtime/natural_lang_<tag>.py`, read as
 data by runtime/natural_time.py), and the table of EVERY language is tried on EVERY line. This module holds the rows of the operations a line may name today and
