@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "3.0.0"
+  version: "4.0.0"
 ---
 
 # Orchestrator
@@ -52,7 +52,7 @@ Check these before writing the routing block, and again before handing over. The
 2. **The skill is not installed.** It is marked `(planned)` in the routing table, or you did not see it installed (step 4). A flow that the routing table lists without the mark is a flow file of the workbench, not a skill: it counts as installed and is `ready`, however the session's list of skills reads. Route is `pending`, Context says `inputs unknown (skill not installed)`, and Next proposes one fallback, as a recommendation, and waits for the user's yes (when Stop rule 1 applies as well, Next holds only Stop rule 1's questions, at most three in all, and the fallback waits until they are answered): the closest installed skill, or direct execution with its limits stated. Name the fallback in one line; do not describe its method or its steps. For a request that ends in a side effect (post, send, schedule, deploy, delete, publish), the fallback covers only the part without the side effect (the text is written, the plan is made); the action itself waits for a skill that owns its confirmation gate. If the state file exists, add `- [ ] Skill gap: <request> → <missing skill>` to its "Open questions"; change nothing else in it.
 3. **A side effect no installed skill owns.** When the request is an action with a side effect (post, send, schedule, deploy, delete, publish) and no installed skill has a confirmation gate for it, say in Next that no installed skill owns this action, and stop. Route names the skill the routing table gives for the action, as `pending`; when the table gives none, write `Route: none` and say so under Why. When the route is a skill that is not installed, Stop rule 2 applies as well. The orchestrator executes nothing with a side effect, whatever the user approves: not a post, a message, a deployment, a deletion or a scheduled job.
 4. **The user asked only for the route.** When the user asks which skill would handle the request, or says not to start yet, write the routing block and stop: invoke nothing.
-5. **A source is in doubt.** The request carries a catalog of sources, and two or more sources fit a skill of the route equally and the request does not say which (it names none with `@`), or the request clearly needs the person's own data and no entry of the catalog fits it. Ask, each question with a recommended answer that names a source id from the catalog (or says to import one first); at most three questions in all with Stop rule 1. The `Sources:` line lists only the sources that are certain, or `none`. Never pick one of the equals to "be helpful".
+5. **A source is in doubt.** The request carries a catalog of sources, and two or more sources fit a skill of the route equally as alternatives (versions, periods or copies of what the request names as one thing) and the request does not say which (it names none with `@`), or the request clearly needs the person's own data and no entry of the catalog fits it. Ask which one: the recommended answer names exactly one source id from the catalog, and its reason is a fact of that entry (its date, size or description), never a sample value; other answers, such as all of them, may be offered in the question but are not the recommendation. When no entry fits, the recommendation is to import one first. At most three questions in all with Stop rule 1. The `Sources:` line lists only the sources that are certain, or `none`. Never pick one of the equals to "be helpful".
 
 ## Procedure
 
@@ -99,7 +99,7 @@ Approve the route only if all of the following hold:
 - Exactly one skill is named as the route, with its shape word, `ready` or `pending`; or `Route: none` under Stop rule 3; or the shape is `direct`. The name appears verbatim in `references/routing.md`.
 - The routing block is present whenever the shape is not `direct`, including when the output is a set of questions.
 - "Why" names the intent and the area, not keywords from the request.
-- None of the routed skill's work was done here, and nothing with a side effect was executed.
+- None of the routed skill's work was done here, and nothing with a side effect was executed. No sample value of a source is quoted, counted or compared across sources: what a source holds is the routed skill's to read.
 - Every missing input and unsatisfied requirement is stated, each missing input with the skill that writes it; none blocked the route.
 - Ambiguity was resolved by asking, never by picking the most likely option silently; a missing skill was never replaced by a fallback without the user's yes, at most one fallback was proposed, and no fallback covers a side effect.
 - Every question in Next carries `Recommended:` with a reason; every requirement class is spelled exactly as in `references/requirement-classes.md`, with one of the three status words.
