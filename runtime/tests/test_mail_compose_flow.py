@@ -254,7 +254,7 @@ def test_the_pinned_hash_in_the_enabling_file_is_the_hash_of_the_committed_promp
     enable = st.load("interpreter_enable")
     every = enable.load()["entries"]
     p5, every = every[-1], every[:-1]
-    assert {k for k in set(p5) | set(every[-1]) if p5.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "catalog_sha256", "reason", "status_line"}, "P5: the probe entry changes only the date, the two hashes and the two texts; the rest of this test reads the entries before it"
+    assert {k for k in set(p5) | set(every[-1]) if p5.get(k) != every[-1].get(k)} == {"date", "prompt_sha256", "catalog_sha256", "reason", "status_line", "fallback"}, "P5: the newest entry changes only the date, the two hashes, the two texts and drops the outage path; the rest of this test reads the entries before it"
     reserve, every = every[-1], every[:-1]
     assert {k for k in set(reserve) | set(every[-1]) if reserve.get(k) != every[-1].get(k)} == {"reason", "status_line", "fallback"} and [{k: v for k, v in i.items() if k != "measured"} for i in reserve["fallback"]] == [{k: v for k, v in i.items() if k != "measured"} for i in every[-1]["fallback"]], "RESERVE-V3: the newest entry changes only the reason, the status line and the outage path's `measured` against the probe entry; the rest of this test reads the entries before them"
     probe, every = every[-1], every[:-1]

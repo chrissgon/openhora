@@ -302,18 +302,11 @@
    "catalog_sha256": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
    "protocol_sha256": "2a6f7f1919ba6c1d9a202dd63cf5995578b5fb254f7175cbb27c9798ed01e504",
    "languages": ["pt-BR", "en", "es", "fr", "de", "it"],
-   "reason": "Catalog version 4 and prompt rule 3 (P5, round 2): the read agenda (the calendar; items is the mail), a routine is a routine and a series is an event, a name that looks like a file's is a file, the slot service on the six mail act ops and on items; rule 3 gains a second exception for ops that code completes by asking, a recipient's name kept in to. Other pins and the route unchanged. Round 1 failed bar line 3 (RESULT-P5-CATALOG-V4-2026-11-05). Measured on this PR's head before merge (RESULT-P5B-ROUND2-<date>); the PR merges only after the maintainer's decision on that measurement.",
-   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28), 3 (MAIL-SUMMARY-FLIP, 2026-10-31) and 4 (P5, 2026-11-05: agenda, service); the prompt revised four times (BL5B, BL7-3, ANY-QUESTION 2026-11-03, P5 rule 3); the outage path or-gpt-6-luna re-measured 2026-11-03, kept below rule 2; the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01",
+   "reason": "Catalog version 4 and prompt rule 3 (P5, round 2): the read agenda, a routine is a routine and a series is an event, a name like a file's is a file, the slot service on the six mail act ops and on items; rule 3 gains a second exception, a recipient's name kept in to. Other pins unchanged. Round 1 failed bar line 3 (RESULT-P5-CATALOG-V4-2026-11-05). Head 8e4d23db, RESULT-P5B-ROUND2-2026-11-05: lines 1, 2, 4 met; line 3 met on the reference route (16, 16), not on the daily route (13, 12); no fallback (or-gpt-6-luna failed line 3); enabled below line 3 by the maintainer's decision of 2026-11-05.",
+   "status_line": "enabled by maintainer decision 2026-10-21, below the gate; the e-mail text is worded and revised by the model; the catalog grew and moved to version 2 (CB-9, 2026-10-28), 3 (MAIL-SUMMARY-FLIP, 2026-10-31) and 4 (P5, 2026-11-05: agenda, service); the prompt revised four times (BL5B, BL7-3, ANY-QUESTION 2026-11-03, P5 rule 3); enabled below bar line 3 by maintainer decision 2026-11-05, no outage path (or-gpt-6-luna failed that line); the event card shown to the model (2026-11-01); revise prompt re-pinned 2026-11-01",
    "compose_prompt_sha256": "6a88d634cb97ad21b1d29b6d11c3ef263798b0d9ede02953986400df191e3f98",
    "revise_prompt_sha256": "1455965ee825253719b91785b41b4c9f2b2cf6fd5b302fd0a65675dedb0e8b45",
-   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641",
-   "fallback": [
-    {
-     "route": "or-gpt-6-luna",
-     "route_sha256": "e029d4a761ad82cdd1668536362313afc91b9082556188e9999313f932146e8f",
-     "measured": "2026-11-03: ix-test-v1 full step and question-dev-v1, 2 runs, at e1527213, events 20261103T184754Z-5dad949d (Luna) and 20261103T184655Z-19a743ea (primary), judged by the relative rule (rule 2 not met, kept by decision); docs/decisions/2026-11-03-reserve-route-kept.md; first measured 2026-10-28 (docs/decisions/2026-10-28-luna-enable-fallback.md)"
-    }
-   ]
+   "event_card_prompt_sha256": "fcdec0eb3b2a7f71edf024bba8fc467f0d7baf8418af464629b22f4f03022641"
   }
  ]
 }
