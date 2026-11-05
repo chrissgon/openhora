@@ -437,6 +437,8 @@ def _read(ctx: dict, said: str, seed, hint):
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op in ("mail-send", "mail-draft") and seed.get("slots") is not None:          # a new e-mail the interpreter decided (runtime/mail_compose.py `seed`): its slots, never the closed forms
             return {"op": op, "family": "mail", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
+        if op == "file-create" and seed.get("slots") is not None:          # a new file the interpreter decided (runtime/ops_natural_files.py `seed`): its slots, never the closed forms
+            return {"op": op, "family": "files", "slots": dict(seed["slots"]), "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False, "origins": _origins_of(seed, seed["slots"])}
         if op == "file-save" and seed.get("attachment") is not None:          # a held file named by its number (the caption of a file, a button of its card): the text may add a folder
             got = nw.read(said, now, op=op) if said.strip() else None
             got = got or {"op": op, "family": "files", "slots": {}, "spans": {}, "ranges": {}, "need": [], "engine": None, "doubt": False}
