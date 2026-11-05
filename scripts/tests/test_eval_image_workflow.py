@@ -102,8 +102,42 @@ def test_every_job_has_a_timeout_and_a_value_from_the_run_never_lands_inside_a_s
 
 def test_the_index_digest_is_the_one_the_create_command_produced_never_resolved_from_a_tag():
     merge = code(jobs()["merge"])
-    assert "imagetools create --metadata-file" in merge and "containerimage.digest" in merge
+    assert "imagetools create --metadata-file index-metadata.json" in merge
     assert "imagetools inspect \"${repository}:" not in merge  # the tag is not read back
+    assert "imagetools inspect --raw \"${repository}:" not in merge
+
+
+def test_the_index_digest_is_read_from_the_descriptor_buildx_writes_not_from_a_key_of_build():
+    """`imagetools create --metadata-file` writes {"containerimage.descriptor": {mediaType, digest, size}, "image.name"};
+    "containerimage.digest" is the key of `docker buildx build` and reads as null here (run 42039040535)."""
+    merge = code(jobs()["merge"])
+    assert """index="$(jq -r '."containerimage.descriptor".digest // empty' index-metadata.json)\"""" in merge
+    assert '"containerimage.digest"' not in merge
+    # an absent value is an empty string, never the text null, so the digest check below sees it
+    assert "jq -r '.config.digest // empty'" in merge and "jq -r .config.digest" not in merge
+
+
+def test_each_value_that_is_not_a_digest_is_reported_by_its_name():
+    merge = code(jobs()["merge"])
+    assert "for name in index config_amd config_arm; do" in merge
+    assert 'd="${!name}"' in merge
+    assert '${name} is not a digest' in merge
+    assert "not a digest: $d" not in merge.split("imagetools create")[1]  # the old, nameless message is gone
+
+
+def test_the_pushed_index_is_inspected_by_digest_hashed_and_checked_to_list_both_platforms():
+    merge = code(jobs()["merge"])
+    assert 'imagetools inspect --raw "${repository}@${index}" > index-pushed.json' in merge
+    assert "sha256sum index-pushed.json" in merge and '[[ "$pushed" == "$index" ]]' in merge
+    assert "any(.manifests[]; .digest == $amd) and any(.manifests[]; .digest == $arm)" in merge
+    # the checks run before the lock input is written and before anything is published to the next job
+    assert merge.index("index-pushed.json") < merge.index("image-lock-input.json") < merge.index("GITHUB_OUTPUT")
+
+
+def test_the_merge_job_pins_the_buildx_version_whose_metadata_keys_it_reads():
+    merge = jobs()["merge"]
+    block = re.search(r"uses: docker/setup-buildx-action@[0-9a-f]{40} # v\d[^\n]*\n\s+with:\n((?:\s+.*\n)+?)\s+- uses:", merge)
+    assert block and re.search(r"^\s+version: v\d+\.\d+\.\d+\s*$", code(block.group(1)), re.M)
 
 
 LOCK_WORKFLOW = (REPO / ".github" / "workflows" / "image-lock.yml").read_text()

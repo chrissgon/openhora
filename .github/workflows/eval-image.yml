@@ -112,6 +112,9 @@ jobs:
           path: digests
           merge-multiple: true
       - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+        with:
+          # The metadata file's keys belong to one buildx version; the runner image's own copy is not relied on.
+          version: v0.38.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -130,16 +133,28 @@ jobs:
           for d in "$amd" "$arm"; do
             [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $d" >&2; exit 1; }
           done
-          # The index's digest is the one this command produced, read from its own metadata, never resolved from the tag
-          # afterwards (a tag can move). The tag is a convenience for people; everything else refers to the image by digest.
+          # The index's digest is the one this command produced, never resolved from the tag afterwards (a tag can move).
+          # buildx writes the descriptor of the index it pushed under "containerimage.descriptor" ({mediaType, digest,
+          # size}) and the repository under "image.name"; "containerimage.digest" is a key of `docker buildx build`, not
+          # of `imagetools create` (docker/buildx commands/imagetools/create.go at v0.38.1, the metadata map written after
+          # the push). The tag is a convenience for people; everything else refers to the image by digest.
           docker buildx imagetools create --metadata-file index-metadata.json \
             --tag "${repository}:def-${definition:0:12}" "${repository}@${amd}" "${repository}@${arm}"
-          index="$(jq -r '."containerimage.digest"' index-metadata.json)"
-          config_amd="$(docker buildx imagetools inspect --raw "${repository}@${amd}" | jq -r .config.digest)"
-          config_arm="$(docker buildx imagetools inspect --raw "${repository}@${arm}" | jq -r .config.digest)"
-          for d in "$index" "$config_amd" "$config_arm"; do
-            [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $d" >&2; exit 1; }
+          cat index-metadata.json
+          index="$(jq -r '."containerimage.descriptor".digest // empty' index-metadata.json)"
+          config_amd="$(docker buildx imagetools inspect --raw "${repository}@${amd}" | jq -r '.config.digest // empty')"
+          config_arm="$(docker buildx imagetools inspect --raw "${repository}@${arm}" | jq -r '.config.digest // empty')"
+          for name in index config_amd config_arm; do
+            d="${!name}"
+            [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "${name} is not a digest: '${d}'" >&2; exit 1; }
           done
+          # The index must exist in the registry by that digest, its bytes must hash to it, and it must list both platforms.
+          docker buildx imagetools inspect --raw "${repository}@${index}" > index-pushed.json
+          pushed="sha256:$(sha256sum index-pushed.json | cut -d ' ' -f 1)"
+          [[ "$pushed" == "$index" ]] || { echo "the index at ${repository}@${index} hashes to ${pushed}" >&2; exit 1; }
+          jq -e --arg amd "$amd" --arg arm "$arm" \
+            'any(.manifests[]; .digest == $amd) and any(.manifests[]; .digest == $arm)' index-pushed.json > /dev/null \
+            || { echo "the index ${index} does not list both platform manifests" >&2; exit 1; }
           jq -n --arg repository "$repository" --arg definition "$definition" --arg index "$index" \
             --arg amd "$amd" --arg arm "$arm" --arg config_amd "$config_amd" --arg config_arm "$config_arm" \
             '{repository: $repository, definition_sha256: $definition, index_digest: $index,
