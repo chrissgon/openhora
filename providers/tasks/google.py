@@ -155,12 +155,24 @@ def request(entry: tuple, base: str, token: str, path: str, query: dict) -> tupl
     return _google._send("GET", url, {"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "openhora-tasks-google"}, None, ProviderError)
 
 
+def reasons(error) -> set:
+    """The reasons Google's error body names: `error.details[].reason` (google.rpc.ErrorInfo) and the legacy `error.errors[].reason`. Closed words of the service, never a person's text."""
+    found = set()
+    if isinstance(error, dict):
+        for key in ("details", "errors"):
+            for row in error.get(key) if isinstance(error.get(key), list) else ():
+                if isinstance(row, dict) and isinstance(row.get("reason"), str):
+                    found.add(row["reason"])
+    return found
+
+
 def failure(status: int, body: bytes, what: str) -> ProviderError:
-    message = ""
+    message, why = "", set()
     try:
         error = json.loads(body).get("error")
         if isinstance(error, dict):
             message = line(error.get("message"), 160)
+            why = reasons(error)
     except (ValueError, AttributeError):
         pass
     detail = f": {message}" if message else ""
@@ -170,6 +182,10 @@ def failure(status: int, body: bytes, what: str) -> ProviderError:
         return ProviderError(f"Google does not know the task list, or it is not one of the person's ({what}){detail}", EXIT_SERVICE, status)
     if status in (429, 503):
         return ProviderError(f"Google asked to slow down ({status} on {what}){detail}; nothing was retried", EXIT_SERVICE, status)
+    if status == 403 and why & {"SERVICE_DISABLED", "accessNotConfigured"}:      # the API is off in the OAuth client's Cloud project: the cause the person can fix
+        return ProviderError(f"api_disabled: Google Tasks API is not enabled for this OAuth client's project ({what}){detail}", EXIT_SERVICE, status)
+    if status == 403 and why & {"ACCESS_TOKEN_SCOPE_INSUFFICIENT", "insufficientPermissions"}:
+        return ProviderError(f"scope_missing: the token lacks the Google Tasks scope; run: {_google.AUTH_COMMAND} ({what}){detail}", EXIT_NOT_CONFIGURED, status)
     if status == 403:
         return ProviderError(f"Google refused the request ({what}){detail}; check that the Google Tasks API is enabled and that the token carries its scope", EXIT_SERVICE, status)
     return ProviderError(f"Google returned {status} ({what}){detail}", EXIT_SERVICE, status)

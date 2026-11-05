@@ -15,7 +15,7 @@ an instruction.
   default_list(root, account)                         the id the writer is handed for the account's default list: Google's `default` as it is (the service takes it), Microsoft's
                                                       resolved by a read of the lists, because the To Do writer refuses `default` (a dry run reads no credential)
 
-ReaderError carries a closed `code` (`not_configured`, `provider_failed`) and a `reason` that never holds a title. Standard library only. Runs on Python 3.9.
+ReaderError carries a closed `code` (`not_configured`, `api_disabled`, `provider_failed`) and a `reason` that never holds a title. Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
@@ -45,7 +45,8 @@ class ReaderError(Exception):
 
 def provider_call(root: str, account: str, verb: str, args, timeout: int = TIMEOUT) -> dict:
     """One verb of the tasks reader of `account`, started by providers/resolve.py. ReaderError `not_configured` when no authorization serves it (the provider's exit code 3, or no
-    provider), `provider_failed` for anything else."""
+    provider), `api_disabled` when the provider's last stderr line says the Tasks API is off in the OAuth client's project (`error: api_disabled:`, checked first), `provider_failed`
+    for anything else."""
     if account not in IMPLEMENTATION or verb not in VERBS:
         raise ReaderError("refused", f"the tasks reader serves google and microsoft and reads with {', '.join(VERBS)} and nothing else")
     resolve = project_config.resolver(root)
@@ -53,6 +54,8 @@ def provider_call(root: str, account: str, verb: str, args, timeout: int = TIMEO
         return resolve.call(CLASS, verb, [str(a) for a in args], root=root, implementation=IMPLEMENTATION[account], timeout=timeout,
                             env=resolve.provider_environment(CLASS, None, (tasks_document.SECRET[account],)))
     except resolve.ProviderCallError as e:
+        if str(e.stderr_last or "").startswith("error: api_disabled:"):
+            raise ReaderError("api_disabled", f"{verb}: the Tasks API is not enabled for the OAuth client's project") from None
         raise ReaderError("not_configured" if e.kind == "not-configured" or e.exit_code == 3 else "provider_failed", f"{verb}: {str(e.reason)[:120]}") from None
 
 

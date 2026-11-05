@@ -250,12 +250,24 @@ def request(entry: tuple, base: str, token: str, path: str, query: dict, body=No
     return http(method, url, sent, data, sent_on_error)
 
 
+def reasons(error) -> set:
+    """The reasons Google's error body names: `error.details[].reason` (google.rpc.ErrorInfo) and the legacy `error.errors[].reason`. Closed words of the service, never a person's text."""
+    found = set()
+    if isinstance(error, dict):
+        for key in ("details", "errors"):
+            for row in error.get(key) if isinstance(error.get(key), list) else ():
+                if isinstance(row, dict) and isinstance(row.get("reason"), str):
+                    found.add(row["reason"])
+    return found
+
+
 def failure(status: int, body: bytes, retry: str, what: str) -> ProviderError:
-    message = ""
+    message, why = "", set()
     try:
         error = json.loads(body).get("error")
         if isinstance(error, dict):
             message = line(error.get("message"), 160)
+            why = reasons(error)
     except (ValueError, AttributeError):
         pass
     detail = f": {message}" if message else ""
@@ -268,6 +280,10 @@ def failure(status: int, body: bytes, retry: str, what: str) -> ProviderError:
         return Lost(f"Google answered 503 ({what}){detail}.{after} The request may or may not have landed")
     if status in (429, 503):
         return ProviderError(f"Google asked to slow down ({status} on {what}){detail}.{after} Nothing was changed or retried", EXIT_REFUSED, status)
+    if status == 403 and why & {"SERVICE_DISABLED", "accessNotConfigured"}:      # the API is off in the OAuth client's Cloud project: the cause the person can fix
+        return ProviderError(f"api_disabled: Google Tasks API is not enabled for this OAuth client's project ({what}){detail}", EXIT_REFUSED, status)
+    if status == 403 and why & {"ACCESS_TOKEN_SCOPE_INSUFFICIENT", "insufficientPermissions"}:
+        return ProviderError(f"scope_missing: the token lacks the Google Tasks scope; run: {_google.AUTH_COMMAND} ({what}){detail}", EXIT_NOT_CONFIGURED, status)
     if status == 403:
         return ProviderError(f"Google refused the request ({what}){detail}; check that the Google Tasks API is enabled and that the list is the person's own", EXIT_REFUSED, status)
     if status >= 500 and not what.startswith("GET"):      # a read changes nothing: only a write may have landed

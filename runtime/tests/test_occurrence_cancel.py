@@ -124,7 +124,7 @@ def test_an_instance_the_provider_already_cancelled_opens_no_card(world, monkeyp
     world["google"].events["gymmaster_2"]["status"] = "cancelled"
     reply, _ = cancel(world, "cancela só a academia teste de 16/11", target="academia teste", day="16/11")      # validate: allow english-only -- the Portuguese line under test
     assert "not on this calendar any more" not in reply, "the English of the preparation never reaches the phone"
-    assert pk.said(reply, "PHONE_FAILED", {"language": "pt-BR"}) and no_card(world) and google_writes(world) == [], "the provider answers that the event is gone: the plain failure sentence, no card"
+    assert pk.said(reply, "FAIL_EVENT_GONE", {"language": "pt-BR"}) and no_card(world) and google_writes(world) == [], "the provider answers that the event is gone: the plain failure sentence, no card"
 
 
 # --- the date is the engine's and the instance is the provider's, never a model's ------------------------------------------------------------------

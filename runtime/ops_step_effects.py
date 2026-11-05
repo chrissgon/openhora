@@ -42,6 +42,7 @@ import contextlib
 import datetime
 import hashlib
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -66,6 +67,17 @@ def __getattr__(name: str):
     if name in ("OUTPUT_VERBS", "OUTPUT_TIMEOUT"):
         return getattr(effects.module_for("write"), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+CLOSED_PREFIXES = ("api_disabled", "scope_missing", "changed", "ambiguous", "not_configured")      # the closed words a provider's refusal may start with, after the verb
+
+
+def refused_line(decision: int, word: str, error) -> None:
+    """One stderr line for a write that was refused with nothing written: the decision, the effect word, the kind of the failure and, when the refusal starts with one, its closed prefix.
+    No provider words, no title, no address: the full text is the terminal's."""
+    first = re.match(r"(?:[\w-]+: )?([a-z_]+):", str(error.reason))
+    found = first.group(1) if first and first.group(1) in CLOSED_PREFIXES else None
+    print(f"effect: decision {decision} not written ({word}, {error.kind}" + (f", {found}" if found else "") + ")", file=sys.stderr)
 
 
 def stale_answer(rows_written: int) -> str:
@@ -162,6 +174,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None, actor=None) ->
                 result = module.execute(doc, approval, call or module.caller(cfg, ctx["root"]), key, cfg["data_dir"], project=cfg["project"])
             except effects.EffectError as e:
                 if e.kind == "stale":
+                    refused_line(pending_id, gate.word, e)
                     answer = getattr(e, "answer", None) or stale_answer(getattr(e, "rows_written", 0))      # a kind may word its own
                     with core._write_lock(cfg, wait=None):
                         ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
@@ -169,6 +182,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None, actor=None) ->
                     raise core.OpsError(f"{e.reason}. {answer}", 1) from None
                 if e.kind == "unknown":
                     raise core.OpsError(f"{e.reason}; {getattr(e, 'next', None) or UNKNOWN_NEXT}", 1) from None
+                refused_line(pending_id, gate.word, e)
                 raise core.OpsError(f"{getattr(module, 'NOTHING_DONE', 'nothing was written')}: {e.reason}; the effect stays open, and approving it "
                                     f"again with the same hash tries again", 3 if e.kind == "not-configured" else 1) from None
             # The record of a write that landed must not fail because another writer held the project's files for the usual wait

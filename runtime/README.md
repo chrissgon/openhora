@@ -151,7 +151,7 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `messaging_outcome.py`: What an approved effect did, said to the chat in plain words (LIVE-2): the phrase family `OUT_`, from the decision's card and the effect module's closed facts
 
-`messaging_failure.py`: Why a write to the person's accounts was not made, said to a phone in plain words (LIVE-2): the phrase family `FAIL_`, by the closed code of a failed preparation or the words of a failed write
+`messaging_failure.py`: Why a write to the person's accounts was not made, said to a phone in plain words (LIVE-2): the phrase family `FAIL_`, by the closed code of a failed preparation or the words of a failed write AF-1: `api_disabled:` in a failed write's text says `FAIL_TASKS_API_OFF` before the authorization rule, and the code `event_gone` of a preparation says `FAIL_EVENT_GONE`.
 
 `command_words.py`: The commands of the messaging bridge that are not operations, asked for in words (S20). Its `vet`, the check of a model's reading of a decision or an act, moved to `turn_gate.number_believed` in S41-5, and the closed verb lists of S20 were dropped with D5 (BL2b, 2026-10-24): the person checks the meaning on the sentence code wrote, limit L65. `project(line)` reads "muda para o projeto X", "which project am I using", "cambia al proyecto X"... in the six languages (a closed list of lead phrases and at most five words of a name; a lead that may begin another request is `weak` and counts only for a name that is a project of the sender), `resolve(name, projects)` finds the project by its folded name or id, `stop_form(line)` and `STOP_WORDS` (BL2b: the closed stop words of the research brake, in six languages, re-exported by `plan_confirm`, since the layer map lets the bridge import this module and not that one); pure, the bridge does what the typed `/project` does (`Bridge.project_line` -> `choose`) mail-list-account: `ALL_ACCOUNTS` and `ACCOUNT_LEADS`, the closed words that name every account and the small words that may stand before one name, read by `plan_confirm.choice_of`.
 
@@ -251,7 +251,7 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `step_tasks_item.py`: The step kind `tasks-item` (CB-5): `prepare` resolves the list, reads a completion's task through the read-only service and previews the writer's request; the gate opens the card.
 
-`tasks_reader.py`: The reader of the person's own task lists (CB-5): the class `integration:tasks`, `lists` and `open` only, with every answer checked and every title cleaned.
+`tasks_reader.py`: The reader of the person's own task lists (CB-5): the class `integration:tasks`, `lists` and `open` only, with every answer checked and every title cleaned. A provider whose last stderr line starts `error: api_disabled:` (the Tasks API is off in the OAuth client's project) is the code `api_disabled` (AF-1): `ops_todo` keeps each account's failure code and says `TODO_API_OFF`, `TODO_NOT_CONNECTED` or `TODO_UNAVAILABLE`, and prints one closed line to stderr per failed read.
 
 `ops_todo.py`: The operations `todo-list`, `todo-add` and `todo-done` (CB-5) and the replies of a line in words; the list a number answers is held in memory for the sender's next line.
 

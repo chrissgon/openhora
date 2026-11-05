@@ -294,6 +294,39 @@ def test_a_refused_write_changes_nothing_and_frees_the_key(fake, tmp_path, state
     assert proc.returncode == 1 and "slow down" in proc.stderr and "Retry-After: 30" in proc.stderr
 
 
+REASON_BODIES = {      # the bodies Google answers a 403 with: the modern `details[].reason` and the legacy `errors[0].reason`
+    "disabled-details": ({"details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED", "domain": "googleapis.com"}]}, "api_disabled:", 1),
+    "disabled-legacy": ({"errors": [{"reason": "accessNotConfigured", "domain": "usageLimits"}]}, "api_disabled:", 1),
+    "scope-details": ({"details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}, "scope_missing:", 3),
+    "scope-legacy": ({"errors": [{"reason": "insufficientPermissions"}]}, "scope_missing:", 3),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REASON_BODIES))
+def test_a_403_names_its_cause_when_google_gives_the_reason_and_frees_the_key(fake, tmp_path, state, name):
+    extra, prefix, code = REASON_BODIES[name]
+    fake.refuse_next, fake.error_extra = (403, "stand-in refusal"), extra
+    proc = run(fake, tmp_path, state, *insert_args(tmp_path))
+    assert proc.returncode == code and proc.stderr.strip().startswith(f"error: {prefix}"), proc.stderr
+    assert "stand-in refusal" in proc.stderr, "Google's own message is kept after the prefix"
+    assert len(fake.tasks[LIST]) == 1, "nothing was written"
+    if prefix == "scope_missing:":
+        assert "google_auth.py authorize" in proc.stderr
+    assert out(run(fake, tmp_path, state, *insert_args(tmp_path)))["done"] is True, "the key was released: the same request is sent again"
+
+
+def test_any_other_403_keeps_the_old_sentence_and_exit_code(fake, tmp_path, state):
+    fake.refuse_next, fake.error_extra = (403, "forbidden"), {"details": [{"reason": "RATE_LIMIT_EXCEEDED"}]}
+    proc = run(fake, tmp_path, state, *insert_args(tmp_path))
+    assert proc.returncode == 1 and "Google refused the request" in proc.stderr and "api_disabled" not in proc.stderr and "scope_missing" not in proc.stderr
+
+
+def test_the_message_after_the_prefix_is_cut_at_160_characters(fake, tmp_path, state):
+    fake.refuse_next, fake.error_extra = (403, "x"), {"message": "x" * 400, "details": [{"reason": "SERVICE_DISABLED"}]}
+    proc = run(fake, tmp_path, state, *insert_args(tmp_path))
+    assert "api_disabled:" in proc.stderr and "x" * 160 in proc.stderr and "x" * 161 not in proc.stderr
+
+
 def test_a_server_error_on_a_write_is_exit_4_and_on_a_read_exit_1(fake, tmp_path, state):
     fake.refuse_next = (503, "later")
     assert run(fake, tmp_path, state, *insert_args(tmp_path)).returncode == 4
