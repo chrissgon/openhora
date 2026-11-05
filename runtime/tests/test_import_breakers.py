@@ -77,9 +77,12 @@ RUNTIME = REPO / "runtime"
 # MAIL-SUMMARY (`mail-ask`): one cycle edge is new (ops_natural -> ops_mail_ask, the one call in `run`, as its siblings ops_file_ask and ops_mail_read: ops_mail_ask imports ops_natural
 # for `_error` and ops_mail_read, which imports ops_natural, so ops_natural cannot import it at the top): +1 call, +1 edge; and a second call in the same function, `pin`, which binds the plan to
 # the snapshot versions it was drawn on (the same edge): +1 call. The file's own AST count on the head: 61 lazy calls, 49 edges, 0 debt.
+# P5 (catalog version 4, the slot `service` of the six mail act ops): one cycle edge is new (ops_interpret -> ops_mail_read, the one call in `_service_of`: it reads the account word as `mail-read`
+# reads it, `ops_mail_read._account_of`; ops_mail_read imports ops_interpret, so ops_interpret cannot import it at the top, and the family `ops_natural_mail` that places the account reaches no
+# operation of the layer): +1 call, +1 edge. The file's own AST count on the head: 62 lazy calls, 50 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 61
-LAZY_EDGES_BUDGET = 49
+LAZY_CALLS_BUDGET = 62
+LAZY_EDGES_BUDGET = 50
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
@@ -112,7 +115,7 @@ ROWS = (
     ("ops_facade", CYCLE_FACADE, "ops"),
     ("ops_file_read", CYCLE, "ops_file_ask ops_file_trash"),
     ("ops_instructions", CYCLE, "ops_routines"),
-    ("ops_interpret", CYCLE, "ops_card_revise"),
+    ("ops_interpret", CYCLE, "ops_card_revise ops_mail_read"),
     ("ops_items", CYCLE, "event_lookup"),
     ("ops_models", CYCLE, "ops_routines"),
     ("ops_natural", CYCLE, "event_lookup ops_file_ask ops_file_read ops_mail_ask ops_mail_read ops_natural_writes ops_research ops_say ops_todo"),

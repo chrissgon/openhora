@@ -261,6 +261,9 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
         return f"error: {name} is not an operation of the table of natural requests"
     if name == "commands":      # the help is public: what can be asked, never a read of the project
         return t("HELP") if channel == "messaging" else operations.chat_help()
+    agenda_line = name == "agenda"      # P5 (catalog version 4): `agenda` is the list of the calendar; everything below sees `items`, so that the policy, the plan, its hash, the sentence and the list are the existing ones
+    if agenda_line:
+        name, args = "items", dict(args)
     row = operations.by_name(name)
     where = "terminal" if channel == "chat" else channel      # the conversation's own shell is the terminal's equal, not a channel of its own
     if where not in row["channels"]:
@@ -291,7 +294,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return phrases.text("NW_ITEMS_MAILBOX", cfg, names=box[1])
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
-        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans), **({"source": box[1]} if box else {}))
+        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans, default_kind="calendar" if agenda_line else None), **({"source": box[1]} if box else {}))
     if name in ("mail-read", "mail-ask") and args.get("number") is None and not args.get("message") and isinstance(args.get("match"), str):
         digits = natural_writes_mail.target_words(args["match"], natural._tables(None))      # MAIL-SUMMARY-FLIP review: a model that gave the words "o 3" for the number 3 gave a number: the binding, the moved-list check, the pin and the range apply to it
         if len(digits) == 1 and re.fullmatch(r"[0-9]+", digits[0]):

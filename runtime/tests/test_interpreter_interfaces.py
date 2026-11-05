@@ -41,7 +41,7 @@ INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-q
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
-         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "mail-read", "todo-list", "file-ask", "mail-ask"]      # CB-9: the three reads of catalog version 2; MAIL-SUMMARY-FLIP: mail-ask, of version 3
+         "reminders", "flows", "flow-check", "connections", "commands", "items", "file-read", "research", "mail-read", "todo-list", "file-ask", "mail-ask", "agenda"]      # CB-9: the three reads of catalog version 2; MAIL-SUMMARY-FLIP: mail-ask, of version 3; P5: agenda, of version 4
 NOTICES = ["remind", "reminder-forget", "reminder-restore"]
 WRITES = ["cancel", "stop-task", "retry", "routine-pause", "routine-cancel", "routine-create", "routine-change", "attachment-add", "attachment-discard"]
 EFFECTS = ["event-create", "event-change", "event-cancel", "mail-send", "mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash",
@@ -87,11 +87,11 @@ def gated_problems(doc: dict) -> list:
 def snapshot_problems(snap: dict) -> list:
     """Everything wrong with a catalog snapshot, by the test's own lists (read from natural.NATURAL only for the text of `what` and the slots)."""
     out = []
-    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 3:
+    if set(snap) != {"v", "ops", "refused"} or snap.get("v") != 4:
         out.append("keys")
     names = [r["op"] for r in snap.get("ops", [])]
     refused = [r["op"] for r in snap.get("refused", [])]
-    if len(names) != 71:
+    if len(names) != 72:
         out.append("ops count %d" % len(names))
     if len(refused) != 21:
         out.append("refused count %d" % len(refused))
@@ -180,12 +180,12 @@ def test_vacuity_a_flipped_kind_a_wrong_group_and_a_dropped_row_fail_the_checker
 
 # --- the served catalog ----------------------------------------------------------------------------------------------------------------------------
 
-def test_the_served_file_equals_generate_and_the_counts_are_71_and_21():
+def test_the_served_file_equals_generate_and_the_counts_are_72_and_21():
     snap = load(RUNTIME / "interpreter_catalog.json")
     assert snap == catalog.generate()
     assert catalog.sha256(snap) == catalog.sha256(catalog.generate())
     assert snapshot_problems(snap) == []
-    assert len(snap["ops"]) == 71 and len(snap["refused"]) == 21 and snap["v"] == 3
+    assert len(snap["ops"]) == 72 and len(snap["refused"]) == 21 and snap["v"] == 4
 
 
 def test_the_file_is_written_in_the_stated_form():
@@ -207,7 +207,7 @@ def test_a_row_carries_the_class_the_what_and_the_slot_kinds():
     by = {r["op"]: r for r in snap["ops"]}
     assert by["ask"]["class"] == "work"
     assert by["remind"] == {"op": "remind", "class": "N", "what": "Choose this to be reminded once at a time; text is what to remind, as the line says it, and when is the time. Not a calendar event and not an item of a to-do list.", "slots": {"text": "span", "when": "when"}}
-    assert by["mail-archive"]["slots"] == {"messages": "ints", "target": "span", "day": "span"} and by["mail-archive"]["class"] == "E"      # B''-lite: the number slot stays, the words of the message are added
+    assert by["mail-archive"]["slots"] == {"messages": "ints", "target": "span", "day": "span", "service": "word"} and by["mail-archive"]["class"] == "E"      # B''-lite: the number slot stays, the words of the message are added; P5: the account word
     assert by["event-cancel"]["slots"] == {"event": "int", "target": "span", "day": "span"} and by["mail-draft"]["slots"]["target"] == "span" and "day" not in by["mail-draft"]["slots"]
     assert by["status"]["slots"] == {} and by["cancel"]["slots"] == {"id": "int"}
     for r in snap["refused"]:
@@ -247,7 +247,7 @@ def test_generate_follows_the_classification_it_is_given():
             r["kind"] = "operational"          # a planted reclassification moves the op from refused to ops
     moved = catalog.generate(gated=rows)
     assert "deps" in [r["op"] for r in moved["ops"]] and "deps" not in [r["op"] for r in moved["refused"]]
-    assert len(moved["ops"]) == 72 and len(moved["refused"]) == 20
+    assert len(moved["ops"]) == 73 and len(moved["refused"]) == 20
     assert catalog.sha256(moved) != catalog.sha256(catalog.generate())
 
 

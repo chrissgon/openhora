@@ -843,13 +843,13 @@ def test_the_summary_plan_and_the_reader_question_in_one_run(desk, monkeypatch, 
 
 
 def test_the_row_is_a_version_3_row_that_a_line_reaches_since_the_flip():
-    assert operations.LINE_CATALOG == 3
+    assert operations.LINE_CATALOG == 4      # P5 raised it, after MAIL-SUMMARY-FLIP
     rec = registry.row("mail-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 3, 101, "off-host", "model")
     assert set(rec["slots"]) == {"message", "target", "day", "service"} and all(spec["since"] == 3 for spec in rec["slots"].values())
     assert len(rec["about"]) <= 450 and "(mail-read)" in rec["about"]
     assert "mail-ask" in natural.NATURAL and natural.CLASSES["mail-ask"] == "R", "a class on every path, a row of the table since the flip"
-    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_mail_ask"] == interpreter.SERVED_SHA256, "the served catalog is the flip's"
+    assert interpreter_catalog.sha256(interpreter_catalog.generate()) == PINNED_HASHES["interpreter_catalog_v4"] == interpreter.SERVED_SHA256, "the served catalog is P5's, which holds the row of the flip"
     assert "mail-ask" not in [row["op"] for row in interpreter_catalog.generate(2)["ops"]] and "mail-ask" in [row["op"] for row in interpreter_catalog.generate(3)["ops"]]
     assert "mail-ask" in [row["op"] for row in interpreter.SERVED["ops"]]
     assert natural.check_operation("mail-ask", {"message": "2"}, None, "resume o 2")["ok"] is True, "a line reaches the operations of the served catalog"

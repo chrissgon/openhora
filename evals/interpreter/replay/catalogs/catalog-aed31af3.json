@@ -1,0 +1,672 @@
+{
+ "ops": [
+  {
+   "class": "R",
+   "op": "status",
+   "slots": {},
+   "what": "Choose this for where the platform's own work stands (its requests, its tasks, what waits for the person); not the person's own to-do list, mail or calendar."
+  },
+  {
+   "class": "R",
+   "op": "progress",
+   "slots": {
+    "since": "word"
+   },
+   "what": "Choose this for what the platform's own work did lately; since is the span the line gives, as written (7d, or a date). Not the person's own to-do list."
+  },
+  {
+   "class": "R",
+   "op": "pending",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to list what waits for the person's decision (plans, questions, cards); id, a number written in the line, shows that one decision whole. It decides nothing; not a to-do list."
+  },
+  {
+   "class": "R",
+   "op": "task",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this for one task or request of the platform's own work, with its runs; id is the number the line writes. Not an item of the person's own to-do list."
+  },
+  {
+   "class": "R",
+   "op": "agents",
+   "slots": {},
+   "what": "Choose this for each area agent of the platform and how much it was used today."
+  },
+  {
+   "class": "R",
+   "op": "skills",
+   "slots": {},
+   "what": "Choose this for the skills in scope and the proof each one has."
+  },
+  {
+   "class": "R",
+   "op": "costs",
+   "slots": {
+    "since": "word"
+   },
+   "what": "Choose this for the runs by day, agent and model with what they cost; since is the span the line gives, as written (7d, or a date)."
+  },
+  {
+   "class": "R",
+   "op": "artifacts",
+   "slots": {},
+   "what": "Choose this to list the project's own files under docs/; not files of the person's Drive or OneDrive, which file-read shows."
+  },
+  {
+   "class": "R",
+   "op": "artifact",
+   "slots": {
+    "path": "word"
+   },
+   "what": "Choose this to show the text of one file under docs/; path is the file as the line writes it. Not a file of the person's Drive or OneDrive, which file-read shows."
+  },
+  {
+   "class": "R",
+   "op": "instructions",
+   "slots": {},
+   "what": "Choose this to show the project's standing instructions."
+  },
+  {
+   "class": "R",
+   "op": "routines",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to list the routines (work the platform repeats) and their state; id, a number written in the line, narrows it to one. Not reminders."
+  },
+  {
+   "class": "R",
+   "op": "sources",
+   "slots": {},
+   "what": "Choose this to list the project's sources, the files the platform reads; not the person's mail and calendar items, which items lists."
+  },
+  {
+   "class": "R",
+   "op": "attachments",
+   "slots": {},
+   "what": "Choose this to list the files people sent through a messaging app that the platform holds."
+  },
+  {
+   "class": "R",
+   "op": "reminders",
+   "slots": {},
+   "what": "Choose this to list the reminders that wait; not the events of a calendar and not a to-do list."
+  },
+  {
+   "class": "R",
+   "op": "flows",
+   "slots": {},
+   "what": "Choose this to list the flows the project can run."
+  },
+  {
+   "class": "R",
+   "op": "flow-check",
+   "slots": {
+    "flow": "word"
+   },
+   "what": "Choose this for the check of one flow; flow is its name as the line writes it."
+  },
+  {
+   "class": "R",
+   "op": "connections",
+   "slots": {},
+   "what": "Choose this to say which provider each requirement class resolves to."
+  },
+  {
+   "class": "R",
+   "op": "commands",
+   "slots": {},
+   "what": "Choose this when the person asks what can be asked and which commands exist."
+  },
+  {
+   "class": "R",
+   "op": "items",
+   "slots": {
+    "day": "span",
+    "state": "span",
+    "target": "span"
+   },
+   "what": "Choose this to list the numbered messages and events of the person's mail and calendar snapshots; it only lists, the full text of one message is read by another operation. To narrow it: the sender or subject words in target, the day or week in day, the words for unread in state. Not a web search."
+  },
+  {
+   "class": "R",
+   "op": "file-read",
+   "slots": {
+    "file": "span",
+    "service": "word"
+   },
+   "what": "Choose this only to show the text of a file of the person's own Drive or OneDrive that the line names (open it, show it, bring it); file is the name as the line writes it, service only when the line says Google Drive or OneDrive. A question about what the file says is file-ask. Not a mail message."
+  },
+  {
+   "class": "R",
+   "op": "research",
+   "slots": {
+    "question": "span"
+   },
+   "what": "Choose this to answer a question of general information (the weather, a price, the news, a fact) from a web search; question is all the words that say what to find out, with the place and the day. Never for the person's own mail, calendar, files or tasks."
+  },
+  {
+   "class": "N",
+   "op": "remind",
+   "slots": {
+    "text": "span",
+    "when": "when"
+   },
+   "what": "Choose this to be reminded once at a time; text is what to remind, as the line says it, and when is the time. Not a calendar event and not an item of a to-do list."
+  },
+  {
+   "class": "N",
+   "op": "reminder-forget",
+   "slots": {
+    "id": "int",
+    "target": "span"
+   },
+   "what": "Choose this to cancel a reminder that waits; id is the reminder's number written in the line, or target holds the words that name it. Not cancel, which is for a request of the platform's own work."
+  },
+  {
+   "class": "N",
+   "op": "reminder-restore",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to bring back a reminder cancelled a moment ago; id is the reminder's number written in the line."
+  },
+  {
+   "class": "W",
+   "op": "cancel",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to cancel a request of the platform's own work; id is the request's number written in the line. Not a reminder (reminder-forget) and not a calendar event (event-cancel)."
+  },
+  {
+   "class": "W",
+   "op": "stop-task",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to stop a task of the platform's own work that is running; id is the task's number written in the line. Not an item of a to-do list."
+  },
+  {
+   "class": "W",
+   "op": "retry",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to make a failed or blocked task of the platform's own work ready again; id is the task's number written in the line."
+  },
+  {
+   "class": "W",
+   "op": "routine-pause",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to pause a routine; id is the routine's number written in the line."
+  },
+  {
+   "class": "W",
+   "op": "routine-cancel",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to cancel a routine; id is the routine's number written in the line. Not cancel, which is for a request."
+  },
+  {
+   "class": "W",
+   "op": "routine-create",
+   "slots": {},
+   "what": "Choose this only when the person asks for work of the platform itself to repeat on a schedule (a report, a check). Never for something to put on the person's calendar, even a repeating one (event-create), and never a reminder (remind)."
+  },
+  {
+   "class": "W",
+   "op": "routine-change",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to change a routine; id is the routine's number written in the line."
+  },
+  {
+   "class": "W",
+   "op": "attachment-add",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to add a file that was sent through a messaging app as a source; id is the file's number written in the line. Not file-save, which saves it in the person's drive."
+  },
+  {
+   "class": "W",
+   "op": "attachment-discard",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to delete a file that was sent through a messaging app; id is the file's number written in the line."
+  },
+  {
+   "class": "E",
+   "op": "event-create",
+   "slots": {
+    "calendar": "word",
+    "repeat": "span",
+    "service": "word",
+    "time": "span",
+    "title": "span"
+   },
+   "what": "Choose this to open a card that creates an event on the person's own calendar, once or repeating; title, time (the whole start: weekday and a bare clock like 6pm), calendar and service are the line's own words; repeat holds the words that say it repeats (every Monday). Not a reminder or a routine."
+  },
+  {
+   "class": "E",
+   "op": "event-change",
+   "slots": {
+    "day": "span",
+    "event": "int",
+    "target": "span",
+    "time": "span",
+    "title": "span"
+   },
+   "what": "Choose this to open a card that changes an event of the person's own calendar: target holds the event's words and day the day it is on now; time is the new start and title the new name; event only when the line writes the event's number."
+  },
+  {
+   "class": "E",
+   "op": "event-cancel",
+   "slots": {
+    "day": "span",
+    "event": "int",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget."
+  },
+  {
+   "class": "E",
+   "op": "mail-send",
+   "slots": {
+    "body": "span",
+    "subject": "span",
+    "to": "word"
+   },
+   "what": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft."
+  },
+  {
+   "class": "E",
+   "op": "mail-reply",
+   "slots": {
+    "body": "span",
+    "day": "span",
+    "message": "int",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text."
+  },
+  {
+   "class": "E",
+   "op": "mail-draft",
+   "slots": {
+    "body": "span",
+    "message": "int",
+    "subject": "span",
+    "target": "span",
+    "to": "word"
+   },
+   "what": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent."
+  },
+  {
+   "class": "E",
+   "op": "mail-archive",
+   "slots": {
+    "day": "span",
+    "messages": "ints",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers."
+  },
+  {
+   "class": "E",
+   "op": "mail-move",
+   "slots": {
+    "day": "span",
+    "folder": "word",
+    "messages": "ints",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination."
+  },
+  {
+   "class": "E",
+   "op": "mail-mark",
+   "slots": {
+    "day": "span",
+    "messages": "ints",
+    "state": "span",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that marks messages read or unread: target holds their words, day the day, or messages the numbers the line writes; state is read or unread."
+  },
+  {
+   "class": "E",
+   "op": "mail-trash",
+   "slots": {
+    "day": "span",
+    "messages": "ints",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers."
+  },
+  {
+   "class": "E",
+   "op": "file-create",
+   "slots": {
+    "content": "span",
+    "folder": "word",
+    "name": "word"
+   },
+   "what": "Choose this to open a card that creates a file in the person's own drive; name is the file's name, content its text and folder the place, all as the line writes them."
+  },
+  {
+   "class": "E",
+   "op": "file-replace",
+   "slots": {
+    "content": "span",
+    "file": "span"
+   },
+   "what": "Choose this to open a card that writes a new revision of a file that is a source; file is the file as the line names it and content the new text."
+  },
+  {
+   "class": "E",
+   "op": "file-save",
+   "slots": {
+    "attachment": "int",
+    "folder": "word"
+   },
+   "what": "Choose this to open a card that saves a file someone sent through a messaging app in the person's drive; attachment is the file's number written in the line, folder the place."
+  },
+  {
+   "class": "E",
+   "op": "file-trash",
+   "slots": {
+    "file": "span",
+    "folder": "span",
+    "service": "word"
+   },
+   "what": "Choose this to open a card that moves a file of the person's own Drive or OneDrive to the trash; file is its name, service only when the line says which drive, folder only when it names one."
+  },
+  {
+   "class": "R",
+   "op": "mail-read",
+   "slots": {
+    "day": "span",
+    "message": "int",
+    "service": "word",
+    "target": "span"
+   },
+   "what": "Choose this only to show the whole text of ONE e-mail as written: message is its number as the line writes it, target the words of its sender or subject, day the day it came, service only when the line says Gmail or Outlook. A summary or a question about it is mail-ask. Not a list and not a file."
+  },
+  {
+   "class": "R",
+   "op": "mail-ask",
+   "slots": {
+    "day": "span",
+    "message": "int",
+    "service": "word",
+    "target": "span"
+   },
+   "what": "Choose this to summarize ONE e-mail or to answer what it says (a date, an amount); in Portuguese and Spanish resume, resuma and resumo mean summarize: message is its number as the line writes it (resume o 2 is message 2), target the words of its sender or subject or a pasted list line whole, every piece between the · and its time included, day the day it came, service only when the line says Gmail or Outlook. Not to show it (mail-read)."
+  },
+  {
+   "class": "R",
+   "op": "todo-list",
+   "slots": {
+    "service": "word"
+   },
+   "what": "Choose this to list the open tasks of the person's own to-do list; service only when the line says Google Tasks or Microsoft To Do. Not the platform's own work (task, status, pending) and not calendar events."
+  },
+  {
+   "class": "E",
+   "op": "todo-add",
+   "slots": {
+    "service": "word",
+    "title": "span"
+   },
+   "what": "Choose this to open a card that adds a task to the person's own to-do list; title is the task as the line writes it, service only when the line names Google Tasks or Microsoft To Do. Not a reminder and not a calendar event."
+  },
+  {
+   "class": "E",
+   "op": "todo-done",
+   "slots": {
+    "item": "int",
+    "service": "word",
+    "target": "span"
+   },
+   "what": "Choose this to open a card that marks a task of the person's own to-do list as completed: target holds the task's words, item only the number the line writes from the list shown; service only when the line names the service."
+  },
+  {
+   "class": "R",
+   "op": "file-ask",
+   "slots": {
+    "file": "span",
+    "service": "word"
+   },
+   "what": "Choose this when the line names a file of the person's own Drive or OneDrive and asks what is in it (a total, a date, a clause), even with the name mid-question; file is the name as written. Not to show it (file-read), not the project's sources when no file is named (ask), not the web (research)."
+  },
+  {
+   "class": "work",
+   "op": "ask",
+   "slots": {},
+   "what": "Choose this to answer a question from the text of the project's own sources when the line names no file; the question is the person's whole line. If it names a file of the person's Drive or OneDrive, choose file-ask; one e-mail, mail-ask. Not a web search (research), not mail, calendar or tasks."
+  },
+  {
+   "class": "G",
+   "op": "routine-resume",
+   "slots": {
+    "id": "int"
+   },
+   "what": "Choose this to resume a paused routine, only when the line names a routine (resume routine 2, retoma a rotina 2); id is the routine's number written in the line. Never for resume o 2 or resume el 2: in Portuguese and Spanish resume means summarize, so that is mail-ask with message 2."
+  },
+  {
+   "class": "G",
+   "op": "instructions-set",
+   "slots": {},
+   "what": "Choose this to replace the project's standing instructions whole."
+  },
+  {
+   "class": "G",
+   "op": "instructions-add",
+   "slots": {},
+   "what": "Choose this to add one line to the project's standing instructions."
+  },
+  {
+   "class": "G",
+   "op": "source-refresh",
+   "slots": {},
+   "what": "Choose this to read a source again and keep its new version."
+  },
+  {
+   "class": "G",
+   "op": "source-describe",
+   "slots": {},
+   "what": "Choose this to set the description of a source."
+  },
+  {
+   "class": "G",
+   "op": "flow-save",
+   "slots": {},
+   "what": "Choose this to save an approved plan as a flow of the project."
+  },
+  {
+   "class": "G",
+   "op": "stage-file",
+   "slots": {},
+   "what": "Choose this to hand a file over for a request's plan."
+  },
+  {
+   "class": "G",
+   "op": "sync",
+   "slots": {},
+   "what": "Choose this to mirror the platform's tasks with its task board and its documents with the documents platform; the board is the platform's own, not the person's to-do list."
+  },
+  {
+   "class": "G",
+   "op": "hand-over",
+   "slots": {},
+   "what": "Choose this to copy a file into a task's file drop."
+  },
+  {
+   "class": "G",
+   "op": "dispatch",
+   "slots": {},
+   "what": "Choose this to run one round of the dispatcher, which starts the tasks that are ready."
+  },
+  {
+   "class": "G",
+   "op": "verdict",
+   "slots": {},
+   "what": "Choose this to record the person's verdict on a run."
+  },
+  {
+   "class": "G",
+   "op": "run-next",
+   "slots": {},
+   "what": "Choose this to run the next task that is ready."
+  },
+  {
+   "class": "G",
+   "op": "run-task",
+   "slots": {},
+   "what": "Choose this to run one named task."
+  },
+  {
+   "class": "G",
+   "op": "run-step",
+   "slots": {},
+   "what": "Choose this to run one named step task."
+  },
+  {
+   "class": "G",
+   "op": "proof",
+   "slots": {},
+   "what": "Choose this to show the model each skill would run on, from its proof."
+  },
+  {
+   "class": "G",
+   "op": "revoke-policy",
+   "slots": {},
+   "what": "Choose this to end a standing approval."
+  },
+  {
+   "class": "G",
+   "op": "stop-runs",
+   "slots": {},
+   "what": "Choose this to end the runs this process started."
+  }
+ ],
+ "refused": [
+  {
+   "class": "D",
+   "op": "approve",
+   "what": "Approve a plan or an acceptance from its card; id is the card's number."
+  },
+  {
+   "class": "D",
+   "op": "reject",
+   "what": "Reject a decision from its card; id is the card's number."
+  },
+  {
+   "class": "D",
+   "op": "release",
+   "what": "Release a delivery from its card; id is the card's number."
+  },
+  {
+   "class": "D",
+   "op": "answer",
+   "what": "Answer a question a task asked, from its card; id is the card's number."
+  },
+  {
+   "class": "D",
+   "op": "go-ahead",
+   "what": "Go ahead on a task that waits for another request; id is the task's number."
+  },
+  {
+   "class": "G",
+   "op": "give-consent",
+   "what": "The consent an autonomous agent needs before it works on its own."
+  },
+  {
+   "class": "G",
+   "op": "set-mode",
+   "what": "Move an agent's autonomy mode."
+  },
+  {
+   "class": "G",
+   "op": "set-model",
+   "what": "Fix an agent to one model."
+  },
+  {
+   "class": "G",
+   "op": "config",
+   "what": "The project's configuration and its hash."
+  },
+  {
+   "class": "G",
+   "op": "accept-config",
+   "what": "Accept the configuration's hash, so that the configuration takes effect."
+  },
+  {
+   "class": "G",
+   "op": "routine-approve",
+   "what": "Approve a routine by its hash; id is the routine's number."
+  },
+  {
+   "class": "G",
+   "op": "source-add",
+   "what": "Register a source of the project by its id, type and origin."
+  },
+  {
+   "class": "G",
+   "op": "source-import",
+   "what": "Import a version of a source from a file or a page."
+  },
+  {
+   "class": "G",
+   "op": "source-drive",
+   "what": "Make files of the person's Google Drive sources of the project."
+  },
+  {
+   "class": "G",
+   "op": "source-onedrive",
+   "what": "Make files of the person's OneDrive sources of the project."
+  },
+  {
+   "class": "G",
+   "op": "source-mail",
+   "what": "Make a window of the person's mailbox a source of the project."
+  },
+  {
+   "class": "G",
+   "op": "source-calendar",
+   "what": "Make a window of one of the person's calendars a source of the project."
+  },
+  {
+   "class": "G",
+   "op": "deps",
+   "what": "Install the dependency sets the platform needs."
+  },
+  {
+   "class": "G",
+   "op": "approve-policy",
+   "what": "A standing approval of a policy file."
+  },
+  {
+   "class": "G",
+   "op": "standing",
+   "what": "Whether a standing approval covers a policy."
+  },
+  {
+   "class": "G",
+   "op": "execute-under-policy",
+   "what": "Execute an effect inside a standing approval."
+  }
+ ],
+ "v": 3
+}

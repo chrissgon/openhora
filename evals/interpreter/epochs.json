@@ -38,9 +38,14 @@
   {
    "catalog_sha256": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
    "date": "2026-10-31",
+   "state": "retired"
+  },
+  {
+   "catalog_sha256": "c33a2083201dd1cf855ecd0fd6bea5d03ac2007e82f60d9d13e5a2e62a1142e6",
+   "date": "2026-11-05",
    "state": "served"
   }
  ],
- "served": "aed31af32cf07b073b6816717ed63e884a80c847d1306fe65037878698751f1e",
+ "served": "c33a2083201dd1cf855ecd0fd6bea5d03ac2007e82f60d9d13e5a2e62a1142e6",
  "v": 1
 }

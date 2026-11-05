@@ -248,11 +248,11 @@ def unreadable_filter(spans, now):
     return None
 
 
-def items_args(said, now, previous=None, spans=None) -> dict:
+def items_args(said, now, previous=None, spans=None, default_kind=None) -> dict:
     """The arguments a line gives `items`, whole, so that a plan's hash binds them (BL5B): `kind` ("calendar" or "mail"), `account`, the range (`first`, `last`), `count`, and, from the interpreter's
     verified spans (`spans`, {slot: span}: CB-1), `match` (the content words of the `target` span as code reads them, [] when it holds none) and `unread` (True when the `state` span is the closed word for
     unread). Each is read from the line as `_line_args` reads it; the range comes from the `day` span when there is one. `previous` is the arguments of the plan this line corrects (the sender's own
-    live plan, never a third party's): the kind the new line names wins ("no, the e-mails"), else the old kind is kept, else the line alone decides (`items_kind`); the account, the range and the `match`
+    live plan, never a third party's): the kind the new line names wins ("no, the e-mails"), else the old kind is kept, else `default_kind` (P5: "calendar" for a line the interpreter read as `agenda`), else the line alone decides (`items_kind`); the account, the range and the `match`
     the old plan had are kept when the new line names none. A number of messages (`count`) is only the line's own. Pure: nothing is read."""
     spans = spans if isinstance(spans, dict) else {}
     found = _line_args(said, now)
@@ -262,7 +262,7 @@ def items_args(said, now, previous=None, spans=None) -> dict:
             found = {**{k: v for k, v in found.items() if k not in ("first", "last")}, **read}
     noun = natural_writes.items_noun(said)
     old = previous if isinstance(previous, dict) else {}
-    kind = noun or old.get("kind") or natural_writes.items_kind(said)
+    kind = noun or default_kind or old.get("kind") or natural_writes.items_kind(said)
     out = {"kind": kind, **found}
     if "account" not in out and old.get("account"):
         out["account"] = old["account"]
@@ -551,6 +551,11 @@ def items(project: str, kind: str | None = None, source: str | None = None, chan
         if kind and not matched:      # S15c: only when no source of the asked kind (and account) is registered; a registered one with nothing in its window is not missing
             out["missing"] = {"kind": kind, "account": account}
         return out
+
+
+def agenda(project: str, source: str | None = None, match=None, channel: str | None = None, sender: str | None = None) -> dict:
+    """P5 (catalog version 4): the typed `/agenda`, the numbered events of the calendar snapshots: `items` with the kind `calendar` (so the policy, the guard and the list are the ones of `items`)."""
+    return items(project, kind="calendar", source=source, match=match, channel=channel, sender=sender)
 
 
 def _window(ctx: dict, row: dict, snapshot: dict) -> dict:

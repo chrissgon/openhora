@@ -349,6 +349,18 @@ def _cannot(ctx: dict, op: str) -> str:
     return phrases.text(CANNOT.get(op, "IX_CANNOT_WRITE"), ctx["cfg"])
 
 
+def _service_of(decision: dict, said):
+    """P5 (catalog version 4, the slot `service` of the six mail act ops): which service the decision's word names (`google` or `microsoft`), read as `mail-read` reads it (`ops_mail_read._service_of`: the
+    brand word must stand in the line, name exactly one service and agree with the one the line names), or None when the decision carries no word or the word names none (nothing is passed on: the
+    family asks which box, as before). The word is the argument of the slot `service` (the parameter the table gives it) or its span. The module is loaded when this runs, not at import:
+    `ops_mail_read` imports this one."""
+    slot = (natural.NATURAL.get(decision["op"]) or {}).get("slots", {}).get("service")
+    word = ((decision.get("args") or {}).get(slot[1]) if slot else None) or (decision.get("spans") or {}).get("service")
+    if not isinstance(word, str) or not word.strip():
+        return None
+    return importlib.import_module("ops_mail_read")._service_of(said, word)
+
+
 def _day_read(span: str, now) -> dict:
     """The day a verified `day` span names, read by code for the mail family, which reads no calendar and no clock (runtime/ops_natural_mail.py `_on_day`): {"kind": "day" | "weekday" |
     "none" | "unread", "value" (an ISO date, a weekday number 0-6 or None), "today" (an ISO date), "zone" (the machine's IANA zone name, or None when none can be named)}."""
@@ -412,12 +424,12 @@ def _carry_out(project: str, ctx: dict, decision: dict, said: str, sender, extra
         elif (op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and (decision["spans"].get("target") or decision["spans"].get("day"))
               and "message" not in decision["args"] and "messages" not in decision["args"]):          # B''-lite: a message named by its words (target, day), found by code in the index (runtime/ops_natural_mail.py)
             spans = decision["spans"]
-            seed = ops_natural_mail.mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said)
+            seed = ops_natural_mail.mail_target_seed(op, decision, _day_read(spans["day"], ops_natural._clock()) if spans.get("day") else None, said, service=_service_of(decision, said))
             opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=seed) if seed is not None else None
         else:
             opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, hint=op)
             if (opened is None and op in MAIL_TARGET_OPS and _tag(ctx["cfg"]) in ROUTE_LANGUAGES and ("message" in decision["args"] or "messages" in decision["args"])
-                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said, ctx=ctx, channel=CHANNEL, sender=sender)) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
+                    and (numbers := ops_natural_mail.mail_number_seed(op, decision, said, ctx=ctx, channel=CHANNEL, sender=sender, service=_service_of(decision, said))) is not None):          # BL7-5 (G1): the closed forms read nothing and the model gave the message number(s): they are used only as the line's free numbers (code checks), as `<source>#<n>` of the newest snapshot, never a refresh
                 opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=numbers)
             if opened is None and (new_file := ops_natural_files.seed(op, decision, said)) is not None:          # a new file the closed forms ("chamado <name>") read nothing of: the card is opened from the verified spans (name, content, folder) the model gave
                 opened = ops_natural_writes.open_line(project, ctx, said, CHANNEL, sender, extras, seed=new_file)
@@ -447,8 +459,8 @@ def _decided(project: str, ctx: dict, op: str, said: str, sender, extras: dict) 
 def _unchanged(decision: dict, state: dict, said: str) -> bool:
     """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
     from the line with the old plan's), every other call by its arguments."""
-    if decision["op"] == "items":
-        return ops_items.items_args(said, ops_natural._clock(), state["args"], ops_items.span_args_of(decision.get("args"))) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
+    if decision["op"] in ("items", "agenda"):      # P5: an `agenda` decision is the calendar list
+        return ops_items.items_args(said, ops_natural._clock(), state["args"], ops_items.span_args_of(decision.get("args")), default_kind="calendar" if decision["op"] == "agenda" else None) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
     return dict(decision.get("args") or {}) == dict(state["args"])
 
 

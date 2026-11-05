@@ -112,7 +112,7 @@ def test_every_item_passes_both_item_checks():
 
 def test_every_gold_op_and_slot_is_served_at_the_catalog_of_version_2_still_and_every_span_is_in_its_line():
     served = {row["op"]: row["slots"] for row in interpreter.SERVED["ops"]}
-    assert operations.LINE_CATALOG == 3 and interpreter.SERVED["v"] == 3      # MAIL-SUMMARY-FLIP serves version 3, which holds every row of version 2 as it did
+    assert operations.LINE_CATALOG == 4 and interpreter.SERVED["v"] == 4      # P5 serves version 4, which holds every row of version 2 (the texts of some are re-worded)
     for op in NEW_OPS:
         assert op in served and op not in {row["op"] for row in json.loads((ROOT / "runtime" / "interpreter_catalog.json").read_text(encoding="utf-8"))["refused"]}
     for item in ITEMS:

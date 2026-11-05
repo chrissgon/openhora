@@ -447,11 +447,11 @@ def test_the_posso_is_asked_before_any_search_and_the_ok_runs_the_question(desk,
 
 
 def test_the_row_is_a_version_2_row_that_a_line_reaches_since_the_flip_and_version_1_does_not_serve_it(monkeypatch):
-    assert operations.LINE_CATALOG == 3
+    assert operations.LINE_CATALOG == 4      # P5 raised it, after MAIL-SUMMARY-FLIP
     rec = registry.row("file-ask")
     assert (rec["class"], rec["since"], rec["order"], rec["privacy"], rec["cost"]) == ("R", 2, 150, "off-host", "model")
     assert set(rec["slots"]) == {"file", "service"} and all(spec["since"] == 2 for spec in rec["slots"].values())
-    assert len(rec["about"]) <= 300 and all(word in rec["about"] for word in ("(file-read)", "(ask)", "(research)"))
+    assert len(rec["about"]) <= 450 and all(word in rec["about"] for word in ("(file-read)", "(ask)", "(research)"))      # P5: 450 is the limit of every `about` (test_registry_rows); the text gained the sentence about a name that looks like a file's
     assert "file-ask" not in registry.always(1) and "file-ask" in registry.always(2) and "file-ask" in registry.always() and "file-ask" in [r["op"] for r in registry.rows()]
     assert "file-ask" not in [r["op"] for r in interpreter_catalog.generate(version=1)["ops"]]
     assert "file-ask" in [r["op"] for r in interpreter_catalog.generate(version=2)["ops"]] and "file-ask" in [r["op"] for r in interpreter.SERVED["ops"]]

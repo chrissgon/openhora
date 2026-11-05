@@ -244,7 +244,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 
 | Group | Operations | Decision kind | Valid on | In the default policy of | What it gives |
 |---|---|---|---|---|---|
-| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw`, `items` | - | `page`, `mcp`, `messaging` | `messaging` | reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections |
+| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw`, `items`, `agenda` | - | `page`, `mcp`, `messaging` | `messaging` | reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections |
 | `read-limited` | `status`, `pending`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `version`, `commands`, `artifact-raw` | - | `messaging` | - | reads what the work is and what waits for the person, never the spend (costs, agents, a run's cost in task and progress), the connections or the config operation |
 | `talk` | `say` | - | `page`, `mcp`, `messaging` | `messaging` | writes a line to the planning agent (a new request, or the answer to its question) |
 | `answer` | `answer` | - | `page`, `mcp`, `messaging` | `messaging` | answers a question a task asked |

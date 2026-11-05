@@ -103,7 +103,7 @@ def test_every_item_passes_both_item_checks():
 
 def test_every_gold_op_and_slot_is_served_at_catalog_version_3_and_every_span_is_in_its_line():
     served = {row["op"]: row["slots"] for row in interpreter.SERVED["ops"]}
-    assert operations.LINE_CATALOG == 3 and interpreter.SERVED["v"] == 3
+    assert operations.LINE_CATALOG == 4 and interpreter.SERVED["v"] == 4      # P5 serves version 4, which holds the row mail-ask of version 3 with its slots
     assert served["mail-ask"] == {"message": "int", "target": "span", "day": "span", "service": "word"}, "the row the file measures, with the slots the spec gives it"
     for item in ITEMS:
         gold = item["gold"]

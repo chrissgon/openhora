@@ -23,7 +23,7 @@ project_config = st.load("project_config")
 
 ON_MESSAGING = extend("messaging_policy.ON_MESSAGING", ["status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact", "say", "answer",
                 "release", "approve", "reject", "retry", "cancel", "stop-task", "ask", "sources", "instructions", "routines", "routine-create", "routine-change", "routine-pause",
-                "routine-cancel", "attachments", "items", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore",
+                "routine-cancel", "attachments", "items", "agenda", "attachment-hold", "attachment-add", "attachment-discard", "remind", "reminders", "reminder-forget", "reminder-restore",
                 "event-create", "event-change", "event-cancel",
                 "file-create", "file-replace", "file-save", "file-trash", "file-read", "research",
                 "mail-send", "mail-reply",

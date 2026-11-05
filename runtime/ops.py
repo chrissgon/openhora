@@ -1487,7 +1487,7 @@ from ops_reminders import (  # noqa: E402,F401
 # The person's own calendar (runtime/ops_calendar.py, package W1): create, change and remove an event; each one prepares a card and writes nothing.
 from ops_calendar import event_cancel, event_change, event_create  # noqa: E402,F401
 # The numbered items of the mail and calendar snapshots (runtime/ops_items.py, package NR-5a).
-from ops_items import items  # noqa: E402,F401
+from ops_items import agenda, items  # noqa: E402,F401
 # Files in the person's own Drive and OneDrive (runtime/ops_files.py, package W4a): prepare a new file, a new revision or the saving of a file a sender sent.
 from ops_files import file_create, file_replace, file_save  # noqa: E402,F401
 # The text of a file found by its name in the folders the project lists for the person's accounts (runtime/ops_file_read.py, slice S8).
