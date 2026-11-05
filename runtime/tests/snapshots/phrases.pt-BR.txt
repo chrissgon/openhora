@@ -325,6 +325,9 @@ EV_NAME_NONE_DAY: Não encontrei nenhum evento com nome parecido nesse dia. Peç
 EV_NONE: Não encontrei esse evento na sua agenda nos próximos 2 dias.
 EV_NONE_DAY: Não encontrei esse evento na sua agenda nesse dia.
 EV_NONE_NO_SOURCE: Não encontrei esse evento. Nenhuma agenda sua foi adicionada a este projeto ainda, então só consigo achar os eventos que eu mesmo criei aqui. Adicione a sua agenda para achar os outros.
+EV_POS_CANCEL_HOW: Diga o número da lista, por exemplo: cancela o 3.
+EV_POS_CHANGE_HOW: Diga o número da lista e o novo horário, por exemplo: remarca o 3 para sexta às 15h.
+FAIL_EVENT_GONE: Esse evento não está mais na agenda (foi removido ou está em outra agenda), então nada foi feito.
 FAIL_FILE: Não consegui abrir esse arquivo no seu Example Calendar. Confira se ele ainda existe e se você pode escrever nele.
 FAIL_FOLDER: Não consegui abrir a pasta "Inbox" no seu Example Calendar. Confira se ela existe e se o nome dela na configuração está certo.
 FAIL_FOLDER_HINT: Em contas em português, a pasta padrão costuma se chamar Documentos.
@@ -349,6 +352,7 @@ FAIL_SERVICE_MAIL_GOOGLE: Gmail
 FAIL_SERVICE_MAIL_MICROSOFT: Outlook
 FAIL_SERVICE_TASKS_GOOGLE: Google Tasks
 FAIL_SERVICE_TASKS_MICROSOFT: Microsoft To Do
+FAIL_TASKS_API_OFF: O Google Tasks não está ativado no projeto do Google Cloud que a plataforma usa, então nada foi escrito. Ative a API do Google Tasks nesse projeto e aprove o card de novo.
 FAIL_TOO_LARGE: Isso é grande demais para ser escrito lá, então nada foi feito.
 FAIL_UNKNOWN: O resultado é desconhecido: o serviço não confirmou se foi feito. Antes de pedir de novo, olhe Room 4.
 FA_BUSY: Já estou respondendo outra pergunta; tente de novo em instantes.
@@ -1002,6 +1006,7 @@ TITLE_ROUTER_ASKS: O roteador pergunta
 TITLE_ROUTE_UNRECOGNISED: A rota não foi reconhecida
 TITLE_TODO_ADD: Tarefas: adicionar uma tarefa
 TITLE_TODO_DONE: Tarefas: concluir uma tarefa
+TODO_API_OFF: Não consigo ler o Google Tasks: a API do Google Tasks não está ativada no projeto do Google Cloud que a plataforma usa.
 TODO_ASK_ACCOUNT: Qual: Google Tasks ou Microsoft To Do? Diga de novo citando o nome.
 TODO_BAD_TITLE: Não consegui usar isso como tarefa: precisa ser uma linha de no máximo 200 caracteres.
 TODO_EMPTY: Nenhuma tarefa aberta no Example Calendar, lista one, two, three.
@@ -1009,6 +1014,7 @@ TODO_HEAD: Tarefas abertas no Example Calendar, lista one, two, three:
 TODO_ITEM: 3. Quarterly review
 TODO_MORE: Há mais tarefas abertas do que as mostradas.
 TODO_NONE: Não encontrei nenhuma tarefa aberta assim.
+TODO_NOT_CONNECTED: Não consigo ler o Example Calendar: a conta não está conectada para tarefas. Conecte-a de novo na página da plataforma.
 TODO_NO_LISTS: Nenhuma lista de tarefas está configurada ainda. Indique uma na configuração do projeto, nas listas de tarefas da conta.
 TODO_NO_LIST_SHOWN: Não tenho uma lista de tarefas para apontar. Peça suas tarefas primeiro e depois diga o número.
 TODO_SEVERAL: Qual tarefa? 3 tarefas abertas combinam:
