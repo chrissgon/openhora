@@ -81,7 +81,7 @@ jobs:
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $DIGEST" >&2; exit 1; }
           mkdir digests
           printf '%s\n' "$DIGEST" > "digests/digest-${SLUG}.txt"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digest-${{ matrix.slug }}
           path: digests/*.txt
@@ -152,7 +152,7 @@ jobs:
             echo "manifest_amd64=${amd}"
             echo "manifest_arm64=${arm}"
           } >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: eval-image-lock-input
           path: image-lock-input.json
