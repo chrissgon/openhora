@@ -610,7 +610,7 @@ def _price_keys(tree, where):
 CONFIG_LISTS = (
     ("REQUIRED", "runtime/project_config.py", "the top level of `runtime.json`, required"),
     ("TASK_RUNTIME_KEYS", "runtime/project_config.py", "the top level, read by the task runtime"),
-    ("FIRST_RUNTIME_KEYS", "runtime/project_config.py", "the top level, read by the first runtime"),
+    ("FIRST_RUNTIME_KEYS", "runtime/project_config.py", "the top level, read by the social handlers"),
     ("CODE_KEYS", "runtime/project_config.py", "the `code` object"),
     ("PRICE_KEYS", "runtime/project_config.py", "an entry of `model_prices`, which is keyed by model id"),
     ("AGENT_KEYS", "runtime/autonomy.py", "an entry of `area_agents`"),

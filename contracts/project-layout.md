@@ -12,6 +12,7 @@ Skills never keep state inside this repository. Everything they produce for a pr
     │   ├── runtime.json          # the agent runtime's configuration, written by the person who sets it up (schema: runtime.md)
     │   ├── instructions.md       # the person's standing instructions for the project: plain Markdown, written only by the person, read into the prompt of every model run (runtime.md, "Standing instructions"; no skill declares it)
     │   ├── policies/<policy>.json # the bounds of a standing approval of the task runtime, written by the person (approve-policy binds its hash)
+    │   ├── flows/<name>.json     # a flow of the project's own: data the task runtime reads (runtime/flow_files.py; the workbench's own flows are flows/<name>.json of this repository); written by the person; no skill declares it
     │   ├── briefs/<topic>.md     # shared-understanding briefs written by core-clarify
     │   ├── critiques/<topic>.md  # adversarial reviews written by core-critique
     │   └── research/<topic>.md   # sourced research briefs written by core-research (with <topic>.check.json)
@@ -23,7 +24,8 @@ Skills never keep state inside this repository. Everything they produce for a pr
     ├── ai/                       # opportunity.md, requirements.md, evals/, governance.md
     ├── delivery/                 # repo-baseline.md, runbooks/, releases/, incidents/
     ├── marketing/                # messaging.md (with messaging.lint.json), launch-plan.md, calendar.md, content/<post>.md, campaigns/, engagement-policy.md, engagement-inbox.md, engagement-log.jsonl
-    └── security/                 # audit-<date>.md, vetting-<skill>-<date>.md: the records of core-security-audit, in the workbench or in a project that vets a skill
+    ├── security/                 # audit-<date>.md, vetting-<skill>-<date>.md: the records of core-security-audit, in the workbench or in a project that vets a skill
+    └── outputs/                  # <name>.csv, .xlsx, .docx, .pdf: files the task runtime's export steps make from a document of the project (runtime/step_export.py; no skill declares it)
 ```
 
 The tree names every slot, built or planned. Which skill owns a slot that is built is in "Owning skills" below.

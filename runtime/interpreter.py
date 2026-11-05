@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The interpreter's protocol and its validator (package IX-2a): what a model may say about a person's line, and what code believes of it (plan `PLAN-NL-INTERPRETER-FINAL.md`, section 1).
+"""The interpreter's protocol and its validator (package IX-2a): what a model may say about a person's line, and what code believes of it (the plan, section 1, is outside the repository).
 
 Pure: the clock is passed in, nothing is read but the prompt and the protocol files beside this one, nothing is stored, logged, sent or printed, and no model is called here.
 The model reads a line and returns ONE JSON object (protocol 1); this module parses it, checks every part of it against the line and the frame, and returns a decision that
