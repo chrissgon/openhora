@@ -509,3 +509,24 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
   - Trigger: a golden row is changed by a pull request without the decision named, or a package asks for a second correction of the same rows.
   - Done when: the validator or a test reads the base's golden, fails on a changed or removed row without the marker, and has a planted-change case.
 
+
+- **P5B-SERIES. A series of the calendar is not cancelled as a series** (P5b, round 2 of catalog version 4).
+  - From: `docs/decisions/2026-11-05-p5-catalog-v4.md`, "Round 2 (P5b)", known limit 1.
+  - What: `event-cancel` with the recurrence words in the target ("all of them" and its Portuguese equivalent) finds the occurrences by title and lists several close rows and asks which; it never removes the series in one card. An "every Tuesday" (in either language) inside a target is read by `event_lookup._day_named` as the next such date, so the search narrows to that one occurrence.
+  - Trigger: a person asks to cancel a whole repeating series on a phone and the series has more than one row in the snapshot.
+  - Done when: a series is one card (or the question says it removes one occurrence), tested on a snapshot with a repeating event.
+- **P5B-AGENDA-SERVICE. `agenda` has no `service` slot.**
+  - From: `docs/decisions/2026-11-05-p5-catalog-v4.md`, "Round 2 (P5b)", known limit 3.
+  - What: the calendar list is narrowed by an account word only through the line's own reading (`event_lookup.account_named`); the interpreter cannot carry "Google" or "Outlook" for `agenda` as it does for `items`.
+  - Trigger: a real line asks for the events of one calendar account and the line's own reading misses it.
+  - Done when: `agenda` serves `service` as `items` does, with the same tests.
+- **P5B-MAIL-ASK-TO-EMPTY. `NW_MAIL_ASK_TO` with an empty name reads "Qual o e-mail de ?"**
+  - From: `docs/decisions/2026-11-05-p5-catalog-v4.md`, "Round 2 (P5b)", known limit 4.
+  - What: when a line gives no recipient at all (`to` left out), the question about the address has an empty name; a phrase for that case needs a pt-BR sentence the maintainer approves (the OPEN-9 precedent). A recipient's name is kept in `to` since round 2, so the question names the person in the common case.
+  - Trigger: the maintainer reads that question on a phone with no name in it.
+  - Done when: a phrase for the empty name is approved and `runtime/phrases_pt_br.py` and the other languages carry it, with the phrase snapshot updated.
+- **P5B-TWO-WORD-TO. A two-word recipient name in the word slot `to`.**
+  - From: `docs/decisions/2026-11-05-p5-catalog-v4.md`, "Round 2 (P5b)", section 0 (a).
+  - What: "Ana Lima" does not fit the word slot `to` (the checker refuses it, `E_SPAN`), so the slot is left out and the question has no name; the prompt's slot-kind paragraph already says so.
+  - Trigger: a real line gives the recipient as two words and the question loses the name.
+  - Done when: the slot is a span, or code reads the name from the line, and the case is tested.

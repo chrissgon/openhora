@@ -389,10 +389,12 @@ def test_vacuity_without_the_slots_in_the_view_the_model_cannot_name_the_bank(wo
     assert decision["kind"] != "op", decision
 
 
-def test_the_row_of_the_registry_carries_the_three_slots_of_version_2():
+def test_the_row_of_the_registry_carries_the_slots_of_version_2_and_the_service_word_of_version_4():
     rec = {r["op"]: r for r in st.load("registry").rows(2)}["items"]
     assert {slot: (spec["kind"], spec["param"], spec["since"]) for slot, spec in rec["slots"].items()} == {
-        "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}
+        "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2)}, "version 2 serves three slots: the word of version 4 is not there"
+    assert {slot: (spec["kind"], spec["param"], spec["since"]) for slot, spec in {r["op"]: r for r in st.load("registry").rows(4)}["items"]["slots"].items()} == {
+        "target": ("span", "match", 2), "day": ("span", "day_span", 2), "state": ("span", "state_span", 2), "service": ("word", "service_word", 4)}
     assert {r["op"]: r for r in st.load("registry").rows(1)}["items"]["slots"] == {}
     assert operations.LINE_CATALOG == 4, "P5 raised it, after MAIL-SUMMARY-FLIP (3) and CB-9 (2)"
 

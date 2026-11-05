@@ -41,11 +41,11 @@
    "state": "retired"
   },
   {
-   "catalog_sha256": "c33a2083201dd1cf855ecd0fd6bea5d03ac2007e82f60d9d13e5a2e62a1142e6",
+   "catalog_sha256": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
    "date": "2026-11-05",
    "state": "served"
   }
  ],
- "served": "c33a2083201dd1cf855ecd0fd6bea5d03ac2007e82f60d9d13e5a2e62a1142e6",
+ "served": "0dcff2be5ee9a08502b8b607dc5d12e0971e604d09f30017eca67815555d1857",
  "v": 1
 }

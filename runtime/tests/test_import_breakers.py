@@ -80,8 +80,10 @@ RUNTIME = REPO / "runtime"
 # P5 (catalog version 4, the slot `service` of the six mail act ops): one cycle edge is new (ops_interpret -> ops_mail_read, the one call in `_service_of`: it reads the account word as `mail-read`
 # reads it, `ops_mail_read._account_of`; ops_mail_read imports ops_interpret, so ops_interpret cannot import it at the top, and the family `ops_natural_mail` that places the account reaches no
 # operation of the layer): +1 call, +1 edge. The file's own AST count on the head: 62 lazy calls, 50 edges, 0 debt.
+# P5b (the slot `service` of `items`): one more lazy call on an edge that exists (ops_natural -> ops_mail_read, in the items branch of `run`: it reads the account word as `mail-read` reads it): +1 call,
+# +0 edges. The file's own AST count on the head: 63 lazy calls, 50 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 62
+LAZY_CALLS_BUDGET = 63
 LAZY_EDGES_BUDGET = 50
 PLAIN_DEBT_BUDGET = 0
 

@@ -13,7 +13,7 @@ The overlays of catalog version 4 (package P5, SPEC-P5-CATALOG-V4 section 4), `g
 `also` is widened by two written rules and nothing else, built by the function `widen_v4` below (the file is that function's output byte for byte): W4-1, an item whose gold or an `also` is `items`
 and whose line names calendar nouns and no mail noun (`natural_writes._items_nouns`: a calendar noun plain, no mail noun plain or negated), or whose frame's live plan is a calendar list, also accepts
 `agenda` with the same `day` and `target` (no `state`; the one German line `dev-de-50002` is added by hand, `HAND_CALENDAR_IDS`), because `items` is the mail from catalog version 4 and the calendar alone is `agenda`; W4-2, an item whose gold or an `also` is one of the six
-mail act ops and whose line names exactly one account (`event_lookup.account_named`) also accepts that answer plus `service`, the brand words of that account that stand in the line. Checked:
+mail act ops or `items` (since P5b: the slot `service` of `items`; no item of the two corpora is widened by it, because none of their `items` lines names an account) and whose line names exactly one account (`event_lookup.account_named`) also accepts that answer plus `service`, the brand words of that account that stand in the line. Checked:
 the ids and every key but `gold` and `also` equal the corpus, exactly the literal ids the rules widen are widened, every other item is byte for byte the v2 overlay's, and an honest `agenda {day}` is
 `correct` under the v4 overlay and `wrong_read` under the v2 one.
 
@@ -144,6 +144,7 @@ V4_LONG_GOLDS = FOLDER / "golds-catalog-v4-dev-long-v2.jsonl"          # evals/i
 V4_PAIRS = ((V4_DEV_GOLDS, DEV_GOLDS, FOLDER / "dev.jsonl", [], 310),
             (V4_LONG_GOLDS, LONG_GOLDS, FOLDER / "dev-long-v2.jsonl", ["dev-de-50002", "dev-en-50005", "dev-pt-br-50012"], 46))      # the literal ids the rules widen: dev.jsonl none (W4-1: its three `items` lines name no calendar noun the tables read, and its lines name no account on a mail act), dev-long-v2 the two calendar-only lines the tables read plus the German "Termine" line widened by hand (HAND_CALENDAR_IDS; the frames of 50008 and 50016 hold no calendar words)
 MAIL_ACTS = ("mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash")
+SERVICE_OPS = MAIL_ACTS + ("items",)      # W4-2: the ops that take the account word (`items` since P5b)
 V4_KEYS = ("also", "gold")
 HAND_CALENDAR_IDS = {"dev-de-50002"}      # W4-1 by hand: "Termine" are appointments, the calendar alone, but the engine's tables hold no German calendar noun (supervisor decision 2026-11-05)
 
@@ -188,7 +189,7 @@ def widen_v4(item: dict) -> dict:
     words = service_words(item["line"])
     if words:
         for a in ops:
-            if a["op"] in MAIL_ACTS and "service" not in a["slots"]:
+            if a["op"] in SERVICE_OPS and "service" not in a["slots"]:
                 add({"op": a["op"], "outcome": "op", "slots": dict(a["slots"], service=words)})
     return dict(item, also=item["also"] + added) if added else item
 
@@ -265,3 +266,7 @@ def test_v4_the_rules_by_themselves_on_planted_items():
     assert widen_v4(two) == two, "two accounts: nothing is added"
     none = dict(archive, id="x-8", line="archive the newsletter email")
     assert widen_v4(none) == none
+    listing = dict(base, id="x-9", line="list my emails from gmail", gold={"op": "items", "outcome": "op", "slots": {"state": ["unread"]}})      # P5b: W4-2 covers `items`
+    assert widen_v4(listing)["also"] == [{"op": "items", "outcome": "op", "slots": {"state": ["unread"], "service": ["gmail"]}}]
+    both_boxes = dict(listing, id="x-10", line="list my emails from gmail and from outlook")
+    assert widen_v4(both_boxes) == both_boxes, "two accounts: nothing is added to an items answer either"

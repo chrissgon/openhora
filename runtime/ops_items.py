@@ -164,12 +164,22 @@ def _line_args(said, now=None) -> dict:
     return {**out, **({"count": count} if count else {}), **_range_args(said, now)}
 
 
-SPAN_PARAMS = {"target": "match", "day": "day_span", "state": "state_span"}          # CB-1: the slot of `items` (catalog version 2) -> the parameter its span arrives as
+SPAN_PARAMS = {"target": "match", "day": "day_span", "state": "state_span", "service": "service_word"}          # CB-1: the slots of `items` (catalog version 2, and `service` since version 4) -> the parameter its span arrives as
 
 
 def span_args_of(args) -> dict:
     """{slot: the person's span} of the v2 slots of `items` from the arguments a decision or the router checked (`SPAN_PARAMS`): only a text that is there. Pure."""
     return {slot: args[param] for slot, param in SPAN_PARAMS.items() if isinstance(args, dict) and isinstance(args.get(param), str) and args[param].strip()}
+
+
+def service_spans(spans: dict, service) -> dict:
+    """P5b: the spans of `items` without the `service` word. `service` is the account the caller read from that word ("google", "microsoft", or None when it names none the line agrees with).
+    A word that names no account is not dropped silently: when the spans hold no target, it becomes the target (the word filter or the mailbox `mailbox_target` reads, as before the slot existed). Pure."""
+    word = spans.get("service")
+    out = {k: v for k, v in spans.items() if k != "service"}
+    if word and service is None and not out.get("target"):
+        out["target"] = word
+    return out
 
 
 MAILBOX_STRONG = frozenset(("mailbox", "mailboxes", "inbox", "buzon", "buzones", "postfach", "posteingang"))      # folded; a word that means a mailbox and nothing else
@@ -248,12 +258,12 @@ def unreadable_filter(spans, now):
     return None
 
 
-def items_args(said, now, previous=None, spans=None, default_kind=None) -> dict:
+def items_args(said, now, previous=None, spans=None, default_kind=None, service=None) -> dict:
     """The arguments a line gives `items`, whole, so that a plan's hash binds them (BL5B): `kind` ("calendar" or "mail"), `account`, the range (`first`, `last`), `count`, and, from the interpreter's
     verified spans (`spans`, {slot: span}: CB-1), `match` (the content words of the `target` span as code reads them, [] when it holds none) and `unread` (True when the `state` span is the closed word for
     unread). Each is read from the line as `_line_args` reads it; the range comes from the `day` span when there is one. `previous` is the arguments of the plan this line corrects (the sender's own
     live plan, never a third party's): the kind the new line names wins ("no, the e-mails"), else the old kind is kept, else `default_kind` (P5: "calendar" for a line the interpreter read as `agenda`), else the line alone decides (`items_kind`); the account, the range and the `match`
-    the old plan had are kept when the new line names none. A number of messages (`count`) is only the line's own. Pure: nothing is read."""
+    the old plan had are kept when the new line names none. A number of messages (`count`) is only the line's own. P5b: `service` is the account the interpreter's `service` word names (read by the caller, `ops_mail_read._service_of`); it is the `account` when the line names none itself. Pure: nothing is read."""
     spans = spans if isinstance(spans, dict) else {}
     found = _line_args(said, now)
     if isinstance(spans.get("day"), str) and spans["day"].strip():
@@ -264,6 +274,8 @@ def items_args(said, now, previous=None, spans=None, default_kind=None) -> dict:
     old = previous if isinstance(previous, dict) else {}
     kind = noun or default_kind or old.get("kind") or natural_writes.items_kind(said)
     out = {"kind": kind, **found}
+    if "account" not in out and service in ACCOUNTS:
+        out["account"] = service
     if "account" not in out and old.get("account"):
         out["account"] = old["account"]
     if "first" not in out and old.get("first") and old.get("last"):

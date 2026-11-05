@@ -27,6 +27,7 @@ natural = st.load("natural")
 operations = st.load("operations")
 ops_interpret = st.load("ops_interpret")
 ops_natural_mail = st.load("ops_natural_mail")
+interpreter_pipeline = st.load("interpreter_pipeline")
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "runtime"
@@ -74,7 +75,10 @@ def test_the_six_mail_act_ops_serve_the_account_word_and_say_when_to_use_it():
     for op in MAIL_ACTS:
         assert served[op]["slots"]["service"] == "word", op
         assert "service only when the line says Gmail or Outlook." in served[op]["what"], op
-    assert "service" not in served["mail-send"]["slots"] and "service" not in served["items"]["slots"]
+    assert "service" not in served["mail-send"]["slots"], "the card that sends a new e-mail has no account word: its account is asked or configured"
+    assert served["items"]["slots"]["service"] == "word" and "service only when the line says Gmail or Outlook." in served["items"]["what"], "P5b: the list of the mail takes the account word"
+    assert "or the recipient's name as the line writes it" in served["mail-send"]["what"], "P5b: a recipient's name stays in to"
+    assert served["mail-send"]["slots"]["to"] == "word"
 
 
 def test_the_routine_rows_the_series_and_the_file_name_are_worded_as_the_spec_says():
@@ -123,6 +127,25 @@ def test_a_span_that_is_not_in_the_line_is_still_refused_on_the_new_slot():
     assert got["kind"] != "op" and got.get("error") == "E_SPAN", got
 
 
+def test_items_takes_the_account_word_and_refused_it_before_round_2():
+    line = "mostra os e-mails não lidos do outlook"      # validate: allow english-only -- the Portuguese line under test
+    got = decide("items", {"state": "não lidos", "service": "outlook"}, line)      # validate: allow english-only -- the Portuguese words under test
+    assert got["kind"] == "op" and got["op"] == "items" and got["spans"] == {"state": "não lidos", "service": "outlook"}, got      # validate: allow english-only -- the Portuguese words under test
+    assert got["args"].get("service_word") == "outlook", got
+    bad = decide("items", {"state": "não lidos", "service": "gmail"}, line)      # validate: allow english-only -- the Portuguese words under test
+    assert bad["kind"] != "op" and bad.get("error") == "E_SPAN", "a word that is not in the line is refused on the new slot too"
+    assert "service" not in {slot for row in interpreter.SERVED["ops"] if row["op"] == "agenda" for slot in row["slots"]}, "P5b: agenda has no account word"
+
+
+def test_a_recipient_name_without_an_address_is_an_op_with_the_name_in_to_and_the_mail_step_asks_for_it():
+    line = "manda um e-mail pro Gustavo"      # validate: allow english-only -- the Portuguese line under test
+    got = decide("mail-send", {"to": "Gustavo"}, line)
+    assert got["kind"] == "op" and got["op"] == "mail-send" and got["spans"] == {"to": "Gustavo"}, got
+    seen = interpreter_pipeline.with_mail_step(got, line, NOW.replace(tzinfo=None), ZONE, "pt-BR")
+    assert seen["kind"] == "clarify" and seen["slot"] == "to", "the scorer mirrors the product: the name is kept and code asks for the address"
+    assert interpreter_pipeline.with_mail_step(decide("mail-send", {"to": "priya@example.test", "body": "hi"}, "send hi to priya@example.test"), "send hi to priya@example.test", NOW.replace(tzinfo=None), ZONE, "en")["kind"] == "op", "control: a complete send is not asked"
+
+
 # --- the prompt --------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -133,10 +156,14 @@ def prompt_text() -> str:
 def test_the_prompt_carries_the_second_exception_of_rule_3_the_new_example_and_the_new_sentence_of_rule_9():
     prompt = prompt_text()
     rule3 = next(line for line in prompt.splitlines() if line.startswith("3. "))
-    assert ("A second exception, for ops of class [E] that code completes by asking: when the line names such an op and leaves out the text of a reply or a draft reply, or names the recipient by a name "
-            "instead of an address, name the op with the slots the line gives and leave the missing slot out; never answer clarify for that slot. Code asks the person for it.") in rule3
+    assert ("A second exception, for ops of class [E] that code completes by asking: when the line names such an op and leaves out the text of the e-mail, the reply or the draft, or gives the recipient's "
+            "name but no address, name the op with the slots the line gives: a name given for the recipient goes in \"to\" as the line writes it, and only the missing text or address is left out; "
+            "never answer clarify for them. Code asks the person for them.") in rule3
+    assert "names the recipient by a name instead of an address" not in prompt, "P5b: the old words are gone"
     assert rule3.index("One exception, for ops of class [R]") < rule3.index("A second exception")
     assert 'line: reply to the email from Dana about the budget\n{"v":1,"kind":"op","op":"mail-reply","slots":{"target":"Dana about the budget"}}' in prompt
+    reply = 'line: reply to the email from Dana about the budget\n{"v":1,"kind":"op","op":"mail-reply","slots":{"target":"Dana about the budget"}}\n\n'
+    assert reply + 'line: write an e-mail to Priya\n{"v":1,"kind":"op","op":"mail-send","slots":{"to":"Priya"}}\n\nline: plan a three-day workshop' in prompt, "P5b: the new example stands right after the reply example"
     assert "write to Ana about the invoice" not in prompt and '"kind":"clarify","slot":"to"' not in prompt
     rule9 = next(line for line in prompt.splitlines() if line.startswith("9. "))
     assert ("Words that only say which items the person meant (the e-mails or the calendar; the unread ones; this morning's) keep the op of frame.last: items and agenda are one list here, "

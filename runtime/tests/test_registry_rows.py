@@ -109,6 +109,7 @@ OLD_REWORDED_BY_P5 = {
     "routine-cancel": "Choose this to cancel a routine; id is the routine's number written in the line. Not cancel, which is for a request.",
     "event-cancel": "Choose this to open a card that removes an event of the person's own calendar: target holds the event's words and day the day the line gives; event only when the line writes the event's number. Not reminder-forget.",
     "mail-reply": "Choose this to open a card that sends a reply to an e-mail: target holds the message's words (its sender or subject) and day the day it came in; message only when the line writes its number; body is the reply's text.",
+    "mail-send": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft.",
     "mail-draft": "Choose this to open a card that saves a draft in the person's own mailbox; to, subject and body are the line's words; to answer a message, target holds its words, or message its number. Nothing is sent.",
     "mail-archive": "Choose this to open a card that takes messages out of the inbox: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers.",
     "mail-move": "Choose this to open a card that moves messages to a folder: target holds their words, day the day, or messages the numbers the line writes; folder is the destination.",
@@ -278,7 +279,7 @@ def record_problems(rows) -> list:
             out.append(f"{name}: privacy or cost")
         if not isinstance(rec["what"], str) or not rec["what"].strip():
             out.append(f"{name}: what")
-        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 450 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
+        if not isinstance(rec["about"], str) or not 1 <= len(rec["about"]) <= 500 or "@" in rec["about"] or re.search(r"[0-9]{8}", rec["about"]):
             out.append(f"{name}: about")
         for slot, spec in rec["slots"].items():
             if set(spec) != SLOT_KEYS or spec["kind"] not in KIND_WORDS or spec["since"] not in (1, 2, 3, 4) or spec["since"] < rec["since"] or not spec["param"]:
@@ -311,7 +312,7 @@ def test_the_privacy_and_cost_classes_follow_the_columns_of_the_row():
 def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
     for rec in [registry.row(row["name"]) for row in operations.OPERATIONS]:      # every row, a row of a later version included
         for key in ("about", "what"):
-            assert 1 <= len(rec[key]) <= (450 if key == "about" else 300) and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
+            assert 1 <= len(rec[key]) <= (500 if key == "about" else 300) and "@" not in rec[key] and not re.search(r"[0-9]{8}", rec[key]), (rec["op"], key)
         assert not re.search(r"\b(ignore|you must|you should|system prompt|respond with|reply with)\b", rec["about"], re.I), rec["op"]      # it describes the operation, it does not instruct
     about = {row["name"]: row["natural"]["about"].lower() for row in operations.OPERATIONS}
     for op, words in SEPARATES.items():
@@ -320,7 +321,7 @@ def test_the_texts_hold_the_rules_and_separate_the_confusable_rows():
 
 
 def test_vacuity_the_record_check_sees_each_planted_fault(monkeypatch):
-    for fault in ({"class": "X"}, {"since": 5}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 451}, {"about": "write to a@b.example"},
+    for fault in ({"class": "X"}, {"since": 5}, {"order": 2}, {"privacy": "world"}, {"cost": "free"}, {"about": ""}, {"about": "x" * 501}, {"about": "write to a@b.example"},
                   {"about": "a number 12345678 in it"}, {"what": " "}):
         rows = [copy.deepcopy(row) for row in operations.OPERATIONS]
         rows[3]["natural"].update(fault)

@@ -285,6 +285,8 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
     if name == "items" and "kind" not in args:      # BL5B: the list's kind, account and range are part of the call, so that the plan's hash binds them and the question says what will be read; a correction keeps what the plan it corrects had (`extras["plan_previous"]`, the sender's own plan)
         spans = ops_items.span_args_of(args)      # CB-1 (catalog version 2): the spans of the line the interpreter verified for the target, the day and the state; the list reads them as code, and they never reach `items` as they are
         args = {key: value for key, value in args.items() if key not in ops_items.SPAN_PARAMS.values()}
+        service = importlib.import_module("ops_mail_read")._service_of(said, spans["service"]) if spans.get("service") else None      # P5b: the account the word of the slot `service` names, read as `mail-read` reads it
+        spans = ops_items.service_spans(spans, service)
         said_no = ops_items.unreadable_filter(spans, _clock())      # a day or a state the person stated and code cannot read is a sentence: never a list that looks filtered
         if said_no:
             return phrases.text(said_no, cfg)
@@ -294,7 +296,7 @@ def run(project: str, ctx: dict, name: str, args: dict, said: str, channel, send
             return phrases.text("NW_ITEMS_MAILBOX", cfg, names=box[1])
         if box:
             spans = {key: value for key, value in spans.items() if key != "target"}
-        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans, default_kind="calendar" if agenda_line else None), **({"source": box[1]} if box else {}))
+        args = dict(args, **ops_items.items_args(said, _clock(), extras.get("plan_previous"), spans, default_kind="calendar" if agenda_line else None, service=service), **({"source": box[1]} if box else {}))
     if name in ("mail-read", "mail-ask") and args.get("number") is None and not args.get("message") and isinstance(args.get("match"), str):
         digits = natural_writes_mail.target_words(args["match"], natural._tables(None))      # MAIL-SUMMARY-FLIP review: a model that gave the words "o 3" for the number 3 gave a number: the binding, the moved-list check, the pin and the range apply to it
         if len(digits) == 1 and re.fullmatch(r"[0-9]+", digits[0]):

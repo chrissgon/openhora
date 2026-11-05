@@ -200,12 +200,13 @@ def test_the_committed_entry_names_the_decided_hashes_the_languages_and_the_date
     assert p5["fallback"] == entry["fallback"] and p5["event_card_prompt_sha256"] == EVENT_CARD_PIN and p5["compose_prompt_sha256"] == entry["compose_prompt_sha256"] and p5["revise_prompt_sha256"] == entry["revise_prompt_sha256"], "the outage path (Luna) and every other pin stand as decided: the question about the outage route is decided after the measurement"
     assert p5["status_line"] == P5_STATUS_LINE and len(p5["reason"]) <= interpreter_enable.TEXT_MAX and len(p5["status_line"]) <= interpreter_enable.TEXT_MAX
     assert "P5" in p5["reason"] and "version 4" in p5["reason"] and "prompt rule 3" in p5["reason"] and "agenda" in p5["reason"] and "service" in p5["reason"]
-    assert "Measured on this PR's head before merge (RESULT-P5-CATALOG-V4-<date>)" in p5["reason"] and "only after the maintainer's decision on that measurement" in p5["reason"], "the marker stands until the result is written: the merge gate below is red while it does"
+    assert "P5, round 2" in p5["reason"] and "on items" in p5["reason"] and "a recipient's name kept in to" in p5["reason"] and "Round 1 failed bar line 3 (RESULT-P5-CATALOG-V4-2026-11-05)" in p5["reason"], "round 2 updates the probe in place: no 20th entry, round 1 was never decided"
+    assert "Measured on this PR's head before merge (RESULT-P5B-ROUND2-<date>)" in p5["reason"] and "only after the maintainer's decision on that measurement" in p5["reason"], "the marker stands until the result is written: the merge gate below is red while it does"
 
 
 @pytest.mark.skipif(not os.environ.get("CI"), reason="the merge gate of the draft: it runs in CI (which sets CI) and is skipped on a machine, the pre-commit hook included, so that the draft can be committed with the marker still in the reason; CI=1 runs it by hand")
 def test_the_newest_entry_names_the_result_file_it_was_decided_on_before_the_pull_request_merges():
-    """The reason of the newest entry says "RESULT-P5-CATALOG-V4-<date>" while the measurement is pending (it is filled, as the entries before it say "RESULT-RESERVE-V3-2026-11-03", "RESULT-ANY-QUESTION-2026-11-03" and "RESULT-MAIL-CARD-RECIPIENT-2026-11-01"); while a measurement is pending a marker "RESULT-<name>-<date>" stands and this test is red until the date of the run is written there: the marker cannot merge unfilled."""
+    """The reason of the newest entry says "RESULT-P5B-ROUND2-<date>" while the measurement is pending (it is filled, as the entries before it say "RESULT-RESERVE-V3-2026-11-03", "RESULT-ANY-QUESTION-2026-11-03" and "RESULT-MAIL-CARD-RECIPIENT-2026-11-01"); while a measurement is pending a marker "RESULT-<name>-<date>" stands and this test is red until the date of the run is written there: the marker cannot merge unfilled."""
     reason = committed()["entries"][-1]["reason"]
     assert "<date>" not in reason, "write the date of the measurement's result file in the reason of the newest entry (RESULT-<name>-YYYY-MM-DD)"
 

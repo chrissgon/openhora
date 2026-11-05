@@ -645,8 +645,9 @@ OPERATIONS = (
      "help": "the numbered items of the newest snapshot of each mail or calendar source (--kind mail|calendar and --source <id> narrow it; --match <words> keeps the messages whose sender or subject hold every word, and the events whose title holds them; --unread keeps the messages the provider says are not read): a message by its sender and subject, an event by its line, numbered as the references <source>#<n> number them; a messaging sender needs the group ask-mail; nothing is written",
      "natural": {"class": "R", "since": 1, "order": 19, "privacy": "account", "cost": "provider",
                  "what": "the numbered messages and events of the mail and calendar snapshots",
-                 "about": "Choose this to list the numbered messages of the person's mail snapshots (messages and events asked together are items too); it only lists, another operation reads one message's full text. Narrow it with the sender or subject words in target, the day or week in day, and in state only the words for unread or read (\"o último\", \"the latest\" are a count, not a state: leave them out). The calendar alone is agenda. Not a web search.",
-                 "slots": {"target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day_span", "since": 2}, "state": {"kind": "span", "param": "state_span", "since": 2}}}},
+                 "about": "Choose this to list the numbered messages of the person's mail snapshots (messages and events asked together are items too); it only lists, another operation reads one message's full text. Narrow it with the sender or subject words in target, the day or week in day, and in state only the words for unread or read (\"o último\", \"the latest\" are a count, not a state: leave them out). The calendar alone is agenda. service only when the line says Gmail or Outlook. Not a web search.",
+                 "slots": {"target": {"kind": "span", "param": "match", "since": 2}, "day": {"kind": "span", "param": "day_span", "since": 2}, "state": {"kind": "span", "param": "state_span", "since": 2},
+                           "service": {"kind": "word", "param": "service_word", "since": 4}}}},
     # P5 (catalog version 4): the calendar alone. The typed `/agenda` is `items --kind calendar`; a line the interpreter reads as `agenda` is run as `items` with the kind calendar (runtime/ops_natural.py), so
     # the policy, the plan, its hash and the list are the ones of `items`.
     {"name": "agenda", "call": "agenda",
@@ -984,7 +985,7 @@ OPERATIONS = (
      "help": "prepare an e-mail from your own Google or Microsoft account and stop at a card that shows the whole e-mail (nothing is sent until you approve the card with its hash): --text or --text-file is the body; --to, --cc and --bcc are plain comma-separated addresses, at most 20 in all (a Google account sends no Bcc in this version); --attach is a file under docs/ (repeat it), and an e-mail with a file is approved in the terminal or on the page, never on a messaging card; the sender is the address of the account in runtime.json (the key accounts); it is sent once",
      "natural": {"class": "E", "since": 1, "order": 42, "privacy": "account", "cost": "provider",
                  "what": "a card that sends an e-mail from the person's own account",
-                 "about": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, subject and body the line's own words. Not a reply and not a draft.",
+                 "about": "Choose this to open a card that sends a new e-mail from the person's own account; to is the address, or the recipient's name as the line writes it when the line gives no address; subject and body the line's own words. Not a reply and not a draft.",
                  "slots": {"to": {"kind": "word", "param": "to", "since": 1}, "subject": {"kind": "span", "param": "subject", "since": 1}, "body": {"kind": "span", "param": "text", "since": 1}}}},
     {"name": "mail-reply", "call": "mail_reply",
      "args": ({"name": "account", "kind": "choice", "choices": ("google", "microsoft"), "required": True},

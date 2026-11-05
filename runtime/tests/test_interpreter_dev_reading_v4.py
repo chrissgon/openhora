@@ -1,4 +1,4 @@
-"""The dev arm of catalog version 4 (package P5, SPEC-P5-CATALOG-V4): `evals/interpreter/dev-reading-v4.jsonl`, 31 fictional lines (pt-BR 20, en 11) written by the executor of P5, not by the author of
+"""The dev arm of catalog version 4 (package P5, SPEC-P5-CATALOG-V4): `evals/interpreter/dev-reading-v4.jsonl`, 37 fictional lines (pt-BR 23, en 14: 31 written by the executor of P5, six added in round 2, P5b) written by the executor of P5, not by the author of
 any `about` text: the lines the new row `agenda` is meant for with their confusables (the mail list, a series that is an event, a routine that is named, a name that looks like a file's, the ops code
 completes by asking, an account word on a mail act). It is dev evidence, never blind, and a NEW file: the frozen corpora and the earlier dev files are not touched.
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import collections
 import copy
+import datetime
 import importlib.util
 import json
 import re
@@ -26,6 +27,7 @@ from test_interpreter_echo import echo_object, run as echo_run
 interpreter = st.load("interpreter")
 interpreter_measure = st.load("interpreter_measure")
 interpreter_pipeline = st.load("interpreter_pipeline")
+event_lookup = st.load("event_lookup")
 ops_items = st.load("ops_items")
 ops_interpret = st.load("ops_interpret")
 ops_natural_mail = st.load("ops_natural_mail")
@@ -38,7 +40,7 @@ FROZEN = ("dev.jsonl", "dev-relabelled.jsonl", "ix-test-v1.jsonl", "dev-long-v1.
 
 IDS_BY_LANG = {"pt-BR": "dev-pt-br-63", "en": "dev-en-63"}
 ZONES = {"pt-BR": "America/Sao_Paulo", "en": "America/New_York"}
-LANG_COUNTS = {"en": 11, "pt-BR": 20}
+LANG_COUNTS = {"en": 14, "pt-BR": 23}
 CLOCK = "2026-11-04T14:30"      # a Wednesday
 # The kind of line of each id (the test's own table of the spec): A agenda with no noun, N agenda with a noun, T agenda with title words, B the mail list, S a series that is an event, R a routine
 # that is named, F a name that looks like a file's, X no file, E an op code completes by asking, M an account word on a mail act.
@@ -48,10 +50,11 @@ KIND = {"dev-pt-br-63000": "A", "dev-pt-br-63001": "A", "dev-en-63000": "A", "de
         "dev-pt-br-63008": "S", "dev-pt-br-63009": "S", "dev-en-63004": "S", "dev-pt-br-63010": "S",
         "dev-pt-br-63011": "R", "dev-en-63005": "R", "dev-en-63006": "R",
         "dev-pt-br-63012": "F", "dev-en-63007": "F", "dev-pt-br-63013": "F", "dev-pt-br-63014": "F", "dev-en-63008": "X",
-        "dev-pt-br-63015": "E", "dev-en-63009": "E", "dev-pt-br-63016": "E", "dev-pt-br-63017": "E",
+        "dev-pt-br-63015": "E", "dev-en-63009": "E", "dev-pt-br-63016": "E", "dev-pt-br-63017": "E", "dev-pt-br-63020": "E", "dev-en-63011": "E",
+        "dev-pt-br-63021": "B", "dev-en-63012": "B", "dev-pt-br-63022": "S", "dev-en-63013": "S",
         "dev-pt-br-63018": "M", "dev-en-63010": "M", "dev-pt-br-63019": "M"}
-KIND_COUNTS = {"A": 4, "N": 3, "T": 1, "B": 4, "S": 4, "R": 3, "F": 4, "X": 1, "E": 4, "M": 3}
-OP_COUNTS = {"agenda": 8, "ask": 1, "event-cancel": 4, "file-ask": 4, "items": 4, "mail-archive": 1, "mail-draft": 1, "mail-mark": 1, "mail-reply": 2, "mail-send": 1, "mail-trash": 1,
+KIND_COUNTS = {"A": 4, "N": 3, "T": 1, "B": 6, "S": 6, "R": 3, "F": 4, "X": 1, "E": 6, "M": 3}
+OP_COUNTS = {"agenda": 8, "ask": 1, "event-cancel": 6, "file-ask": 4, "items": 6, "mail-archive": 1, "mail-draft": 2, "mail-mark": 1, "mail-reply": 2, "mail-send": 2, "mail-trash": 1,
              "routine-cancel": 1, "routine-change": 1, "routine-pause": 1}
 ACCOUNT_OF_WORD = {"outlook": "microsoft", "gmail": "google"}      # the brand words the F lines hold, and the account each names (the test's own literals)
 
@@ -89,12 +92,12 @@ def test_the_file_is_canonical_sorted_and_loads_in_the_harness():
     raw = FILE.read_text(encoding="utf-8")
     assert raw.endswith("\n") and "\r" not in raw
     lines = raw.split("\n")[:-1]
-    assert len(lines) == 31 == len(ITEMS)
+    assert len(lines) == 37 == len(ITEMS)
     assert lines == [canon(item) for item in ITEMS], "every line is the canonical JSON of its item"
     ids = [item["id"] for item in ITEMS]
-    assert ids == sorted(ids) and len(set(ids)) == 31
+    assert ids == sorted(ids) and len(set(ids)) == 37
     loaded, data = interpreter_measure.load_corpus(str(FILE))
-    assert len(loaded) == 31 and data == FILE.read_bytes()
+    assert len(loaded) == 37 and data == FILE.read_bytes()
 
 
 def test_ids_are_in_the_63000_range_and_carry_their_language():
@@ -157,7 +160,7 @@ def test_the_counts_by_language_by_kind_and_by_operation_are_literals():
     assert sorted(KIND) == [item["id"] for item in ITEMS], "every id has a kind"
     assert dict(sorted(collections.Counter(KIND.values()).items())) == KIND_COUNTS
     assert dict(sorted(collections.Counter(item["gold"]["op"] for item in ITEMS).items())) == OP_COUNTS
-    assert sum(OP_COUNTS.values()) == sum(KIND_COUNTS.values()) == sum(LANG_COUNTS.values()) == 31
+    assert sum(OP_COUNTS.values()) == sum(KIND_COUNTS.values()) == sum(LANG_COUNTS.values()) == 37
     by_id = {item["id"]: item for item in ITEMS}
     assert {i for i, k in KIND.items() if k in "ANT"} == {i for i, item in by_id.items() if item["gold"]["op"] == "agenda"}, "the A, N and T lines are the lines whose gold is agenda"
     assert {i for i, k in KIND.items() if k == "B"} == {i for i, item in by_id.items() if item["gold"]["op"] == "items"}
@@ -172,7 +175,7 @@ def test_the_counts_by_language_by_kind_and_by_operation_are_literals():
 def test_the_lines_are_new_and_hold_no_address_and_no_phone_like_run():
     frozen = {normal(item["line"]) for name in FROZEN for item in rows(FOLDER / name)}
     lines = [normal(item["line"]) for item in ITEMS]
-    assert len(set(lines)) == 31
+    assert len(set(lines)) == 37
     assert not frozen & set(lines), "no line of a frozen set"
     for item in ITEMS:
         text = item["line"]
@@ -184,10 +187,10 @@ def test_no_line_is_claimed_by_stages_0_to_3_so_every_line_reaches_the_model():
     assert [item["id"] for item in ITEMS if interpreter_pipeline.pre_model(item) is not None] == []
 
 
-ASKED_BY_CODE = {"dev-en-63009", "dev-pt-br-63015", "dev-pt-br-63016", "dev-pt-br-63017"}      # the E lines: the gold is the op (the line names the op and leaves its missing slot out: code asks the person for it)
+ASKED_BY_CODE = {"dev-en-63009", "dev-pt-br-63015", "dev-pt-br-63016", "dev-pt-br-63017", "dev-pt-br-63020", "dev-en-63011"}      # the E lines: the gold is the op (the line names the op and leaves its missing slot out: code asks the person for it)
 
 
-def test_an_echo_model_is_correct_on_every_item_but_the_four_lines_code_completes_by_asking_and_on_every_also_taken_as_the_gold():
+def test_an_echo_model_is_correct_on_every_item_but_the_six_lines_code_completes_by_asking_and_on_every_also_taken_as_the_gold():
     off = {item["id"]: echo_run(item) for item in ITEMS if echo_run(item)[0] != "correct"}
     assert set(off) == ASKED_BY_CODE and all(KIND[i] == "E" for i in off), off
     assert all(got == ("clarify", "clarify") for got in off.values()), "the measurement mirrors the product (`interpreter_pipeline.with_mail_step`): an op of the family that lacks a slot is observed as the question code asks, so the scorer counts it `clarify`; the answer the gold says is an op, and the checker reads it as one (the next test)"
@@ -242,6 +245,47 @@ def test_with_the_gold_as_the_decision_a_line_that_names_an_account_gives_a_seed
         assert "service" not in item["also"][0]["slots"]
         seed_without = ops_natural_mail.mail_target_seed(without["op"], without, day, item["line"], service=ops_interpret._service_of(without, item["line"]))
         assert seed_without is not None and "account" not in seed_without["slots"], "an answer with no account word adds nothing: the family asks which box"
+
+
+# P5b (round 2): the title of the event each S line is about, as a planted snapshot row (the test's own literals), and the day the rows are on.
+S_TITLES = {"dev-en-63004": "Weekly yoga", "dev-en-63013": "Weekly piano lesson", "dev-pt-br-63008": "Aula de pilates", "dev-pt-br-63009": "Academia teste", "dev-pt-br-63010": "Academia teste",      # validate: allow english-only -- the Portuguese titles under test
+            "dev-pt-br-63022": "Aula de natação"}      # validate: allow english-only -- the Portuguese titles under test
+UNRELATED = "Reunião de equipe"      # validate: allow english-only -- the Portuguese titles under test
+TODAY = datetime.date(2026, 11, 4)
+
+
+def test_every_accepted_target_of_a_series_line_finds_its_event_and_not_an_unrelated_one():
+    """The event search (`event_lookup.ranked`, the day read from the target's own words as `_by_target` reads it) finds the event with the recurrence words in the target, and nothing else."""
+    series = [item for item in ITEMS if KIND[item["id"]] == "S"]
+    assert sorted(item["id"] for item in series) == sorted(S_TITLES), "every S line has a planted title"
+    for item in series:
+        now = interpreter_pipeline.now_of(item)
+        for answer in [item["gold"]] + item["also"]:
+            if answer["outcome"] != "op":
+                continue
+            for target in answer["slots"]["target"]:
+                kind, value = event_lookup._day_named(target, now)
+                day = TODAY + datetime.timedelta(days=(value - TODAY.weekday()) % 7) if kind == "weekday" else value if kind == "day" else None
+                rows_ = [{"source": "agenda", "n": 1, "day": day or TODAY + datetime.timedelta(days=6), "time": "18:00-19:00", "title": S_TITLES[item["id"]]},
+                         {"source": "agenda", "n": 2, "day": day or TODAY + datetime.timedelta(days=6), "time": "09:00-10:00", "title": UNRELATED}]
+                found = event_lookup.ranked(rows_, target, kind, value, TODAY)
+                assert [r["title"] for r in found] == [S_TITLES[item["id"]]], (item["id"], target, found)
+
+
+def test_with_the_gold_as_the_decision_the_two_account_lists_name_the_account_and_the_line_alone_does_not():
+    by_id = {item["id"]: item for item in ITEMS}
+    now = interpreter_pipeline.now_of(ITEMS[0])
+    for item_id, account in (("dev-pt-br-63021", "microsoft"), ("dev-en-63012", "google")):
+        item = by_id[item_id]
+        decision = decision_of(item)
+        assert decision["kind"] == "op" and decision["op"] == "items", item_id
+        spans = ops_items.span_args_of(decision["args"])
+        service = ops_interpret._service_of(decision, item["line"])
+        spans = ops_items.service_spans(spans, service)
+        assert "service" not in spans and service == account, (item_id, spans, service)
+        assert ops_items.items_args(item["line"], now, None, spans, service=service)["account"] == account, item_id
+    english = by_id["dev-en-63012"]
+    assert ops_items._named_account(english["line"]) == {} and "account" not in ops_items.items_args(english["line"], now, None, {}), "the slot is what reads the account of this line"
 
 
 def test_the_checks_are_not_vacuous():

@@ -460,7 +460,10 @@ def _unchanged(decision: dict, state: dict, said: str) -> bool:
     """Whether the corrected call (`decision["corrects"]`) is the live plan's own call, so that the "no" changed nothing. A list is compared as the dispatcher would ask it (its arguments read
     from the line with the old plan's), every other call by its arguments."""
     if decision["op"] in ("items", "agenda"):      # P5: an `agenda` decision is the calendar list
-        return ops_items.items_args(said, ops_natural._clock(), state["args"], ops_items.span_args_of(decision.get("args")), default_kind="calendar" if decision["op"] == "agenda" else None) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
+        spans = ops_items.span_args_of(decision.get("args"))
+        service = _service_of(decision, said)      # P5b: the brand word of `items`, read as the dispatcher reads it
+        spans = ops_items.service_spans(spans, service)
+        return ops_items.items_args(said, ops_natural._clock(), state["args"], spans, default_kind="calendar" if decision["op"] == "agenda" else None, service=service) == dict(state["args"])      # CB-1: the new spans of a corrected list are part of the comparison
     return dict(decision.get("args") or {}) == dict(state["args"])
 
 
