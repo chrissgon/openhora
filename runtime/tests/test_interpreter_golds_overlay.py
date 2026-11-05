@@ -12,7 +12,7 @@ not in the line is not accepted. Offline, no model.
 The overlays of catalog version 4 (package P5, SPEC-P5-CATALOG-V4 section 4), `golds-catalog-v4-dev.jsonl` and `golds-catalog-v4-dev-long-v2.jsonl`, are a full copy of the matching v2 overlay whose
 `also` is widened by two written rules and nothing else, built by the function `widen_v4` below (the file is that function's output byte for byte): W4-1, an item whose gold or an `also` is `items`
 and whose line names calendar nouns and no mail noun (`natural_writes._items_nouns`: a calendar noun plain, no mail noun plain or negated), or whose frame's live plan is a calendar list, also accepts
-`agenda` with the same `day` and `target` (no `state`), because `items` is the mail from catalog version 4 and the calendar alone is `agenda`; W4-2, an item whose gold or an `also` is one of the six
+`agenda` with the same `day` and `target` (no `state`; the one German line `dev-de-50002` is added by hand, `HAND_CALENDAR_IDS`), because `items` is the mail from catalog version 4 and the calendar alone is `agenda`; W4-2, an item whose gold or an `also` is one of the six
 mail act ops and whose line names exactly one account (`event_lookup.account_named`) also accepts that answer plus `service`, the brand words of that account that stand in the line. Checked:
 the ids and every key but `gold` and `also` equal the corpus, exactly the literal ids the rules widen are widened, every other item is byte for byte the v2 overlay's, and an honest `agenda {day}` is
 `correct` under the v4 overlay and `wrong_read` under the v2 one.
@@ -142,9 +142,10 @@ def test_the_checks_are_not_vacuous(tmp_path):
 V4_DEV_GOLDS = FOLDER / "golds-catalog-v4-dev.jsonl"          # evals/interpreter/golds-catalog-v4-dev.jsonl
 V4_LONG_GOLDS = FOLDER / "golds-catalog-v4-dev-long-v2.jsonl"          # evals/interpreter/golds-catalog-v4-dev-long-v2.jsonl
 V4_PAIRS = ((V4_DEV_GOLDS, DEV_GOLDS, FOLDER / "dev.jsonl", [], 310),
-            (V4_LONG_GOLDS, LONG_GOLDS, FOLDER / "dev-long-v2.jsonl", ["dev-en-50005", "dev-pt-br-50012"], 46))      # the literal ids the two rules widen: dev.jsonl none (W4-1: its three `items` lines name no calendar noun the tables read, and its lines name no account on a mail act), dev-long-v2 the two calendar-only lines the tables read (the German "Termine" is in no table; the frames of 50008 and 50016 hold no calendar words)
+            (V4_LONG_GOLDS, LONG_GOLDS, FOLDER / "dev-long-v2.jsonl", ["dev-de-50002", "dev-en-50005", "dev-pt-br-50012"], 46))      # the literal ids the rules widen: dev.jsonl none (W4-1: its three `items` lines name no calendar noun the tables read, and its lines name no account on a mail act), dev-long-v2 the two calendar-only lines the tables read plus the German "Termine" line widened by hand (HAND_CALENDAR_IDS; the frames of 50008 and 50016 hold no calendar words)
 MAIL_ACTS = ("mail-reply", "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash")
 V4_KEYS = ("also", "gold")
+HAND_CALENDAR_IDS = {"dev-de-50002"}      # W4-1 by hand: "Termine" are appointments, the calendar alone, but the engine's tables hold no German calendar noun (supervisor decision 2026-11-05)
 
 
 def calendar_only(line) -> bool:
@@ -180,7 +181,7 @@ def widen_v4(item: dict) -> dict:
             added.append(answer)
 
     ops = [a for a in answers if a.get("outcome") == "op"]
-    if any(a["op"] == "items" for a in ops) and (calendar_only(item["line"]) or calendar_plan(item["frame"])):
+    if any(a["op"] == "items" for a in ops) and (calendar_only(item["line"]) or calendar_plan(item["frame"]) or item["id"] in HAND_CALENDAR_IDS):
         for a in ops:
             if a["op"] == "items":
                 add({"op": "agenda", "outcome": "op", "slots": {k: v for k, v in a["slots"].items() if k in ("target", "day")}})
