@@ -6,8 +6,9 @@ description: >
   mitigation, and give a verdict with conditions. Use this skill when the user asks for a
   critique, a review of a plan or specification before it is built, a stress test, a devil's
   advocate, "poke holes in this", "what could go wrong", or a second opinion on a business
-  model, a PRD, a spec, a design, a launch plan, an AI feature or a bug-fix approach; and as
-  the review step of flows before implementation or publication. Not for reviewing code diffs
+  model, a PRD, a spec, a design, a launch plan, an AI feature or a bug-fix approach, including
+  a plan of one line typed in the message with no file; and as the review step of flows before
+  implementation or publication. Not for reviewing code diffs
   (that is eng-code-review) or for resolving open decisions (that is core-clarify).
 license: MIT
 metadata:
@@ -18,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Critique
