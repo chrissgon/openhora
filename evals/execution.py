@@ -423,11 +423,30 @@ def return_all_runs():
             return_run(root)
 
 
+STREAM_EVENT_TYPES = ("system", "error")  # the harness's own events: never the model's text or a tool's output
+
+
+def stream_events_text(out_dir, limit=2_000_000):
+    """The system and error event lines of <out>/stream.jsonl, joined: where a runner reports a provider's
+    policy refusal (a fallback after a safety stop, a content filter) when its last message does not say it."""
+    lines = []
+    for raw in read_text(os.path.join(out_dir, "stream.jsonl"), limit).splitlines():
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") in STREAM_EVENT_TYPES:
+            lines.append(raw)
+    return "\n".join(lines)
+
+
 def provider_refusal(out_dir, markers):
     """The provider's refusal message when the run ended because the provider declined the request, else None.
-    markers are the adapter's own words for it ("refusal_markers" in its eval.json)."""
-    for name in ("response.md", "raw.json", "error.log", "stderr.log"):
-        text = read_text(os.path.join(out_dir, name), 200000)
+    markers are the adapter's own words for it ("refusal_markers" in its eval.json). It reads the files the run
+    left and the system and error events of stream.jsonl, never the model's own messages in the stream."""
+    texts = [read_text(os.path.join(out_dir, name), 200000) for name in ("response.md", "raw.json", "error.log", "stderr.log")]
+    texts.append(stream_events_text(out_dir))
+    for text in texts:
         for marker in markers or ():
             at = text.find(marker)
             if at != -1:
@@ -438,7 +457,8 @@ def provider_refusal(out_dir, markers):
 # A provider that refuses the credential itself: an HTTP status 401, or 403, in the words a runner or an API
 # prints it ("HTTP 401", "statusCode":401, "API Error: 401", 401 Unauthorized, 401 "User not found.") or the
 # error type of a 401 ("authentication_error"). A 401 is always the credential; a 403 is only when the text
-# around it names a key, a token or a credential (another 403 is a policy or a region, and is retried).
+# around it names a key, a token or a credential (another 403 is a policy or a region, and is retried; a 403 that
+# names the run's own key proxy is its model and path policy, never the credential).
 AUTH_STATUS = re.compile(
     r"(?i)(?:\bHTTP(?:/[\d.]+)?\s+(40[13])\b"
     r"|\bstatus(?:[ _-]?code)?\"?\s*[:=]\s*\"?(40[13])\b"
@@ -447,6 +467,7 @@ AUTH_STATUS = re.compile(
     r"|(?<![\w.-])(40[13])\s+(?:Unauthorized|Forbidden|\"))"
     r"|(\"authentication_error\")")
 AUTH_KEY_WORDS = re.compile(r"(?i)\b(?:api[ _-]?)?keys?\b|\btokens?\b|\bcredentials?\b")
+PROXY_OWN = re.compile(r"(?i)\bthe key proxy\b")  # its model and path policy (evals/container/keyproxy/keyproxy.py): never the credential
 AUTH_WINDOW = 300  # characters on each side of a 403 in which the key must be named
 
 
@@ -457,7 +478,10 @@ def auth_refusal(out_dir):
         text = read_text(os.path.join(out_dir, name), 400000)
         for m in AUTH_STATUS.finditer(text):
             code = next((g for g in m.groups()[:5] if g), None) or "401"  # "authentication_error" is the 401's type
-            if code == "401" or AUTH_KEY_WORDS.search(text[max(0, m.start() - AUTH_WINDOW):m.end() + AUTH_WINDOW]):
+            window = text[max(0, m.start() - AUTH_WINDOW):m.end() + AUTH_WINDOW]
+            if code == "403" and PROXY_OWN.search(window):
+                continue  # the run's own key proxy refusing a model or a path, not the provider refusing the credential
+            if code == "401" or AUTH_KEY_WORDS.search(window):
                 return f"HTTP {code}"
     return None
 

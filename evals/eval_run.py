@@ -189,7 +189,8 @@ variant in benchmark.json "counts" ({"attempts", "retries", "timeouts", "refusal
 early-end-<j>/). A run that fails on every attempt is an infrastructure failure: it has no score and the event
 is incomplete.
 A refused key. A run whose provider refuses its credential (HTTP 401, or a 403 whose message names a key, a
-token or a credential) is never retried: every later run with that key would meet the same refusal. The
+token or a credential, unless it names the run's own key proxy: the proxy's refusal of a model or a path is its policy, not
+the credential, and such a run is an adapter failure, retried and capped) is never retried: every later run with that key would meet the same refusal. The
 event stops: no run starts after it, the runs in progress end, the run is listed in "infra_failures" with
 kind "auth", and the message names the variable that carried the key (with its secret store username), never
 its value. The runs not started are listed as not run; --resume runs them once a valid key is stored.
@@ -494,7 +495,9 @@ copied without bytecode and system files (__pycache__, *.pyc, .pytest_cache, .DS
 tooling to act on; such a case deliberately shows the model part of the repository.
 
 Refusals. When the provider declines a run on policy grounds, the run is made again like a timeout, with the
-skill and without it alike, and listed in benchmark.json "refusals". One refused on every attempt is an
+skill and without it alike, and listed in benchmark.json "refusals". A refusal is found in what the run left and in
+the system and error events of its stream.jsonl (a runner's fallback after a policy stop is reported there, never in its
+last message); the model's own messages and a tool's output in the stream are never read for it. One refused on every attempt is an
 infrastructure failure; after the cap of resumptions it is a result with score 0, like every run that did not
 complete (the earlier rule scored a refused baseline 0 at once and never scored a refused with-skill run,
 which treated the two variants differently).
