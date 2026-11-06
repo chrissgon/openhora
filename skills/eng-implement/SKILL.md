@@ -1,16 +1,18 @@
 ---
 name: eng-implement
 description: >
-  Implement one task from the backlog, one fix plan from a root-cause analysis or one finding of
-  a code review: the smallest change that makes the task's check pass, tests first when the task
-  specifies them, nothing outside the task's scope, and the project's conventions from its
-  instruction file. Use this skill when a backlog task is ready, when a bug fix has a confirmed
-  cause and a failing test, when a review finding must be fixed, or when the user asks to build,
-  code, implement or fix something concrete. Use it also, with no task id, when a test or check
-  is failing and the user asks to make it pass, or asks for a small change to existing code. It
-  runs the check before and after and reports the changed files with the check's output quoted.
-  Not for designing (eng-architecture), for exploring (eng-codebase-map) or for reviewing
-  (eng-code-review).
+  Use this skill first, before looking the task up or reading the code, whenever someone asks
+  to implement, build, code or fix something concrete: a backlog task named by its id
+  ("implement T-12", "do T-ab-3"), a spike or any other task of the backlog, a fix plan with a
+  confirmed cause and a failing test, a review finding, a failing test or check to make pass
+  ("just make it pass"), or a small change to existing code. With a task id, its first step
+  finds the task and its dependencies with its own script, so there is nothing to look up
+  before loading it. It makes the smallest change that makes the task's check pass, tests
+  first when the task specifies them, nothing outside the task's scope and the project's
+  conventions from its instruction file; it asks when the task leaves the user a decision,
+  runs the check before and after, and reports the changed files with the check's output
+  quoted. Not for designing (eng-architecture), for exploring (eng-codebase-map) or for
+  reviewing (eng-code-review).
 license: MIT
 metadata:
   area: engineering
@@ -20,7 +22,7 @@ metadata:
   updates: [docs/product/backlog.md, docs/engineering/plans/<task>.md, docs/engineering/adr/<NNNN>-<title>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Implement
