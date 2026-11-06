@@ -14,6 +14,19 @@ SCRIPT = Path(__file__).resolve().parents[1] / "executor.py"
 spec = importlib.util.spec_from_file_location("executor", SCRIPT)
 ex = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ex)
+COMMITTED_LOCK = ex.LOCK_FILE  # the repository's own evals/image-lock.json, read by one test only
+
+LOCK_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "image_lock.py"
+_lock_spec = importlib.util.spec_from_file_location("image_lock_for_executor_tests", LOCK_SCRIPT)
+image_lock_script = importlib.util.module_from_spec(_lock_spec)
+_lock_spec.loader.exec_module(image_lock_script)
+
+
+@pytest.fixture(autouse=True)
+def no_published_image(tmp_path, monkeypatch):
+    """These tests are about the executor, not about the lock the repository commits: the lock is a missing file (the
+    empty lock), so a run uses the local image, whatever evals/image-lock.json names. A test that needs a lock writes its own."""
+    monkeypatch.setattr(ex, "LOCK_FILE", str(tmp_path / "no-lock-here.json"))
 
 
 @pytest.fixture(autouse=True)
@@ -466,10 +479,16 @@ def test_pull_without_a_lock_entry_for_this_definition_says_so(tmp_path, monkeyp
     assert "names no published image" in str(e.value)
 
 
-def test_a_lock_file_that_is_not_in_its_form_is_an_error_and_the_committed_one_is_empty_until_a_script_fills_it(tmp_path):
+def test_a_lock_file_that_is_not_in_its_form_is_an_error_and_the_committed_one_is_the_one_a_script_wrote_for_this_definition(tmp_path):
     import json
-    committed = ex.image_lock(str(Path(ex.LOCK_FILE)))
-    assert committed == {"repository": None, "images": {}}  # P2d fills it, through a script that verifies the image first
+    committed = ex.image_lock(COMMITTED_LOCK)  # well formed, or this raises
+    entry = committed["images"][ex.definition_hash()]  # it names the image of the current definition
+    assert committed["repository"] == "ghcr.io/chrissgon/openhora-eval"
+    assert set(entry["platforms"]) == set(ex.IMAGE_PLATFORMS)
+    import io
+    out, err = io.StringIO(), io.StringIO()  # the script's own check, offline (no provenance is verified here: CI does that)
+    code = image_lock_script.run(["--check", "--lock", COMMITTED_LOCK, "--source-repo", "chrissgon/openhora"], out=out, err=err)
+    assert code == 0, err.getvalue()
     for bad in ({}, {"repository": "Not A Repo", "images": {}}, {"repository": None, "images": {"abc": {}}},
                 {"repository": None, "images": {"a" * 64: {"index_digest": "sha256:" + "c" * 64, "platforms": {"linux/arm64": {}}}}},
                 {"repository": "ghcr.io/x/y", "images": []}, {"repository": None, "images": {"a" * 64: {}}}, [],

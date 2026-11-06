@@ -25,6 +25,13 @@ KEY = "fake-floor-key-for-the-per-run-tests-0012"
 
 
 @pytest.fixture(autouse=True)
+def no_published_image(tmp_path, monkeypatch):
+    """These tests are about the executor, not about the lock the repository commits: the lock is a missing file (the
+    empty lock), so the run image is the local one, whatever evals/image-lock.json names."""
+    monkeypatch.setattr(ex, "LOCK_FILE", str(tmp_path / "no-lock-here.json"))
+
+
+@pytest.fixture(autouse=True)
 def gate(tmp_path, monkeypatch):
     entry = {"aliases": ["f-short"], "adapter": "h", "price_source": "https://example.test/price", "run_token_budget": 4321}
     models = {"floor": {**entry, "pass_env": [FLOOR], "route": "openrouter", "provider_pin": "deepinfra",
