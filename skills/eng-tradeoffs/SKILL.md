@@ -1,16 +1,14 @@
 ---
 name: eng-tradeoffs
 description: >
-  Compare the ways to make one change by building each one small and measuring it: options
-  that include at least one within the project's written rules, criteria taken from the plan's
-  impact and preserve lists, a scratch prototype per option run in every supported runtime and
-  in the hostile conditions users create, and an ADR that records the numbers and a
-  recommendation, leaving the decision to the user when an option crosses a written rule. Use
-  this skill when there is more than one reasonable way to fix or change something, when
-  someone asks "what's the best way", "A or B?", "should we use X", or when the obvious fix
-  breaks a rule the project wrote down. Also use it when the user has already picked the
-  answer ("just go with <library>", "write the ADR for X"), to check it against the rules
-  before recording it.
+  Use this skill before recommending how to make or fix a change, even when one option looks
+  obvious or the question is one line: "what's the best way to fix X", "A or B?", "should we
+  use X", and when the user has already picked the answer ("just go with <library>", "write
+  the ADR for X"). It checks the plan's Impact section first and stops when it is missing;
+  then it lists the options, at least one within the project's written rules, builds a scratch
+  prototype of each, runs them in every supported runtime and in the hostile conditions users
+  create, and writes an ADR with the measured numbers and a recommendation, leaving the
+  decision to the user when an option crosses a written rule or when the obvious fix breaks one.
 license: MIT
 metadata:
   area: engineering
@@ -20,7 +18,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md, docs/engineering/adr/<NNNN>-<title>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Tradeoffs
@@ -64,7 +62,7 @@ Progress:
 - [ ] Step 3: Prototype each option in a scratch folder that is not part of the change. Make it in one command that prints its path, `d="$(mktemp -d)" && echo "$d"`, and use the literal path it printed afterwards; when only the working directory is writable, use a gitignored `<project root>/.scratch/<task>-options/` (`<task>` matches `[a-z0-9-]+`). Remove it at the end. Write the smallest code that shows the behaviour, built the way the project builds (the same minifier and compression the size budget uses), and one runner file in the scratch folder that prints each option's result for every case. A third-party package is installed there only under Stop rule 2, pinned. Never put a prototype in the source tree.
 - [ ] Step 4: Run every prototype against the same cases, in every installed runtime the project supports: the plan's bug case and preserved behaviours, the edge states (hidden then shown, reduced motion, slow load), and the hostile conditions users create (global CSS resets, their own styles on the element, a framework re-rendering the node, a large page). A supported runtime that is not installed is `not run: <runtime> (not installed)`. Measure size and cost with the project's own tools, and measure the baseline with the same command. Record every number with the command that produced it. The skill's script runs the matrix in one command, with no shell and only on files inside the scratch folder:
   - `python3 <this skill's folder>/scripts/run_options.py runtimes <name>` lists the installed versions of a runtime (on the path and in version-manager folders) as JSON.
-  - `python3 <this skill's folder>/scripts/run_options.py run --runtime <path> --runtime <path> --tz <zone> --tz <zone> <scratch>/<runner> [args]` runs the runner once per runtime and zone at the same time and prints one JSON record per combination (exit code, output). `--out <scratch>/<file>` writes the records to a file instead of a shell redirection. `--cwd <scratch>/<option>` runs from an option's own copy of the project, so a copy of the project's size tool measures that option.
+  - Run it from the project root, never from inside the scratch folder (a `cd` into it is refused): `python3 <this skill's folder>/scripts/run_options.py run --runtime <path> --runtime <path> --tz <zone> --tz <zone> <scratch>/<runner> [args]` runs the runner once per runtime and zone at the same time and prints one JSON record per combination (exit code, output). `--out <scratch>/<file>` writes the records to a file instead of a shell redirection. `--cwd <scratch>/<option>` runs from an option's own copy of the project, so a copy of the project's size tool measures that option.
   - `python3 <this skill's folder>/scripts/run_options.py size <file or folder>...` prints raw and gzip level 9 bytes when the project has no size tool; compare options with the baseline measured by the same command, never with a number from another tool.
   If a command is refused, do not retry it in other spellings: use the script, and if that is refused too, apply Stop rule 4. In the ADR, write the script's name and arguments, never its path.
 - [ ] Step 5: Classify the decision. If every option that passes the cases stays within the written rules, recommend the one with the best measured result and mark the ADR `accepted` only if the project's rules or a recorded decision settle it. If a passing option needs a written rule changed, the decision is the user's: Stop rule 3, with the recommendation and the rule quoted; the ADR stays `proposed`.

@@ -80,6 +80,15 @@ def in_scratch(path: Path, cwd: Path) -> bool:
     return False
 
 
+def refusal_hint(path: Path, cwd: Path) -> str:
+    """Name the cause when the current folder is itself inside the temporary folder."""
+    real, here = path.resolve(), cwd.resolve()
+    if real.is_relative_to(here) and any(here.is_relative_to(r) for r in scratch_roots(cwd)[1:]):
+        return (f"; the current folder {cwd} is itself inside the temporary folder, where only "
+                f"{cwd / '.scratch'} counts as scratch: run this command from the project root")
+    return ""
+
+
 def valid_name(name: str) -> bool:
     return bool(name) and all(ch.isalnum() or ch in "._-" for ch in name) and not name.startswith((".", "-"))
 
@@ -148,20 +157,21 @@ def cmd_run(a: argparse.Namespace) -> int:
         die(f"{a.script} is not a file")
     if not in_scratch(script, cwd):
         die(f"{a.script} is outside the scratch folders ({cwd / '.scratch'} or the temporary folder); "
-            "prototypes never run from the source tree")
+            f"prototypes never run from the source tree{refusal_hint(script, cwd)}")
     run_dir = None
     if a.cwd:
         if not Path(a.cwd).is_dir():
             die(f"--cwd {a.cwd} is not a folder")
         if not in_scratch(Path(a.cwd), cwd):
-            die(f"--cwd {a.cwd} is outside the scratch folders")
+            die(f"--cwd {a.cwd} is outside the scratch folders{refusal_hint(Path(a.cwd), cwd)}")
         run_dir = str(Path(a.cwd).resolve())
     script = script.resolve()
     out_file = None
     if a.out:
         out_file = Path(a.out)
         if not out_file.parent.is_dir() or not in_scratch(out_file, cwd):
-            die(f"--out {a.out} must be a file in an existing folder inside the scratch folders")
+            die(f"--out {a.out} must be a file in an existing folder inside the scratch folders"
+                f"{refusal_hint(out_file, cwd)}")
     runtimes: list[str | None] = []
     for rt in a.runtime or []:
         resolved = rt if os.path.isabs(rt) else shutil.which(rt)
