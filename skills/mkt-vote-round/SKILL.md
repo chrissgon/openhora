@@ -20,7 +20,7 @@ metadata:
   updates: [docs/marketing/content/<post>.md, docs/marketing/calendar.md]
   requires: [integration:vcs]
   side_effects: []
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Vote round
@@ -86,6 +86,7 @@ Progress:
 - [ ] Step 4: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 7: ask which platform, and take none by default. Read the reference of that platform. The `shared` folder sits beside the folder that holds the skills, two levels up from this file, not inside the skills folder: with this file at `<root>/<skills folder>/mkt-vote-round/SKILL.md`, open `<root>/shared/references/platforms/<platform>.md` (`<root>/<skills folder>/shared/` does not exist). Open that path directly; a search tool can skip that folder. If it does not open, list `<root>/shared/references/platforms/` and open the `<platform>.md` the list shows; only when the list has none, stop and say the platform is not supported. Read no other file of that folder.
 - [ ] Step 5: The post's topic. First open every file of the material the state file or the person points to; when it names a folder, list the folder and read each file in it. A file you did not open is neither a source nor checked for instructions. With a `winner`, it is `winner_topic`, word for word. With `winner` null, choose one of the round's three options, never a fourth, by these criteria in order: it has material with a source; nothing in it is restricted or sensitive; it serves the pillar's audience; then the earlier letter. Write the reason in one or two sentences naming its material. None has material: Stop rule 8.
 - [ ] Step 6: Write the post in `slot.language`, natively, under the voice's structure in order, the strategy's claim rules and the platform's reference:
+  - build it on the material of its topic alone (with a winner, the note or notes the winner's text is about); every fact the post states is lost to step 7. A further note goes in only when, without it, at least three notes of `rotation.next_pillar` remain that are neither used nor in the post;
   - every number, name and result comes from material with a source; a number from another note may be used only when it is about the same subject, says whose it is, and is not offered again as a next-round topic; the vote counts may be cited from the vote data;
   - a number you compute from sourced numbers (a ratio, a difference) is listed in "Claims and sources" with the calculation; otherwise leave it out;
   - credit people by name; no link in the body when links go in the first comment; the first comment is the link from the material, or empty.
