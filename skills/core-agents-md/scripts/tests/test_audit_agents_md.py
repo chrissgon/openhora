@@ -156,3 +156,39 @@ def test_usage_errors(tmp_path):
     assert run("--root", str(root), "--audit", str(root / "missing.md"))[0] == 2
     assert run("--root", str(tmp_path / "nowhere"), "--detect")[0] == 2
     assert run("--root", str(root), "--unknown")[0] == 2
+
+
+INSTRUCTIONS = """# Instructions
+
+## Always
+- Run `bun run test` before finishing.
+- Reply in Portuguese.
+
+## Never
+- Break the hard rules.
+"""
+
+
+def test_carried_over_lists_a_copied_line_with_its_source(tmp_path):
+    agents = AGENTS.replace("bun run tests", "bun run test").replace("See `docs/ARCH.md`.", "See `ARCHITECTURE.md`.\n- Reply in Portuguese.")
+    root = project(tmp_path, agents=agents)
+    (root / "INSTRUCTIONS.md").write_text(INSTRUCTIONS, encoding="utf-8")
+    rc, out, _ = run("--root", str(root), "--audit", str(root / "AGENTS.md"))
+    data = json.loads(out)
+    assert data["carried_over"] == [{"line": "Reply in Portuguese.", "from": "INSTRUCTIONS.md"}]
+    assert data["ok"] is True and rc == 0
+
+
+def test_carried_over_skips_a_line_the_baseline_already_had(tmp_path):
+    agents = AGENTS.replace("See `docs/ARCH.md`.", "See `ARCHITECTURE.md`.\n- Reply in Portuguese.")
+    root = project(tmp_path, agents=agents)
+    (root / "INSTRUCTIONS.md").write_text(INSTRUCTIONS, encoding="utf-8")
+    (tmp_path / "base.md").write_text(agents.replace("- Reply in Portuguese.", "* reply in portuguese"), encoding="utf-8")
+    rc, out, _ = run("--root", str(root), "--audit", str(root / "AGENTS.md"), "--baseline", str(tmp_path / "base.md"))
+    assert json.loads(out)["carried_over"] == []
+
+
+def test_carried_over_is_empty_without_an_instruction_like_file(tmp_path):
+    root = project(tmp_path)
+    rc, out, _ = run("--root", str(root), "--audit", str(root / "AGENTS.md"))
+    assert json.loads(out)["carried_over"] == []

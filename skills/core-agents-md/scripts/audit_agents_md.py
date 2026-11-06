@@ -21,6 +21,10 @@ Usage:
           The workbench section (between <!-- workbench:start --> and <!-- workbench:end -->) belongs
           to core-project-init: it is left out of the check, and what the check would flag inside it
           is listed under "in_workbench_section", never fixed and never counted against "ok".
+          It also prints "carried_over": the lines of AGENTS.md (outside the workbench section) that the
+          baseline lacks and that equal a non-heading line of an instruction-like file once bullet
+          markers, backticks and closing punctuation are ignored. Reported only, not counted in "ok";
+          with no baseline every matching line is listed.
 --fix     with --audit: first replaces, outside the workbench section, every unknown command and
           missing path that has exactly one suggestion, touching nothing else, prints them under
           "fixed", then audits the result. A problem with no suggestion or several is left for a
@@ -314,6 +318,43 @@ def suggestions_for(root, unknown_commands, missing_paths):
     return out
 
 
+BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+
+
+def bare_line(line):
+    """The line without its bullet marker or numbering, stripped."""
+    return BULLET_RE.sub("", line).strip()
+
+
+def normalise_line(line):
+    """Bullet marker, backticks and closing punctuation removed, lowercase, whitespace collapsed."""
+    t = bare_line(line).replace("`", "").lower()
+    return " ".join(t.rstrip(".,;:!?").split())
+
+
+def carried_over(root, new_text, old_text):
+    """Lines of the new AGENTS.md (workbench section left out) that the baseline lacks and whose normalised
+    text equals a non-heading line of an instruction-like file. Reported only."""
+    seen = {normalise_line(l) for l in (old_text or "").splitlines()}
+    before, _, after = split_section(new_text)
+    found = []
+    for name in detect(root)["instruction_like"]:
+        try:
+            with open(os.path.join(root, name), encoding="utf-8", errors="ignore") as f:
+                source = {normalise_line(l): l for l in f.read().splitlines()
+                          if l.strip() and not l.lstrip().startswith("#")}
+        except OSError:
+            continue
+        for line in (before + "\n" + after).splitlines():
+            n = normalise_line(line)
+            if (line.strip() and not line.lstrip().startswith("#") and re.search(r"\w", n)
+                    and n in source and n not in seen):
+                item = {"line": bare_line(line), "from": name}
+                if item not in found:
+                    found.append(item)
+    return found
+
+
 def audit(root, agents_path, baseline, fix=False):
     with open(agents_path, encoding="utf-8") as f:
         text = f.read()
@@ -336,7 +377,7 @@ def audit(root, agents_path, baseline, fix=False):
     _, block_commands, block_paths = check(root, block)
     in_section = [{"kind": "command", "span": c} for c in block_commands] + \
         [{"kind": "path", "span": p} for p in block_paths]
-    section_state, source = "not checked", "none"
+    section_state, source, old_text = "not checked", "none", None
     if baseline:
         with open(baseline, encoding="utf-8") as f:
             old_text = f.read()
@@ -352,7 +393,8 @@ def audit(root, agents_path, baseline, fix=False):
     result = {"ok": ok, "commands_checked": checked, "unknown_commands": unknown_commands,
               "missing_paths": missing_paths,
               "suggestions": suggestions_for(root, unknown_commands, missing_paths),
-              "fixed": fixed, "workbench_section": section_state, "baseline": source,
+              "fixed": fixed, "carried_over": carried_over(root, text, old_text),
+              "workbench_section": section_state, "baseline": source,
               "in_workbench_section": {"owner": "core-project-init", "not_fixed": in_section},
               "workbench_sha256": section_sha(text), "lines": text.count("\n") + 1}
     print(json.dumps(result, indent=2))

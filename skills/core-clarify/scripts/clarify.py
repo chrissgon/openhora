@@ -30,6 +30,7 @@ import sys
 
 MAX_QUESTIONS = 3
 MAX_WHY_WORDS = 35
+NEXT_LINE = "Nothing is written yet, and every question above stays open until you answer it."
 Q_RE = re.compile(r"^\s*(?:#{2,4}\s*|\*\*)Q(\d+)[.:]\s*(.+?)\s*(?:\*\*)?\s*$")
 FIELD_RE = re.compile(r"^\s*[-*]\s*\**(Options|Recommended|Why)\**\s*:\**\s*(.*)$", re.I)
 # A recommendation that hands the question back is not an answer.
@@ -146,6 +147,8 @@ def check_round(text):
                 errors.append(f"{tag}: the Why has {sentences(why)} sentences: keep one sentence, on one line")
             if len(why.split()) > MAX_WHY_WORDS:
                 errors.append(f"{tag}: the Why has {len(why.split())} words: at most {MAX_WHY_WORDS}")
+    if " ".join(NEXT_LINE.lower().split()) not in " ".join(text.lower().split()):
+        errors.append('the "### Next" section must open with the line "' + NEXT_LINE + '", copied as written')
     return out(errors, warnings, "Send the round as it is and end your turn; write no brief until the user answers.",
                {"questions": len(qs)})
 

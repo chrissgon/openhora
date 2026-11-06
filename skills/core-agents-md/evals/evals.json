@@ -35,7 +35,7 @@
       ],
       "assertions": [
         {
-          "text": "The user is asked, with a recommendation, which INSTRUCTIONS.md conventions to carry over before they are written",
+          "text": "The produced AGENTS.md states none of the INSTRUCTIONS.md conventions (run `bun run size` before finishing; never break the hard rules; reply in Portuguese) beyond what the original AGENTS.md already said, and the reply asks the user, with a recommendation for each, which of them to carry over",
           "tags": [
             "guard"
           ]
