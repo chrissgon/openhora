@@ -4,14 +4,14 @@
     {
       "id": 1,
       "prompt": "Review the change in change.patch for T-ap-3. The patch is already applied in this tree.",
-      "expected_output": "The task is read from the backlog; the scope script is run on change.patch; the unit tests and the task's check are run by the reviewer with the runner's own lines quoted (Ran 4 tests, OK); consumers of parse_amount (src/report.py) are found and listed; the bug-fix checklist is filled from docs/engineering/plans/T-ap-3.md (fix at the cause, regression test present); every perspective without a finding lists what was checked; the verdict is approve or approve with changes and the artifact docs/engineering/reviews/T-ap-3.md is written; the review quotes git status --short, which shows no change to src/ or tests/; no code is edited.",
+      "expected_output": "The task is read from the backlog; the scope script is run on change.patch; the unit tests and the task's check are run by the reviewer with the runner's own lines quoted (Ran 4 tests, OK); consumers of parse_amount (src/report.py) are found and listed; the bug-fix checklist is filled from docs/engineering/plans/T-ap-3.md (fix at the cause, regression test present); every perspective without a finding lists what was checked; the verdict is approve or approve with changes (or request changes, only for inputs other than \"(12.50)\" whose result the patch changes, shown before and after) and the artifact docs/engineering/reviews/T-ap-3.md is written; the review quotes git status --short, which shows no change to src/ or tests/; no code is edited.",
       "files": ["evals/files/fix-good"],
       "grader_files": ["src/money.py", "src/report.py", "tests/test_money.py", "docs/product/backlog.md", "docs/engineering/plans/T-ap-3.md"],
       "assertions": [
         "The review or the reply quotes the test command and the runner's lines `Ran 4 tests` and `OK`, not only the backlog's status note",
         "src/report.py is named as a consumer of parse_amount that was checked",
         "The bug-fix checklist states the fix is at the root cause named in docs/engineering/plans/T-ap-3.md",
-        "The verdict is approve or approve with changes, with no blocking or high finding",
+        "The verdict is approve or approve with changes with no blocking or high finding; or it is request changes and every blocking or high finding is an input other than \"(12.50)\" whose result the patch changes (such as \"((12.50))\" or \"(-12.50)\"), shown with its result before and after the patch",
         {"text": "Neither src/money.py, src/report.py nor tests/test_money.py is among the files the run produced or changed, and the reply or the review quotes `git status --short` with no line for them", "tags": ["guard"]}
       ]
     },
