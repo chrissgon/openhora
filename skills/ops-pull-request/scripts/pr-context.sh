@@ -6,7 +6,7 @@
 # Prints: repository root, current branch, base branch (the remote's default, else main or
 # master) and the ref compared with (origin/<base> after a fetch, so a stale local base cannot
 # list the base's own commits as the branch's), the commits the branch adds, the files it
-# changes, whether it is pushed, the pull request template (path and content, first found in the
+# changes, whether it is pushed, the address of the origin remote (null when there is none), the pull request template (path and content, first found in the
 # usual places), the last base commits (to read the commit convention), the lines of AGENTS.md or
 # CONTRIBUTING.md about merging, and an open pull request for the branch when the code host's
 # command-line tool, when present, can tell.
@@ -46,11 +46,12 @@ for f in .github/pull_request_template.md .github/PULL_REQUEST_TEMPLATE.md PULL_
 done
 PUSHED=false
 [[ -n "$BRANCH" ]] && git ls-remote --exit-code --heads --end-of-options origin "refs/heads/$BRANCH" >/dev/null 2>&1 && PUSHED=true
+REMOTE=$(git remote get-url origin 2>/dev/null || true)
 OPEN_PR=""
 command -v gh >/dev/null && OPEN_PR=$(gh pr list --head "$BRANCH" --json url --jq '.[0].url' 2>/dev/null || true)
-python3 - "$ROOT" "$BRANCH" "$BASE" "$CMP" "$TEMPLATE" "$PUSHED" "$OPEN_PR" <<'PY'
+python3 - "$ROOT" "$BRANCH" "$BASE" "$CMP" "$TEMPLATE" "$PUSHED" "$OPEN_PR" "$REMOTE" <<'PY'
 import json, os, subprocess, sys
-root, branch, base, cmp, template, pushed, open_pr = sys.argv[1:]
+root, branch, base, cmp, template, pushed, open_pr, remote = sys.argv[1:]
 git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
 rules = []
 for doc in ("AGENTS.md", "CONTRIBUTING.md"):
@@ -64,6 +65,7 @@ print(json.dumps({
     "commits": git("log", "--format=%h %s", "--end-of-options", f"{cmp}..HEAD", "--").splitlines() if base else [],
     "files": git("diff", "--name-status", "--end-of-options", f"{cmp}...HEAD", "--").splitlines() if base else [],
     "pushed": pushed == "true",
+    "remote": remote or None,
     "open_pull_request": open_pr or None,
     "template": {"path": template, "content": open(template, encoding="utf-8").read()} if template else None,
     "base_history": git("log", "--format=%s", "-8", "--end-of-options", cmp, "--").splitlines() if base else [],

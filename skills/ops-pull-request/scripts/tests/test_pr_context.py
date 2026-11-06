@@ -85,6 +85,19 @@ def test_pr_context_usage_errors_exit_2_with_a_message_on_stderr(tmp_path):
     assert "Traceback" not in r.stderr
 
 
+def test_pr_context_reports_the_origin_address(tmp_path):
+    repo = repo_with_change(tmp_path, "y = 2\n")
+    git(repo, "branch", "-q", "-M", "main")
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+    git(repo, "remote", "add", "origin", str(origin))
+    git(repo, "switch", "-q", "-c", "feature")
+    git(repo, "commit", "-q", "-am", "feature work")
+    r = run_pr_context(repo, only_tools(tmp_path, "git", "python3", "sed", "dirname"))
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["remote"] == str(origin)
+
+
 def test_pr_context_finds_the_template_and_works_without_a_remote_or_host_tool(tmp_path):
     repo = repo_with_change(tmp_path, "y = 2\n")
     git(repo, "branch", "-q", "-M", "main")
@@ -101,5 +114,6 @@ def test_pr_context_finds_the_template_and_works_without_a_remote_or_host_tool(t
     assert out["base"] == "main" and out["compared_with"] == "main"
     assert out["template"] == {"path": ".github/pull_request_template.md", "content": "## Summary\n"}
     assert out["pushed"] is False and out["open_pull_request"] is None
+    assert out["remote"] is None
     assert out["merge_rules"] == ["AGENTS.md: - Merges are squash merges."]
     assert out["commits"][0].endswith("feature work") and out["files"] == ["M\tapp.py"]
