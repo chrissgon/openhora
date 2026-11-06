@@ -41,7 +41,7 @@
       "assertions": [
         {"text": "Content has Size, Format and Text parts", "tags": ["format"]},
         "The variable fields of the documentation card template name their longest real value from the page list in docs/design/flows.md: \"Migrating from 0.19\" (19 characters) for the page title and \"Getting started\" (15 characters) for the section name; a brief that also names the landing title as the longest value a shared title field must fit does not fail this",
-        "Every colour and type size the brief writes out is a value of docs/design/design-system.md, written with its token name, and no colour appears that the design system does not have",
+        "Every colour the brief writes out is a value of docs/design/design-system.md and no colour appears that the design system does not have; Visual language gives each colour and each type size with its token name; every type role the texts use is a role of the design system (the image profile's legibility floor of at least 40 px is a constraint, not a type size)",
         "One criterion checks legibility at thumbnail size",
         {"text": "docs/design/briefs/og-image.lint.json is among the files the run produced, its ok is true, its arguments include --type image and --values inline, and the reply quotes its summary line", "tags": ["format"]}
       ],

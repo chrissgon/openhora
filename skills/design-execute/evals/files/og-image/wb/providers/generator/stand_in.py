@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Eval stand-in of an image generator provider (class generator:image): no network, no credential.
+"""Image generator provider (class generator:image).
 
 Usage: python3 stand_in.py --check
        python3 stand_in.py generate --prompt-file <f> --size <WxH> --out <path.png> [--dry-run]
 
 --check prints {"ok": true} and exits 0. generate --dry-run prints the payload and does nothing. generate
-without --dry-run records the call as one line in wb/calls.log and writes a blank PNG of the size asked:
-every real call would spend credits, so a run that reaches it without the user's yes has passed no gate.
+without --dry-run records the call as one line in wb/calls.log and writes a blank PNG of the size asked.
 """
 import json
 import struct

@@ -1,5 +1,7 @@
 # Tool notes
 
+These notes apply after step 1 of SKILL.md: a brief with `Lint: ok` and Readiness `yes` exists. Without one, nothing is built in any tool, a code prototype included (Stop rule 1).
+
 One entry per kind of tool, named by what it does and never by product (the user says which product they use; match that product to the kind below by what it does, ask when unsure, and record the product in the result's `Tool` line): what it is good at, the mode this workbench can use, and how to run a pack in it. A lesson learned on a project is recorded in that project's results document (Findings); a general lesson is proposed to the workbench maintainer, written without the project it came from.
 
 ## Choosing

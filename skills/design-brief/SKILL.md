@@ -1,15 +1,16 @@
 ---
 name: design-brief
 description: >
-  Write the design brief an AI design tool needs to produce a strong visual artifact: a
-  screen or page, a mockup, a logo, a presentation, an animation or a still image such as a
-  social card. The brief carries the subject, audience and voice, the copy verbatim from its
-  source, the design system (values written out, or referenced when the tool already loaded
-  it), named creative directions, the content the artifact must hold, constraints,
-  deliverables per round, evaluation criteria and a ready-to-paste prompt. Use this skill
-  when someone asks to design, mock up, draw or generate any visual artifact, to brief a
-  design tool, or when a request to a design tool is too thin to produce good work, even if
-  the word "brief" is never said. design-execute then runs the brief in a tool. Not
+  Use this skill first, before drawing, coding or generating any visual yourself, whenever
+  someone asks to make, design, mock up, draw or generate a visual artifact: a logo, an app
+  icon, a screen or page, a mockup, a presentation, an animation or a still image such as a
+  social card, even when you could write the SVG or HTML directly and even if the word
+  "brief" is never said. It checks that the visual foundation, the flows and the copy exist,
+  stops and names the skill that writes them when they do not, and otherwise writes the
+  brief a design tool needs: subject, audience and voice, the copy verbatim from its source,
+  the design system (values written out, or referenced when the tool already loaded it),
+  named creative directions, content, constraints, deliverables per round, evaluation
+  criteria and a ready-to-paste prompt. design-execute then runs the brief in a tool. Not
   for tokens and components (design-system), flows and screen inventory (design-ux-flows)
   or copy (mkt-messaging).
 license: MIT
@@ -21,7 +22,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.2.0"
+  version: "2.0.0"
 ---
 
 # Design brief
@@ -55,7 +56,7 @@ Check these before creating or editing any file, and again before replying. They
 
 1. **No visual foundation.** If neither `docs/design/design-system.md` nor `docs/brand/identity.md` exists, write no brief: reply with the stop template below, naming `design-system` as the skill that writes the visual foundation (from code, images, documents or a short interview), to be run first, and ask the questions for whatever else has no source (for a logo, the exact name as it must be written).
 2. **No flows for a screen.** If the artifact is a screen and `docs/design/flows.md` has no entry for it, write no brief: stop and tell the user that `design-ux-flows` writes it and to run it first.
-3. **A text without a source.** If a text the artifact shows has no source (no messaging artifact, spec or content file holds it, and the user did not give it), write no brief: ask for the text, recommending the source that should hold it (`mkt-messaging` writes `docs/marketing/messaging.md`). A source that exists is used, not asked for again.
+3. **A text without a source.** If a text the artifact shows has no source (no messaging artifact, spec or content file holds it, and the user did not give it), write no brief: ask for the text, recommending the source that should hold it (`mkt-messaging` writes `docs/marketing/messaging.md`). A source that exists is used, not asked for again. A control that the flows name only by its function (a code tab, a copy control, previous and next links, a menu control) is not such a text: the brief names it by its function and writes no words for it. When every text has a source except the texts of some items of a template (one page, slide or variant whose fields no source fills), this rule does not stop the brief: write it for the items that have their texts, leave the others out of the variable fields, and add one open question for them, `- OPEN-n: <items> have no <text> in any source. Blocks: their <artifact> only. Recommended: <the source that should hold it>.`, with Readiness `no, because OPEN-n`.
 
 The stop reply:
 
@@ -85,7 +86,7 @@ Progress:
 - [ ] Step 6: Content, per the type profile: for a screen, the regions in priority order with the copy verbatim, states, breakpoints and motion; for a logo, the name, the variants and sizes; for a presentation, the slides; and so on. For a template (one artifact per page or per item), list every variable field with the longest real value it must fit: collect the field's real values from the sources (the page list in the flows, the content files) and run `python3 <this skill's folder>/scripts/longest_value.py "<value>" "<value>"…`; write the value and its character count from the output, never an estimate. Real markup of components when the artifact shows the product's UI.
 - [ ] Step 7: Constraints (values only from Visual language, copy verbatim, accessibility, what the artifact must not contain, buildability or production limits), deliverables per round (round 1: directions at one size; round 2: the chosen one complete), and at least five evaluation criteria a reviewer can check by looking at the result, one per line as `- CRIT-n:`.
 - [ ] Step 8: Attachments and prompt. List what goes to the tool with the brief (reference images, the brief itself, the product's own assets) and what must not (an existing design of the same artifact in round 1, because tools reproduce what they are shown). Write the prompt: it opens by saying this is an exploration and what failure looks like, carries a `Direction:` slot, the non-negotiables, the drama the result needs, what to deliver, and asks the tool to list what the result does that a plain version would not.
-- [ ] Step 9: Lint: `python3 <this skill's folder>/scripts/lint_brief.py --file docs/design/briefs/<artifact>.md --type <type> --values <inline|loaded> --report docs/design/briefs/<artifact>.lint.json [--flows <flows file> --screen SCREEN-n] [--messaging <messaging file>]`. For a screen, always pass `--flows` and `--screen`; pass `--messaging` only for a screen that carries every section of that messaging artifact (a landing), never for an image, a logo or a documentation page. It checks the sections, the type profile's required content, values written out in `inline` mode, the design system named in `loaded` mode, messaging headlines verbatim, the SCREEN's regions and states, the criteria, the prompt and leftover placeholders. Fix the brief and rerun until `ok` is true; `--report` keeps the result of the last run, with its arguments, next to the brief as the evidence. Then write `- Lint: ok (<date from date +%F>)` in the header. Never write `ok` without having run the script; when it cannot be run, write `- Lint: not run` and say so in the reply.
+- [ ] Step 9: Lint: `python3 <this skill's folder>/scripts/lint_brief.py --file docs/design/briefs/<artifact>.md --type <type> --values <inline|loaded> --report docs/design/briefs/<artifact>.lint.json [--design-system docs/design/design-system.md] [--flows <flows file> --screen SCREEN-n] [--messaging <messaging file>]`. For a screen, always pass `--flows` and `--screen`; pass `--messaging` only for a screen that carries every section of that messaging artifact (a landing), never for an image, a logo or a documentation page. Pass `--design-system` whenever `docs/design/design-system.md` exists: it fails a colour in the brief that the design system does not have. It checks the sections, the type profile's required content, values written out in `inline` mode, the design system named in `loaded` mode, messaging headlines verbatim, the SCREEN's regions and states, the criteria, the prompt and leftover placeholders. Fix the brief and rerun until `ok` is true; `--report` keeps the result of the last run, with its arguments, next to the brief as the evidence. Then write `- Lint: ok (<date from date +%F>)` in the header. Never write `ok` without having run the script; when it cannot be run, write `- Lint: not run` and say so in the reply.
 - [ ] Step 10: Register `docs/design/briefs/<artifact>.md` in `docs/workbench/state.md`, Artifacts: owner `design-brief`, status `draft`, the date from `date +%F`. Skip when there is no state file and say so.
 - [ ] Step 11: Self-check against "Quality criteria": list every value, text, count and date in the brief and where it came from (the design system, the flows, the copy source, a script's output, the user); remove it or list it under "Assumptions" when it has no origin.
 - [ ] Step 12: Reply with the report template below.

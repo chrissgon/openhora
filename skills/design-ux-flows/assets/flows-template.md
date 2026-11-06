@@ -6,6 +6,7 @@
 - Date: {YYYY-MM-DD, from `date +%F`}
 - PRD: docs/product/prd.md
 - Phase covered: {P-n}
+- Spec pending: {the must features of the phase with no spec, as F-n, F-m | none}
 
 ## Summary
 
@@ -21,11 +22,13 @@
 
 ## Screens
 
+Regions are listed in priority order: the first is what the user must see first.
+
 - SCREEN-1: {name}. Purpose: {one sentence}. Regions: {first}, {second}, {…}. States: {default, empty, error, …}. Breakpoints: {what changes on narrow screens}. Source: {…}
 
 ## Flows
 
-- FLOW-1: {name}. Actor: U-{n}. Trigger: {…}. Steps: 1. on SCREEN-{x}: {action} → {result}; 2. on SCREEN-{y}: {…}. End: {observable state}. Failures: {step n: what the user sees}. Keyboard: {keys for the same path}. Source: {…}
+- FLOW-1: {name}. Actor: U-{n}. Trigger: {…}. Steps: 1. on SCREEN-{x}: {action} → {result}{ (spec pending), on every step when the flow's feature is listed under Spec pending}; 2. on SCREEN-{y}: {…}. End: {observable state}. Failures: {step n: what the user sees}. Keyboard: {keys for the same path}. Source: {…}
 
 ## Coverage
 

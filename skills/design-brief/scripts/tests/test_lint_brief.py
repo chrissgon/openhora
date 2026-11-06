@@ -131,3 +131,22 @@ def test_lint_brief_report_needs_a_writable_path(tmp_path):
     assert r.returncode == 2 and "--report needs a value" in r.stderr
     r = run(*base, "--report", str(tmp_path / "absent" / "lint.json"))
     assert r.returncode == 2 and "cannot write the report" in r.stderr
+
+
+def design_system_errors(tmp_path: Path, brief_text: str) -> list[str]:
+    system = tmp_path / "design-system.md"
+    system.write_text("# Design system\n\n- Brand: #1A6B3C\n- Surface: #f5f1e8\n", encoding="utf-8")
+    brief = tmp_path / "brief.md"
+    brief.write_text(brief_text, encoding="utf-8")
+    r = run(LINT_BRIEF, "--file", str(brief), "--type", "image", "--values", "inline",
+            "--design-system", str(system))
+    return [e for e in json.loads(r.stdout)["errors"] if "design system" in e]
+
+
+def test_lint_brief_design_system_flags_a_foreign_colour(tmp_path):
+    errors = design_system_errors(tmp_path, "# Brief\n\n## Visual language\n\n- Brand #1A6B3C\n\n## Prompt\n\nUse #FF00AA and #ff00aa.\n")
+    assert errors == ["colour #FF00AA is not a value of the design system"]
+
+
+def test_lint_brief_design_system_accepts_colours_of_the_file_in_any_case(tmp_path):
+    assert design_system_errors(tmp_path, "# Brief\n\n## Visual language\n\n- Brand #1a6b3c, surface #F5F1E8\n") == []

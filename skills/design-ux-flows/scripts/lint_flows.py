@@ -19,6 +19,8 @@ Checks:
   - every SCREEN is named by at least one FLOW
   - every must/should feature of the PRD (in the given phase, when --phase is set) has a Coverage line
   - every Coverage line names FLOW-/SCREEN- ids that exist, or "no screen:" with a reason
+  - spec-pending-line: the header has a `- Spec pending:` line whose value is `none` or a list of F-n ids
+  - spec-pending-steps: every step of a FLOW whose Source: names a listed F-n carries the words `spec pending`
   - every OPEN has Blocks: and Recommended:
 
 Exit codes: 0 ok, 1 problems found, 2 usage error.
@@ -161,6 +163,25 @@ def main(argv):
         for part in ("Blocks:", "Recommended:"):
             if part not in b:
                 errors.append(f"{i} lacks {part}")
+    sp = re.search(r"^-\s*Spec pending:[ \t]*(.*)$", text, re.M)
+    if not sp:
+        errors.append('missing the "- Spec pending:" header line')
+    else:
+        value = sp.group(1).strip()
+        pending = re.findall(r"\bF-\d+\b", value)
+        if value.lower().rstrip(".") != "none" and not pending:
+            errors.append('spec-pending-line: "- Spec pending:" must be none or a list of F-n ids')
+        for fid in pending:
+            for i, b in flows.items():
+                src = re.search(r"Source:(.*)$", b)
+                if not src or not re.search(r"\b" + re.escape(fid) + r"\b", src.group(1)):
+                    continue
+                sm = re.search(r"Steps:\s*(.*?)\s*(?:End:|$)", b)
+                steps = re.split(r"(?=\d+\.\s+on SCREEN-\d+)", sm.group(1)) if sm else []
+                for step in [s for s in steps if re.match(r"\d+\.", s)]:
+                    if not re.search(r"spec pending", step, re.I):
+                        n = re.match(r"(\d+)\.", step).group(1)
+                        errors.append(f'spec-pending-steps: {i} step {n} lacks "spec pending" ({fid} has no spec)')
     ok = not errors
     counts = {"IA": len(ia), "SCREEN": len(screens), "FLOW": len(flows), "covered": len(coverage)}
     summary = (f"lint_flows {'ok' if ok else 'FAILED'}: {len(errors)} errors; {counts['IA']} IA nodes, "

@@ -1,5 +1,7 @@
 # Code prototype runs
 
+These notes apply after step 1 of SKILL.md: a brief with `Lint: ok` and Readiness `yes` exists. Without one, nothing is built in any tool, a code prototype included (Stop rule 1).
+
 The automatic mode that is always available: the agent writes the artifact as HTML and CSS with the product's real stylesheet and renders it in a browser.
 
 1. One folder per run: `docs/design/results/<artifact>/round-<n>/<direction>/`. Write `index.html` there (one file per frame when the deliverable has several, for example `landing-card.html`, `docs-card.html`).
