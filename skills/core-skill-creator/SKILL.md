@@ -18,7 +18,7 @@ metadata:
   updates: []
   requires: []
   side_effects: []
-  version: "6.0.0"
+  version: "6.1.0"
 ---
 
 # Skill creator
@@ -113,6 +113,7 @@ Every reply that reports work on a skill carries the "Grounding note" block, als
 ### Grounding note
 - Real material: <the trace, artifact, runbook, recorded failure or task, with its file or where the user gave it>
 - What it showed: <one line per failure, correction or fact the skill carries>
+<only when step 1 found no real material, this line in place of the one above:> - What it showed: nothing. Without real material this skill would be generic knowledge.
 
 ### Result
 - Mode: <create | improve>
