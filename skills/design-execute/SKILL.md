@@ -1,16 +1,16 @@
 ---
 name: design-execute
 description: >
-  Run an approved design brief in the design tool the user chooses (a design-tool integration,
-  a generative design tool, an image generator or a prototype in code), collect what it returns,
-  critique every direction against the brief's criteria and record the user's choice. It runs
-  automatically when the environment can drive the tool and in assisted mode otherwise: it
-  prepares the exact prompt and attachments per direction, the user runs them and brings the
-  results back. Use this skill when a brief exists and someone asks to run or execute it, to
-  render it as a code prototype, to generate its directions in a tool, or to review what a design
-  tool produced. A request to make an artifact in a tool with no brief is answered by naming
-  design-brief. Not for writing the brief (design-brief) or implementing the chosen design
-  (design-handoff, eng-implement).
+  Use this skill whenever someone asks to make, run or generate a visual artifact in a named
+  design tool, image generator or code prototype ("make the landing page in <tool>",
+  "generate round 1", "run the brief as a prototype"), or to review what a design tool
+  produced. It first checks for an approved design brief; with none it builds nothing
+  itself, not even a code version, and names design-brief to run first. With a brief it runs
+  one pass per creative direction, automatically when the environment can drive the tool and
+  in assisted mode otherwise (it prepares the exact prompt and attachments per direction, the
+  user runs them and brings the results back), critiques every direction against the
+  brief's criteria and records the user's choice. Not for writing the brief (design-brief)
+  or implementing the chosen design (design-handoff, eng-implement).
 license: MIT
 metadata:
   area: design
@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [integration:design-tool, generator:image]
   side_effects: [create]
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Design execution
@@ -80,6 +80,7 @@ Progress:
   - Code prototype: `automatic` (a browser on the machine; see step 5).
   - Image generator or design-tool integration: `automatic` when the environment has a connector for the class, or when a provider resolves and is ready. Resolve it by its class: `python3 <workbench root>/providers/resolve.py --class generator:image` (or `--class integration:design-tool`) prints the path of the provider script, `<provider>`; then run `<provider> --check`. `<workbench root>` is `WORKBENCH_ROOT`, else the workbench path recorded in the state file; with neither: Stop rule 3. Never write a provider's path yourself.
   - Otherwise `assisted`: resolve exits 3, `--check` exits 3 (say what is missing, from its message), or the tool has no interface for agents. Nothing is faked: the user runs the packs.
+  The mode follows these exit codes alone: resolve exit 0 and `--check` exit 0 is `automatic`. Do not open a provider's source to judge what it produces; a doubt about the output goes into the payload of the confirmation gate, and the gate's question still closes the reply.
   If the brief's values mode is `loaded`, confirm the design system is loaded in the tool; if it is not, set that up first (the tool notes) or switch the brief to `inline`.
 - [ ] Step 3: Round plan. Round 1 is one run per direction in the brief's Deliverables; round 2 is the chosen direction complete. Write `docs/design/results/<artifact>.md` from [assets/result-template.md](assets/result-template.md): the brief, tool, mode, and one row per run with status `planned` and its Pack path.
 - [ ] Step 4: Run packs. For each run write `docs/design/results/<artifact>/round-<n>/<direction>/prompt.md` (`<direction>` is the direction's name in lowercase with hyphens) from the pack template below.
