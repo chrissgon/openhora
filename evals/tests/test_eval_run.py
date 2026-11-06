@@ -2804,6 +2804,58 @@ def test_workbench_files_refuses_what_must_not_enter_a_case(tmp_path, monkeypatc
     assert e.value.code == 2
 
 
+MARKER = "safeguards flagged this message"
+
+
+def write_stream(folder, events):
+    (folder / "stream.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+
+def test_a_refusal_reported_only_in_a_system_or_error_event_of_the_stream_is_a_refusal(tmp_path):
+    for kind in ("system", "error"):
+        folder = tmp_path / kind
+        folder.mkdir()
+        write_stream(folder, [{"type": "assistant", "message": "hello"},
+                              {"type": kind, "message": "Cyber safeguards flagged this message. Falling back."}])
+        (folder / "response.md").write_text("")
+        assert "safeguards flagged this message" in er.provider_refusal(str(folder), [MARKER])
+
+
+def test_the_models_own_text_and_a_tools_output_in_the_stream_are_never_read_for_a_refusal(tmp_path):
+    write_stream(tmp_path, [{"type": "assistant", "message": {"content": "the safeguards flagged this message"}},
+                            {"type": "user", "message": {"content": "tool output: safeguards flagged this message"}},
+                            {"type": "result", "result": "safeguards flagged this message"}])
+    (tmp_path / "stream.jsonl").write_text((tmp_path / "stream.jsonl").read_text() + "not json safeguards flagged this message\n")
+    assert er.provider_refusal(str(tmp_path), [MARKER]) is None
+
+
+def test_a_stream_refusal_is_told_apart_by_the_real_classification(tmp_path):
+    write_stream(tmp_path, [{"type": "system", "subtype": "api_retry", "message": "Cyber safeguards flagged this message."}])
+    (tmp_path / "response.md").write_text("API Error: 403 the key proxy of this run serves one model; this request names another, or none")
+    attempts = er.load_attempts()
+    kind, detail = attempts.classify(er, "adapter exit 1", str(tmp_path), [MARKER], "", [])
+    assert kind == "refused" and "safeguards flagged this message" in detail
+
+
+@pytest.mark.parametrize("text", [
+    "API Error: 403 the key proxy of this run serves one model; this request names another, or none",
+    'HTTP 403: {"error":"the key proxy forwards /v1 of its one provider and nothing else; the key is not used"}',
+])
+def test_a_403_from_the_runs_own_key_proxy_is_not_a_refused_key_and_the_attempt_is_an_adapter_failure(tmp_path, text):
+    (tmp_path / "response.md").write_text(text + "\n")
+    assert er.auth_refusal(str(tmp_path)) is None
+    attempts = er.load_attempts()
+    assert attempts.classify(er, "adapter exit 1", str(tmp_path), [], "", []) == ("adapter", None)
+
+
+def test_a_403_that_names_a_key_without_the_key_proxy_and_a_401_stay_a_refused_key_even_beside_a_proxy_403(tmp_path):
+    (tmp_path / "stderr.log").write_text('HTTP 403: {"error": {"message": "Key is disabled"}}\n')
+    assert er.auth_refusal(str(tmp_path)) == "HTTP 403"
+    # a 401 is always the credential, whatever else the text says
+    (tmp_path / "stderr.log").write_text('API Error: 401 authentication_error\nAPI Error: 403 the key proxy of this run serves one model\n')
+    assert er.auth_refusal(str(tmp_path)) == "HTTP 401"
+
+
 def test_a_provider_refusal_is_recognised_in_what_the_adapter_left(tmp_path):
     (tmp_path / "raw.json").write_text(json.dumps({"is_error": True, "result": "API Error: the model's safeguards flagged this message. Details: [policy]"}))
     assert "safeguards flagged this message" in er.provider_refusal(str(tmp_path), ["safeguards flagged this message"])
