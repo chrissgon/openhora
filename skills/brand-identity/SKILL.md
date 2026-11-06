@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Brand identity
@@ -73,7 +73,7 @@ The scripts are in the `scripts/` folder next to this file, not in the project. 
 Progress:
 - [ ] Step 1: Read the state file, the strategy (label, the one message of the first piece) and the voice. If the strategy is missing: Stop rule 1. Name the first real piece the person needs now (a profile cover is the usual one); the identity is proven on it.
 - [ ] Step 2: Decision gate. For each item the state file does not record, write a question with options and one recommended: the concept of the first piece (recommend the one that carries the label or the mission); the palette source: ask whether a design system exists (the person's product, a company kit) and where it is, and recommend following it when there is one; never conclude that none exists because the repository shows none; how pieces are produced (recommend HTML rendered to images: text stays sharp and pieces are editable). Any question: Stop rule 2. Then record the answers in the state file.
-- [ ] Step 3: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 3: ask which platform, and take none by default. Read the reference of that platform, `../../shared/references/platforms/<platform>.md`; if there is no such file, stop and say the platform is not supported. Read no other file of that folder.
+- [ ] Step 3: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 3: ask which platform, and take none by default. Open the reference of that platform by its path, `<this skill's folder>/../../shared/references/platforms/<platform>.md` (this skill's folder is the one that holds this file); do not search for it, because a file search can skip that folder. Only when opening that path fails, stop and say the platform is not supported. Read no other file of that folder.
   Skip this step when the person said the first piece goes on no social platform (a site, a slide).
 - [ ] Step 4: Tokens. Take colours, spacing, radius and borders from the chosen design system's documentation, citing the token names; mark as `brand` anything that is not in it. One accent colour. Pick typefaces and read each licence file before using it; write the licence and its URL.
 - [ ] Step 5: Contrast. Pass every foreground and background pair the pieces will use, with its use (`text`, `large`, `graphic`), on standard input:
