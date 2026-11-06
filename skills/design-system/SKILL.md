@@ -1,16 +1,16 @@
 ---
 name: design-system
 description: >
-  Define the visual foundations a product's screens are built from and, when a design-tool
-  integration is available, build them in the design tool: colour tokens with light and dark
-  values, type scale, spacing, radii, borders, elevation, layout grid and reading width, the
-  component inventory with variants and states, and the rules for using them, every value traced
-  to a component library, a brand artifact or a user answer. Use this skill after
-  design-ux-flows and before design-brief, when someone asks for tokens, a palette, colours,
-  fonts, a style guide, a design system, variables in the design tool, light and dark modes, or
-  which components exist; also when a library's token specification must be mirrored. It never
-  invents a palette or a font: what no source gives is a question. Not for screens and other
-  visual artifacts (design-brief) or brand strategy (brand-identity).
+  Use this skill when someone asks to pick or create a palette, colours, fonts, a theme, design
+  tokens, colour or theme variables (CSS custom properties or design-tool variables), light and
+  dark modes, a style guide or a design system for an app, site or product, even in one line and
+  even when the project has no flows, brand or design files yet: it decides what to ask before
+  any value is written. It defines the foundations screens are built from (colour tokens in
+  light and dark, type scale, spacing, radii, borders, elevation, layout, components with
+  variants and states) and, with a design-tool integration, builds them there. Every value comes
+  from a component library it mirrors, a brand artifact or a user answer; it never invents a
+  palette or a font. Runs after design-ux-flows, before design-brief. Not for screens
+  (design-brief) or a brand's identity (brand-identity).
 license: MIT
 metadata:
   area: design
@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [integration:design-tool]
   side_effects: [create]
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Design system
@@ -93,7 +93,7 @@ Progress:
 - [ ] Step 4: Type. When no brand artifact or recorded decision fixes the typeface family, it is the user's decision: Stop rule 2, with the question "Which typeface family does the site use?", one recommended answer and its reason. Then define the roles (display, heading levels, body, small, code) with size, line height and weight, and the reading width. Sizes derive from a stated base and ratio or from the library.
 - [ ] Step 5: Space, radii, borders, elevation, layout. Copy the library's scales; add only what the screens need (page gutters, sidebar width, header height, breakpoints) with a source or a recommended value marked `user answer` once approved.
 - [ ] Step 6: Components. One row per component: name, owner (library or site), variants (from the library's style and colour axes or the site's), states (default, hover, focus, active, disabled, loading, error as applicable), and the screens that use it, cited by the ids the flows give them (`SCREEN-1, SCREEN-3`), at least one per row. Read [references/components.md](references/components.md) for the state list and the accessibility minimums (focus visibility, touch target, contrast).
-- [ ] Step 7: Design tool. When a design-tool integration is available and the user wants the file built, pass the confirmation gate (Stop rule 3), then build in it what the document defines, following the tool's own guidance for variables, modes, styles and components, in this order: discovery of what exists, variables with modes, text and effect styles, foundation pages, components in dependency order; validate with the tool's structural evidence and one screenshot per built group, and record the file, pages and collection names under "Design tool". When no integration is available, write `- File: none available` under "Design tool", say so in the reply, build nothing and claim nothing as built; when the user asked for the file to be built, the reply also says that, once an integration is available, the build will first show the exact list of what would be created and wait for an explicit yes (the Design tool line of the reply template).
+- [ ] Step 7: Design tool. When a design-tool integration is available and the user wants the file built, pass the confirmation gate (Stop rule 3), then build in it what the document defines, following the tool's own guidance for variables, modes, styles and components, in this order: discovery of what exists, variables with modes, text and effect styles, foundation pages, components in dependency order; validate with the tool's structural evidence and one screenshot per built group, and record the file, pages and collection names under "Design tool". When no integration is available, write `- File: none: no design-tool integration is available, so nothing was built in a design file` under "Design tool", say so in the reply, build nothing and claim nothing as built; when the user asked for the file to be built, the reply also says that, once an integration is available, the build will first show the exact list of what would be created and wait for an explicit yes (the Design tool line of the reply template).
 - [ ] Step 8: Lint: `python3 <this skill's folder>/scripts/lint_design_system.py --file docs/design/design-system.md --flows docs/design/flows.md [--library <library token file> [--prefix <its custom-property prefix>]] --report docs/design/design-system.lint.json`; `--library` is mandatory when a library governs any value. It checks sections, that every token row has light, dark (or a single value marked `same`) and a source, that every contrast ratio is the one the Colour table's values give, that every component row has owner, variants, states and screens, and, with `--library`, that every custom property of the library's prefix appears in the document with the values the library gives it, and, with `--flows`, that every component row cites a screen the flows have. Fix the document until `ok` is true; never edit the script or drop a flag to get there. Then write `- Lint: ok (<date from date +%F>)` in the header.
 - [ ] Step 9: Register `docs/design/design-system.md` in `docs/workbench/state.md`, Artifacts: owner `design-system`, status `draft`, the date from `date +%F`. Skip when there is no state file and say so.
 - [ ] Step 10: Self-check against "Quality criteria": list every value, name and ratio in the document and the reply and where it came from (the library, the brand artifact, a script's output, a user answer); remove or label what has no origin.
@@ -139,7 +139,7 @@ Approve the design system only if all of the following hold:
 - No colour, font or size was offered from memory, in the document or in the reply, and the reply offers no pick of its own.
 - Every component row has an owner, variants, states and the screens that use it; no component without a screen.
 - "Ownership" says which values are mirrored from a library and which the document owns.
-- When a design tool was used, the document records the file, the collections, the styles and the components built, each group was validated from the tool's evidence, and the gate's yes is recorded; when none was available, nothing is claimed as built.
+- When a design tool was used, the document records the file, the collections, the styles and the components built, each group was validated from the tool's evidence, and the gate's yes is recorded; when none was available, the document's "Design tool" part says that nothing was built because no design-tool integration is available, and nothing is claimed as built.
 - `lint_design_system.py`, run with `--flows` and, when a library exists, `--library`, reports `ok: true`, the reply quotes its command and summary line, and `design-system.lint.json` sits next to the document.
 
 ## Gotchas

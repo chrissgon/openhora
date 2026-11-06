@@ -60,7 +60,7 @@ Ratios come from `contrast.py`, never from memory; the lint recomputes them from
 
 ## Design tool
 
-- File: {name and key | none available: nothing was built in a design file}
+- File: {name and key | none: no design-tool integration is available, so nothing was built in a design file}
 - Collections: {…}
 - Styles: {…}
 - Components: {…}
