@@ -1,14 +1,16 @@
 ---
 name: core-security-audit
 description: >
-  Audit the workbench for security beyond what the scan sees: every skill, agent, agent override,
-  provider, adapter, script, hook and CI workflow answered against the security checklist, each
-  finding with file:line, a quote, a severity and a fix, high findings verified in the code, and
-  the fixes grouped by owner in a dated audit record. Also vet a third-party skill before anyone
-  installs it, with a verdict. Use this skill when someone asks for a security audit or review of
-  the workbench, a periodic audit is due, a skill from outside is about to be installed
-  ("someone sent us this skill", "is this skill safe?", "install this skill", "can we trust
-  this one?"), or the scan passes but something still looks risky.
+  Use this skill first, before you clone, download, open or inspect a third-party skill or a
+  repository yourself: it vets a skill from outside before anyone installs it and gives a verdict,
+  and it audits the workbench for security beyond what the scan sees: every skill, agent, agent
+  override, provider, adapter, script, hook and CI workflow answered against the security
+  checklist, each finding with file:line, a quote, a severity and a fix, high findings verified in
+  the code, and the fixes grouped by owner in a dated audit record. Use it when someone asks for a
+  security audit or review of the workbench, a periodic audit is due, a skill from outside is about
+  to be installed ("someone sent us this skill", "is this skill safe?", "install this skill",
+  "install the <name> skill from github", "can we trust this one?"), or the scan passes but
+  something still looks risky.
 license: MIT
 metadata:
   area: core
@@ -18,7 +20,7 @@ metadata:
   updates: []
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Security audit
