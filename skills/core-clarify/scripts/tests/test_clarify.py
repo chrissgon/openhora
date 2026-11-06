@@ -39,7 +39,7 @@ GOOD_ROUND = """## Clarify: dark mode, round 1
 - Why: unthemed code blocks are the most visible gap on a docs page.
 
 ### Next
-Nothing is written yet.
+Nothing is written yet, and every question above stays open until you answer it.
 """
 
 
@@ -54,6 +54,14 @@ def test_round_reads_a_file(tmp_path):
     f.write_text(GOOD_ROUND, encoding="utf-8")
     code, data, _ = run("round", "--file", str(f))
     assert code == 0 and data["ok"]
+
+
+def test_round_refuses_a_missing_next_line():
+    text = GOOD_ROUND.replace(
+        "Nothing is written yet, and every question above stays open until you answer it.",
+        "Nothing is written yet.")
+    code, data, _ = run("round", "--file", "-", stdin=text)
+    assert code == 1 and any("### Next" in e for e in data["errors"])
 
 
 def test_round_refuses_four_questions():
@@ -300,7 +308,7 @@ CONTRADICTION_ROUND = """## Clarify: redesign, round 1
 - Why: the configuration already renders every page on the server.
 
 ### Next
-Nothing is written yet.
+Nothing is written yet, and every question above stays open until you answer it.
 """
 
 

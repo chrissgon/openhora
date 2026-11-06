@@ -6,7 +6,9 @@ description: >
   the user asks to be grilled or interviewed about a plan, says "let's clarify X", "ask me
   anything you need" or "what do you need to know before starting", or asks to clarify
   requirements; when the orchestrator finds a request ambiguous; and as the first phase of any
-  flow that starts from a loose description. Every question comes with a recommended answer;
+  flow that starts from a loose description. Use it also when the user says not to wait, is
+  going offline or asks for the brief anyway: it then writes the brief at once from what is known
+  and parks the rest as open questions. Every question comes with a recommended answer;
   anything the codebase or existing artifacts can answer is never asked.
 license: MIT
 metadata:
@@ -17,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Clarify
@@ -60,7 +62,7 @@ Progress:
 - [ ] Step 4: Decide between asking and writing:
   - The user said not to wait, to park what is open, or to stop: ask nothing. Every remaining `must ask` item becomes an open question, with your recommendation noted beside it and not adopted. Go to step 7.
   - No `must ask` item remains: go to step 7.
-  - Otherwise: ask one round with the round template below. At most three questions, highest dependency first; a contradiction is Q1. Check it before sending: pass the round on standard input to `python3 <this skill's folder>/scripts/clarify.py round --file -` (do not save it as a file in the project) and fix until `ok` is true. Then end your turn: Stop rule 1.
+  - Otherwise: ask one round with the round template below. At most three questions, highest dependency first; a contradiction is Q1. Check it before sending: pass the whole reply, from "## Clarify:" to the end of "### Next", on standard input to `python3 <this skill's folder>/scripts/clarify.py round --file -` (do not save it as a file in the project) and fix until `ok` is true. Then end your turn: Stop rule 1.
 - [ ] Step 5: When the answers arrive, record. For each answer, a decision line: what was decided, by whom, and why. If an answer contradicts an earlier answer, an artifact or the codebase: Stop rule 2. If the user says "you decide" about one question, decide that question, state the rationale, and mark the decision `assumed` so it is revisitable; a bare "go" is not that (Stop rule 1).
 - [ ] Step 6: Repeat steps 2 to 5 until every branch is `known`, or explicitly parked as an open question, or the user says stop. After five rounds: Stop rule 3.
 - [ ] Step 7: Write the brief to `docs/workbench/briefs/<topic>.md` (`<topic>` in lowercase with hyphens) from the brief template below. Take the date from `clarify.py today`. In the Decisions table, `By` names who decided: `user` for what the user said or wrote; `user (recorded in docs/workbench/state.md)` for a decision a file already records, with the decider that file names; `assumed` for one you made. A parked item is never a row of the Decisions table and never a decision line in the state file: it goes under "Open questions" only. Check it with `python3 <this skill's folder>/scripts/clarify.py brief --file docs/workbench/briefs/<topic>.md` and fix until `ok` is true; fix by moving an item to "Open questions", never by inventing an answer.
@@ -99,7 +101,8 @@ The whole reply of a turn that asks. Keep the headings as written.
 - Why: <one sentence>
 
 ### Next
-Nothing is written yet. The brief goes to `docs/workbench/briefs/<topic>.md` once these are answered; a question left unanswered stays open. Later rounds: <topics still to ask, one line>.
+Nothing is written yet, and every question above stays open until you answer it.
+The brief goes to `docs/workbench/briefs/<topic>.md` once these are answered. Later rounds: <topics still to ask, one line>.
 Check: `clarify.py round --file -` → "ok": true, "questions": <n, as printed>
 ```
 
@@ -120,6 +123,7 @@ Rules the check enforces, and why:
 - A recommendation is an answer. "Tell me the framework" is not one. When only the user knows the fact, recommend the most likely value and say it is your reading.
 - `Why` is one sentence on one line.
 - A listed contradiction makes Q1 "Which one holds: ..., or ...?": a question that takes the file's side and asks something else hides the contradiction.
+- The "### Next" section opens with the line "Nothing is written yet, and every question above stays open until you answer it." copied as written: it is what tells the user that no recommendation was adopted.
 
 ## Report template
 
