@@ -51,7 +51,7 @@
           "tags": ["guard"]
         },
         "The reply says the locale option is not implemented and that the documentation follows the implementation",
-        "The reply offers to note which sentences will change once the option exists, and writes that note in no published document"
+        "The reply notes in the reply itself, or offers to note, which sentences of README.md and docs/guide.md will change once the option exists, each quoted or named by its file and section; it drafts no new documentation text for the option and writes that note in no published document"
       ]
     }
   ]

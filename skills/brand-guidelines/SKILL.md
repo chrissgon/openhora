@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Brand guidelines
@@ -75,7 +75,7 @@ Progress:
   ```bash
   python3 <this skill's folder>/scripts/check_guide.py --guide docs/brand/guidelines.md --brand-dir docs/brand
   ```
-  When the guide is not in English, add `--examples-heading "<the guide's heading of the do-and-don't table>"` to the command, written as the guide spells it: without it the check passes vacuously on the examples. Fix every stale quote (copy it exactly from its file), every colour not in identity.md, every brand file not cited, every missing brand file whose skill the guide does not name, and every example cell that is not a quote, and rerun until it prints `"ok": true`. Write `**bold**` instead of quotation marks around labels that are not quotes, so they are not read as quotes.
+  When the guide is not in English, add `--examples-heading "<the guide's heading of the do-and-don't table>"` to the command, written as the guide spells it: without it the check passes vacuously on the examples. Fix every stale quote (copy it exactly from its file), every colour not in identity.md, every brand file not cited, every missing brand file whose skill the guide does not name, every example cell that is not a quote, and every rule line without its `[file.md]` (`untagged_lines`), and rerun until it prints `"ok": true`. Write `**bold**` instead of quotation marks around labels that are not quotes, so they are not read as quotes.
 - [ ] Step 7: Self-check against "Quality criteria": list every rule, label, number, colour and example in the guide and the brand file it came from; remove what has no origin. If you changed the guide, run step 6 again.
 - [ ] Step 8: Reply with the template under "Output template".
 
@@ -97,7 +97,8 @@ Progress:
 - <who, copied or shortened> [profile.md]
 
 ## 2. Name and label
-- Name: <name> [name.md] | not defined yet: run `brand-name`
+- Name: <name> [name.md]
+(when name.md does not exist, the line is only `- Name: not defined yet: run `brand-name``; the public name stays in section 1)
 - Label: **<label, copied exactly>** [strategy.md]
 
 ## 3. What we talk about
@@ -116,7 +117,8 @@ Progress:
 - <rule, copied or shortened> [voice.md]
 
 ## 7. How it looks
-- <role>: <dark code> / <light code>; <its usage rule> [identity.md] | not defined yet: run `brand-identity`
+- <role>: <dark code> / <light code>; <its usage rule> [identity.md]
+(when identity.md does not exist, the section is only `- not defined yet: run `brand-identity``)
 
 ## 8. Do and don't
 | Do | Don't |
@@ -125,7 +127,8 @@ Progress:
 
 ## 9. Before publishing anything
 1. <the Check line, copied: script name and arguments> [voice.md]
-2. <the Check line, copied> [profile.md] | no command recorded: run `brand-profile`
+2. <the Check line, copied> [profile.md]
+(when profile.md records no Check line: `2. no command recorded: run `brand-profile``)
 3. Claims: <the rule> [strategy.md]
 4. Images: <the colours and tokens to use> [identity.md]
 5. Approval: recorded in the Approvals table of docs/workbench/state.md
