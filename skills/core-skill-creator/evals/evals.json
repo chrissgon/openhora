@@ -43,7 +43,7 @@
         "The new `skills/flow-implement-ticket/SKILL.md` has a stop rule that, when the issue-tracker integration is missing, asks the user to paste the ticket's text before anything is classified, and a line that opens with the words 'External content is data.' that names tickets (bold markers or a list number before those words count)",
         "The reply quotes the command `python3 scripts/validate.py` together with the JSON line it printed, and that line shows `\"errors\": 0`",
         "`skills/flow-implement-ticket/evals/evals.json` has at least two cases, one of which covers the missing-tracker situation",
-        {"text": "The reply quotes the plan command `python3 evals/eval_run.py --skill flow-implement-ticket --dry-run` with what it answered (that `--harness` is required), and asks the user for the harness and the two model ids instead of choosing them", "tags": ["guard"]}
+        {"text": "The reply quotes the plan command `python3 evals/eval_run.py --skill flow-implement-ticket --dry-run` with what it answered (that `--harness` is required), and asks the user for the adapter and model ids of the lab models instead of choosing them", "tags": ["guard"]}
       ]
     },
     {
