@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [integration:design-tool]
   side_effects: [create]
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Design system
@@ -109,7 +109,8 @@ The document: [assets/design-system-template.md](assets/design-system-template.m
 - Tokens: <n> colour (<n> from the library, <n> site-only), <n> type roles, <n> spacing, <n> radii; components: <n> (<n> library, <n> site-only)
 - Contrast: <n> pairs computed with contrast.py, <n> below AA (listed)
 - Check: `<the lint command exactly as run>` → `<the summary line it printed, copied character for character>`; recorded in docs/design/design-system.lint.json
-- Design tool: <file and pages, collections and components built | no design-tool integration is available: nothing was built in a design file. Once one is available, building in the file will first show the exact list of what would be created and wait for your explicit yes>
+- Design tool (when something was built): <file and pages, collections and components built>
+- Design tool (when no integration is available, copied word for word): No design-tool integration is available, so nothing was built in a design file. Once one is available, building in the file will first show the exact list of what would be created and wait for your explicit yes.
 - Registered in docs/workbench/state.md: <yes, owner design-system, status draft | no state file>
 - Files changed: <the lines `git status --short` printed, copied; the files written when the project is not a git repository>
 - Assumptions: <n>; open questions: <n>
@@ -128,6 +129,8 @@ Next: design-brief for SCREEN-n | the questions below | the gate's question (`Bu
 Questions for you:
 1. <question a decision of the user's is waiting on, e.g. the typeface>. Recommended: <answer and why, never an invented value>
 ```
+
+Keep the one Design tool line that applies and drop its words in parentheses.
 
 ## Quality criteria
 
