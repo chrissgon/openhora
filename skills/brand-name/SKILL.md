@@ -1,12 +1,14 @@
 ---
 name: brand-name
 description: >
-  Research a name or handle for a person or a brand, or audit one already in use: where it exists
-  (domains through RDAP, code hosts, package registries, video and social networks), who else uses
-  it, how it reads in each language the brand posts in, and whether it is the same everywhere.
-  Checks are made by a script and dated; ownership and preferences are asked. Use this skill when
-  someone needs a name, a username or @, wants to know if a name is free, is about to buy a domain,
-  or wants their handle consistent across networks, even if they never say "naming". Not for
+  Use this skill first, before answering from your own knowledge, whenever someone asks to
+  check, choose, compare or buy a name, a handle, a username or @, or a domain: whether a name is
+  free, whether their handle is the same everywhere, which handle to pick, or before they buy or
+  register a domain or a handle, even if they never say "naming". It researches a name for a
+  person or a brand, or audits one already in use: where it exists (domains through RDAP, code
+  hosts, package registries, video and social networks), who else uses it, how it reads in each
+  language the brand posts in, and whether it is the same everywhere. Checks are made by a script
+  and dated; ownership and preferences are asked; nothing is bought or registered. Not for
   writing a tagline or positioning (brand-strategy) or the visual logo (brand-identity).
 license: MIT
 metadata:
@@ -17,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Brand name
@@ -76,7 +78,7 @@ Progress:
 - [ ] Step 8: If the person asked to buy, register or reserve anything: Stop rule 3, then go on with step 9.
 - [ ] Step 9: Write `docs/brand/name.md` from the template, with the date from `date +%F`, in every run that reaches this step, also when the request asks only for a check or asks to buy: the file is the record of the check. `Status: draft` while ownership questions remain, `Status: limited` when the network was not reachable. Where the file records a command, write the script's name and its arguments, never its path. Register it in the state file's Artifacts table as `brand-name`, status `draft`.
 - [ ] Step 10: Self-check against "Quality criteria": list every number, name and claim in the file and where it came from; remove or label what has no origin. Fix, then re-check.
-- [ ] Step 11: Reply with the reply template: the name, what is free, what is held by someone else, and the next action (reserve, buy, or rename). The self-check comes before the reply, never after it.
+- [ ] Step 11: Reply with the reply template: the name, what the script found in its own status words (a domain with no record is `no RDAP record, confirm at a registrar`, never free or available), what is held by someone else, and the next action (reserve, buy, or rename). The self-check comes before the reply, never after it.
 
 ## Output template
 
@@ -125,6 +127,8 @@ Reply template. The check line is copied from what the script printed, never wri
 ## Name: <name> (<audit | research>, <draft | limited>)
 - File: docs/brand/name.md
 - Check: `handle_check.py --name <name> <the other arguments as run>` on <date> → registered: <places>; not_found: <places>; unknown: <places>
+<only when the script printed a `registered` place:> - Same everywhere: only if the registered places are yours (question 1); a domain with no record is `no RDAP record, confirm at a registrar`; the networks of question 2 are asked, not checked
+<only when it printed none:> - Same everywhere: nothing is registered under `<name>` where the script looked (an `unknown` place is not known to be free); a domain with no record is `no RDAP record, confirm at a registrar`; the networks of question 2 are asked, not checked
 <only when the script printed "all_unknown": true, this line:> - Network: not reachable, so nothing is known to be free or taken; the checks to rerun are in docs/brand/name.md
 - Not bought, not registered: this skill never does either; you do it at a registrar or on the network
 - Files changed: <the lines `git status --short` printed, copied; `none` when it printed nothing>
