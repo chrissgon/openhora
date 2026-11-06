@@ -171,6 +171,15 @@
      "adopted": true
     }
    ]
+  },
+  {
+   "source": "shared/references/security.md",
+   "to": [
+    {
+     "path": "skills/core-skill-creator/references/security.md",
+     "adopted": true
+    }
+   ]
   }
  ]
 }

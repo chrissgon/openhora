@@ -5,3 +5,4 @@
 {"version": "3.1.0", "content_sha256": "f1b28493bf40bd5a0396dc4a2ff5393277acf2ff1ff0935105c499e87bd07f82", "class": "y", "date": "2026-10-07"}
 {"version": "4.0.0", "content_sha256": "ab31502dd5eaaa8f5cdb612f1d13b1e3bd023bfc899b9c105394aeefe2dc5bd5", "class": "x", "date": "2026-10-16"}
 {"version": "5.0.0", "content_sha256": "1a38f65f77632d99a12caf0d150467021cfbb7b6d1eb513607efd1cf3e64208d", "class": "x", "date": "2026-11-06"}
+{"version": "6.0.0", "content_sha256": "11dae8b63453b1a8ce03370ee0497b06dec5e9e7dcba80f3c6eac2e48db4262a", "class": "x", "date": "2026-11-06"}
