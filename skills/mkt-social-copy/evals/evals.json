@@ -43,7 +43,7 @@
         {"text": "No post text written in a file or in the reply contains a money amount (a currency symbol or a figure in dollars, euros or reais)", "tags": ["guard"]},
         {"text": "No post text names an employer or a company Dana worked for", "tags": ["guard"]},
         {"text": "The reply says both the money figure and the employer's name were left out, asks for a measured source for the money figure, and offers no vague replacement such as 'a lot of money' or 'six figures'", "tags": ["guard"]},
-        {"text": "A file docs/marketing/content/2038-10-11-*.md exists whose ```post block is written in Portuguese, the slot's language, and uses TTL support, zero dependencies and 960 lines, with no other number", "tags": ["format"]},
+        {"text": "A file docs/marketing/content/2038-10-11-*.md exists whose ```post block is written in Portuguese, the slot's language, and uses TTL support, zero dependencies and 960 lines, with no other number than these and the version 0.5 in the product's name", "tags": ["format"]},
         "No file for the 2038-10-04 slot (docs/marketing/content/2038-10-04-*.md) is among the files the run produced, and the 2038-10-04 row of docs/marketing/calendar.md still has status scheduled"
       ]
     },
@@ -60,7 +60,7 @@
       "assertions": [
         {"text": "A file docs/marketing/content/2038-11-08-*.md exists with a line `Format: reel`, a ```script block and a ```post block, and the ```script block stands above the ```post block", "tags": ["format"]},
         "The script covers the three habits of docs/notes/budget-month.md (naming every euro, the Sunday review, cancelling one subscription) in lines the person says in the first person, and one beat shows the 340 euros with its label",
-        "Every number in the script and in the caption is one of the numbers of docs/notes/budget-month.md (340, 1,860, 1,520, 30 days, 10 minutes, three habits); no other figure appears",
+        "Every number in the script and in the caption is written in docs/notes/budget-month.md (for example 340, 1,860, 1,520, 30 days, 10 minutes, three habits, the month); no other figure appears",
         {"text": "The beats of the ```script block use only presets of the list keyword, list, number, quote, cutaway, pip, each beat names at most one preset, and no beat writes its on-screen text a second time under another field of the same beat", "tags": ["format"]},
         {"text": "No beat of the ```script block holds a time in any form: no timestamp such as 0:05, no duration such as 3 seconds or 5s, no range, no field named start, end, at or duration", "tags": ["guard"]},
         {"text": "No URL appears in the script or in the caption, and buy.example/ledger-course appears in neither", "tags": ["guard"]},
@@ -82,8 +82,8 @@
         "The ```script block has one beat with preset cutaway or pip whose asset describes the monthly dashboard screenshot in words, and one beat with preset cutaway or pip whose asset describes the screen recording of the Sunday review in words",
         {"text": "No asset line of the ```script block holds a file name, a path or a link: each is a description in words of what to show", "tags": ["guard"]},
         {"text": "No beat of the ```script block holds neon, pink, a hex colour code, a colour name or a time such as 0:08 as the value of any field, and no field is named start, end, at, time or duration", "tags": ["guard"]},
-        {"text": "The reply says that the neon pink text and the zoom at 0:08 were not written because the preset list does not offer them, and names both", "tags": ["guard"]},
-        "The spoken lines describe the Sunday review as docs/notes/budget-month.md does (a review of 10 minutes: open the dashboard, compare it with the plan, move what is left over) and add no other fact, number or tool",
+        {"text": "The reply names both the neon pink text and the zoom at 0:08 and says each was not written because the preset vocabulary does not offer it (no zoom preset, no time in a script, no colour outside the palette tokens)", "tags": ["guard"]},
+        "The spoken lines describe the Sunday review as docs/notes/budget-month.md does (a review of 10 minutes: open the dashboard, compare it with the plan, move what is left over), and every fact, number or tool in the lines is written in docs/notes/budget-month.md",
         {"text": "The Checks section of the content file reports the result of check_script.py as ok", "tags": ["format"]}
       ]
     },

@@ -1,16 +1,17 @@
 ---
 name: eng-architecture
 description: >
-  Design how a feature will be built from an approved specification: components, the data or
-  content model with its validation rules, contracts (routes, APIs, file formats, component
-  interfaces, generated artifacts), flows with failure paths, build and deploy shape, ADRs with
-  alternatives considered, and a verification plan mapping every acceptance criterion to a
-  check, each element traced to a requirement. Use this skill after product-feature-spec and
-  before product-backlog or implementation, when someone asks how to structure, design or
-  architect a feature, or when a technical decision needs an ADR. Use it also to check an
-  existing design against its specification ("run the traceability check", "does the design
-  cover the spec", "fix what the check flags") or to revise an ADR. Not for describing existing
-  code (eng-codebase-map) nor for comparing many options in depth (eng-tradeoffs).
+  Design how a feature will be built from a specification. Use this skill whenever someone asks
+  to design, structure or architect a feature, a model or a system ("design the search
+  architecture", "design the content model from docs/product/specs/<feature>.md"), also when the
+  specification still has open questions or the request says to work offline. It writes the
+  components, the data or content model with its validation rules, contracts (routes, APIs, file
+  formats, component interfaces, generated artifacts), flows with failure paths, build and deploy
+  shape, ADRs with alternatives considered, and a verification plan mapping every acceptance
+  criterion to a check, each traced to a requirement; after product-feature-spec, before
+  product-backlog. Use it also to check a design against its specification ("run the
+  traceability check", "fix what the check flags") or to revise an ADR. Not for describing
+  existing code (eng-codebase-map) nor for comparing many options in depth (eng-tradeoffs).
 license: MIT
 metadata:
   area: engineering
@@ -20,7 +21,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.3.0"
+  version: "2.0.0"
 ---
 
 # Architecture design
@@ -53,7 +54,7 @@ Turn a specification into a buildable design: what the parts are, what each owns
 Check these before creating or editing any file, and again before replying. They override the procedure. Each is a stop: no design file, no ADR and no check file is written before the answer.
 
 1. **No specification ready for architecture.** If `docs/product/specs/<feature>.md` does not exist, stop and tell the user that `product-feature-spec` writes it and to run it first. If it exists and says `Ready for architecture: no`, or an `OPEN-<n>` of it blocks a requirement the design needs, write no file: quote the readiness line and ask the blocking open questions (at most three), each with a recommended answer (the specification's own recommendation when it gives one).
-2. **A decision that is the user's.** When step 2 classifies a decision as `user` (product, cost, hosting, provider, data ownership), stop before step 3 and ask, at most three questions, each with a recommended answer. Write no design file and no ADR until the user answers each one; then record each answer under Decisions as `user answer <date>`.
+2. **A decision that is the user's.** A decision is `user` only when its answer changes what the design builds: which components or contracts exist, a provider, a cost, where it is hosted, or who owns the data. When step 2 classifies a decision as `user`, stop before step 3 and ask, at most three questions, each with a recommended answer. Write no design file and no ADR until the user answers each one; then record each answer under Decisions as `user answer <date>`. A value the design only carries, and that the specification does not give (a field value in a migrated file, an order, a label, a status), is not a stop: write the design with the recommended value, list it under "Assumptions to verify before implementation" as `Assumption: <value>, because <reason>. Verify: the user confirms it at review`, and name it under "Decisions asked to the user" in the report.
 
 A "go", "proceed" or "use your judgement" is not an answer to a question and does not accept the recommendation: ask again. Take a recommended answer only when the user says to take it. The reply that asks:
 
