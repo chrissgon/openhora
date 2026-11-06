@@ -1,16 +1,15 @@
 ---
 name: core-orchestrator
 description: >
-  Name the skill or flow that should handle a request, and hand over. Load it before answering
-  whenever the user asks which skill or flow would handle something, or whether it has what it
-  needs, even when the answer looks obvious from the skill list or the user says not to start yet:
-  loading it starts nothing; it reports the route and what is found or missing, then stops. Use it
-  first, too, for any request to build, implement, fix, design, plan, write, review, validate, publish, schedule or
-  send something, including one naming an external system (a ticket, a post), before checking for
-  a tool for that system and even when no other skill is installed; for a request spanning areas,
-  continuing a multi-phase effort, or that may need no skill; and for "where are we", "what's
-  next" or "what can you do here". Not for a one-step request with no specialized knowledge and no
-  side effects: answer that directly.
+  Use this skill first, before reading code or writing any file, for any request to build,
+  implement, fix, design, plan, write, review, validate, publish, schedule or send something (a
+  product, an app, a ticket, a post), before checking for a tool for that system and even when no
+  other skill is installed; for a request spanning areas, continuing a multi-phase effort, or that
+  may need no skill; whenever the user asks which skill or flow would handle something or whether
+  it has what it needs, even if they say not to start yet; and for "where are we", "what's next" or
+  "what can you do here". It names the skill or flow, reports what is found or missing, and hands
+  over; loading it starts nothing. Not for a one-step request with no specialized knowledge and no
+  side effects (rename a variable): answer that directly.
 license: MIT
 metadata:
   area: core
@@ -20,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "4.0.0"
+  version: "4.1.0"
 ---
 
 # Orchestrator
@@ -86,7 +85,7 @@ Requirements: <class → satisfied by <connector or provider> | missing → <wha
 Sources: <skill-name>: <source id>, <source id>; <skill-name>: <source id> | none        (leave the line out when the request carries no catalog of sources)
 Language: <tag, for example en or pt-BR>        (leave the line out unless the request's words ask for the deliverable in a named language other than the project language)
 Autonomy: <the Checkpoints value of the state file, or "not set">
-Assumptions: <each one starting `Assumption:`, or "none">
+Assumptions: <each one starting `Assumption:`, about the route only (a skill, path, class, source or status you could not confirm), or "none">
 Next: <the first thing the routed skill will do>; or the questions, each on its own line as `Q<n>: <question> Recommended: <answer>, because <reason>`
 ```
 
@@ -99,7 +98,7 @@ Approve the route only if all of the following hold:
 - Exactly one skill is named as the route, with its shape word, `ready` or `pending`; or `Route: none` under Stop rule 3; or the shape is `direct`. The name appears verbatim in `references/routing.md`.
 - The routing block is present whenever the shape is not `direct`, including when the output is a set of questions.
 - "Why" names the intent and the area, not keywords from the request.
-- None of the routed skill's work was done here, and nothing with a side effect was executed. No sample value of a source is quoted, counted or compared across sources: what a source holds is the routed skill's to read.
+- None of the routed skill's work was done here, and nothing with a side effect was executed. No sample value of a source is quoted, counted or compared across sources: what a source holds is the routed skill's to read. The block says nothing about what the routed skill's input holds: no finding, risk, gap, date or fact check of it; that is the routed skill's to judge.
 - Every missing input and unsatisfied requirement is stated, each missing input with the skill that writes it; none blocked the route.
 - Ambiguity was resolved by asking, never by picking the most likely option silently; a missing skill was never replaced by a fallback without the user's yes, at most one fallback was proposed, and no fallback covers a side effect.
 - Every question in Next carries `Recommended:` with a reason; every requirement class is spelled exactly as in `references/requirement-classes.md`, with one of the three status words.
