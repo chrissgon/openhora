@@ -20,7 +20,7 @@ metadata:
   updates: [docs/marketing/content/<post>.md, docs/marketing/calendar.md]
   requires: [integration:vcs]
   side_effects: []
-  version: "1.1.0"
+  version: "2.0.0"
 ---
 
 # Vote round
@@ -56,7 +56,7 @@ Check these before creating or editing any file, and again before replying. They
 1. **No calendar.** If `docs/marketing/calendar.md` does not exist, write no file: stop and tell the user that `mkt-content-plan` writes it and to run it first.
 2. **No voice guide.** If `docs/brand/voice.md` does not exist, write no file: stop and tell the user that `brand-voice` writes it and to run it first.
 3. **No strategy.** If `docs/brand/strategy.md` does not exist, write no file: stop and tell the user that `brand-strategy` writes it and to run it first.
-4. **The vote is not described.** If the state file does not name the vote's repository and branch, or the pillar names as the vote data spells them, ask for them, recommending the strategy's pillar order.
+4. **The vote is not described.** If the state file does not name the vote's repository, or the pillar names as the vote data spells them, ask for them, recommending the strategy's pillar order. Ask for the branch only when the files are read through the provider (step 2); with a local clone the person named, the branch is the clone's own, printed by `git -C <clone> branch --show-current`, and the reply says which it was.
 5. **No vote files.** If no `integration:vcs` provider resolves and the person named no local clone, ask for a local clone's path; stop if there is none.
 6. **The state says there is nothing to write.** Step 3's script exits 2 (show the error); `pending` is false (nothing to do; name the open round); `slot` is null (ask which calendar slot takes the post, recommending a new row of that pillar in the next unplanned week, and never guess its language); `rotation.next_pillar` is null (ask for the pillar order).
 7. **No platform.** When step 4 finds no platform, ask which platform, and take none by default.
@@ -82,7 +82,8 @@ Progress:
       --pillars "<pillar 1>|<pillar 2>|<pillar 3>" [--pillar-alias "<vote pillar>=<calendar pillar>"]
   ```
   `--pillars` is the strategy's order, spelled as in the vote data. Stop rule 6 covers what the output can say there is nothing to do. Rows that already carry a post are passed over and named in `warnings`. Rounds in `older_without_post` are not redone: their slot passed and their topic waits (list them).
-- [ ] Step 4: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 7: ask which platform, and take none by default. Read the reference of that platform, `../../shared/references/platforms/<platform>.md`; if there is no such file, stop and say the platform is not supported. Read no other file of that folder.
+  A round is named by the date it opened: the round that closed today carries last week's date and is `round` in the output; the round now open is `open_round`. The output decides which round is due, not the wording of the request; a request that dates the close differently is not a stop.
+- [ ] Step 4: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 7: ask which platform, and take none by default. Read the reference of that platform by opening `../../shared/references/platforms/<platform>.md` directly, a path relative to this skill's folder; never search for it, because a search can miss it. If opening that path fails, stop and say the platform is not supported. Read no other file of that folder.
 - [ ] Step 5: The post's topic. With a `winner`, it is `winner_topic`, word for word. With `winner` null, choose one of the round's three options, never a fourth, by these criteria in order: it has material with a source; nothing in it is restricted or sensitive; it serves the pillar's audience; then the earlier letter. Write the reason in one or two sentences naming its material. None has material: Stop rule 8.
 - [ ] Step 6: Write the post in `slot.language`, natively, under the voice's structure in order, the strategy's claim rules and the platform's reference:
   - every number, name and result comes from material with a source; a number from another note may be used only when it is about the same subject, says whose it is, and is not offered again as a next-round topic; the vote counts may be cited from the vote data;
@@ -93,7 +94,7 @@ Progress:
   - comes from real material with a source: the strategy's examples and proof, the profile's proof, the state file, or material the state file or the person points to (notes, a backlog, an inventory); never from general knowledge; open the file and find the line before citing it;
   - is not used: not in `used_topics` in any wording or language (the script catches near-identical wording only; judge the meaning too), and not the material of this week's post; check each with `vote_state.py ... --check "<topic>"` and read the matches;
   - is one line of at most 80 characters, in the language of the vote's existing options, a subject different from the other two, and outside the never-expose list and the sensitive topics.
-  A topic the person asks for passes the same checks: when it is used, tell them where (the `source` in `used_topics`) and leave it out, in any rewording. Fewer than three: Stop rule 9.
+  A topic the person asks for passes the same checks: when it is used, tell them where (the `source` in `used_topics`) leave it out in any rewording, and choose the three topics from the material as above without asking them to pick another. Fewer than three: Stop rule 9.
 - [ ] Step 8: Compute the queue file, never by hand, into a new folder from `mktemp -d`:
   ```bash
   python3 <this skill's folder>/scripts/vote_update.py --pick <dir>/pick.json --queue <dir>/pick-queue.json \
@@ -160,7 +161,7 @@ When the task says it comes from the agent runtime (`contracts/runtime.md`, a co
 |--------|-------|---------------------|
 | A | <topic> | <material, file and section> |
 
-Change set: <path> sha256 <hash>, one line per file from vote_update.py.
+Change set: <path> sha256 <hash>, one line per file from vote_update.py: the full path and the whole 64-character hash copied from the output, never shortened.
 
 ## Assumptions
 - <Assumption: ...> or "none"
@@ -176,7 +177,7 @@ First comment: <exact text | none>
 - State: `vote_state.py ... as run` printed `"pending": true`, winner `<letter>`, slot row <n>, next pillar `<pillar>`
 - Check: `check_post.py --content <file> ...` → `"ok": <value>`
 - Next round (<pillar>): A <topic> (<source>); B ...; C ...
-- Change set: `vote_update.py ... as run` printed `<path> sha256 <hash>` (written under <temporary folder>; nothing under the profile's clone was changed)
+- Change set: `vote_update.py ... as run` printed `<path> sha256 <hash>`, the full path and the whole 64-character hash copied from the output, never shortened (written under <temporary folder>; nothing under the profile's clone was changed)
 - Left out: <a topic the person asked for that is already used, and where> | nothing
 - Files changed: <the lines `git status --short` printed, copied>
 
