@@ -116,4 +116,27 @@ def test_pr_context_finds_the_template_and_works_without_a_remote_or_host_tool(t
     assert out["pushed"] is False and out["open_pull_request"] is None
     assert out["remote"] is None
     assert out["merge_rules"] == ["AGENTS.md: - Merges are squash merges."]
+    assert out["docs_decision"] == []
     assert out["commits"][0].endswith("feature work") and out["files"] == ["M\tapp.py"]
+
+
+def test_pr_context_reports_the_docs_decision(tmp_path):
+    repo = repo_with_change(tmp_path, "y = 2\n")
+    git(repo, "branch", "-q", "-M", "main")
+    (repo / "docs" / "workbench").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text(
+        "- Merges are squash merges.\n- `docs/` is versioned with the code, work data included.\n", encoding="utf-8")
+    (repo / "docs" / "workbench" / "state.md").write_text(
+        "- docs/: code-related documents versioned, work data local\n", encoding="utf-8")
+    git(repo, "add", "AGENTS.md", "docs")
+    git(repo, "commit", "-q", "-m", "docs: rules")
+    git(repo, "switch", "-q", "-c", "feature")
+    git(repo, "commit", "-q", "-am", "feature work", "--allow-empty")
+    r = run_pr_context(repo, only_tools(tmp_path, "git", "python3", "sed", "dirname"))
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    assert out["docs_decision"] == [
+        "AGENTS.md: - `docs/` is versioned with the code, work data included.",
+        "docs/workbench/state.md: - docs/: code-related documents versioned, work data local",
+    ]
+    assert out["merge_rules"] == ["AGENTS.md: - Merges are squash merges."]
