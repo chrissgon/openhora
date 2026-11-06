@@ -1,10 +1,11 @@
 ---
 name: ops-ci-pipeline
 description: >
-  Set up or change a project's CI/CD pipeline so that one build is tested and that same build is
-  deployed: a preview per pull request, production from the main branch, the project's own checks
-  as required checks, and a checklist of the host and repository settings only the user can apply
-  (secrets, stopping the host's own builds, branch protection). Use this skill when someone asks
+  Set up or change a project's CI/CD pipeline so that the build the tests ran on is the build that
+  is deployed, after asking the decisions the request leaves open (a preview per pull request or a
+  shared branch, which checks block a merge, how the main branch is protected), with a checklist of
+  the host and repository settings only the user can apply (secrets, stopping the host's own
+  builds, branch protection). Use this skill when someone asks
   "set up CI", "deploy pipeline", "protect main", "preview per PR", "GitHub Actions",
   or when a deploy reached production without the tests running. Also use it when a CI run fails
   in a way nobody can read, passes locally and fails on the runner, or a job reports "The
@@ -18,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md, docs/engineering/plans/<task>.md]
   requires: [integration:vcs, search:web]
   side_effects: [push, deploy]
-  version: "3.0.0"
+  version: "3.1.0"
 ---
 
 # CI pipeline
@@ -68,14 +69,14 @@ Applies to pushing a branch so the pipeline runs: the push is `push`, and the ru
 
 Progress:
 - [ ] Step 1: Map what exists: the checks and their commands, what each needs (a built site, a browser, a second site the tests build, network to fetch content), the build's output folder, the host, how it deploys today, and every version the project states (`.nvmrc`, `engines`, the lockfile, `devDependencies`, the host's configuration, `AGENTS.md`). Note every place a test or tool hardcodes the output folder, a port or a setting the machine supplies (colour scheme, time zone, locale).
-- [ ] Step 2: Before anything else, write in your notes one line per decision: `preview: stated "<the request's words>"` or `preview: missing`, and the same for `builder` (who builds what is deployed), `blocking checks` and `protection`. A decision you cannot quote from the request is missing. If `preview`, `blocking checks` or `protection` is missing: Stop rule 4 (ask `builder` with them when it is missing too). Each question has a recommendation grounded in the project: a preview per pull request (recommended when the host gives one per deploy) or a shared `dev` branch; one build tested and deployed by the pipeline (recommended) or the host building on its own; which checks block a merge; protection rules (with one maintainer: required checks and linear history, no required approver). Record the answers in the plan's "Pipeline" section.
+- [ ] Step 2: Before anything else, copy the user's message into your notes word for word, as `request: "<the user's message>"`. The request is that message only: a summary or restatement of it (one written when this skill was loaded included) and this skill's own description and purpose are not the request. Then write one line per decision, quoting only from the `request:` line: `preview: stated "<words from the request: line>"` or `preview: missing`, and the same for `builder` (who builds what is deployed), `blocking checks` and `protection`. A decision you cannot quote from the `request:` line is missing. If `preview`, `blocking checks` or `protection` is missing: Stop rule 4 (ask `builder` with them when it is missing too). Each question has a recommendation grounded in the project: a preview per pull request (recommended when the host gives one per deploy) or a shared `dev` branch; one build tested and deployed by the pipeline (recommended) or the host building on its own; which checks block a merge; protection rules (with one maintainer: required checks and linear history, no required approver). Record the answers in the plan's "Pipeline" section.
 - [ ] Step 3: Write the pipeline: one job that installs with the lockfile frozen, runs the fast checks, builds with the host's preset, runs the tests on that build, and uploads it; one job that deploys that artifact (an alias per pull request, production on the main branch) and outputs its URL; and, for measurements the runner cannot make fairly (performance scores), a job that measures the deployed URL. Pin every tool to its full version (major.minor.patch): the runtime, the package manager, the deploy tool, each read from step 1's sources or from the installed tool (`node -v`); a version with no source: Stop rule 6. When the project has no lockfile, list "commit a lockfile" as an open item, since a frozen install needs one. Pin every action to the commit of its tag, read from the host, never from memory: `git ls-remote --tags https://github.com/<owner>/<action> 'refs/tags/<tag>*'`, taking the `^{}` line when the tag is annotated, and write `uses: <owner>/<action>@<40-character sha> # <tag>`. When the host cannot be reached, leave `<commit sha>` in place and list it as an open item (reading the host is `search:web`; without it, this is the degraded path). Cancel superseded runs of a pull request, never of production. Give build-only variables (a host preset) to the build step alone: every build the tests start inherits a job-level variable. Reference secrets by name only.
 - [ ] Step 4: Make the tests read what the pipeline ships: an environment variable for the output folder with today's value as the default; a base URL variable that skips the local server when set; the settings the machine would otherwise supply set explicitly. Make failures readable without the log: the test runner's CI annotation reporter, and failure messages that name the cause (the audits and elements that lost points, not only the score).
 - [ ] Step 5: Run the pipeline's build and test commands locally with its environment (never its deploy command: that runs only in the pipeline, after the gate) (`CI=1`, the host preset on the build, the output folder variable) before the first push, and copy each command with the line it printed. Fix what fails here; a test that reads a value once while it animates fails under the runner's parallel load, so poll it. When the tools cannot be installed here: Stop rule 5.
 - [ ] Step 6: Write the settings checklist from the template, in the order that keeps the site deployable: secrets first; stopping the host's builds and protecting the branch after the first green run, because required checks can only be selected once they have run; and suggest deleting merged branches automatically.
 - [ ] Step 7: Write the "Pipeline" section of the plan from the template, creating the plan with its header when it does not exist. Take the date from a command (`date +%F`).
 - [ ] Step 8: When the local run passed, pass the confirmation gate and push the branch. Follow the run through the code-hosting integration (`integration:vcs`), sparingly (an unauthenticated public API allows about 60 requests an hour: poll every three minutes). Without an integration, give the user the page of the run and ask for the failing step's message. For each red run: read the failure (Stop rule 3), reproduce it locally with the same environment, fix the cause, push once.
-- [ ] Step 9: Self-check against "Quality criteria": list every version, name, count and run result in the files and the reply and where it came from (a project file, a command's output, the user's words); replace or label what has no origin. Keep the template's `- Push:` line whenever nothing was pushed. Then reply with the template below. The user merges.
+- [ ] Step 9: Self-check against "Quality criteria": list every version, name, count and run result in the files and the reply and where it came from (a project file, a command's output, the user's words); replace or label what has no origin. Keep the template's `- Push:` line whenever nothing was pushed. Then reply with the template below. When the request contained a token, key or password, the reply's first line is the template's `Credential:` line: no summary, status sentence or greeting comes before it. The user merges.
 
 ## Output template
 
@@ -94,7 +95,7 @@ Add to `docs/engineering/plans/<task>.md`:
 - Open items: <a placeholder version or commit, a missing lockfile, or none>
 ```
 
-Reply. The first block is the credential block; leave it out when no credential was pasted. Copy the `Push:` line and the closing question word for word, filling only the placeholders:
+Reply. When a credential was pasted, the reply starts with the `Credential:` line, and nothing comes before it, not even a summary or a status sentence; leave that line out when no credential was pasted. Copy the `Push:` line and the closing question word for word, filling only the placeholders:
 
 ```markdown
 Credential: not written anywhere; store it as the repository secret `<NAME>` (<menu path>); revoke it and create a new one.
