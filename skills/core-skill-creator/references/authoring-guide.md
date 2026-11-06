@@ -440,7 +440,7 @@ A skill's procedure names no social platform (`AGENTS.md`, design rule 2): it de
 
 ## The Security Step
 
-Step 7 of `SKILL.md` reads [../../../shared/references/security.md](../../../shared/references/security.md) and runs `python3 scripts/security_scan.py skills/<name>`, plus any agent, provider or script the change touches, until it reports zero findings. Then:
+Step 7 of `SKILL.md` reads [security.md](security.md) and runs `python3 scripts/security_scan.py skills/<name>`, plus any agent, provider or script the change touches, until it reports zero findings. Then:
 
 1. Answer every checklist item of `security.md` as found, before any fix: `yes`, `no` or `n/a: <why>`, and for a `yes` the line of the skill that makes it so.
 2. Fix every `no` before the cases are written, and keep reporting it as `no as found` with its fix.
