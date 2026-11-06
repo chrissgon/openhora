@@ -10,11 +10,11 @@
           "model": "demo-model-a",
           "adapter": "adapter",
           "provider": null,
-          "band": "watch",
-          "cause": "the baseline (0.959) is within 0.20 of the mean with the skill (1.000) and has fewer than 3 runs per case",
-          "score": 0.94,
-          "mean": 1.0,
-          "runs": 27,
+          "band": "reliable",
+          "cause": null,
+          "score": 0.95,
+          "mean": 0.99,
+          "runs": 51,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -42,9 +42,9 @@
           "provider": null,
           "band": "needs a test",
           "cause": "guard assertion(s) 3.2 failed in the current set",
-          "score": 0.89,
+          "score": 0.93,
           "mean": 0.97,
-          "runs": 27,
+          "runs": 51,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -67,7 +67,7 @@
           "key": "lab"
         }
       ],
-      "recommended": null,
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -292,9 +292,9 @@
           "provider": null,
           "band": "reliable",
           "cause": null,
-          "score": 0.88,
+          "score": 0.93,
           "mean": 1.0,
-          "runs": 12,
+          "runs": 21,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -322,9 +322,9 @@
           "provider": null,
           "band": "reliable",
           "cause": null,
-          "score": 0.88,
+          "score": 0.93,
           "mean": 1.0,
-          "runs": 12,
+          "runs": 21,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -850,11 +850,11 @@
           "model": "demo-model-a",
           "adapter": "adapter",
           "provider": null,
-          "band": "needs a test",
-          "cause": "guard assertion(s) 7.4, 7.5, 8.4, 8.5, 11.2, 11.3, 11.5, 12.2, 12.3 have no run in the current set",
-          "score": 0.89,
-          "mean": 0.96,
-          "runs": 30,
+          "band": "reliable",
+          "cause": null,
+          "score": 0.92,
+          "mean": 0.97,
+          "runs": 42,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -881,10 +881,10 @@
           "adapter": "adapter",
           "provider": null,
           "band": "needs a test",
-          "cause": "guard assertion(s) 1.4 failed in the current set; guard assertion(s) 7.4, 7.5, 8.4, 8.5, 11.2, 11.3, 11.5, 12.2, 12.3 have no run in the current set",
-          "score": 0.79,
-          "mean": 0.89,
-          "runs": 30,
+          "cause": "guard assertion(s) 1.4, 8.4 failed in the current set",
+          "score": 0.78,
+          "mean": 0.86,
+          "runs": 42,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -907,7 +907,7 @@
           "key": "lab"
         }
       ],
-      "recommended": null,
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -1130,11 +1130,11 @@
           "model": "demo-model-a",
           "adapter": "adapter",
           "provider": null,
-          "band": "watch",
-          "cause": "the pessimistic score 0.68 is under 0.70",
-          "score": 0.68,
-          "mean": 0.85,
-          "runs": 12,
+          "band": "reliable",
+          "cause": null,
+          "score": 0.75,
+          "mean": 0.87,
+          "runs": 21,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -1162,9 +1162,9 @@
           "provider": null,
           "band": "needs a test",
           "cause": "guard assertion(s) 2.6 failed in the current set",
-          "score": 0.71,
-          "mean": 0.88,
-          "runs": 12,
+          "score": 0.65,
+          "mean": 0.78,
+          "runs": 21,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -1187,7 +1187,7 @@
           "key": "lab"
         }
       ],
-      "recommended": null,
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -3371,7 +3371,7 @@
       "adapter": "adapter",
       "provider": null,
       "skills": 48,
-      "reliable": 45,
+      "reliable": 48,
       "community_only": 0,
       "expected_cost": 0.0124,
       "price": {
@@ -3384,7 +3384,7 @@
         "age_days": 36,
         "stale": false
       },
-      "band": "partial"
+      "band": "reliable"
     },
     {
       "model": "demo-model-b",
@@ -3410,7 +3410,7 @@
   "default_model": null,
   "recommended_model": "demo-model-a",
   "snapshot": {
-    "commit": "899e62659c0a",
+    "commit": "796f12c772ea",
     "source": "docs/inventory.md"
   }
 }
