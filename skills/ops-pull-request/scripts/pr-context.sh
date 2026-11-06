@@ -8,7 +8,8 @@
 # list the base's own commits as the branch's), the commits the branch adds, the files it
 # changes, whether it is pushed, the address of the origin remote (null when there is none), the pull request template (path and content, first found in the
 # usual places), the last base commits (to read the commit convention), the lines of AGENTS.md or
-# CONTRIBUTING.md about merging, and an open pull request for the branch when the code host's
+# CONTRIBUTING.md about merging, the lines of AGENTS.md, CONTRIBUTING.md and docs/workbench/state.md
+# that say whether docs/ is versioned (docs_decision, empty when none), and an open pull request for the branch when the code host's
 # command-line tool, when present, can tell.
 #
 # A --base that is not a valid branch name (git check-ref-format --branch), or that starts with
@@ -18,7 +19,7 @@ BASE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --base) [[ $# -ge 2 ]] || { echo "Error: --base needs a value. See --help." >&2; exit 2; }; BASE="$2"; shift 2 ;;
-    --help|-h) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -57,6 +58,10 @@ rules = []
 for doc in ("AGENTS.md", "CONTRIBUTING.md"):
     if os.path.isfile(doc):
         rules += [f"{doc}: {l.strip()}" for l in open(doc, encoding="utf-8") if any(w in l.lower() for w in ("merge", "squash", "rebase", "commit"))]
+decision = []
+for doc in ("AGENTS.md", "CONTRIBUTING.md", "docs/workbench/state.md"):
+    if os.path.isfile(doc):
+        decision += [f"{doc}: {l.strip()}" for l in open(doc, encoding="utf-8") if "docs/" in l and any(w in l.lower() for w in ("versioned", "local", "ignored"))]
 print(json.dumps({
     "root": root,
     "branch": branch,
@@ -70,5 +75,6 @@ print(json.dumps({
     "template": {"path": template, "content": open(template, encoding="utf-8").read()} if template else None,
     "base_history": git("log", "--format=%s", "-8", "--end-of-options", cmp, "--").splitlines() if base else [],
     "merge_rules": rules,
+    "docs_decision": decision,
 }, indent=2))
 PY
