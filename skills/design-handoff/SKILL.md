@@ -1,17 +1,16 @@
 ---
 name: design-handoff
 description: >
-  Turn an approved design into the implementation spec engineering builds from: unpack what
-  the design tool exported (a single-file HTML bundle, code, or a design file), separate the
-  reference from what must not ship (the tool's runtime, inlined copies of libraries, font
-  CDNs), map every value to a design-system token or flag it, and specify per screen the
-  components with their content source, the layout per breakpoint, every state, the motion
-  with timings and reduced-motion behaviour, the assets, the deviations from the brief and
-  the specs, and the acceptance screenshots. Use this skill after design-execute records an
-  approved direction, when someone says the design is ready, asks for specs, a hand-off, or
-  how to build a screen from a mockup or an export. Not for choosing a design
-  (design-execute), the system's tokens (design-system) or the code architecture
-  (eng-architecture).
+  Turn an approved design into the implementation spec engineering builds from: unpack the
+  design tool's export (HTML bundle, code or design file), separate the reference from what must
+  not ship (the tool's runtime, inlined libraries, font CDNs), map every value to a
+  design-system token or flag it, and specify per screen the components and content sources,
+  layout per breakpoint, states, motion with timings and reduced motion, assets, deviations and
+  acceptance screenshots. Use this skill after design-execute records an approved direction,
+  when someone says the design is ready, asks for specs, a handoff, or how to build a screen
+  from a mockup, a screenshot or an export. Also use it when the design is missing, did not come
+  through or is not approved: it says what it needs and asks. Not for choosing a design
+  (design-execute), tokens (design-system) or code architecture (eng-architecture).
 license: MIT
 metadata:
   area: design
@@ -21,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Design handoff
