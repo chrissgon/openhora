@@ -28,6 +28,9 @@ MAIL_STATES = "sent, error (delivery failed: retried for 24 hours)"
 
 FLOWS = """# UX flows: Tallybook, phase P-1
 
+- Phase covered: P-1
+- Spec pending: {spec_pending}
+
 ## Summary
 
 Two nodes, two screens and two flows.
@@ -70,10 +73,11 @@ Two nodes, two screens and two flows.
 """
 
 
-def run(tmp_path, list_states=LIST_STATES, mail_states=MAIL_STATES, extra=()):
+def run(tmp_path, list_states=LIST_STATES, mail_states=MAIL_STATES, extra=(), spec_pending="none", edit=None):
     flows = tmp_path / "flows.md"
     prd = tmp_path / "prd.md"
-    flows.write_text(FLOWS.format(list_states=list_states, mail_states=mail_states), encoding="utf-8")
+    body = FLOWS.format(list_states=list_states, mail_states=mail_states, spec_pending=spec_pending)
+    flows.write_text(edit(body) if edit else body, encoding="utf-8")
     prd.write_text(PRD, encoding="utf-8")
     proc = subprocess.run([sys.executable, str(LINT), "--file", str(flows), "--prd", str(prd), "--phase", "P-1",
                            *extra], capture_output=True, text=True)
@@ -157,3 +161,28 @@ def test_the_word_must_be_in_states_not_elsewhere_in_the_screen(tmp_path):
     out = json.loads(proc.stdout)
     assert proc.returncode == 1
     assert [e for e in out["errors"] if e.startswith("screen-states: SCREEN-1")]
+
+
+def test_a_missing_spec_pending_line_is_reported(tmp_path):
+    proc, _, _ = run(tmp_path, edit=lambda s: s.replace("- Spec pending: none\n", ""))
+    assert proc.returncode == 1
+    assert 'missing the "- Spec pending:" header line' in json.loads(proc.stdout)["errors"]
+
+
+def test_a_spec_pending_value_must_be_none_or_ids(tmp_path):
+    proc, _, _ = run(tmp_path, spec_pending="soon")
+    assert any(e.startswith("spec-pending-line") for e in json.loads(proc.stdout)["errors"])
+
+
+def test_every_step_of_a_spec_pending_feature_must_carry_the_mark(tmp_path):
+    proc, _, _ = run(tmp_path, spec_pending="F-2")
+    assert json.loads(proc.stdout)["errors"] == [
+        'spec-pending-steps: FLOW-2 step 1 lacks "spec pending" (F-2 has no spec)',
+        'spec-pending-steps: FLOW-2 step 2 lacks "spec pending" (F-2 has no spec)']
+
+
+def test_marked_steps_of_a_spec_pending_feature_pass(tmp_path):
+    marked = lambda s: s.replace("→ follows the link;", "→ follows the link (spec pending);").replace(
+        "SCREEN-1: sees the list. End: the list is shown. Failures: step 1: the email", "SCREEN-1: sees the list (spec pending). End: the list is shown. Failures: step 1: the email")
+    proc, _, _ = run(tmp_path, spec_pending="F-2", edit=marked)
+    assert proc.returncode == 0, proc.stdout

@@ -29,6 +29,7 @@ FLOWS = """# UX flows: Tallybook, phase P-1
 
 - Owner: design-ux-flows
 - Status: draft
+- Spec pending: none
 - Date: 2026-10-16
 - PRD: docs/product/prd.md
 
