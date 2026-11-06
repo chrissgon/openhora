@@ -1,16 +1,18 @@
 ---
 name: eng-unit-tests
 description: >
-  Write the tests a change must satisfy before the change exists: one test per case of the
-  plan or the specification, in the project's own runner and conventions, run once to prove
-  that the new behaviour fails for the right reason and the behaviour to preserve passes. Use
-  this skill after a root cause is confirmed or a task's acceptance criteria are known, before
-  eng-implement, even if the user only says "write the tests first", "TDD" or "add a
-  regression test". Also use it when a bug fix has no test that fails without it, and when the
-  user asks for tests of code that exists: "write tests for <function>", "add the missing
-  tests", "cover this with tests", "I want to make sure <function> returns <value>". Also use
-  it when the request names a test framework ("write Jest tests"), to check it against the
-  project's runner first.
+  Use this skill first, before reading the plan or the code and before choosing a test
+  framework, whenever someone asks for tests of a change or of existing code: "write the tests
+  first", "TDD", "add a regression test", "write Jest tests for the bug", "write tests for this
+  function", "add the missing tests", "cover this with tests", "make sure the function returns
+  this value". Its first step reads the project's own runner and two existing tests, and when
+  the request names another framework it asks before any file is written, so there is nothing
+  to check before loading it. It writes the tests a change must satisfy before the change
+  exists: one test per case of the plan or the specification, in the project's runner and
+  conventions, run once to prove that the new behaviour fails for the right reason and the
+  behaviour to preserve passes. Use it after a root cause is confirmed or a task's acceptance
+  criteria are known, before eng-implement, and when a bug fix has no test that fails without
+  it.
 license: MIT
 metadata:
   area: engineering
@@ -20,7 +22,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Unit tests
