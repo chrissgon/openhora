@@ -1,4 +1,18 @@
 {
-  "repository": null,
-  "images": {}
+  "images": {
+    "28d1b2ea586fa1fb63bcaa918ab86979062381655e566d4d91105253e09e9ab8": {
+      "index_digest": "sha256:1c842cc06bb770667e5f28d89a40e72804815c71fbde7c41ee12fbf60ac55a90",
+      "platforms": {
+        "linux/amd64": {
+          "config_digest": "sha256:413c871be7155d9b5e04f342c2f744315830d92047c62589d350c82546d257f2",
+          "manifest_digest": "sha256:ec95f55c09b3305b58f6bdfd0cae112ece3f3c55b545082332ff09a9a390288c"
+        },
+        "linux/arm64": {
+          "config_digest": "sha256:9ffd738decab341ae3c5a616d1e782e604217baaa924642fb91f4316c3f044e3",
+          "manifest_digest": "sha256:bd3065ef996230264f69e251d2166fac4ffea0265f50f4ed8a3017c526c9e325"
+        }
+      }
+    }
+  },
+  "repository": "ghcr.io/chrissgon/openhora-eval"
 }

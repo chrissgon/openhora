@@ -36,6 +36,13 @@ FLOOR_KEY = "fake-floor-key-for-the-route-tests-0007"
 
 
 @pytest.fixture(autouse=True)
+def no_published_image(tmp_path, monkeypatch):
+    """The tests below are about the executor, not about the lock the repository commits: the lock is a missing file (the
+    empty lock), so the run image is the local one, whatever evals/image-lock.json names."""
+    monkeypatch.setattr(ex, "LOCK_FILE", str(tmp_path / "no-lock-here.json"))
+
+
+@pytest.fixture(autouse=True)
 def gate(tmp_path, monkeypatch):
     """The model list the executor reads: "strong" on the Anthropic route, "floor" on the OpenRouter route, pinned."""
     entry = {"aliases": [], "adapter": "h", "price_source": "https://example.test/price", "run_token_budget": 4321}
