@@ -132,12 +132,12 @@ class StandIn:
         text = self.read_text(os.path.join(out_dir, "error.log"), 4000)
         return "LIMIT" if "LIMIT" in text and "LIMIT" in markers else None
 
-    def Slots(self, control, model, web=False):
+    def Slots(self, control, model, web=False, account=None):
         stand_in = self
 
         class Held:
             def __enter__(self):
-                stand_in.log.append(("slots", model, web))
+                stand_in.log.append(("slots", model, web, account))
                 return self
 
             def __exit__(self, *exc):
@@ -226,7 +226,7 @@ def test_env_extra_is_set_in_the_adapter_call_and_named_in_its_box_never_replace
     run_call = next(entry for entry in lab.log if entry[0] == "run_failure")
     assert run_call[1]["pass"] == ["H_KEY", "TMPDIR"] and run_call[1]["network"] == "open"
     assert run_call[2]["TMPDIR"] == "/run/tmp"
-    assert ("slots", "m", True) in lab.log
+    assert ("slots", "m", True, "h") in lab.log
     roots = []
     lab = StandIn(tmp_path / "t", [{}])
     ra.run(lab, spec_for(tmp_path / "run2", env_extra=lambda root: roots.append(root) or {"TMPDIR": root + "/tmp"}))
@@ -417,3 +417,13 @@ def test_the_module_reads_the_runner_only_through_the_object_it_is_given():
     assert found, "__all__ not found in evals/execution.py"
     listed = set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"', re.sub(r"#[^\n]*", "", found.group(1))))
     assert read <= listed, sorted(read - listed)
+
+
+def test_a_runs_call_passes_the_key_of_its_account_and_a_local_model_passes_none(tmp_path, no_sleep):
+    (tmp_path / "t").mkdir()
+    lab = StandIn(tmp_path / "t", [{}])
+    ra.run(lab, spec_for(tmp_path / "run"))
+    assert ("slots", "m", False, "h") in lab.log
+    lab = StandIn(tmp_path / "t", [{}])
+    ra.run(lab, spec_for(tmp_path / "run2", local={"name": "x"}))
+    assert ("slots", "m", False, None) in lab.log

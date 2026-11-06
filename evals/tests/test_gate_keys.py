@@ -143,6 +143,8 @@ REMOVED = ("strong_model", "strong_harness", "floor_model", "floor_harness", "st
 def test_the_tiers_leave_the_gate_file_and_the_new_shape_is_accepted(tmp_path):
     assert not [k for k in GATE if k.startswith(("strong_", "floor_"))]
     assert GATE["tolerance"] == 0.05 and set(GATE["web_jobs"]) <= set(GATE["models"]) and GATE["lab_models"]
+    assert set(GATE["account_jobs"]) <= {e["adapter"] for e in GATE["models"].values() if isinstance(e, dict)}
+    assert all(isinstance(n, int) and 1 <= n <= GATE["total_jobs"] for n in GATE["account_jobs"].values())
     assert es.gate_problems(str(tree_with_gate(tmp_path / "ok", copy.deepcopy(GATE)))) == []
     for i, key in enumerate(REMOVED):
         cfg = {**copy.deepcopy(GATE), key: "x" if key.endswith(("model", "harness")) else []}

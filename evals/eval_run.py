@@ -175,7 +175,10 @@ folders and a throwaway home, so runs share nothing. Across processes the limit 
 process of the machine shares (a folder of slot files under the temporary base): "total_jobs" of the gate
 file (14) is the number of model calls in progress at one time, whatever the number of `eval_run.py` started
 side by side, and "web_jobs" ({model id: runs}; a model it does not list takes 2) the number of runs on the open
-network per model, whose search services limit the rate.
+network per model, whose search services limit the rate, and "account_jobs" ({adapter: calls}; an adapter it
+does not list has no limit but the total) the number of model calls in progress at one time on the account each
+adapter reaches, gradings included, so that one account never holds the whole machine and meets its provider's
+rate limit (429).
 --max-cost-usd <amount> is passed to the adapter as a spend limit per run: the claude-code adapter
 enforces it, agents-dir says it cannot (a credit limit on the provider key is the cap there).
 Retries. A run that passes its timeout, that the provider refuses on policy grounds, whose adapter fails, or
@@ -1823,8 +1826,8 @@ def grading_call(runner, grader, prompt, dest, count, pass_env=(), timeout=900, 
     """Send one grading prompt to the grader, with no tools, until an answer is accepted or the retries are
     spent. Its folders come back to dest (prompt.md, out/); a refused attempt is kept in <dest>-refused-<k>.
     account = {"key", "markers", "probe", "control", "model"} (model: the grader's id, which names its place of the
-    shared lock) makes the call wait while its account is paused, take a
-    place of the shared lock, and pause the account when the call meets its limit: that call is made again
+    shared lock) makes the call wait while its account is paused, take its
+    places of the shared lock (its account's, then the total), and pause the account when the call meets its limit: that call is made again
     after the pause and is not counted as refused.
     redact is redaction_values(): the values of the variables any run of the event received. They are replaced
     in the prompt before it is sent (the reply and the files were already rewritten; this is the last guard
@@ -1836,7 +1839,7 @@ def grading_call(runner, grader, prompt, dest, count, pass_env=(), timeout=900, 
         if account:
             wait_while_paused(account["key"], account["probe"])
         # The grader is a model too: it works outside the repository, in a folder of its own.
-        with (Slots(account["control"], account["model"]) if account else contextlib.nullcontext()):
+        with (Slots(account["control"], account["model"], account=account["key"]) if account else contextlib.nullcontext()):
             root = new_run_root(dest, out_name="out")
             try:
                 gp = os.path.join(root, "prompt.md")
@@ -2050,7 +2053,7 @@ def routing(o):
         account = {"key": harness, "markers": eval_cfg["account_limit"], "probe": lambda: probe_call(runner, model, pass_env)}
         while True:
             wait_while_paused(account["key"], account["probe"])
-            with Slots(control, model):
+            with Slots(control, model, account=account["key"]):
                 root = new_run_root(run_dir, names=(o["skill"] or "routing",))
                 case_dir = os.path.join(root, "case")
                 try:

@@ -961,18 +961,30 @@ class Slot:
         return False
 
 
+_SLOTS_HELD = threading.local()
+
+
 class Slots:
     """The places one model call holds: a place of the model's web lock when it runs on the open network, then
-    a place of the total. Always taken in that order, so two calls never wait for each other. The web lock is named
-    after the model id (every character outside [A-Za-z0-9._-] becomes "_") and holds the number the control's
-    "web_jobs" gives that model, else its "web_jobs_default" (2)."""
+    a place of its account's lock when the control's "account_jobs" names the account (the adapter the call goes
+    through, the key of the pause on an exhausted account), then a place of the total. Always taken in that order,
+    and one Slots at a time per thread (entering a second raises), so no two calls wait for each other in a
+    circle. The web lock is named after the model id (every character outside [A-Za-z0-9._-] becomes "_") and
+    holds the number the control's "web_jobs" gives that model, else its "web_jobs_default" (2)."""
 
-    def __init__(self, control, model, web=False):
+    def __init__(self, control, model, web=False, account=None):
         name = re.sub(r"[^A-Za-z0-9._-]", "_", str(model))
         jobs = (control.get("web_jobs") or {}).get(model, control.get("web_jobs_default", 2))
-        self.slots = ([Slot(f"web-{name}", jobs)] if web else []) + [Slot("total", control["total_jobs"])]
+        limit = (control.get("account_jobs") or {}).get(account) if account else None
+        places = [Slot(f"web-{name}", jobs)] if web else []
+        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+            places.append(Slot("account-" + re.sub(r"[^A-Za-z0-9._-]", "_", str(account)), limit))
+        self.slots = places + [Slot("total", control["total_jobs"])]
 
     def __enter__(self):
+        if getattr(_SLOTS_HELD, "held", False):
+            raise RuntimeError("a thread that holds places of the shared lock asked for more: places are taken "
+                               "once per call, in one order (evals/execution.py Slots)")
         taken = []
         try:
             for slot in self.slots:
@@ -981,11 +993,13 @@ class Slots:
             for slot in taken:
                 slot.__exit__(None, None, None)
             raise
+        _SLOTS_HELD.held = True
         return self
 
     def __exit__(self, *exc):
         for slot in reversed(self.slots):
             slot.__exit__(None, None, None)
+        _SLOTS_HELD.held = False
         return False
 
 
