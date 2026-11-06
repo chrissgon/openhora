@@ -1,8 +1,8 @@
-# Notes: my month with tinyledger (written by Mira)
+# Notes: my month with tinyledger, October 2038 (written by Mira)
 
 What I wrote down:
 - I tracked every expense in tinyledger for 30 days.
-- The month before I spent 1,860 euros. That month I spent 1,520 euros. The difference is 340 euros.
+- In September 2038 I spent 1,860 euros. In October 2038 I spent 1,520 euros. The difference is 340 euros.
 - Habit 1: name every euro. On the first of the month each euro gets a job.
 - Habit 2: a Sunday review of 10 minutes. I open the dashboard, compare it with the plan and move what is left over.
 - Habit 3: cancel one subscription a month. I cancelled a video streaming plan I had used twice.
