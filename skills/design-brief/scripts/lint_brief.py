@@ -3,7 +3,8 @@
 
 Usage: python3 lint_brief.py --file <brief.md> --type <screen|mockup|logo|presentation|animation|image>
                              --values <inline|loaded> [--messaging <messaging.md>]
-                             [--flows <flows.md> --screen SCREEN-n] [--report <lint.json>] [--json]
+                             [--flows <flows.md> --screen SCREEN-n] [--design-system <design-system.md>]
+                             [--report <lint.json>] [--json]
 
 Prints JSON on stdout: ok, summary (the line a reply quotes), counts, errors. --report <path> also writes
 the record of the evidence convention to that file (script, date, arguments, ok, summary, errors, counts),
@@ -21,6 +22,7 @@ Checks:
     that carry the page's copy)
   - with --flows and --screen: every region and state of the SCREEN is named in Content (lists split outside
     parentheses, on semicolons when the list has one, otherwise on commas)
+  - with --design-system: every #RRGGBB anywhere in the brief (case-insensitive) is a value of that file
   - Creative direction names at least one "Direction <X>" (three unless the header says one was chosen)
   - Evaluation criteria has at least 5 `- CRIT-n:` lines; Deliverables has at least one line
   - Prompt has exactly one fenced block of at most 150 lines, and a "Direction:" slot when there are several
@@ -73,7 +75,7 @@ def split_list(s):
     return [it.strip() for it in re.split(sep + outside, s) if it.strip()]
 
 
-VALUE_FLAGS = ("--file", "--type", "--values", "--messaging", "--flows", "--screen", "--report")
+VALUE_FLAGS = ("--file", "--type", "--values", "--messaging", "--flows", "--screen", "--design-system", "--report")
 SWITCHES = ("--json",)
 
 
@@ -115,6 +117,7 @@ def main(argv):
         text = open(args["--file"], encoding="utf-8").read()
         msg = open(args["--messaging"], encoding="utf-8").read() if "--messaging" in args else None
         flows = open(args["--flows"], encoding="utf-8").read() if "--flows" in args else None
+        system = open(args["--design-system"], encoding="utf-8").read() if "--design-system" in args else None
     except OSError as e:
         print(f"Error: cannot read input: {e}", file=sys.stderr)
         return 2
@@ -168,6 +171,13 @@ def main(argv):
                     key = " ".join(re.sub(r"\(.*?\)", "", it).split()[:2]).lower().strip(" .")
                     if key and key not in low:
                         errors.append(f"{kind} {it!r} of {sid} is not named in Content (looked for {key!r})")
+    if system is not None:
+        known = set(h.upper() for h in re.findall(r"#[0-9A-Fa-f]{6}\b", system))
+        seen = []
+        for h in re.findall(r"#[0-9A-Fa-f]{6}\b", text):
+            if h.upper() not in known and h.upper() not in seen:
+                seen.append(h.upper())
+                errors.append(f"colour {h.upper()} is not a value of the design system")
     directions = re.findall(r"Direction [A-Z]\b", section(text, "Creative direction"))
     chosen = re.search(r"^- Direction:\s*chosen", text, re.M)
     if not directions:
