@@ -70,6 +70,16 @@ def test_run_refuses_a_script_in_the_source_tree(tmp_path):
     assert r.returncode == 2 and "outside the scratch folders" in r.stderr and r.stdout == ""
 
 
+def test_run_hints_at_the_project_root_when_the_current_folder_is_in_the_temporary_folder(tmp_path):
+    temp = tmp_path / "tmpdir"
+    folder = temp / "work"
+    folder.mkdir(parents=True)
+    (folder / "runner.py").write_text(PROTOTYPE)
+    env = dict(os.environ, TMPDIR=str(temp))
+    r = run("run", "--runtime", sys.executable, str(folder / "runner.py"), cwd=folder, env=env)
+    assert r.returncode == 2 and "run this command from the project root" in r.stderr
+
+
 def test_run_refuses_a_link_that_leaves_the_scratch_folder(tmp_path):
     project = scratch(tmp_path)
     (project / "src" / "proto.py").write_text(PROTOTYPE)
