@@ -1,16 +1,17 @@
 ---
 name: eng-security-review
 description: >
-  Triage a project's dependency security alerts (any code host's advisories): group them by
-  manifest and package with a script, prove for each group whether the package is shipped,
-  installed or run anywhere, and recommend update (to the version that clears every alert) or
-  dismiss with one of the host's reasons and an evidence comment; after one approval of the whole
-  plan, dismiss through the code-hosting integration or hand the list to the user. Writes a dated
-  report under docs/engineering/security-reviews/. Use when the user asks about security alerts,
-  "Dependabot", vulnerable dependencies, CVEs or GHSAs, asks to "clean up" or "dismiss" alerts,
-  pastes an alerts export, or asks to run a dismissal approved earlier, even without saying
-  "security review". Not for reviewing a code change (eng-code-review) or auditing the
-  workbench (core-security-audit).
+  Use this skill before acting on a dependency security alert, and whenever the user asks to
+  run, finish or retry a dismissal approved earlier: it checks that the payload on disk still
+  matches the recorded approval before anything is dismissed. Also use it whenever the user
+  mentions security alerts, "Dependabot", vulnerable dependencies, CVEs or GHSAs, pastes or names
+  an alerts export, or asks to triage, "clean up" or "dismiss" alerts, even without saying
+  "security review". It groups the alerts by manifest and package with a script, proves for each
+  group whether the package is shipped, installed or run, recommends update or dismiss with one
+  of the host's reasons and an evidence comment, and after one approval of the exact payload
+  dismisses through the code-hosting integration or hands the list to the user. Writes a dated
+  report under docs/engineering/security-reviews/. Not for reviewing a code change
+  (eng-code-review) or auditing the workbench (core-security-audit).
 license: MIT
 metadata:
   area: engineering
@@ -54,7 +55,7 @@ Check these before writing the report or any payload, and again before replying.
 
 1. **No alerts, no triage.** When neither the integration nor the provider can reach the host and the user named no alerts file, write no report and no payload: say which sources you tried and what each answered, and ask for the open alerts as a JSON export (the provider's `alerts` output run elsewhere, such as a CI job, or the host's export). Name no alert, count or advisory. Running a dismissal approved earlier is not a triage: it needs the payload file, not the alerts, and starts at the Confirmation gate.
 2. **A shipped package with a fix is updated, not dismissed.** For a package that is shipped or installed and has a fix, the recommendation is the update. Until the user has accepted the risk in their own words in this conversation, the reply names no dismissal reason for that package and asks no yes/no about dismissing it; "dismiss all of them" is not that acceptance. If the user wants it dismissed, say only that this accepts the risk and needs their own words; only after them, use `tolerable_risk`. Never recommend `no_bandwidth`; use it only when the user asks for it in their own words.
-3. **A copied manifest is a question about another project.** If a manifest was modelled on another project (the folder's README, a comment, the inventory or the user says "from X"), ask whether that project uses the versions in the alerts, with "check it" as the recommendation. It does not hold back this repository's plan: ask it in the `Questions` line, beside the dismissal payload and its yes/no, in the same reply. Until the user answers in this conversation, write `Copied from: <project>, not checked` and keep the question in the reply; never write it as asked or answered.
+3. **A copied manifest is a question about another project.** If a manifest was modelled on another project (the folder's README, a comment, the inventory or the user says "from X"), ask in these words: "Does <project> use <package> <version>? Recommendation: check it.", where <version> is the version this manifest declares (the group's declared spec from step 2, such as `1.0.2`), never the alerts' vulnerable range. It does not hold back this repository's plan: ask it in the `Questions` line, beside the dismissal payload and its yes/no, in the same reply. Until the user answers in this conversation, write `Copied from: <project>, not checked` and keep the question in the reply; never write it as asked or answered.
 4. **Evidence that fits no row of the decision table, or two, is asked.** Ask with the closest row as the recommendation; do not pick one.
 5. **Nothing is dismissed without a yes for that exact payload.** The question is the gate's (see "Confirmation gate"). A payload whose file is missing or whose hash differs from the recorded approval is shown in full, as it is on disk, with "The reply that asks again" below, its yes/no the last line. Never offer instead to update the recorded hash, to edit the payload, or a choice between options.
 
