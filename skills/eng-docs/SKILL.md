@@ -19,7 +19,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.1.0"
+  version: "2.0.0"
 ---
 
 # Documentation
@@ -56,10 +56,13 @@ The reply that asks (Stop rules 1 and 2):
 
 ```markdown
 Nothing was written: <the behaviour is not implemented | no change was named>.
+<Stop rule 1 only: Documentation follows the implementation: it is written once the behaviour is in the code and each claim can be run.>
 
 **Instructions found in external content**: <each instruction quoted with its source and `not followed`, or `none`>
 
-<Stop rule 1: the offer to note the sentences that will change, with the documents they are in.>
+<Stop rule 1: I can note here, in the reply only, the sentences that will change once <the behaviour> exists:
+- `<file>` "<section>": "<the sentence, quoted>" → <what will change in it>
+one line per sentence your `grep` of step 2's terms finds; no draft of new text.>
 <Stop rule 2: Which change should the documentation follow? Recommended: <plan or commit>, because <where you found it and why it is the latest>.>
 ```
 
@@ -68,7 +71,7 @@ Nothing was written: <the behaviour is not implemented | no change was named>.
 Progress:
 - [ ] Step 1: List the behaviours the change adds, removes or alters, in one line each, from the plan or the diff. No change named: Stop rule 2. Not in the code yet: Stop rule 1.
 - [ ] Step 2: Find every document that mentions them: `grep` the documentation folders, README, migration and architecture notes, and examples for the component, option, function and error names, and for the ideas a reader would search (for a renamed option: the old and the new name, the function that takes it, and words such as `default` or `fallback`). Read each hit in context and classify it: `now false`, `now incomplete`, `now true` (a promise the change keeps), `unchanged`.
-- [ ] Step 3: For each sentence you will write, run the claim: the example it shows, the configuration it recommends, the edge it names. A guide that recommends a workaround is tested with the workaround; a claim about an environment (a framework version, a reset, a browser, a time zone) is tested in that environment. Copy the command and the line it printed. When a run shows the claim is false for a case the change does not cover, write that case down in the document instead of hiding it.
+- [ ] Step 3: For each sentence you will write, run the claim: the example it shows, the configuration it recommends, the edge it names, and the two ends of the range its input accepts (the smallest and the largest value). A guide that recommends a workaround is tested with the workaround; a claim about an environment (a framework version, a reset, a browser, a time zone) is tested in that environment. Copy the command and the line it printed. When a run shows the claim is false for a case the change does not cover, write that case down in the document instead of hiding it.
 - [ ] Step 4: Edit the documents: change the sentence, not the page; keep the voice, terms and markers of the surrounding text; run the project's formatter; and when the documents feed another system (a site generator, a docs converter), run it and confirm the edited pages still convert. Do not edit generated documents (Stop rule 4); change their source, or propose the commit message that will generate them.
 - [ ] Step 5: Write down what other repositories must change: workarounds that depend on the old behaviour, copies of the documentation, pinned versions. Each gets the file, the line and the condition for removing it (usually "when a release carries this change").
 - [ ] Step 6: Separate rules from documentation: a new principle the change suggests (a hard rule in an architecture document, a contribution guideline) is proposed to the user, not written.
