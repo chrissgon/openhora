@@ -62,8 +62,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The Debian snapshot archive fails a build now and then with a transient error that a try a few minutes later does not
+      # meet (a 504 on 2026-11-05, on each platform once, which apt's own retries did not outlast): a failed first attempt is
+      # followed by one more, after a wait, from the same definition and with no cache. Only the second attempt's failure
+      # fails the job; the digest kept is the one of the attempt that passed.
       - name: Build and push by digest
         id: build
+        continue-on-error: true
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: evals/container
+          platforms: ${{ matrix.platform }}
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ steps.image.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
+      - name: Wait before the second attempt
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "::warning::the first build failed (the Debian snapshot archive fails a build now and then); a second attempt in 300 s"
+          sleep 300
+      - name: Build and push by digest, second attempt
+        id: build_again
+        if: steps.build.outcome == 'failure'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: evals/container
@@ -74,7 +95,7 @@ jobs:
           outputs: type=image,name=${{ steps.image.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
       - name: Keep the manifest digest
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.build.outputs.digest || steps.build_again.outputs.digest }}
           SLUG: ${{ matrix.slug }}
         run: |
           set -euo pipefail

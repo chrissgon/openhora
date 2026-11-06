@@ -537,6 +537,21 @@ def test_the_docker_and_go_jobs_wait_for_the_job_that_says_whether_their_paths_c
     assert 'everything=true' in changes and '"$BASE_REF" = "main"' in changes and '"$FULL_LABEL" = "true"' in changes and '"$ACTION" = "labeled"' in changes
 
 
+def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_would_build_it():
+    """The snapshot archive fails a build now and then (a 504 on 2026-11-05): each docker job builds its images first through
+    scripts/ci_retry.py, with the same command the tests' fixtures would run, so that the fixtures find them built. A retry with no
+    bound, or one with no timeout per attempt, would hold the job up to its own timeout."""
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    for name, builds, tests in (("container", ["python3 evals/executor.py ensure"], "WB_EVAL_DOCKER_TESTS=1"),
+                                ("converter", ["python3 providers/converter/container.py build --confirmed",
+                                               "python3 providers/exporter/container.py build --confirmed"], "WB_CONVERTER_DOCKER_TESTS=1")):
+        block = job_block(text, name)
+        for build in builds:
+            found = re.findall(r"^        run: python3 scripts/ci_retry\.py --attempts [2-5] --delay \d+ --attempt-timeout \d+ -- (.+)$", block, re.M)
+            assert build in found, (name, build, found)
+            assert block.index(build) < block.index(tests), (name, build)
+
+
 def job_block(text, name):
     jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
     return dict(zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]))[name]
@@ -594,6 +609,7 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
         (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "go": "false"}),
         (["skills/mkt-publish/evals/evals.json"], PR, {"container": "true", "converter": "false", "go": "false"}),  # the eval container stages skills
         (["providers/secrets/resolver.py"], PR, {"container": "true", "converter": "false", "go": "false"}),
+        (["scripts/ci_retry.py"], PR, {"container": "true", "converter": "true", "go": "false"}),  # the retry both image builds go through
         (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
         (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
         (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),

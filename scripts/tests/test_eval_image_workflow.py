@@ -169,3 +169,22 @@ def test_a_pull_request_is_checked_by_the_script_of_its_base_never_by_its_own():
     assert "pull_request_target" not in text
     scripted = "".join(re.findall(r"^\s+(?:python3|if|set|checker|echo|fi|else) .*$", text, re.M))
     assert "${{" not in scripted
+
+
+def test_a_failed_build_is_tried_once_more_and_only_the_second_failure_fails_the_job():
+    """The snapshot archive fails a build now and then (a 504 on 2026-11-05, on each platform once). The first attempt is
+    continue-on-error; the wait and the second attempt run only when it failed; the second is not continue-on-error, so its failure
+    fails the job; both build the same definition with no cache; the digest kept is the first attempt's, else the second's."""
+    build = jobs()["build"]
+    steps = re.split(r"^      - ", build, flags=re.M)[1:]
+    first = next(s for s in steps if "id: build\n" in s)
+    second = next(s for s in steps if "id: build_again\n" in s)
+    wait = next(s for s in steps if s.startswith("name: Wait before the second attempt"))
+    assert re.search(r"^        continue-on-error: true\s*$", first, re.M)
+    assert "continue-on-error" not in second and "continue-on-error" not in wait
+    for step in (wait, second):
+        assert re.search(r"^        if: steps\.build\.outcome == 'failure'\s*$", step, re.M), step
+    assert first[first.index("uses:"):] == second[second.index("uses:"):]  # the same action, pinned the same, with the same inputs
+    assert re.search(r"^          sleep [1-9]\d*\s*$", wait, re.M) and "::warning::" in wait
+    assert "DIGEST: ${{ steps.build.outputs.digest || steps.build_again.outputs.digest }}" in build
+    assert steps.index(first) < steps.index(wait) < steps.index(second)

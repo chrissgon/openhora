@@ -220,8 +220,8 @@ jobs:
           fi
           touched() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Eq "$1"; }
           container=false; converter=false; go=false
-          touched '^(evals/|adapters/|shared/|skills/[^/]+/evals/|providers/secrets/|scripts/stage_skills.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
-          touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|.github/workflows/checks.yml)' && converter=true
+          touched '^(evals/|adapters/|shared/|skills/[^/]+/evals/|providers/secrets/|scripts/stage_skills.py|scripts/ci_retry.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
+          touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|scripts/ci_retry.py|.github/workflows/checks.yml)' && converter=true
           touched '^(providers/messenger/whatsapp/|.github/workflows/checks.yml)' && go=true
           echo "container=$container" >> "$GITHUB_OUTPUT"
           echo "converter=$converter" >> "$GITHUB_OUTPUT"
@@ -318,7 +318,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.container == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -327,6 +327,12 @@ jobs:
         with:
           version: "0.12.19"
           python-version: "3.11"
+      # The images built first, by the executor's own `ensure` (the same tags, the same build), and tried again when the build
+      # fails: the Debian snapshot archive answers a build now and then with a transient error (a 504 on 2026-11-05, which
+      # apt's own retries did not outlast; apt exits 100) that a try a few minutes later does not meet. The tests' fixtures then
+      # find the images built and build nothing.
+      - name: The eval images, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 720 -- python3 evals/executor.py ensure
       - name: The eval container, built and exercised (no model call)
         run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
 
@@ -338,7 +344,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.converter == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -347,6 +353,12 @@ jobs:
         with:
           version: "0.12.19"
           python-version: "3.11"
+      # As in the container job: each image built first by its provider's own `build --confirmed`, tried again when the
+      # snapshot archive fails it, so that the tests' fixtures find it built.
+      - name: The converter image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/converter/container.py build --confirmed
+      - name: The exporter image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/exporter/container.py build --confirmed
       - name: The converter image, built and exercised
         run: WB_CONVERTER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/converter/tests/test_converter_docker.py providers/exporter/tests/test_exporter_docker.py
 
