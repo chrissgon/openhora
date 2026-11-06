@@ -18,7 +18,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Brand strategy
@@ -73,7 +73,7 @@ The scripts are in the `scripts/` folder next to this file, not in the project. 
 
 Progress:
 - [ ] Step 1: Read the state file, the project language (the artifact language), and the profile (or the ICP and positioning). A missing one: Stop rule 1 or 2. List: the goal, the audiences, the wanted themes with their gaps, the proof table with what may be cited, the never-expose list, open conflicts. Unanswered open questions of the profile that change the goal or the claims: Stop rule 3.
-- [ ] Step 2: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 5: ask which platform, and take none by default. Read the reference of that platform, `../../shared/references/platforms/<platform>.md`; if there is no such file, stop and say the platform is not supported. Read no other file of that folder.
+- [ ] Step 2: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the task line of the request names (`Platform: <name>`); when neither names one, Stop rule 5: ask which platform, and take none by default. Open the reference of that platform by its path, `<this skill's folder>/../../shared/references/platforms/<platform>.md`; do not search for it, because a file search can skip that folder. Only when opening that path fails, stop and say the platform is not supported. Read no other file of that folder.
 - [ ] Step 3: Measure the starting point of every product the goal names: `python3 <this skill's folder>/scripts/baselines.py --npm <package> --github <owner/repo> ...`. When the request or the state file names a file of recorded answers, add `--responses <file>`: the script reads the answers from it and sends no request. Cite each number with its period and URL. For an item under `errors`, its `status` decides the starting point, never 0: `not_found` (the service answered 404) is `not found`; `not_measured` (a blocked network, a timeout, another answer) is `not measured (<error>)`, with an open question asking the user for the number. The numbers the platform's reference says cannot be read from outside (followers, impressions, comments) go to the open questions, asked of the user once and dated.
 - [ ] Step 4: Decision gate. Skip every item the state file records: no options, no confirmation question for it. For each remaining item below, build two or three options from steps 1 to 3, each with its reason and one marked recommended; any item to ask: Stop rule 4.
   1. The label (headline). Options must not claim expertise the proof table lacks ("specialist", "expert"). The words "learning", "aspiring" and "enthusiast" appear in no label option, not for a theme with a gap either: such a theme appears as a subject or stays out of the label. The default that satisfies both: proven seniority + the products the goal is about + the themes as subjects, not titles.
@@ -97,7 +97,7 @@ Progress:
   After the answers, record each in the state file as a dated decision, quoting the user.
 - [ ] Step 5: Write the positioning statement: `For <audiences>, <name> is <category> who <what they do>, proven by <proof>. Unlike <alternative>, <what only they show>.` Every noun in it traces to the proof table or the ICP, and the proof named is proof the profile marks citable.
 - [ ] Step 6: Write the claim rules: what may be cited and how (self-reported numbers as the person's experience, never as measured by others; without employer names when those are never exposed); what may not be claimed, one line per wanted theme with a gap; and the never-expose list, by reference to the profile.
-- [ ] Step 7: Profile proposals. Compare the chosen label and goal with the person's public profile texts (headline, about, code-host README). Where they contradict the strategy (a job-search summary when employment is a silent goal, an old title or employer), write the proposed replacement out in full, in the post language(s), in the direction of the voice the profile records: the current text quoted and the new text itself (or the removal of that text), never a description of the kind of text to write. No skill edits a public profile: each proposal says the user applies it by hand.
+- [ ] Step 7: Profile proposals. Compare the chosen label and goal with the person's public profile texts (headline, about, code-host README). Where they contradict the strategy (a job-search summary when employment is a silent goal, an old title or employer), write the proposed replacement out in full, in the post language(s), in the direction of the voice the profile records: the current text quoted and the new text itself (or the removal of that text), never a description of the kind of text to write. No skill edits a public profile: each proposal says the user applies it by hand. When the inputs name what a public text says but do not hold the text (a conflicts row: "README (2024): Beta Labs"), still write the proposal: the removal of the sentence that names it, or the new sentence written out, and say the current text was not in the inputs. Never drop the proposal.
 - [ ] Step 8: Risks: at least one per pillar that depends on something not yet done, and one for every decision taken on weak evidence, each with the date or measure that settles it.
 - [ ] Step 9: Write `docs/brand/strategy.md` from the template, with the date from `date +%F`. Where the strategy records a command, write the script's name and its arguments, never its path. Register it in the state file's Artifacts table as `brand-strategy`, status `draft` (only the user approves), and add the open questions there.
 - [ ] Step 10: Self-check against "Quality criteria": list every number, name and claim in the strategy and where it came from; remove or label what has none. Fix, then re-check.
@@ -145,7 +145,7 @@ Progress:
 1. <profile and field>: replace "<the current text, quoted>" with "<the new text, written out>" | remove "<the current text, quoted>". Applied by hand.
 
 ## Risks
-- <risk>: <what settles it and when>
+- <risk>. Settled on <YYYY-MM-DD: today from `date +%F` plus the weeks of the review> by <the check made that day>.
 
 ## Open questions
 1. <question> Recommended: <answer>
