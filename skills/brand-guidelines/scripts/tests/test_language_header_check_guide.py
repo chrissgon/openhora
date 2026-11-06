@@ -30,16 +30,16 @@ BODY_CITES = ("- Who: small garden tools [profile.md]\n- Name: Verde Tools [name
               '- Label: "Builder of small tools" [strategy.md]\n- Accent #07B6F0 [identity.md]\n- Voice [voice.md]\n\n')
 PASSING = (HEAD + "## 1. Who the brand is\n" + BODY_CITES +
            "## 8. Do and don't\n| Do | Don't |\n|---|---|\n"
-           '| "NEW BLOG POST!!!" | "NEW BLOG POST!!!" |\n')
+           '| "NEW BLOG POST!!!" | "NEW BLOG POST!!!" [voice.md] |\n')
 # not passing: a colour that identity.md lacks, a stale quote, a missing source and an unquoted example
 FAILING = (HEAD + "## 1. Who the brand is\n" + BODY_CITES +
            'Never write "a sentence nobody ever wrote" and keep #FF0000 out. [ghost.md]\n\n'
            "## 8. Do and don't\n| Do | Don't |\n|---|---|\n"
-           '| "NEW BLOG POST!!!" | Too many emojis |\n')
+           '| "NEW BLOG POST!!!" | Too many emojis [voice.md] |\n')
 # translated heading: the default "Do and don't" matches none of its headings
 TRANSLATED = (HEAD + "## 1. Quem e a marca\n" + BODY_CITES +
               "## 8. Fazer e evitar\n| Fazer | Evitar |\n|---|---|\n"
-              '| "NEW BLOG POST!!!" | Emojis demais |\n')
+              '| "NEW BLOG POST!!!" | Emojis demais [voice.md] |\n')
 
 
 def brand_dir(tmp_path: Path) -> Path:
@@ -90,7 +90,7 @@ def test_baseline_documents_pass_and_fail_as_intended(tmp_path):
     assert report["stale_quotes"] == ["a sentence nobody ever wrote"]
     assert report["hex_not_in_identity"] == ["#FF0000"]
     assert report["missing_sources"] == ["ghost.md"]
-    assert report["unquoted_examples"] == ["Too many emojis"]
+    assert report["unquoted_examples"] == ["Too many emojis [voice.md]"]
 
 
 @pytest.mark.parametrize("tag", TAGS)
@@ -99,7 +99,7 @@ def test_translated_heading_flag_decides_what_is_reported_not_the_language_line(
     rc, default = check(tmp_path, "default", text)
     assert rc == 0 and default["unquoted_examples"] == []
     rc, flagged = check(tmp_path, "flagged", text, "--examples-heading", "Fazer e evitar")
-    assert rc == 1 and flagged["unquoted_examples"] == ["Emojis demais"]
+    assert rc == 1 and flagged["unquoted_examples"] == ["Emojis demais [voice.md]"]
     # the same two answers without the Language line
     assert check(tmp_path, "d0", TRANSLATED)[1] == default
     assert check(tmp_path, "f0", TRANSLATED, "--examples-heading", "Fazer e evitar")[1] == flagged

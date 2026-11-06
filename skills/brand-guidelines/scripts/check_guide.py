@@ -16,6 +16,11 @@ Reports, as JSON on stdout:
                     name.md must be written as "not defined yet" with brand-name, not left out)
   unquoted_examples cells of the do-and-don't table (the table under the heading that contains
                     --examples-heading, default "Do and don't") that are not a quote in "..."
+  untagged_lines    rule lines (a bullet, a numbered item or a table body row) between the first "## "
+                    heading and the heading that contains --sources-heading (default "Sources"), outside
+                    code fences, that do not end with [<name>.md] (a closing ".", ")" or " |" after the
+                    tag is allowed); a line that names docs/workbench/state.md or a brand skill in
+                    backticks (`brand-name`) is exempt
 Exit 1 when anything is reported, 2 on a bad argument or unreadable file.
 """
 import argparse
@@ -53,12 +58,52 @@ def unquoted_cells(guide, heading):
     return cells
 
 
+TAG_END = re.compile(r"\[[\w-]+\.md\][.)]*\s*\|?\s*$")
+ITEM = re.compile(r"^\s*(?:[-*]\s|\d+\.\s)")
+
+
+def untagged_lines(guide, sources_heading):
+    found, started, fenced, table_row = [], False, False, 0
+    for line in guide.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        if line.startswith("#"):
+            table_row = 0
+            if line.startswith("## "):
+                if started and sources_heading.lower() in line.lower():
+                    break
+                started = True
+            continue
+        if not started:
+            continue
+        is_table = stripped.startswith("|")
+        if is_table:
+            table_row += 1
+            if table_row <= 2:  # the header row and the separator
+                continue
+        else:
+            table_row = 0
+            if not ITEM.match(line):
+                continue
+        if TAG_END.search(stripped):
+            continue
+        if "docs/workbench/state.md" in line or re.search(r"`brand-[\w-]+`", line):
+            continue
+        found.append(stripped)
+    return found
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--guide", required=True)
     ap.add_argument("--brand-dir", default="docs/brand")
     ap.add_argument("--ignore-quote", action="append", default=[])
     ap.add_argument("--examples-heading", default="Do and don't")
+    ap.add_argument("--sources-heading", default="Sources")
     args = ap.parse_args()
     guide = read(args.guide)
     cited = set(re.findall(r"\[([\w-]+\.md)\]", guide))
@@ -82,6 +127,7 @@ def main():
         "hex_not_in_identity": [h for h in hexes if identity and h not in identity],
         "absent_not_named": sorted(f for f in KNOWN if f not in existing and SKILL_OF[f] not in guide),
         "unquoted_examples": unquoted_cells(guide, args.examples_heading),
+        "untagged_lines": untagged_lines(guide, args.sources_heading),
     }
     report["ok"] = not any(report.values())
     print(json.dumps(report, ensure_ascii=False, indent=2))

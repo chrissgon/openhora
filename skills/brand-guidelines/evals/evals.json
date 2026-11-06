@@ -12,7 +12,7 @@
         "docs/brand/guidelines.md exists and cites the brand files it draws from (profile, strategy, identity, voice)",
         "Every Do cell of the do-and-don't table is an exact quote of a calibration rewrite in docs/brand/voice.md, and every Don't cell an exact quote of one of Dana's samples or of the launch post in docs/brand/profile.md",
         {
-          "text": "Every rule line the guide takes from a brand file ends with that file in the form [file.md]; a line no brand file gives (the approval line that points to docs/workbench/state.md, a \"not defined yet\" line for a missing brand file, a heading) does not count",
+          "text": "Every rule line the guide takes from a brand file ends with that file in the form [file.md] (a closing period, parenthesis or table pipe after the tag is allowed); a line no brand file gives (the approval line that points to docs/workbench/state.md, a \"not defined yet\" line for a missing brand file, a heading) does not count",
           "tags": [
             "format"
           ]
