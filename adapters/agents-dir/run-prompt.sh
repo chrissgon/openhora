@@ -139,13 +139,17 @@ fi
 # the proxy's base URL in OPENROUTER_BASE_URL (evals/executor.py). The runner's OpenRouter provider takes the
 # base URL from its configuration (provider.openrouter.options.baseURL, read by opencode 1.18.32 and passed to
 # its OpenRouter SDK, which calls <baseURL>/chat/completions), written into the throwaway HOME like a local model's.
+# small_model (a key of the opencode 1.19.4 config schema, found in its binary by a search on 2026-11-05) is the run's own model:
+# without it the runner picks a small model for its title call by itself, and 1.19.4 picks an image model, which the key proxy
+# (it serves the run's one model) refuses; with it the title call goes to the run's own model and its pinned provider.
 if [[ "$MODEL" == openrouter/* && -z "${RUN_PROMPT_CMD:-}" && -n "${OPENROUTER_BASE_URL:-}" ]]; then
   [[ "$OPENROUTER_BASE_URL" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo "Error: OPENROUTER_BASE_URL is not a plain http(s) URL." >&2; exit 2; }
   [[ -n "$ISO_HOME" ]] || { echo "Error: a base URL for OpenRouter needs the throwaway HOME (unset RUN_PROMPT_KEEP_HOME)." >&2; exit 2; }
   mkdir -p "$XDG_CONFIG_HOME/opencode"
-  python3 - "$OPENROUTER_BASE_URL" > "$XDG_CONFIG_HOME/opencode/opencode.json" <<'PY'
+  python3 - "$OPENROUTER_BASE_URL" "$MODEL" > "$XDG_CONFIG_HOME/opencode/opencode.json" <<'PY'
 import json, sys
-print(json.dumps({"$schema": "https://opencode.ai/config.json", "provider": {"openrouter": {"options": {"baseURL": sys.argv[1]}}}}))
+print(json.dumps({"$schema": "https://opencode.ai/config.json", "small_model": sys.argv[2],
+                  "provider": {"openrouter": {"options": {"baseURL": sys.argv[1]}}}}))
 PY
 fi
 # stdin closed: the runner otherwise waits on an inherited pipe that never ends

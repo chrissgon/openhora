@@ -220,9 +220,15 @@ def test_the_manifests_of_the_checkout_declare_the_billing_of_every_credential_t
     manifests = billing.load(str(st.REPO))
     assert {"agents-dir", "api", "claude-code"} <= set(manifests)
     gate = json.loads((st.REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    claude, openrouter = (gate["models"][name] for name in gate["lab_models"])
-    assert billing.of_route(manifests, claude["adapter"], claude["pass_env"]) == "subscription"
-    assert billing.of_route(manifests, openrouter["adapter"], openrouter["pass_env"]) == "metered"
+    expected = {("claude-code", "CLAUDE_CODE_OAUTH_TOKEN"): "subscription", ("agents-dir", "OPENROUTER_API_KEY"): "metered"}
+    kinds = set()
+    for name in gate["lab_models"]:
+        entry = gate["models"][name]
+        key = (entry["adapter"], *entry["pass_env"])
+        assert key in expected, f"{name}: no billing is declared for {key}"
+        assert billing.of_route(manifests, entry["adapter"], entry["pass_env"]) == expected[key], name
+        kinds.add(key)
+    assert kinds == set(expected), "the lab has a model of each billing"
     assert billing.of_route(manifests, "claude-code", []) == "subscription", "the CLI's own login"
     assert billing.of_route(manifests, "claude-code", ["ANTHROPIC_API_KEY"]) == "metered", "an API key as the reference credential"
     assert billing.of_route(manifests, "api", ["OPENROUTER_API_KEY"]) == "metered"
@@ -565,10 +571,11 @@ def test_a_run_started_on_a_route_no_manifest_bills_records_unknown_counts_as_me
 
 
 def test_the_billing_of_a_model_is_the_manifest_reading_of_the_gate_files_variables_for_each_model():
-    for model, expected in (("claude-sonnet-5-5", "subscription"), ("openrouter/deepseek/deepseek-v4.1-flash", "metered")):
+    for model, expected in (("claude-sonnet-5-5", "subscription"), ("claude-haiku-5-5", "subscription"),
+                              ("openrouter/deepseek/deepseek-v4.1-flash", "metered"), ("openrouter/openai/gpt-6-luna", "metered")):
         found = lab.reference(model)
         assert ops_core._model_billing(model) == billing.of_route(billing.load(str(st.REPO)), found["adapter"], found["pass_env"]) == expected
-    assert ops_core._metered_models() == {"openrouter/deepseek/deepseek-v4.1-flash"}  # the rule of a run older than the billing column
+    assert ops_core._metered_models() == {"openrouter/deepseek/deepseek-v4.1-flash", "openrouter/openai/gpt-6-luna"}  # the rule of a run older than the billing column
 
 
 def test_the_container_environment_drops_a_provider_key_unless_it_is_passed(tmp_path, monkeypatch):

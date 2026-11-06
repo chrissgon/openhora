@@ -533,7 +533,7 @@ def test_a_new_file_must_be_of_the_lab_models_through_their_configured_adapters(
     # The lab pairs are the gate file's lab_models, each through the adapter its entry names (no other key is read).
     write(old.parent / new_name, forged_copy(old, new_name))
     assert rel(forged) not in problems_of()
-    assert set(es.lab_pairs(gate)) == {strong, floor} == set(gate["lab_models"])
+    assert set(es.lab_pairs(gate)) == set(gate["lab_models"]) >= {strong, floor}
     assert es.lab_pairs(gate) == {m: gate["models"][m]["adapter"] for m in gate["lab_models"]}
     assert es.lab_pairs({"lab_models": []}) == {} and es.lab_lead(gate) == strong and es.lab_lead({}) is None
 

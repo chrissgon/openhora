@@ -343,7 +343,9 @@ def test_the_names_of_a_tools_settings_come_from_the_adapters_lists(tree):
 def test_the_standing_of_a_real_skill_has_a_band_for_every_lab_model_and_names_the_evidences_image():
     found = lab.standing("biz-market-analysis")
     assert found["lab_models"] and set(found["lab_models"]) <= set(found["adapters"]) and "tiers" not in found
-    for model in found["lab_models"]:
+    # A lab model that has not been tested yet has no entry in "models" (no evidence, no band): every model that has one is a lab model.
+    assert found["models"] and set(found["models"]) <= set(found["lab_models"])
+    for model in found["models"]:
         assert found["models"][model]["band"] and found["models"][model]["source"] == "lab" and found["adapters"][model]
     assert found["evidence_images"] and all(d.startswith("sha256:") for d in found["evidence_images"])
     assert found["version"] and found["web_cases"] and found["local"] == {} or isinstance(found["local"], dict)

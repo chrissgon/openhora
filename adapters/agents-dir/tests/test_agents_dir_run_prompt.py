@@ -124,6 +124,7 @@ def test_an_openrouter_model_is_pointed_at_the_key_proxy_in_the_throwaway_home(c
     assert r.returncode == 0, r.stderr
     cfg = json.loads((case / "out" / "response.md").read_text())
     assert cfg["provider"] == {"openrouter": {"options": {"baseURL": KEY_PROXY}}}  # the base URL alone: no key in it
+    assert cfg["small_model"] == "openrouter/vendor/some-model" and set(cfg) == {"$schema", "small_model", "provider"}  # the title call goes to the run's own model
     assert not list((case / "cwd").rglob("opencode.json"))  # nothing is written into the case folder
 
 
