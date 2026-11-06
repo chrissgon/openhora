@@ -18,7 +18,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Codebase map
@@ -78,7 +78,7 @@ Progress:
 - [ ] Step 8: Write the map from [assets/map-template.md](assets/map-template.md) to the output path decided in Inputs, with the date from `date +%F`. Then register it in `docs/workbench/state.md` (Artifacts row, owner `eng-codebase-map`, status `draft`) when the state file exists.
 - [ ] Step 9: Run `git status --short --untracked-files=all` in the project root and keep what it printed, verbatim; it shows the map and, when registered, the state file, and nothing else. When the project is not a git repository, say so and list the files you created.
 - [ ] Step 10: Self-check against "Quality criteria": list every number, name and claim in the map and where it came from (the script output, a file in "Files read", the specification); remove or label under "Assumptions" what has no origin. Fix, then re-check.
-- [ ] Step 11: Report with the template below. The self-check comes before the report, never after it.
+- [ ] Step 11: Reply with "The reply" template of "Output template", line by line. The self-check comes before the report, never after it.
 
 ## Monorepo question
 
@@ -91,12 +91,20 @@ Ask before opening any package's source code: to prepare the question, list the 
 
 ```markdown
 This repository holds several packages: <dir>, <dir>, ...
-Which one do I map? Recommended: `<dir>`, because <the rule that decided, in one phrase, with the manifest facts that show it; for rule 2, both: the script that runs or deploys the application, and the dependency in its manifest through which it imports the library>.
+Which one do I map? Recommended: `<dir>`, because <the line below of the rule that decided, with its blanks filled from the manifests>.
 ```
+
+The line of each rule:
+1. your request names it.
+2. it is an application (its manifest runs `<the script's command>`), and `<the other dir>` is a library it imports (`"<dependency>"` in its manifest).
+3. it has the most source files (<n>, against <n>).
+4. it comes first in alphabetical order.
 
 ## Output template
 
-See [assets/map-template.md](assets/map-template.md). The report to the user, with every command line copied from what it printed, never written from memory:
+The map: [assets/map-template.md](assets/map-template.md).
+
+The reply (step 11), every line filled, the "Files changed" line copied from what step 9 printed, never paraphrased:
 
 ```markdown
 ## Codebase map: <project> → <path>
