@@ -18,6 +18,18 @@
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "accessed": "2026-09-30"
     },
+    "anthropic/claude-haiku-5-5": {
+      "aliases": [
+        "claude-haiku-5-5"
+      ],
+      "input_usd_per_mtok": 0.1,
+      "output_usd_per_mtok": 0.5,
+      "cache_read_usd_per_mtok": 0.01,
+      "cache_write_usd_per_mtok": 0.125,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "accessed": "2026-11-05",
+      "notes": "the base tier, for prompts up to 100,000 tokens (cache write is the 5-minute price); a request whose prompt is over 100,000 tokens, cache reads and writes counted, pays input 0.5, output 2.5, cache read 0.05 and cache write 0.625 per million tokens; the table has no tiers"
+    },
     "anthropic/claude-sonnet-5-5": {
       "aliases": [
         "claude-sonnet-5-5"

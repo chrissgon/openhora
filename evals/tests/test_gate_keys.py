@@ -70,13 +70,13 @@ def entry(**changes):
 
 def test_the_committed_gate_file_lists_the_lab_models_in_the_object_shape_with_a_route_each():
     assert es.gate_problems() == []
-    assert GATE["lab_models"] == ["claude-sonnet-5-5", "openrouter/deepseek/deepseek-v4.1-flash", "claude-haiku-4-5", "openrouter/openai/gpt-6-luna"]
+    assert GATE["lab_models"] == ["claude-sonnet-5-5", "openrouter/deepseek/deepseek-v4.1-flash", "claude-haiku-5-5", "openrouter/openai/gpt-6-luna"]
     for model, found in GATE["models"].items():
         assert set(found) - set(es.MODEL_ENTRY_OPTIONAL) == set(es.MODEL_ENTRY_KEYS) and found["upstream_models"] and found["run_token_budget"] >= 3 * 1_600_052
         assert (REPO / "evals" / "container" / "keyproxy" / f"route-{found['route']}.json").is_file(), model
     assert es.known_models(GATE) == {"claude-sonnet-5-5": [],
                                      "openrouter/deepseek/deepseek-v4.1-flash": ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"],
-                                     "claude-haiku-4-5": ["claude-haiku-4-5-20251001"],
+                                     "claude-haiku-5-5": [],
                                      "openrouter/openai/gpt-6-luna": ["openai/gpt-6-luna", "gpt-6-luna"]}
     assert es.model_entry(GATE, "deepseek-v4.1-flash")["id"] == "openrouter/deepseek/deepseek-v4.1-flash"
     assert es.model_entry(GATE, "nobody") is None and es.model_entry({}, "x") is None and es.model_entry(GATE, None) is None

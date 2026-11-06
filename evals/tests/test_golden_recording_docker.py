@@ -1,7 +1,7 @@
 """The golden recording of package P2b: what the upstream receives from each pinned runner of the eval image, through
 its key proxy, before package SEC and after package P2b.
 
-Each pinned runner of the image (claude 2.1.284 through the claude-code adapter, opencode 1.18.32 through the agents-dir
+Each pinned runner of the image (claude 2.1.309 through the claude-code adapter, opencode 1.19.4 through the agents-dir
 adapter) runs in a container, as a held run does, against a stand-in provider that answers with a canned valid
 response. The stand-in records every request it receives: the method, the path with its query, the header NAMES and
 the values of the headers that are not volatile or credentials, the top-level keys of the body and its "model". The
@@ -42,11 +42,36 @@ RUNNERS = {
                "old_route_file": "keyproxy-strong.json"},
     "opencode": {"model": "openrouter/deepseek/deepseek-v4.1-flash", "key": "OPENROUTER_API_KEY", "adapter": "agents-dir",
                  "route": "openrouter", "old_route_file": "keyproxy.json"},
+    # The pairs added on 2026-11-05 (claude-haiku-5-5 through the claude runner, gpt-6-luna through the opencode runner) have
+    # no recording from before package SEC: they did not exist then. Only the recording through the final key proxy is made.
+    "claude-haiku": {"model": "claude-haiku-5-5", "key": "CLAUDE_CODE_OAUTH_TOKEN", "adapter": "claude-code", "route": "anthropic",
+                     "old_route_file": "keyproxy-strong.json"},
+    "opencode-luna": {"model": "openrouter/openai/gpt-6-luna", "key": "OPENROUTER_API_KEY", "adapter": "agents-dir",
+                      "route": "openrouter", "old_route_file": "keyproxy.json"},
 }
+# The pairs that have a recording from before package SEC (the second recording of the review's check).
+BEFORE_SEC_PAIRS = ("claude", "opencode")
+# The recording from before package SEC was made with the runners of that day and cannot be made again (its commit is not in
+# the repository). When a runner is raised, the values of the headers that carry a runner or bundled-library version change
+# and nothing else about a request should. The two recordings are compared without the VALUES of these headers, each named
+# here with its reason; the header NAMES, the body keys, the method, the path and the models sent are still compared strictly.
+VERSION_BOUND_HEADERS = {
+    "user-agent": "names the runner and its version (and, for opencode, the bundled runtime's)",
+    "anthropic-beta": "the list of beta features the claude CLI version switches on",
+    "x-stainless-package-version": "the version of the Anthropic SDK bundled in the claude CLI",
+    "x-stainless-runtime-version": "the version of the node runtime the claude CLI runs on",
+}
+RUNNER_VERSION_HEADERS = tuple(VERSION_BOUND_HEADERS)
+# The one change of what a runner sends that is not a version: since 2026-11-05 the agents-dir adapter writes small_model (the
+# run's own model) into opencode's configuration, so the title call goes to the run's model; before, opencode picked
+# google/gemini-3.8-flash for it. The request of the earlier recording is read as the same request to the run's model.
+TITLE_MODEL_BEFORE_SMALL_MODEL = "google/gemini-3.8-flash"
+# A header NAME a raised runner sends that the earlier one did not, named with its reason (anything else new fails the test).
+NEW_HEADER_NAMES = {"x-opencode-session-id": "opencode 1.19.4 sends its session id in a header of its own, beside x-session-id (random per run)"}
 # Values that are different on every run (a session, a request, a clock, a length that follows them) or that name the
 # stand-in: recorded as names only. The Authorization the key proxy adds is compared as "the one key it holds".
 VOLATILE = {"host", "content-length", "x-claude-code-session-id", "x-session-id", "x-session-affinity", "x-parent-session-id",
-            "idempotency-key", "x-request-id", "x-client-request-id", "traceparent", "x-stainless-timeout",
+            "idempotency-key", "x-opencode-session-id", "x-request-id", "x-client-request-id", "traceparent", "x-stainless-timeout",
             "x-stainless-arch"}  # the last follows the CPU the test runs on (arm64 or x64): the name is recorded, not the value
 
 # The headers package SEC removes from what a runner sends, by their names (the key proxy drops every header whose name
@@ -182,7 +207,7 @@ def test_the_request_the_final_key_proxy_forwards_is_the_recorded_one(ex, standi
 
 
 @DOCKER
-@pytest.mark.parametrize("which", sorted(RUNNERS))
+@pytest.mark.parametrize("which", BEFORE_SEC_PAIRS)
 def test_the_request_the_key_proxy_of_the_last_commit_before_sec_forwarded_is_the_recorded_one(ex, standin, tmp_path, which):
     shapes, models, _ = record(ex, standin, tmp_path, which, "old")
     if WRITE:
@@ -208,18 +233,23 @@ def without_credentials(requests, before=None):
     values, so that the two recordings can be compared."""
     out = []
     for request in requests:
-        dropped = set(CREDENTIAL_DIFFERENCES) | set(ENCODING)
+        dropped = set(CREDENTIAL_DIFFERENCES) | set(ENCODING) | set(NEW_HEADER_NAMES)
         out.append({**request, "header_names": [h for h in request["header_names"] if h not in dropped],
-                    "header_values": {k: v for k, v in request["header_values"].items() if k not in dropped},
+                    "header_values": {k: v for k, v in request["header_values"].items() if k not in dropped | set(RUNNER_VERSION_HEADERS)},
                     "body_keys": [k for k in request["body_keys"] if k != "usage"], "usage_field": None})
     return out
 
 
-@pytest.mark.parametrize("which", sorted(RUNNERS))
+@pytest.mark.parametrize("which", BEFORE_SEC_PAIRS)
 def test_the_two_recordings_differ_in_the_credential_headers_package_sec_removes_and_in_nothing_else(which):
     before, after = golden(BEFORE)[which], golden(AFTER)[which]
     assert before["model"] == after["model"] and before["adapter"] == after["adapter"]
+    if which == "opencode":  # the title call is the same request to the run's own model (see TITLE_MODEL_BEFORE_SMALL_MODEL)
+        before = {**before, "models": sorted({after["model"].removeprefix("openrouter/") if m == TITLE_MODEL_BEFORE_SMALL_MODEL else m for m in before["models"]}),
+                  "requests": ordered({**r, "model": after["model"].removeprefix("openrouter/")} if r["model"] == TITLE_MODEL_BEFORE_SMALL_MODEL else r
+                                      for r in before["requests"])}
     assert before["models"] == after["models"], "the model names the runner sends differ"
+    assert len(before["requests"]) == len(after["requests"])
     assert without_credentials(before["requests"]) == without_credentials(after["requests"])
     for old, new in zip(before["requests"], after["requests"]):  # the allowed difference, with its two values
         for name, (sent, rewritten) in ENCODING.items():
@@ -228,12 +258,26 @@ def test_the_two_recordings_differ_in_the_credential_headers_package_sec_removes
     # and what differs is what the list names: nothing else was in the before recording that the after one lacks
     names_before = {h for r in before["requests"] for h in r["header_names"]}
     names_after = {h for r in after["requests"] for h in r["header_names"]}
-    assert names_before - names_after <= set(CREDENTIAL_DIFFERENCES) and not names_after - names_before
+    assert names_before - names_after <= set(CREDENTIAL_DIFFERENCES) and names_after - names_before <= set(NEW_HEADER_NAMES)
     for request in after["requests"]:
         if which == "opencode":  # the OpenRouter route: every chat completion asks for its usage, whatever the run asked
             assert "usage" in request["body_keys"] and request["usage_field"] == USAGE_FIELD, request
         assert request["authorization"] == "the one key the key proxy holds"  # exactly one Authorization, the key proxy's own
         assert not set(request["header_names"]) & set(CREDENTIAL_DIFFERENCES)
+
+
+@pytest.mark.parametrize("which", sorted(set(RUNNERS) - set(BEFORE_SEC_PAIRS)))
+def test_the_pairs_added_on_2026_11_05_reach_the_key_proxy_with_their_own_model_and_one_key(which):
+    """The proof that the runner knows the model: a run of claude-haiku-5-5 and of openrouter/openai/gpt-6-luna sent its request
+    (a runner that fails before it sends anything leaves no request at the stand-in), with the model it was started with."""
+    recorded = golden(AFTER)[which]
+    assert recorded["model"] == RUNNERS[which]["model"] and recorded["adapter"] == RUNNERS[which]["adapter"]
+    assert recorded["requests"] and RUNNERS[which]["model"].removeprefix("openrouter/") in recorded["models"]
+    for request in recorded["requests"]:
+        assert request["authorization"] == "the one key the key proxy holds"
+        assert not set(request["header_names"]) & set(CREDENTIAL_DIFFERENCES)
+        if RUNNERS[which]["route"] == "openrouter":
+            assert "usage" in request["body_keys"] and request["usage_field"] == USAGE_FIELD, request
 
 
 @pytest.mark.parametrize("which", sorted(RUNNERS))
@@ -244,7 +288,7 @@ def test_every_model_name_a_runner_sends_is_listed_in_the_gate_file(which):
     executor = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(executor)
     entry = executor.model_entry(RUNNERS[which]["model"])
-    sent = set(golden(BEFORE)[which]["models"])
+    sent = set(golden(AFTER)[which]["models"])
     assert sent <= set(entry["upstream_models"]), f"{which} sends {sorted(sent - set(entry['upstream_models']))}, which the gate file does not list"
 
 
