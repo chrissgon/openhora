@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # Brand name
@@ -128,8 +128,8 @@ Reply template. The check line is copied from what the script printed, never wri
 - File: docs/brand/name.md
 - Check: `handle_check.py --name <name> <the other arguments as run>` on <date> → registered: <places>; not_found: <places>; unknown: <places>
 <only when the script printed a `registered` place:> - Same everywhere: only if the registered places are yours (question 1); a domain with no record is `no RDAP record, confirm at a registrar`; the networks of question 2 are asked, not checked
-<only when it printed none:> - Same everywhere: nothing is registered under `<name>` where the script looked (an `unknown` place is not known to be free); a domain with no record is `no RDAP record, confirm at a registrar`; the networks of question 2 are asked, not checked
-<only when the script printed "all_unknown": true, this line:> - Network: not reachable, so nothing is known to be free or taken; the checks to rerun are in docs/brand/name.md
+<only when it printed no `registered` place and did not print "all_unknown": true:> - Same everywhere: nothing is registered under `<name>` where the script looked (an `unknown` place is not known to be free); a domain with no record is `no RDAP record, confirm at a registrar`; the networks of question 2 are asked, not checked
+<only when the script printed "all_unknown": true, this line and no "Same everywhere" line:> - Network: not reachable, so nothing is known to be free or taken; the checks to rerun are in docs/brand/name.md
 - Not bought, not registered: this skill never does either; you do it at a registrar or on the network
 - Files changed: <the lines `git status --short` printed, copied; `none` when it printed nothing>
 
