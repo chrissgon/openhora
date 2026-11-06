@@ -146,7 +146,7 @@ def run(lab, spec, hooks=None) -> dict:
 
     spec is a dictionary: "dest" (the run folder), "names" (what a temporary folder must not carry), "label" (the
     run in a pause's record), "runner", "model" (the model id the runner is called with; it also names the model's web lock), "timeout", "max_cost", "web" (the adapter call), "account"
-    ({"key", "markers", "probe"}), "refusal_markers", "settings", "pass_env", "values", "control",
+    ({"key", "markers", "probe"}; the key also names the account's place of the shared lock, none for a local model), "refusal_markers", "settings", "pass_env", "values", "control",
     "retries", "prompt", "response_limit", and optionally "local" (a local model's description: the box's "local" of
     evals/execution.py run_group), "counts" (a dictionary updated in place) and
     "env_extra" ({name: value}, or a function of the attempt's fresh folder that returns one, called right before
@@ -192,7 +192,8 @@ def run(lab, spec, hooks=None) -> dict:
         lab.wait_while_paused(account["key"], account["probe"])
         counts["attempts"] += 1
         # The attempt happens outside the repository; its folders come back to dest when it ends, however it ends.
-        with lab.Slots(spec["control"], spec["model"], bool(spec.get("web"))):
+        with lab.Slots(spec["control"], spec["model"], bool(spec.get("web")),
+                       None if spec.get("local") else account["key"]):
             if before_attempt:  # called again: something may have changed while this run waited for its place
                 before_attempt()
             made = attempt(lab, spec, hooks, counts)

@@ -571,6 +571,23 @@ def test_a_regrade_takes_a_place_of_the_shared_lock(tmp_path, monkeypatch, capsy
     assert out["gradings"] == 1 and taken == [[("total", total)]]
 
 
+def test_a_regrade_takes_a_place_of_its_accounts_lock_between_nothing_and_the_total(tmp_path, monkeypatch, capsys):
+    iteration = graded_for_regrade(tmp_path, monkeypatch, capsys)
+    configure_gate(tmp_path, account_jobs={"h": 3})
+    taken, real = [], er.Slots
+
+    class Recording(real):
+        def __enter__(self):
+            taken.append([(slot.kind, slot.n) for slot in self.slots])
+            return super().__enter__()
+
+    monkeypatch.setattr(er, "Slots", Recording)
+    assert er.main(["--regrade", str(iteration), "--harness", "h", "--grader", "m"]) == 0
+    capsys.readouterr()
+    total = er.load_status().event_config(er.load_status().load_gate(str(tmp_path)))["total_jobs"]
+    assert taken == [[("account-h", 3), ("total", total)]]
+
+
 def test_a_regrade_waits_while_its_account_is_paused(tmp_path, monkeypatch, capsys):
     iteration = graded_for_regrade(tmp_path, monkeypatch, capsys, probes_fail=1)
     fast_pause(monkeypatch)
@@ -2265,8 +2282,8 @@ def test_the_grading_call_takes_its_place_of_the_shared_lock_by_the_graders_id(t
     placed = []
 
     class Recorder:
-        def __init__(self, control, model, web=False):
-            placed.append((model, web))
+        def __init__(self, control, model, web=False, account=None):
+            placed.append((model, web, account))
 
         def __enter__(self):
             raise StopIteration  # the call is seen; nothing more of it is needed
@@ -2279,7 +2296,7 @@ def test_the_grading_call_takes_its_place_of_the_shared_lock_by_the_graders_id(t
     account = {"key": "h", "markers": [], "probe": None, "control": {}, "model": "the-grader"}
     with pytest.raises(StopIteration):
         er.grading_call("/x/run-prompt.sh", "the-grader", "prompt", str(tmp_path / "g"), {}, (), 5, account)
-    assert placed and placed[0] == ("the-grader", False)
+    assert placed and placed[0] == ("the-grader", False, "h")
 
 
 def test_the_models_of_the_gate_file_s_lab_set_keep_writing_into_the_skill(tmp_path, tmp_path_factory, monkeypatch, capsys):
@@ -3284,6 +3301,51 @@ def test_a_web_run_takes_a_place_of_its_tiers_web_lock_before_a_place_of_the_tot
     assert [(s.kind, s.n) for s in er.Slots(control, "other", web=True).slots] == [("web-other", 2), ("total", 10)]  # the default
     assert [(s.kind, s.n) for s in er.Slots({"total_jobs": 10}, "x", web=True).slots] == [("web-x", 2), ("total", 10)]
     assert [(s.kind, s.n) for s in er.Slots(control, "claude-sonnet-5-5").slots] == [("total", 10)]
+
+
+def kinds(slots):
+    return [(s.kind, s.n) for s in slots.slots]
+
+
+def test_a_call_takes_its_accounts_place_between_the_web_lock_and_the_total():
+    control = {"total_jobs": 14, "web_jobs_default": 2, "account_jobs": {"claude-code": 7, "agents-dir": 7}}
+    assert kinds(er.Slots(control, "m", web=True, account="claude-code")) == [
+        ("web-m", 2), ("account-claude-code", 7), ("total", 14)]
+    assert kinds(er.Slots(control, "m", account="agents-dir")) == [("account-agents-dir", 7), ("total", 14)]
+    assert kinds(er.Slots(control, "m", account="api")) == [("total", 14)]  # an adapter it does not list
+    assert kinds(er.Slots(control, "m", account=None)) == [("total", 14)]
+    assert kinds(er.Slots({"total_jobs": 10}, "x", web=True, account="claude-code")) == [("web-x", 2), ("total", 10)]
+
+
+def test_the_account_of_the_gate_file_bounds_the_runs_whatever_jobs_and_total_say(tmp_path, monkeypatch, capsys):
+    busy = 'here="$(dirname "$0")"\nmkdir "$here/busy" 2>/dev/null || echo overlap >> "$here/overlap.txt"\nsleep 0.3\nrmdir "$here/busy" 2>/dev/null\necho ok > "$8/response.md"\n'
+    write_demo(tmp_path, monkeypatch, busy)
+    configure_gate(tmp_path, total_jobs=4, account_jobs={"h": 1})
+    assert er.main(["--skill", "demo", "--jobs", "4", "--no-grade"]) == 0
+    assert not (tmp_path / "adapters" / "h" / "overlap.txt").exists()
+    (tmp_path / "adapters" / "h" / "busy").mkdir(exist_ok=True)
+    (tmp_path / "adapters" / "h" / "busy").rmdir()
+    configure_gate(tmp_path, total_jobs=4, account_jobs={"h": 4})
+    assert er.main(["--skill", "demo", "--jobs", "4", "--no-grade"]) == 0
+    assert (tmp_path / "adapters" / "h" / "overlap.txt").exists()  # models m and f share the account h, and overlap when it allows
+
+
+def test_a_thread_that_holds_places_cannot_take_more(tmp_path, monkeypatch):
+    import fcntl
+    monkeypatch.setattr(er.KIT, "LOCK_DIR", str(tmp_path / "locks"))
+    control = {"total_jobs": 2, "account_jobs": {"h": 1, "h2": 1}}
+    with er.Slots(control, "m", account="h"):
+        with pytest.raises(RuntimeError, match="asked for more"):
+            with er.Slots(control, "m2", account="h2"):
+                pass
+        fd = os.open(os.path.join(str(tmp_path / "locks"), "account-h-0.lock"), os.O_RDWR)
+        try:
+            with pytest.raises(OSError):  # the outer places are still held
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+    with er.Slots(control, "m2", account="h2"):  # the flag is cleared when the outer block exits
+        pass
 
 
 # Web cases.

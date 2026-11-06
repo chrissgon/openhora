@@ -70,6 +70,7 @@ def retired(gate, runs):
                models={"next-lead": entry, "next-second": entry, "next-grader": entry})
     out["baseline_runs"] = min(out.get("baseline_runs", runs), runs)
     out.pop("web_jobs", None)  # it names models of the list that is being replaced
+    out.pop("account_jobs", None)  # its entries all copy the first, so the adapters it names may no longer be used
     return out
 
 

@@ -313,13 +313,16 @@ def test_the_repository_measurement_is_at_version_5_or_later_with_its_floor(root
 
 def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(root):
     assert es.event_config({}) == {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
-                                   "web_jobs": {}, "web_jobs_default": 2, "baseline_runs": 3, "baseline_margin": None}
+                                   "web_jobs": {}, "web_jobs_default": 2, "account_jobs": {}, "baseline_runs": 3, "baseline_margin": None}
     configure(root, runs=5, max_resumes=1, web_jobs={"s-model": 1, "f-model": 4})
     assert es.gate_problems(str(root)) == []
     control = es.event_config(es.load_gate(str(root)))
     assert (control["runs"], control["max_resumes"], control["web_jobs"], control["retries"]) == (5, 1, {"s-model": 1, "f-model": 4}, 2)
     configure(root, web_jobs={"f-model": 4})  # a model it does not list takes the default
     assert es.event_config(es.load_gate(str(root)))["web_jobs"] == {"f-model": 4} and es.WEB_JOBS_DEFAULT == 2
+    configure(root, account_jobs={"h": 3, "fh": 5})  # the adapters the entries use
+    assert es.gate_problems(str(root)) == []
+    assert es.event_config(es.load_gate(str(root)))["account_jobs"] == {"h": 3, "fh": 5}
 
 
 @pytest.mark.parametrize("change, why", [
@@ -333,6 +336,11 @@ def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(r
     ({"web_jobs": {"s-model": 0}}, "web_jobs must map a model id to a whole number"),
     ({"web_jobs": {"s-model": 65}}, "web_jobs must map a model id to a whole number"),
     ({"web_jobs": ["s-model"]}, "web_jobs must map a model id to a whole number"),
+    ({"account_jobs": {"nobody": 2}}, "account_jobs names an adapter that no entry of models uses"),
+    ({"account_jobs": {"h": 0}}, "account_jobs must map an adapter"),
+    ({"account_jobs": {"h": 65}}, "account_jobs must map an adapter"),
+    ({"account_jobs": {"Not_A_Name": 1}}, "account_jobs must map an adapter"),
+    ({"account_jobs": ["h"]}, "account_jobs must map an adapter"),
     ({"web_cases": {"core-demo": []}}, "web_cases must map a skill name"),
     ({"web_cases": ["core-demo"]}, "web_cases must map a skill name"),
     ({"models": {**entries(), "s-model": {**ENTRY, "web_pass_env": ["not a name"]}}}, "web_pass_env must list variable names"),

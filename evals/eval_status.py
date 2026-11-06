@@ -116,7 +116,9 @@ often a run that timed out, was refused, failed in its adapter or ended early is
 "max_resumes" [3], how often `eval_run.py --resume` reruns one failed run before it is written as a timeout
 with score 0; "total_jobs" [10], the model runs in progress at one time over every runner process of the
 machine; "web_jobs" [{}], {model id: runs}, the same for runs on the open network, per model (a model it does not list
-takes 2, WEB_JOBS_DEFAULT);
+takes 2, WEB_JOBS_DEFAULT); "account_jobs" [{}], {adapter: runs}, the model calls in progress at one time on the account an
+adapter reaches (the key of the pause on an exhausted account), over every runner process of the machine, gradings
+included; an adapter it does not list has no limit but the total;
 "web_cases", {skill: [case ids]}, the only cases that may set "allow_web" (with a gate file and no such key,
 none may). "baseline_runs" is the number of runs
 of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseline_margin" the distance under
@@ -389,7 +391,7 @@ GATE_FIELDS = {"grader": str, "threshold": (int, float), "tolerance": (int, floa
 GATE_OPTIONAL = {"measurement_sha256": str,  # absent while a measurement version is open
                  # Control of a test event (event_config below): absent keys take the defaults of EVENT_DEFAULTS.
                  "runs": int, "timeout_seconds": int, "retries": int, "max_resumes": int, "total_jobs": int,
-                 "web_jobs": dict, "web_cases": dict, "baseline_runs": int, "baseline_margin": (int, float),
+                 "web_jobs": dict, "account_jobs": dict, "web_cases": dict, "baseline_runs": int, "baseline_margin": (int, float),
                  "epochs": list}  # [{"date", "models", "skills", "cause"}]: the model's section 8
 # What an event uses when the gate file does not say: 3 runs per case (the plan's decision 1), 900 seconds per
 # run, 2 retries inside the event, 3 resumptions of one run before it is written as a timeout, 10 runs at a
@@ -397,7 +399,7 @@ GATE_OPTIONAL = {"measurement_sha256": str,  # absent while a measurement versio
 # model (the gate file's "web_jobs" names the models that take another number).
 WEB_JOBS_DEFAULT = 2
 EVENT_DEFAULTS = {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
-                  "web_jobs": {}, "web_jobs_default": WEB_JOBS_DEFAULT}
+                  "web_jobs": {}, "web_jobs_default": WEB_JOBS_DEFAULT, "account_jobs": {}}
 EVENT_RANGES = {"runs": EVIDENCE_LINES.RUNS_RANGE, "timeout_seconds": (30, 86400), "retries": (0, 5), "max_resumes": (0, 10), "total_jobs": (1, 64),
                 "baseline_runs": (1, 10)}
 LEGACY_VERSION = 1  # the measurement of the first records, whose gate had no threshold for the reference model
@@ -518,6 +520,14 @@ def event_problems(cfg):
         out.append("web_jobs must map a model id to a whole number from 1 to 64")
     elif jobs and isinstance(models, dict) and not set(jobs) <= set(known_models(cfg)):
         out.append("web_jobs names a model that is not an id of models")
+    accounts = cfg.get("account_jobs")
+    if "account_jobs" in cfg and not (isinstance(accounts, dict) and all(
+            isinstance(k, str) and NAME_RE.fullmatch(k) and whole(v, 1, 64) for k, v in accounts.items())):
+        out.append("account_jobs must map an adapter's folder name to a whole number from 1 to 64")
+    elif accounts and isinstance(models, dict):
+        used = {e.get("adapter") for e in models.values() if isinstance(e, dict)}
+        if not set(accounts) <= used:
+            out.append("account_jobs names an adapter that no entry of models uses")
     if "baseline_runs" in cfg and whole(cfg["baseline_runs"], 1, 10) and cfg["baseline_runs"] > cfg.get("runs", EVENT_DEFAULTS["runs"]):
         out.append("baseline_runs must not be above runs")
     margin = cfg.get("baseline_margin")
@@ -596,6 +606,7 @@ def event_config(cfg):
     cfg is a loaded gate configuration ({} when there is none)."""
     out = {key: cfg.get(key, default) for key, default in EVENT_DEFAULTS.items()}
     out["web_jobs"] = dict(out["web_jobs"])
+    out["account_jobs"] = dict(out["account_jobs"])
     # A full test runs each baseline this many times; without the key, as many as "runs" (the behaviour before it).
     out["baseline_runs"] = cfg.get("baseline_runs", out["runs"])
     # Under this distance between the mean with the skill and the baseline, a thin baseline is asked to run in full.
