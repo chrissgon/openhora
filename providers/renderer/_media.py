@@ -22,6 +22,9 @@ RECORDING_IN = ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"
 TAGS = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
 VIDEO_CODECS = ("h264", "hevc")
 AUDIO_CODECS = ("aac", "alac", "mp3", "pcm_s16le", "pcm_s24le")
+PRORES_CODECS = ("prores",)             # the one video codec the encode stage accepts: the HyperFrames engine's intermediate
+PROXY_CRF = 14                          # S2's proxy: x264 CRF 14 kept the picture the render needs at 361 MB for 192.66 s
+PROXY_MAX_BYTES = 2 * 1024 ** 3         # S2: 361 MB for 192.66 s; 300 s at that rate is about 560 MB; the cap leaves room for busier content
 HDR_TRANSFERS = ("smpte2084", "arib-std-b67")
 # Data streams (an iPhone .mov carries three: metadata and timecode tracks) are ignored: counted for nothing and never
 # mapped, so never read. Only the first video and the first audio stream are mapped.
@@ -89,9 +92,9 @@ def _fps(text) -> float:
         return 0.0
 
 
-def probe(ffprobe: str, path: str, timeout: float = 60) -> dict:
+def probe(ffprobe: str, path: str, timeout: float = 60, *, video_codecs=VIDEO_CODECS, audio_codecs=AUDIO_CODECS) -> dict:
     """Facts of a recording. Refuses more than one video stream, more than one audio stream, a stream of any other
-    kind than data (data streams are ignored), HDR, and codecs outside the whitelist. Sizes are the displayed ones (rotation applied)."""
+    kind than data (data streams are ignored), HDR, and codecs outside the whitelist (`video_codecs` and `audio_codecs`, today's lists by default). Sizes are the displayed ones (rotation applied)."""
     out, _ = run([ffprobe, "-v", "error", *RECORDING_IN, "-show_streams", "-show_format", "-of", "json", path], timeout)
     try:
         info = json.loads(out)
@@ -110,9 +113,9 @@ def probe(ffprobe: str, path: str, timeout: float = 60) -> dict:
     v = video[0]
     if v.get("disposition", {}).get("attached_pic"):
         raise Refusal("video_streams", "input")
-    if v.get("codec_name") not in VIDEO_CODECS:
+    if v.get("codec_name") not in video_codecs:
         raise Refusal("video_codec", "input")
-    if audio and audio[0].get("codec_name") not in AUDIO_CODECS:
+    if audio and audio[0].get("codec_name") not in audio_codecs:
         raise Refusal("audio_codec", "input")
     rotation = 0
     for sd in v.get("side_data_list", []) or []:
@@ -272,6 +275,7 @@ def _even(x: float) -> int:
 PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
 SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
 THREADS = 4                                # encoder, filter graph (and with it swscale's slices); the decoder's too, which changes speed only
+ENCODE_THREADS = THREADS                   # the final encode's x264 threads: a fixed count, never the cores the container sees
 BASE = 2                   # the picture is cut at twice the output size, so a zoom never upscales (and a slow zoom does not jitter)
 
 
@@ -415,16 +419,52 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(THREADS), "-filter_complex_threads", str(THREADS),
             *inputs, "-filter_complex", ";".join(g), "-map", "[vout]"]
     if has_audio:
-        argv += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    # Every count a thread-dependent step reads is pinned (the encoder's, the filter graph's, with it swscale's slices) and every scale
-    # is bit-exact: x264's output depends on its thread count and the automatic count follows the cores the machine shows, so the same
-    # render would otherwise differ in bytes from one CPU limit or machine to another. See the README for what can still differ.
-    argv += ["-sws_flags", SWS, "-c:v", "libx264", "-threads", str(THREADS), "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
+        argv += ["-map", "[aout]"]
+    argv += output_options(plan)
+    return argv + [plan["out_name"]]
+
+
+def output_options(plan: dict, threads: int = THREADS) -> list:
+    """The output side of the final H.264 encode, shared by both engines (the ffmpeg engine's compose and the HyperFrames engine's
+    encode stage): AAC when the plan has audio, then every count a thread-dependent step reads pinned (the encoder's, the filter
+    graph's, with it swscale's slices) and every scale bit-exact. x264's output depends on its thread count and the automatic count
+    follows the cores the machine shows, so the same render would otherwise differ in bytes from one CPU limit or machine to
+    another. See the README for what can still differ. `plan` holds fps, out_frames, max_bytes and, optionally, has_audio (true
+    by default). The output name is not included."""
+    argv = []
+    if plan.get("has_audio", True):
+        argv += ["-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
+    argv += ["-sws_flags", SWS, "-c:v", "libx264", "-threads", str(threads), "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-             "-r", str(fps), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"]), "-shortest",
+             "-r", str(plan["fps"]), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"]), "-shortest",
              "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",
-             "-fs", str(plan["max_bytes"]), "-movflags", "+faststart", plan["out_name"]]
+             "-fs", str(plan["max_bytes"]), "-movflags", "+faststart"]
     return argv
+
+
+def proxy_argv(ffmpeg: str, src: str, src_matrix: str, out: str, *, fps: int, has_audio: bool) -> list:
+    """The proxy of a recording for the HyperFrames engine: 1080x1920 at the edit list's fps, x264 CRF PROXY_CRF with fixed threads
+    and bit-exact scaling, the audio as the final encode writes it. The whole timeline is kept (no cut), so a time of the edit list is
+    the same time in the proxy. At most PROXY_MAX_BYTES."""
+    # framing_filter cuts at BASE times the output size (for the zoom); the proxy is the plain scale down to the output, as an unzoomed range is
+    vf = "fps=%s:start_time=0,%s,format=yuv420p,scale=1080:1920:flags=%s,%s" % (fps, framing_filter(1080, 1920, src_matrix), SWS, TAGS)
+    argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-threads", str(THREADS), "-filter_threads", str(THREADS),
+            *RECORDING_IN, "-i", src, "-map", "0:v:0", "-vf", vf, "-sws_flags", SWS,
+            "-c:v", "libx264", "-threads", str(THREADS), "-preset", "medium", "-crf", str(PROXY_CRF), "-pix_fmt", "yuv420p"]
+    if has_audio:
+        argv += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
+    else:
+        argv += ["-an"]
+    argv += ["-fs", str(PROXY_MAX_BYTES), "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact", "-map_metadata", "-1", out]
+    return argv
+
+
+def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
+    """The final H.264 encode of the HyperFrames engine: the ProRes intermediate (video, and its audio when it has one) written with
+    the same output options as the ffmpeg engine's render and a fixed thread count. `plan` carries fps, out_frames and max_bytes
+    (and has_audio, true by default)."""
+    return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", intermediate, "-map", "0:v:0", "-map", "0:a:0?",
+            *output_options(plan, ENCODE_THREADS), out]
 
 
 def cover_argv(ffmpeg: str, src: str, offset_seconds: float, out_name: str) -> list:

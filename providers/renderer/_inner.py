@@ -11,6 +11,9 @@ only writable mount) and /scratch (memory-backed), with no network.
   render   --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V ...    the video
   storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR   a still per beat and a contact sheet, no recording
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
+  proxy    --edl EDL --in VIDEO --out FILE.mp4         a 1080x1920 H.264 proxy of the recording, at the edit list's fps (the HyperFrames engine)
+  encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR   a ProRes intermediate to the final H.264, with fixed threads
+  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR --base-only   the HyperFrames engine's base page: cuts and zoom
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
@@ -29,6 +32,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,6 +41,7 @@ import _align  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
+import _hf_page  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
 import _timeline  # noqa: E402
@@ -293,6 +298,76 @@ def verb_verify(args) -> dict:
     return {"ok": True, "sha256": args.sha256, "output": facts}
 
 
+def verb_proxy(args) -> dict:
+    """A 1080x1920 H.264 proxy of the recording at the edit list's fps, for the HyperFrames engine's browser (the whole timeline, no cut).
+    The recording is checked against the edit list first, as the render checks it."""
+    ffmpeg, ffprobe = tools(args)
+    data = load_data()
+    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
+    started = time.time()
+    facts = _output.check_recording(ffprobe, args.input, edl, data["limits"])
+    fps, has_audio = edl["fps"], bool(edl["source"]["has_audio"])
+    _media.run(_media.proxy_argv(ffmpeg, args.input, edl["source"]["color_matrix"], args.out, fps=fps, has_audio=has_audio), 3600)
+    proxy = _media.probe(ffprobe, args.out)
+    if proxy["duration"] < facts["duration"] - 2.0 / fps:
+        raise Refusal("proxy_truncated", "proxy")
+    return {"ok": True, "sha256": _media.sha256_file(args.out), "bytes": proxy["bytes"], "seconds": round(time.time() - started, 2),
+            "width": proxy["width"], "height": proxy["height"], "fps": fps, "has_audio": proxy["has_audio"]}
+
+
+def verb_encode(args) -> dict:
+    """The final H.264 encode of a ProRes intermediate: the intermediate is the file the host named by its sha256 and has the frame the
+    edit list says; the encode uses the ffmpeg engine's output options with a fixed thread count, so the same intermediate gives the
+    same bytes whatever the cores. The result is written once as render-<sha12>.mp4."""
+    ffmpeg, ffprobe = tools(args)
+    data = load_data()
+    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
+    platform = _output.read_platform(args.platform_file)
+    if _media.sha256_file(args.input) != args.sha256:
+        raise Refusal("intermediate_differs", "intermediate")
+    facts = _media.probe(ffprobe, args.input, video_codecs=_media.PRORES_CODECS)
+    fps, out_frames = edl["fps"], edl["out_frames"]
+    frame = data["frame"]
+    if (facts["width"], facts["height"]) != (frame["width"], frame["height"]) or abs(facts["fps"] - fps) > 0.01 \
+            or abs(facts["duration"] - out_frames / float(fps)) > 2.0 / fps:
+        raise Refusal("intermediate_mismatch", "intermediate")
+    has_audio = bool(edl["source"]["has_audio"])
+    if has_audio and not facts["has_audio"]:
+        raise Refusal("intermediate_no_audio", "intermediate")
+    plan = {"fps": fps, "out_frames": out_frames, "max_bytes": _media.byte_limit(platform), "has_audio": has_audio}
+    out_dir = os.path.abspath(args.out)
+    os.makedirs(out_dir, mode=0o700, exist_ok=True)
+    work = tempfile.mkdtemp(prefix=".encode-", dir=out_dir)
+    try:
+        part = os.path.join(work, "out.mp4")
+        _media.run(_media.encode_argv(ffmpeg, args.input, part, plan), 3600)
+        verdict = _media.check_output(ffprobe, part, platform)
+        if verdict["failures"]:
+            raise Refusal("platform_spec", ",".join(verdict["failures"]))
+        digest = _media.sha256_file(part)
+        _output.write_once(part, os.path.join(out_dir, "render-%s.mp4" % digest[:12]), digest)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return {"ok": True, "sha256": digest, "out_seconds": round(out_frames / float(fps), 3), "out_frames": out_frames, "intermediate_sha256": args.sha256}
+
+
+def verb_hf_page(args) -> dict:
+    """The base page of the HyperFrames engine (cuts and zoom). The four documents are checked as `check` checks them (the beats are
+    checked and not drawn); the overlays are not built yet, so `--base-only` is required."""
+    if not args.base_only:
+        raise Refusal("overlays_not_built", "hf-page")
+    data = load_data()
+    vocab = load_vocabulary(args.vocabulary)
+    platform = _output.read_platform(args.platform_file)
+    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
+    beats = read_json(args.beats, data["limits"]["json_max_bytes"])
+    _output.check_documents(data, edl, beats, platform, vocab, _assets.font_allowlist())
+    os.makedirs(args.out, mode=0o700, exist_ok=True)
+    frame = data["frame"]
+    page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
+    return dict(page, ok=True)
+
+
 def verb_selfcheck(args) -> dict:
     """The versions of what this environment holds, and that each tool starts. The host's --check runs it in the container."""
     ffmpeg, ffprobe = tools(args)
@@ -412,6 +487,25 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--sha256", required=True)
     sp.add_argument("--expect-seconds", type=float)
+    sp = sub.add_parser("proxy")
+    common(sp)
+    sp.add_argument("--edl", required=True)
+    sp.add_argument("--in", dest="input", required=True)
+    sp.add_argument("--out", required=True, help="the proxy file (.mp4), inside the writable folder")
+    sp = sub.add_parser("encode")
+    common(sp)
+    sp.add_argument("--in", dest="input", required=True, help="the ProRes intermediate")
+    sp.add_argument("--sha256", required=True, help="the intermediate's sha256, as the host hashed it")
+    sp.add_argument("--edl", required=True)
+    sp.add_argument("--platform-file", required=True)
+    sp.add_argument("--out", required=True, help="the folder that gets render-<sha12>.mp4")
+    sp = sub.add_parser("hf-page")
+    sp.add_argument("--edl", required=True)
+    sp.add_argument("--beats", required=True)
+    sp.add_argument("--vocabulary", required=True)
+    sp.add_argument("--platform-file", required=True)
+    sp.add_argument("--out", required=True, help="an empty folder that gets index.html and vars.json")
+    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only (required: the overlays are not built yet)")
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -426,7 +520,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
-         "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still}
+         "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
+         "proxy": verb_proxy, "encode": verb_encode, "hf-page": verb_hf_page}
 
 
 def write_result(path, obj) -> None:

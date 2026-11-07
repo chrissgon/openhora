@@ -281,13 +281,19 @@ def mount_path(path: str, what: str) -> str:
 
 
 def container_argv(name: str, image_id: str, inner_args: list, *, job_dir: str, out_dir: str, recording=None, memory_mb: int, cpus: int,
-                   scratch_mb: int, deadline: int, platform=None) -> list:
+                   scratch_mb: int, deadline: int, platform=None, extra_mounts=(), cpuset=None) -> list:
     """The exact `docker run` command (a list; the first word is `docker`), written by the box. Every limit of the container is
-    there; this function names the renderer's mounts, label and sizes."""
+    there; this function names the renderer's mounts, label and sizes. `extra_mounts` are (host, inside, mode) entries appended after
+    the four fixed mounts; an `inside` path at or under a fixed mount point is refused. `cpuset` pins the cores."""
     mounts = ([(recording, MOUNT_RECORDING, "ro")] if recording else []) + [(job_dir, MOUNT_JOB, "ro"), (out_dir, MOUNT_OUT, "rw")]
+    for host, inside, mode in extra_mounts:
+        for fixed in ("/in", MOUNT_JOB, MOUNT_OUT, MOUNT_SCRATCH):
+            if inside == fixed or inside.startswith(fixed.rstrip("/") + "/"):
+                raise Refusal("bad_mount", inside)
+        mounts.append((host, inside, mode))
     try:
         return box.argv(name, image_id, inner_args, label=LABEL_RUN, deadline=deadline, mounts=mounts, memory_mb=memory_mb, cpus=cpus,
-                        scratch_mb=scratch_mb, pids_limit=PIDS_LIMIT, tmp_mb=TMP_SIZE_MB, platform=platform)
+                        scratch_mb=scratch_mb, pids_limit=PIDS_LIMIT, tmp_mb=TMP_SIZE_MB, platform=platform, cpuset=cpuset)
     except box.ContainerError as e:
         raise refusal_of(e) from None
 
@@ -534,6 +540,9 @@ RESULT_SCHEMAS = {
     "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, frames_checked=I, jobs=I,
                       sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), blocks=mp(S), blocks_sha256=S,
                       font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
+    "proxy": dct(ok=B, sha256=S, bytes=I, seconds=N, width=I, height=I, fps=I, has_audio=B),
+    "encode": dct(ok=B, sha256=S, out_seconds=N, out_frames=I, intermediate_sha256=S),
+    "hf-page": dct(ok=B, page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),

@@ -652,3 +652,63 @@ def test_the_daemon_check_reads_the_process_environment_by_default(fake, monkeyp
     assert caught.value.code == "docker_daemon_not_local" and caught.value.what == "tcp://elsewhere:2375"
     monkeypatch.setenv("DOCKER_HOST", "unix:///x.sock")
     box.require_local_daemon()
+
+
+# --- the cpu set, the shared-memory size and the free-space check (V3a-1) --------------------------------------------------------------
+
+
+def sample(**more):
+    return box.argv("n", "i", [], label="org.openhora.job", deadline=7, mounts=[("/j", "/job", "ro")], memory_mb=4096, cpus=4, scratch_mb=64,
+                    platform="darwin", **more)
+
+
+def test_the_cpuset_goes_right_after_the_cpus_pair():
+    command = sample(cpuset="0-3")
+    assert command[command.index("--cpus") + 2:command.index("--cpus") + 4] == ["--cpuset-cpus", "0-3"]
+
+
+@pytest.mark.parametrize("cpuset", ["0-3", "0,2,4", "0-3,8-11", "7"])
+def test_a_well_formed_cpuset_is_accepted(cpuset):
+    assert "--cpuset-cpus" in sample(cpuset=cpuset)
+
+
+@pytest.mark.parametrize("cpuset", ["", "3-1", "0;rm", "a", "0-3,", "-1", "1-2-3", "0, 1", 3])
+def test_a_malformed_cpuset_is_refused(cpuset):
+    with pytest.raises(box.ContainerError) as caught:
+        sample(cpuset=cpuset)
+    assert caught.value.code == "bad_cpuset"
+
+
+def test_the_shm_size_goes_after_the_cpuset_pair_or_after_cpus_when_there_is_none():
+    command = sample(cpuset="0-3", shm_mb=512)
+    assert command[command.index("--cpuset-cpus") + 2:command.index("--cpuset-cpus") + 4] == ["--shm-size", "512m"]
+    command = sample(shm_mb=512)
+    assert "--cpuset-cpus" not in command and command[command.index("--cpus") + 2:command.index("--cpus") + 4] == ["--shm-size", "512m"]
+
+
+@pytest.mark.parametrize("shm", [0, -1, True, 4097, 1.5, "64"])
+def test_a_bad_shm_size_is_refused(shm):
+    with pytest.raises(box.ContainerError) as caught:
+        sample(shm_mb=shm)
+    assert caught.value.code == "bad_shm"
+
+
+def test_with_both_off_the_command_is_the_one_without_the_parameters():
+    assert sample() == sample(cpuset=None, shm_mb=None)
+    assert "--cpuset-cpus" not in sample() and "--shm-size" not in sample()
+    assert sample(shm_mb=4096)[-1] == "i"          # the largest accepted size is the memory limit itself
+
+
+def test_the_free_space_check_compares_with_the_need(monkeypatch, tmp_path):
+    usage = box.shutil.disk_usage
+    monkeypatch.setattr(box.shutil, "disk_usage", lambda p: type(usage(str(tmp_path)))(total=10 ** 12, used=10 ** 12 - 5000, free=5000))
+    assert box.check_free_space(str(tmp_path), 5000, "work") == 5000
+    with pytest.raises(box.ContainerError) as caught:
+        box.check_free_space(str(tmp_path), 5001, "work")
+    assert (caught.value.code, caught.value.what) == ("no_space", "work")
+
+
+def test_the_free_space_check_refuses_a_missing_path(tmp_path):
+    with pytest.raises(box.ContainerError) as caught:
+        box.check_free_space(str(tmp_path / "nowhere"), 1, "work")
+    assert caught.value.code == "no_space"

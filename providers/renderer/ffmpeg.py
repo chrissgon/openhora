@@ -100,8 +100,8 @@ import _media  # noqa: E402
 import _render  # noqa: E402
 from _browser import NotConfigured  # noqa: E402
 from _host import (COMMON_HANDLERS, COVER_MAX_BYTES, CRASH_CODES, MAX_RECORDING_BYTES, MAX_SMALL_FILE, STILL_MAX_BYTES, Job, Usage,  # noqa: E402,F401
-                   add_common_parsers, add_limits, emit, opt, stage_blocks, verb_align, verb_analyse, verb_base, verb_check_documents,
-                   verb_cover, verb_still, verb_verify)
+                   add_common_parsers, add_limits, emit, finish_render, opt, stage_blocks, verb_align, verb_analyse, verb_base,
+                   verb_check_documents, verb_cover, verb_still, verb_verify)
 from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import SLOT_ID, load_data  # noqa: E402
@@ -217,22 +217,7 @@ def verb_render(args) -> dict:
         result = job.run(inner, "render")
         if result.get("blocks_sha256") != blocks_args[-1]:
             raise Refusal("container_result_invalid", "blocks")
-        digest = result.get("sha256", "")
-        if not re.fullmatch(r"[0-9a-f]{64}", digest):
-            raise Refusal("container_result_invalid", "render")
-        name = "render-%s.mp4" % digest[:12]
-        # The candidate leaves the container that made it only into a private file, hashed on the way, and is checked in a
-        # fresh container before it is given its name: a render that fails its own platform's spec is never stored.
-        candidate = os.path.join(job.root, "candidate.mp4")
-        job.collect(name, candidate, max_bytes=byte_cap, mode=0o400, expect_sha256=digest)
-        with Job(args, 300, "verify") as checker:
-            verdict = checker.run(["verify", "--in", checker.mount_recording(candidate), "--platform-file", checker.stage("platform.json", args.platform_file),
-                                   "--sha256", digest, "--expect-seconds", "%.3f" % (out_frames / float(fps))], "verify")
-        final = os.path.join(out_dir, name)
-        os.makedirs(out_dir, mode=0o700, exist_ok=True)
-        outcome = D.copy_out(candidate, final, max_bytes=byte_cap, mode=0o400, expect_sha256=digest, exclusive=True)
-        result.update(path=final, bytes=verdict["output"]["bytes"], output=verdict["output"], replayed=(outcome == "replayed"), verified=True,
-                      image={"id": job.image["id"], "tag": job.image["tag"]})
+        result = finish_render(args, job, result, out_dir=out_dir, byte_cap=byte_cap, out_seconds=out_frames / float(fps))
         if args.cover_out:
             job.collect("cover.png", args.cover_out, max_bytes=COVER_MAX_BYTES)
             result["cover"] = dict(result.get("cover") or {}, path=os.path.abspath(args.cover_out))
