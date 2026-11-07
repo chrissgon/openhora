@@ -59,6 +59,8 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as _docker.py puts it on the path)
+
 import _assets  # noqa: E402
 import _container as box  # noqa: E402
 import _docker as D  # noqa: E402

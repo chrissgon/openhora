@@ -12,6 +12,8 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
+import sys
 import time
 from collections import namedtuple
 from pathlib import Path
@@ -431,3 +433,19 @@ def test_hyperframes_py_imports_nothing_of_the_drawing_part_of_the_ffmpeg_engine
 
 def test_the_class_default_stays_ffmpeg_and_the_two_engines_serve_the_same_common_verbs():
     assert set(_host.COMMON_HANDLERS) <= set(H.VERBS) and {"render", "build", "reap"} <= set(H.VERBS)
+
+
+# ---------------------------------------------------------------- the scripts start on their own
+
+@pytest.mark.parametrize("args", [["--help"], ["build", "--help"], ["render", "--help"]])
+def test_hyperframes_py_starts_as_a_script_from_a_clean_environment(args):
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
+    done = subprocess.run([sys.executable, str(K.RENDERER / "hyperframes.py"), *args], capture_output=True, text=True, env=env, timeout=120, cwd="/")
+    assert done.returncode == 0 and "usage" in (done.stdout + done.stderr).lower(), done.stderr[-800:]
+
+
+def test_hf_render_py_starts_as_a_script_from_a_clean_environment():
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
+    done = subprocess.run([sys.executable, "-I", str(K.RENDERER / "hyperframes-image" / "hf_render.py"), "--help"], capture_output=True, text=True, env=env,
+                          timeout=60, cwd="/")
+    assert done.returncode == 0 and "--project" in done.stdout, done.stderr[-800:]
