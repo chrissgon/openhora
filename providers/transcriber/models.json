@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "comment": "The models the transcriber accepts. sha256 and size are the Git LFS object id and size the Hugging Face listing (https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main) gave on 2026-10-13 for the repository revision in source_revision; nothing was downloaded to compute them. A model with sha256 null is refused until it is pinned. memory_mb is the container's memory limit and is an estimate, not a measurement.",
+  "source": "https://huggingface.co/ggerganov/whisper.cpp",
+  "source_revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+  "listed_on": "2026-10-13",
+  "models": [
+    {
+      "name": "tiny",
+      "file": "ggml-tiny.bin",
+      "sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+      "size": 77691713,
+      "multilingual": true,
+      "dtw_preset": "tiny",
+      "memory_mb": 1024,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin"
+    },
+    {
+      "name": "small",
+      "file": "ggml-small.bin",
+      "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+      "size": 487601967,
+      "multilingual": true,
+      "dtw_preset": "small",
+      "memory_mb": 2048,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin"
+    },
+    {
+      "name": "medium",
+      "file": "ggml-medium.bin",
+      "sha256": "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
+      "size": 1533763059,
+      "multilingual": true,
+      "dtw_preset": "medium",
+      "memory_mb": 4096,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-medium.bin"
+    },
+    {
+      "name": "large-v3-turbo",
+      "file": "ggml-large-v3-turbo.bin",
+      "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+      "size": 1624555275,
+      "multilingual": true,
+      "dtw_preset": "large.v3.turbo",
+      "memory_mb": 5120,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo.bin"
+    }
+  ]
+}
