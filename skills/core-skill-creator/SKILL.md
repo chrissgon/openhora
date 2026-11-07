@@ -1,14 +1,16 @@
 ---
 name: core-skill-creator
 description: >
-  Use this skill before creating or changing anything under `skills/`: whenever the user asks to
-  make, add, write, rewrite, fix, improve or test a skill, or to turn a transcript, a correction or
-  a lesson into a skill; when a draft needs its security step before its cases; when a skill
-  scored low, failed its gate or a guard, or sits in `needs a test` or `watch` ("X got 0.39 on one
-  model, improve it"); when the orchestrator recorded a skill gap; or when a skill failed on a
-  real task. It grounds the skill in real material, scaffolds, validates, reviews security, writes
-  cases with tagged guards and runs the tests; it refuses to write a skill from generic knowledge
-  and says what is needed first.
+  Use this skill first, before searching for or reading the material the user points to, whenever
+  the user asks to make, add, write, rewrite, fix, improve or test a skill, or to turn a
+  transcript, a correction or a lesson into a skill ("here is the transcript where you kept
+  getting X wrong, attached; turn what we learned into the Y skill"); before creating or
+  changing anything under `skills/`; when a draft needs its security step before its cases; when
+  a skill scored low, failed its gate or a guard, or sits in `needs a test` or `watch` ("X got
+  0.39 on one model, improve it"); when the orchestrator recorded a skill gap; or when a skill
+  failed on a real task. It grounds the skill in real material, scaffolds, validates, reviews
+  security, writes cases with tagged guards and runs the tests; it refuses to write a skill from
+  generic knowledge and says what is needed first.
 license: MIT
 metadata:
   area: core
@@ -18,10 +20,12 @@ metadata:
   updates: []
   requires: []
   side_effects: []
-  version: "6.0.0"
+  version: "6.1.0"
 ---
 
 # Skill creator
+
+This file is a procedure to run, not background to read: whoever opens it to create, change or test a skill follows the steps its mode lists in `## Modes`, in order, and replies with `## Output template`.
 
 ## Purpose
 
@@ -113,6 +117,7 @@ Every reply that reports work on a skill carries the "Grounding note" block, als
 ### Grounding note
 - Real material: <the trace, artifact, runbook, recorded failure or task, with its file or where the user gave it>
 - What it showed: <one line per failure, correction or fact the skill carries>
+<only when step 1 found no real material, this line in place of the one above:> - What it showed: nothing. Without real material this skill would be generic knowledge.
 
 ### Result
 - Mode: <create | improve>
