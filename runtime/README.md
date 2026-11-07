@@ -257,6 +257,8 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `effect_tasks.py`: The effect kind `tasks` (CB-5), the step path like `calendar`: `execute`, the one place a task is added or completed, which refuses an approval of another hash, reads a completion's task again (its etag must be the one read) and sends the one verb after the dry run's hash matches.
 
+`effect_deliver.py`: The effect kind `deliver` (V1b1-3), the step path like `tasks`: `execute` marks the render the delivery document names as delivered through `media.mark_delivered`, which hashes the file again (a changed render is `stale` and is rendered again); no provider, nothing published (limit L67). Its grant `approve-effect-deliver` is decision 14's; the `--lan` socket refuses its approval (`service.py`).
+
 `step_tasks_item.py`: The step kind `tasks-item` (CB-5): `prepare` resolves the list, reads a completion's task through the read-only service and previews the writer's request; the gate opens the card.
 
 `tasks_reader.py`: The reader of the person's own task lists (CB-5): the class `integration:tasks`, `lists` and `open` only, with every answer checked and every title cleaned. A provider whose last stderr line starts `error: api_disabled:` (the Tasks API is off in the OAuth client's project) is the code `api_disabled` (AF-1): `ops_todo` keeps each account's failure code and says `TODO_API_OFF`, `TODO_NOT_CONNECTED` or `TODO_UNAVAILABLE`, and prints one closed line to stderr per failed read.

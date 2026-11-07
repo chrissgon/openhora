@@ -727,7 +727,7 @@ def _upload(service: Service, project: dict, row: dict, route: dict, params: dic
     return _json(200, result)
 
 
-def _policy_refusal(service: Service, project: dict, row: dict, route: dict, params: dict, given: dict, from_query: bool) -> None:
+def _policy_refusal(service: Service, project: dict, row: dict, route: dict, params: dict, given: dict, from_query: bool, lan: bool = False) -> None:
     """The page's channel policy (decisions M-8, M-13), checked for a route before anything runs: before the bytes of an
     upload are written and before a job exists, so a refused route takes no model slot. The configuration is asked
     first (`config` never refuses): one that is not accepted is left to the operation, which answers 412 as it does today;
@@ -735,7 +735,14 @@ def _policy_refusal(service: Service, project: dict, row: dict, route: dict, par
     For approve the decision's kind is read here (`pending`), and with task keys the group `go-ahead` is needed too.
     Raises the operations layer's OpsError (code 1, so 409 "refused") with the sentence of operations.not_enabled.
     The check is also made inside the operations (ops_waits.only_on_plans, ops_config.set_mode), which stay the authority.
-    The policy governs a person's requests, not the dispatch loop the service runs on its own timer."""
+    The policy governs a person's requests, not the dispatch loop the service runs on its own timer.
+    First of all, whatever the configuration says: an approval of an effect word of `operations.LAN_REFUSED_EFFECTS` that arrived on the LAN socket (`lan`) is refused
+    with `operations.LAN_REFUSED` (decision 14 keeps VD18's rule), because the operations layer sees the channel `page` for both sockets and cannot tell them apart."""
+    if lan and row["name"] == "approve":
+        args = arguments(row, route, params, given, from_query)
+        decision = service.ops.pending(project["path"], pending_id=args["pending_id"])
+        if decision.get("kind") == "effect" and decision.get("effect_word") in service.ops.operations.LAN_REFUSED_EFFECTS:
+            raise service.ops.OpsError(service.ops.operations.LAN_REFUSED, 1)
     operations = service.ops.operations
     if operations.is_read(row["name"]):
         return
@@ -786,7 +793,7 @@ def _shown_commands(service: Service, project: dict, result: dict) -> dict:
     return {**result, "commands": keep}
 
 
-def _operation(service: Service, route: dict, params: dict, query: str, body: bytes) -> tuple:
+def _operation(service: Service, route: dict, params: dict, query: str, body: bytes, lan: bool = False) -> tuple:
     project = service.by_id.get(params.get("p"))
     if project is None:
         return _error(404, "not_found", "no such project")
@@ -801,7 +808,7 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
         for key, value in given.items():
             if len(str(value).encode("utf-8")) > route["query_max"]:
                 raise Usage(f"the query value {key!r} is longer than {route['query_max']} bytes")
-    _policy_refusal(service, project, row, route, params, given, from_query)
+    _policy_refusal(service, project, row, route, params, given, from_query, lan=lan)
     if route["upload"]:
         return _upload(service, project, row, route, params, given)
     args = arguments(row, route, params, given, from_query)
@@ -875,7 +882,7 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     """The whole of one request without a socket: (status, headers, body bytes). The rules 2 to 5 (check_request), then
     the route, the project, the arguments, the one operation. A request that passes check_request and names no route is
     404 or 405; an operation's refusal is its documented status. `lan` is true when the request arrived on the LAN
-    socket of --lan (the handler decides it from the address the connection was reached on); only GET /token-file reads it."""
+    socket of --lan (the handler decides it from the address the connection was reached on); GET /token-file reads it, and so does the refusal of an approval (`operations.LAN_REFUSED_EFFECTS`)."""
     refused = check_request(method, path, headers, service.port, service.token, service.lan_ip, lan if service.lan_ip else None)
     if refused:
         return _error(*refused)
@@ -907,7 +914,7 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
             if query:
                 raise Usage("this route takes no query")
             return _job_get(service, params)
-        return _operation(service, route, params, query, body)
+        return _operation(service, route, params, query, body, lan=lan)
     except Usage as e:
         return _error(400, "usage", str(e))
     except service.ops.OpsError as e:

@@ -49,13 +49,13 @@ def test_the_contract_says_the_words_arrived_with_the_runtime_and_no_skill_decla
 
 
 def test_the_validator_refuses_a_skill_that_declares_a_word_the_runtime_alone_has_and_accepts_the_words_of_a_skill(tmp_path, monkeypatch):
-    """The four words (write, calendar, mailbox, files) are in the list the contract names, and no skill declares one: an error of the vocabulary rule."""
+    """The runtime's words (deliver, write, calendar, mailbox, files, tasks) are in the list the contract names, and no skill declares one: an error of the vocabulary rule."""
     helpers = load("validate_rules_for_account_words", REPO / "scripts" / "tests" / "test_validate_rules.py")
     monkeypatch.setattr(helpers.validate, "ROOT", str(tmp_path))
     monkeypatch.setattr(helpers.validate, "SKILLS", str(tmp_path / "skills"))
     monkeypatch.setattr(helpers.validate, "AGENTS", str(tmp_path / "agents"))
     body = "# Demo\n\nText.\n\n## Confirmation gate\n\nAsk first.\n"
-    assert validate.RUNTIME_ONLY_EFFECTS == ("write",) + WORDS and set(validate.SKILL_EFFECTS) == set(validate.SIDE_EFFECTS) - set(validate.RUNTIME_ONLY_EFFECTS)
+    assert validate.RUNTIME_ONLY_EFFECTS == ("deliver", "write") + WORDS and set(validate.SKILL_EFFECTS) == set(validate.SIDE_EFFECTS) - set(validate.RUNTIME_ONLY_EFFECTS)
     for word in validate.SKILL_EFFECTS:
         helpers.add_skill(tmp_path, meta={"side_effects": f"[{word}]"}, body=body)
         assert helpers.run_skill(tmp_path, classes=["search:web"]).errors == [], word

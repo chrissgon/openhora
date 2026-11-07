@@ -281,7 +281,7 @@ def test_only_a_delivered_render_that_still_hashes_to_its_mark_is_handed_out(dat
 def test_the_render_is_the_one_writer_of_a_delivery_among_the_modules_of_runtime():
     """`mark_delivered(` is written in the module that defines it and in the effect module that approves a delivery, and nowhere else."""
     holders = {p.name for p in (st.REPO / "runtime").glob("*.py") if "mark_delivered(" in p.read_text(encoding="utf-8")}
-    assert holders == {"media.py"}
+    assert holders == {"media.py", "effect_deliver.py"}
 
 
 def test_a_delivery_is_written_by_one_function_in_the_store_itself():
