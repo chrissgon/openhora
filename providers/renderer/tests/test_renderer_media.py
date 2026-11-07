@@ -139,8 +139,9 @@ def test_the_encode_argv_names_every_count_that_could_follow_the_machine_and_end
     plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
     argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
     i = argv.index("-i")
-    assert argv[:i].count("-threads") == 1 and argv[argv.index("-threads") + 1] == "4" and argv.index("-threads") < i       # the decoder's
-    assert argv[argv.index("-filter_threads") + 1] == "4" and argv[argv.index("-filter_complex_threads") + 1] == "4"
+    assert argv[:i].count("-threads") == 1 and argv.index("-threads") < i       # the decoder's
+    assert argv[argv.index("-threads") + 1] == "1"                      # one thread: nothing at the end of the stream can race
+    assert argv[argv.index("-filter_threads") + 1] == "1" and argv[argv.index("-filter_complex_threads") + 1] == "1"
     assert argv.index("-filter_threads") < i and argv.index("-filter_complex_threads") < i
     assert argv[argv.index("libx264") + 1:argv.index("libx264") + 3] == ["-threads", "4"]
     assert argv[argv.index("-x264-params") + 1] == "threads=4:lookahead_threads=1:sliced-threads=0"

@@ -14,3 +14,8 @@
   (cpus, cpuset) pairs that change both the quota and the visible cores, from one intermediate, and on a mismatch prints per-stream
   packet and decoded-frame checksums. If it still mismatches, the next step is one thread everywhere (S2's choice), not before.
 - Cost: none at four threads; the threads and the x264 options are the ones the encoder already used.
+- First CI run of this change: 7 of 8 encodes gave one sha256; the eighth differed only in the last video packet and the last decoded
+  frame (audio and the first frame identical). So the race is at the end of the video stream, in the threaded decoder or filter graph,
+  not a dependence on the cpu count. The decoder and the filter graph now run on one thread (`ENCODE_INPUT_THREADS = 1`); x264 keeps
+  four threads with `lookahead_threads=1:sliced-threads=0`, since its frame threading is deterministic for identical input and the
+  evidence points at the input side. If x264 itself differs next, it goes to one thread.

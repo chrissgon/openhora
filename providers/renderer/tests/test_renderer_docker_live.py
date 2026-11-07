@@ -158,6 +158,12 @@ def encode_once(image, edl_file, intermediate, digest, cpus, dest, cpuset=None):
     return result
 
 
+def decoded_frames(image, path):
+    """The md5 line of every decoded video frame, in order."""
+    text = in_image(image, ["-v", "error", "-i", "/out/" + Path(path).name, "-map", "0:v:0", "-f", "framemd5", "-"], Path(path).parent, mode="ro")
+    return [x.split(",")[-1].strip() for x in text.splitlines() if x and not x.startswith("#")]
+
+
 def streams_report(image, path):
     """Where two outputs differ, if they do: for each stream the packet count and a hash of the packets' own checksums (`-c copy`, so what
     the encoder wrote, not what a decoder makes of it), and the same for the decoded frames."""
@@ -198,6 +204,9 @@ def test_the_two_stage_encode_gives_one_sha256_at_two_and_four_cpus(image, tmp_p
         first = runs[0]
         other = next(r for r in runs if r[3] != first[3])
         report = {"cpus %s cpuset %s" % (r[0], r[1]): streams_report(image, r[2]) for r in (first, other)}
+        frames = [decoded_frames(image, r[2]) for r in (first, other)]
+        diff = next((k for k, (x, y) in enumerate(zip(*frames)) if x != y), None)
+        report["first differing decoded video frame"] = {"index": diff, "frames": [len(f) for f in frames]}
         pytest.fail("the encode is not independent of the cpu count: %s" % json.dumps({"sha256": [r[3] for r in runs], "streams": report}, indent=1))
     render = runs[0][2]
     rc, out, err = host("verify", "--in", render, "--platform-file", K.INSTAGRAM, "--edl", edl_file)
