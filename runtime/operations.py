@@ -1134,6 +1134,7 @@ GROUPS = {
     "tasks-read": {"operations": ("todo-list",), "kind": None},
     "tasks-write": {"operations": ("todo-add", "todo-done"), "kind": None},
     "approve-effect-tasks": {"operations": ("approve",), "kind": "effect:tasks"},      # a change to the person's own task list (effect_tasks.py APPROVAL_GROUP)
+    "approve-effect-deliver": {"operations": ("approve",), "kind": "effect:deliver"},      # the delivery of a rendered video (effect_deliver.py APPROVAL_GROUP)
     # S1: the plain lines no list takes go to the interpreter's model service (runtime/ops_interpret.py). A capability added to `say` that never grants it (KIND_ONLY): a profile lists
     # `talk` too. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen (which prints the route's retention beside it).
     "interpret": {"operations": ("say",), "kind": "interpret"},
@@ -1187,9 +1188,11 @@ KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off", "interp
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks", "approve-effect-deliver")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
+LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
+LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
@@ -1210,10 +1213,10 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
 ACCOUNT_APPROVAL_WORDS = ("calendar", "mailbox", "files", "tasks", "send-own")   # the approval words of a write to the person's own accounts: a card of one that cannot be read as a card is not shown to a reader of no mail
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox", "tasks")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox", "tasks", "deliver")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks"),
+                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks", "approve-effect-deliver"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -1226,6 +1229,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
     "messaging:approve-effect-mailbox": "a messaging app may approve a change to your own mailbox (a draft, archive, a move to a folder, read state, the trash), from a card that lists every message or shows the draft whole, with its hash; the card shows the subjects, senders, addresses and text only to a sender who may read your mail (ask-mail), so for any other sender it approves nothing",
     "messaging:approve-effect-tasks": "a messaging app may approve a task added to, or completed in, your own task list (Google Tasks or Microsoft To Do), from a card that carries the whole task, with its hash; the card of a completion shows the task's title only to a sender who holds `tasks-read`",
+    "messaging:approve-effect-deliver": "a messaging app may approve the delivery of a rendered video, only from a card that came to that chat with the whole preview of that exact render, with its hash; the recording and the preview pass through the messaging provider's servers, and what the provider keeps is outside this platform; until this channel can send a preview, this grant approves nothing",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -1252,6 +1256,7 @@ GROUP_TEXT = {
     "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
     "approve-effect-mailbox": "approves a change to the person's own mailbox (a draft, archive, a move to a folder, read state, the trash), with its hash",
     "approve-effect-tasks": "approves a task added to, or completed in, the person's own task list, with its hash",
+    "approve-effect-deliver": "approves the delivery of a rendered video (marks that exact file downloadable), with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "ask-mail": "asks about the mail and calendar sources from a messaging app and has them read for questions that name no source: their text goes to a model and the answer passes the platform (adds to `ask`, never grants it)",
