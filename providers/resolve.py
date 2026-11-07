@@ -99,7 +99,8 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
 # LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module, the project-script step), and no skill may require them, so they are
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
 # `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
-ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model"}
+# `transcriber` (transcriber:speech, providers/transcriber/whispercpp.py) is a class the runtime uses, not one a skill may require (decision VD2), so contracts/environment.md does not list it.
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model", "transcriber"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
