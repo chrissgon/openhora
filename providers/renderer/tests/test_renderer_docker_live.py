@@ -1,9 +1,9 @@
 """The ffmpeg engine in a real container: the image `build --confirmed` made, no network, no mock. Gated: the tests run only with
 
-    WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest providers/renderer/tests/test_renderer_docker_live.py
+    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest providers/renderer/tests/test_renderer_docker_live.py
 
-and they never build: the CI job builds the image first (python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64) and these
-tests use what it left. The recording is made by the image's own ffmpeg from a generated test card and a generated tone, the transcript is a
+and they never build: the CI job builds the image first (OPENHORA_STATE_DIR=<folder> python3 providers/renderer/ffmpeg.py build --confirmed
+--platform linux64, the same folder as the pytest command) and these tests use what it left. The recording is made by the image's own ffmpeg from a generated test card and a generated tone, the transcript is a
 synthetic one of fictional words, and the verbs the other tests drive through the fake docker (`analyse`, `base`, `align`, `render`) are
 driven through the real one. Everything the renderer starts carries the label org.openhora.renderer and is removed by name.
 """
@@ -23,19 +23,18 @@ import _docker as D
 pytestmark = pytest.mark.skipif(os.environ.get("WB_RENDERER_DOCKER_TESTS") != "1",
                                 reason="a real container: set WB_RENDERER_DOCKER_TESTS=1 (the renderer image must be built first)")
 
-# The state folder the build wrote its record into. The suite's guard points these two at a fresh folder for each test, so they are read
-# here, at collection, before any test has run.
-REAL_STATE = {name: os.environ.get(name) for name in ("OPENHORA_STATE_DIR", "XDG_STATE_HOME")}
+# The state folder the build wrote its record into, named by OPENHORA_STATE_DIR. Only that variable is read, at collection: the root
+# conftest replaces XDG_STATE_HOME with a temporary folder before this module is imported, so it cannot name the build's folder.
+REAL_STATE_DIR = os.environ.get("OPENHORA_STATE_DIR")
 HOST = str(K.HOST)
 
 
 @pytest.fixture
 def real_state(monkeypatch):
-    for name, value in REAL_STATE.items():
-        if value is None:
-            monkeypatch.delenv(name, raising=False)
-        else:
-            monkeypatch.setenv(name, value)
+    if not REAL_STATE_DIR:
+        pytest.fail("the build and the tests must share one OPENHORA_STATE_DIR: set it to the same folder for %s and for pytest "
+                    "(the root conftest replaces XDG_STATE_HOME, so that variable cannot carry it)" % "`OPENHORA_STATE_DIR=<folder> python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64`")
+    monkeypatch.setenv("OPENHORA_STATE_DIR", REAL_STATE_DIR)
 
 
 @pytest.fixture

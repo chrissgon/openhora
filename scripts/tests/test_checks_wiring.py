@@ -554,6 +554,13 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
             assert block.index(build) < block.index(tests), (name, build)
 
 
+def test_the_renderer_job_names_one_state_folder_for_its_builds_and_its_live_tests():
+    """The root conftest moves XDG_STATE_HOME before the live tests read it, so the job names OPENHORA_STATE_DIR at job level."""
+    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "renderer")
+    assert re.search(r"^    env:\n      OPENHORA_STATE_DIR: \$\{\{ runner\.temp \}\}/openhora-state\s*$", block, re.M)
+    assert block.index("OPENHORA_STATE_DIR") < block.index("    steps:")
+
+
 def job_block(text, name):
     jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
     return dict(zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]))[name]

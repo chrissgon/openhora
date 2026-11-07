@@ -392,6 +392,10 @@ jobs:
     if: needs.changes.outputs.renderer == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    # One named state folder for both builds and the tests: the root conftest moves XDG_STATE_HOME before the live tests read it, and
+    # OPENHORA_STATE_DIR is the one variable it leaves alone.
+    env:
+      OPENHORA_STATE_DIR: ${{ runner.temp }}/openhora-state
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
