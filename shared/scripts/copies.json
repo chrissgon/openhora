@@ -76,7 +76,7 @@
     },
     {
      "path": "providers/renderer/_redact.py",
-     "adopted": false
+     "adopted": true
     }
    ]
   },

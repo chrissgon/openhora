@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="pip">
+<meta name="pv-params" content="asset,position,label">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#ring { position:absolute; box-sizing:border-box; border-radius:50%; border:10px solid var(--c-accent); }
+#chip { position:absolute; transform:translateX(-50%); padding:12px 24px; border-radius:16px; border:4px solid var(--c-chip_border); background:var(--c-chip_fill);
+        color:var(--c-chip_text); font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:34px; letter-spacing:0.03em; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div id="ring"></div>
+<script>
+'use strict';
+// The asset (full frame) and the speaker's bubble are composed by ffmpeg underneath this frame;
+// the page draws only the ring around the bubble and the label. data.geom is the bubble's box.
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const g = data.geom;
+  const ring = document.getElementById('ring');
+  ring.style.left = (g.x - 5) + 'px';
+  ring.style.top = (g.y - 5) + 'px';
+  ring.style.width = (g.size + 10) + 'px';
+  ring.style.height = (g.size + 10) + 'px';
+  const old = document.getElementById('chip');
+  if (old) old.remove();
+  if (P.label) {
+    const chip = document.createElement('div');
+    chip.id = 'chip';
+    chip.textContent = P.label;
+    const below = (P.position || 'top') === 'top';      // a bubble at the top has its label under it, one at the bottom has it above
+    chip.style.top = (below ? g.y + g.size + 22 : g.y - 22 - 66) + 'px';
+    chip.style.left = (g.x + g.size / 2) + 'px';
+    chip.style.opacity = easeOutCubic(clamp((t - 0.2) / 0.25)).toFixed(3);
+    document.body.appendChild(chip);
+  }
+  ring.style.opacity = Math.min(clamp(t / 0.15), clamp((data.duration - t) / 0.15)).toFixed(3);
+};
+</script>
+</body>
+</html>
