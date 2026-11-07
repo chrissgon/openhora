@@ -53,6 +53,7 @@ class Job:
         self.args, self.timeout, self.verb = args, timeout, verb
         self.recording = None
         self.staged = {}
+        self.extra_mounts = []
         self.max_entries = D.MAX_OUT_ENTRIES
 
     def __enter__(self):
@@ -99,6 +100,14 @@ class Job:
         D.mount_path(self.recording, "recording")
         return D.MOUNT_RECORDING
 
+    def add_mount(self, host: str, inside: str, mode: str) -> str:
+        """An extra mount for the container: `host` is an existing folder that is not a link, `mode` is "ro" or "rw". Returns the
+        path inside. A path under a fixed mount point is refused when the command is built."""
+        if mode not in ("ro", "rw") or not os.path.isdir(host) or os.path.islink(host):
+            raise Refusal("bad_mount", inside)
+        self.extra_mounts.append((host, inside, mode))
+        return inside
+
     def limits(self):
         a = self.args
         cpus = max(1, min(a.cpus, self.facts["cpus"]))
@@ -115,7 +124,8 @@ class Job:
         deadline = int(time.time()) + timeout + D.STOP_GRACE
         return name, timeout, D.container_argv(name, self.image["id"], ["--result", D.MOUNT_OUT + "/result.json"] + inner_args,
                                               job_dir=self.in_dir, out_dir=self.out_dir, recording=self.recording, memory_mb=memory,
-                                              cpus=cpus, scratch_mb=scratch, deadline=deadline)
+                                              cpus=cpus, scratch_mb=scratch, deadline=deadline,
+                                              extra_mounts=self.extra_mounts, cpuset=getattr(self.args, "cpuset", None))
 
     def run(self, inner_args: list, schema: str) -> dict:
         """Run the container and return the verb's result object, rebuilt from the closed schema `schema` (what the container wrote to
@@ -149,6 +159,29 @@ class Job:
 
     def collect(self, name: str, dest: str, *, max_bytes: int, mode: int = 0o600, expect_sha256=None, exclusive=False) -> str:
         return D.copy_out(os.path.join(self.out_dir, name), dest, max_bytes=max_bytes, mode=mode, expect_sha256=expect_sha256, exclusive=exclusive)
+
+
+def finish_render(args, job, result: dict, *, out_dir: str, byte_cap: int, out_seconds: float) -> dict:
+    """The tail every engine's render shares: take the candidate the drawing container named by its sha256, check it in a fresh
+    container against the platform's spec and the expected length, copy it out under its final name (never over another file) and
+    add `path`, `bytes`, `output`, `replayed`, `verified` and `image` to the result."""
+    digest = result.get("sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise Refusal("container_result_invalid", "render")
+    name = "render-%s.mp4" % digest[:12]
+    # The candidate leaves the container that made it only into a private file, hashed on the way, and is checked in a
+    # fresh container before it is given its name: a render that fails its own platform's spec is never stored.
+    candidate = os.path.join(job.root, "candidate.mp4")
+    job.collect(name, candidate, max_bytes=byte_cap, mode=0o400, expect_sha256=digest)
+    with Job(args, 300, "verify") as checker:
+        verdict = checker.run(["verify", "--in", checker.mount_recording(candidate), "--platform-file", checker.stage("platform.json", args.platform_file),
+                               "--sha256", digest, "--expect-seconds", "%.3f" % out_seconds], "verify")
+    final = os.path.join(out_dir, name)
+    os.makedirs(out_dir, mode=0o700, exist_ok=True)
+    outcome = D.copy_out(candidate, final, max_bytes=byte_cap, mode=0o400, expect_sha256=digest, exclusive=True)
+    result.update(path=final, bytes=verdict["output"]["bytes"], output=verdict["output"], replayed=(outcome == "replayed"), verified=True,
+                  image={"id": job.image["id"], "tag": job.image["tag"]})
+    return result
 
 
 def add_limits(sp):
