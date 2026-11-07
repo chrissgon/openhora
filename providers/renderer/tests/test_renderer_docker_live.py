@@ -9,6 +9,7 @@ driven through the real one. Everything the renderer starts carries the label or
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -19,6 +20,7 @@ import pytest
 
 import renderer_kit as K
 import _docker as D
+import _host
 
 pytestmark = pytest.mark.skipif(os.environ.get("WB_RENDERER_DOCKER_TESTS") != "1",
                                 reason="a real container: set WB_RENDERER_DOCKER_TESTS=1 (the renderer image must be built first)")
@@ -112,3 +114,91 @@ def test_a_synthetic_recording_is_cut_captioned_and_composed_in_real_containers_
     stream = json.loads(probe)["streams"][0]
     assert (stream["width"], stream["height"]) == (1080, 1920)
     assert leftovers() == []
+
+
+# ---------------------------------------------------------------- the two-stage encode and the proxy (V3a-1)
+
+
+def require_prores(image, folder):
+    """The two-stage encode needs `prores_ks` in the image's ffmpeg: a fact about the image, so its absence is a failure, not a skip."""
+    encoders = in_image(image, ["-hide_banner", "-encoders"], folder, mode="ro")
+    if " prores_ks " not in encoders:
+        pytest.fail("the image's ffmpeg has no prores_ks encoder: the HyperFrames engine's intermediate cannot be made or tested")
+
+
+def job_args(cpus):
+    return argparse.Namespace(memory_mb=D.DEFAULT_MEMORY_MB, cpus=cpus, scratch_mb=512, timeout=None, cpuset=None)
+
+
+def short_edl(image, tmp_path, size="1080x1920"):
+    """A recording of about three seconds made by the image's ffmpeg from a test card and a tone, and the edit list the host's own
+    `analyse` and `base` verbs make for it: (recording, edit list file, edit list)."""
+    transcript = K.build_transcript([(0.4, "Short test line.")], tail=0.4)
+    folder = tmp_path / "media"
+    folder.mkdir()
+    in_image(image, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=%s:rate=30:duration=%.3f" % (size, transcript["duration"]),
+                     "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=%.3f" % transcript["duration"],
+                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "16",
+                     "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+                     "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", "/out/in.mp4"], folder)
+    recording = folder / "in.mp4"
+    assert host("analyse", "--in", recording, "--out", tmp_path / "analysis.json")[0] == 0
+    rc, out, err = host("base", "--transcript", K.write_json(tmp_path / "transcript.json", transcript), "--analysis", tmp_path / "analysis.json",
+                        "--out", tmp_path / "edl.json")
+    assert rc == 0, err
+    return recording, tmp_path / "edl.json", json.loads((tmp_path / "edl.json").read_text())
+
+
+def encode_once(image, edl_file, intermediate, digest, cpus, dest):
+    """The `encode` verb in a container with `cpus` cores, as the HyperFrames engine will run it; returns the result and the file it wrote."""
+    with _host.Job(job_args(cpus), 600, "encode") as job:
+        result = job.run(["encode", "--in", job.mount_recording(str(intermediate)), "--sha256", digest, "--edl", job.stage("edl.json", str(edl_file)),
+                          "--platform-file", job.stage("platform.json", str(K.INSTAGRAM)), "--out", D.MOUNT_OUT], "encode")
+        job.collect("render-%s.mp4" % result["sha256"][:12], str(dest), max_bytes=D.MAX_OUT_BYTES, mode=0o400, expect_sha256=result["sha256"])
+    return result
+
+
+def test_the_two_stage_encode_gives_one_sha256_at_two_and_four_cpus(image, tmp_path):
+    require_prores(image, tmp_path)
+    recording, edl_file, edl = short_edl(image, tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    seconds = edl["out_frames"] / float(edl["fps"])
+    in_image(image, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=%d:duration=%.6f" % (edl["fps"], seconds),
+                     "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=%.6f" % seconds,
+                     "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le", "/out/hf.mov"], work)
+    intermediate = work / "hf.mov"
+    digest = _sha256(intermediate)
+    results = {}
+    for cpus in (2, 4):
+        dest = tmp_path / ("render-%d.mp4" % cpus)
+        results[cpus] = encode_once(image, edl_file, intermediate, digest, cpus, dest)
+        assert results[cpus]["intermediate_sha256"] == digest and _sha256(dest) == results[cpus]["sha256"]
+    assert results[2]["sha256"] == results[4]["sha256"]
+    rc, out, err = host("verify", "--in", tmp_path / "render-2.mp4", "--platform-file", K.INSTAGRAM, "--edl", edl_file)
+    assert rc == 0 and out["ok"] is True, err[-2000:]
+    assert leftovers() == []
+
+
+def test_the_proxy_is_1080x1920_at_the_edit_lists_fps(image, tmp_path):
+    recording, edl_file, edl = short_edl(image, tmp_path, size="1920x1080")
+    with _host.Job(job_args(2), 600, "proxy") as job:
+        result = job.run(["proxy", "--edl", job.stage("edl.json", str(edl_file)), "--in", job.mount_recording(str(recording)),
+                          "--out", D.MOUNT_OUT + "/proxy.mp4"], "proxy")
+        job.collect("proxy.mp4", str(tmp_path / "proxy.mp4"), max_bytes=D.MAX_OUT_BYTES, mode=0o400)
+    assert (result["width"], result["height"], result["fps"]) == (1080, 1920, edl["fps"]) and result["has_audio"] is True
+    probe = in_image(image, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,avg_frame_rate:format=duration", "-of", "json",
+                             "/out/proxy.mp4"], tmp_path, mode="ro", entrypoint="ffprobe")
+    info = json.loads(probe)
+    assert (info["streams"][0]["width"], info["streams"][0]["height"]) == (1080, 1920) and info["streams"][0]["avg_frame_rate"] == "%d/1" % edl["fps"]
+    assert abs(float(info["format"]["duration"]) - edl["source"]["duration"]) <= 2.0 / edl["fps"]
+    assert leftovers() == []
+
+
+def _sha256(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()

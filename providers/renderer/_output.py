@@ -9,6 +9,7 @@ import shutil
 import struct
 import tempfile
 
+import _edl
 import _media
 from _text import Refusal
 from _vocab import read_json
@@ -91,3 +92,36 @@ def make_still(ffmpeg: str, recording: str, out: str, at_ms: int, facts: dict, s
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return {"at_ms": at_ms, "sha256": _media.sha256_file(out), "width": size[0], "height": size[1], "bytes": os.path.getsize(out)}
+
+
+def time_limit_for(data: dict, out_seconds: float, requested=None) -> int:
+    lim = data["limits"]
+    chosen = lim["render_seconds_base"] + lim["render_seconds_per_output_second"] * out_seconds if requested is None else requested
+    return int(min(lim["render_seconds_max"], max(10, chosen)))
+
+
+def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
+    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None is for the callers that have no
+    platform on purpose (`check` without a file, the storyboard); `render` and `verify` read theirs with `read_platform`."""
+    first = _edl.check_edl(edl, data, vocab, allow, platform)
+    second = _edl.check_beats(beats, edl, vocab)
+    frame = (platform or {}).get("video") or {}
+    for key, ok in (("fps_min", lambda v: edl["fps"] >= v), ("fps_max", lambda v: edl["fps"] <= v)):
+        if frame.get(key) is not None and not ok(frame[key]):
+            raise Refusal("fps_outside_platform", "edl.fps")
+    return {"mentions": sorted(set(first["mentions"]) | set(second["mentions"]))}
+
+
+def check_recording(ffprobe, src: str, edl: dict, limits: dict) -> dict:
+    """The recording is the one the edit list was made from: not longer than the input limit, the same duration (within 0.05 s), the
+    same sha256 and the same audio. Returns the probe it made; raises the first Refusal."""
+    facts = _media.probe(ffprobe, src)
+    if facts["duration"] > limits["input_seconds_max"]:
+        raise Refusal("input_too_long", "input")
+    if abs(facts["duration"] - edl["source"]["duration"]) > 0.05:
+        raise Refusal("recording_changed", "input")
+    if _media.sha256_file(src) != edl["source"]["sha256"]:
+        raise Refusal("recording_changed", "input")
+    if bool(facts["has_audio"]) != edl["source"]["has_audio"]:
+        raise Refusal("recording_changed", "input")
+    return facts

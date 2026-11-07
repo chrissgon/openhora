@@ -86,6 +86,66 @@ def test_the_render_is_tagged_bt709_and_composed_in_rgb():
     assert "out_color_matrix=bt709" in graph and "format=gbrp" in graph and "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv" in graph
 
 
+# ---------------------------------------------------------------- the two-stage encode's builders (V3a-1)
+
+def contains_run(whole, part):
+    return any(whole[i:i + len(part)] == part for i in range(len(whole) - len(part) + 1))
+
+
+def test_the_output_options_are_the_run_of_the_compose_argv_the_two_engines_share():
+    for make in (plain_plan, pip_plan):
+        plan = make()
+        options = _media.output_options(plan)
+        assert contains_run(_media.compose_argv("ffmpeg", plan), options) and options[-2:] == ["-movflags", "+faststart"]
+        assert ("-c:a" in options) == plan["has_audio"] and "-threads" in options and "libx264" in options
+
+
+def test_the_output_options_hold_the_pinned_encoder_and_the_bitexact_flags():
+    options = _media.output_options(plain_plan())
+    assert options[options.index("-threads") + 1] == "4" and options[options.index("-crf") + 1] == "18"
+    assert options[options.index("-frames:v") + 1] == "231" and options[options.index("-fs") + 1] == "300000000"
+    for flag in ("+bitexact",):
+        assert options.count(flag) == 3
+    assert "-map" not in options and "out.mp4" not in options
+
+
+def test_the_proxy_argv_is_1080x1920_with_fixed_threads_and_bitexact_scaling():
+    argv = _media.proxy_argv("ffmpeg", "/in/recording", "bt709", "/out/proxy.mp4", fps=30, has_audio=True)
+    assert argv[argv.index("-threads") + 1] == "4" and argv[argv.index("-filter_threads") + 1] == "4" and argv.count("-threads") == 2
+    vf = argv[argv.index("-vf") + 1]
+    assert vf.startswith("fps=30:start_time=0,scale=2160:3840") and "scale=1080:1920:flags=" + _media.SWS in vf and vf.endswith(_media.TAGS)
+    assert all("flags=" + _media.SWS in x for x in re.findall(r"scale=[^,;\[]*", vf))
+    assert argv[argv.index("-crf") + 1] == "14" and argv[argv.index("-fs") + 1] == "2147483648" and argv[argv.index("-preset") + 1] == "medium"
+    assert argv.count("+bitexact") == 3 and "-an" not in argv and argv[-1] == "/out/proxy.mp4"
+    assert argv[argv.index("-i") - 6:argv.index("-i")] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]
+    assert argv[argv.index("-map_metadata") + 1] == "-1"
+
+
+def test_a_proxy_of_a_silent_recording_has_no_audio():
+    argv = _media.proxy_argv("ffmpeg", "/in/recording", "auto", "/out/proxy.mp4", fps=24, has_audio=False)
+    assert "-an" in argv and "-c:a" not in argv and "fps=24:start_time=0," in argv[argv.index("-vf") + 1] and "in_color_matrix=auto" in argv[argv.index("-vf") + 1]
+
+
+def test_the_encode_argv_maps_the_intermediate_and_uses_the_shared_output_options():
+    plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
+    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
+    assert argv[argv.index("-i") + 1] == "/job/hf.mov" and argv[-1] == "/out/o.mp4"
+    assert contains_run(argv, ["-map", "0:v:0", "-map", "0:a:0?"]) and contains_run(argv, _media.output_options(plan))
+    assert _media.ENCODE_THREADS == _media.THREADS == 4
+
+
+def test_the_probe_takes_the_codecs_it_accepts_and_refuses_prores_by_default(tmp_path):
+    if not K.HAVE_FFMPEG:
+        pytest.skip(K.SKIP_MEDIA)
+    path = os.path.join(str(tmp_path), "p.mov")
+    subprocess.run([K.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=1",
+                    "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", path], check=True, timeout=60)
+    with pytest.raises(Refusal) as caught:
+        _media.probe(K.FFPROBE, path)
+    assert caught.value.code == "video_codec"
+    assert _media.probe(K.FFPROBE, path, video_codecs=_media.PRORES_CODECS)["codec"] == "prores"
+
+
 # ---------------------------------------------------------------- probe
 
 def make(tmp, name, args, size="320x568"):

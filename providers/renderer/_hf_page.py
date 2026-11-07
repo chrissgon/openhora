@@ -1,0 +1,100 @@
+"""The base page of the HyperFrames engine: the cuts and the zoom, nothing else.
+
+The common image writes this page (the drawing image holds no Python of the edit list), from the same checked edit list the ffmpeg
+engine cuts. It is one `index.html` and one `vars.json` in an empty folder: one `<video>` per kept range, all of the same proxy
+(`media/proxy.mp4`, which keeps the recording's timeline, so a time of the edit list is the same time in the proxy), a GSAP timeline
+that zooms the ranges about the face as the ffmpeg engine does, and a volume lane at each cut that fades as the ffmpeg engine fades.
+The page holds numbers only: no font family, no text node, no word of the edit list, so no word of a transcript can reach the
+drawing image. The same edit list writes the same bytes. Standard library only; imports only common modules.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+
+import _media
+from _text import Refusal
+from _vocab import load_data
+
+COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+PROXY_SRC = "media/proxy.mp4"
+LAYERS = ["cuts", "zoom"]
+
+PAGE = """<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=%(w)d, height=%(h)d">
+<script src="gsap.min.js"></script>
+<style>
+html, body { margin: 0; background: %(bg)s; }
+#root { position: relative; width: 100%%; height: 100%%; overflow: hidden; background: %(bg)s; }
+.zw { position: absolute; inset: 0; overflow: hidden; z-index: 0; transform-origin: %(origin)s; }
+.zw video { position: absolute; inset: 0; width: 100%%; height: 100%%; object-fit: cover; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-width="%(w)d" data-height="%(h)d" data-duration="%(dur)s" data-fps="%(fps)d">
+%(clips)s
+</div>
+<script>
+window.__timelines = window.__timelines || {};
+var V = Object.assign(%(defaults)s,
+  (window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : window.__hfVariables) || {});
+var main = gsap.timeline({ paused: true });
+main.set({}, {}, V.duration);
+(V.zooms || []).forEach(function (zm) {
+  main.fromTo("#zw" + zm[0], { scale: zm[3] }, { scale: zm[4], duration: zm[2], ease: "none" }, zm[1]);
+});
+window.__timelines["main"] = main;
+</script>
+</body>
+</html>
+"""
+
+
+def num(x: float) -> str:
+    """A float as the shortest text that reads back exactly (the source frame times are k/fps)."""
+    return repr(float(x))
+
+
+def dumps(obj) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+
+def write_page(edl: dict, out_dir: str, *, width: int, height: int, fps: int, background: str) -> dict:
+    """Write `index.html` and `vars.json` into `out_dir`, an existing empty folder (`page_dir_not_empty` otherwise), for the edit list's
+    kept ranges. Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers}. `background` is `#rrggbb`."""
+    if not isinstance(background, str) or not COLOR.fullmatch(background):
+        raise Refusal("bad_color", "background")
+    if not os.path.isdir(out_dir) or os.listdir(out_dir):
+        raise Refusal("page_dir_not_empty", "out")
+    data = load_data()
+    anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
+    has_audio = bool(edl["source"]["has_audio"])
+    out_seconds = edl["out_frames"] / float(fps)
+    clips, zooms, pos = [], [], 0
+    for k, (a, b) in enumerate(edl["kept"]):
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, fps)
+        start, dur = pos / float(fps), (b - a) / float(fps)
+        fade = min(data["zoom"]["audio_fade_seconds"], dur / 2)
+        lanes = {"version": 1, "lanes": [{"target": "volume", "points": [
+            {"t": 0, "v": 0}, {"t": round(fade, 4), "v": 1}, {"t": round(dur - fade, 4), "v": 1}, {"t": round(dur, 4), "v": 0}]}]}
+        clips.append('<div class="zw" id="zw%d"><video id="v%d" src="%s" playsinline data-has-audio="%s" data-start="%s" data-duration="%s" '
+                     'data-media-start="%s" data-track-index="%d" data-automation=\'%s\'></video></div>'
+                     % (k, k, PROXY_SRC, "true" if has_audio else "false", num(start), num(dur), num(a / float(fps)), k, dumps(lanes)))
+        if abs(z0 - 1.0) > 1e-9 or abs(z1 - 1.0) > 1e-9:
+            zooms.append([k, start, dur, z0, z1])
+        pos += b - a
+    vars_doc = {"duration": out_seconds, "fps": fps, "zooms": zooms}
+    page = PAGE % {"w": width, "h": height, "dur": num(out_seconds), "fps": fps, "bg": background, "clips": "\n".join(clips),
+                   "origin": "%.2fpx %.2fpx" % anchor, "defaults": dumps(vars_doc)}
+    files = {"index.html": page.encode("utf-8"), "vars.json": (dumps(vars_doc) + "\n").encode("utf-8")}
+    for name, raw in files.items():
+        fd = os.open(os.path.join(out_dir, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+    return {"page_sha256": hashlib.sha256(files["index.html"]).hexdigest(), "vars_sha256": hashlib.sha256(files["vars.json"]).hexdigest(),
+            "clips": len(clips), "zooms": len(zooms), "duration": round(out_seconds, 3), "fps": fps, "layers": list(LAYERS)}

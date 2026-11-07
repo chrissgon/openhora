@@ -178,6 +178,34 @@ def mount_path(path: str, what: str) -> str:
     return path
 
 
+CPUSET = re.compile(r"[0-9]{1,3}(-[0-9]{1,3})?(,[0-9]{1,3}(-[0-9]{1,3})?)*")
+
+
+def check_cpuset(cpuset: str) -> str:
+    """A cpu set as `docker --cpuset-cpus` reads it ("0-3", "0,2,4"): numbers, ranges whose start is not after the end, commas.
+    ContainerError (bad_cpuset) otherwise."""
+    if not isinstance(cpuset, str) or not CPUSET.fullmatch(cpuset):
+        raise ContainerError("bad_cpuset", "cpuset")
+    for part in cpuset.split(","):
+        if "-" in part:
+            a, b = part.split("-")
+            if int(a) > int(b):
+                raise ContainerError("bad_cpuset", "cpuset")
+    return cpuset
+
+
+def check_free_space(path: str, need_bytes: int, what: str) -> int:
+    """The disk-backed work folder of a long job is checked before the job starts; a container never fills a disk half-way.
+    Returns the free bytes; ContainerError (no_space) when they are fewer than `need_bytes` or the path does not exist."""
+    try:
+        free = shutil.disk_usage(path).free
+    except OSError:
+        raise ContainerError("no_space", what)
+    if free < need_bytes:
+        raise ContainerError("no_space", what)
+    return free
+
+
 def check_label(label: str) -> str:
     """The run label as a name a docker label key and a `--filter` can carry: lowercase letters, digits, dots and hyphens,
     starting with a letter or digit. ContainerError (bad_label) otherwise."""
@@ -193,22 +221,32 @@ def deadline_label(label: str) -> str:
 
 def argv(name: str, image_id: str, inner_args: Iterable[str], *, label: str, deadline: int,
          mounts: Sequence[Tuple[str, str, str]], memory_mb: int, cpus, scratch_mb: int,
-         pids_limit: int = PIDS_LIMIT, tmp_mb: int = TMP_SIZE_MB, platform: Optional[str] = None) -> List[str]:
+         pids_limit: int = PIDS_LIMIT, tmp_mb: int = TMP_SIZE_MB, platform: Optional[str] = None,
+         cpuset: Optional[str] = None, shm_mb: Optional[int] = None) -> List[str]:
     """The exact `docker run` command (a list; the first word is `docker`). Every limit of the container is here.
 
     `label` is the run label (`org.openhora.<job>`), set to 1, and `deadline` (an epoch, seconds) goes in the label
     `label + ".deadline"`; `reap` reads both. `mounts` is a list of (host path, container path, "ro" or "rw") in the order
     they are given; the host path goes through `mount_path`. The image is run by its id, which is never pulled. On Linux the
     container runs as the caller's numeric user and group (a bind mount keeps numeric owners there; elsewhere the runtime
-    maps them)."""
+    maps them). `cpuset` (for example "0-3") pins the container to those cores and `shm_mb` sizes /dev/shm; both are off by
+    default, and with both off the command is the one every other provider has always had."""
     platform = sys.platform if platform is None else platform
     check_label(label)
+    if cpuset is not None:
+        check_cpuset(cpuset)
+    if shm_mb is not None and (isinstance(shm_mb, bool) or not isinstance(shm_mb, int) or not 1 <= shm_mb <= memory_mb):
+        raise ContainerError("bad_shm", "shm")
     out = ["docker", "run", "--rm", "--init", "--pull", "never", "--name", name,
            "--label", "%s=1" % label, "--label", "%s=%d" % (deadline_label(label), deadline),
            "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
            "--pids-limit", str(pids_limit), "--memory", "%dm" % memory_mb, "--memory-swap", "%dm" % memory_mb,
-           "--cpus", str(cpus),
-           "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=%dm" % tmp_mb,
+           "--cpus", str(cpus)]
+    if cpuset is not None:
+        out += ["--cpuset-cpus", cpuset]
+    if shm_mb is not None:
+        out += ["--shm-size", "%dm" % shm_mb]
+    out += ["--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=%dm" % tmp_mb,
            "--tmpfs", "%s:rw,noexec,nosuid,nodev,size=%dm,mode=1777" % (MOUNT_SCRATCH, scratch_mb)]
     if platform.startswith("linux"):
         out += ["--user", "%d:%d" % (os.getuid(), os.getgid())]

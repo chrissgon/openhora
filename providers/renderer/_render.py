@@ -24,7 +24,8 @@ import zlib
 import _edl
 import _frames
 import _media
-from _output import make_cover, make_still, png_size, read_platform, write_once  # noqa: F401  (moved: the render and its callers still find them here)
+from _output import (check_documents, check_recording, make_cover, make_still, png_size, read_platform, time_limit_for,  # noqa: F401  (moved: the render and its callers still find them here)
+                     write_once)
 from _text import Refusal
 from _vocab import load_data, load_vocabulary, read_json
 
@@ -39,12 +40,6 @@ def blank_png(w: int, h: int) -> bytes:
             + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
 
 
-def time_limit_for(data: dict, out_seconds: float, requested=None) -> int:
-    lim = data["limits"]
-    chosen = lim["render_seconds_base"] + lim["render_seconds_per_output_second"] * out_seconds if requested is None else requested
-    return int(min(lim["render_seconds_max"], max(10, chosen)))
-
-
 def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_directory=None):
     data = load_data()
     limits = data["limits"]
@@ -54,18 +49,6 @@ def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_d
     vocab = load_vocabulary(vocabulary_path)
     allow = _frames.font_allowlist(fonts_directory)
     return data, edl, beats, platform, vocab, allow
-
-
-def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
-    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None is for the callers that have no
-    platform on purpose (`check` without a file, the storyboard); `render` and `verify` read theirs with `read_platform`."""
-    first = _edl.check_edl(edl, data, vocab, allow, platform)
-    second = _edl.check_beats(beats, edl, vocab)
-    frame = (platform or {}).get("video") or {}
-    for key, ok in (("fps_min", lambda v: edl["fps"] >= v), ("fps_max", lambda v: edl["fps"] <= v)):
-        if frame.get(key) is not None and not ok(frame[key]):
-            raise Refusal("fps_outside_platform", "edl.fps")
-    return {"mentions": sorted(set(first["mentions"]) | set(second["mentions"]))}
 
 
 def font_urls_of(data, edl, font_serve) -> dict:
@@ -111,15 +94,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
 
     # the recording is the one the edit list was made from
-    facts = _media.probe(ffprobe, src)
-    if facts["duration"] > limits["input_seconds_max"]:
-        raise Refusal("input_too_long", "input")
-    if abs(facts["duration"] - edl["source"]["duration"]) > 0.05:
-        raise Refusal("recording_changed", "input")
-    if _media.sha256_file(src) != edl["source"]["sha256"]:
-        raise Refusal("recording_changed", "input")
-    if bool(facts["has_audio"]) != edl["source"]["has_audio"]:
-        raise Refusal("recording_changed", "input")
+    facts = check_recording(ffprobe, src, edl, limits)
 
     # assets: every slot a beat uses has a file, and every file is used
     used = set()

@@ -30,7 +30,7 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 FOLDER = K.RENDERER
 
-COMMON = ("_align", "_assets", "_edl", "_layout", "_media", "_output", "_redact", "_text", "_timeline", "_vocab")
+COMMON = ("_align", "_assets", "_edl", "_hf_page", "_layout", "_media", "_output", "_redact", "_text", "_timeline", "_vocab")
 DRAWING = ("_cdp", "_frames", "_lint", "_preview", "_render", "_browser")
 HOST = ("_docker", "_host", "_image", "ffmpeg")
 needs_media = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
