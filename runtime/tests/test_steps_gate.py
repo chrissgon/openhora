@@ -187,6 +187,7 @@ ALLOWED = {
     "step_output.py": {"output_document", "steps", "table_data", "write_document"},
     "step_send_email.py": {"mail_refs", "phrases", "send_document", "steps"},      # W2: the message a reply answers (pure) and the sentences of the phrase table
     "step_publish_post.py": {"publish_document", "steps"},
+    "step_media.py": {"captions", "deliver_document", "publish_document", "steps", "theme", "workcopy"},      # V1b1: the pure review and theme, the pure delivery document, the post path rule (pure), the credential scan; the engine and the store through ctx.services
     "step_calendar_event.py": {"calendar_document", "steps"},
     "step_files.py": {"files_document", "phrases", "steps", "workcopy"},      # W4a: the pure document of a file write, the sentences, the engine; the writers are in effect_files.py alone
     "step_mailbox.py": {"mail_address", "mailbox_document", "send_document", "steps"},

@@ -51,6 +51,10 @@ module builds those services, once, for the process that runs the task (runtime/
                    writer's two reads, with the account's token, no other secret) and `dry_run` (the writer's dry run of a document: no credential, no connection). It has
                    no way to write: the only verbs it starts are `message-meta`, `folder-get` and a write verb with `--dry-run`
 
+  media_store      MediaStore (package V1b1): the recordings of runtime/media.py by closed names (`raw`, `path`, `read`, `write`, `remove`, `bind`, ...), the platform's data file and the
+                   few workbench files the engine may be handed; it holds no delivery writer (that is runtime/effect_deliver.py's alone)
+  media_engine     MediaEngine (package V1b1): `call(class, verb, args, timeout)` of the transcriber and the renderer, a closed list of verbs each, through the resolver's class default
+
 So the write to a platform has no function in a step kind's reach: the only code that makes it is runtime/effect_write.py `execute`,
 called from runtime/ops_step_effects.py `approve`. What Python cannot do is stop a module from importing another: that a step kind does
 not is held by a static test (runtime/tests/test_steps_gate.py), a tripwire and not a wall, and by the review of a new kind.
@@ -59,6 +63,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -73,7 +78,9 @@ import effect_calendar  # noqa: E402
 import effect_mailbox  # noqa: E402
 import effect_tasks  # noqa: E402
 import effects  # noqa: E402
+import isolated  # noqa: E402
 import item_refs  # noqa: E402
+import media  # noqa: E402
 import files_document  # noqa: E402
 import mail_refs  # noqa: E402
 import mailbox_document  # noqa: E402
@@ -645,6 +652,163 @@ def renderer(root: str):
     return render
 
 
+# --- package V1b1: the media store and the media engine ---------------------------------------------------------------------------------------------
+
+MEDIA_ENGINE_CLASSES = {"transcriber:speech": ("transcribe",),
+                        "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "verify")}
+MEDIA_REFERENCES = ("shared/references/video-presets.json",)      # the workbench files a media step may name for the engine
+MEDIA_SETTINGS = ("transcriber_model", "language")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)
+MEDIA_CHECKER_SKILL, MEDIA_CHECKER_SCRIPT = "mkt-social-copy", "check_script.py"      # the checker the renderer's `align` stages and runs in its container; named, never imported
+PLATFORM_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+PLATFORM_FILE_MAX = 1024 * 1024
+
+
+def _media_error(e) -> "StepServiceError":
+    return StepServiceError(e.code if isinstance(getattr(e, "code", None), str) else "unreadable")
+
+
+class MediaStore:
+    """The media store (runtime/media.py) for the media step kind: the recording's files by closed names, the binding of the recording to the task, the
+    platform's data file and the few workbench files the engine may be handed. Every `media.MediaError` is a `StepServiceError` of the same code."""
+
+    def __init__(self, ctx: dict):
+        self._ctx, self._cfg = ctx, ctx["cfg"]
+        self._data, self._root = ctx["cfg"]["data_dir"], os.path.dirname(HERE)
+
+    def raw(self, rid: str) -> str:
+        try:
+            raw = media.load(self._data, rid)["raw"]
+            if raw is None:
+                raise StepServiceError("stale")
+            return media.path_of(self._data, rid, raw["name"])
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def path(self, rid: str, name: str, must_exist: bool = True) -> str:
+        try:
+            return media.path_of(self._data, rid, name, must_exist=must_exist)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def folder(self, rid: str) -> str:
+        try:
+            return media.folder_of(self._data, rid)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def read(self, rid: str, name: str, limit=None) -> bytes:
+        try:
+            return media.read_work(self._data, rid, name) if limit is None else media.read_work(self._data, rid, name, limit)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def write(self, rid: str, name: str, data: bytes) -> str:
+        try:
+            return media.write_work(self._data, rid, name, data)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def remove(self, rid: str, names) -> int:
+        patterns = {p.pattern: p for p in (media.RENDER, media.COVER, media.STILL)}
+        items = [patterns.get(n, n) if isinstance(n, str) else n for n in names]      # a pattern string is compiled here; a name stays a name
+        try:
+            return media.remove_work(self._data, rid, items)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def sha256(self, rid: str, name: str) -> str:
+        try:
+            return media.sha256_of(self.path(rid, name))
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def settle_cover(self, rid: str, name: str) -> str:
+        """Give a cover the engine wrote under a temporary cover name its final name, `cover-<sha256[:12]>.png` of its own bytes, as the delivery
+        document requires. Returns the final name."""
+        try:
+            path = self.path(rid, name)
+            final = f"cover-{media.sha256_of(path)[:12]}.png"
+            if final != name:
+                os.replace(path, self.path(rid, final, must_exist=False))
+            return final
+        except media.MediaError as e:
+            raise _media_error(e) from None
+        except OSError:
+            raise StepServiceError("unreadable") from None
+
+    def bind(self, rid: str, task_id: int) -> dict:
+        ctx = self._ctx
+
+        def may_replace(old: int) -> bool:
+            try:
+                return core._stored(ctx, ctx["store"].task_get, old)["state"] in ("cancelled", "failed")
+            except core.OpsError:      # the old task is gone: nothing works on the recording
+                return True
+        try:
+            return media.bind_task(self._data, rid, task_id, may_replace=may_replace)
+        except media.MediaError as e:
+            raise _media_error(e) from None
+
+    def platform_path(self, platform: str) -> str:
+        if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform):
+            raise StepServiceError("not_found")
+        return os.path.join(self._root, "shared", "references", "platforms", f"{platform}.json")
+
+    def platform_file(self, platform: str) -> dict:
+        path = self.platform_path(platform)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as f:
+                data = json.loads(f.read(PLATFORM_FILE_MAX + 1).decode("utf-8"))
+        except OSError:
+            raise StepServiceError("not_found") from None
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            raise StepServiceError("unreadable") from None
+        if not isinstance(data, dict):
+            raise StepServiceError("unreadable")
+        return data
+
+    def reference(self, rel: str) -> str:
+        if rel not in MEDIA_REFERENCES:
+            raise StepServiceError("refused")
+        return os.path.join(self._root, *rel.split("/"))
+
+    def checker(self) -> str:
+        return isolated.skill_script(self._root, MEDIA_CHECKER_SKILL, MEDIA_CHECKER_SCRIPT)
+
+    def root(self) -> str:
+        return self._root
+
+    def setting(self, name: str):
+        """The project's `media.<name>`, or None when it names none (the kind has the defaults)."""
+        found = self._cfg.get("media")
+        return found.get(name) if name in MEDIA_SETTINGS and isinstance(found, dict) else None
+
+
+class MediaEngine:
+    """The two engines of the media step, through the resolver: the transcriber and the renderer, a closed list of verbs each, the class's default
+    implementation (no `implementation` is passed: a second engine is the resolver's configuration alone). It reads no credential and keeps no reason."""
+
+    CLASSES = MEDIA_ENGINE_CLASSES
+
+    def __init__(self, root: str):
+        self._root = root
+
+    def call(self, cls: str, verb: str, args, timeout: int) -> dict:
+        if cls not in self.CLASSES or verb not in self.CLASSES[cls]:
+            raise StepServiceError("refused")
+        resolver = project_config.resolver(self._root)
+        try:
+            done = resolver.call(cls, verb, list(args), root=self._root, timeout=timeout, env=resolver.provider_environment(cls, None, ()))
+        except resolver.ProviderCallError as e:
+            if e.kind == "not-configured":
+                raise StepServiceError("not_configured") from None
+            raise StepServiceError("refused" if e.kind == "usage" or e.exit_code == 1 else "engine_failed") from None
+        if not isinstance(done, dict):
+            raise StepServiceError("engine_failed")
+        return done
+
+
 # --- package W4a: the files of the person's own accounts ------------------------------------------------------------------------------------------
 
 WRITER_FILES_CLASS = "writer:files"
@@ -752,7 +916,8 @@ def services(ctx: dict) -> dict:
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
-            "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx), "tasks_read": TasksReader(ctx)}
+            "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx), "tasks_read": TasksReader(ctx),
+            "media_store": MediaStore(ctx), "media_engine": MediaEngine(root)}
 
 
 if __name__ == "__main__":

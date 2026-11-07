@@ -84,6 +84,25 @@ Each verb prints one JSON object on stdout and diagnostics on stderr; a refusal 
 
 `verify --in <mp4> --platform-file <f> [--sha256 <hex>] [--edl <f>]` checks a stored render in a fresh container: the sha256 (given, or the file's own), ffprobe's facts against the platform's spec, the bt709 tags and, with an edit list, the length. Every renderer verb also takes `--memory-mb`, `--cpus`, `--scratch-mb` and `--timeout`. Exit codes: 0 ok, 1 refused or failed, 2 usage error, 3 not configured.
 
+## The new-video flow and the delivery
+
+The flow `new-video` (`flows/new-video.json`) starts one step task of the kind `media` (`runtime/step_media.py`, `KIND`) with the recording's id and the post.
+
+1. `take`: reads the post (`_take`), takes the platform from its `- Network:` line, needs a video entry in the platform's data file and a script, and binds the recording to the task (`MediaStore.bind`, `runtime/ops_step_seams.py`).
+2. `transcribe`, 3. `analyse`, 4. `still` (a side step, `_still_due`), 5. `retakes`, 6. `align-proposal`: each calls one verb of the transcriber or the renderer through `MediaEngine.call`, whose list of verbs is closed (`MediaEngine.CLASSES`).
+7. `review`: the stop "Check the captions" (`_review_decision`).
+8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors, and the renderer's check.
+12. `render`, 13. `cover`, 14. `verify`: the file `render-<sha12>.mp4`, its cover (`MediaStore.settle_cover` names it by its own hash) and the renderer's verify; `render.json` carries the blocks the renderer drew and their hash.
+15. `document`: the delivery document (`deliver_document.build`), written through `EffectFiles.write`. 16. `deliver`: the gate (`steps.Gate`, redo `remap`).
+
+The gate and its hash: the decision's hash is the hash of the document, which names the render's sha256 (limit L67). Approving it marks that exact file downloadable (`runtime/effect_deliver.py` `execute`, `media.mark_delivered`); nothing is published.
+
+The way back: while the video waits at the delivery approval, `ops_media_edit.edit` writes the review and answers the open delivery by code under the decision's lock (`ops_step_effects.resolution_guard`). The next start finds the answered decision, prepares `remap` again (`steps.prepare_again`; `step_media.CLEANUP` keeps `transcript.edited.json` and `review.json`) and renders again: a new hash and a new approval. An edit that changes nothing is refused before anything is answered. The command and the route that call `edit` are V1b2's.
+
+Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
+
+V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
+
 ## Known limits and improvements
 
 - The storyboard (`storyboard`, `_preview.py`) is ported and tested but no flow uses it yet (M2, VD14).
@@ -96,3 +115,4 @@ Each verb prints one JSON object on stdout and diagnostics on stderr; a refusal 
 ## Changes
 
 Written on 2026-11-07 by V1a-3.
+2026-11-07: V1b1, the media step, the deliver effect, decision 14
