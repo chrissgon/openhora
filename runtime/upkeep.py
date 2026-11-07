@@ -30,6 +30,10 @@ What it does, once an hour at most (UPKEEP_EVERY_SECONDS; `<data_dir>/upkeep.jso
      folder (where a fetch is written) older than 24 hours is a crash's leftover and is removed, and so is a folder of `held/` that no held row names and that
      is older than 24 hours. Only inside `<data_dir>/attachments/`, through descriptors with O_NOFOLLOW, and under the attachments lock (an add or a discard
      in progress is not interrupted: the pass looks again an hour later). Limit L48.
+  3b. The media store (decision 12). `<data_dir>/media/<id>/` holds a recording a `media` task works on: the recording and its transcript are
+     removed 7 days after the delivery, the render 30 days after it, an undelivered recording 30 days after it was last touched, and a folder
+     with no record or an upload's temporary file after a day (`media.purge`, which holds the store's upload lock without waiting). A recording whose
+     task's lock is held by a live process is kept.
   4. Orphan containers, by runtime/orphans.py, in its conservative mode only: a run container that has ended, a key proxy whose run
      container is gone, a network nothing of its run is on, past 30 minutes. A running run container is never removed by a pass; the
      explicit command `python3 runtime/upkeep.py containers --include-running` is the one way, for a stuck one older than 6 hours.
@@ -58,6 +62,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import attachments  # noqa: E402  (the same folder: the hold of the files a messaging app brought)
 import lab  # noqa: E402  (the same folder: the lab facade's container tool)
+import media  # noqa: E402  (the same folder: the store of the recordings and its retention)
 import orphans  # noqa: E402  (the same folder: the sweep of orphan containers)
 import sources  # noqa: E402  (the same folder: the sources folder, its lease and its lock)
 
@@ -401,6 +406,15 @@ def _sweep_attachment_folder(data_fd: int, name: str, keep: set, now: float, dry
         os.close(base_fd)
 
 
+# --- 3b. the media store (decision 12) ---------------------------------------------------------------------------------------
+
+
+def sweep_media(ctx: dict, *, now: float) -> dict:
+    """The retention of the media store (decision 12, runtime/media.py): purge what is due, never a recording whose task is running."""
+    data_dir = ctx["cfg"]["data_dir"]
+    return media.purge(data_dir, now=now, busy=lambda task_id: task_lock_held(data_dir, task_id))
+
+
 # --- 4. the whole pass -------------------------------------------------------------------------------------------------------
 
 
@@ -432,7 +446,7 @@ def containers_enabled() -> bool:
 
 def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> dict:
     """One pass of upkeep for the project of `ctx`. Returns {"skipped": why} when it is too soon or another process is at it, else
-    {"runs", "versions", "attachments", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
+    {"runs", "versions", "attachments", "media", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
     at the next hour). `tool` is the container tool (None: docker, if there is one and the sweep is enabled)."""
     cfg = ctx["cfg"]
     now = time.time() if now is None else now
@@ -452,6 +466,7 @@ def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> d
         for key, part in (("runs", lambda: sweep_runs(ctx, now=now, days=cfg.get("run_retention_days", 30))),
                           ("versions", lambda: sweep_versions(ctx, kept=cfg.get("source_versions_kept", 5), clock=clock)),
                           ("attachments", lambda: sweep_attachments(ctx, now=now)),
+                          ("media", lambda: sweep_media(ctx, now=now)),
                           ("containers", lambda: _containers(cfg, now, tool))):
             try:
                 summary[key] = part()

@@ -1,0 +1,7 @@
+## 2026-11-07: the media store on the intake, and its retention (V1b1-1; no measurement change, no skill changed, no lab run)
+
+- The recordings live in `<data_dir>/media/<id>/`, outside the project, so video never enters git. `runtime/media.py` takes them through `runtime/intake.py` (`stream_in`: the length checked first, the type read from the bytes, MP4 or MOV, at most 1 GiB as the renderer's own cap, 8 GiB for the whole store), with an upload lock of its own so a long upload never holds the sources' lock.
+- The store does not parse media on the host: no ffprobe. The streams, codecs, HDR and the 300-second limit are checked in the container by the renderer's `analyse` step (VD4). Saving: a host tool and its parser are gone. Loss: a recording that is too long is refused at the analyse step, after the upload, not before it.
+- Decision 12's retention is a part of `runtime/upkeep.py`, `media`: the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days after it was last touched; never one whose task is running. A purged recording fails its task with a closed code if it is started again.
+- `mark_delivered` is the one writer of a delivery and `delivered_file` the one reader that hands a render out; both hash the file again.
+- `runtime/deliver_document.py` is the delivery's effect document, pure, so the step kind imports it and not the effect module. It carries `blocks` (filled by the catalogue packages) and `preview` (filled by the messaging package), both empty here.
