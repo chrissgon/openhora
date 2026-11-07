@@ -130,8 +130,35 @@ def test_the_encode_argv_maps_the_intermediate_and_uses_the_shared_output_option
     plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
     argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
     assert argv[argv.index("-i") + 1] == "/job/hf.mov" and argv[-1] == "/out/o.mp4"
-    assert contains_run(argv, ["-map", "0:v:0", "-map", "0:a:0?"]) and contains_run(argv, _media.output_options(plan))
+    assert contains_run(argv, ["-map", "0:v:0", "-map", "0:a:0?"])
+    assert contains_run(argv, _media.output_options(plan, 4, shortest=False, x264_params="threads=4:lookahead_threads=1:sliced-threads=0"))
     assert _media.ENCODE_THREADS == _media.THREADS == 4
+
+
+def test_the_encode_argv_names_every_count_that_could_follow_the_machine_and_ends_both_streams_exactly():
+    plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
+    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
+    i = argv.index("-i")
+    assert argv[:i].count("-threads") == 1 and argv[argv.index("-threads") + 1] == "4" and argv.index("-threads") < i       # the decoder's
+    assert argv[argv.index("-filter_threads") + 1] == "4" and argv[argv.index("-filter_complex_threads") + 1] == "4"
+    assert argv.index("-filter_threads") < i and argv.index("-filter_complex_threads") < i
+    assert argv[argv.index("libx264") + 1:argv.index("libx264") + 3] == ["-threads", "4"]
+    assert argv[argv.index("-x264-params") + 1] == "threads=4:lookahead_threads=1:sliced-threads=0"
+    assert argv[argv.index("-sws_flags") + 1] == _media.SWS and argv.count("+bitexact") == 3
+    assert "-shortest" not in argv and argv[argv.index("-frames:v") + 1] == "231" and argv[argv.index("-t") + 1] == "7.700000"
+    assert argv.index("-t") > argv.index("-frames:v")
+
+
+def test_compose_keeps_its_shortest_and_the_output_options_default_is_unchanged():
+    plan = plain_plan()
+    options = _media.output_options(plan)
+    assert "-shortest" in options and "-x264-params" not in options
+    assert contains_run(_media.compose_argv("ffmpeg", plan), options)
+
+
+def test_a_silent_encode_pins_the_same_counts_and_has_no_audio_options():
+    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", {"fps": 24, "out_frames": 48, "max_bytes": 1000, "has_audio": False})
+    assert "-c:a" not in argv and "-shortest" not in argv and argv[argv.index("-t") + 1] == "2.000000"
 
 
 def test_the_probe_takes_the_codecs_it_accepts_and_refuses_prores_by_default(tmp_path):

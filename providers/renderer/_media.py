@@ -424,20 +424,28 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     return argv + [plan["out_name"]]
 
 
-def output_options(plan: dict, threads: int = THREADS) -> list:
+def output_options(plan: dict, threads: int = THREADS, *, shortest: bool = True, x264_params: str = "") -> list:
     """The output side of the final H.264 encode, shared by both engines (the ffmpeg engine's compose and the HyperFrames engine's
-    encode stage): AAC when the plan has audio, then every count a thread-dependent step reads pinned (the encoder's, the filter
-    graph's, with it swscale's slices) and every scale bit-exact. x264's output depends on its thread count and the automatic count
-    follows the cores the machine shows, so the same render would otherwise differ in bytes from one CPU limit or machine to
-    another. See the README for what can still differ. `plan` holds fps, out_frames, max_bytes and, optionally, has_audio (true
-    by default). The output name is not included."""
+    encode stage): AAC when the plan has audio, then x264 with a fixed thread count (`-threads`, and `x264_params` when given), every
+    scale bit-exact (`-sws_flags`), the bitexact flags, no metadata and chapters, the rate, the frame count and the byte cap.
+    x264's output depends on its thread count and the automatic count follows the cores the machine shows, so the same render would
+    otherwise differ in bytes from one CPU limit or machine to another. What this function does NOT pin is the input side: the
+    decoder's threads, the filter graph's (`-filter_threads`, `-filter_complex_threads`, and with them swscale's slices) belong to
+    the command that calls it (compose_argv and encode_argv each pin them). `shortest` writes `-shortest` (compose's way of ending
+    the streams); the encode stage passes False and ends both streams exactly instead. `plan` holds fps, out_frames, max_bytes and,
+    optionally, has_audio (true by default). The output name is not included."""
     argv = []
     if plan.get("has_audio", True):
         argv += ["-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    argv += ["-sws_flags", SWS, "-c:v", "libx264", "-threads", str(threads), "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
+    argv += ["-sws_flags", SWS, "-c:v", "libx264", "-threads", str(threads)]
+    if x264_params:
+        argv += ["-x264-params", x264_params]
+    argv += ["-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-             "-r", str(plan["fps"]), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"]), "-shortest",
-             "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",
+             "-r", str(plan["fps"]), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"])]
+    if shortest:
+        argv += ["-shortest"]
+    argv += ["-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",
              "-fs", str(plan["max_bytes"]), "-movflags", "+faststart"]
     return argv
 
@@ -461,10 +469,15 @@ def proxy_argv(ffmpeg: str, src: str, src_matrix: str, out: str, *, fps: int, ha
 
 def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
     """The final H.264 encode of the HyperFrames engine: the ProRes intermediate (video, and its audio when it has one) written with
-    the same output options as the ffmpeg engine's render and a fixed thread count. `plan` carries fps, out_frames and max_bytes
-    (and has_audio, true by default)."""
-    return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", intermediate, "-map", "0:v:0", "-map", "0:a:0?",
-            *output_options(plan, ENCODE_THREADS), out]
+    the same output options as the ffmpeg engine's render. Nothing automatic is left that can follow the machine: the decoder's
+    threads, the filter graph's (with swscale's slices), x264's threads, its lookahead threads and sliced threads are all named, and
+    both streams end exactly (`-frames:v` and `-t` from the frame count), with no `-shortest`, so the end of the streams is not a
+    race between the muxer's inputs. `plan` carries fps, out_frames and max_bytes (and has_audio, true by default)."""
+    n = ENCODE_THREADS
+    return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(n), "-filter_complex_threads", str(n),
+            "-threads", str(n), "-i", intermediate, "-map", "0:v:0", "-map", "0:a:0?",
+            *output_options(plan, n, shortest=False, x264_params="threads=%d:lookahead_threads=1:sliced-threads=0" % n),
+            "-t", "%.6f" % (plan["out_frames"] / float(plan["fps"])), out]
 
 
 def cover_argv(ffmpeg: str, src: str, offset_seconds: float, out_name: str) -> list:
