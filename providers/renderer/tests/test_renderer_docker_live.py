@@ -130,10 +130,10 @@ def job_args(cpus):
     return argparse.Namespace(memory_mb=D.DEFAULT_MEMORY_MB, cpus=cpus, scratch_mb=512, timeout=None, cpuset=None)
 
 
-def short_edl(image, tmp_path, size="1080x1920"):
+def short_edl(image, tmp_path, size="1080x1920", sentences=((0.4, "Short test line."),)):
     """A recording of about three seconds made by the image's ffmpeg from a test card and a tone, and the edit list the host's own
     `analyse` and `base` verbs make for it: (recording, edit list file, edit list)."""
-    transcript = K.build_transcript([(0.4, "Short test line.")], tail=0.4)
+    transcript = K.build_transcript(list(sentences), tail=0.4)
     folder = tmp_path / "media"
     folder.mkdir()
     in_image(image, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=%s:rate=30:duration=%.3f" % (size, transcript["duration"]),
@@ -160,7 +160,9 @@ def encode_once(image, edl_file, intermediate, digest, cpus, dest):
 
 def test_the_two_stage_encode_gives_one_sha256_at_two_and_four_cpus(image, tmp_path):
     require_prores(image, tmp_path)
-    recording, edl_file, edl = short_edl(image, tmp_path)
+    minimum = json.loads(K.INSTAGRAM.read_text())["video"]["min_seconds"]     # the encode refuses an output the platform would refuse
+    recording, edl_file, edl = short_edl(image, tmp_path, sentences=((0.4, "Short test line."), (0.4, "A second short line follows here.")))
+    assert edl["out_frames"] / float(edl["fps"]) >= minimum + 0.5, "the leg's edit list is shorter than the platform's minimum"
     work = tmp_path / "work"
     work.mkdir()
     seconds = edl["out_frames"] / float(edl["fps"])

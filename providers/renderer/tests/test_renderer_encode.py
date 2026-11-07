@@ -161,6 +161,20 @@ def test_an_intermediate_without_the_audio_the_edit_list_has_is_refused(world):
 
 
 @needs_ffmpeg
+def test_an_output_shorter_than_the_platforms_minimum_is_refused_with_platform_spec_min_seconds(world):
+    tmp, src, edl = world
+    minimum = INSTAGRAM["video"]["min_seconds"]
+    assert edl["out_frames"] / edl["fps"] > minimum
+    short = json.loads(json.dumps(edl))
+    short["out_frames"] = int((minimum - 1) * short["fps"])
+    K.write_json(tmp / "short.json", short)
+    mov = tmp / "short.mov"
+    prores(mov, short["out_frames"] / short["fps"])
+    rc, out, err = encode(tmp, mov, tmp / "short.json", tmp / "out")
+    assert rc == 1 and (out["code"], out["field"]) == ("platform_spec", "min_seconds") and not any(f.startswith("render-") for f in os.listdir(tmp / "out"))
+
+
+@needs_ffmpeg
 def test_a_video_that_is_not_prores_is_not_an_intermediate(world):
     tmp, src, edl = world
     rc, out, err = encode(tmp, src, tmp / "edl.json", tmp / "out")
