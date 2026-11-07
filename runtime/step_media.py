@@ -286,8 +286,9 @@ def _post_path(ctx: steps.Context) -> str:
 
 def _beat_args(ctx: steps.Context, transcript: str, out: str) -> list:
     store, _, _ = _handles(ctx)
-    return ["--post", _post_path(ctx), "--transcript", transcript, "--checker", _asked(store.checker), "--vocabulary", _asked(store.reference, VOCABULARY),
+    flags = ["--post", _post_path(ctx), "--transcript", transcript, "--checker", _asked(store.checker), "--vocabulary", _asked(store.reference, VOCABULARY),
             "--out", out]
+    return flags
 
 
 def _align_proposal(ctx: steps.Context, state: dict) -> dict:
@@ -341,7 +342,8 @@ def _remap(ctx: steps.Context, state: dict) -> dict:
 
 def _face_args(review: dict) -> list:
     box = (review or {}).get("face_box")
-    return ["--face-box", "{x},{y},{w},{h}".format(**box)] if box else []
+    found = ["--face-box", "{x},{y},{w},{h}".format(**box)] if box else []
+    return found
 
 
 def _identity(ctx: steps.Context):

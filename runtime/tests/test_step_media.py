@@ -133,7 +133,8 @@ def test_the_steps_after_the_review_call_the_engine_with_their_arguments_and_wri
     digest = sha(b"the rendered video of Aster Lane " + b"one")
     assert flag(cover["args"], "--in") == os.path.join(folder, f"render-{digest[:12]}.mp4") and flag(cover["args"], "--offset-ms") == "0"
     assert flag(cover["args"], "--out") == os.path.join(folder, f"cover-{digest[:12]}.png")      # the temporary name; the file is then named by its own hash
-    assert sorted(p.name for p in work_file(world, 'x').parent.glob('cover-*.png')) == [f"cover-{sha(b'\x89PNG\r\n\x1a\ncover')[:12]}.png"]
+    cover_bytes = b"\x89PNG\r\n\x1a\ncover"
+    assert sorted(p.name for p in work_file(world, 'x').parent.glob('cover-*.png')) == [f"cover-{sha(cover_bytes)[:12]}.png"]
     assert flag(verify["args"], "--sha256") == digest and flag(verify["args"], "--edl") == os.path.join(folder, "edl.json") and verify["timeout"] == 300
     record = json.loads(work_file(world, "render.json").read_text())
     assert record == {"name": f"render-{digest[:12]}.mp4", "sha256": digest, "size": len(b"the rendered video of Aster Lane one"), "duration_ms": 8000,
