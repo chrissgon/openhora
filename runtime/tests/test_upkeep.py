@@ -600,3 +600,50 @@ def test_the_pass_that_runs_every_hour_includes_the_attachments_and_an_add_in_pr
 
 def test_a_project_that_never_held_a_file_has_nothing_to_sweep(case):
     assert upkeep.sweep_attachments(case.ctx, now=time.time()) == {"expired": [], "removed": [], "kept": [], "problem": None}
+
+
+# --- the media store (decision 12) -------------------------------------------------------------------------------------------------
+
+
+def media_recording(case, now, delivered_days_ago):
+    """A recording in the store, delivered `delivered_days_ago` days before `now`, with a render that hashes to its mark."""
+    import hashlib
+    from media_fixtures import Body, mp4_head
+    media = st.load("media")
+    data = str(case.data)
+    rid = media.receive(data, Body(64, mp4_head()), 64, now=now - (delivered_days_ago + 1) * DAY)["id"]
+    payload = b"render of the Northwind clip"
+    sha = hashlib.sha256(payload).hexdigest()
+    Path(media.folder_of(data, rid), f"render-{sha[:12]}.mp4").write_bytes(payload)
+    media.mark_delivered(data, rid, sha256=sha, task_id=41, pending_id=None, now=now - delivered_days_ago * DAY)
+    return media, data, rid
+
+
+def test_a_recording_delivered_thirty_one_days_ago_is_removed_by_the_pass(case):
+    now = time.time()
+    media, data, rid = media_recording(case, now, 31)
+    out = upkeep.run(case.ctx, now=now, force=True, tool=None)
+    assert out["media"]["removed"] == [{"recording": rid, "what": "all"}] and len(out["media"]["removed"]) == 1
+    assert not Path(media.folder_of(data, rid)).exists()
+    assert json.loads((case.data / "upkeep.json").read_text())["media"] == {"removed": 1, "kept": 0, "problem": None}
+
+
+def test_a_recording_whose_task_is_running_is_kept_by_the_pass(case):
+    now = time.time()
+    media, data, rid = media_recording(case, now, 31)
+    media.update(data, rid, lambda record: record.update(task=41))
+    locks = case.data / "locks"
+    locks.mkdir(mode=0o700, exist_ok=True)
+    held = os.open(locks / "task-41.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)         # a live process holds the lock of the recording's task
+    try:
+        out = upkeep.run(case.ctx, now=now, force=True, tool=None)
+    finally:
+        os.close(held)
+    assert out["media"]["kept"] == [rid] and out["media"]["removed"] == []
+    assert Path(media.folder_of(data, rid)).is_dir()
+    assert upkeep.run(case.ctx, now=now + 1, force=True, tool=None)["media"]["removed"] == [{"recording": rid, "what": "all"}]
+
+
+def test_a_project_with_no_recording_has_nothing_to_sweep_in_the_media_store(case):
+    assert upkeep.sweep_media(case.ctx, now=time.time()) == {"removed": [], "kept": [], "stray": 0, "skipped": []}
