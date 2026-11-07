@@ -285,6 +285,12 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `step_publish_post.py`: The step kind `publish-post` (PUBLISH-EFFECT): `prepare` reads a content file of `docs/marketing/content/`, refuses a post marked blocked, asks the publisher's check and, through the read-only publisher service, the post as the publishing skill's own script builds it with the provider's dry run, refuses a key the ledger already holds, and writes the effect document; the gate `publish` opens an `effect` decision with its hash. It publishes nothing and never schedules. Not unattended
 
+`captions.py`: The caption review of a recording, pure (no file, no provider, no model): the person changes words, never times (edit, split, merge, delete, and the review's decisions: confirmed retakes, beat anchors, dropped overlays, the choice for an empty asset slot, the face box, the cover's offset), kept in the numbering of `transcript.json` so they survive an edit; a refusal is a `CaptionError` with a closed code. The step kind `step_media.py` keeps the files and `ops_media_edit.py` calls it (both arrive with V1b1-4). Standard library only.
+
+`theme.py`: The project's theme for the renderer: reads the closed `brand-tokens` block of the identity and maps it to the renderer's `--color` and `--font` flags, with a record that carries where they came from and why a default was used. `theme_from_text` takes the identity as text, so a step reads `docs/brand/identity.md` with `steps.read_file`; `theme_args` reads it from a project folder and calls it. Standard library only.
+
+`check_brand_tokens.py`: the generated copy of `shared/scripts/check_brand_tokens.py` (the check of the identity's `brand-tokens` block, which `theme.py` imports); never edited by hand, rewritten by `scripts/sync_copies.py`.
+
 `ops_cancel.py`: Cancelling a request while the write of an output runs (NOTION-OUT): the one function the four ways of cancelling a request call; it cancels everything that is not being written and leaves open the effect decision whose lock is held, so the write records its outcome when it ends
 
 `output_document.py`: The document of the three operations that make something new (NOTION-OUT) and nothing that writes: the effect document (operation, parent or table, title, base, content, key, notes), its checks, caps and credential scan, the preview with the columns, their types and how each was settled, and the closed facts a decision records (limits L30, L31)

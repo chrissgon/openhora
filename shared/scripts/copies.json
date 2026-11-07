@@ -157,7 +157,7 @@
     },
     {
      "path": "runtime/check_brand_tokens.py",
-     "adopted": false
+     "adopted": true
     }
    ]
   },
