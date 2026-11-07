@@ -1,7 +1,7 @@
 {
- "version": 1,
+ "version": 2,
  "vocabulary": "video-presets",
- "note": "The closed vocabulary of the animations a short video's script may ask for. Renderer-neutral: no template, timing or drawing rule is here. The prose is video-presets.md.",
+ "note": "The closed vocabulary of the animations a short video's script may ask for, and of the script's own structure (version 2 adds the `script` section: roles, header, thresholds, language data). Renderer-neutral: no template, timing or drawing rule is here. The prose is video-presets.md.",
  "types": {
   "text": {"bounds": ["max", "max_items", "pattern"], "note": "plain text; max_items above 1 means that many texts separated by ' | '"},
   "icon": {"bounds": ["values"], "note": "one name of the list `icons`"},
@@ -14,6 +14,63 @@
  "palette": ["bg", "text", "muted", "accent", "chip_fill", "chip_text", "chip_border"],
  "limits": {"beats_max": 12, "line_max": 240, "slot_description_min": 3, "slot_description_max": 80},
  "always_on": ["caption"],
+ "script": {
+  "note": "What a script means, not what it looks like. Roles and the header are choices or short text, never a time. Every number is a default tuned on real scripts, not a rule of nature; a rate measured on real recordings may recalibrate speech_rate_words_per_second, by a version change of this file. A word is a whitespace-separated token with at least one letter or digit. The patterns `story`, `problem-solution` and `steps` were approved by the maintainer on 2026-10-14. Language data (the pt-BR entries are written with \\u escapes so that this file needs no english-only allowance): openers (a hook that starts with one draws a warning, never a refusal), negations, number_words (read by the caption styles, not by the checker), stop_words, goodbyes (a loop that ends with one draws a warning); a language without data skips the predicates that read it.",
+  "speech_rate_words_per_second": 2.5,
+  "roles": ["hook", "setup", "point", "proof", "turn", "payoff", "cta"],
+  "emphasis": ["none", "punch"],
+  "header": {
+   "keys": ["hook_type", "title", "cta_kind", "send_to", "loop", "pattern"],
+   "required": ["hook_type", "title"],
+   "hook_type": ["contrarian", "mistake", "result", "curiosity", "number", "question", "story"],
+   "cta_kind": ["save", "send", "comment", "follow-up-video"],
+   "loop": ["yes", "no"],
+   "pattern": ["list", "myth", "story", "problem-solution", "before-after", "steps"]
+  },
+  "limits": {
+   "title_words": [3, 5],
+   "title_max": 40,
+   "send_to_max": 40,
+   "hook_words_max": 18,
+   "hook_on_screen_words": [2, 5],
+   "line_words_min": 8,
+   "line_words_max": 30,
+   "cta_words_max": 20,
+   "payoff_after_share": 0.5,
+   "visual_gap_seconds": 6,
+   "punch_gap_seconds": 10,
+   "punch_gap_beats": 3,
+   "preset_share_max": 0.5,
+   "list_items": [2, 4],
+   "calm_words_per_preset": 20, "quote_words_min": 3,
+   "target_seconds": [60, 90],
+   "max_seconds": 120
+  },
+  "patterns": {
+   "list": {"roles": ["hook"], "any_of": ["payoff", "cta"], "points_from_hook_digit": true},
+   "steps": {"roles": ["hook"], "any_of": ["payoff", "cta"], "points_from_hook_digit": true},
+   "myth": {"roles": ["hook", "turn", "proof"]},
+   "story": {"roles": ["hook", "turn", "payoff"]},
+   "problem-solution": {"roles": ["hook", "point", "payoff"]},
+   "before-after": {"presets": {"compare": 2}}
+  },
+  "languages": {
+   "en": {
+    "openers": ["hey", "hi", "hello", "whats up", "welcome back", "welcome to", "good morning", "today i", "today we", "so today", "in this video", "in todays video"],
+    "negations": ["not", "no", "never", "dont", "doesnt", "didnt", "isnt", "arent", "wasnt", "werent", "wont", "cant", "cannot", "nobody", "nothing", "none", "neither", "nor", "without"],
+    "number_words": ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million"],
+    "stop_words": ["a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at", "for", "with", "by", "from", "as", "into", "over", "about", "is", "are", "was", "were", "be", "been", "am", "do", "does", "did", "have", "has", "had", "it", "its", "this", "that", "these", "those", "i", "you", "he", "she", "we", "they", "me", "my", "your", "our", "their", "us", "them", "so", "just", "than", "then", "there", "what", "when", "which", "who", "why", "how", "all", "any", "more", "most", "not", "no"],
+    "goodbyes": ["bye", "goodbye", "thanks", "thank you", "cheers", "see you", "see ya", "take care", "until next time"]
+   },
+   "pt-BR": {
+    "openers": ["oi", "ol\u00e1", "e a\u00ed", "fala pessoal", "fala galera", "galera", "pessoal", "bom dia", "bem vindo", "bem vindos", "hoje eu", "hoje vou", "hoje vamos", "neste v\u00eddeo", "nesse v\u00eddeo", "no v\u00eddeo de hoje"],
+    "negations": ["n\u00e3o", "nunca", "nem", "jamais", "nada", "ningu\u00e9m", "nenhum", "nenhuma", "sem", "tampouco"],
+    "number_words": ["zero", "um", "uma", "dois", "duas", "tr\u00eas", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem", "cento", "mil", "milh\u00e3o"],
+    "stop_words": ["a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "e", "ou", "mas", "que", "se", "como", "mais", "j\u00e1", "\u00e9", "foi", "ser", "est\u00e1", "tem", "h\u00e1", "eu", "voc\u00ea", "ele", "ela", "n\u00f3s", "eles", "elas", "meu", "minha", "seu", "sua", "este", "esta", "esse", "essa", "i\u0073so", "isto", "aquilo", "ao", "\u00e0", "pelo", "pela", "at\u00e9", "tamb\u00e9m", "s\u00f3", "muito", "quando", "onde", "quem", "qual", "n\u00e3o", "nem"],
+    "goodbyes": ["tchau", "at\u00e9 mais", "at\u00e9 logo", "at\u00e9 a pr\u00f3xima", "obrigado", "obrigada", "valeu", "falou"]
+   }
+  }
+ },
  "presets": {
   "keyword": {
    "kind": "overlay",
