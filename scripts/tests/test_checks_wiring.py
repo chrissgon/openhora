@@ -529,7 +529,7 @@ def test_an_unrelated_label_skips_the_optional_jobs_runs_the_shards_the_gate_nee
 
 def test_the_docker_and_go_jobs_wait_for_the_job_that_says_whether_their_paths_changed():
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
-    for name in ("container", "converter", "go"):
+    for name in ("container", "converter", "renderer", "go"):
         block = job_block(text, name)
         assert re.search(r"^    needs: changes\s*$", block, re.M), name
         assert "needs.changes.outputs.%s == 'true'" % name in block, name
@@ -544,12 +544,24 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     for name, builds, tests in (("container", ["python3 evals/executor.py ensure"], "WB_EVAL_DOCKER_TESTS=1"),
                                 ("converter", ["python3 providers/converter/container.py build --confirmed",
-                                               "python3 providers/exporter/container.py build --confirmed"], "WB_CONVERTER_DOCKER_TESTS=1")):
+                                               "python3 providers/exporter/container.py build --confirmed"], "WB_CONVERTER_DOCKER_TESTS=1"),
+                                ("renderer", ["python3 providers/transcriber/whispercpp.py build --confirmed",
+                                              "python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64"], "WB_RENDERER_DOCKER_TESTS=1")):
         block = job_block(text, name)
         for build in builds:
             found = re.findall(r"^        run: python3 scripts/ci_retry\.py --attempts [2-5] --delay \d+ --attempt-timeout \d+ -- (.+)$", block, re.M)
             assert build in found, (name, build, found)
             assert block.index(build) < block.index(tests), (name, build)
+
+
+def test_the_renderer_job_names_one_state_folder_for_its_builds_and_its_live_tests():
+    """The root conftest moves XDG_STATE_HOME before the live tests read it, so a step before the builds writes OPENHORA_STATE_DIR to
+    $GITHUB_ENV. The runner context is not allowed in a job's env (GitHub rejects the whole file), so none appears before `steps:`."""
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    block = job_block(text, "renderer")
+    assert "runner." not in block.split("    steps:")[0]
+    setter = block.index('echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"')
+    assert setter < block.index("build --confirmed")
 
 
 def job_block(text, name):
@@ -604,29 +616,33 @@ PR = dict(EVENT="pull_request", ACTION="synchronize", BASE_REF="feature/x", FULL
 
 def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of_the_whole_suite(tmp_path):
     for i, (files, env, want) in enumerate([
-        (["providers/messenger/whatsapp/bridge.go"], PR, {"container": "false", "converter": "false", "go": "true"}),
-        (["providers/converter/Dockerfile"], PR, {"container": "false", "converter": "true", "go": "false"}),
-        (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "go": "false"}),
-        (["skills/mkt-publish/evals/evals.json"], PR, {"container": "true", "converter": "false", "go": "false"}),  # the eval container stages skills
-        (["providers/secrets/resolver.py"], PR, {"container": "true", "converter": "false", "go": "false"}),
-        (["scripts/ci_retry.py"], PR, {"container": "true", "converter": "true", "go": "false"}),  # the retry both image builds go through
-        (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
-        (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
-        # a draft runs none of the three jobs, whatever changed and whatever the label or the base, and reads no diff (the base below is no commit)
-        (["providers/messenger/whatsapp/bridge.go"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "go": "false"}),
-        (["evals/container/Dockerfile"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "BASE_REF": "main"}, {"container": "false", "converter": "false", "go": "false"}),
-        (["docs/decisions.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "ACTION": "labeled", "FULL_LABEL": "true"}, {"container": "false", "converter": "false", "go": "false"}),
-        (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"container": "false", "converter": "false", "go": "true"}),  # marked ready: read as any push
+        (["providers/messenger/whatsapp/bridge.go"], PR, {"container": "false", "converter": "false", "renderer": "false", "go": "true"}),
+        (["providers/converter/Dockerfile"], PR, {"container": "false", "converter": "true", "renderer": "false", "go": "false"}),
+        (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "renderer": "false", "go": "false"}),
+        (["skills/mkt-publish/evals/evals.json"], PR, {"container": "true", "converter": "false", "renderer": "false", "go": "false"}),  # the eval container stages skills
+        (["providers/secrets/resolver.py"], PR, {"container": "true", "converter": "false", "renderer": "false", "go": "false"}),
+        (["scripts/ci_retry.py"], PR, {"container": "true", "converter": "true", "renderer": "true", "go": "false"}),  # the retry both image builds go through
+        (["providers/renderer/_image.py"], PR, {"container": "false", "converter": "false", "renderer": "true", "go": "false"}),  # the ffmpeg engine's image
+        (["providers/renderer/hyperframes-image/Dockerfile"], PR, {"container": "false", "converter": "false", "renderer": "true", "go": "false"}),  # OPEN-9: until the HyperFrames image has its own job
+        (["providers/transcriber/whispercpp.py"], PR, {"container": "false", "converter": "false", "renderer": "true", "go": "false"}),
+        (["providers/resolve.py"], PR, {"container": "false", "converter": "true", "renderer": "true", "go": "false"}),  # a top-level provider module reaches both image jobs
+        (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
+        (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        # a draft runs none of the four jobs, whatever changed and whatever the label or the base, and reads no diff (the base below is no commit)
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
+        (["evals/container/Dockerfile"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "BASE_REF": "main"}, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
+        (["docs/decisions.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "ACTION": "labeled", "FULL_LABEL": "true"}, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"container": "false", "converter": "false", "renderer": "false", "go": "true"}),  # marked ready: read as any push
         # one file per decision entry (docs/decisions/): the same as the closed log, docs/decisions.md
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PR, {"container": "false", "converter": "false", "go": "false"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "go": "false"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PR, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "go": "true"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "renderer": "false", "go": "false"}),
     ]):
         case = tmp_path / ("case%d" % i)
         case.mkdir()
