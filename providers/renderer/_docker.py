@@ -39,7 +39,7 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 STATE_FOLDER, BUILD_RECORD, WORK_FOLDER, JOB_PREFIX = "renderer", "image.json", "work", ".job-"
 
 # What the image's definition covers is _image.py's: the files image-manifest.json lists, and only those.
-HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py")      # underscore modules that only the host side uses: not in the image
+HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py", "hyperframes.py")      # modules that only the host side uses: not in the image
 
 # The limits of one container.
 PIDS_LIMIT = 512

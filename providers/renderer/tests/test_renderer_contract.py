@@ -17,11 +17,11 @@ resolve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resolve)
 
 
-def test_renderer_video_is_a_runtime_only_class_with_one_implementation_and_underscore_helpers_are_not_implementations():
+def test_renderer_video_is_a_runtime_only_class_with_two_implementations_ffmpeg_by_default_and_underscore_helpers_are_not_implementations():
     assert resolve.folder("renderer:video") == "renderer"
     assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
     assert resolve.split_class("renderer:video") == ("renderer", "video")
-    assert resolve.implementations("renderer:video") == ["ffmpeg"]
+    assert resolve.implementations("renderer:video") == ["ffmpeg", "hyperframes"]
     got = resolve.resolve("renderer:video", env={})
     assert got["implementation"] == "ffmpeg" and got["source"] == "class-default" and got["path"].endswith("providers/renderer/ffmpeg.py")
     assert resolve.platform_of("renderer:video") is None                    # a fixed target, not a class with a parameter

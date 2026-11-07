@@ -509,7 +509,7 @@ def test_renderer_video_is_a_runtime_only_class_whose_default_is_ffmpeg():
     assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"
     assert got["path"] == str(REPO / "providers" / "renderer" / "ffmpeg.py")
     assert "renderer:video" not in resolve.LISTED   # VD2: no skill requires it, so contracts/environment.md does not list it
-    assert resolve.implementations("renderer:video", env={}) == ["ffmpeg"]   # the underscore modules and hyperframes-image/ are not implementations
+    assert resolve.implementations("renderer:video", env={}) == ["ffmpeg", "hyperframes"]   # the underscore modules and hyperframes-image/ are not implementations
 
 
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------

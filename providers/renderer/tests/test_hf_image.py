@@ -490,3 +490,38 @@ def test_selfcheck_reads_an_answer_printed_on_stderr():
     answers["hyperframes telemetry"] = (0, "", "Status: disabled, Source: HYPERFRAMES_NO_TELEMETRY\n")
     answers["hyperframes --version"] = (0, "", "hyperframes 0.9.19\n")
     assert hf.selfcheck(IMAGE, run=fake_run(answers, []), jobs=1)["ok"] is True
+
+
+# --- build_image, the seam of the provider's build record (V3a-2), and the inner entry in the definition -------------------------------------
+
+def test_build_image_runs_exactly_the_build_command_and_returns_the_four_keys_of_the_record(monkeypatch):
+    seen = []
+    monkeypatch.setattr(hf, "image_id", lambda tag: "sha256:" + "a" * 64)
+    done = hf.build_image("arm64", run=lambda command: seen.append(command) or subprocess.CompletedProcess(command, 0, None, b""))
+    assert seen == [hf.build_command("arm64")]
+    assert done == {"image_id": "sha256:" + "a" * 64, "tag": hf.image_tag(), "definition": hf.definition_hash(), "arch": "arm64"}
+
+
+def test_build_image_refuses_a_failed_build_with_the_tail_of_its_stderr_and_a_build_that_cannot_start(monkeypatch):
+    monkeypatch.setattr(hf, "image_id", lambda tag: pytest.fail("the image was asked for after a failed build"))
+    with pytest.raises(hf.ProviderError, match="step 7: sha256_differs_from_pin"):
+        hf.build_image("amd64", run=lambda command: subprocess.CompletedProcess(command, 1, None, b"step 7: sha256_differs_from_pin"))
+
+    def cannot_start(command):
+        raise OSError("no docker")
+
+    with pytest.raises(hf.ProviderError, match="did not run"):
+        hf.build_image("amd64", run=cannot_start)
+    with pytest.raises(hf.ProviderError) as unpinned:
+        hf.build_image("riscv", run=lambda command: pytest.fail("a build was started for an architecture that is not pinned"))
+    assert unpinned.value.code == hf.EXIT_NOT_CONFIGURED
+
+
+def test_the_inner_entry_is_in_the_definition_the_build_context_and_the_dockerfile_after_the_purge():
+    assert "hf_render.py" in hf.manifest_files() and "!hf_render.py" in (FOLDER / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    steps = instructions((FOLDER / "Dockerfile").read_text(encoding="utf-8"))
+    last_run = max(i for i, s in enumerate(steps) if s.startswith("RUN "))
+    copy = steps.index("COPY hf_render.py /opt/hf-run/hf_render.py")
+    assert copy > last_run and not any(s.startswith("RUN ") for s in steps[copy:])
+    first_label = next(i for i, s in enumerate(steps) if s.startswith("LABEL "))
+    assert copy < first_label

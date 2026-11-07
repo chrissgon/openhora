@@ -117,6 +117,9 @@ RUN dpkg --purge --force-depends fonts-dejavu-core \
     && printf '%s\n' /opt/fonts/inter-500.woff2 /opt/fonts/inter-800.woff2 /opt/fonts/jetbrains-mono-500.woff2 > /opt/hf-build/font-files.expected \
     && diff /opt/hf-build/font-files.expected /opt/hf-build/font-files.txt
 
+# The inner entry of the provider (V3a-2): copied after the purge, so no RUN follows it.
+COPY hf_render.py /opt/hf-run/hf_render.py
+
 LABEL org.openhora.component="renderer-hyperframes" \
       org.openhora.definition="${DEFINITION_HASH}" \
       org.openhora.base="node:22.23.4-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d" \
