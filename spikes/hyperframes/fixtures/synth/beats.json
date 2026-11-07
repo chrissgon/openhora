@@ -1,0 +1,95 @@
+{
+ "schema_version": 1,
+ "threshold": 0.6,
+ "overlays": [
+  {
+   "id": "b1",
+   "beat": 1,
+   "preset": "number",
+   "params": {
+    "value": "50",
+    "label": "pessoas j\u00e1 experimentaram"
+   },
+   "word_from": 7,
+   "word_to": 13,
+   "score": 1.0
+  },
+  {
+   "id": "b2",
+   "beat": 2,
+   "preset": "keyword",
+   "params": {
+    "text": "Tr\u00eas li\u00e7\u00f5es simples"
+   },
+   "word_from": 14,
+   "word_to": 20,
+   "score": 1.0
+  },
+  {
+   "id": "b3",
+   "beat": 3,
+   "preset": "quote",
+   "params": {
+    "text": "A pressa \u00e9 inimiga da perfei\u00e7\u00e3o",
+    "author": "Aurora Lima"
+   },
+   "word_from": 21,
+   "word_to": 27,
+   "score": 1.0
+  },
+  {
+   "id": "b4",
+   "beat": 4,
+   "preset": "number",
+   "params": {
+    "value": "1.250",
+    "label": "li\u00e7\u00f5es aprendidas"
+   },
+   "word_from": 28,
+   "word_to": 34,
+   "score": 1.0
+  }
+ ],
+ "layouts": [],
+ "slots": [],
+ "report": [
+  {
+   "beat": 1,
+   "preset": "number",
+   "score": 1.0,
+   "matched": true,
+   "reordered": false,
+   "word_from": 7,
+   "word_to": 13
+  },
+  {
+   "beat": 2,
+   "preset": "keyword",
+   "score": 1.0,
+   "matched": true,
+   "reordered": false,
+   "word_from": 14,
+   "word_to": 20
+  },
+  {
+   "beat": 3,
+   "preset": "quote",
+   "score": 1.0,
+   "matched": true,
+   "reordered": false,
+   "word_from": 21,
+   "word_to": 27
+  },
+  {
+   "beat": 4,
+   "preset": "number",
+   "score": 1.0,
+   "matched": true,
+   "reordered": false,
+   "word_from": 28,
+   "word_to": 34
+  }
+ ],
+ "unmatched": [],
+ "fallbacks": []
+}

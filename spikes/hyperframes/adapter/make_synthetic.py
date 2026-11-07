@@ -1,5 +1,5 @@
 """A fictional test case for the spike, made inside the container: a test-pattern video with spoken-looking bursts of tone, a transcript with
-invented words, the analysis and the base edit list written by OUR renderer code (read-only copy), and beats that use the four overlays.
+invented words, the analysis and the base edit list written by OUR renderer code (read-only copy), and beats that use the three cards S2 ports (number, keyword, quote). The words are Portuguese (pt-BR) and invented; they carry the accented letters of Portuguese (written as \\u escapes in this file).
 
   python3 make_synthetic.py --renderer-src /renderer --vocabulary video-presets.json --out /work/synth
 
@@ -14,11 +14,11 @@ import subprocess
 import sys
 
 SENTENCES = [
-    (0.4, 2.3, "Every project starts with one small step"),
-    (3.2, 5.4, "Within ten days fifty people tried it"),
-    (6.4, 8.9, "The question is simple: what changes tomorrow?"),
-    (9.9, 12.9, "First understand, then build, then measure"),
-    (13.9, 16.6, "Aurora said: haste fools the eye"),
+    (0.4, 2.6, "N\u00e3o \u00e9 s\u00f3 uma quest\u00e3o de cora\u00e7\u00e3o"),
+    (3.2, 5.8, "Em dez dias cinquenta pessoas j\u00e1 experimentaram"),
+    (6.4, 9.2, "Tr\u00eas li\u00e7\u00f5es simples mudam a situa\u00e7\u00e3o amanh\u00e3?"),
+    (9.9, 13.2, "No in\u00edcio, o p\u00fablico \u00e9 quem decide"),
+    (13.9, 16.8, "Aurora disse: voc\u00ea j\u00e1 est\u00e1 a caminho"),
 ]
 DURATION = 18.0
 
@@ -48,7 +48,7 @@ def main() -> int:
     os.makedirs(out, exist_ok=True)
     words, segs = words_of(SENTENCES)
     with open(os.path.join(out, "transcript.json"), "w", encoding="utf-8") as fh:
-        json.dump({"schema_version": 1, "language": "en", "duration": DURATION, "words": words, "segments": segs, "facts": {}}, fh, ensure_ascii=False, indent=1)
+        json.dump({"schema_version": 1, "language": "pt", "duration": DURATION, "words": words, "segments": segs, "facts": {}}, fh, ensure_ascii=False, indent=1)
     # picture: a colourful test pattern (so a wrong frame is visible); sound: a tone that is on while a sentence is spoken
     gate = "+".join("between(t\\,%.3f\\,%.3f)" % (a - 0.05, b + 0.05) for a, b, _ in SENTENCES)
     expr = "0.3*sin(2*PI*220*t)*(%s)" % gate
@@ -68,11 +68,10 @@ def main() -> int:
     first = {s["index"]: s["first_word"] for s in segs}
     last = {s["index"]: s["last_word"] for s in segs}
     overlays = [
-        {"id": "b1", "beat": 1, "preset": "keyword", "params": {"text": "First step"}, "word_from": first[0], "word_to": last[0], "score": 1.0},
-        {"id": "b2", "beat": 2, "preset": "number", "params": {"value": "50", "label": "people tried it"}, "word_from": first[1], "word_to": last[1], "score": 1.0},
-        {"id": "b3", "beat": 3, "preset": "keyword", "params": {"text": "What changes tomorrow?"}, "word_from": first[2], "word_to": last[2], "score": 1.0},
-        {"id": "b4", "beat": 4, "preset": "list", "params": {"items": "Understand | Build | Measure"}, "word_from": first[3], "word_to": last[3], "score": 1.0},
-        {"id": "b5", "beat": 5, "preset": "quote", "params": {"text": "Haste fools the eye", "author": "Aurora Lima"}, "word_from": first[4], "word_to": last[4], "score": 1.0},
+        {"id": "b1", "beat": 1, "preset": "number", "params": {"value": "50", "label": "pessoas j\u00e1 experimentaram"}, "word_from": first[1], "word_to": last[1], "score": 1.0},
+        {"id": "b2", "beat": 2, "preset": "keyword", "params": {"text": "Tr\u00eas li\u00e7\u00f5es simples"}, "word_from": first[2], "word_to": last[2], "score": 1.0},
+        {"id": "b3", "beat": 3, "preset": "quote", "params": {"text": "A pressa \u00e9 inimiga da perfei\u00e7\u00e3o", "author": "Aurora Lima"}, "word_from": first[3], "word_to": last[3], "score": 1.0},
+        {"id": "b4", "beat": 4, "preset": "number", "params": {"value": "1.250", "label": "li\u00e7\u00f5es aprendidas"}, "word_from": first[4], "word_to": last[4], "score": 1.0},
     ]
     beats = {"schema_version": 1, "threshold": 0.6, "overlays": overlays, "layouts": [], "slots": [],
              "report": [{"beat": o["beat"], "preset": o["preset"], "score": 1.0, "matched": True, "reordered": False, "word_from": o["word_from"], "word_to": o["word_to"]}

@@ -1,0 +1,330 @@
+{
+ "schema_version": 1,
+ "language": "pt",
+ "duration": 18.0,
+ "words": [
+  {
+   "index": 0,
+   "text": "N\u00e3o",
+   "start": 0.4,
+   "end": 0.654,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 1,
+   "text": "\u00e9",
+   "start": 0.654,
+   "end": 0.823,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 2,
+   "text": "s\u00f3",
+   "start": 0.823,
+   "end": 0.992,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 3,
+   "text": "uma",
+   "start": 0.992,
+   "end": 1.246,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 4,
+   "text": "quest\u00e3o",
+   "start": 1.246,
+   "end": 1.838,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 5,
+   "text": "de",
+   "start": 1.838,
+   "end": 2.008,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 6,
+   "text": "cora\u00e7\u00e3o",
+   "start": 2.008,
+   "end": 2.6,
+   "segment": 0,
+   "probability": 0.99
+  },
+  {
+   "index": 7,
+   "text": "Em",
+   "start": 3.2,
+   "end": 3.327,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 8,
+   "text": "dez",
+   "start": 3.327,
+   "end": 3.517,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 9,
+   "text": "dias",
+   "start": 3.517,
+   "end": 3.771,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 10,
+   "text": "cinquenta",
+   "start": 3.771,
+   "end": 4.341,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 11,
+   "text": "pessoas",
+   "start": 4.341,
+   "end": 4.785,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 12,
+   "text": "j\u00e1",
+   "start": 4.785,
+   "end": 4.912,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 13,
+   "text": "experimentaram",
+   "start": 4.912,
+   "end": 5.8,
+   "segment": 1,
+   "probability": 0.99
+  },
+  {
+   "index": 14,
+   "text": "Tr\u00eas",
+   "start": 6.4,
+   "end": 6.687,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 15,
+   "text": "li\u00e7\u00f5es",
+   "start": 6.687,
+   "end": 7.118,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 16,
+   "text": "simples",
+   "start": 7.118,
+   "end": 7.621,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 17,
+   "text": "mudam",
+   "start": 7.621,
+   "end": 7.979,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 18,
+   "text": "a",
+   "start": 7.979,
+   "end": 8.123,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 19,
+   "text": "situa\u00e7\u00e3o",
+   "start": 8.123,
+   "end": 8.697,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 20,
+   "text": "amanh\u00e3?",
+   "start": 8.697,
+   "end": 9.2,
+   "segment": 2,
+   "probability": 0.99
+  },
+  {
+   "index": 21,
+   "text": "No",
+   "start": 9.9,
+   "end": 10.12,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 22,
+   "text": "in\u00edcio,",
+   "start": 10.12,
+   "end": 10.89,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 23,
+   "text": "o",
+   "start": 10.89,
+   "end": 11.11,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 24,
+   "text": "p\u00fablico",
+   "start": 11.11,
+   "end": 11.88,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 25,
+   "text": "\u00e9",
+   "start": 11.88,
+   "end": 12.1,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 26,
+   "text": "quem",
+   "start": 12.1,
+   "end": 12.54,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 27,
+   "text": "decide",
+   "start": 12.54,
+   "end": 13.2,
+   "segment": 3,
+   "probability": 0.99
+  },
+  {
+   "index": 28,
+   "text": "Aurora",
+   "start": 13.9,
+   "end": 14.461,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 29,
+   "text": "disse:",
+   "start": 14.461,
+   "end": 15.023,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 30,
+   "text": "voc\u00ea",
+   "start": 15.023,
+   "end": 15.397,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 31,
+   "text": "j\u00e1",
+   "start": 15.397,
+   "end": 15.584,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 32,
+   "text": "est\u00e1",
+   "start": 15.584,
+   "end": 15.958,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 33,
+   "text": "a",
+   "start": 15.958,
+   "end": 16.145,
+   "segment": 4,
+   "probability": 0.99
+  },
+  {
+   "index": 34,
+   "text": "caminho",
+   "start": 16.145,
+   "end": 16.8,
+   "segment": 4,
+   "probability": 0.99
+  }
+ ],
+ "segments": [
+  {
+   "index": 0,
+   "start": 0.4,
+   "end": 2.6,
+   "text": "N\u00e3o \u00e9 s\u00f3 uma quest\u00e3o de cora\u00e7\u00e3o",
+   "first_word": 0,
+   "last_word": 6
+  },
+  {
+   "index": 1,
+   "start": 3.2,
+   "end": 5.8,
+   "text": "Em dez dias cinquenta pessoas j\u00e1 experimentaram",
+   "first_word": 7,
+   "last_word": 13
+  },
+  {
+   "index": 2,
+   "start": 6.4,
+   "end": 9.2,
+   "text": "Tr\u00eas li\u00e7\u00f5es simples mudam a situa\u00e7\u00e3o amanh\u00e3?",
+   "first_word": 14,
+   "last_word": 20
+  },
+  {
+   "index": 3,
+   "start": 9.9,
+   "end": 13.2,
+   "text": "No in\u00edcio, o p\u00fablico \u00e9 quem decide",
+   "first_word": 21,
+   "last_word": 27
+  },
+  {
+   "index": 4,
+   "start": 13.9,
+   "end": 16.8,
+   "text": "Aurora disse: voc\u00ea j\u00e1 est\u00e1 a caminho",
+   "first_word": 28,
+   "last_word": 34
+  }
+ ],
+ "facts": {}
+}

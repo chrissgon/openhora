@@ -1,0 +1,353 @@
+{
+ "schema_version": 2,
+ "fps": 30,
+ "size": [
+  1080,
+  1920
+ ],
+ "source": {
+  "sha256": "5f5ea80d4afadcc2a2e5d1c536537f1b54e9847ef0ea7569cd9fe993dd316e7e",
+  "duration": 18.0,
+  "width": 1080,
+  "height": 1920,
+  "has_audio": true,
+  "color_matrix": "bt709"
+ },
+ "kept": [
+  [
+   7,
+   84
+  ],
+  [
+   91,
+   180
+  ],
+  [
+   187,
+   282
+  ],
+  [
+   292,
+   402
+  ],
+  [
+   412,
+   510
+  ]
+ ],
+ "out_frames": 469,
+ "words": [
+  {
+   "index": 0,
+   "text": "N\u00e3o",
+   "start": 0.167,
+   "end": 0.421
+  },
+  {
+   "index": 1,
+   "text": "\u00e9",
+   "start": 0.421,
+   "end": 0.59
+  },
+  {
+   "index": 2,
+   "text": "s\u00f3",
+   "start": 0.59,
+   "end": 0.759
+  },
+  {
+   "index": 3,
+   "text": "uma",
+   "start": 0.759,
+   "end": 1.013
+  },
+  {
+   "index": 4,
+   "text": "quest\u00e3o",
+   "start": 1.013,
+   "end": 1.605
+  },
+  {
+   "index": 5,
+   "text": "de",
+   "start": 1.605,
+   "end": 1.775
+  },
+  {
+   "index": 6,
+   "text": "cora\u00e7\u00e3o",
+   "start": 1.775,
+   "end": 2.367
+  },
+  {
+   "index": 7,
+   "text": "Em",
+   "start": 2.733,
+   "end": 2.86
+  },
+  {
+   "index": 8,
+   "text": "dez",
+   "start": 2.86,
+   "end": 3.05
+  },
+  {
+   "index": 9,
+   "text": "dias",
+   "start": 3.05,
+   "end": 3.304
+  },
+  {
+   "index": 10,
+   "text": "cinquenta",
+   "start": 3.304,
+   "end": 3.874
+  },
+  {
+   "index": 11,
+   "text": "pessoas",
+   "start": 3.874,
+   "end": 4.318
+  },
+  {
+   "index": 12,
+   "text": "j\u00e1",
+   "start": 4.318,
+   "end": 4.445
+  },
+  {
+   "index": 13,
+   "text": "experimentaram",
+   "start": 4.445,
+   "end": 5.333
+  },
+  {
+   "index": 14,
+   "text": "Tr\u00eas",
+   "start": 5.7,
+   "end": 5.987
+  },
+  {
+   "index": 15,
+   "text": "li\u00e7\u00f5es",
+   "start": 5.987,
+   "end": 6.418
+  },
+  {
+   "index": 16,
+   "text": "simples",
+   "start": 6.418,
+   "end": 6.921
+  },
+  {
+   "index": 17,
+   "text": "mudam",
+   "start": 6.921,
+   "end": 7.279
+  },
+  {
+   "index": 18,
+   "text": "a",
+   "start": 7.279,
+   "end": 7.423
+  },
+  {
+   "index": 19,
+   "text": "situa\u00e7\u00e3o",
+   "start": 7.423,
+   "end": 7.997
+  },
+  {
+   "index": 20,
+   "text": "amanh\u00e3?",
+   "start": 7.997,
+   "end": 8.5
+  },
+  {
+   "index": 21,
+   "text": "No",
+   "start": 8.867,
+   "end": 9.087
+  },
+  {
+   "index": 22,
+   "text": "in\u00edcio,",
+   "start": 9.087,
+   "end": 9.857
+  },
+  {
+   "index": 23,
+   "text": "o",
+   "start": 9.857,
+   "end": 10.077
+  },
+  {
+   "index": 24,
+   "text": "p\u00fablico",
+   "start": 10.077,
+   "end": 10.847
+  },
+  {
+   "index": 25,
+   "text": "\u00e9",
+   "start": 10.847,
+   "end": 11.067
+  },
+  {
+   "index": 26,
+   "text": "quem",
+   "start": 11.067,
+   "end": 11.507
+  },
+  {
+   "index": 27,
+   "text": "decide",
+   "start": 11.507,
+   "end": 12.167
+  },
+  {
+   "index": 28,
+   "text": "Aurora",
+   "start": 12.533,
+   "end": 13.094
+  },
+  {
+   "index": 29,
+   "text": "disse:",
+   "start": 13.094,
+   "end": 13.656
+  },
+  {
+   "index": 30,
+   "text": "voc\u00ea",
+   "start": 13.656,
+   "end": 14.03
+  },
+  {
+   "index": 31,
+   "text": "j\u00e1",
+   "start": 14.03,
+   "end": 14.217
+  },
+  {
+   "index": 32,
+   "text": "est\u00e1",
+   "start": 14.217,
+   "end": 14.591
+  },
+  {
+   "index": 33,
+   "text": "a",
+   "start": 14.591,
+   "end": 14.778
+  },
+  {
+   "index": 34,
+   "text": "caminho",
+   "start": 14.778,
+   "end": 15.433
+  }
+ ],
+ "captions": {
+  "position": "bottom",
+  "chunks": [
+   [
+    0,
+    2
+   ],
+   [
+    3,
+    5
+   ],
+   [
+    6,
+    8
+   ],
+   [
+    9,
+    11
+   ],
+   [
+    12,
+    14
+   ],
+   [
+    15,
+    17
+   ],
+   [
+    18,
+    20
+   ],
+   [
+    21,
+    23
+   ],
+   [
+    24,
+    26
+   ],
+   [
+    27,
+    29
+   ],
+   [
+    30,
+    32
+   ],
+   [
+    33,
+    34
+   ]
+  ]
+ },
+ "theme": {
+  "colors": {
+   "bg": "#000000",
+   "text": "#FFFFFF",
+   "muted": "#A8B0BC",
+   "accent": "#07B6F0",
+   "chip_fill": "#011B24",
+   "chip_text": "#FFE08A",
+   "chip_border": "#FFC93C"
+  },
+  "fonts": {
+   "display": {
+    "id": "inter-800",
+    "weight": 800
+   },
+   "text": {
+    "id": "inter-500",
+    "weight": 500
+   },
+   "mono": {
+    "id": "jetbrains-mono-500",
+    "weight": 500
+   }
+  }
+ },
+ "normalisation": {
+  "words": 35,
+  "dropped_words": 0,
+  "dropped_segments": [],
+  "zero_length_words": 0,
+  "spread_runs": 0,
+  "estimated_words": 0,
+  "clamped_starts": 0,
+  "retimed_words": [],
+  "unplaced_words": []
+ },
+ "face_box": {
+  "x": 270,
+  "y": 520,
+  "w": 540,
+  "h": 560
+ },
+ "zoom": {
+  "mode": "alternate",
+  "factor": 1.1,
+  "push_in": 0.02,
+  "anchor_y": 0.25
+ },
+ "proposals": []
+}
