@@ -1,6 +1,6 @@
 {
  "version": 1,
- "note": "What the renderer decides about the closed vocabulary shared/references/video-presets.json: the frame, the default colours, the timing of each preset and the limits. The vocabulary (names, parameters, bounds) is read from that file by flag; nothing here repeats it. A test holds the presets, their templates and the parameters the templates read equal to the vocabulary.",
+ "note": "What the renderer decides about the closed vocabulary shared/references/video-presets.json: the frame, the default colours, the timing of each preset and the limits. The vocabulary (names, parameters, bounds) is read from that file by flag; nothing here repeats it. A test holds the presets, the blocks that draw them (blocks/engines/ffmpeg.json) and the parameters each block's page reads equal to the vocabulary.",
  "frame": {
   "width": 1080,
   "height": 1920,
@@ -44,7 +44,6 @@
   }
  },
  "caption": {
-  "template": "caption.html",
   "positions": [
    "bottom",
    "center"
@@ -72,7 +71,6 @@
  },
  "presets": {
   "keyword": {
-   "template": "keyword.html",
    "anchor": "match_text",
    "min_duration": 1.0,
    "max_duration": 1.8,
@@ -81,7 +79,6 @@
    "looks": {}
   },
   "list": {
-   "template": "list.html",
    "anchor": "window",
    "min_duration": 2.0,
    "max_duration": 8.0,
@@ -90,7 +87,6 @@
    "looks": {}
   },
   "number": {
-   "template": "number.html",
    "anchor": "window",
    "min_duration": 2.0,
    "max_duration": 6.0,
@@ -99,7 +95,6 @@
    "looks": {}
   },
   "quote": {
-   "template": "quote.html",
    "anchor": "window",
    "min_duration": 2.0,
    "max_duration": 7.0,
@@ -108,7 +103,6 @@
    "looks": {}
   },
   "cutaway": {
-   "template": "cutaway.html",
    "anchor": "window",
    "min_duration": 1.5,
    "max_duration": null,
@@ -120,7 +114,6 @@
    }
   },
   "pip": {
-   "template": "pip.html",
    "anchor": "window",
    "min_duration": 1.5,
    "max_duration": null,

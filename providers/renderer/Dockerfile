@@ -14,13 +14,14 @@
 # /opt/renderer/versions.json (what `_inner.py selfcheck` printed at build time: ffmpeg, python, the browser); the host's `--check` runs `_inner.py selfcheck` and prints them.
 #
 # What the image holds: ffmpeg (with ffprobe), python3, a minimal free font (DejaVu), the pinned headless shell, and the renderer's
-# own modules, templates and data. No compiler, no shell history, a non-root user. At run time the host starts it with no network, a
+# own modules and data (the blocks a render draws are not
+# in the image: each job stages them read-only). No compiler, no shell history, a non-root user. At run time the host starts it with no network, a
 # read-only root file system, every capability dropped and no environment (see _docker.py, "The container").
 #
 # The browser's sandbox. Chrome's own sandbox needs user namespaces, which `--cap-drop ALL` and `no-new-privileges` (and Docker's
 # default seccomp profile) take away, so the headless shell runs with --no-sandbox INSIDE this image only, and the container is the
 # boundary instead: no network, a read-only root, no capability, a non-root user, a pids/memory/cpu limit, only normalised image
-# assets and the pinned templates reach the page, every page request is answered from memory or failed, and a content security
+# assets and the pinned blocks reach the page, every page request is answered from memory or failed, and a content security
 # policy is set. _cdp.container_mode() turns it on only where this file's marker exists and RENDERER_IN_CONTAINER is 1; on the host
 # the sandbox is on and there is no retry. The render's result says which (`browser_sandbox`).
 

@@ -1,0 +1,36 @@
+{
+ "schema_version": 1,
+ "name": "oh:list",
+ "kind": "overlay",
+ "preset": "list",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the speaker names two to four steps or items in a row",
+ "params": {
+  "items": {
+   "type": "text",
+   "max": 30,
+   "max_items": 4,
+   "required": true
+  },
+  "icon": {
+   "type": "icon"
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "items": "Review | Adjust | Celebrate"
+  }
+ ],
+ "natural_duration": 2.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

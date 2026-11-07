@@ -1,0 +1,21 @@
+{
+ "schema_version": 1,
+ "name": "oh:caption",
+ "kind": "caption",
+ "preset": "caption",
+ "band": "caption",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "always on: the spoken words, one to three at a time, in the band under the face",
+ "params": {},
+ "samples": [
+  {}
+ ],
+ "natural_duration": null,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

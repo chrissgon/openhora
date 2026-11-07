@@ -32,7 +32,7 @@ class World:
             # The container's self-check needs ffmpeg and a browser; the host side under test needs neither, so a machine without them
             # (a CI runner) is given the answer the image would give.
             self.cfg["selfcheck"] = {"ok": True, "ffmpeg": "ffmpeg version fake", "ffprobe": "ffprobe version fake", "missing": [], "python": "3.11.2",
-                                     "browser": "HeadlessChrome/fake", "libass": True, "container": False, "templates": ["caption.html"]}
+                                     "browser": "HeadlessChrome/fake", "libass": True, "container": False}
         self.cfg.update(cfg)
         if image:
             self.install_image()

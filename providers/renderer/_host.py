@@ -3,7 +3,7 @@
 limits, and the verbs that need no browser: analyse, base, align, check, cover, still and verify.
 
 Not a provider (a file whose name starts with an underscore is not an implementation); `ffmpeg.py` imports it and keeps only the verbs
-that draw (render, storyboard, pin-templates), `build`, `pin-browser`, `reap` and `--check`. A second engine imports `add_common_parsers`
+that draw (render, storyboard, pin-blocks, block-params), `build`, `pin-browser`, `reap` and `--check`. A second engine imports `add_common_parsers`
 and `COMMON_HANDLERS` and gets the same verbs, run the same way, in a container of its own image. This file is not in the image
 (`_docker.HOST_ONLY`). The verbs are the ones the branch had, moved without a change; `verify` is new as a host verb. Standard library
 only.
@@ -20,12 +20,13 @@ import time
 import uuid
 
 import _assets
+import _blocks
 import _docker as D
 import _media
 import _output
 from _browser import NotConfigured
 from _text import Refusal
-from _vocab import load_data
+from _vocab import load_data, load_vocabulary
 
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
@@ -307,6 +308,43 @@ def verb_verify(args) -> dict:
 COMMON_HANDLERS = {"analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "cover": verb_cover,
                    "still": verb_still, "verify": verb_verify}
 COMMON_VERBS = tuple(COMMON_HANDLERS)
+
+
+# ---------------------------------------------------------------- the blocks of a job
+
+def stage_blocks(job, blocks_dir=None) -> list:
+    """G9: copy blocks/pins.json and every file it pins into the job's read-only folder, then load the catalogue from that copy (every
+    hash checked there, never on the live folder) and return the container's flags with the sha256 of the copied pins.json."""
+    src = blocks_dir or _blocks.BLOCKS_DIR
+    job.stage("blocks/pins.json", os.path.join(src, "pins.json"), _blocks.MAX_FILE)
+    staged = os.path.join(job.in_dir, "blocks")
+    files = _blocks.read_pins(staged)[1]
+    for rel in sorted(files):
+        job.stage("blocks/" + rel, os.path.join(src, rel), _blocks.MAX_FILE)
+    digest = _blocks.load_catalogue(staged)["sha256"]
+    return ["--blocks", D.MOUNT_JOB + "/blocks", "--blocks-sha256", digest]
+
+
+def verb_block_params(args, engine: str) -> dict:
+    """The renderer-side checker (decision VD15) on the host: one block's parameters against its block.json or allowlist entry. It reads
+    no recording, transcript or post, so it starts no container. It prints the block, the engine and the parameter names, never their text;
+    a value that the checker would clean is refused (text_not_clean), as check_beats refuses it."""
+    vocab = load_vocabulary(args.vocabulary)
+    try:
+        params = json.loads(_assets.read_regular(args.params, 64 * 1024, "input_unreadable", "params").decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise Refusal("params_not_object", "params") from None
+    catalogue = _blocks.load_catalogue()
+    name = args.block
+    if not _blocks.NAME.fullmatch(name or "") or name not in catalogue["blocks"]:
+        raise Refusal("block_unknown", "block")
+    block = catalogue["blocks"][name]
+    if engine not in _blocks.engines_of(catalogue, block):
+        raise Refusal("block_not_on_engine", catalogue["engines"][engine]["presets"].get(block["preset"] or "", ""))
+    clean = _blocks.check_params(block, params, vocab, "params")
+    if clean != params:
+        raise Refusal("text_not_clean", "params")
+    return {"ok": True, "block": name, "engine": engine, "params": sorted(clean)}
 
 
 # ---------------------------------------------------------------- the flags of the common verbs

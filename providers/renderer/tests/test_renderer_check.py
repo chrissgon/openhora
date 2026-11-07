@@ -233,3 +233,15 @@ def test_the_check_verb_prints_counts_and_exits_one_on_a_refusal(tmp_path):
     K.write_json(tmp_path / "e.json", edl)
     rc, out, err = K.run_verb("check", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--vocabulary", K.VOCABULARY)
     assert rc == 1 and out["code"] == "bad_kept" and err.startswith("refused: bad_kept")
+
+
+def test_a_beat_may_name_a_block_and_a_malformed_name_is_refused():
+    edl, beats = make()
+    first = next(e for e in beats["overlays"] if e["preset"] == "keyword")
+    first["block"] = "oh:keyword"
+    _edl.check_beats(beats, edl, VOCAB)
+    for bad in ("keyword", 3, "OH:keyword", "oh:"):
+        first["block"] = bad
+        with pytest.raises(Refusal) as e:
+            _edl.check_beats(copy.deepcopy(beats), edl, VOCAB)
+        assert e.value.code == "bad_block", bad

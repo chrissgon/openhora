@@ -9,6 +9,7 @@
 !_inner.py
 !_align.py
 !_assets.py
+!_blocks.py
 !_cdp.py
 !_edl.py
 !_frames.py
@@ -23,5 +24,4 @@
 !_text.py
 !_timeline.py
 !_vocab.py
-!templates
 !assets

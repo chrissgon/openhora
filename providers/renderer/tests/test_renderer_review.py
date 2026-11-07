@@ -205,9 +205,9 @@ def test_no_card_and_no_caption_touches_the_zoomed_face_through_a_whole_render_o
     beats = {"schema_version": 1, "threshold": 0.6, "slots": [], "report": [], "unmatched": [], "fallbacks": [], "layouts": [], "overlays": overlays}
     _edl.check_beats(beats, edl, VOCAB)
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
-    names = [DATA["caption"]["template"]] + [DATA["presets"][e["preset"]]["template"] for e in timeline["beats"]]
+    names = [K.template_of("caption")] + [K.template_of(e["preset"]) for e in timeline["beats"]]
     serve, _ = _frames.load_templates(names)
-    templates = {"caption": DATA["caption"]["template"], **{n: DATA["presets"][n]["template"] for n, _ in entries}}
+    templates = {"caption": K.template_of("caption"), **{n: K.template_of(n) for n, _ in entries}}
     layers, facts = _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets={}, browser=K.BROWSER, jobs_n=3,
                                         frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path / "w"), time_limit=300, templates=templates, png_blank=_render.blank_png)
     assert layers == {"beat", "caption"} and facts["frames_rendered"] > 100
@@ -261,12 +261,12 @@ def test_the_recording_is_read_without_external_data_references():
 
 def test_what_the_host_prints_is_rebuilt_from_a_closed_schema():
     clean = D.sanitise({"ok": True, "ffmpeg": "ffmpeg 9", "ffprobe": "ffprobe 9", "missing": [], "python": "3.11", "browser": "Chrome 155", "libass": False,
-                        "container": True, "templates": ["a.html"], "extra": "ignored", "another": {"x": 1}}, D.RESULT_SCHEMAS["selfcheck"])
-    assert set(clean) == {"ok", "ffmpeg", "ffprobe", "missing", "python", "browser", "libass", "container", "templates"}
+                        "container": True, "extra": "ignored", "another": {"x": 1}}, D.RESULT_SCHEMAS["selfcheck"])
+    assert set(clean) == {"ok", "ffmpeg", "ffprobe", "missing", "python", "browser", "libass", "container"}
     bad_values = [("ffmpeg", "line\nbreak"), ("ffmpeg", "x" * 300), ("ffmpeg", "ansi\x1b[31m"), ("ffmpeg", "bidi\u202e"), ("ffmpeg", 5), ("ok", "yes"),
-                  ("missing", "not a list"), ("templates", [1]), ("libass", 1)]
+                  ("missing", "not a list"), ("libass", 1)]
     for key, value in bad_values:
-        doc = {"ok": True, "ffmpeg": "f", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False, "container": True, "templates": []}
+        doc = {"ok": True, "ffmpeg": "f", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False, "container": True}
         doc[key] = value
         assert refused(D.sanitise, doc, D.RESULT_SCHEMAS["selfcheck"]).code == "container_result_invalid", (key, value)
     nan = float("nan")
@@ -283,7 +283,7 @@ def test_problems_hold_an_integer_beat_and_closed_words_only():
 
 
 def test_a_container_result_with_hostile_text_never_reaches_the_hosts_output(world, tmp_path):
-    hostile = {"ok": True, "ffmpeg": "ffmpeg\nforged line", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False, "container": True, "templates": []}
+    hostile = {"ok": True, "ffmpeg": "ffmpeg\nforged line", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False, "container": True}
     world.cfg.update(run="files", files={"result.json": {"text": json.dumps(hostile)}}, rc=0)
     world.save()
     rc, out, err = world.host("--check")
@@ -298,7 +298,7 @@ def test_a_container_result_with_hostile_text_never_reaches_the_hosts_output(wor
 def test_the_containers_stderr_is_read_up_to_a_cap_and_never_printed(world, tmp_path, monkeypatch):
     flood = D.MAX_STDERR * 40
     world.cfg.update(run="files", files={"result.json": {"text": json.dumps({"ok": True, "ffmpeg": "f", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False,
-                                                                           "container": True, "templates": []})}}, rc=0, flood=flood,
+                                                                           "container": True})}}, rc=0, flood=flood,
                      stderr="Traceback (most recent call last):\n  File \"x.py\", line 1\nValueError: the words of the transcript\n")
     world.save()
     rc, out, err = world.host("--check", timeout=120)

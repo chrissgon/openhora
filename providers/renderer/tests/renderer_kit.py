@@ -17,8 +17,45 @@ RENDERER = HERE.parent
 REPO = RENDERER.parent.parent
 sys.path.insert(0, str(RENDERER))
 
+import hashlib  # noqa: E402
+import _blocks  # noqa: E402
 import _frames  # noqa: E402
 import _media  # noqa: E402
+
+BLOCKS = RENDERER / "blocks"
+BLOCKS_SHA256 = hashlib.sha256((BLOCKS / "pins.json").read_bytes()).hexdigest()
+
+
+def template_of(preset: str) -> str:
+    """The page the ffmpeg engine draws a preset with, as a path inside blocks/ ("oh/keyword/renderat.html")."""
+    cat = _blocks.load_catalogue(str(BLOCKS))
+    return _blocks.implementation(cat, cat["blocks"][cat["engines"]["ffmpeg"]["presets"][preset]], "ffmpeg")
+
+
+HF_ENTRY = {"name": "hf:demo-pop", "kind": "overlay", "preset": "keyword", "band": "card", "may_cross_face": False, "license": ["Apache-2.0"],
+            "source": "hyperframes-registry", "use_when": "a fictional pop for one short phrase, used by the tests only",
+            "params": {"text": {"type": "text", "max": 24, "required": True}, "scale": {"type": "number", "min": 0.5, "max": 2}},
+            "samples": [{"text": "Name every dollar", "scale": 1}], "natural_duration": 1.2, "implementations": {"gsap": "demo-pop.html"},
+            "tier": "A", "commit": "a" * 40, "notice": "Copyright 2026 Example Authors", "files": {"demo-pop.html": "b" * 64}}
+HF_PORT = {"schema_version": 1, "name": "hf:demo-ring", "kind": "overlay", "preset": "quote", "band": "card", "may_cross_face": False,
+           "license": ["Apache-2.0"], "source": "hyperframes-registry", "use_when": "a fictional ring for a quotation, used by the tests only",
+           "params": {"text": {"type": "text", "max": 120, "required": True}}, "samples": [{"text": "Small steps."}], "natural_duration": 2.0,
+           "implementations": {"gsap": "gsap.html"}, "tier": "B", "commit": "a" * 40, "notice": "Copyright 2026 Example Authors"}
+
+
+def write_hf_fixture(folder) -> None:
+    """In a copy of the blocks: a fictional tier-A hf: block (an allowlist entry), a fictional tier-B port (a folder) and an engine that runs
+    the gsap runtime only, then pin again. The code of _blocks does not change for any of it."""
+    folder = Path(folder)
+    allow = json.loads((folder / "hf" / "allowlist.json").read_text())
+    allow.update(registry_commit="a" * 40, blocks=[HF_ENTRY])
+    (folder / "hf" / "allowlist.json").write_text(json.dumps(allow, indent=1))
+    (folder / "hf" / "demo-ring").mkdir()
+    (folder / "hf" / "demo-ring" / "block.json").write_text(json.dumps(HF_PORT, indent=1))
+    (folder / "hf" / "demo-ring" / "gsap.html").write_text("<!doctype html><title>demo</title>\n")
+    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
+        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap"], "presets": {"keyword": "hf:demo-pop"}}, indent=1))
+    _blocks.write_pins(str(folder))
 
 FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"

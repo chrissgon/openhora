@@ -39,6 +39,7 @@ sys.path.insert(0, HERE)
 
 import _align  # noqa: E402
 import _assets  # noqa: E402
+import _blocks  # noqa: E402
 import _edl  # noqa: E402
 import _hf_page  # noqa: E402
 import _media  # noqa: E402
@@ -225,7 +226,8 @@ def verb_render(args) -> dict:
     return _render.render(edl_path=args.edl, beats_path=args.beats, src=args.input, out=args.out, platform_path=args.platform_file,
                           vocabulary_path=args.vocabulary, asset_files=asset_files, asset_sha256s=asset_hashes, ffmpeg=ffmpeg,
                           ffprobe=ffprobe, browser=browser, jobs=args.jobs, dry_run=args.dry_run, time_limit=args.time_limit,
-                          cover_out=args.cover_out, cover_offset_ms=args.cover_offset_ms, scratch=args.scratch)
+                          cover_out=args.cover_out, cover_offset_ms=args.cover_offset_ms, scratch=args.scratch,
+                          blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
 
 
 def verb_storyboard(args) -> dict:
@@ -256,7 +258,8 @@ def verb_storyboard(args) -> dict:
         font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
     return _preview.storyboard(rows=rows, data=data, vocab=vocab, allow=allow, colors=pairs(args.color, "--color"), font_flags=font_flags, face=face,
-                               tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch)
+                               tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch,
+                               blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
 
 
 def verb_cover(args) -> dict:
@@ -372,12 +375,11 @@ def verb_selfcheck(args) -> dict:
     missing = [e for e in REQUIRED_ENCODERS if (" %s " % e) not in enc_out]
     missing += [f for f in REQUIRED_FILTERS if not _media.has_filter(ffmpeg, f)]
     import _cdp           # the drawing part: selfcheck reports what the drawing engine holds, so it loads it here and nowhere else
-    import _frames
     path = browser_path(args)
     out = {"ok": not missing, "ffmpeg": _media.tool_version(ffmpeg), "ffprobe": _media.tool_version(ffprobe), "missing": missing,
            "python": sys.version.split()[0], "browser": _browser_version(path),
            "libass": _media.has_filter(ffmpeg, "subtitles") or _media.has_filter(ffmpeg, "ass"),
-           "container": _cdp.container_mode(), "templates": sorted(_frames.template_pins())}
+           "container": _cdp.container_mode()}
     if missing:
         raise NotConfigured("not_ready", ",".join(missing))
     return out
@@ -463,6 +465,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--cover-out")
     sp.add_argument("--cover-offset-ms", type=int)
     sp.add_argument("--scratch", help="where the frames and work files go (memory-backed in the container)")
+    sp.add_argument("--blocks", default=_blocks.BLOCKS_DIR, help="the staged blocks folder (default: the one next to this file)")
+    sp.add_argument("--blocks-sha256", help="the sha256 of the staged pins.json, computed by the host on its copy")
     sp = sub.add_parser("storyboard")
     common(sp, browser=True)
     sp.add_argument("--post")
@@ -471,6 +475,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--vocabulary", required=True)
     sp.add_argument("--out", required=True, help="the folder that gets beat-<n>.png and sheet.png")
     sp.add_argument("--scratch", help="where the work files go (memory-backed in the container)")
+    sp.add_argument("--blocks", default=_blocks.BLOCKS_DIR, help="the staged blocks folder (default: the one next to this file)")
+    sp.add_argument("--blocks-sha256", help="the sha256 of the staged pins.json, computed by the host on its copy")
     sp.add_argument("--jobs", type=int, default=3)
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920); the default face box otherwise")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")

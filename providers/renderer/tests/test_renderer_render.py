@@ -2,6 +2,7 @@
 cut, drawn over and composed, and every hard limit of the render has a test. Skipped with a reason where ffmpeg or Chromium is absent."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -196,11 +197,11 @@ def test_every_frame_the_browser_writes_is_rgba_so_ffmpeg_never_reconfigures_its
              "report": [], "unmatched": [], "fallbacks": [], "overlays": [],
              "layouts": [{"id": "b1", "beat": 1, "preset": "cutaway", "params": {"asset": "beat1"}, "word_from": 0, "word_to": 5, "score": 1.0}]}
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
-    serve, _ = _frames.load_templates(["cutaway.html", "caption.html"])
+    serve, _ = _frames.load_templates(["oh/cutaway/renderat.html", "oh/caption/renderat.html"])
     serve.update({"/assets/beat1.png": (assets["beat1"]["data"], "image/png")})
     frames = tmp_path / "frames"
     _frames.draw_frames(data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets=assets, browser=K.BROWSER, jobs_n=2, frames_dir=str(frames),
-                        workdir=str(tmp_path / "w"), time_limit=120, templates={"caption": "caption.html", "cutaway": "cutaway.html"}, png_blank=_render.blank_png)
+                        workdir=str(tmp_path / "w"), time_limit=120, templates={"caption": "oh/caption/renderat.html", "cutaway": "oh/cutaway/renderat.html"}, png_blank=_render.blank_png)
     kinds = {open(frames / n, "rb").read(30)[25] for n in os.listdir(frames) if n.endswith(".png")}
     assert kinds == {6}                                                  # colour type 6: RGBA, the cutaway's opaque frames included
 
@@ -339,3 +340,31 @@ def test_a_browser_that_does_not_start_is_a_browser_failure_that_says_why_in_one
     reasons = [line for line in err.splitlines() if line.startswith("  reason: ")]
     assert len(reasons) == 1 and "cannot open display" in reasons[0] and "ghp_" not in reasons[0] and len(reasons[0]) < 260, err
     assert not list(out.glob("render-*"))
+
+
+@needs_all
+def test_a_beat_that_names_a_block_the_engine_cannot_draw_is_refused_before_any_frame(short, tmp_path):
+    folder = tmp_path / "b"
+    shutil.copytree(K.BLOCKS, folder)
+    K.write_hf_fixture(folder)
+    pins = hashlib.sha256((folder / "pins.json").read_bytes()).hexdigest()
+
+    def render_with(block, *more):
+        doc = json.load(open(short["beats"], encoding="utf-8"))
+        first = doc["overlays"][0]
+        assert first["preset"] == "keyword"
+        first["block"] = block
+        beats = tmp_path / ("beats-%s.json" % block.replace(":", "-"))
+        beats.write_text(json.dumps(doc))
+        files = dict(short, beats=beats)
+        return K.run_verb(*K.render_args(files, tmp_path / "never", "--dry-run", *more, slots=short["slots"]))
+
+    rc, out, err = render_with("hf:demo-pop", "--blocks", folder, "--blocks-sha256", pins)
+    assert rc == 1 and err.startswith("refused: block_not_on_engine oh:keyword"), err
+    rc, out, err = render_with("oh:list")
+    assert rc == 1 and err.startswith("refused: block_preset_mismatch"), err
+    rc, out, err = render_with("oh:keyword")
+    assert rc == 0 and "oh:keyword" in out["blocks"] and out["blocks_sha256"] == K.BLOCKS_SHA256, err
+    assert out["beats_drawn"][0]["block"] == "oh:keyword" and not (tmp_path / "never").exists()
+    rc, out, err = render_with("oh:keyword", "--blocks-sha256", "0" * 64)
+    assert rc == 1 and err.startswith("refused: blocks_changed"), err

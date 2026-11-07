@@ -173,21 +173,24 @@ def test_a_missing_stale_or_swapped_image_is_not_configured_and_no_container_sta
     assert world.runs() == []
 
 
-def test_the_definition_covers_the_modules_templates_fonts_and_data_and_not_the_host_side_or_the_tests():
+def test_the_definition_covers_the_modules_fonts_and_data_and_not_the_blocks_the_host_side_or_the_tests():
     files = D.definition_files()
-    assert {"Dockerfile", ".dockerignore", "_inner.py", "_render.py", "_cdp.py", "_fetch_browser.py", "templates/keyword.html", "templates/pins.json",
+    assert {"Dockerfile", ".dockerignore", "_inner.py", "_render.py", "_cdp.py", "_fetch_browser.py", "_blocks.py",
             "assets/fonts/allowlist.json", "browser-pin.json", "renderer-presets.json"} <= set(files)
     assert not any(f in files for f in ("ffmpeg.py", "_docker.py", "_browser.py", "README.md")) and not any(f.startswith("tests/") for f in files)
+    assert not any(f.startswith(("blocks/", "templates/")) for f in files)
 
 
-def test_changing_a_template_or_a_module_changes_the_image_tag(tmp_path):
+def test_changing_a_module_changes_the_image_tag_and_changing_a_block_does_not(tmp_path):
     copy = tmp_path / "r"
     import shutil
     shutil.copytree(K.RENDERER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
     before = D.image_tag(str(copy))
-    (copy / "templates" / "list.html").write_text((copy / "templates" / "list.html").read_text() + " ")
+    (copy / "_blocks.py").write_text((copy / "_blocks.py").read_text() + "\n# x\n")
     assert D.image_tag(str(copy)) != before
     middle = D.image_tag(str(copy))
+    (copy / "blocks" / "oh" / "list" / "renderat.html").write_text((copy / "blocks" / "oh" / "list" / "renderat.html").read_text() + " ")
+    assert D.image_tag(str(copy)) == middle                                                # a block is staged per job, not in the image
     (copy / "_media.py").write_text((copy / "_media.py").read_text() + "\n# x\n")
     assert D.image_tag(str(copy)) != middle
     last = D.image_tag(str(copy))
@@ -274,7 +277,7 @@ def test_the_dockerfile_pins_what_it_says_it_pins():
     assert "org.openhora.definition" in text and "RENDERER_IN_CONTAINER=1" in text and "/etc/openhora-renderer-image" in text
     assert "--no-sandbox" not in text.replace("with --no-sandbox INSIDE", "")            # the flag lives in the driver, not in the image definition
     ignore = (K.RENDERER / ".dockerignore").read_text().split("\n")
-    assert ignore[0] == "*" and "!templates" in ignore and "!assets" in ignore and "tests" not in "".join(ignore).replace("!", "")
+    assert ignore[0] == "*" and "!templates" not in ignore and "!blocks" not in ignore and "!assets" in ignore and "tests" not in "".join(ignore).replace("!", "")
     sha = lambda f: f in text
     assert sha("ca-certificates") and not any(x in text for x in ("curl ", "wget ", "git clone", "apt-get upgrade"))
 
@@ -457,9 +460,38 @@ def test_the_whole_host_side_end_to_end_with_the_entry_point_run_by_the_fake_doc
     assert (tmp_path / "cover.png").read_bytes()[:4] == b"\x89PNG"
     run = world.runs()[before]["argv"]
     assert run[run.index("--network") + 1] == "none" and [run[i + 1] for i, a in enumerate(run) if a == "-v"][0] == "%s:/in/recording:ro" % src
+    assert run[run.index("--blocks-sha256") + 1] == K.BLOCKS_SHA256 == out["blocks_sha256"] and "oh:caption" in out["blocks"]
     again = world.host(*render)
     assert again[0] == 0 and again[1]["sha256"] == out["sha256"] and again[1]["replayed"] is True
     work = world.state / "renderer" / "work"
     assert not [p for p in work.iterdir() if p.name.startswith(D.JOB_PREFIX)]            # every job folder is gone
     rc, c, err = world.host("cover", "--in", path, "--offset-ms", "500", "--out", tmp_path / "c2.png")
     assert rc == 0 and (tmp_path / "c2.png").exists()
+
+
+@pytest.mark.parametrize("verb", ["render", "storyboard"])
+def test_a_render_or_storyboard_result_that_names_other_blocks_is_refused(world, tmp_path, verb):
+    world.cfg.update(run="files", files={"result.json": {"text": json.dumps({"ok": True, "sha256": "a" * 64, "blocks": {}, "blocks_sha256": "0" * 64})}}, rc=0)
+    world.save()
+    if verb == "render":
+        recording = tmp_path / "rec.mp4"
+        recording.write_bytes(b"0" * 16)
+        args = ["render", "--edl", K.write_json(tmp_path / "e.json", {"out_frames": 30, "fps": 30}), "--beats", K.write_json(tmp_path / "b.json", {}),
+                "--in", recording, "--out", tmp_path / "out", "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY]
+    else:
+        beat = {"preset": "keyword", "params": {"text": "Name every dollar"}, "line": "Name every dollar."}
+        args = ["storyboard", "--vocabulary", K.VOCABULARY, "--out", tmp_path / "out", "--beat", K.write_json(tmp_path / "beat.json", beat)]
+    rc, out, err = world.host(*args)
+    assert rc == 1 and err.startswith("refused: container_result_invalid blocks"), err
+    assert not (tmp_path / "out").exists()
+
+
+def test_block_params_checks_a_blocks_parameters_on_the_host_and_never_echoes_them(world, tmp_path):
+    rc, out, err = world.host("block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "p.json", {"text": "Name every dollar"}), "--vocabulary", K.VOCABULARY)
+    assert rc == 0 and out["params"] == ["text"] and out["block"] == "oh:keyword" and out["engine"] == "ffmpeg", err
+    assert "Name" not in json.dumps(out) and "Name" not in err
+    rc, out, err = world.host("block-params", "--block", "hf:demo-pop", "--params", K.write_json(tmp_path / "p.json", {"text": "x"}), "--vocabulary", K.VOCABULARY)
+    assert rc == 1 and err.startswith("refused: block_unknown block")
+    rc, out, err = world.host("block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "q.json", {"text": "x" * 25}), "--vocabulary", K.VOCABULARY)
+    assert rc == 1 and err.startswith("refused: text_too_long")
+    assert world.runs() == []

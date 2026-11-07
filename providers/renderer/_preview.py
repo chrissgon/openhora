@@ -10,7 +10,6 @@
   contact_sheet    one ffmpeg command: the stills scaled into a grid, no text drawn.
   storyboard       all of it: refuses first, draws only the chosen frames, writes `beat-<n>.png` and `sheet.png`.
 
-The `catalogue` verb of the same family (one clip per preset) reuses `synthetic_words` / `build_lists` / `draw_rest_frames`.
 Nothing here reads a recording, a transcript or a person's file: the only inputs are the post (or one beat), the vocabulary and the
 theme flags. Standard library only.
 """
@@ -25,6 +24,7 @@ import tempfile
 import zlib
 
 import _align
+import _blocks
 import _edl
 import _frames
 import _media
@@ -139,10 +139,10 @@ def flat_png(width: int, height: int, color: str) -> bytes:
             + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
-def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, time_limit, templates_dir=None, fonts_directory=None) -> dict:
+def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, time_limit, blocks_dir=None, blocks_sha256=None, fonts_directory=None) -> dict:
     """Draw the rest frame of every beat of `beats` with the render's frame loop; every other frame of a beat goes through the page and the
     face-box check too (a card overshoots while it pops in) and is not written. Returns {entries (the timeline's, in order), frames
-    ({beat number: PNG path}), rest ({beat number: output frame}), facts (what the loop reports), fonts, templates}.
+    ({beat number: PNG path}), rest ({beat number: output frame}), facts (what the loop reports), fonts, blocks, blocks_sha256}.
     Only those frames are written; a card that touches the face box on any frame raises `overlay_hits_face`, as in a render."""
     cfg = data["storyboard"]
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
@@ -164,11 +164,9 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
         with open(paths[slot], "wb") as fh:
             fh.write(flat_png(edl["size"][0], edl["size"][1], cfg["slot_fill"]))
     assets = _frames.load_assets(paths, {}, data["limits"])
-    templates = {}
-    for e in entries:
-        templates[e["preset"]] = data["presets"][e["preset"]]["template"]
-    tdir = templates_dir or _frames.TEMPLATES_DIR
-    serve, tpl_hashes = _frames.load_templates(sorted(set(templates.values())), tdir)
+    catalogue = _blocks.load_catalogue(blocks_dir or _blocks.BLOCKS_DIR, blocks_sha256)
+    templates, names = _blocks.templates_for(catalogue, _render.ENGINE, timeline, vocab, with_caption=False)
+    serve, tpl_hashes = _frames.load_templates(sorted(set(names)), catalogue["dir"])
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, data["limits"]["font_max_bytes"], fonts_directory)
     serve.update(font_serve)
     serve.update({"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items()})
@@ -180,7 +178,7 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
         browser=browser, jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=time_limit, templates=templates,
         png_blank=_render.blank_png, only=only, check_all=True, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
     frames = {n: os.path.join(frames_dir, "beat_%06d.png" % f) for n, f in rest.items()}
-    return {"entries": entries, "frames": frames, "rest": rest, "facts": facts, "fonts": fonts_used, "templates": tpl_hashes}
+    return {"entries": entries, "frames": frames, "rest": rest, "facts": facts, "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"]}
 
 
 # ---------------------------------------------------------------- the contact sheet
@@ -239,7 +237,7 @@ def contact_sheet(ffmpeg: str, files: list, cfg: dict, out: str, scratch: str, t
 # ---------------------------------------------------------------- the verb's body
 
 def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None, font_flags=None, face=None, tools,
-               jobs: int, out_dir: str, scratch=None, time_limit=None, templates_dir=None, fonts_directory=None) -> dict:
+               jobs: int, out_dir: str, scratch=None, time_limit=None, blocks_dir=None, blocks_sha256=None, fonts_directory=None) -> dict:
     """Refuse first, then draw. `tools` is a function that returns (ffmpeg path, browser path). `rows`: the beats (rows of `_align.read_beats` or `beat_row`). Writes `beat-<n>.png` for each beat that
     has a preset and `sheet.png` into `out_dir`, never over a file that is there. The result holds closed words and numbers."""
     cfg = data["storyboard"]
@@ -251,7 +249,7 @@ def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None,
     os.chmod(work, 0o700)
     try:
         drawn = draw_rest_frames(data=data, vocab=vocab, allow=allow, edl=edl, beats=beats, browser=browser, jobs=jobs, work=work,
-                                 time_limit=time_limit or cfg["time_limit_seconds"], templates_dir=templates_dir, fonts_directory=fonts_directory)
+                                 time_limit=time_limit or cfg["time_limit_seconds"], blocks_dir=blocks_dir, blocks_sha256=blocks_sha256, fonts_directory=fonts_directory)
         order = sorted(drawn["frames"])
         files = []
         for n in order:
@@ -266,7 +264,7 @@ def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None,
                                    "sha256": _media.sha256_file(os.path.join(out_dir, "%s%d.png" % (STILL_PREFIX, n))), "frame": drawn["rest"][n]} for n in order],
             "sheet": sheet, "skipped": [r["beat"] for r in rows if not r["preset"]], "words": len(transcript["words"]),
             "frame_jobs": drawn["facts"]["frames_rendered"] + drawn["facts"]["frames_reused"], "frames_checked": drawn["facts"]["frame_jobs"], "jobs": jobs, "face_box": edl["face_box"], "fonts": drawn["fonts"],
-            "templates": drawn["templates"], "font_fallbacks": notes, "mentions": mentions,
+            "blocks": drawn["blocks"], "blocks_sha256": drawn["blocks_sha256"], "font_fallbacks": notes, "mentions": mentions,
             "browser": drawn["facts"].get("browser"), "browser_sandbox": drawn["facts"].get("browser_sandbox")}
 
 

@@ -1,7 +1,7 @@
 """Inputs served to the page, and the frame loop.
 
-What the browser may load is decided here and nowhere else: the templates (each pinned by sha256 and linted for the
-determinism contract), the fonts (from the allow-list, checked by hash), and the person's image assets (checked by their
+What the browser may load is decided here and nowhere else: the blocks' pages (each pinned by sha256 in blocks/pins.json and
+linted for the determinism contract), the fonts (from the allow-list, checked by hash), and the person's image assets (checked by their
 header bytes), all served from memory by the CDP driver under one synthetic origin. Nothing is navigated to file://, and
 every other request fails the render. Standard library only.
 """
@@ -14,6 +14,7 @@ import re
 import threading
 import time
 
+import _blocks
 import _cdp
 import _layout
 import _redact
@@ -21,51 +22,38 @@ from _assets import (FONT_ID, FONT_MAGIC, font_allowlist, fonts_dir, image_facts
 from _layout import caption_hit, face_hit  # noqa: F401
 from _lint import lint
 from _text import Refusal
-from _vocab import HERE, read_json
 
 ASSET_MIME = {"png": "image/png", "jpg": "image/jpeg"}
-TEMPLATES_DIR = os.path.join(HERE, "templates")
+BLOCKS_DIR = _blocks.BLOCKS_DIR
 
 
 # ---------------------------------------------------------------- templates
 
-def template_pins(templates_dir: str = TEMPLATES_DIR) -> dict:
-    return read_json(os.path.join(templates_dir, "pins.json"))["templates"]
+def template_pins(blocks_dir: str = BLOCKS_DIR) -> dict:
+    """{path inside blocks/: sha256} of the pinned pages of the blocks."""
+    return {rel: digest for rel, digest in _blocks.read_pins(blocks_dir)[1].items() if _blocks.IMPLEMENTATION.fullmatch(rel)}
 
 
-def write_pins(templates_dir: str = TEMPLATES_DIR) -> dict:
-    """Maintainer tool: hash every template of the folder into pins.json."""
-    pins = {}
-    for name in sorted(os.listdir(templates_dir)):
-        if name.endswith(".html"):
-            pins[name] = hashlib.sha256(read_regular(os.path.join(templates_dir, name), 1 << 20, "template_unreadable", name)).hexdigest()
-    with open(os.path.join(templates_dir, "pins.json"), "w", encoding="utf-8") as fh:
-        json.dump({"note": "sha256 of each template. A template whose hash differs is refused. Rewritten by `ffmpeg.py pin-templates --confirmed` after a reviewed change.",
-                   "templates": pins}, fh, indent=1)
-        fh.write("\n")
-    return pins
-
-
-def load_templates(names: list, templates_dir: str = TEMPLATES_DIR) -> tuple:
-    """Serve the named templates (file names) from memory: only from the allow-listed folder, each with the pinned
-    hash, each clean under the determinism lint. Returns (serve table, hash by name)."""
-    pins = template_pins(templates_dir)
+def load_templates(names: list, blocks_dir: str = BLOCKS_DIR) -> tuple:
+    """Serve the named pages (paths inside blocks/, "oh/keyword/renderat.html") from memory: only from the pinned files of the
+    folder, each with the pinned hash, each clean under the determinism lint. Returns (serve table, sha256 by block name)."""
+    pins = template_pins(blocks_dir)
     serve, hashes = {}, {}
     for name in sorted(set(names)):
-        if os.path.basename(name) != name or name not in pins:
-            raise Refusal("template_not_pinned", name)
-        raw = read_regular(os.path.join(templates_dir, name), 1 << 20, "template_unreadable", name)
+        if name not in pins:
+            raise Refusal("template_not_pinned", name.replace("/", ":")[:60])
+        raw = read_regular(os.path.join(blocks_dir, name), 1 << 20, "template_unreadable", name.replace("/", ":")[:60])
         digest = hashlib.sha256(raw).hexdigest()
         if digest != pins[name]:
-            raise Refusal("template_hash", name)
+            raise Refusal("template_hash", name.replace("/", ":")[:60])
         try:
             broken = lint(raw.decode("utf-8"))
         except UnicodeDecodeError:
-            raise Refusal("template_unreadable", name) from None
+            raise Refusal("template_unreadable", name.replace("/", ":")[:60]) from None
         if broken:
-            raise Refusal("template_lint", "%s:%s" % (name, ",".join(broken)))
+            raise Refusal("template_lint", "%s:%s" % (name.replace("/", ":"), ",".join(broken)))
         serve["/t/" + name] = (raw, "text/html; charset=utf-8")
-        hashes[name] = digest[:12]
+        hashes[_blocks.block_of(name)] = digest
     return serve, hashes
 
 
@@ -164,7 +152,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     PNG is a picture to look at; a pip beat also gets its asset slot and the speaker's bubble as flat stand-ins. With both left out the
     loop is the render's, unchanged.
 
-    A page is opened once per preset per worker, with the theme's colours and fonts set through CSSOM and every font
+    A page is opened once per block per worker, with the theme's colours and fonts set through CSSOM and every font
     and image awaited before frame 0. A frame whose DOM did not change since the previous frame of the same entry is
     a hard link of it. The sandbox is on; a browser that does not start is a render failure, with no second attempt.
     Returns (layers, facts)."""
@@ -197,11 +185,11 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
         facts = {"browser": info.get("product") or chrome.send("Browser.getVersion").get("product"), "browser_pid": chrome.proc.pid,
                  "browser_sandbox": chrome.sandbox}
 
-        def setup_cfg(preset):
+        def setup_cfg(preset, key):
             images = {}
             if data["presets"].get(preset, {}).get("page_images"):
                 for e in timeline["beats"]:
-                    if e["preset"] == preset:
+                    if e["preset"] == preset and e.get("block", e["preset"]) == key:
                         for name, value in e["params"].items():
                             if value in assets:
                                 images[value] = _cdp.ORIGIN + "/assets/%s.%s" % (value, assets[value]["kind"])
@@ -213,15 +201,16 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                 for f, track, k in chunk:
                     entry = tracks[track][k]
                     preset = "caption" if track == "caption" else entry["preset"]
-                    template = templates[preset]
-                    if preset not in pages:
+                    key = "caption" if track == "caption" else entry.get("block", preset)
+                    template = templates[key]
+                    if key not in pages:
                         page = chrome.new_page(w, h)
-                        page.open("/t/" + template, setup_cfg(preset))
+                        page.open("/t/" + template, setup_cfg(preset, key))
                         if backdrop:
                             page.set_backdrop(backdrop["color"])
                             page.evaluate(BACKDROP_JS)
-                        pages[preset] = page
-                    page = pages[preset]
+                        pages[key] = page
+                    page = pages[key]
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
                     result = page.frame((f - entry["start_frame"]) / fps, payload)
                     sig = result["html"]
@@ -237,7 +226,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     if backdrop and preset == "pip":
                         page.evaluate("window.__backdrop(%s, %s, %s)" % (json.dumps(payload["geom"]), json.dumps(backdrop["slot_fill"]), json.dumps(backdrop["color"])))
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))
-                    prev = last.get(preset)
+                    prev = last.get(key)
                     if prev and prev[0] == k and prev[1] == sig:
                         os.link(prev[2], dest)
                         with lock:
@@ -246,7 +235,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                         png = page.screenshot()
                         with open(dest, "wb") as fh:
                             fh.write(png)
-                        last[preset] = (k, sig, dest)
+                        last[key] = (k, sig, dest)
                         with lock:
                             stats["rendered"] += 1
             except Exception as exc:     # collected, raised once every worker has stopped

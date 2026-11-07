@@ -9,7 +9,7 @@ beats come from the post file's script block.
 
 | File | What it is |
 |------|------------|
-| `ffmpeg.py` | The host side, the one implementation file of the folder: the drawing verbs (`render`, `storyboard`, `pin-templates`), `build`, `pin-browser`, `reap` and `--check`; the verbs that need no browser come from `_host.py`. Python 3.9, standard library only. |
+| `ffmpeg.py` | The host side, the one implementation file of the folder: the drawing verbs (`render`, `storyboard`, `pin-blocks`, `block-params`), `build`, `pin-browser`, `reap` and `--check`; the verbs that need no browser come from `_host.py`. Python 3.9, standard library only. |
 | `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still` and `verify` (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
 | `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
@@ -18,7 +18,8 @@ beats come from the post file's script block.
 | `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py` | The drawing part, the ffmpeg engine's own: the DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render. `_inner.py` imports them inside `render`, `storyboard` and `selfcheck` only. |
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
-| `templates/*.html`, `templates/pins.json` | The presets (`caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`), each a pure `renderAt(t, data)`, each pinned by sha256. |
+| `_blocks.py` | Common: the catalogue of animation blocks. Loads and checks `blocks/` (every file against `blocks/pins.json`), resolves the block that draws a beat on an engine and refuses one the engine cannot draw (`block_not_on_engine`), checks a block's parameters (the renderer-side checker, VD15), writes the pins and the generated catalogue. |
+| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip` (each page a pure `renderAt(t, data)`, byte for byte the old template); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty until V3b); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
@@ -61,7 +62,7 @@ here), or `--no-sandbox` **inside the image only**, with the container as the bo
   read-only root, no capability, a non-root user, limits, three mounts. **The residual risk is what those three mounts allow:** code
   running in the container can read the recording (`/in/recording`) and everything staged in `/job` (the transcript, the post, the
   assets), and can write `/out`, which the host then reads as untrusted (looked at, size-capped, hashed, never followed, and the render
-  verified in a fresh container before it is kept). It cannot reach the network, so nothing can leave the machine. What reaches the page is small: the pinned templates, text drawn
+  verified in a fresh container before it is kept). It cannot reach the network, so nothing can leave the machine. What reaches the page is small: the pinned blocks, text drawn
   with `textContent`, and image assets the person uploaded (PNG or JPEG, checked by bytes, bounded, never animated, decoded by the
   browser). A page request is answered from memory or failed, and a content-security policy is set. The recording never reaches Chrome.
 - **Never silent:** `_cdp.container_mode()` is true only when `RENDERER_IN_CONTAINER=1` **and** `/etc/openhora-renderer-image` exists (the
@@ -92,6 +93,16 @@ python3 providers/renderer/ffmpeg.py --check                      # docker local
 the image's own build (`_fetch_browser.py`) refuses an archive whose size, md5 or sha256 differs from the pin: a later build whose archive
 changed under the same version fails. The base image is pinned by digest, the packages by a dated Debian snapshot, the browser by version
 and the three values. Nothing in the repository builds, pulls or downloads by itself.
+
+## The blocks (V3b0)
+
+A block is named `<namespace>:<name>`: `oh:` blocks are ours, `hf:` blocks come from the HyperFrames registry (V3b). `blocks/engines/<engine>.json`
+says which drawing runtimes an engine runs (`ffmpeg`: `renderat`) and which block draws each preset by default; a beat may name another
+block of the same preset (`block` in `beats.json`). A render or a storyboard copies `blocks/pins.json` and every file it pins into the
+job's read-only folder, loads the catalogue from that copy, and passes its sha256 to the container, which checks it again; the result
+names it (`blocks_sha256`) with the sha256 of each drawn block (`blocks`). The image holds no block, so a block change rebuilds nothing.
+After a reviewed change of a block: `python3 providers/renderer/ffmpeg.py pin-blocks --confirmed` (pins and catalogue). Tests:
+`tests/test_renderer_blocks.py`.
 
 ## Contract: replacing this implementation (lego)
 

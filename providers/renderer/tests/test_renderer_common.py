@@ -30,7 +30,7 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 FOLDER = K.RENDERER
 
-COMMON = ("_align", "_assets", "_edl", "_hf_page", "_layout", "_media", "_output", "_redact", "_text", "_timeline", "_vocab")
+COMMON = ("_align", "_assets", "_blocks", "_edl", "_hf_page", "_layout", "_media", "_output", "_redact", "_text", "_timeline", "_vocab")
 DRAWING = ("_cdp", "_frames", "_lint", "_preview", "_render", "_browser")
 HOST = ("_docker", "_host", "_image", "ffmpeg")
 needs_media = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
@@ -159,7 +159,7 @@ def test_the_host_exports_the_common_verbs_and_the_ffmpeg_engine_serves_them_bes
     sub = p.add_subparsers(dest="verb")
     _host.add_common_parsers(sub)
     assert tuple(sub.choices) == _host.COMMON_VERBS
-    assert set(ffmpeg.VERBS) == set(_host.COMMON_VERBS) | {"build", "pin-browser", "reap", "pin-templates", "render", "storyboard"}
+    assert set(ffmpeg.VERBS) == set(_host.COMMON_VERBS) | {"build", "pin-browser", "reap", "pin-blocks", "block-params", "render", "storyboard"}
     for verb in _host.COMMON_VERBS:
         assert ffmpeg.VERBS[verb] is _host.COMMON_HANDLERS[verb]
 
@@ -242,7 +242,7 @@ def draw(tmp_path, monkeypatch, bottom):
     monkeypatch.setattr(_frames._cdp, "Chrome", type("C", (FakeChrome,), {"bottom": bottom}))
     return _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve={}, theme_fonts_urls={}, assets={}, browser="unused", jobs_n=1,
                                frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path), time_limit=60,
-                               templates={"caption": "caption.html"}, png_blank=_render.blank_png)
+                               templates={"caption": "oh/caption/renderat.html"}, png_blank=_render.blank_png)
 
 
 def test_a_caption_drawn_ending_at_1560_passes_the_frame_loop(tmp_path, monkeypatch):
