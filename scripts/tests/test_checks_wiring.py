@@ -555,10 +555,13 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
 
 
 def test_the_renderer_job_names_one_state_folder_for_its_builds_and_its_live_tests():
-    """The root conftest moves XDG_STATE_HOME before the live tests read it, so the job names OPENHORA_STATE_DIR at job level."""
-    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "renderer")
-    assert re.search(r"^    env:\n      OPENHORA_STATE_DIR: \$\{\{ runner\.temp \}\}/openhora-state\s*$", block, re.M)
-    assert block.index("OPENHORA_STATE_DIR") < block.index("    steps:")
+    """The root conftest moves XDG_STATE_HOME before the live tests read it, so a step before the builds writes OPENHORA_STATE_DIR to
+    $GITHUB_ENV. The runner context is not allowed in a job's env (GitHub rejects the whole file), so none appears before `steps:`."""
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    block = job_block(text, "renderer")
+    assert "runner." not in block.split("    steps:")[0]
+    setter = block.index('echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"')
+    assert setter < block.index("build --confirmed")
 
 
 def job_block(text, name):

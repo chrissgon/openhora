@@ -392,14 +392,14 @@ jobs:
     if: needs.changes.outputs.renderer == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # One named state folder for both builds and the tests: the root conftest moves XDG_STATE_HOME before the live tests read it, and
-    # OPENHORA_STATE_DIR is the one variable it leaves alone.
-    env:
-      OPENHORA_STATE_DIR: ${{ runner.temp }}/openhora-state
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # One named state folder for both builds and the tests: the root conftest moves XDG_STATE_HOME before the live tests read it, and
+      # OPENHORA_STATE_DIR is the one variable it leaves alone. (Set in a step: the runner context is not allowed in a job's env.)
+      - name: One named state folder for the builds and the live tests
+        run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
