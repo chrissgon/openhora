@@ -1,0 +1,7 @@
+# The build context: the files of manifest.json that the Dockerfile copies, nothing else (providers/renderer/tests/test_hf_image.py keeps the two in step).
+*
+!_fetch_browser.py
+!fetch_ffmpeg.py
+!package.json
+!package-lock.json
+!fonts
