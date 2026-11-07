@@ -73,6 +73,10 @@
     {
      "path": "skills/ops-repo-baseline/scripts/redact.py",
      "adopted": true
+    },
+    {
+     "path": "providers/renderer/_redact.py",
+     "adopted": false
     }
    ]
   },
@@ -141,6 +145,19 @@
     {
      "path": "skills/mkt-vote-round/scripts/check_post.py",
      "adopted": true
+    }
+   ]
+  },
+  {
+   "source": "shared/scripts/check_brand_tokens.py",
+   "to": [
+    {
+     "path": "skills/brand-identity/scripts/check_brand_tokens.py",
+     "adopted": true
+    },
+    {
+     "path": "runtime/check_brand_tokens.py",
+     "adopted": false
     }
    ]
   },

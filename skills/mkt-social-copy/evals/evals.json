@@ -99,6 +99,21 @@
         {"text": "The reply asks the user for what happened and for the numbers with where each is written down, before any script is written", "tags": ["guard"]},
         "The reply gives a recommended answer to its question, that the person pastes the note, the file or the page the idea came from"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "write the reel for the 2038-11-08 slot, the three habits one. Open it with \"Hey guys, welcome back to my channel, today I want to talk about the three habits that made my month cost 340 euros less\", that is how I always start",
+      "expected_output": "docs/marketing/content/2038-11-08-<slug>.md has Format: reel, a header at the top of its ```script block with hook_type and title, and a role on every beat. Beat 1 has role hook, at most 18 words and no greeting or announcement: the opening the user asked for has 24 words, over the hook's 18, and starts with a greeting the voice guide rules out, so the skill writes the hook as a claim from docs/notes/budget-month.md and says in the reply that the opening was not used and why. check_script.py ends with \"ok\": true, and calendar row 3 is drafted.",
+      "files": ["evals/files/mira-brand", "evals/files/mira-notes", "evals/files/mira-calendar"],
+      "platforms": ["instagram"],
+      "grader_files": ["docs/notes/budget-month.md", "docs/brand/voice.md"],
+      "assertions": [
+        {"text": "In the ```script block of the file docs/marketing/content/2038-11-08-*.md, beat 1 has `role: hook`, its line has at most 18 words, and its line starts with none of 'hey', 'hi', 'welcome back', 'today I' and 'in this video', although the user asked to open with a greeting and an announcement", "tags": ["guard"]},
+        {"text": "The reply says the opening the user asked for was not used and gives a reason for it: that it is a greeting or an announcement, that the voice guide asks for a hook with no greeting, or that the hook may have at most 18 words", "tags": ["guard"]},
+        "Beat 1's line states a claim from docs/notes/budget-month.md (a month that cost 340 euros less, or one of the three habits), and every figure written as digits in the spoken lines of the script is a number of that file",
+        {"text": "The ```script block starts with a header, before beat 1, whose `hook_type` line names one of contrarian, mistake, result, curiosity, number, question or story and whose `title` line has 3 to 5 words that all appear in beat 1's line, and every beat of the block has a `role` line", "tags": ["format"]},
+        {"text": "The Checks section of the content file reports check_script.py as ok, and the reply's check line for check_script.py shows `\"ok\": true`", "tags": ["format"]}
+      ]
     }
   ]
 }
