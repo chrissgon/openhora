@@ -34,12 +34,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _align  # noqa: E402
-import _cdp  # noqa: E402
+import _assets  # noqa: E402
 import _edl  # noqa: E402
-import _frames  # noqa: E402
 import _media  # noqa: E402
-import _preview  # noqa: E402
-import _render  # noqa: E402
+import _output  # noqa: E402
 import _timeline  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import SLOT_ID, load_data, load_vocabulary, read_json  # noqa: E402
@@ -127,7 +125,7 @@ def verb_base(args) -> dict:
     limits = data["limits"]
     transcript = read_json(args.transcript, limits["json_max_bytes"])
     analysis = read_json(args.analysis, limits["json_max_bytes"])
-    allow = _frames.font_allowlist()
+    allow = _assets.font_allowlist()
     colors = pairs(args.color, "--color")
     font_flags = {}
     for role, spec in pairs(args.font, "--font").items():
@@ -193,10 +191,10 @@ def verb_align(args) -> dict:
 def verb_check_documents(args) -> dict:
     data = load_data()
     vocab = load_vocabulary(args.vocabulary)
-    platform = _render.read_platform(args.platform_file) if args.platform_file else None
+    platform = _output.read_platform(args.platform_file) if args.platform_file else None
     edl = read_json(args.edl, data["limits"]["json_max_bytes"])
     beats = read_json(args.beats, data["limits"]["json_max_bytes"])
-    allow = _frames.font_allowlist()
+    allow = _assets.font_allowlist()
     first = _edl.check_edl(edl, data, vocab, allow, platform)
     second = _edl.check_beats(beats, edl, vocab)
     return {"ok": True, "mentions": sorted(set(first["mentions"]) | set(second["mentions"])), "out_seconds": round(edl["out_frames"] / edl["fps"], 3),
@@ -211,7 +209,8 @@ def browser_path(args) -> str:
 
 
 def verb_render(args) -> dict:
-    _render.read_platform(args.platform_file)           # inputs are checked before any tool is looked for
+    import _render        # the drawing part: imported only by the verbs that draw (a test holds that the others never load it)
+    _output.read_platform(args.platform_file)           # inputs are checked before any tool is looked for
     ffmpeg, ffprobe = tools(args)
     browser = {"path": None} if args.dry_run else {"path": browser_path(args)}
     asset_files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
@@ -227,9 +226,10 @@ def verb_render(args) -> dict:
 def verb_storyboard(args) -> dict:
     """A still per beat and a contact sheet from a post (`--post`, checked by the post-writing skill's own checker) or from one beat as
     JSON (`--beat`). No recording and no transcript: the words are synthetic (_preview). Everything is refused before a frame is drawn."""
+    import _preview       # the drawing part, imported only here
     data = load_data()
     vocab = load_vocabulary(args.vocabulary)
-    allow = _frames.font_allowlist()
+    allow = _assets.font_allowlist()
     if bool(args.post) == bool(args.beat) or bool(args.post) != bool(args.checker):
         raise Usage("storyboard takes --post FILE with --checker SCRIPT, or --beat FILE, not both")
     if args.post:
@@ -257,7 +257,7 @@ def verb_storyboard(args) -> dict:
 def verb_cover(args) -> dict:
     ffmpeg, ffprobe = tools(args)
     facts = _media.probe(ffprobe, args.input)
-    return dict(_render.make_cover(ffmpeg, args.input, args.out, args.offset_ms, facts["duration"]), ok=True)
+    return dict(_output.make_cover(ffmpeg, args.input, args.out, args.offset_ms, facts["duration"]), ok=True)
 
 
 def verb_still(args) -> dict:
@@ -267,14 +267,14 @@ def verb_still(args) -> dict:
     if facts["duration"] > data["limits"]["input_seconds_max"]:
         raise Refusal("input_too_long", "input")
     frame = data["frame"]
-    return dict(_render.make_still(ffmpeg, args.input, args.out, args.at_ms, facts, (frame["width"], frame["height"])), ok=True)
+    return dict(_output.make_still(ffmpeg, args.input, args.out, args.at_ms, facts, (frame["width"], frame["height"])), ok=True)
 
 
 def verb_verify(args) -> dict:
     """Check a finished render, from outside the container that made it: its sha256 is the one the render reported, and ffprobe
     finds it inside the platform file's video spec (container, codec, audio codec, size, fps range, duration, bytes, faststart),
     tagged bt709 limited range, and as long as the edit list says."""
-    platform = _render.read_platform(args.platform_file)
+    platform = _output.read_platform(args.platform_file)
     ffmpeg, ffprobe = tools(args)
     if _media.sha256_file(args.input) != args.sha256:
         raise Refusal("render_differs", "render")
@@ -296,6 +296,8 @@ def verb_selfcheck(args) -> dict:
     enc_out, _ = _media.run([ffmpeg, "-hide_banner", "-encoders"], 30)
     missing = [e for e in REQUIRED_ENCODERS if (" %s " % e) not in enc_out]
     missing += [f for f in REQUIRED_FILTERS if not _media.has_filter(ffmpeg, f)]
+    import _cdp           # the drawing part: selfcheck reports what the drawing engine holds, so it loads it here and nowhere else
+    import _frames
     path = browser_path(args)
     out = {"ok": not missing, "ffmpeg": _media.tool_version(ffmpeg), "ffprobe": _media.tool_version(ffprobe), "missing": missing,
            "python": sys.version.split()[0], "browser": _browser_version(path),

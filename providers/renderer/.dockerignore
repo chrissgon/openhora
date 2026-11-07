@@ -8,11 +8,14 @@
 !_fetch_browser.py
 !_inner.py
 !_align.py
+!_assets.py
 !_cdp.py
 !_edl.py
 !_frames.py
+!_layout.py
 !_lint.py
 !_media.py
+!_output.py
 !_preview.py
 !_redact.py
 !_render.py

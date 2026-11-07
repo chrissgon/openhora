@@ -15,6 +15,7 @@ import re
 import _media
 import _redact
 from _align import norm_tokens, token_sim
+from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
 from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, detect_retakes, kept_ranges, normalise_words, out_frames_of)
 from _vocab import HEX_COLOR, check_params, script_section, slot_params
@@ -60,12 +61,6 @@ def theme_defaults(data: dict) -> dict:
     t = data["theme"]
     return {"colors": dict(t["colors"]),
             "fonts": {r: {"id": "default", "weight": t["default_font_weight"][r]} for r in t["font_roles"]}}
-
-
-def zones(data: dict, face: dict) -> dict:
-    """The two bands the face box leaves: cards above it, captions below it. [top, bottom] in frame pixels."""
-    z = data["zones"]
-    return {"card": [z["card_top"], face["y"] - z["gap"]], "caption": [face["y"] + face["h"] + z["gap"], z["caption_bottom"]]}
 
 
 def union(boxes: list) -> dict:

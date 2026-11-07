@@ -9,11 +9,13 @@ beats come from the post file's script block.
 
 | File | What it is |
 |------|------------|
-| `ffmpeg.py` | The host side, the one implementation file of the folder: checks flags, stages inputs into a private job folder, builds the `docker run` command, runs it, reads the result as untrusted. Python 3.9, standard library only. |
+| `ffmpeg.py` | The host side, the one implementation file of the folder: the drawing verbs (`render`, `storyboard`, `pin-templates`), `build`, `pin-browser`, `reap` and `--check`; the verbs that need no browser come from `_host.py`. Python 3.9, standard library only. |
+| `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still` and `verify` (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
-| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `cover`, `still`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
-| `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py` | The edit list and its check, the cuts, captions and retake proposals, the beats and their alignment, the vocabulary's typed parameters, the text rules. |
-| `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py`, `_media.py` | The DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render, ffprobe/ffmpeg and the one compose command. |
+| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
+| `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py`, `_media.py` | The common part, which imports nothing of the browser, the frames or the storyboard (a test walks the imports): the edit list and its check, the cuts, captions and retake proposals, the beats and their alignment, the vocabulary's typed parameters, the text rules, ffprobe/ffmpeg and the one compose command. |
+| `_layout.py`, `_assets.py`, `_output.py` | Also common: the bands the face box leaves, the face test and the 1560 caption test (`zones`, `face_hit`, `caption_hit`); the allow-listed fonts and the image assets with the safe read (`font_allowlist`, `load_fonts`, `load_assets`, `read_regular`); the platform file's read, `cover`, `still` and the never-rewriting write (`read_platform`, `make_cover`, `make_still`, `png_size`, `write_once`). The old modules import the moved names back. |
+| `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py` | The drawing part, the ffmpeg engine's own: the DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render. `_inner.py` imports them inside `render`, `storyboard` and `selfcheck` only. |
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
 | `templates/*.html`, `templates/pins.json` | The presets (`caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`), each a pure `renderAt(t, data)`, each pinned by sha256. |
@@ -147,9 +149,10 @@ What a script's beats will look like, before a recording exists. The verb takes 
   NFKC, casefold and punctuation normalised, best window per beat, figures excluded from scoring, a tie goes to the last occurrence, an
   order check, a threshold (0.6 until calibrated in C2). `--anchor <beat>=<from>-<to>` places a beat the aligner could not.
 - **Face box and zones.** The person gives the face box once per recording (`--face-box x,y,w,h`; a default is used otherwise). Cards sit in
-  the band above it (from y 110 down to the face less 18 px), captions in the band below it (from the face plus 18 px down to y 1620); the
+  the band above it (from y 110 down to the face less 18 px), captions in the band below it (from the face plus 18 px down to y 1560); the
   type is the largest that fits the band (a short band gives small type, never a card over the face). Every drawn card, chip and caption
-  word is measured after each frame and the render fails when one touches the face box. **The box is the zoomed one:** a zoomed range
+  word is measured after each frame and the render fails when one touches the face box (`overlay_hits_face`) or when a caption's bottom is
+  below 1560 (`caption_below_line`, VD12: 1560 clears the apps' interface). **The box is the zoomed one:** a zoomed range
   is a punch-in about a fixed point (the face's horizontal centre, a quarter of its height down from its top, `--zoom-anchor-y`), so the
   face's box grows about that point; the bands of a card or caption are computed from the union of the face's box over every range it
   lives through (factor and push-in included), and `base` refuses a face box that leaves less than 80 px above or 120 px below at the
