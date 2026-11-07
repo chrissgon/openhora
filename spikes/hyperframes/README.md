@@ -26,3 +26,19 @@ in this repository (the image build fetches the registry files it needs at a pin
 
 The real recording and everything derived from it stay outside git (read in place, mounted read-only; its runs go to a folder outside this repository).
 The write-up (results, verdict) is `report.md`, kept outside git.
+
+## Reproducing
+
+From the root of a clone (every command in the spike runs the containers with no network; only the build uses it):
+
+```bash
+git worktree add --detach spikes/hyperframes/.work/main origin/main           # providers/_container.py is imported from here, not copied
+mkdir -p spikes/hyperframes/.work/branch-src && git archive origin/feature/short-video providers/renderer shared/references | tar -x -C spikes/hyperframes/.work/branch-src
+sh spikes/hyperframes/build.sh hf-s2:local                                    # the one step that uses the network
+python3 spikes/hyperframes/s2.py synth --case synth                           # the fictional case
+python3 spikes/hyperframes/ours.py spikes/hyperframes/.work/cases/synth spikes/hyperframes/.work/ours/synth   # our ffmpeg render, for C3 and C7 (needs its image: build --confirmed)
+python3 spikes/hyperframes/matrix.py --case synth                             # renders, cores, verify, boxes, fonts
+python3 spikes/hyperframes/finish.py --case synth --ours <our render> --crop 1080:500:0:560   # C3, C8 and the planted overlap
+```
+
+The real recording is read in place: set `S2_REAL_MEDIA` to its media-store folder and `S2_REAL_RUNS` and `S2_RESULTS` to folders outside the repository.
