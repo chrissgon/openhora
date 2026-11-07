@@ -517,7 +517,7 @@ OUTPUT = dct(container=S, codec=S, profile=opt(S), pix_fmt=opt(S), width=I, heig
              color=lst(opt(S), 8), frames=opt(S))
 PROBLEMS = lst(dct(beat=opt(I), field=FLD, code=COD), 50)
 RESULT_SCHEMAS = {
-    "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B, templates=lst(S, 50)),
+    "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B),
     "analyse": dct(ok=B, duration=N, sha256=S, silences=opt(I), has_audio=B),
     "analysis_doc": dct(ok=B, schema_version=I, facts=FACTS, silences=opt(lst(dct(start=N, end=N), 20000)), noise_db=N, min_silence=N),
     "base": dct(ok=B, fps=I, kept_ranges=I, out_seconds=N, source_seconds=N, words=I, caption_chunks=I,
@@ -532,10 +532,10 @@ RESULT_SCHEMAS = {
     "still": dct(ok=B, at_ms=I, sha256=S, width=I, height=I, bytes=I),
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
     "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, frames_checked=I, jobs=I,
-                      sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), templates=mp(S),
+                      sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), blocks=mp(S), blocks_sha256=S,
                       font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
-                  beats_drawn=lst(dct(id=S, preset=S, start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),
-                  mentions=lst(S, 500), fonts=mp(S), templates=mp(S), estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
+                  beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),
+                  mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
                   browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S))),
 }

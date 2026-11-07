@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import re
 
+import _blocks
 import _media
 import _redact
 from _align import norm_tokens, token_sim
@@ -32,7 +33,7 @@ SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matr
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
 BEATS_KEYS = BEATS_REQUIRED | {"script"}          # `script` is optional: a beats file without it stays valid, schema_version 1
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
-ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis"}      # the beat's role and emphasis from the script, both optional
+ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
 SLOT_KEYS = {"slot", "beat", "param", "type", "description"}
 NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words"}
@@ -441,6 +442,8 @@ def check_beats(beats, edl, vocab: dict) -> dict:
             total += 1
             closed(e, ENTRY_KEYS, field, ENTRY_REQUIRED)
             check_role_emphasis(e, vocab, field)
+            if "block" in e and (not isinstance(e["block"], str) or not _blocks.NAME.fullmatch(e["block"])):
+                raise Refusal("bad_block", field + ".block")
             if not isinstance(e["id"], str) or not ID.fullmatch(e["id"]) or e["id"] in seen_ids:
                 raise Refusal("bad_id", field)
             seen_ids.add(e["id"])

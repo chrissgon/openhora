@@ -56,15 +56,20 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         One PNG frame of a recording at N ms, framed exactly as the render frames the source into 1080x1920 (the same scale and crop, so
         a pixel of the still is a pixel of the render's unzoomed picture). Writes DIR/still-<sha12>.png (mode 0400, never rewritten) and
         prints its sha256, size and offset. The recording is read under the same rules as `analyse` and `render`.
-  pin-templates --confirmed
-        Maintainer tool: rewrite templates/pins.json after a reviewed template change.
+  pin-blocks --confirmed
+        Maintainer tool: after a reviewed change of a block, rewrite blocks/pins.json and the generated blocks/catalogue.json.
+  block-params --block NAME --params FILE --vocabulary V
+        The renderer-side checker (VD15): one block's parameters (a JSON object) against its block.json or allowlist entry, on the
+        host (it reads no recording, transcript or post). Prints the block, the engine and the parameter names, never their text.
 
 Container limits, for analyse, base, align, check, render, cover and still: --memory-mb (default 6144, at least 3072), --cpus (default 8,
 never more than the daemon has), --scratch-mb (default 2048, memory-backed, and at most the memory less 2048: a larger one is refused,
 never an out-of-memory kill), --timeout (seconds).
 
 `render` checks its own result in a second, fresh container of the same image (the render mounted read-only, no network): ffprobe
-facts against the platform's spec, the colour tags, the length and the sha256. The file is given its name only after that passes.
+facts against the platform's spec, the colour tags, the length and the sha256. The file is given its name only after that passes. The blocks it draws are copied from blocks/ into the job's read-only folder, hashed there and
+checked again inside; the result names them (`blocks`, `blocks_sha256`), and a beat that names a block this engine cannot draw is
+refused as `block_not_on_engine`, naming the engine's own block.
 
 The browser's own sandbox is off inside the image, where the container is the boundary (Dockerfile, "The browser's sandbox");
 every render says `browser_sandbox`. Output choices: 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled
@@ -87,6 +92,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _assets  # noqa: E402
+import _blocks  # noqa: E402
 import _browser  # noqa: E402
 import _docker as D  # noqa: E402
 import _frames  # noqa: E402
@@ -94,11 +100,13 @@ import _media  # noqa: E402
 import _render  # noqa: E402
 from _browser import NotConfigured  # noqa: E402
 from _host import (COMMON_HANDLERS, COVER_MAX_BYTES, CRASH_CODES, MAX_RECORDING_BYTES, MAX_SMALL_FILE, STILL_MAX_BYTES, Job, Usage,  # noqa: E402,F401
-                   add_common_parsers, add_limits, emit, opt, verb_align, verb_analyse, verb_base, verb_check_documents, verb_cover,
-                   verb_still, verb_verify)
+                   add_common_parsers, add_limits, emit, opt, stage_blocks, verb_align, verb_analyse, verb_base, verb_check_documents,
+                   verb_cover, verb_still, verb_verify)
+from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import SLOT_ID, load_data  # noqa: E402
 
+ENGINE = "ffmpeg"
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 HINTS = {
     "docker_missing": "install Docker and start it (the renderer runs in a container)",
@@ -162,10 +170,15 @@ def verb_reap(args) -> dict:
     return {"ok": True, "containers_removed": D.reap_containers(), "folders_removed": D.reap_folders()}
 
 
-def verb_pin_templates(args) -> dict:
+def verb_pin_blocks(args) -> dict:
     if not args.confirmed:
-        raise Usage("pin-templates needs --confirmed")
-    return {"ok": True, "pins": _frames.write_pins()}
+        raise Usage("pin-blocks needs --confirmed")
+    files = _blocks.write_pins()
+    return {"ok": True, "files": len(files), "blocks_sha256": _blocks.write_catalogue()}
+
+
+def verb_block_params(args) -> dict:
+    return host_block_params(args, ENGINE)
 
 
 def verb_render(args) -> dict:
@@ -188,6 +201,8 @@ def verb_render(args) -> dict:
                  "--in", job.mount_recording(args.input), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
                  "--platform-file", job.stage("platform.json", args.platform_file), "--vocabulary", job.stage("vocabulary.json", args.vocabulary),
                  "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0])))), "--time-limit", str(limit)]
+        blocks_args = stage_blocks(job)
+        inner += blocks_args
         for slot, path in sorted(asset_files.items()):
             if not SLOT_ID.fullmatch(slot):
                 raise Refusal("bad_slot", slot[:32])
@@ -200,6 +215,8 @@ def verb_render(args) -> dict:
             name, timeout, argv = job.argv(inner)
             return {"ok": True, "dry_run": True, "command": argv, "image": job.image, "time_limit_seconds": limit, "out_dir": out_dir}
         result = job.run(inner, "render")
+        if result.get("blocks_sha256") != blocks_args[-1]:
+            raise Refusal("container_result_invalid", "blocks")
         digest = result.get("sha256", "")
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise Refusal("container_result_invalid", "render")
@@ -269,6 +286,8 @@ def verb_storyboard(args) -> dict:
         job.max_entries = D.STORYBOARD_OUT_ENTRIES
         inner = ["storyboard", "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
                  "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0]))))]
+        blocks_args = stage_blocks(job)
+        inner += blocks_args
         if args.post:
             inner += ["--post", job.stage("post.md", args.post, 2 * 1024 * 1024), "--checker", job.stage("check_script.py", args.checker, 1024 * 1024)]
         else:
@@ -278,6 +297,8 @@ def verb_storyboard(args) -> dict:
             for v in values or []:
                 inner += [flag, v]
         result = job.run(inner, "storyboard")
+        if result.get("blocks_sha256") != blocks_args[-1]:
+            raise Refusal("container_result_invalid", "blocks")
         out_dir = os.path.abspath(args.out)
         wanted = storyboard_files(result, load_data())
         candidates = os.path.join(job.root, "candidates")
@@ -311,8 +332,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--dry-run", action="store_true")
     sp.add_argument("--platform", choices=("linux-arm64", "linux64"))
     sub.add_parser("reap")
-    sp = sub.add_parser("pin-templates")
+    sp = sub.add_parser("pin-blocks")
     sp.add_argument("--confirmed", action="store_true")
+    sp = sub.add_parser("block-params")
+    sp.add_argument("--block", required=True, help="a block name, oh:<name> or hf:<name>")
+    sp.add_argument("--params", required=True, help="a JSON file holding one object: the block's parameters")
+    sp.add_argument("--vocabulary", required=True, help="shared/references/video-presets.json")
     add_common_parsers(sub)
     sp = sub.add_parser("render")
     add_limits(sp)
@@ -343,8 +368,8 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-VERBS = {"build": verb_build, "pin-browser": verb_pin_browser, "reap": verb_reap, "pin-templates": verb_pin_templates,
-         "render": verb_render, "storyboard": verb_storyboard, **COMMON_HANDLERS}
+VERBS = {"build": verb_build, "pin-browser": verb_pin_browser, "reap": verb_reap, "pin-blocks": verb_pin_blocks,
+         "block-params": verb_block_params, "render": verb_render, "storyboard": verb_storyboard, **COMMON_HANDLERS}
 
 
 def main(argv=None) -> int:

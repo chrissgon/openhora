@@ -2,7 +2,7 @@
 
   1. the edit list, the beats and the platform file are read and checked, and the recording is probed and matched to the
      edit list by its sha256;
-  2. the pinned templates, the allow-listed fonts and the person's image assets are loaded and served from memory;
+  2. the pinned blocks (staged per job), the allow-listed fonts and the person's image assets are loaded and served from memory;
   3. the HTML presets are drawn frame by frame on the output timeline by the pinned browser over the DevTools pipe;
   4. one ffmpeg command cuts the recording and composes everything: H.264 + AAC, 1080x1920, faststart, bt709 tagged,
      capped by `-fs`;
@@ -21,12 +21,15 @@ import tempfile
 import time
 import zlib
 
+import _blocks
 import _edl
 import _frames
 import _media
 from _output import make_cover, make_still, png_size, read_platform, write_once  # noqa: F401  (moved: the render and its callers still find them here)
 from _text import Refusal
 from _vocab import load_data, load_vocabulary, read_json
+
+ENGINE = "ffmpeg"
 
 
 def blank_png(w: int, h: int) -> bytes:
@@ -102,7 +105,7 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
 
 
 def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, asset_files, asset_sha256s, ffmpeg, ffprobe, browser,
-           jobs=3, dry_run=False, time_limit=None, cover_out=None, cover_offset_ms=None, templates_dir=None, fonts_directory=None,
+           jobs=3, dry_run=False, time_limit=None, cover_out=None, cover_offset_ms=None, blocks_dir=None, blocks_sha256=None, fonts_directory=None,
            scratch=None, log=lambda m: None) -> dict:
     started = time.time()
     data, edl, beats, platform, vocab, allow = load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_directory)
@@ -134,12 +137,9 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
         raise Refusal("asset_unused", extra[0])
     assets = _frames.load_assets({s: asset_files[s] for s in sorted(used)}, asset_sha256s, limits)
 
-    templates = {"caption": data["caption"]["template"]}
-    for e in timeline["beats"]:
-        templates[e["preset"]] = data["presets"][e["preset"]]["template"]
-    names = ([data["caption"]["template"]] if timeline["captions"] else []) + [templates[e["preset"]] for e in timeline["beats"]]
-    tdir = templates_dir or _frames.TEMPLATES_DIR
-    tpl_serve, tpl_hashes = _frames.load_templates(names, tdir) if names else ({}, {})
+    catalogue = _blocks.load_catalogue(blocks_dir or _blocks.BLOCKS_DIR, blocks_sha256)
+    templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]))
+    tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
     asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items()}
     serve = {}
@@ -156,9 +156,9 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     estimate = len(jobs_list) * limits["frame_bytes_estimate"] + 64 * 1024 * 1024 + plan["max_bytes"]
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
-               "beats_drawn": [{"id": e["id"], "preset": e["preset"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
+               "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
                "beats_dropped": timeline["dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
-               "fonts": fonts_used, "templates": tpl_hashes, "ffmpeg_argv": argv, "estimated_bytes": estimate}
+               "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"], "ffmpeg_argv": argv, "estimated_bytes": estimate}
     if dry_run:
         return summary
     os.makedirs(outdir, mode=0o700, exist_ok=True)

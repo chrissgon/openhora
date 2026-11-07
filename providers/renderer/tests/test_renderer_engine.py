@@ -17,6 +17,7 @@ import pytest
 
 import renderer_kit as K
 import _cdp
+import _blocks
 import _frames
 import _lint
 from _text import Refusal
@@ -26,7 +27,7 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 CFG = {"colors": {"accent": "#07B6F0"}, "fonts": {}, "images": {}}
 needs_browser = pytest.mark.skipif(not K.BROWSER, reason=K.SKIP_BROWSER)
-TEMPLATES = sorted(glob.glob(os.path.join(str(K.RENDERER), "templates", "*.html")))
+TEMPLATES = sorted(glob.glob(os.path.join(str(K.BLOCKS), "oh", "*", "renderat.html")))
 
 
 def page_html(body):
@@ -53,10 +54,10 @@ def read(path):
 
 def test_every_template_is_clean_and_pinned_and_each_forbidden_construct_is_refused():
     pins = _frames.template_pins()
-    assert {os.path.basename(p) for p in TEMPLATES} == set(pins)
+    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == set(pins)
     for path in TEMPLATES:
         assert _lint.lint(read(path)) == [], path
-        assert hashlib.sha256(open(path, "rb").read()).hexdigest() == pins[os.path.basename(path)], path
+        assert hashlib.sha256(open(path, "rb").read()).hexdigest() == pins[os.path.relpath(path, str(K.BLOCKS))], path
     cases = {"css-keyframes": "<style>@keyframes a{}</style>", "css-transition": "<style>p{transition: all 1s}</style>", "css-animation": "<style>p{animation: a 1s}</style>",
              "date": "<script>new Date()</script>", "performance-now": "<script>performance.now()</script>", "math-random": "<script>Math.random()</script>",
              "raf": "<script>requestAnimationFrame(f)</script>", "timers": "<script>setTimeout(f,1)</script>", "media-element": "<video></video>",
@@ -70,35 +71,37 @@ def test_every_template_is_clean_and_pinned_and_each_forbidden_construct_is_refu
 
 
 def test_a_template_outside_the_folder_or_with_a_changed_hash_is_refused(tmp_path):
-    folder = tmp_path / "t"
-    shutil.copytree(os.path.join(str(K.RENDERER), "templates"), folder)
-    serve, _ = _frames.load_templates(["keyword.html"], str(folder))
-    assert "/t/keyword.html" in serve
-    for bad in ("../keyword.html", "/etc/passwd", "sub/keyword.html", "unknown.html"):
+    folder = tmp_path / "b"
+    shutil.copytree(str(K.BLOCKS), folder)
+    serve, _ = _frames.load_templates(["oh/keyword/renderat.html"], str(folder))
+    assert "/t/oh/keyword/renderat.html" in serve
+    for bad in ("../oh/keyword/renderat.html", "/etc/passwd", "keyword.html", "oh/unknown/renderat.html", "oh/keyword/block.json"):
         with pytest.raises(Refusal) as e:
             _frames.load_templates([bad], str(folder))
         assert e.value.code == "template_not_pinned"
-    (folder / "keyword.html").write_text(read(str(folder / "keyword.html")) + "\n<!-- changed -->")
+    keyword = folder / "oh" / "keyword" / "renderat.html"
+    keyword.write_text(read(str(keyword)) + "\n<!-- changed -->")
     with pytest.raises(Refusal) as e:
-        _frames.load_templates(["keyword.html"], str(folder))
+        _frames.load_templates(["oh/keyword/renderat.html"], str(folder))
     assert e.value.code == "template_hash"
-    _frames.write_pins(str(folder))                                     # a reviewed change is pinned again ...
-    (folder / "list.html").write_text(read(str(folder / "list.html")).replace("</script>", "setTimeout(f,1);</script>"))
-    _frames.write_pins(str(folder))
+    _blocks.write_pins(str(folder))                                     # a reviewed change is pinned again ...
+    page = folder / "oh" / "list" / "renderat.html"
+    page.write_text(read(str(page)).replace("</script>", "setTimeout(f,1);</script>"))
+    _blocks.write_pins(str(folder))
     with pytest.raises(Refusal) as e:                                    # ... but it still has to pass the determinism lint
-        _frames.load_templates(["list.html"], str(folder))
+        _frames.load_templates(["oh/list/renderat.html"], str(folder))
     assert e.value.code == "template_lint"
-    link = folder / "pip.html"
+    link = folder / "oh" / "pip" / "renderat.html"
     link.unlink()
     os.symlink("/etc/hosts", link)
     with pytest.raises(Refusal):                                         # a template that is a link is not read
-        _frames.load_templates(["pip.html"], str(folder))
+        _frames.load_templates(["oh/pip/renderat.html"], str(folder))
 
 
-def test_the_templates_presets_and_declared_parameters_are_equal():
-    assert {os.path.basename(p) for p in TEMPLATES} == {s["template"] for s in DATA["presets"].values()} | {DATA["caption"]["template"]}
+def test_the_blocks_presets_and_declared_parameters_are_equal():
+    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {K.template_of(n) for n in DATA["presets"]} | {K.template_of("caption")}
     for name, cfg in DATA["presets"].items():
-        html = read(os.path.join(str(K.RENDERER), "templates", cfg["template"]))
+        html = read(os.path.join(str(K.BLOCKS), K.template_of(name)))
         params = re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1)
         looks = re.search(r'<meta name="pv-looks" content="([^"]*)">', html).group(1)
         assert set(filter(None, params.split(","))) == set(VOCAB["presets"][name]["params"]), name
@@ -112,8 +115,8 @@ def test_the_templates_presets_and_declared_parameters_are_equal():
 def test_the_dot_that_keeps_frames_rgba_and_the_zone_marks_are_in_the_driver_and_the_templates():
     assert "clipPath" in _cdp.SETUP_JS and "data-zone" in _cdp.SETUP_JS
     for name in ("keyword", "list", "number", "quote"):
-        assert "dataset.zone = 'card'" in read(os.path.join(str(K.RENDERER), "templates", name + ".html"))
-    assert "dataset.zone = 'caption'" in read(os.path.join(str(K.RENDERER), "templates", "caption.html"))
+        assert "dataset.zone = 'card'" in read(str(K.BLOCKS / "oh" / name / "renderat.html"))
+    assert "dataset.zone = 'caption'" in read(str(K.BLOCKS / "oh" / "caption" / "renderat.html"))
 
 
 # ---------------------------------------------------------------- the sandbox
@@ -304,10 +307,10 @@ BEATS = {"keyword": {"text": "Name every dollar", "icon": "coin"}, "list": {"ite
 @pytest.mark.parametrize("face", FACES)
 def test_no_card_and_no_caption_ever_touches_the_face_box_and_each_stays_in_its_band(work, face):
     z = zones_data(face)
-    serve, _ = _frames.load_templates([c["template"] for c in DATA["presets"].values() if c["template"].split(".")[0] in BEATS] + [DATA["caption"]["template"]])
+    serve, _ = _frames.load_templates([K.template_of(n) for n in DATA["presets"] if n in BEATS] + [K.template_of("caption")])
     with chrome(work, serve) as ch:
         for name, params in list(BEATS.items()) + [("caption", None)]:
-            tpl = DATA["caption"]["template"] if name == "caption" else DATA["presets"][name]["template"]
+            tpl = K.template_of(name)
             pg = ch.new_page(1080, 1920)
             pg.open("/t/" + tpl, {"colors": DATA["theme"]["colors"], "fonts": {}, "images": {}})
             for t in (0.0, 0.1, 0.3, 0.6, 1.0, 1.6, 2.2):
@@ -335,7 +338,7 @@ def test_the_gaps_between_caption_words_do_not_depend_on_which_word_is_lit(words
     allow = _frames.font_allowlist()
     serve, _ = _frames.load_fonts({"display": {"id": "inter-800", "weight": 800}, "text": {"id": "inter-500", "weight": 500}, "mono": {"id": "jetbrains-mono-500", "weight": 500}},
                                   allow, DATA["limits"]["font_max_bytes"])
-    templates, _ = _frames.load_templates([DATA["caption"]["template"]])
+    templates, _ = _frames.load_templates([K.template_of("caption")])
     serve.update(templates)
     cfg = {"colors": DATA["theme"]["colors"], "images": {}, "fonts": {role: {"url": _cdp.ORIGIN + path, "weight": w, "fallback": "serif"}
                                                                      for role, w in (("display", 800), ("text", 500), ("mono", 500)) for path in serve if path.startswith("/fonts/%s." % role)}}
@@ -344,7 +347,7 @@ def test_the_gaps_between_caption_words_do_not_depend_on_which_word_is_lit(words
             "words": [{"text": w, "start": 0.5 * i, "end": 0.5 * i + 0.4} for i, w in enumerate(words)]}
     with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "w")) as ch:
         pg = ch.new_page(1080, 1920)
-        pg.open("/t/" + DATA["caption"]["template"], cfg)
+        pg.open("/t/" + K.template_of("caption"), cfg)
         seen = []
         for t in [0.2, 0.3] + [0.5 * i + d for i in range(len(words)) for d in (0.0, 0.04, 0.09, 0.18, 0.3)]:
             if t < 0.2:
@@ -362,13 +365,13 @@ def test_the_gaps_between_caption_words_do_not_depend_on_which_word_is_lit(words
 
 @needs_browser
 def test_a_card_drawn_over_the_face_fails_the_frame_loop(tmp_path):
-    folder = tmp_path / "t"
-    shutil.copytree(os.path.join(str(K.RENDERER), "templates"), folder)
-    html = read(str(folder / "keyword.html"))
+    folder = tmp_path / "b"
+    shutil.copytree(str(K.BLOCKS), folder)
+    html = read(str(folder / "oh" / "keyword" / "renderat.html"))
     bad = html.replace("pos.style.top = z[0] + 'px';", "pos.style.top = '650px';")
     assert bad != html
-    (folder / "keyword.html").write_text(bad)
-    _frames.write_pins(str(folder))
+    (folder / "oh" / "keyword" / "renderat.html").write_text(bad)
+    _blocks.write_pins(str(folder))
     doc = K.build_transcript()
     analysis = {"facts": {"duration": doc["duration"], "sha256": "e" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
     import _edl
@@ -377,23 +380,23 @@ def test_a_card_drawn_over_the_face_fails_the_frame_loop(tmp_path):
     beats = {"schema_version": 1, "threshold": 0.6, "slots": [], "report": [], "unmatched": [], "fallbacks": [], "layouts": [],
              "overlays": [{"id": "b1", "beat": 1, "preset": "keyword", "params": {"text": "Hello"}, "word_from": 0, "word_to": 3, "score": 1.0}]}
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
-    serve, _ = _frames.load_templates(["keyword.html", "caption.html"], str(folder))
+    serve, _ = _frames.load_templates(["oh/keyword/renderat.html", "oh/caption/renderat.html"], str(folder))
     with pytest.raises(Refusal) as e:
         _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets={}, browser=K.BROWSER, jobs_n=1,
                             frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path / "w"), time_limit=120,
-                            templates={"caption": "caption.html", "keyword": "keyword.html"}, png_blank=_render.blank_png)
+                            templates={"caption": "oh/caption/renderat.html", "keyword": "oh/keyword/renderat.html"}, png_blank=_render.blank_png)
     assert e.value.code == "overlay_hits_face"
 
 
 @needs_browser
 def test_a_template_that_reaches_for_a_file_url_draws_nothing_and_fails_the_render(tmp_path):
-    folder = tmp_path / "t"
-    shutil.copytree(os.path.join(str(K.RENDERER), "templates"), folder)
-    html = read(str(folder / "keyword.html"))
+    folder = tmp_path / "b"
+    shutil.copytree(str(K.BLOCKS), folder)
+    html = read(str(folder / "oh" / "keyword" / "renderat.html"))
     bad = html.replace("window.renderAt = function (t, data) {", "window.renderAt = function (t, data) {\n  var i = new Image(); i['sr' + 'c'] = 'file:///etc/hosts';", 1)
     assert bad != html and _lint.lint(bad) == []                           # the lint cannot see it: the origin must stop it
-    (folder / "keyword.html").write_text(bad)
-    _frames.write_pins(str(folder))
+    (folder / "oh" / "keyword" / "renderat.html").write_text(bad)
+    _blocks.write_pins(str(folder))
     import _edl
     import _render
     doc = K.build_transcript()
@@ -402,11 +405,11 @@ def test_a_template_that_reaches_for_a_file_url_draws_nothing_and_fails_the_rend
     beats = {"schema_version": 1, "threshold": 0.6, "slots": [], "report": [], "unmatched": [], "fallbacks": [], "layouts": [],
              "overlays": [{"id": "b1", "beat": 1, "preset": "keyword", "params": {"text": "Hello"}, "word_from": 0, "word_to": 3, "score": 1.0}]}
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
-    serve, _ = _frames.load_templates(["keyword.html", "caption.html"], str(folder))
+    serve, _ = _frames.load_templates(["oh/keyword/renderat.html", "oh/caption/renderat.html"], str(folder))
     with pytest.raises(Refusal) as e:
         _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets={}, browser=K.BROWSER, jobs_n=1,
                             frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path / "w"), time_limit=120,
-                            templates={"caption": "caption.html", "keyword": "keyword.html"}, png_blank=_render.blank_png)
+                            templates={"caption": "oh/caption/renderat.html", "keyword": "oh/keyword/renderat.html"}, png_blank=_render.blank_png)
     assert e.value.code in ("blocked_request", "frame_failed")
 
 

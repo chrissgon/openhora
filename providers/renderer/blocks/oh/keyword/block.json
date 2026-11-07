@@ -1,0 +1,36 @@
+{
+ "schema_version": 1,
+ "name": "oh:keyword",
+ "kind": "overlay",
+ "preset": "keyword",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "one short phrase the speaker says should stand out on screen",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 24,
+   "required": true
+  },
+  "icon": {
+   "type": "icon"
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Name every dollar",
+   "icon": "coin"
+  }
+ ],
+ "natural_duration": 1.0,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

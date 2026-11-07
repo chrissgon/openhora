@@ -457,6 +457,11 @@
             "punch"
           ],
           "description": "The beat's emphasis from the script (`script.emphasis`): `punch` asks the framing layer for a punch-in on that beat. Optional."
+        },
+        "block": {
+          "type": "string",
+          "pattern": "^(oh|hf):[a-z][a-z0-9-]{0,39}$",
+          "description": "The block that draws this beat (providers/renderer/blocks/), when not the engine's default for the preset. Optional: a beats file without it stays valid and stays schema_version 1. The render refuses a block its engine cannot draw (block_not_on_engine) or of another preset (block_preset_mismatch)."
         }
       }
     }

@@ -1,0 +1,21 @@
+{
+ "files": {
+  "engines/ffmpeg.json": "324d13c23080bbf43a3d7f5ebd1c86c68719214402685625e2075739a8c2a3c2",
+  "hf/allowlist.json": "56acdd6ec44a46343c10108b58617ffeff9508f929d8956b08c974688180cddb",
+  "oh/caption/block.json": "bb4a69ebaddc1900d459a2bda958bd35671d6bafb831bca0f357c4ca3ee1e32a",
+  "oh/caption/renderat.html": "12073fd5e467fc9439ee7f45dbb6e5c6e1466d13a5f697d5986e40f47da592aa",
+  "oh/cutaway/block.json": "fd21b264f0e20b65b53ba0e45cda2f26e143ccd82b7f4600dbe3b076318ca94d",
+  "oh/cutaway/renderat.html": "e93e356119decf19925c0dd6c006db7c6db1094007352a069ab6c27cf840b97e",
+  "oh/keyword/block.json": "af84f77d13d7af51cd824125ffae95d680f2334e27b50cd02a1988f5b854bc32",
+  "oh/keyword/renderat.html": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4",
+  "oh/list/block.json": "2447a050518f76d7ec3eed40a560d6cd3d0f448b4a11f8d4dc3482b3903dc1c4",
+  "oh/list/renderat.html": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
+  "oh/number/block.json": "65d29fb110c90ef3a5a82bdfe1f93e0993dacf73651860a014c4148a87739782",
+  "oh/number/renderat.html": "7c8f593524d000e21bf23d1a90236b7dd396f849cced19e45d19740147a32e0f",
+  "oh/pip/block.json": "5b169563140fd67b82599263acd7c5f00f01df86add299424407876091d6d0de",
+  "oh/pip/renderat.html": "4163ba3f8d7f9ddb1fd89d5904bb406f33367c176b964b7d64c838e337244f34",
+  "oh/quote/block.json": "1aeb4601de515fb552bd28829c71714821377cbfa978557eeb4fe509a4172de5",
+  "oh/quote/renderat.html": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa"
+ },
+ "note": "sha256 of every block file, every engines file and the hf: allowlist. A file whose hash differs is refused, and a render records the sha256 of this file as blocks_sha256. Rewritten by `ffmpeg.py pin-blocks --confirmed` after a reviewed change, together with catalogue.json."
+}

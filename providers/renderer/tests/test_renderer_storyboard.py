@@ -14,6 +14,7 @@ import pytest
 
 import renderer_kit as K
 import docker_kit as DK
+import _blocks
 import _cdp
 import _docker as D
 import _edl
@@ -189,6 +190,7 @@ def test_the_container_gets_no_recording_and_no_in_flag_only_the_staged_job_and_
     assert "--in" not in inner and "--transcript" not in inner and "--analysis" not in inner and "--network" in argv
     assert argv[argv.index("--network") + 1] == "none" and not (tmp_path / "o").exists()
     assert "--beat" not in inner and "--post" in inner
+    assert inner[inner.index("--blocks") + 1] == "/job/blocks" and inner[inner.index("--blocks-sha256") + 1] == K.BLOCKS_SHA256
 
 
 def test_post_and_beat_are_exclusive_and_the_checker_goes_with_the_post(tmp_path):
@@ -212,7 +214,7 @@ def test_the_storyboard_result_is_rebuilt_from_a_closed_schema_and_a_png_that_is
     digest = hashlib.sha256(still.read_bytes()).hexdigest()
     result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": digest, "frame": 3}], "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 1,
               "jobs": 1, "sheet": {"file": "sheet.png", "sha256": digest, "tiles": 1, "columns": 1, "width": 282, "height": 492},
-              "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "templates": {}, "font_fallbacks": [], "mentions": [], "planted": "x"}
+              "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.BLOCKS_SHA256, "font_fallbacks": [], "mentions": [], "planted": "x"}
     world.cfg["run"] = "files"
     world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"text": still.read_text(encoding="latin-1")},
                           "sheet.png": {"text": still.read_text(encoding="latin-1")}}
@@ -300,7 +302,7 @@ def test_a_still_equals_the_frame_the_render_loop_draws_for_the_same_list_at_tha
     shown = _preview.draw_rest_frames(data=DATA, vocab=VOCAB, allow=ALLOW, edl=edl, beats=beats, browser=K.BROWSER, jobs=2, work=str(tmp_path / "a"), time_limit=120)
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
     timeline["captions"] = []
-    templates = {e["preset"]: DATA["presets"][e["preset"]]["template"] for e in timeline["beats"]}
+    templates = {e["preset"]: K.template_of(e["preset"]) for e in timeline["beats"]}
     serve, _ = _frames.load_templates(sorted(set(templates.values())))
     font_serve, _ = _frames.load_fonts(edl["theme"]["fonts"], ALLOW, DATA["limits"]["font_max_bytes"])
     serve.update(font_serve)
@@ -318,7 +320,7 @@ def test_only_the_chosen_frames_are_drawn_and_a_full_loop_without_a_filter_is_un
     edl, beats = lists_of(rows_of(TWO))
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
     timeline["captions"] = []
-    templates = {e["preset"]: DATA["presets"][e["preset"]]["template"] for e in timeline["beats"]}
+    templates = {e["preset"]: K.template_of(e["preset"]) for e in timeline["beats"]}
     serve, _ = _frames.load_templates(sorted(set(templates.values())))
     font_serve, _ = _frames.load_fonts(edl["theme"]["fonts"], ALLOW, DATA["limits"]["font_max_bytes"])
     serve.update(font_serve)
@@ -389,11 +391,11 @@ def test_a_card_that_touches_the_face_box_gives_overlay_hits_face_and_a_nonzero_
     import subprocess, sys
     copy = tmp_path / "r"
     shutil.copytree(K.RENDERER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
-    html = (copy / "templates" / "keyword.html").read_text()
+    html = (copy / "blocks" / "oh" / "keyword" / "renderat.html").read_text()
     bad = html.replace("pos.style.top = z[0] + 'px';", "pos.style.top = '650px';")
     assert bad != html
-    (copy / "templates" / "keyword.html").write_text(bad)
-    _frames.write_pins(str(copy / "templates"))
+    (copy / "blocks" / "oh" / "keyword" / "renderat.html").write_text(bad)
+    _blocks.write_pins(str(copy / "blocks"))
     out = tmp_path / "o"
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     done = subprocess.run([sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY),
@@ -420,7 +422,7 @@ def draw_frames_of(tmp, preset, edl, bl, frames):
     """The frames `frames` of the one beat of a list, through the render's loop with the storyboard's backdrop (nothing but the PNGs)."""
     timeline = _edl.resolve_timeline(edl, bl, VOCAB, DATA)
     timeline["captions"] = []
-    template = DATA["presets"][preset]["template"]
+    template = K.template_of(preset)
     serve, _ = _frames.load_templates([template])
     font_serve, _ = _frames.load_fonts(edl["theme"]["fonts"], ALLOW, DATA["limits"]["font_max_bytes"])
     serve.update(font_serve)
@@ -469,12 +471,12 @@ def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_refused_al
     import subprocess, sys
     copy = tmp_path / "r"
     shutil.copytree(K.RENDERER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
-    html = (copy / "templates" / "keyword.html").read_text()
+    html = (copy / "blocks" / "oh" / "keyword" / "renderat.html").read_text()
     bad = html.replace("pos.style.top = z[0] + 'px';", "pos.style.top = (window.__t < 0.2 ? 650 : z[0]) + 'px';")
     bad = bad.replace("window.renderAt = function (t, data) {", "window.renderAt = function (t, data) {\n  window.__t = t;", 1)
     assert bad != html and "window.__t = t" in bad
-    (copy / "templates" / "keyword.html").write_text(bad)
-    _frames.write_pins(str(copy / "templates"))
+    (copy / "blocks" / "oh" / "keyword" / "renderat.html").write_text(bad)
+    _blocks.write_pins(str(copy / "blocks"))
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     args = [sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY)]
     done = subprocess.run([*args, "--out", str(tmp_path / "o")], capture_output=True, text=True, env=env, timeout=300)
@@ -604,7 +606,7 @@ def test_a_png_whose_header_is_larger_than_the_frame_or_the_grid_is_refused_by_t
         result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": hashlib.sha256(still).hexdigest(), "frame": 3}],
                   "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 5, "jobs": 1,
                   "sheet": {"file": "sheet.png", "sha256": hashlib.sha256(sheet).hexdigest(), "tiles": 1, "columns": 1, "width": 282, "height": 492},
-                  "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "templates": {}, "font_fallbacks": [], "mentions": []}
+                  "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.BLOCKS_SHA256, "font_fallbacks": [], "mentions": []}
         world.cfg["run"] = "files"
         world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"kind": "bytes", "hex": still.hex()}, "sheet.png": {"kind": "bytes", "hex": sheet.hex()}}
         world.save()

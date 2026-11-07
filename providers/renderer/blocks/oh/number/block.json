@@ -1,0 +1,39 @@
+{
+ "schema_version": 1,
+ "name": "oh:number",
+ "kind": "overlay",
+ "preset": "number",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the line turns on one figure and what it measures",
+ "params": {
+  "value": {
+   "type": "text",
+   "max": 10,
+   "pattern": "[0-9][0-9.,]*",
+   "required": true
+  },
+  "label": {
+   "type": "text",
+   "max": 40,
+   "required": true
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "value": "1.234,56",
+   "label": "euros saved in one month"
+  }
+ ],
+ "natural_duration": 2.2,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

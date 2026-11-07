@@ -55,7 +55,7 @@ def test_the_contract_has_the_class_row_and_the_verbs_row():
     text = (REPO / "providers" / "CONTRACT.md").read_text()
     assert "| `renderer:video` (a class the runtime uses" in text and "`providers/renderer/`" in text and "RENDERER_VIDEO_PROVIDER" in text
     row = next(l for l in text.split("\n") if l.startswith("| `renderer:video` | Runtime only"))
-    for verb in ("`--check`", "`build (--dry-run", "`pin-browser (--dry-run", "`reap`", "`analyse --in", "`base --transcript", "`align --post", "`check --edl", "`render --edl", "`cover --in"):
+    for verb in ("`--check`", "`build (--dry-run", "`pin-browser (--dry-run", "`reap`", "`analyse --in", "`base --transcript", "`align --post", "`check --edl", "`render --edl", "`cover --in", "`pin-blocks --confirmed`", "`block-params --block"):
         assert verb in row, verb
     for key in ("`path`", "`sha256`", "`browser_sandbox`", "`replayed`", "`slots`", "`unmatched`"):
         assert key in row, key

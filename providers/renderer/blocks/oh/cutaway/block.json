@@ -1,0 +1,45 @@
+{
+ "schema_version": 1,
+ "name": "oh:cutaway",
+ "kind": "layout",
+ "preset": "cutaway",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the picture should show what is spoken about instead of the speaker",
+ "params": {
+  "asset": {
+   "type": [
+    "image",
+    "clip"
+   ],
+   "required": true
+  },
+  "fit": {
+   "type": "choice",
+   "values": [
+    "cover",
+    "contain"
+   ],
+   "default": "cover"
+  },
+  "label": {
+   "type": "text",
+   "max": 40
+  }
+ },
+ "samples": [
+  {
+   "asset": "slot-1",
+   "fit": "cover",
+   "label": "The view from the top"
+  }
+ ],
+ "natural_duration": 1.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}
