@@ -1122,7 +1122,7 @@
     },
     {
       "name": "core-skill-creator",
-      "version": "6.0.0",
+      "version": "6.1.0",
       "area": "core",
       "manifest": true,
       "proof": [
@@ -1132,9 +1132,9 @@
           "provider": null,
           "band": "reliable",
           "cause": null,
-          "score": 0.72,
+          "score": 0.74,
           "mean": 0.89,
-          "runs": 12,
+          "runs": 15,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -1160,11 +1160,11 @@
           "model": "demo-model-b",
           "adapter": "adapter",
           "provider": null,
-          "band": "needs a test",
-          "cause": "guard assertion(s) 1.2 failed in the current set",
-          "score": 0.7,
-          "mean": 0.87,
-          "runs": 12,
+          "band": "reliable",
+          "cause": null,
+          "score": 0.77,
+          "mean": 0.91,
+          "runs": 15,
           "web_measured": false,
           "usage_mean": {
             "cache_read": 0.0,
@@ -1187,7 +1187,7 @@
           "key": "lab"
         }
       ],
-      "recommended": "demo-model-a",
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -3391,7 +3391,7 @@
       "adapter": "adapter",
       "provider": null,
       "skills": 48,
-      "reliable": 47,
+      "reliable": 48,
       "community_only": 0,
       "expected_cost": 0.0006,
       "price": {
@@ -3404,13 +3404,13 @@
         "age_days": 36,
         "stale": false
       },
-      "band": "partial"
+      "band": "reliable"
     }
   ],
   "default_model": null,
-  "recommended_model": "demo-model-a",
+  "recommended_model": "demo-model-b",
   "snapshot": {
-    "commit": "1f1296c32d64",
+    "commit": "2c9149273985",
     "source": "docs/inventory.md"
   }
 }
