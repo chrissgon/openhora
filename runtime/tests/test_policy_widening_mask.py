@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 
 import pytest
 
@@ -117,11 +118,32 @@ def test_a_record_that_is_not_one_this_module_wrote_is_no_record(record):
     assert policy_widening.parse(json.dumps(record)) is None
 
 
-def test_the_worst_case_is_far_under_the_cursor_and_keeps_room_for_the_next_groups():
+def store_value_max() -> int:
+    """The store's cap on a cursor value, read from the provider's text (providers/store/sqlite.py `VALUE_MAX = 4 * 1024`) without importing the provider."""
+    text = (st.REPO / "providers" / "store" / "sqlite.py").read_text(encoding="utf-8")
+    found = re.search(r"^VALUE_MAX = (\d+) \* (\d+)", text, re.M)
+    assert found, "VALUE_MAX is not written as `<n> * <n>` in providers/store/sqlite.py"
+    return int(found.group(1)) * int(found.group(2))
+
+
+def worst_case(names) -> int:
+    """The bytes of the record when the three channels and the 100 senders each hold every one of `names`, through the real `dump`."""
+    snap = {"channels": {c: list(names) for c in operations.POLICY_CHANNELS}, "senders": {f"{'p' * 32}:{n:064d}": list(names) for n in range(project_config.SENDERS_MAX)}}
+    return len(policy_widening.dump(snap, "the-projects-key").encode())
+
+
+def test_the_worst_case_is_far_under_the_cursor_and_keeps_room_for_the_next_groups(monkeypatch):
+    size = worst_case(NAMES)
+    # approve-effect-deliver (V1b1-3) crossed a 6-bit boundary of the dense mask (55 groups need 10 digits): +128 bytes once, 3636 -> 3764. The next +128 boundary is at the 61st group.
+    assert size < 3800, f"{size} bytes: the worst case moved again; if a group crossed a 6-bit boundary say so here, as approve-effect-deliver did (3636 -> 3764)"
+    # The room is measured, not estimated: nine more groups with names as long as the longest one, through the real dump, so the growth of the digits is in the figure.
+    dummies = {f"approve-effect-rooms{n:02d}": {"operations": (), "kind": None} for n in range(9)}
+    assert all(len(name) == len("approve-effect-publish") for name in dummies)
+    monkeypatch.setattr(operations, "GROUPS", {**operations.GROUPS, **dummies})
+    room = worst_case(list(operations.GROUPS))
+    assert room < store_value_max(), (f"{room} bytes with {len(operations.GROUPS)} groups; the store's VALUE_MAX is {store_value_max()} (providers/store/sqlite.py). Measured: 4092 bytes "
+                                      "with 64 groups when this was written, so the 65th group, or the next encoding boundary, forces a denser record (version 6)")
     snap = {"channels": {c: list(NAMES) for c in operations.POLICY_CHANNELS}, "senders": {f"{'p' * 32}:{n:064d}": list(NAMES) for n in range(project_config.SENDERS_MAX)}}
-    size = len(policy_widening.dump(snap, "the-projects-key").encode())
-    assert size < 3700, size
-    assert size + 9 * (len("approve-effect-publish") + 4) + 2 * 100 < 4 * 1024, "nine more groups and two more digits on every one of 100 senders still fit (the room was for twelve before CB-5 added three groups)"
     hex_size = len(hex_record(snap, 3).encode())
     assert hex_size > size + 300, "base 64 gives about a third less on the masks"
 
