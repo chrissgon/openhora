@@ -76,7 +76,7 @@ A table that changes with the code is generated, never edited by hand: it sits b
 
 ## The pages
 
-Every page of this folder, once. The eight layer pages share a template; the five feature pages cross layers.
+Every page of this folder, once. The eight layer pages share a template; the six feature pages cross layers.
 
 | Page | What it covers |
 |---|---|
@@ -93,6 +93,7 @@ Every page of this folder, once. The eight layer pages share a template; the fiv
 | [outputs.md](outputs.md) | A feature across layers: the export step kinds and the renderer's container, the formula guard (L32), the step engine's effect gate (L30), the write-back to a platform document (L31) and the hidden-text flag |
 | [unattended.md](unattended.md) | A feature across layers: remote access, the credentials directory, retention, orphan containers, the lease and the doctor's `--unattended` |
 | [scripts.md](scripts.md) | A feature across layers: a project's own script as a step (limits L34 to L38), approved by the hash of its bytes, run in a sandbox, reaching only the destinations the person approved |
+| [short-video.md](short-video.md) | A feature across layers: the speech transcriber and the ffmpeg video renderer, two runtime-only provider classes in containers, the common part and the drawing part, and the 1560 caption line (VD12) |
 
 ## The layers
 

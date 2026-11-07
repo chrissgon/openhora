@@ -132,11 +132,11 @@
  "zones": {
   "card_top": 110,
   "gap": 18,
-  "caption_bottom": 1620,
+  "caption_bottom": 1560,
   "caption_margin": 14,
   "card_min_height": 80,
   "caption_min_height": 120,
-  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions live in the band below it, from the face box plus gap down to caption_bottom. The render fails when a drawn card or caption touches the face box."
+  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions live in the band below it, from the face box plus gap down to caption_bottom. The render fails when a drawn card or caption touches the face box. 1560 clears the apps' interface (VD12); a drawn caption below it fails the render."
  },
  "face_box_default": {
   "x": 240,

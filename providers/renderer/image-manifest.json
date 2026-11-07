@@ -2,8 +2,8 @@
   "note": "The files of the ffmpeg engine's image, and only these: the image tag is the sha256 of exactly this list (providers/renderer/_image.py), and .dockerignore lets in exactly this list. A test keeps the two equal.",
   "files": [
     "Dockerfile", ".dockerignore", "image-manifest.json", "renderer-presets.json", "browser-pin.json", "edl.schema.json", "_fetch_browser.py",
-    "_inner.py", "_align.py", "_cdp.py", "_edl.py", "_frames.py", "_lint.py", "_media.py", "_preview.py", "_redact.py", "_render.py",
-    "_text.py", "_timeline.py", "_vocab.py"
+    "_inner.py", "_align.py", "_assets.py", "_cdp.py", "_edl.py", "_frames.py", "_layout.py", "_lint.py", "_media.py", "_output.py", "_preview.py", "_redact.py",
+    "_render.py", "_text.py", "_timeline.py", "_vocab.py"
   ],
   "folders": ["templates", "assets/fonts"]
 }
