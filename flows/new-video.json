@@ -1,0 +1,28 @@
+{
+  "flow": "new-video",
+  "title": "Make a short video from a recording, review its captions, and approve the exact render to deliver",
+  "params": {
+    "media": {
+      "description": "the recording: its id in the media store (16 characters, from media-in)",
+      "type": "text"
+    },
+    "post": {
+      "description": "the post whose script was recorded: its content file, docs/marketing/content/<name>.md, with its - Network: line",
+      "type": "text"
+    }
+  },
+  "tasks": [
+    {
+      "key": "video",
+      "step": "media",
+      "args": {
+        "media": "{media}",
+        "post": "{post}"
+      },
+      "title": "Make the video",
+      "text": "Transcribe and cut the recording, stop for the caption review, render and verify it for the post's platform, and stop for the person's approval of the exact render. Nothing leaves this computer until the person approves its hash; the file is then downloadable, and nothing is published.",
+      "depends_on": [],
+      "milestone": true
+    }
+  ]
+}
