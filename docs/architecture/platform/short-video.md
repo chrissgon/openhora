@@ -118,6 +118,8 @@ Retention (decision 12): the recording and the transcript 7 days after delivery,
 
 V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
 
+From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the group `media-phone` sends a video. The bridge checks its declared size against the least of the media store's 1 GiB, the quota left and the provider's file limit before fetching anything (Telegram's bot download is 20 MB, so most recordings of a minute or more get the over-cap sentence, and the Drive link or the page is the way in for them). `video-phone-in` keeps it, the caption (the post's name) or a numbered list chooses the post, `video-phone-start` runs the video to the caption review, and the words go to the sender's chat. A reply to the caption card, one line per correction `wrong -> right`, is mapped by `runtime/media_phone_words.py` to the closed edits and applied by `ops_media_edit.edit`; `continue` answers the review and runs the video. A correction in a reply to the delivery card renders again and asks again.
+
 ## Known limits and improvements
 
 - The storyboard (`storyboard`, `_preview.py`) is ported and tested but no flow uses it yet (M2, VD14).
@@ -144,4 +146,7 @@ Written on 2026-11-07 by V1a-3.
 
 2026-11-08: V1b3, "Add an animation" in the runtime (VD15)
 
+2026-11-08: V1d-1, a video from a messaging app and limit L69
+
 Updated on 2026-11-07 by V3a-2.
+

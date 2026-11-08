@@ -1,0 +1,12 @@
+{
+  "package": "v1d-1",
+  "add": {
+    "operations_table.PUBLIC_MODULES": ["ops_media_phone"],
+    "operations_table.NOT_OPERATIONS": ["video_phone_posts"],
+    "mcp.CHANNEL_ARG": ["video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"],
+    "interpreter_coverage.INTERNAL": ["video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"],
+    "messaging_policy.ON_MESSAGING": ["video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"],
+    "messaging_policy.NOT_PERMITTED_BY_DEFAULT": ["video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"],
+    "run_limits.NUMBERS": [69]
+  }
+}
