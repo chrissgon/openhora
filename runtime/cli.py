@@ -24,6 +24,7 @@ Usage:
   python3 runtime/cli.py video-download --project <dir> --task <id> --out <file>
   python3 runtime/cli.py video-still --project <dir> --task <id> --out <file>
   python3 runtime/cli.py video-catalogue --project <dir>
+  python3 runtime/cli.py media-remove --project <dir> --media <id> [--confirm]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -192,6 +193,10 @@ video-catalogue lists the animations the caption review of a new video can add (
           that draw it, and `addable` with the reason when it is not). An animation is added with `captions-edit` and the edit
           `{"op": "animation", "block": "oh:keyword", "params": {"text": "..."}, "word_from": <i>, "word_to": <j>}`, removed with
           `{"op": "animation", "id": "a1", "remove": true}`; the renderer's own checker checks the parameters.
+media-remove removes a recording from the media store for good (--media <id>, from media-list): the recording, its transcript,
+          its work files, its still and its delivered video. Without --confirm it removes nothing and prints what would go (its
+          size, its files, the tasks that named it); with --confirm it removes it. It is refused while a task that has not ended
+          works on the recording: finish the video, or cancel its request (cancel --request <id>) first.
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. The answer to a

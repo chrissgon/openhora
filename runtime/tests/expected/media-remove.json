@@ -1,0 +1,8 @@
+{
+  "package": "media-remove",
+  "add": {
+    "operations_table.PUBLIC_MODULES": ["ops_media_remove"],
+    "mcp.CHANNEL_ARG": ["media-remove"],
+    "interpreter_coverage.INTERNAL": ["media-remove"]
+  }
+}

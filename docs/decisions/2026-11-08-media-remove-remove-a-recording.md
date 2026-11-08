@@ -1,0 +1,10 @@
+## 2026-11-08: removing one recording from the media store (media-remove; no measurement change, no skill changed, no lab run)
+
+- `media-remove --media <id>` removes one recording of the media store for good: the folder whole, with the recording, its transcript, its work files, its still and its delivered video. Without `--confirm` it removes nothing and says what would go (its bytes, its files, the tasks that named it); a permanent deletion is always confirmed. A trash inside the store was not chosen: it would not free the quota, which is why a person removes a recording.
+- It is refused while a task that has not ended works on the recording: every step task of the kind `media` that names it, and the task its record binds, must be `done`, `cancelled` or `failed` (the states in which a task no longer holds its recording, as the store's binding rule already says), and none may hold its task lock. The record's lock and a check that it still names the same task guard the moment of the removal.
+- Terminal and page. The page needs the group `media`, which gains the operation; no group was added, because the policy record has room for about eight more groups and one operation does not need its own. It may cross the LAN socket: only an id crosses, as for the starts and the captions (L68 is unchanged). No messaging app and no connected client can call it.
+- Class G, kind `internal`, catalog version 4: never served in words, so the served catalog and its hash do not move. A W row would be served at version 4.
+- Nothing new is stored about a removal: the answer says what was removed, and the service's request line records the call (method, path, status), never the id. The retention's removals are not logged either.
+- The quota refusal now says to remove a recording you no longer need, or to wait for the retention, with no command and no path, because the same sentence reaches a phone (limit L62).
+- No new limit. The page's button comes with a later page package, after V1c-1 to V1c-3 merge.
+- Settled by the supervisor on the spec's recommendations (OPEN-1 to OPEN-10), unless the PR says otherwise.
