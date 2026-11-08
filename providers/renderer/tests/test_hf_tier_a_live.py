@@ -28,17 +28,28 @@ pytestmark = pytest.mark.skipif(os.environ.get("WB_HYPERFRAMES_DOCKER_TESTS") !=
                                 reason="real containers: set WB_HYPERFRAMES_DOCKER_TESTS=1 (both images built and recorded first), see the top of this file")
 HF_HOST = str(K.RENDERER / "hyperframes.py")
 
+# Read once, when the file is imported: a fixture of the folder's conftest points OPENHORA_STATE_DIR (and may touch others) at a temporary folder before
+# any test of this file runs, so the person's values must be taken here and put back by `real_state`, as test_hf_docker_live.py does.
+REAL_STATE_DIR = os.environ.get("OPENHORA_STATE_DIR")
+SURVEY = os.environ.get("WB_TIER_A_SURVEY")
+REPORT = os.environ.get("WB_TIER_A_REPORT")
+OUT = os.environ.get("WB_TIER_A_OUT")
+ONLY = os.environ.get("WB_TIER_A_ONLY", "")
 
-def need(name: str) -> str:
-    value = os.environ.get(name)
+
+def need(value, name: str) -> str:
     if not value:
         pytest.fail("set %s (see the top of this file)" % name)
     return value
 
 
 @pytest.fixture
-def images(monkeypatch):
-    monkeypatch.setenv("OPENHORA_STATE_DIR", need("OPENHORA_STATE_DIR"))
+def real_state(monkeypatch):
+    monkeypatch.setenv("OPENHORA_STATE_DIR", need(REAL_STATE_DIR, "OPENHORA_STATE_DIR"))
+
+
+@pytest.fixture
+def images(real_state):
     try:
         return D.check_image(), H.check_hf_image()
     except D.NotConfigured as err:
@@ -108,9 +119,9 @@ def render(tmp_path, recording, blocks, registry, label):
 
 
 def test_each_admit_candidate_is_drawn_twice_through_the_gates_and_gets_a_verdict(images, four_cpus, tmp_path):
-    report = json.loads(Path(need("WB_TIER_A_REPORT")).read_text(encoding="utf-8"))
-    survey, out_path = need("WB_TIER_A_SURVEY"), need("WB_TIER_A_OUT")
-    only = [n for n in os.environ.get("WB_TIER_A_ONLY", "").split(",") if n]
+    report = json.loads(Path(need(REPORT, "WB_TIER_A_REPORT")).read_text(encoding="utf-8"))
+    survey, out_path = need(SURVEY, "WB_TIER_A_SURVEY"), need(OUT, "WB_TIER_A_OUT")
+    only = [n for n in ONLY.split(",") if n]
     comps = [c for c in report["components"] if c["verdict"] == "admit-candidate" and (not only or c["name"] in only)]
     assert comps, "the report has no admit-candidate (or WB_TIER_A_ONLY names none)"
     recording = prepare(images, tmp_path)
@@ -132,7 +143,7 @@ def test_each_admit_candidate_is_drawn_twice_through_the_gates_and_gets_a_verdic
 
 
 def test_a_planted_escape_the_lint_admits_is_refused_block_escaped_by_the_full_render_path(images, four_cpus, tmp_path):
-    out_path = need("WB_TIER_A_OUT")
+    out_path = need(OUT, "WB_TIER_A_OUT")
     recording = prepare(images, tmp_path)
     comp = T.planted_component()
     blocks = T.blocks_folder(tmp_path, comp)

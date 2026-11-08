@@ -167,3 +167,29 @@ def test_the_live_file_skips_without_the_docker_flag_and_names_every_variable_it
     done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(K.RENDERER / "tests" / "test_hf_tier_a_live.py")],
                           capture_output=True, text=True, timeout=300, env={k: v for k, v in os.environ.items() if k != "WB_HYPERFRAMES_DOCKER_TESTS"}, cwd=str(K.RENDERER / "tests"))
     assert "2 skipped" in done.stdout, done.stdout[-600:] + done.stderr[-300:]
+
+
+def test_the_live_file_reads_the_persons_variables_at_import_and_never_inside_a_function():
+    """A conftest fixture points OPENHORA_STATE_DIR at a temporary folder before a test runs; a variable read when a fixture or a test runs would be that
+    folder (the first run of step 7.8 failed this way: `image_not_recorded`). So the environment is read at module level only; inside a function it is only
+    copied whole into a subprocess's environment (`dict(os.environ, ...)`), and the state folder is written back by the `real_state` fixture."""
+    import ast
+    path = K.RENDERER / "tests" / "test_hf_tier_a_live.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    top_reads, inside_reads = set(), []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and node.value.id == "os":
+            owner = node
+            while owner in parents and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                owner = parents[owner]
+            if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                call = parents[parents[node]] if isinstance(parents.get(node), ast.Attribute) else None
+                top_reads.add(call.args[0].value if isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant) else "?")
+            else:
+                call = parents.get(node)
+                inside_reads.append(isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "dict")
+    assert top_reads == {"OPENHORA_STATE_DIR", "WB_TIER_A_SURVEY", "WB_TIER_A_REPORT", "WB_TIER_A_OUT", "WB_TIER_A_ONLY", "WB_HYPERFRAMES_DOCKER_TESTS"}, top_reads
+    assert inside_reads and all(inside_reads), "inside a function the environment is only copied whole with dict(os.environ, ...)"
+    source = path.read_text(encoding="utf-8")
+    assert 'monkeypatch.setenv("OPENHORA_STATE_DIR", need(REAL_STATE_DIR, "OPENHORA_STATE_DIR"))' in source and "def images(real_state)" in source
