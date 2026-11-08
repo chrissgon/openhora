@@ -281,13 +281,14 @@ def test_the_pixel_command_pins_every_thread_ends_every_stream_and_never_uses_sh
     assert "/in/" not in graph and "[1:v:0]fps=30:start_time=0,format=yuv420p[sv]" in graph and "concat=n=2:v=1:a=0[cv]" in graph
 
 
-def test_the_reference_is_the_proxy_cut_and_zoomed_by_the_one_base_graph_with_a_zoomed_range_brought_to_twice_the_size_first():
+def test_the_reference_is_the_proxy_cut_and_zoomed_by_the_one_base_graph_with_each_zoom_sampled_bilinearly_at_exact_positions():
     edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
     graph = ";".join(G.reference_graph(edl, DATA, "[1:v:0]"))
     ax, ay = _media.anchor_point(edl["face_box"], 0.25)
-    assert "scale=2160:3840:flags=%s,zoompan=z='1.15000':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)'" % (_media.SWS, ax * 2, ay * 2) in graph
-    assert graph.count("scale=2160:3840") == 1 and "scale=1080:1920:flags=%s" % _media.SWS in graph        # the unzoomed range is the proxy as it is
-    assert "a=1" not in graph and "[0:a:0]" not in graph
+    assert "perspective=x0='%.2f*(1-1/1.15000)':y0='%.2f*(1-1/1.15000)'" % (ax, ay) in graph and "interpolation=linear:eval=frame:sense=source" in graph
+    assert "zoompan" not in graph and graph.count("perspective=") == 1 and "scale=1080:1920:flags=%s" % _media.SWS in graph     # the unzoomed range is the proxy as it is
+    pushed = _media.zoom_filter_linear(1.0, 1.02, 120, (540.0, 850.0), 1080, 1920)
+    assert "(1.00000+0.000168*on)" in pushed and _media.zoom_filter_linear(1.0, 1.0, 120, (540.0, 850.0), 1080, 1920).startswith("scale=1080:1920")
 
 
 def test_the_base_graph_is_what_compose_argv_builds_its_picture_from():
@@ -398,8 +399,8 @@ def test_a_box_outside_the_face_region_is_not_what_the_pixel_check_looks_at(clip
 
 @needs_ffmpeg
 def test_the_reference_of_a_pushed_in_range_stays_within_30_db_of_a_smooth_zoom_made_at_four_times_the_size(clip, tmp_path):
-    """The renderer's zoom is smooth: the stand-in is the same zoom made at four times the size and brought down by area. The reference made on the
-    1080x1920 proxy itself would sit near 26 dB at its worst here; the one at twice the size must keep clear of the threshold."""
+    """The renderer's zoom is smooth: the stand-in is the same zoom made at four times the size and brought down by area (the measured minimum is 34.5 dB;
+    the first references, zoompan on the proxy and zoompan at twice the size, were at 26 and 30 against a bilinear stand-in)."""
     folder, proxy = clip
     edl = small_edl(kept=((0, 60),))
     z1 = 1.05                                                                  # a push-in is made by hand: the clip is under the five seconds that earn one
@@ -408,8 +409,8 @@ def test_the_reference_of_a_pushed_in_range_stays_within_30_db_of_a_smooth_zoom_
     ffmpeg("-i", proxy, "-vf", "scale=4320:7680:flags=lanczos,zoompan=z='1+%s*on/59':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=4320x7680:fps=30,scale=1080:1920:flags=area,format=yuv422p10le" % (z1 - 1, ax * 4, ay * 4),
            "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", 60, ideal)
     reference = folder / "reference.mov"
-    zoomed = "scale=2160:3840:flags=%s,zoompan=z='1+%s*on/59':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=1080x1920:fps=30" % (_media.SWS, z1 - 1, ax * 2, ay * 2)
-    ffmpeg("-i", proxy, "-vf", "format=yuv420p,%s,format=yuv422p10le" % zoomed, "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", 60, reference)
+    graph = "[0:v:0]fps=30:start_time=0,format=yuv420p,%s,format=yuv422p10le" % _media.zoom_filter_linear(1.0, z1, 60, (ax, ay), 1080, 1920)
+    ffmpeg("-i", proxy, "-vf", graph.split("]", 1)[1], "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", 60, reference)
     done = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", ideal, "-i", reference, "-lavfi", "[0:v]crop=480:600:300:700,format=yuv420p[a];[1:v]crop=480:600:300:700,format=yuv420p[b];[a][b]psnr=stats_file=%s" % (tmp_path / "s.log"), "-f", "null", "-"],
                           capture_output=True, text=True, timeout=300)
     assert done.returncode == 0, done.stderr[-300:]
@@ -418,7 +419,7 @@ def test_the_reference_of_a_pushed_in_range_stays_within_30_db_of_a_smooth_zoom_
 
 def test_a_refusal_of_the_pixel_check_explains_the_range_the_worst_frame_the_count_the_median_the_zoom_and_what_is_drawn(tmp_path):
     edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
-    timeline = {"captions": [{"start_frame": 0, "end_frame": 20}], "beats": [{"start_frame": 5, "end_frame": 8, "preset": "keyword"}]}
+    timeline = {"captions": [{"start_frame": 0, "end_frame": 20}], "beats": [{"start_frame": 5, "end_frame": 8, "preset": "keyword"}, {"start_frame": 6, "end_frame": 12, "preset": "quote"}]}
 
     def run(argv, timeout, cwd=None):
         (Path(cwd) / "psnr-0.log").write_text("".join("n:%d mse_avg:1 psnr_avg:%s psnr_y:1 \n" % (i + 1, v) for i, v in enumerate(["45.0"] * 6 + ["24.6", "29.0"] + ["45.0"] * 12)))
@@ -428,9 +429,10 @@ def test_a_refusal_of_the_pixel_check_explains_the_range_the_worst_frame_the_cou
     with pytest.raises(Refusal) as caught:
         G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, timeline)
     assert (caught.value.code, caught.value.field) == ("face_pixels_changed", "range 0 frame 6 psnr 24.6")
-    rows = {p["code"]: p["field"] for p in caught.value.problems}
-    assert rows == {"range_frames": "first 0 last 19", "worst_offset": "offset 6 of 20", "frames_under": "under 2 of 20", "median": "median 45.0",
-                    "zoom": "zoom 1.0000 to 1.0000", "drawn_at_worst": "drawn caption keyword"}
+    rows = {p["code"]: p["field"] for p in caught.value.problems if p["code"] != "entry"}
+    assert rows == {"range_frames": "first 0 last 19", "worst_offset": "offset 6 of 20", "frames_under": "under 2 of 20", "under_at": "under_at 6-7", "median": "median 45.0",
+                    "zoom": "zoom 1.0000 to 1.0000", "drawn_at_worst": "drawn caption keyword quote"}
+    assert [p["field"] for p in caught.value.problems if p["code"] == "entry"] == ["caption 0 to 20", "keyword 5 to 8", "quote 6 to 12"]
     assert all(p["beat"] is None and len(p["field"]) <= 80 and G.FIELD_OK.fullmatch(p["field"]) for p in caught.value.problems)
 
 

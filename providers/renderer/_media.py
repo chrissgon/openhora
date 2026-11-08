@@ -316,6 +316,21 @@ def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int
     return "zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps)
 
 
+def zoom_filter_linear(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int) -> str:
+    """The same zoom as `zoom_filter` about the same fixed point, sampled bilinearly at exact fractional positions: `perspective` with linear
+    interpolation maps the window of the picture (its size divided by the zoom, its corner at the anchor's fixed point) onto the whole frame, per frame
+    (`on` counts the range's frames). It is what a browser does to a scaled video layer, which is why the pixel check's reference uses it; the ffmpeg
+    engine's own render keeps `zoom_filter`. Both zooms are the same arithmetic about the same point."""
+    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+        return "scale=%d:%d:flags=%s" % (w, h, SWS)
+    ax, ay = anchor
+    z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "(%.5f+%.6f*on)" % (z0, (z1 - z0) / max(1, frames - 1))
+    x0, y0 = "%.2f*(1-1/%s)" % (ax, z), "%.2f*(1-1/%s)" % (ay, z)
+    wz, hz = "%d/%s" % (w, z), "%d/%s" % (h, z)
+    return ("perspective=x0='%s':y0='%s':x1='%s+%s':y1='%s':x2='%s':y2='%s+%s':x3='%s+%s':y3='%s+%s':interpolation=linear:eval=frame:sense=source"
+            % (x0, y0, x0, wz, y0, x0, y0, hz, x0, wz, y0, hz))
+
+
 def bubble_crop(face: dict, w: int, h: int) -> tuple:
     """(side, x, y) of the square of the frame that the speaker's round bubble shows: the face box with some air."""
     side = min(w, h, _even(max(face["w"], face["h"]) * 1.2))
@@ -332,15 +347,15 @@ def framing_filter(w: int, h: int, src_matrix: str) -> str:
             "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
 
 
-def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_up=None) -> list:
+def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False) -> list:
     """The filter strings of the cut and zoomed picture, with no layer and no pip: the source cut into the kept ranges, each zoomed about
     the face as the plan says, joined by `concat` into `[cv]` (and, when the plan has audio and `audio` is true, `[aout]`). The render
     (`compose_argv`) and the pixel check of the HyperFrames engine (`_hf_gate`) build the picture from this one function, so the
     reference the check compares with is the base the ffmpeg engine draws. `plan` holds fps, size [w, h], kept, zoom, anchor, fade and
     has_audio, and src_matrix unless `prepare` is given. `source` is the label of the video input; `prepare` the filters from it to `[sv]`
     (by default the recording's framing at `base` times the output size); `base` the factor the picture is cut at, which `zoom_filter`
-    needs to know. `zoom_up`, when given, is a filter chain that brings a picture at the output size to `base` times it, applied only to the
-    ranges that zoom (an unzoomed range stays the exact picture): the reference of the pixel check zooms the 1080x1920 proxy this way."""
+    needs to know. `zoom_linear` zooms with `zoom_filter_linear` (bilinear, exact positions, on a picture at the output size, so `base` is 1) instead of
+    `zoom_filter`: the reference of the pixel check zooms the 1080x1920 proxy this way, as a browser zooms a video layer."""
     fps, (w, h) = plan["fps"], plan["size"]
     kept, has_audio = plan["kept"], plan["has_audio"] and audio
     n = len(kept)
@@ -356,9 +371,7 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
     zoom, fade = plan["zoom"], plan["fade"]
     for k, (a, b) in enumerate(kept):
         z0, z1 = zoom_levels(zoom, k, b - a, fps)
-        zf = zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
-        if zoom_up and zf.startswith("zoompan"):
-            zf = zoom_up + "," + zf
+        zf = zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h) if zoom_linear else zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
         g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
                  % (src_v[k], a, b, zf, k))
         cat_in.append("[v%d]" % k)

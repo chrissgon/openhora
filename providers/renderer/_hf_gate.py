@@ -155,14 +155,13 @@ def reference_plan(edl: dict, data: dict) -> dict:
 
 
 def reference_graph(edl: dict, data: dict, source: str) -> list:
-    """The filters that make the undrawn base from the proxy at label `source`, ending at `[cv]`: the kept ranges cut and zoomed by the one base graph.
-    A range that zooms is brought to twice the output size first and zoomed there, as the ffmpeg engine zooms a picture it cut at twice the size: a
-    zoom done on the 1080x1920 picture itself snaps to whole pixels and deviates from a renderer's smooth zoom by 25 to 30 dB on fine detail (found
-    against an eight-times-finer reference), the one at twice the size by about 38 dB at the median and 33 at the worst. An unzoomed range is the proxy as it
-    is."""
-    frame = data["frame"]
-    return _media.base_graph(reference_plan(edl, data), source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=_media.BASE, audio=False,
-                             zoom_up="scale=%d:%d:flags=%s" % (frame["width"] * _media.BASE, frame["height"] * _media.BASE, _media.SWS))
+    """The filters that make the undrawn base from the proxy at label `source`, ending at `[cv]`: the kept ranges cut and zoomed by the one base graph,
+    each zoom sampled bilinearly at exact positions (`_media.zoom_filter_linear`), as a browser scales a video layer. Earlier references and what they
+    measured against a bilinear stand-in (testsrc2 detail, a 2 percent push-in, the face region, executor, host ffmpeg): `zoompan` on the proxy at a base of
+    one 26 dB at the worst, `zoompan` at twice the size 29.8 at the worst and 33.2 at the median, which is also what the first live render gave (29.0 and
+    33.4). An unzoomed range is the proxy as it is."""
+    return _media.base_graph(reference_plan(edl, data), source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=1, audio=False,
+                             zoom_linear=True)
 
 
 def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list) -> list:
@@ -244,12 +243,21 @@ def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, 
     ordered = sorted(values)
     median = ordered[len(ordered) // 2]
     z0, z1 = _media.zoom_levels(edl["zoom"], k, edl["kept"][k][1] - edl["kept"][k][0], edl["fps"])
+    spans, start = [], None
+    for i, v in enumerate(values + [PSNR_CAP]):
+        if v < PIXEL_MIN_PSNR_DB and start is None:
+            start = i
+        elif v >= PIXEL_MIN_PSNR_DB and start is not None:
+            spans.append((first + start, first + i - 1))
+            start = None
+    shown = " ".join("%d-%d" % span for span in spans[:4]) + (" more" if len(spans) > 4 else "")
     rows = [("range_frames", "first %d last %d" % (first, last - 1)), ("worst_offset", "offset %d of %d" % (worst, len(values))),
-            ("frames_under", "under %d of %d" % (sum(1 for v in values if v < PIXEL_MIN_PSNR_DB), len(values))), ("median", "median %.1f" % median),
-            ("zoom", "zoom %.4f to %.4f" % (z0, z1))]
+            ("frames_under", "under %d of %d" % (sum(1 for v in values if v < PIXEL_MIN_PSNR_DB), len(values))), ("under_at", "under_at " + shown),
+            ("median", "median %.1f" % median), ("zoom", "zoom %.4f to %.4f" % (z0, z1))]
     if timeline:
         at = first + worst
-        on = ["caption" for e in timeline.get("captions", []) if e["start_frame"] <= at < e["end_frame"]]
-        on += [str(e["preset"]) for e in timeline.get("beats", []) if e["start_frame"] <= at < e["end_frame"]]
-        rows.append(("drawn_at_worst", ("drawn " + " ".join(sorted(set(on)))) if on else "drawn none"))
+        entries = [("caption", e) for e in timeline.get("captions", [])] + [(str(e["preset"]), e) for e in timeline.get("beats", [])]
+        on = [(name, e["start_frame"], e["end_frame"]) for name, e in entries if e["start_frame"] <= at < e["end_frame"]]
+        rows.append(("drawn_at_worst", ("drawn " + " ".join(sorted({name for name, _, _ in on}))) if on else "drawn none"))
+        rows += [("entry", "%s %d to %d" % (name, lo, hi)) for name, lo, hi in on[:3]]
     return [{"beat": None, "code": code, "field": field[:80]} for code, field in rows]
