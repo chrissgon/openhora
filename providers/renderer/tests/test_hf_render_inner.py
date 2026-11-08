@@ -59,7 +59,7 @@ def test_a_page_that_names_a_font_outside_the_allow_list_is_refused(page):
 
 def test_the_allowed_families_are_the_allow_lists_families_in_lower_case():
     rows = json.loads(ALLOWLIST.read_text(encoding="utf-8"))["fonts"]
-    assert R.ALLOWED_FAMILIES == {row["family"].lower() for row in rows}
+    assert R.ALLOWED_FAMILIES == {row["family"].lower() for row in rows} | {"oh inter", "oh mono"}       # plus the private names the composed pages declare (V3b-4)
 
 
 # ---------------------------------------------------------------- the project folder

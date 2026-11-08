@@ -205,7 +205,7 @@ def test_a_renderat_page_is_the_blocks_page_with_the_guard_the_theme_and_the_fon
     for forbidden in ("Date.now = boom", "Math.random = boom", "window.setTimeout = boom", "window.requestAnimationFrame = boom", "window.fetch = boom",
                       "window.XMLHttpRequest = function", "window.WebSocket = function", "window.Worker = function"):
         assert forbidden in out
-    assert 'rs.setProperty("--c-accent", "#FFC93C")' in out and 'rs.setProperty("--font-display", "\\"Inter\\", sans-serif")' in out
+    assert 'rs.setProperty("--c-accent", "#FFC93C")' in out and 'rs.setProperty("--font-display", "\\"OH Inter\\", sans-serif")' in out
     assert 'src:url("../fonts/inter-800.woff2")' in out and "window.__frame = function (t, data) { window.renderAt(t, data); };" in out
     assert out.index("Date.now = boom") < out.index("window.renderAt = function")            # the guard is up before the page's own script
 
@@ -246,13 +246,14 @@ def test_the_fonts_are_the_three_allow_listed_files_and_the_theme_never_names_a_
     assert result["fonts_used"] == {"display": "inter-800.woff2", "mono": "jetbrains-mono-500.woff2", "text": "inter-500.woff2"}
     for needle in ("-apple-system", "Helvetica", "Arial", "Menlo", "system-ui"):
         assert needle not in page
-    assert page.count("@font-face") == 3 and '--font-display:"Inter", sans-serif' in page and '--font-mono:"JetBrains Mono", monospace' in page
+    assert page.count("@font-face") == 3 and '--font-display:"OH Inter", sans-serif' in page and '--font-mono:"OH Mono", monospace' in page
     assert "--weight-display:800" in page and "--c-accent:#FFC93C" in page
 
 
 def test_the_font_table_is_the_allow_list_file():
     rows = json.loads((K.RENDERER / "assets" / "fonts" / "allowlist.json").read_text())["fonts"]
-    assert C.FONT_FILES == {row["id"]: (row["family"], row["weight"], row["file"]) for row in rows}
+    private = {"Inter": "OH Inter", "JetBrains Mono": "OH Mono"}          # the composed pages declare private family names (V3b-4)
+    assert C.FONT_FILES == {row["id"]: (private[row["family"]], row["weight"], row["file"]) for row in rows}
     assert set(C.DEFAULT_FONT.values()) <= set(C.FONT_FILES) and set(C.DEFAULT_FONT) == {"display", "text", "mono"}
     assert set(R.FONT_FILES) == {row[2] for row in C.FONT_FILES.values()}
     assert {row["file"]: row["sha256"] for row in rows} == R.FONT_FILES
@@ -568,3 +569,20 @@ def test_every_font_of_the_composed_pages_is_a_staged_file_with_its_pinned_sha25
     for name in sorted(os.listdir(tmp_path / "p" / "blocks")):
         urls = re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", "blocks/" + name))
         assert urls and all(u.startswith("../fonts/") and u[len("../fonts/"):] in R.FONT_FILES for u in urls), (name, urls)
+
+
+# Families the HyperFrames compiler resolves itself (its look-alike table, read in the image: render-PUXPIIGJ.js `LOOK_ALIKES`, and the Google families Inter and
+# JetBrains Mono among them). A face the page declares under one of these names is handled by the compiler, and the page's own Inter 800 came out as an error.
+COMPILER_KNOWN = {"inter", "jetbrains mono", "noto sans sc", "noto sans tc", "noto sans hk", "noto sans jp", "noto sans kr", "lora", "tinos", "arial", "helvetica",
+                  "helvetica neue", "georgia", "times new roman", "menlo", "consolas", "sf pro", "sf pro display", "sf pro text", "segoe ui", "roboto", "open sans"}
+
+
+def test_no_family_the_composed_pages_declare_or_name_is_one_the_compiler_resolves_itself(tmp_path, docs):
+    catalogue = catalogue_of(tmp_path, mixed=True)
+    write(docs, catalogue, tmp_path / "p")
+    for rel in ["index.html"] + ["blocks/" + n for n in sorted(os.listdir(tmp_path / "p" / "blocks"))]:
+        page = text_of(tmp_path / "p", rel)
+        declared = {f.lower() for f in re.findall(r'@font-face\{font-family:"([^"]+)"', page)}
+        assert declared and not declared & COMPILER_KNOWN, (rel, declared)
+        named = {m.strip().strip("\"'").lower() for v in re.findall(r"--font-(?:display|text|mono):([^;}]+)", page) for m in v.split(",")}
+        assert not (named - {"sans-serif", "monospace"}) & COMPILER_KNOWN, (rel, named)

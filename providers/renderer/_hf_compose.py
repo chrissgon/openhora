@@ -47,10 +47,12 @@ MAX_INSTANCES_BYTES = 256 * 1024                        # instances.json, the ti
 ZONE_ORDER = ("card", "caption")                        # the layers above the video, bottom first (the frame band is not drawn on this engine)
 
 # The three allow-listed fonts (assets/fonts/allowlist.json; a test keeps the two equal): id -> (family, weight, file).
-FONT_FILES = {"inter-500": ("Inter", 500, "inter-500.woff2"), "inter-800": ("Inter", 800, "inter-800.woff2"),
-              "jetbrains-mono-500": ("JetBrains Mono", 500, "jetbrains-mono-500.woff2")}
+FONT_FILES = {"inter-500": ("OH Inter", 500, "inter-500.woff2"), "inter-800": ("OH Inter", 800, "inter-800.woff2"),
+              "jetbrains-mono-500": ("OH Mono", 500, "jetbrains-mono-500.woff2")}
 DEFAULT_FONT = {"display": "inter-800", "text": "inter-500", "mono": "jetbrains-mono-500"}      # what `default` means here (the image has no system font)
-STACKS = {"Inter": '"Inter", sans-serif', "JetBrains Mono": '"JetBrains Mono", monospace'}
+# The families are private names, not "Inter" and "JetBrains Mono": the HyperFrames compiler handles the faces of known families itself (its deterministic font
+# injection) and the face of the page's Inter 800 came out as an error in the image (V3b-4); a name it does not know is left alone, as the iframe pages are.
+STACKS = {"OH Inter": '"OH Inter", sans-serif', "OH Mono": '"OH Mono", monospace'}
 
 # The guard of the renderat pages: the timers, the clocks, the random source and the network throw, as in `_cdp.FREEZE_JS`.
 GUARD_JS = """(function () {

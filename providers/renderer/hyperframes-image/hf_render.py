@@ -32,7 +32,7 @@ import threading
 import time
 
 # The families a page may name: the lower-cased families of providers/renderer/assets/fonts/allowlist.json (a test keeps the two equal).
-ALLOWED_FAMILIES = {"inter", "jetbrains mono"}
+ALLOWED_FAMILIES = {"inter", "jetbrains mono", "oh inter", "oh mono"}      # the composed pages name the private families (V3b-4); the plain names stay allowed for the base page and other callers
 GENERIC_FAMILIES = {"sans-serif", "serif", "monospace", "system-ui", "ui-monospace", "inherit", "initial", "unset"}
 
 INDEX_MAX_BYTES = 2 * 1024 ** 2          # the page's cap
