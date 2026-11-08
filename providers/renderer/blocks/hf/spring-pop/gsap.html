@@ -42,7 +42,7 @@
       var out = Math.min(0.15, ctx.duration / 4);
       tl.fromTo(badge, { scale: FROM_SCALE }, { scale: 1, duration: intro, ease: "back.out(" + OVERSHOOT + ")" }, 0);
       tl.fromTo(badge, { opacity: 0 }, { opacity: 1, duration: Math.min(0.3, intro), ease: "power2.out" }, 0);
-      tl.to(badge, { opacity: 0, duration: out, ease: "power2.in" }, Math.max(intro, ctx.duration - out));
+      tl.fromTo(badge, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(intro, ctx.duration - out));
     }
   </script>
 </template>

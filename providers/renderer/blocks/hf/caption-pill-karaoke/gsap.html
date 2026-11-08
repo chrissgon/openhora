@@ -34,7 +34,7 @@
       stage.style.justifyContent = data.anchor === "center" ? "center" : "flex-end";
       var fade = Math.min(0.1, ctx.duration / 4);
       tl.fromTo(pill, { opacity: 0, y: -RISE }, { opacity: 1, y: 0, duration: fade, ease: "power2.out" }, 0);
-      tl.to(pill, { opacity: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
+      tl.fromTo(pill, { opacity: 1, y: 0 }, { immediateRender: false, opacity: 0, y: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
       words.forEach(function (w, i) {
         var el = made.cloneNode(true);
         var off = el.querySelector(".off");
@@ -46,7 +46,7 @@
         if (i === 0) {
           tl.set(on, { opacity: 1 }, 0);
         } else {
-          tl.to(on, { opacity: 1, duration: 0.1, ease: "none" }, begin);
+          tl.fromTo(on, { opacity: 0 }, { immediateRender: false, opacity: 1, duration: 0.1, ease: "none" }, begin);
         }
       });
     }

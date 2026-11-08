@@ -33,7 +33,7 @@
       stage.style.justifyContent = data.anchor === "center" ? "center" : "flex-end";
       var fade = Math.min(0.12, ctx.duration / 4);
       tl.fromTo(line, { opacity: 0 }, { opacity: 1, duration: fade, ease: "power2.out" }, 0);
-      tl.to(line, { opacity: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
+      tl.fromTo(line, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
       words.forEach(function (w) {
         var el = made.cloneNode(true);
         var bg = el.querySelector(".bg");
@@ -42,9 +42,9 @@
         line.appendChild(el);
         var begin = Math.max(0, w.start);
         var finish = Math.max(begin + 0.1, w.end);
-        tl.to(bg, { opacity: 1, scaleX: 1, duration: 0.15, ease: "power2.out" }, begin);
+        tl.fromTo(bg, { opacity: 0, scaleX: 0 }, { immediateRender: false, opacity: 1, scaleX: 1, duration: 0.15, ease: "power2.out" }, begin);
         tl.set(txt, { color: "var(--c-bg)" }, begin);
-        tl.to(bg, { opacity: 0, scaleX: 1.02, duration: 0.1, ease: "power2.in" }, finish);
+        tl.fromTo(bg, { opacity: 1, scaleX: 1 }, { immediateRender: false, opacity: 0, scaleX: 1.02, duration: 0.1, ease: "power2.in" }, finish);
         tl.set(bg, { scaleX: 0 }, finish + 0.1);
         tl.set(txt, { color: "var(--c-text)" }, finish);
       });

@@ -59,10 +59,10 @@
         var eased = 0.5 - 0.5 * Math.cos(Math.PI * progress);
         tl.set(val, { textContent: i === last ? P.value : formatFigure(f.target * eased, f) }, count * progress);
       }
-      tl.to(group, { scale: 1.07, duration: pulse, ease: "power3.out" }, count);
-      tl.to(group, { scale: 1, duration: pulse, ease: "power2.out" }, count + pulse);
+      tl.fromTo(group, { scale: 1 }, { immediateRender: false, scale: 1.07, duration: pulse, ease: "power3.out" }, count);
+      tl.fromTo(group, { scale: 1.07 }, { immediateRender: false, scale: 1, duration: pulse, ease: "power2.out" }, count + pulse);
       var out = Math.min(0.2, ctx.duration / 5);
-      tl.to(group, { opacity: 0, duration: out, ease: "power2.in" }, Math.max(count + 2 * pulse, ctx.duration - out));
+      tl.fromTo(group, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(count + 2 * pulse, ctx.duration - out));
     }
   </script>
 </template>

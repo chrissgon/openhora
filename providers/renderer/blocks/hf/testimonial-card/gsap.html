@@ -48,7 +48,7 @@
       if (named) {
         tl.fromTo([avatar, author], { y: "34%", opacity: 0 }, { y: "0%", opacity: 1, duration: 0.56 * scale, stagger: 0.06 * scale, ease: "power2.out" }, 0.82 * scale);
       }
-      tl.to(card, { opacity: 0, duration: out, ease: "power2.in" }, Math.max(0, ctx.duration - out));
+      tl.fromTo(card, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(0, ctx.duration - out));
     }
   </script>
 </template>
