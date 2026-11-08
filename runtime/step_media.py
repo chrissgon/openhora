@@ -20,12 +20,13 @@
   render          the renderer's `render`: the file `render-<sha12>.mp4`, verified in a fresh container by the renderer itself
   cover           the renderer's `cover`
   verify          the renderer's `verify` on the stored file against the platform's spec
+  preview         a side step: the renderer's `preview` of a render larger than a messaging card carries (at most 15 MiB, V3d)
   document        the delivery document (runtime/deliver_document.py) for the exact render, written through the effect-files service
   deliver         the gate (runtime/steps.py, Gate): it opens an `effect` decision whose hash is the hash of the document; approving it marks that
                   render downloadable (runtime/effect_deliver.py, limit L67). Nothing is published. Its redo is `remap`: an answered delivery (the
                   captions were edited, or the render changed) renders again and asks again.
-                  The document carries the render as its preview when it is at most 20 MiB, which is what lets a messaging app show and approve it
-                  (decision 14).
+                  The document's preview is the render itself when it is at most 15 MiB, else the side step's copy, else none; a
+                  preview is what lets a messaging app show and approve the delivery (decision 14).
 
 Limit L30, in the structure of this file: it imports no module that calls a provider. The engine (`transcriber:speech` and `renderer:video`, a closed
 list of verbs) and the store of recordings are asked of `ctx.services` (`media_engine`, `media_store`; runtime/ops_step_seams.py). Every file name
@@ -41,6 +42,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -59,7 +61,7 @@ import workcopy  # noqa: E402
 KEYS = ("media", "post")
 GATE_STEP = "deliver"
 ORDER = ("take", "transcribe", "analyse", "still", "retakes", "align-proposal", "review", "remap", "base", "align", "check",
-         "render", "cover", "verify", "document", GATE_STEP)
+         "render", "cover", "verify", "preview", "document", GATE_STEP)
 DEFAULT_TRANSCRIBER_MODEL = "small"      # the model a project that names none transcribes with: a name pinned in providers/transcriber/models.json (the maintainer's word is pending)
 DEFAULT_LANGUAGE = "pt"                  # whisper's code for pt-BR; the project's `media.language` when set (OPEN-8)
 ID = re.compile(r"[0-9a-f]{16}")         # = media.ID
@@ -68,8 +70,10 @@ SCRIPT_BLOCK = re.compile(r"^```script[ \t]*$", re.M)
 SHA256 = re.compile(r"[0-9a-f]{64}")
 RENDER_NAME = re.compile(r"render-[0-9a-f]{12}\.mp4")
 STILL_NAME = re.compile(r"still-[0-9a-f]{12}\.png")
-# The patterns the store removes by (media.STILL, media.RENDER, media.COVER), as the strings it compiles.
+PREVIEW_NAME = re.compile(r"preview-[0-9a-f]{12}\.mp4")
+# The patterns the store removes by (media.STILL, media.RENDER, media.COVER, media.PREVIEW), as the strings it compiles.
 STILL_PATTERN, RENDER_PATTERN, COVER_PATTERN = r"still-[0-9a-f]{12}\.png", r"render-[0-9a-f]{12}\.mp4", r"cover-[0-9a-f]{12}\.png"
+PREVIEW_PATTERN = r"preview-[0-9a-f]{12}\.mp4"
 POST_LIMIT = 2 * 1024 * 1024
 COVER_LIMIT = 16 * 1024 * 1024
 STILL_DEFAULT_MS = 1500
@@ -81,7 +85,7 @@ TRANSCRIPT, ANALYSIS, EDITED, REVIEW = "transcript.json", "analysis.json", "tran
 PROPOSAL_EDL, PROPOSAL_BEATS, EDL, BEATS = "proposal.edl.json", "proposal.beats.json", "edl.json", "beats.json"
 RENDER_JSON, VERIFY_JSON = "render.json", "verify.json"
 TIMEOUTS = {"transcribe": 1800 + 120, "analyse": 900 + 60, "retakes": 300, "align-proposal": 300, "base": 300, "align": 300,
-            "check": 300, "render": 2400 + 300, "cover": 300, "still": 300, "verify": 300}
+            "check": 300, "render": 2400 + 300, "cover": 300, "still": 300, "verify": 300, "preview": 1200}
 SERVICE_CODES = {"not_configured": "not_configured", "engine_failed": "engine_failed", "refused": "engine_refused", "not_found": "recording_missing",
                  "stale": "recording_missing", "taken": "recording_taken", "delivered": "recording_delivered", "unreadable": "recording_unreadable"}
 REVIEW_NEXT = "Edit the captions, then continue."
@@ -491,15 +495,51 @@ def _verify(ctx: steps.Context, state: dict) -> dict:
     return {"passed": True}
 
 
+def _preview_due(state: dict) -> bool:
+    """The preview is made after the render is verified and before the document is written, only for a render larger than a messaging card
+    carries (deliver_document.PREVIEW_MAX_BYTES), and not again after it was skipped in this cycle (a redo prepares it again)."""
+    if steps.step_status(state, "verify") != "done" or steps.step_status(state, "document") == "done" or steps.step_status(state, "preview") == "skipped":
+        return False
+    size = ((state["steps"].get("render") or {}).get("result") or {}).get("size")
+    return type(size) is int and size > deliver_document.PREVIEW_MAX_BYTES
+
+
+def _preview(ctx: steps.Context, state: dict) -> dict:
+    """A side step: the renderer's `preview` of the verified render, re-read from the store and hashed here. A failure is `skipped` and the
+    document then has no preview (the delivery is approved in the terminal or on the page)."""
+    store, _, rid = _handles(ctx)
+    render = _json(store, rid, RENDER_JSON)
+    flags = ["--in", _asked(store.path, rid, render["name"]), "--sha256", render["sha256"], "--out", _asked(store.folder, rid)]
+    done = _call(ctx, "renderer:video", "preview", flags)
+    name, digest, size = os.path.basename(str(done.get("name") or "")), done.get("sha256"), done.get("bytes")
+    if not PREVIEW_NAME.fullmatch(name) or not isinstance(digest, str) or not SHA256.fullmatch(digest) or name[8:20] != digest[:12]:
+        raise steps.StepFailure("provider_output_invalid", "preview")
+    if done.get("from_sha256") != render["sha256"] or type(size) is not int or size < 1:
+        raise steps.StepFailure("provider_output_invalid", "preview")
+    if size > deliver_document.PREVIEW_MAX_BYTES:
+        raise steps.StepFailure("preview_too_large", "preview")
+    data = _asked(store.read, rid, name, deliver_document.PREVIEW_MAX_BYTES)
+    if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+        raise steps.StepFailure("preview_differs", "preview")
+    return {"name": name, "sha256": digest, "size": size, "from_sha256": render["sha256"]}
+
+
 def _document(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     files = _service(ctx, "effect_files")
     render, verify = _json(store, rid, RENDER_JSON), _json(store, rid, VERIFY_JSON)
     cover = (state["steps"].get("cover") or {}).get("result") or {}
     held = {"name": cover["name"], "sha256": _asked(store.sha256, rid, cover["name"]), "size": cover["size"]} if cover.get("name") else None
-    # The render is its own preview when it is small enough for a messaging app: no second file, no renderer verb (decision 14).
-    fits = render["size"] <= deliver_document.PREVIEW_MAX_BYTES
-    preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]} if fits else None
+    # The preview a messaging card carries (decision 14): the renderer's copy when the side step made one from this render, else the render
+    # itself when it is small enough, else none (the delivery is then approved in the terminal or on the page).
+    made = state["steps"].get("preview") or {}
+    copy = made.get("result") if made.get("status") == "done" else None
+    if isinstance(copy, dict) and copy.get("from_sha256") == render["sha256"]:
+        preview = {"sha256": copy["sha256"], "size": copy["size"], "from_sha256": render["sha256"]}
+    elif render["size"] <= deliver_document.PREVIEW_MAX_BYTES:
+        preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]}
+    else:
+        preview = None
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
                                  verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview)
@@ -527,11 +567,12 @@ def _cleaner(*names):
 
 CLEANUP = {"transcribe": (TRANSCRIPT,), "analyse": (ANALYSIS,), "still": (STILL_PATTERN,), "retakes": (PROPOSAL_EDL,),
            "align-proposal": (PROPOSAL_BEATS, EDITED, REVIEW),      # new words start the review over
-           "base": (EDL,), "align": (BEATS,), "render": (RENDER_PATTERN, RENDER_JSON), "cover": (COVER_PATTERN,), "verify": (VERIFY_JSON,)}
+           "base": (EDL,), "align": (BEATS,), "render": (RENDER_PATTERN, RENDER_JSON), "cover": (COVER_PATTERN,), "verify": (VERIFY_JSON,),
+           "preview": (PREVIEW_PATTERN,)}
 
 EXECUTORS = {"take": _take, "transcribe": _transcribe, "analyse": _analyse, "still": _still, "retakes": _retakes, "align-proposal": _align_proposal,
              "remap": _remap, "base": _base, "align": _align, "check": _check, "render": _render, "cover": _cover, "verify": _verify,
-             "document": _document}
+             "preview": _preview, "document": _document}
 
 KIND = steps.register(steps.Kind(
     name="media",
@@ -539,7 +580,7 @@ KIND = steps.register(steps.Kind(
     executors=EXECUTORS,
     stops=("review",),
     decisions={"review": _review_decision},
-    side_steps={"still": _still_due},
+    side_steps={"still": _still_due, "preview": _preview_due},
     cleanup={name: _cleaner(*names) for name, names in CLEANUP.items()},
     gates={GATE_STEP: steps.Gate(word=deliver_document.WORD, open=_open, redo="remap")},
     footprint=lambda args: (),

@@ -23,8 +23,8 @@ FRESH = "0123456789abcdef"
 def test_the_kind_registers_in_vd10s_order_with_the_gate_redoing_remap_and_no_footprint_and_not_unattended():
     kind = steps.kind_of("media")
     assert kind.order == ("take", "transcribe", "analyse", "still", "retakes", "align-proposal", "review", "remap", "base", "align", "check",
-                          "render", "cover", "verify", "document", "deliver")
-    assert kind.stops == ("review",) and set(kind.side_steps) == {"still"} and kind.unattended is False and kind.effectful == ()
+                          "render", "cover", "verify", "preview", "document", "deliver")
+    assert kind.stops == ("review",) and set(kind.side_steps) == {"still", "preview"} and kind.unattended is False and kind.effectful == ()
     assert kind.gates["deliver"].redo == "remap" and kind.gates["deliver"].word == "deliver" and kind.footprint({"media": FRESH, "post": POST}) == ()
 
 

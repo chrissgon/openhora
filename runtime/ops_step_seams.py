@@ -655,7 +655,7 @@ def renderer(root: str):
 # --- package V1b1: the media store and the media engine ---------------------------------------------------------------------------------------------
 
 MEDIA_ENGINE_CLASSES = {"transcriber:speech": ("transcribe",),
-                        "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "verify",
+                        "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "preview", "verify",
                                            "block-params")}     # block-params: the renderer's checker of a block's parameters, on the host, for "Add an animation" (V1b3, VD15)
 MEDIA_REFERENCES = ("shared/references/video-presets.json",)      # the workbench files a media step may name for the engine
 MEDIA_SETTINGS = ("transcriber_model", "language")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)
@@ -712,7 +712,7 @@ class MediaStore:
             raise _media_error(e) from None
 
     def remove(self, rid: str, names) -> int:
-        patterns = {p.pattern: p for p in (media.RENDER, media.COVER, media.STILL)}
+        patterns = {p.pattern: p for p in (media.RENDER, media.COVER, media.STILL, media.PREVIEW)}
         items = [patterns.get(n, n) if isinstance(n, str) else n for n in names]      # a pattern string is compiled here; a name stays a name
         try:
             return media.remove_work(self._data, rid, items)

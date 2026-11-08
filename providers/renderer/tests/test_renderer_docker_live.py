@@ -229,6 +229,35 @@ def test_the_proxy_is_1080x1920_at_the_edit_lists_fps(image, tmp_path):
     assert leftovers() == []
 
 
+def preview_once(render, digest, cpus, cpuset, out_dir):
+    """The host's `preview` verb in a container with `cpus` cores and the cpu set `cpuset`; returns its answer."""
+    args = argparse.Namespace(input=str(render), sha256=digest, out=str(out_dir), memory_mb=D.DEFAULT_MEMORY_MB, cpus=cpus, scratch_mb=512,
+                              timeout=None, cpuset=cpuset)
+    return _host.verb_preview(args)
+
+
+def test_the_preview_of_a_60_second_render_fits_15_mib_at_720x1280_and_is_the_same_bytes_at_two_and_four_cpus(image, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    in_image(image, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=60",
+                     "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=60",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                     "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+                     "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", "/out/render.mp4"], work)
+    render = work / "render.mp4"
+    assert render.stat().st_size > 15 * 1024 * 1024, "the synthetic render must be larger than the cap, or the test proves nothing"
+    digest = _sha256(render)
+    answers = []
+    for n, (cpus, cpuset) in enumerate([(2, "0-1"), (4, "0-3")]):
+        out = preview_once(render, digest, cpus, cpuset, tmp_path / ("out-%d" % n))
+        assert out["from_sha256"] == digest and (out["width"], out["height"]) == (720, 1280) and out["has_audio"] is True
+        assert out["bytes"] <= 15 * 1024 * 1024 and Path(out["path"]).stat().st_size == out["bytes"] and _sha256(out["path"]) == out["sha256"]
+        assert abs(out["duration"] - 60.0) <= 0.2
+        answers.append(out["sha256"])
+    assert len(set(answers)) == 1, "the preview is not independent of the cpu count: %s" % answers
+    assert leftovers() == []
+
+
 def _sha256(path):
     import hashlib
     h = hashlib.sha256()
