@@ -476,3 +476,16 @@ def test_what_the_page_reported_travels_with_the_refusal_in_closed_shapes_only(t
     assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "measure_failed", "field": "player", "problems": [
         {"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"},
         {"code": "request_failed", "field": "blocks oh-caption.html"}]}
+
+
+def test_the_time_the_page_took_to_be_ready_is_read_from_the_end_of_boxes_json_and_reaches_the_result(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    body = "{'fonts': [], 'fps': 30, 'frames': 1, 'per_frame': [[]], 'ready_ms': 4321, 'schema': 1}"
+    fake_measure(monkeypatch, "import json, sys\nopen(sys.argv[1], 'w').write(json.dumps(%s, separators=(',', ':'), sort_keys=True))" % body)
+    assert run_main(project, out, tmp, "--measure") == 0
+    assert json.loads((out / "result.json").read_text())["measure_ready_ms"] == 4321
+    path = tmp_path / "b.json"
+    for text, expect in (('{"per_frame":[[]],"ready_ms":12,"schema":1}\n', 12), ('{"schema":1}', None), ('x' * 500 + '"ready_ms":7,"schema":1}', 7), ('"ready_ms":7,"schema":2}', None)):
+        path.write_text(text)
+        assert R.boxes_ready_ms(str(path)) == expect
+    assert R.boxes_ready_ms(str(tmp_path / "missing")) is None

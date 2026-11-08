@@ -32,6 +32,9 @@ const MAX_BOXES_PER_FRAME = 2000;
 const MAX_OUT_BYTES = 64 * 1024 * 1024;
 const FONT_EVERY = 30;
 const ALLOWED_FAMILIES = ["Inter", "JetBrains Mono"];
+// The platform name Chrome reports for a web font is the one in the font file's own name table (ID 1), not the @font-face family: the three static
+// files declare "Inter Medium", "Inter ExtraBold" and "JetBrains Mono Medium" (a test reads the files and pins these). Each maps to its family.
+const PLATFORM_NAMES = { "Inter": "Inter", "Inter Medium": "Inter", "Inter ExtraBold": "Inter", "JetBrains Mono": "JetBrains Mono", "JetBrains Mono Medium": "JetBrains Mono" };
 const READY_TIMEOUT_MS = 30000;
 const LOAD_TIMEOUT_MS = 60000;
 
@@ -233,7 +236,8 @@ async function main() {
       }
       await new Promise((r) => setTimeout(r, 100));
     }
-    console.error("page ready after " + (Date.now() - waitStart) + " ms");
+    const readyMs = Date.now() - waitStart;
+    console.error("page ready after " + readyMs + " ms");
     for (const frame of page.frames()) await frame.evaluate(() => Promise.all(window.__hfFaceLoads || []));
     await new Promise((r) => setTimeout(r, 500));
     await page.evaluate(IN_PAGE);
@@ -242,22 +246,31 @@ async function main() {
     await cdp.send("DOM.enable");
     await cdp.send("CSS.enable");
     const fonts = new Map();
-    async function checkFonts() {
+    function describe(node) {
+      const a = node.attributes || [], at = (k) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : ""; };
+      return [node.nodeName.toLowerCase(), at("data-zone") || at("data-hf-zone"), at("class"), at("id")].filter(Boolean).join(" ");
+    }
+    async function checkFonts(frame) {
       const { root: doc } = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
-      const ids = [];
+      const nodes = [];
       (function walk(node) {
-        if (node.nodeType === 1 && !/^(SCRIPT|STYLE|TITLE|NOSCRIPT)$/.test(node.nodeName) && (node.children || []).some((c) => c.nodeType === 3 && c.nodeValue.trim())) ids.push(node.nodeId);
+        if (node.nodeType === 1 && !/^(SCRIPT|STYLE|TITLE|NOSCRIPT)$/.test(node.nodeName) && (node.children || []).some((c) => c.nodeType === 3 && c.nodeValue.trim())) nodes.push({ id: node.nodeId, what: describe(node) });
         for (const c of node.children || []) walk(c);
         if (node.contentDocument) walk(node.contentDocument);
         for (const s of node.shadowRoots || []) walk(s);
       })(doc);
-      for (const nodeId of ids) {
-        const { fonts: used } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+      let refused = false;
+      for (const { id, what } of nodes) {
+        const { fonts: used } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId: id });
         for (const f of used) {
-          if (!ALLOWED_FAMILIES.includes(f.familyName) || f.isCustomFont !== true) throw new Refusal("font_not_allowed", "drawn");
-          fonts.set(f.familyName, { custom: true, family: f.familyName });
+          const family = PLATFORM_NAMES[f.familyName];
+          if (!family || f.isCustomFont !== true) {
+            refused = true;
+            note("font", "frame " + frame + " family " + (family || "other") + " custom " + (f.isCustomFont === true) + " glyphs " + f.glyphCount + " in " + what);
+          } else fonts.set(family, { custom: true, family });
         }
       }
+      if (refused) throw new Refusal("font_not_allowed", "drawn");
     }
 
     const rows = [];
@@ -269,12 +282,12 @@ async function main() {
       bytes += text.length + 1;
       if (bytes > MAX_OUT_BYTES) throw new Refusal("boxes_too_large", "frame " + f);
       rows.push(text);
-      if (f % FONT_EVERY === 0) await checkFonts();
+      if (f % FONT_EVERY === 0) await checkFonts(f);
       if (problems.length) throw new Refusal("measure_failed", problems[0].code + " at frame " + f);
     }
     if (problems.length) throw new Refusal("measure_failed", problems[0].code);
     const list = [...fonts.values()].sort((a, b) => (a.family < b.family ? -1 : 1));
-    fs.writeFileSync(outPath, '{"fonts":' + JSON.stringify(list) + ',"fps":' + fps + ',"frames":' + frames + ',"per_frame":[' + rows.join(",") + '],"schema":1}');
+    fs.writeFileSync(outPath, '{"fonts":' + JSON.stringify(list) + ',"fps":' + fps + ',"frames":' + frames + ',"per_frame":[' + rows.join(",") + '],"ready_ms":' + readyMs + ',"schema":1}');
   } finally {
     if (browser) await browser.close().catch(() => {});
     server.close();

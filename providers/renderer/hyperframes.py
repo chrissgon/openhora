@@ -119,7 +119,7 @@ RUN_PREFIX = "hf-"                                      # the run folder's prefi
 RUN_FOLDER = re.compile(r"hf-[0-9a-f]{12}")
 MIN_STAGE_SECONDS = 30                                  # a stage that would get less than this refuses as render_timeout
 STAGES = ("page", "proxy", "hf", "encode")
-HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I), boxes_sha256=D.opt(D.S), measure_seconds=D.opt(D.N))
+HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I), boxes_sha256=D.opt(D.S), measure_seconds=D.opt(D.N), measure_ready_ms=D.opt(D.I))
 HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD, problems=D.opt(D.PROBLEMS))
 HF_OUT_NAMES = ("intermediate.mov", "result.json", "hf.log", "boxes.json")
 BOXES_MAX_BYTES = _hf_gate.BOXES_MAX_BYTES              # boxes.json's cap, the figure hf_measure.mjs refuses at
@@ -516,6 +516,8 @@ def verb_render(args) -> dict:
                 raise Refusal("container_result_invalid", "hf-page")
             result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
             seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")
+            if drawn.get("measure_ready_ms") is not None:
+                result["measure_ready_ms"] = drawn["measure_ready_ms"]          # how long the page took to be ready, to size the wait from a measurement
             result["gate"] = gate
         return result
     finally:

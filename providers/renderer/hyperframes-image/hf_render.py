@@ -243,6 +243,20 @@ def measure_refusal(boxes: str) -> tuple:
     return code, field, problems
 
 
+def boxes_ready_ms(boxes: str):
+    """The milliseconds the page took to become ready, which hf_measure.mjs writes last in boxes.json (`"ready_ms":N,"schema":1}`): read from the end of the
+    file, never the whole of it. None when it is not there."""
+    try:
+        with open(boxes, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 64))
+            tail = fh.read()
+    except OSError:
+        return None
+    m = re.search(rb'"ready_ms":([0-9]{1,9}),"schema":1\}\s*$', tail)
+    return int(m.group(1)) if m else None
+
+
 def run_measure(project: str, out: str, env: dict, log_path: str, timeout: int) -> str:
     """The measure step: `node hf_measure.mjs <project> <out>/boxes.json`, its output appended to the log. A refusal of the script (its row
     in boxes.json, exit 1) is passed on; a timeout is `hf_timeout measure`; any other failure is `measure_failed`. Returns the boxes' sha256."""
@@ -307,6 +321,9 @@ def render(project: str, out: str, tmp: str, fps: int, timeout: int, measure: bo
             refuse("hf_timeout", "measure")
         result["boxes_sha256"] = run_measure(project, out, render_env(tmp), os.path.join(out, "hf.log"), int(left))
         result["measure_seconds"] = round(time.monotonic() - measure_started, 2)
+        ready = boxes_ready_ms(os.path.join(out, "boxes.json"))
+        if ready is not None:
+            result["measure_ready_ms"] = ready
     result["seconds"] = round(time.monotonic() - started, 2)
     return result
 

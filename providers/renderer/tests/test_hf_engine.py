@@ -735,3 +735,9 @@ def test_what_the_page_reported_comes_through_the_drawing_containers_refusal_as_
     with pytest.raises(Refusal) as bad:
         H.read_hf_result(str(out), 1)
     assert bad.value.code == "container_result_invalid"
+
+
+def test_the_pages_ready_time_is_in_the_drawing_result_schema_and_in_a_composed_renders_result(world, monkeypatch, test_blocks):
+    assert "measure_ready_ms" in H.HF_SCHEMA[1]
+    result, _ = run(world, monkeypatch, base_only=False)
+    assert "measure_ready_ms" not in result                     # the fake container reports none

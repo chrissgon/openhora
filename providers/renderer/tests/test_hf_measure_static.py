@@ -83,9 +83,9 @@ def test_the_refusals_it_can_write_are_the_ones_the_inner_entry_passes_on():
 
 
 def test_the_output_is_the_shape_the_gate_reads_with_sorted_keys():
-    assert "'{\"fonts\":'" in CODE and "',\"fps\":'" in CODE and "',\"frames\":'" in CODE and "',\"per_frame\":['" in CODE and "'],\"schema\":1}'" in CODE
+    assert "'{\"fonts\":'" in CODE and "',\"fps\":'" in CODE and "',\"frames\":'" in CODE and "',\"per_frame\":['" in CODE and "'],\"ready_ms\":'" in CODE and "',\"schema\":1}'" in CODE
     assert "{ glyph, h: R1(height), key, w: R1(width), x: R1(left), y: R1(top), zone }" in CODE        # keys in alphabetical order, rounded to 0.1 px
-    assert "R1 = (x) => Math.round(x * 10) / 10" in CODE and "{ custom: true, family: f.familyName }" in CODE
+    assert "R1 = (x) => Math.round(x * 10) / 10" in CODE and "{ custom: true, family }" in CODE
 
 
 def test_it_seeks_each_frame_with_the_renderers_own_function_and_measures_gsap_instances_and_renderat_pages():
@@ -133,3 +133,72 @@ def test_a_range_request_gets_one_checked_range_and_a_bad_one_is_refused(header,
 def test_the_server_answers_206_with_content_range_and_416_for_a_bad_range_and_waits_from_node():
     assert "res.writeHead(416" in CODE and '"content-range": "bytes " + start' in CODE and "waitForFunction" not in CODE
     assert 'r.resourceType() === "media" && why === "net::ERR_ABORTED"' in CODE
+
+
+# What the three font files declare, read by node (zlib's brotli) from the files' own name and cmap tables: no font library, no download.
+FONT_READER = r"""
+import fs from "node:fs"; import zlib from "node:zlib";
+const KNOWN=["cmap","head","hhea","hmtx","maxp","name","OS/2","post","cvt ","fpgm","glyf","loca","prep"];
+const out = {};
+for (const f of process.argv.slice(1)) {
+  const b = fs.readFileSync(f); let p = 48; const n = b.readUInt16BE(12); const tabs = [];
+  const base128 = () => { let v = 0; for (let i = 0; i < 5; i++) { const c = b[p++]; v = v * 128 + (c & 127); if (!(c & 128)) break; } return v; };
+  for (let i = 0; i < n; i++) {
+    const fl = b[p++]; let tag;
+    if ((fl & 63) === 63) { tag = b.toString("latin1", p, p + 4); p += 4; } else tag = KNOWN[fl & 63] || "x" + (fl & 63);
+    const tv = fl >> 6; const ol = base128(); let tl = ol;
+    if (tag === "glyf" || tag === "loca" ? tv === 0 : tv !== 0) tl = base128();
+    tabs.push({ tag, len: tl });
+  }
+  const data = zlib.brotliDecompressSync(b.subarray(p, p + b.readUInt32BE(20))); let o = 0; const T = {};
+  for (const t of tabs) { T[t.tag] = data.subarray(o, o + t.len); o += t.len; }
+  const nm = T["name"], cnt = nm.readUInt16BE(2), so = nm.readUInt16BE(4), names = {};
+  for (let i = 0; i < cnt; i++) {
+    const r = 6 + 12 * i, pid = nm.readUInt16BE(r), id = nm.readUInt16BE(r + 6), len = nm.readUInt16BE(r + 8), off = nm.readUInt16BE(r + 10);
+    if (pid === 3 && !(id in names)) { const raw = nm.subarray(so + off, so + off + len); let s = ""; for (let k = 0; k < raw.length; k += 2) s += String.fromCharCode(raw.readUInt16BE(k)); names[id] = s; }
+  }
+  const cm = T["cmap"], set = []; const nt = cm.readUInt16BE(2);
+  for (let i = 0; i < nt; i++) {
+    const off = cm.readUInt32BE(4 + 8 * i + 4), fmt = cm.readUInt16BE(off);
+    if (fmt === 4) { const sc = cm.readUInt16BE(off + 6) / 2, e = off + 14, st0 = e + sc * 2 + 2; for (let k = 0; k < sc; k++) { const end = cm.readUInt16BE(e + 2 * k), st = cm.readUInt16BE(st0 + 2 * k); for (let c = st; c <= end && c < 0xffff; c++) set.push(c); } }
+    if (fmt === 12) { const ng = cm.readUInt32BE(off + 12); for (let k = 0; k < ng; k++) { const q = off + 16 + 12 * k, st = cm.readUInt32BE(q), en = cm.readUInt32BE(q + 4); for (let c = st; c <= en; c++) set.push(c); } }
+  }
+  out[f.split("/").pop()] = { family: names[1], typographic: names[16], cmap: set };
+}
+console.log(JSON.stringify(out));
+"""
+
+
+@pytest.fixture(scope="module")
+def font_tables():
+    if shutil.which("node") is None:
+        pytest.skip("node is not on this host")
+    files = sorted(str(p) for p in (K.RENDERER / "assets" / "fonts").glob("*.woff2"))
+    done = subprocess.run([shutil.which("node"), "--input-type=module", "-e", FONT_READER, *files], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[-400:]
+    return json.loads(done.stdout)
+
+
+def test_the_platform_names_are_what_the_three_font_files_declare_and_every_one_maps_to_an_allowed_family(font_tables):
+    declared = {name: row["family"] for name, row in font_tables.items()}
+    assert declared == {"inter-500.woff2": "Inter Medium", "inter-800.woff2": "Inter ExtraBold", "jetbrains-mono-500.woff2": "JetBrains Mono Medium"}
+    assert {row["typographic"] for row in font_tables.values()} == set(G.ALLOWED_FAMILIES)
+    table = dict(re.findall(r'"([A-Za-z ]+)": "([A-Za-z ]+)"', constant("PLATFORM_NAMES")))
+    for name, family in declared.items():
+        assert table[family] in G.ALLOWED_FAMILIES
+    assert set(table.values()) == set(G.ALLOWED_FAMILIES) and set(table) >= set(declared.values()) | set(G.ALLOWED_FAMILIES)
+    assert set(table) <= set(declared.values()) | set(G.ALLOWED_FAMILIES)                  # nothing else is accepted
+
+
+def test_every_character_of_the_demo_text_is_in_the_fonts_so_nothing_falls_back_to_a_system_font(font_tables):
+    text = K.HF_POST + K.POST + " ".join(w["text"] for w in K.build_transcript(K.SHORT_SENTENCES)["words"]) + " ".join(w["text"] for w in K.build_transcript()["words"])
+    needed = {c for c in text if c.isprintable() and not c.isspace()}
+    for name, row in font_tables.items():
+        if name.startswith("inter"):
+            assert {c for c in needed if ord(c) not in set(row["cmap"])} == set(), name
+    assert len(needed) > 20
+
+
+def test_a_font_that_is_not_ours_or_not_custom_is_described_in_the_refusal_in_closed_shapes():
+    assert 'note("font", "frame " + frame + " family " + (family || "other") + " custom " + (f.isCustomFont === true) + " glyphs " + f.glyphCount + " in " + what)' in CODE
+    assert 'if (!family || f.isCustomFont !== true)' in CODE and 'throw new Refusal("font_not_allowed", "drawn")' in CODE
