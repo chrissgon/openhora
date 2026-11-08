@@ -26,6 +26,7 @@ import { createInstructions } from "./lobby-instructions.js";
 import { createRoutines } from "./lobby-routines.js";
 import { createStepsBrake } from "./lobby-steps-brake.js";
 import { createVideos } from "./lobby-videos.js";
+import { createCaptionReview } from "./lobby-captions.js";
 
 export const PLATE_GAP_X = 14;
 export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (css/building.css: `.wb-plate { margin-left }`), where building.html draws them
@@ -95,7 +96,11 @@ export function createBuildingView(frame, env) {
   const attachments = createAttachments({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
   // the new videos of the project (views/lobby-videos.js): the form, the recordings with their state, download of a delivered one; drawn when the project is accepted
-  const videos = createVideos({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
+  // the caption review of a new video (views/lobby-captions.js): a dialog the Videos section opens, placed in the document once and taken out on dispose
+  const review = createCaptionReview({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
+    entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
+  if (document.body) document.body.append(review.el);
+  const videos = createVideos({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); }, openReview: (task, mode) => review.open(task, mode),
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
   const docsCount = h("span", { class: "wb-muted" });
   const docsLink = h("a", { class: "wb-docs-link", href: "#" }, icon("file-text", 16), h("strong", { text: "Documents" }), " ", docsCount, h("span", { class: "wb-fl-chev" }, icon("chevron-right", 14)));
@@ -504,6 +509,7 @@ export function createBuildingView(frame, env) {
       panel.remove();   // the scene is the frame's: the City takes it over (the building closes), or the frame takes it down
       stateDialog.remove();
       steps.remove();
+      review.el.remove();   // the caption review dialog was added to the document by this view
       frame.sceneUnavailable(false);
     },
     /** For the page's checks: the engine's counters, or null without WebGL. */
