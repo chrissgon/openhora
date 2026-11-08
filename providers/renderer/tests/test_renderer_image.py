@@ -64,13 +64,13 @@ def test_every_module_the_inner_entry_point_imports_directly_or_not_is_in_the_ma
 
 def test_no_host_only_file_is_in_the_manifest_and_the_tag_does_not_change_when_ffmpeg_py_does(tmp_path):
     files = set(manifest()["files"])
-    for name in D.HOST_ONLY + ("_image.py", "ffmpeg.py"):
+    for name in D.HOST_ONLY + ("_image.py", "ffmpeg.py", "hyperframes.py"):
         assert name not in files, name
     copy = tmp_path / "renderer"
     shutil.copytree(FOLDER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__", "hyperframes-image"))
     before = I.definition_hash(str(copy))
     assert before == I.definition_hash()
-    for name in ("ffmpeg.py", "_docker.py", "_browser.py", "_image.py"):
+    for name in ("ffmpeg.py", "hyperframes.py", "_docker.py", "_browser.py", "_image.py"):
         (copy / name).write_text((copy / name).read_text(encoding="utf-8") + "\n# a host-only edit\n", encoding="utf-8")
         assert I.definition_hash(str(copy)) == before, name
     (copy / "_inner.py").write_text((copy / "_inner.py").read_text(encoding="utf-8") + "\n# an edit of a file the container runs\n", encoding="utf-8")

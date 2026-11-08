@@ -2,7 +2,7 @@
 
 The container image the HyperFrames engine of `renderer:video` draws in (package V3a-image). HyperFrames is an open-source renderer that
 draws HTML and GSAP timelines into video frames with a headless browser; it is installed and run only inside this image, never on the
-host. The engine's provider, `providers/renderer/hyperframes.py`, comes with package V3a and uses this image; the ffmpeg engine has an
+host. The engine's provider, `providers/renderer/hyperframes.py` (package V3a-2), uses this image; the ffmpeg engine has an
 image of its own, which also does the verify step, so a project that renders with HyperFrames builds both.
 
 ## Files
@@ -17,6 +17,7 @@ image of its own, which also does the verify step, so a project that renders wit
 | `_fetch_browser.py` | Downloads the headless shell and refuses an archive whose size, md5 or sha256 differs from the pin (a copy of the ffmpeg engine's) | yes |
 | `fetch_ffmpeg.py` | Downloads the static ffmpeg and refuses an archive whose sha256 differs from the pin | yes |
 | `fonts/` | `inter-500.woff2`, `inter-800.woff2`, `jetbrains-mono-500.woff2`, their OFL texts and `SHA256SUMS` | yes |
+| `hf_render.py` | The inner entry: checks the project folder and the page's fonts, runs `hyperframes render` into a ProRes intermediate, writes `result.json` | yes |
 | `hf_image.py` | Builds the image (`build --confirmed`), says whether it is here (`--check`), checks a built image (`selfcheck`) | no: the build driver |
 | `NOTICE.md` | What the image installs, and under which licence | no |
 | `README.md` | This file | no |
@@ -93,3 +94,12 @@ the download. The ffmpeg engine's `browser-pin.json` pins the same archive; a te
 HyperFrames' commands that reach a network or an account are never called, at build time or at run time, and the instructions of its
 own README to upgrade, update or install its skills are not followed. The image runs with no network; the build is the only step that
 has one.
+
+## The inner entry and the provider
+
+`hf_render.py` is the one file of this folder the image runs (`python3 -I /opt/hf-run/hf_render.py`, copied after the font purge so that no
+`RUN` follows it). It checks the project folder the common image prepared (exactly `index.html`, `vars.json` and `media/proxy.mp4`, each a
+regular file within a cap), refuses a page that names a font outside the allow-list, copies GSAP in, runs `hyperframes render` once into a
+ProRes HQ intermediate and writes `result.json`. It is in the definition, so a change to it gives a new tag. The provider is
+`providers/renderer/hyperframes.py`: `build --confirmed` there calls `hf_image.build_image` and writes the build record that `--check` and
+`render` read; `render --base-only` runs the page, the proxy and the final encode in the common image and only the drawing here.

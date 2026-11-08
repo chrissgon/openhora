@@ -5,6 +5,7 @@
   "Dockerfile",
   "_fetch_browser.py",
   "fetch_ffmpeg.py",
+  "hf_render.py",
   "fonts/Inter-OFL.txt",
   "fonts/JetBrainsMono-OFL.txt",
   "fonts/SHA256SUMS",

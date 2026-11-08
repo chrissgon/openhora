@@ -2,6 +2,7 @@
 *
 !_fetch_browser.py
 !fetch_ffmpeg.py
+!hf_render.py
 !package.json
 !package-lock.json
 !fonts

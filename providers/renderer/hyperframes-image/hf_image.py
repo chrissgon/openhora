@@ -6,7 +6,7 @@
 """The container image the HyperFrames engine of renderer:video draws in (package V3a-image): its definition, its tag, its build and the
 checks of a built image. It is not a provider and resolves to no class (it sits in a subfolder, which providers/resolve.py never lists):
 the engine's provider, providers/renderer/hyperframes.py (package V3a), loads this file by path for IMAGE_REPOSITORY, definition_hash(),
-image_tag() and image_id(), and so does the image family of scripts/doctor.py once a later package adds it.
+image_tag(), image_id(), build_image() and selfcheck(), and so does the image family of scripts/doctor.py.
 
 The definition is the list of files in manifest.json and nothing else (review finding F11). The tag is
 openhora-hyperframes:<the first 12 characters of the sha256 of those files, by name and content>, so a change to the ffmpeg engine, to a
@@ -314,6 +314,27 @@ def cmd_check(args: dict) -> int:
     return EXIT_OK
 
 
+def build_image(arch: str, folder: str = HERE, run=None) -> dict:
+    """Run the build of the architecture `arch` and return {"image_id", "tag", "definition", "arch"} of the image it made: the seam the
+    provider (hyperframes.py `build --confirmed`) calls to write its build record. `run(command)` is what a test replaces; by default it
+    starts the docker client on the command with no output kept but the stderr's tail. ProviderError when the build does not run or fails."""
+    command = build_command(arch, folder)
+    if run is None:
+        def run(cmd):
+            return subprocess.run([box.docker_binary()] + cmd[1:], env=box.docker_environment(), timeout=BUILD_TIMEOUT, check=False,
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        done = run(command)
+    except (box.ContainerError, OSError, subprocess.SubprocessError) as e:
+        raise ProviderError("the build did not run (%s)" % type(e).__name__) from None
+    if done.returncode != 0:
+        raw = done.stderr or b""
+        tail = " ".join((raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)).split())[-2000:]
+        raise ProviderError("the build failed: " + tail)
+    tag = image_tag(folder)
+    return {"image_id": image_id(tag), "tag": tag, "definition": definition_hash(folder), "arch": arch}
+
+
 def cmd_build(args: dict) -> int:
     if bool(args.get("--dry-run")) == bool(args.get("--confirmed")):
         raise ProviderError("give --dry-run to see the build, or --confirmed to make it", EXIT_USAGE)
@@ -327,16 +348,8 @@ def cmd_build(args: dict) -> int:
         return EXIT_OK
     local_daemon()
     arch = daemon_arch()
-    command = build_command(arch)
-    try:
-        done = subprocess.run([box.docker_binary()] + command[1:], env=box.docker_environment(), timeout=BUILD_TIMEOUT, check=False,
-                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    except (box.ContainerError, OSError, subprocess.SubprocessError) as e:
-        raise ProviderError("the build did not run (%s)" % type(e).__name__) from None
-    if done.returncode != 0:
-        tail = " ".join(done.stderr.decode("utf-8", "replace").split())[-2000:]
-        raise ProviderError("the build failed: " + tail)
-    print(json.dumps({"built": True, "arch": arch, "tag": image_tag(), "image": image_id(image_tag())}))
+    built = build_image(arch)
+    print(json.dumps({"built": True, "arch": arch, "tag": built["tag"], "image": built["image_id"]}))
     return EXIT_OK
 
 
