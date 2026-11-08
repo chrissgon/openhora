@@ -196,7 +196,7 @@ def body(doc: dict, digest: str) -> str:
     lines.append(f"Cover: {cover['name']}, sha256 {cover['sha256']}" if cover else "Cover: no cover")
     lines.append(f"verified for {doc['verify']['platform']}")
     if doc["blocks"]:
-        lines.extend(f"{b['id']} {b['sha256']}" for b in doc["blocks"])
+        lines.extend(f"Animation block: {b['id']} {b['sha256']}" for b in doc["blocks"])
     else:
         lines.append("no animation blocks")
     lines.append(f"preview {preview['sha256']}, made from {preview['from_sha256']}" if preview else "no preview")

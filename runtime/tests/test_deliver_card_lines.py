@@ -64,7 +64,7 @@ def test_the_english_body_is_what_it_was_before_the_lines_so_a_stored_body_and_i
 def test_in_portuguese_the_card_says_the_lines_and_leaves_the_values_as_they_are(doc):
     text = phrases.card_text(dd.card_lines(doc, DIGEST), PT)
     assert text != dd.body(doc, DIGEST)
-    assert "Plataforma: instagram" in text and f"Post: {POST}" in text and "Aprovar marca este arquivo exato" in text
+    assert "Plataforma: instagram" in text and f"Publica\u00e7\u00e3o: {POST}" in text and "Aprovar marca este arquivo exato" in text
     for value in (f"render-{VIDEO_SHA[:12]}.mp4", VIDEO_SHA, DIGEST, "12.3", "31.0"):
         assert value in text
     assert "Platform:" not in text and "Approving marks" not in text
