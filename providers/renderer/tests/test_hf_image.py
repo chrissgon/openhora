@@ -33,7 +33,7 @@ def load(name, path):
 hf = load("hf_image_under_test", FOLDER / "hf_image.py")
 box = hf.box
 
-NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md"}
+NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md", "compat-report.json"}   # compat-report.json: the document of the admission and dynamic runs, not part of the image
 READ_BY_DOCKER_ITSELF = {"manifest.json", "Dockerfile", ".dockerignore", "pins.json"}
 OFFICIAL_CHROME = "https://storage.googleapis.com/chrome-for-testing-public/"
 BTBN = "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
@@ -533,7 +533,7 @@ def test_the_tier_a_files_are_in_the_definition_and_the_build_context_and_copied
     text = (FOLDER / "Dockerfile").read_text(encoding="utf-8")
     for name in ("hf_wrap.py", "hf_compat.py", "fetch_registry.py", "registry.sha256"):
         assert name in listed and "!" + name in ignore and name in text, name
-    assert "compat-report.json" not in listed
+    assert "compat-report.json" not in listed and (FOLDER / "compat-report.json").is_file()
 
 
 def test_the_measure_script_is_in_the_definition_the_build_context_and_the_dockerfile_after_the_purge_beside_the_inner_entry():

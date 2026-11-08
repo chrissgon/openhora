@@ -136,3 +136,28 @@ def test_a_manifest_line_with_one_token_and_a_duplicate_path_are_refused_with_a_
     with pytest.raises(SystemExit) as dup:
         F.main([manifest(tmp_path, [(digest, "LICENSE"), (digest, "LICENSE")]), str(tmp_path / "o2")])
     assert "duplicate path" in str(dup.value)
+
+
+REPORT = FOLDER / "compat-report.json"
+FIT = {"animated-bar-chart", "confetti", "conic-progress-ring", "mesh-gradient-bg", "settings-toggle-flow", "shimmer-sweep", "spotlight-card", "spring-pop",
+       "store-badge-lockup", "vignette", "x-follow-card"}
+
+
+def test_the_committed_report_is_the_compatibility_run_with_the_dynamic_verdicts_and_nothing_is_in_the_allowlist():
+    """The report of the admission run (step 7.2) with the verdicts of the dynamic run (step 7.8) in `dynamic`: closed codes, hashes, numbers. The
+    allowlist stays empty: writing an entry is step 7.9, the maintainer's decision after C10 and D-licence."""
+    doc = json.loads(REPORT.read_text(encoding="utf-8"))
+    compat = load("hf_compat_for_registry_test", FOLDER / "hf_compat.py")
+    rows = doc["components"]
+    plain = json.loads(REPORT.read_text(encoding="utf-8"))
+    for comp in plain["components"]:
+        assert comp["dynamic"] is None or comp["dynamic"] == "fit" or re.fullmatch(r"refuse:[a-z_]{1,40}", comp["dynamic"]), comp["name"]
+        comp["dynamic"] = None
+    compat.check_report(plain)                                           # the closed form of the admission run's report
+    assert doc["commit"] == COMMIT == parsed()[0] and doc["licence_sha256"] == LICENCE_SHA256
+    assert doc["planted"] == {"total": 67, "refused": 67, "guarded": 16} and len(rows) == 238
+    candidates = {c["name"]: c for c in rows if c["verdict"] == "admit-candidate"}
+    assert len(candidates) == 13 and {c["name"] for c in rows if c["dynamic"] is not None} == set(candidates)
+    assert {n for n, c in candidates.items() if c["dynamic"] == "fit"} == FIT
+    assert candidates["decline-chart"]["dynamic"] == "refuse:not_repeatable" and candidates["testimonial-card"]["dynamic"] == "refuse:font_not_allowed"
+    assert json.loads(ALLOWLIST.read_text(encoding="utf-8"))["blocks"] == [] and json.loads(ALLOWLIST.read_text(encoding="utf-8"))["registry_commit"] is None
