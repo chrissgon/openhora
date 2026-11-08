@@ -63,6 +63,25 @@ function writeRefusal(code, field) {
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".woff2": "font/woff2", ".mov": "video/quicktime", ".mp4": "video/mp4" };
 
+// One byte range of a file of `size` bytes: null when there is no Range header (the whole body), "bad" when the header is not one range or is out of
+// bounds (answered 416), else {start, end} (answered 206 with Content-Range).
+function parseRange(header, size) {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header);
+  if (!m || (m[1] === "" && m[2] === "")) return "bad";
+  let start, end;
+  if (m[1] === "") {
+    const n = parseInt(m[2], 10);
+    if (n === 0) return "bad";
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = parseInt(m[1], 10);
+    end = m[2] === "" ? size - 1 : Math.min(parseInt(m[2], 10), size - 1);
+  }
+  return start >= size || end < start ? "bad" : { start, end };
+}
+
 // What runs inside the page, once per frame: seek, wait one animation frame, collect the boxes.
 const IN_PAGE = `window.__hfMeasure = async function (t) {
   window.__player.renderSeek(t);
@@ -157,9 +176,10 @@ async function main() {
     const file = path.resolve(root, "." + path.normalize(p));
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end(); }
     const size = fs.statSync(file).size;
-    const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range || "");
-    if (range && !p.endsWith(".html")) {
-      const start = range[1] ? parseInt(range[1], 10) : 0, end = range[2] ? Math.min(parseInt(range[2], 10), size - 1) : size - 1;
+    const range = p.endsWith(".html") ? null : parseRange(req.headers.range, size);
+    if (range === "bad") { res.writeHead(416, { "content-range": "bytes */" + size }); return res.end(); }
+    if (range) {
+      const { start, end } = range;
       res.writeHead(206, { "content-type": MIME[path.extname(file)] || "application/octet-stream", "accept-ranges": "bytes", "content-range": "bytes " + start + "-" + end + "/" + size, "content-length": end - start + 1 });
       return fs.createReadStream(file, { start, end }).pipe(res);
     }
@@ -193,15 +213,27 @@ async function main() {
     });
     page.on("console", (m) => { if (m.type() === "error") note("console_error", m.text()); });
     page.on("pageerror", (e) => note("page_error", e && e.message ? e.message : e));
-    page.on("requestfailed", (r) => { if (r.url().startsWith(origin)) note("request_failed", r.url().slice(origin.length)); });
+    page.on("requestfailed", (r) => {
+      if (!r.url().startsWith(origin)) return;
+      const why = (r.failure() && r.failure().errorText) || "";
+      if (r.resourceType() === "media" && why === "net::ERR_ABORTED") return;      // the media element cancels a range request and asks again: not a failure
+      note("request_failed", r.url().slice(origin.length) + " " + why);
+    });
     await page.goto(origin + "index.html", { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
-    await page.waitForFunction(() => window.__player && window.__player.renderSeek && window.__timelines && window.__timelines.main, { timeout: READY_TIMEOUT_MS, polling: 100 })
-      .catch(async () => {
+    // Polled from here, not from inside the page: the runtime may freeze the page's own timers once it is up.
+    const waitStart = Date.now();
+    for (;;) {
+      const ready = await page.evaluate(() => !!(window.__player && window.__player.renderSeek && window.__timelines && window.__timelines.main)).catch(() => false);
+      if (ready) break;
+      if (Date.now() - waitStart > READY_TIMEOUT_MS) {
         const seen = await page.evaluate(() => ["player " + typeof window.__player, "seek " + !!(window.__player && window.__player.renderSeek), "hf " + typeof window.__hyperframes,
           "timelines " + Object.keys(window.__timelines || {}).join(","), "ready " + document.readyState].join(" ")).catch(() => "page unreadable");
-        note("state", seen);
+        note("state", seen + " after " + (Date.now() - waitStart) + " ms");
         throw new Refusal("measure_failed", "player");
-      });
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    console.error("page ready after " + (Date.now() - waitStart) + " ms");
     for (const frame of page.frames()) await frame.evaluate(() => Promise.all(window.__hfFaceLoads || []));
     await new Promise((r) => setTimeout(r, 500));
     await page.evaluate(IN_PAGE);

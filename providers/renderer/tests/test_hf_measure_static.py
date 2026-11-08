@@ -4,6 +4,7 @@ checks the Dockerfile. A syntax check (`node --check`, which runs no program of 
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import re
 import shutil
@@ -109,3 +110,26 @@ def test_the_script_is_listed_in_the_definition_and_the_build_context():
 def test_the_script_has_no_syntax_error():
     done = subprocess.run([shutil.which("node"), "--check", str(SCRIPT)], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr[-800:]
+
+
+def range_answers(header, size):
+    """parseRange run by node on the function's own text (no page, no browser, no HyperFrames)."""
+    source = re.search(r"^function parseRange\(.*?^}\n", TEXT, re.S | re.M).group(0)
+    done = subprocess.run([shutil.which("node"), "--input-type=module", "-e", source + "\nconsole.log(JSON.stringify(parseRange(%s, %d)));" % (json.dumps(header), size)],
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr[-400:]
+    return json.loads(done.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on this host")
+@pytest.mark.parametrize("header, size, expect", [
+    (None, 100, None), ("bytes=0-", 100, {"start": 0, "end": 99}), ("bytes=10-19", 100, {"start": 10, "end": 19}), ("bytes=90-500", 100, {"start": 90, "end": 99}),
+    ("bytes=-10", 100, {"start": 90, "end": 99}), ("bytes=-500", 100, {"start": 0, "end": 99}), ("bytes=100-", 100, "bad"), ("bytes=50-40", 100, "bad"),
+    ("bytes=-0", 100, "bad"), ("bytes=-", 100, "bad"), ("bytes=0-1,5-6", 100, "bad"), ("items=0-1", 100, "bad"), ("bytes=0-", 0, "bad")])
+def test_a_range_request_gets_one_checked_range_and_a_bad_one_is_refused(header, size, expect):
+    assert range_answers(header, size) == expect
+
+
+def test_the_server_answers_206_with_content_range_and_416_for_a_bad_range_and_waits_from_node():
+    assert "res.writeHead(416" in CODE and '"content-range": "bytes " + start' in CODE and "waitForFunction" not in CODE
+    assert 'r.resourceType() === "media" && why === "net::ERR_ABORTED"' in CODE
