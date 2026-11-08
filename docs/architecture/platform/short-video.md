@@ -108,6 +108,8 @@ The gate and its hash: the decision's hash is the hash of the document, which na
 
 The way back: while the video waits at the delivery approval, `ops_media_edit.edit` writes the review and answers the open delivery by code under the decision's lock (`ops_step_effects.resolution_guard`). The next start finds the answered decision, prepares `remap` again (`steps.prepare_again`; `step_media.CLEANUP` keeps `transcript.edited.json` and `review.json`) and renders again: a new hash and a new approval. An edit that changes nothing is refused before anything is answered. The command and the route that call `edit` are V1b2's.
 
+From the terminal (V1b2-1): `media-in --path <file>` takes the recording and prints its id; `video-new --media <id> --post docs/marketing/content/<name>.md` makes one request with one step task and runs it to the caption review; `captions-read --task <id>` shows the captions and their revision; `captions-edit --task <id> --revision <n> --edits-file <path>` edits them (at the review, or at the delivery approval, where the delivery is answered by code); `answer --id <id> --text continue` closes the review; `video-run --task <id>` runs the video on to the delivery approval; `approve --id <id> --sha256 <hash>` approves the exact render; `video-download --task <id> --out <file>` saves it to a new file outside the project (the render is hashed again as it is copied); `video-still --task <id> --out <file>` saves the face-box still. The settings of a new video are the key `media` of `runtime.json` (`language`, `transcriber_model`; the defaults are `pt` and `small`). The page reaches the same operations from V1b2-2.
+
 Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
 
 V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
@@ -127,5 +129,7 @@ V1d plugs in at the `preview` step between `verify` and `document` (`step_media.
 Written on 2026-11-07 by V1a-3.
 
 2026-11-07: V1b1, the media step, the deliver effect, decision 14
+
+2026-11-07: V1b2-1, the media operations and the media settings key
 
 Updated on 2026-11-07 by V3a-2.

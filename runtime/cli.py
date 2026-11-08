@@ -15,6 +15,14 @@ Usage:
   python3 runtime/cli.py run-next --project <dir> [--model <id>|auto]
   python3 runtime/cli.py run-task --project <dir> --task <task id> [--model <id>|auto]
   python3 runtime/cli.py run-step --project <dir> --task <task id> [--unattended]
+  python3 runtime/cli.py media-in --project <dir> --path <file>
+  python3 runtime/cli.py media-list --project <dir>
+  python3 runtime/cli.py video-new --project <dir> --media <id> --post docs/marketing/content/<name>.md
+  python3 runtime/cli.py video-run --project <dir> --task <id>
+  python3 runtime/cli.py captions-read --project <dir> --task <id>
+  python3 runtime/cli.py captions-edit --project <dir> --task <id> --revision <n> (--edits <json> | --edits-file <path>)
+  python3 runtime/cli.py video-download --project <dir> --task <id> --out <file>
+  python3 runtime/cli.py video-still --project <dir> --task <id> --out <file>
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -158,6 +166,27 @@ run-step  runs one named step task in this process (--task <id>), as run-task ru
           the flag it starts the process with); your own start with run-step or run-next needs neither.
           Nothing but tests creates a step task today: the flow files learn `step` with P6. A stop of a step task asks for the verdict
           `continue` or `stop` (any other answer asks again).
+media-in  adds a recording (an MP4 or MOV of at most 1 GiB) to the project's media store, outside the project: --path names the
+          file on this computer; it prints the recording's id, which video-new takes. The store holds at most 8 GiB.
+media-list lists the recordings of the media store, oldest first: id, size, the task working on it and its state, and when it was
+          delivered.
+video-new starts a new video: --media is the recording's id (media-in) and --post the post whose script was recorded
+          (docs/marketing/content/<name>.md, with its `- Network:` line). It makes one request with one step task and runs it until the
+          caption review: it prints the step's result, `stopped` `review` and the decision's id in `pending`. Answer the review with
+          `answer --id <id> --text continue`, then start the video again with video-run.
+video-run runs a new video that is ready (--task <id>): after you answered the caption review, after an edit at the delivery
+          approval, or after a retry. It prints the step's result as video-new does; at the end it stops at `deliver` with the
+          decision's id in `pending`. The delivery is approved with `approve --id <id> --sha256 <hash>` on the terminal, or on the
+          page opened on this computer; nothing is published.
+captions-read prints the captions of a new video (--task <id>) as the review shows them: words, chunks, proposed retakes, beats, and
+          the revision an edit must name. It writes nothing.
+captions-edit edits the captions of a new video (--task <id>) at the caption review or at the delivery approval: --revision is the
+          revision you read, and the edits are a JSON list of the closed edit objects (--edits <json> or --edits-file <path>, one of
+          them). At the approval the decision is answered by code and the video is rendered again, for a new approval, when you
+          start it with video-run.
+video-download saves the delivered video (--task <id>) to --out, a new file outside the project: only the exact render the approval
+          named, hashed again as it is copied.
+video-still saves the still of a new video (--task <id>), the frame of the face box, to --out, a new file outside the project.
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. The answer to a
