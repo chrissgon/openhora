@@ -1,0 +1,17 @@
+{"package": "v1d-1", "table": {
+  "VID_TOO_BIG": "This video is {size}, and this app takes at most {cap} here. Upload it on the page opened on this computer, or send a Google Drive link to it.",
+  "VID_NO_POST": "No post with a script is ready for a video. Write the script first, then send the recording again.",
+  "VID_FETCHING": "Receiving the recording.",
+  "VID_RECEIVED": "Recording received ({size}).",
+  "VID_PICK_POST": "Which post did you record? Reply with its number:\n{list}",
+  "VID_POST_GONE": "That number is not on the list. Reply with a number from 1 to {n}.",
+  "VID_NOT_STARTED": "The video did not start. Open the page to see why.",
+  "VID_REVIEW_WORDS": "These are the captions. To correct them, reply to the caption card with one line per correction: wrong -> right. When they are right, reply continue.\n\n{words}",
+  "VID_CUT": "The rest of the captions is on the page.",
+  "VID_EDITED": "Changed. The captions now read:\n\n{words}",
+  "VID_EDITED_GATE": "Changed. The video will be rendered again and sent for a new approval.",
+  "VID_NOT_FOUND": "\"{wrong}\" is not in the captions. Copy the words as they are written.",
+  "VID_AMBIGUOUS": "\"{wrong}\" is in the captions more than once. Add a word before or after it.",
+  "VID_HOW": "Reply continue when the captions are right, or correct them with one line per correction: wrong -> right.",
+  "VID_RENDERING": "Rendering the video. The approval card comes when it is ready."
+}}

@@ -49,5 +49,9 @@
  {"op": "captions-read", "kind": "internal", "group": "media", "why": "the caption review's data, read by the page; not served in words in M1"},
  {"op": "captions-edit", "kind": "internal", "group": "media", "why": "the caption review's closed edits; not served in words in M1 (a caption correction from a messaging app is V1d's)"},
  {"op": "video-download", "kind": "internal", "group": "media", "why": "hands out the delivered render (limit L67); never served in words"},
- {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"}
+ {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"},
+ {"op": "video-phone-in", "kind": "internal", "group": "media-phone", "why": "the messaging bridge's own call for a recording a listed sender sent; never served in words"},
+ {"op": "video-phone-start", "kind": "internal", "group": "media-phone", "why": "starts a video from a recording sent from a messaging app, for a post the sender chose; never served in words"},
+ {"op": "video-phone-reply", "kind": "internal", "group": "media-phone", "why": "reads a reply to the caption review or the delivery card of a video; never served in words"},
+ {"op": "video-phone-run", "kind": "internal", "group": "media-phone", "why": "runs a video again after the captions were answered from a messaging app; never served in words"}
 ]}

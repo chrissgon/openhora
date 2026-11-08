@@ -1082,6 +1082,27 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "save the still of a new video (the frame of the face box) to --out (a new file, outside the project)",
      "natural": {"class": "G", "since": 4, "order": 158, "privacy": "own", "cost": "none", "what": "save the still of a new video to a file", "about": "Save the still of a new video to a file.", "slots": {}}},
+    # V1d-1: a video from a messaging app (decision 14). Class G, kind internal: the bridge's own calls, never served in words.
+    {"name": "video-phone-in", "call": "video_phone_in",
+     "args": ({"name": "incoming", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"}, {"name": "ref", "kind": "str", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call after it fetched a recording into an incoming folder it made: the media store bounds it (1 GiB and the quota), reads its type from its bytes (MP4 or MOV) and keeps it",
+     "natural": {"class": "G", "since": 4, "order": 171, "privacy": "own", "cost": "none", "what": "the bridge's call for a recording that arrived", "about": "The bridge's call for a recording that arrived.", "slots": {}}},
+    {"name": "video-phone-start", "call": "video_phone_start",
+     "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "post", "kind": "str", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call: start the video of a recording a listed sender sent, for one of the posts offered to them, and run it to the caption review",
+     "natural": {"class": "G", "since": 4, "order": 172, "privacy": "own", "cost": "none", "what": "start the video of a recording sent from a messaging app", "about": "Start the video of a recording sent from a messaging app.", "slots": {}}},
+    {"name": "video-phone-reply", "call": "video_phone_reply",
+     "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "text", "kind": "text", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call for a reply to the caption review or to the delivery card of a video: continue, or corrections written wrong -> right",
+     "natural": {"class": "G", "since": 4, "order": 173, "privacy": "own", "cost": "none", "what": "read a reply to the captions of a video", "about": "Read a reply to the captions of a video.", "slots": {}}},
+    {"name": "video-phone-run", "call": "video_phone_run",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call: run a video again after the caption review was answered or the captions were corrected at the delivery approval",
+     "natural": {"class": "G", "since": 4, "order": 174, "privacy": "own", "cost": "none", "what": "run the video again after the captions were answered", "about": "Run the video again after the captions were answered.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1209,6 +1230,8 @@ GROUPS = {
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
     "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
+    "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"), "kind": None},
 }
 # S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
 # command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
@@ -1338,6 +1361,7 @@ GROUP_TEXT = {
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
     "media": "adds recordings, starts new videos and runs them, reads and edits their captions, and saves a delivered video; a recording, its still and the video cross only this computer's own page, never the local network",
+    "media-phone": "takes a recording a listed sender sends from this app (within its file limit), starts its video for a post they choose, sends them the captions and reads their corrections; both pass through the app's servers",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 
