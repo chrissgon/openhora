@@ -333,8 +333,8 @@ def test_the_constants_of_the_media_routes():
     assert service.MEDIA_UPLOAD_BYTES == media.MEDIA_MAX_BYTES
     assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch")
     group = operations.GROUPS["media"]
-    assert len(group["operations"]) == 10 and group["kind"] is None
-    assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "video-watch"} == set(group["operations"])
+    assert len(group["operations"]) == 11 and group["kind"] is None
+    assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "media-remove", "video-watch"} == set(group["operations"])
     for channel, listed in operations.GRANTS.items():
         assert "media" not in listed, channel
     assert operations.PAGE_ONLY_GROUPS == ("approve-effects",) and "media" not in operations.DEFAULT_POLICY.get("messaging", ())

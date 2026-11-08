@@ -202,7 +202,7 @@ export function createVideos(env) {
     watching = null;
   }
 
-  /** Plays the render the open delivery decision names, in a video element under its item, one at a time. A refusal shows as it came. */
+  /** Plays the render the open delivery decision names, in the stage under the list, one at a time. A refusal shows as it came. */
   function watch(record, key) {
     if (!may("video-watch") || !here()) return;
     perform(key, "Loading the video...", async () => {
@@ -343,8 +343,8 @@ export function createVideos(env) {
       rows = detail && detail.status && Array.isArray(detail.status.pending) ? detail.status.pending : [];
       if (!shown) {
         media = null;
-        artifacts = null;
         stopWatching();
+        artifacts = null;
         clearMessages();
         if (controller) controller.abort();
         controller = null;

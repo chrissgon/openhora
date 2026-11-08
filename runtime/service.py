@@ -133,6 +133,8 @@ operations layer sees the channel page for both sockets). A refusal sent before 
 closes the connection, as every response does. The download is an attachment named video-<12 hex>.mp4, sent in chunks from the open file the
 operation hashed again. The captions, the list and the starts are text and ids under the token and may cross the LAN socket.
 The catalogue of animations (GET /projects/<id>/video-catalogue, package V1b3) is our data and crosses the LAN socket as well.
+The removal of a recording (POST /projects/<id>/media/remove, with {"media_id", "confirm"}) carries only an id and crosses the LAN socket as
+well; without `confirm` it removes nothing.
 
 Before the token. The page cannot tell the person where the token file is until it holds the token, so the service answers
 one unauthenticated read, GET /token-file (outside /api/, under rules 2, 3, 5 and 9: no CORS header, Cache-Control no-store,
@@ -407,6 +409,8 @@ ROUTES = (
     _route("GET", "/projects/{p}/video-catalogue", "video-catalogue", take=()),
     # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
+    # media-remove: one recording removed for good; only an id crosses, so it may cross the LAN socket (not in operations.LAN_REFUSED_OPS).
+    _route("POST", "/projects/{p}/media/remove", "media-remove", take=("media_id", "confirm")),
     _route("GET", "/jobs/{id}", own="job"),
 )
 PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
