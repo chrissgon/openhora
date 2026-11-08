@@ -3,6 +3,180 @@
   {
    "band": "caption",
    "engines": [
+    "hyperframes"
+   ],
+   "kind": "caption",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:caption-highlight",
+   "namespace": "hf",
+   "natural_duration": null,
+   "params": {},
+   "preset": "caption",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {}
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the spoken words under the face, one to three at a time, with a colour sweep behind the word being said"
+  },
+  {
+   "band": "caption",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "caption",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:caption-pill-karaoke",
+   "namespace": "hf",
+   "natural_duration": null,
+   "params": {},
+   "preset": "caption",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {}
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the spoken words in a light pill under the face, each word turning dark as it is said"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:count-up",
+   "namespace": "hf",
+   "natural_duration": 2.2,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "label": {
+     "max": 40,
+     "required": true,
+     "type": "text"
+    },
+    "value": {
+     "max": 10,
+     "pattern": "[0-9][0-9.,]*",
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "number",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "label": "visits in the first week",
+     "value": "2.480"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the line turns on one figure that should count up to its value, with a label under it"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:spring-pop",
+   "namespace": "hf",
+   "natural_duration": 1.0,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "icon": {
+     "type": "icon"
+    },
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "icon": "coin",
+     "text": "Name every dollar"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "one short phrase the speaker wants to pop onto the screen, with a mark beside it"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:testimonial-card",
+   "namespace": "hf",
+   "natural_duration": 2.0,
+   "params": {
+    "author": {
+     "max": 40,
+     "type": "text"
+    },
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 120,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "quote",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "author": "Aster Lane",
+     "text": "Small steps beat big plans."
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the speaker repeats a sentence someone said, in a card that names the author"
+  },
+  {
+   "band": "caption",
+   "engines": [
     "ffmpeg",
     "hyperframes"
    ],
@@ -288,7 +462,7 @@
    "use_when": "the speaker repeats a sentence someone said"
   }
  ],
- "blocks_sha256": "9e2595832a78b77415c9ff33d171419d5f2af2b1f55e4e7ae552fdc7980b1957",
+ "blocks_sha256": "9e006805db4eee0392e3f11a1e2bd0c5c1c5fc41d5be72b29d4be9160aa16b3b",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -306,13 +480,14 @@
   },
   "hyperframes": {
    "presets": {
-    "caption": "oh:caption",
-    "keyword": "oh:keyword",
+    "caption": "hf:caption-highlight",
+    "keyword": "hf:spring-pop",
     "list": "oh:list",
-    "number": "oh:number",
-    "quote": "oh:quote"
+    "number": "hf:count-up",
+    "quote": "hf:testimonial-card"
    },
    "runtimes": [
+    "gsap",
     "renderat"
    ]
   }

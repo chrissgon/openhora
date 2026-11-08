@@ -19,7 +19,7 @@ beats come from the post file's script block.
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
 | `_blocks.py` | Common: the catalogue of animation blocks. Loads and checks `blocks/` (every file against `blocks/pins.json`), resolves the block that draws a beat on an engine and refuses one the engine cannot draw (`block_not_on_engine`), checks a block's parameters (the renderer-side checker, VD15), writes the pins and the generated catalogue. |
-| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip` (each page a pure `renderAt(t, data)`, byte for byte the old template); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty until V3b); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
+| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip` (each page a pure `renderAt(t, data)`, byte for byte the old template); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty: no registry component is admitted) and `hf/<name>/` (`block.json` and `gsap.html` of the five tier-B ports of V3b-4); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
@@ -124,6 +124,19 @@ kept range of the intermediate with the same region of the base the ffmpeg engin
 by frame with `psnr`, and refuses `face_pixels_changed` under 30 dB: that is what sees a block that draws on the face with no box of its own. The
 proxy is hashed again in the encode container, since the drawing container could write to it. Tests: `tests/test_hf_gate.py`,
 `tests/test_hf_measure_static.py`.
+
+## The HyperFrames ports (V3b-4)
+
+Five blocks under `blocks/hf/` are our own rewrites of components of the HyperFrames registry at commit `b4cc674f`, each one a `gsap.html` of the
+contract of `_gsap_lint.py` and nothing else (no `renderat` page: an `hf:` block draws on the HyperFrames engine only and is refused
+`block_not_on_engine` on the ffmpeg engine). They are `hf:caption-highlight` and `hf:caption-pill-karaoke` (the caption), `hf:count-up` (`number`),
+`hf:testimonial-card` (`quote`) and `hf:spring-pop` (`keyword`); each declares exactly its preset's parameters and draws every one of them. The
+caption ports are bottom-anchored in the caption band and size their type by arithmetic from the band's height and the words' length, so the lowest
+glyph stays above the band's bottom (1560 on the presets); the registry's slam style is not ported (S2 measured 50 face hits). The final
+`blocks/engines/hyperframes.json` runs `gsap` and `renderat` and names `hf:caption-highlight`, `hf:spring-pop`, `hf:count-up`, `hf:testimonial-card`
+and `oh:list` for `caption`, `keyword`, `number`, `quote` and `list`; any `oh:` block stays selectable by name, and the engine draws no `cutaway` and no
+`pip`. The licence text of the registry (`hyperframes-image/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
+(`hyperframes-image/NOTICE.md`) travel in the image folder, because nothing but pinned files may live under `blocks/`. Tests: `tests/test_hf_ports.py`.
 
 ## Contract: replacing this implementation (lego)
 

@@ -1,0 +1,39 @@
+{
+ "schema_version": 1,
+ "name": "hf:spring-pop",
+ "kind": "overlay",
+ "preset": "keyword",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "Apache-2.0"
+ ],
+ "source": "hyperframes-registry",
+ "use_when": "one short phrase the speaker wants to pop onto the screen, with a mark beside it",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 24,
+   "required": true
+  },
+  "icon": {
+   "type": "icon"
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Name every dollar",
+   "icon": "coin"
+  }
+ ],
+ "natural_duration": 1.0,
+ "implementations": {
+  "gsap": "gsap.html"
+ },
+ "tier": "B",
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+}

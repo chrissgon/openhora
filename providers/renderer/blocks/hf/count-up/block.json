@@ -1,0 +1,42 @@
+{
+ "schema_version": 1,
+ "name": "hf:count-up",
+ "kind": "overlay",
+ "preset": "number",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "Apache-2.0"
+ ],
+ "source": "hyperframes-registry",
+ "use_when": "the line turns on one figure that should count up to its value, with a label under it",
+ "params": {
+  "value": {
+   "type": "text",
+   "max": 10,
+   "pattern": "[0-9][0-9.,]*",
+   "required": true
+  },
+  "label": {
+   "type": "text",
+   "max": 40,
+   "required": true
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "value": "2.480",
+   "label": "visits in the first week"
+  }
+ ],
+ "natural_duration": 2.2,
+ "implementations": {
+  "gsap": "gsap.html"
+ },
+ "tier": "B",
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+}

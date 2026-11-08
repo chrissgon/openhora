@@ -33,7 +33,7 @@ def load(name, path):
 hf = load("hf_image_under_test", FOLDER / "hf_image.py")
 box = hf.box
 
-NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md"}
+NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md", "LICENSE-registry-Apache-2.0.txt"}
 READ_BY_DOCKER_ITSELF = {"manifest.json", "Dockerfile", ".dockerignore", "pins.json"}
 OFFICIAL_CHROME = "https://storage.googleapis.com/chrome-for-testing-public/"
 BTBN = "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
