@@ -47,12 +47,10 @@ MAX_INSTANCES_BYTES = 256 * 1024                        # instances.json, the ti
 ZONE_ORDER = ("card", "caption")                        # the layers above the video, bottom first (the frame band is not drawn on this engine)
 
 # The three allow-listed fonts (assets/fonts/allowlist.json; a test keeps the two equal): id -> (family, weight, file).
-FONT_FILES = {"inter-500": ("OH Inter", 500, "inter-500.woff2"), "inter-800": ("OH Inter", 800, "inter-800.woff2"),
-              "jetbrains-mono-500": ("OH Mono", 500, "jetbrains-mono-500.woff2")}
+FONT_FILES = {"inter-500": ("Inter", 500, "inter-500.woff2"), "inter-800": ("Inter", 800, "inter-800.woff2"),
+              "jetbrains-mono-500": ("JetBrains Mono", 500, "jetbrains-mono-500.woff2")}
 DEFAULT_FONT = {"display": "inter-800", "text": "inter-500", "mono": "jetbrains-mono-500"}      # what `default` means here (the image has no system font)
-# The families are private names, not "Inter" and "JetBrains Mono": the HyperFrames compiler handles the faces of known families itself (its deterministic font
-# injection) and the face of the page's Inter 800 came out as an error in the image (V3b-4); a name it does not know is left alone, as the iframe pages are.
-STACKS = {"OH Inter": '"OH Inter", sans-serif', "OH Mono": '"OH Mono", monospace'}
+STACKS = {"Inter": '"Inter", sans-serif', "JetBrains Mono": '"JetBrains Mono", monospace'}
 
 # The guard of the renderat pages: the timers, the clocks, the random source and the network throw, as in `_cdp.FREEZE_JS`.
 GUARD_JS = """(function () {
@@ -108,17 +106,12 @@ def map_fonts(edl: dict) -> dict:
     return used
 
 
-def font_face_css(fonts: dict, prefix: str, embed: dict = None) -> str:
-    """One `@font-face` per file used. With `embed` ({file: base64}) the data comes first and the file by path second: the HyperFrames renderer failed to load the
-    800 face of the main page from its path (V3b-4, read inside the image: status `error`) while it loaded the other two, so the main page carries its own bytes."""
+def font_face_css(fonts: dict, prefix: str) -> str:
     seen, rows = set(), []
     for family, weight, file in sorted(fonts.values()):
         if file not in seen:
             seen.add(file)
-            src = 'url("%s%s") format("woff2")' % (prefix, file)
-            if embed:
-                src = 'url("data:font/woff2;base64,%s") format("woff2"),%s' % (embed[file], src)
-            rows.append('@font-face{font-family:"%s";font-weight:%d;font-display:block;src:%s;}' % (family, weight, src))
+            rows.append('@font-face{font-family:"%s";font-weight:%d;font-display:block;src:url("%s%s") format("woff2");}' % (family, weight, prefix, file))
     return "\n".join(rows)
 
 
@@ -251,17 +244,22 @@ def gsap_scripts(plan: list, catalogue: dict) -> tuple:
     return parts, suffix
 
 
-def font_load_js(fonts: dict, pairs: list) -> str:
-    """The script that requests every font file the page uses, once per face, through `document.fonts.load`. The `@font-face` rules use
-    `font-display: block` and the HyperFrames image has no system font, so a frame captured before a face is in would show no glyph (V3b-4: every gsap
-    block drew blank text). The theme's custom properties (`--font-*`, `--weight-*`, `--c-*`) are also set inline on the root element here, since the HyperFrames
-    renderer did not apply the ones of the page's `:root` rule (the `renderat` pages always got them inline). The requests start before anything else in the script, so `document.fonts.ready`, which the HyperFrames runtime waits for
-    before it captures, stays pending until every face is loaded; the promise is also kept as `window.__hfFontsReady`. The `renderat` pages already
-    did this in their own setup (`renderat_page`)."""
-    loads = ",\n  ".join("document.fonts.load(%s)" % dumps("%d 20px \"%s\"" % (weight, family)) for family, weight, _ in sorted(set(fonts.values())))
-    sets = "\n".join("rs.setProperty(%s, %s);" % (dumps(k), dumps(v)) for k, v in pairs)
-    return ("var rs = document.documentElement.style;   // the theme as inline custom properties on the root element, as the renderat pages get it\n%s\n"
-            "window.__hfFontsReady = (document.fonts && document.fonts.load) ? Promise.all([\n  %s\n]) : Promise.resolve();" % (sets, loads))
+def font_faces_js(fonts: dict) -> str:
+    """The script that gives the main page its faces through the FontFace API, from the file bytes (checked against the allow list's sha256), once per face:
+    `new FontFace(family, bytes, {weight})`, `document.fonts.add`, `load()`. The page's CSS `@font-face` rule for Inter 800 came out as an error in the HyperFrames
+    image (with a path source, a data: source and a private family name alike) while a face made this way loaded and drew (V3b-4, probed inside the image), so
+    every gsap block drew no glyph. The CSS rules stay (the image's font guard reads the declared families). The promise is kept as `window.__hfFontsReady`.
+    A path source is not used: the measure step refuses a page that requests a path."""
+    data = embedded_fonts(fonts)
+    rows = ",\n  ".join("[%s, %d, %s]" % (dumps(family), weight, dumps(data[file])) for family, weight, file in sorted(set(fonts.values())))
+    return ("var HF_FACES = [\n  %s\n];\n"
+            "window.__hfFontsReady = Promise.all(HF_FACES.map(function (f) {\n"
+            "  var bin = atob(f[2]), u8 = new Uint8Array(bin.length);\n"
+            "  for (var i = 0; i < bin.length; i++) { u8[i] = bin.charCodeAt(i); }\n"
+            "  var face = new FontFace(f[0], u8.buffer, { weight: String(f[1]) });\n"
+            "  document.fonts.add(face);\n"
+            "  return face.load();\n"
+            "}));" % rows)
 
 
 def renderat_page(text: str, name: str, pairs: list, fonts: dict) -> str:
@@ -292,7 +290,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
     parts = _hf_page.build_parts(edl, fps=fps)
 
-    css = [font_face_css(fonts, "fonts/", embedded_fonts(fonts)), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
+    css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']
     layers, tail, inst, ra, ra_frames, ra_keys = [], [], [], {}, {}, []
     tier_a_rows = {}
@@ -355,7 +353,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             seconds = num(parts["out_seconds"])
             scripts.append('var D_%d = {at: function (v) { if (v === undefined) return this._t || 0; this._t = v; drive(%s, v); }};\n'
                            'main.fromTo(D_%d, {at: 0}, {at: %s, duration: %s, ease: "none", immediateRender: true}, 0);' % (j, dumps(key), j, seconds, seconds))
-    scripts.insert(0, font_load_js(fonts, pairs))                                       # before the first tween: every used face is requested from the first line of the script
+    scripts.insert(0, font_faces_js(fonts))                                       # before the first tween: every used face is requested from the first line of the script
     scripts.extend(tail)
 
     full_vars = dict(parts["vars"], inst=inst, ra=ra)

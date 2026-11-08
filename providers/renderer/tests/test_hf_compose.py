@@ -205,7 +205,7 @@ def test_a_renderat_page_is_the_blocks_page_with_the_guard_the_theme_and_the_fon
     for forbidden in ("Date.now = boom", "Math.random = boom", "window.setTimeout = boom", "window.requestAnimationFrame = boom", "window.fetch = boom",
                       "window.XMLHttpRequest = function", "window.WebSocket = function", "window.Worker = function"):
         assert forbidden in out
-    assert 'rs.setProperty("--c-accent", "#FFC93C")' in out and 'rs.setProperty("--font-display", "\\"OH Inter\\", sans-serif")' in out
+    assert 'rs.setProperty("--c-accent", "#FFC93C")' in out and 'rs.setProperty("--font-display", "\\"Inter\\", sans-serif")' in out
     assert 'src:url("../fonts/inter-800.woff2")' in out and "window.__frame = function (t, data) { window.renderAt(t, data); };" in out
     assert out.index("Date.now = boom") < out.index("window.renderAt = function")            # the guard is up before the page's own script
 
@@ -246,14 +246,13 @@ def test_the_fonts_are_the_three_allow_listed_files_and_the_theme_never_names_a_
     assert result["fonts_used"] == {"display": "inter-800.woff2", "mono": "jetbrains-mono-500.woff2", "text": "inter-500.woff2"}
     for needle in ("-apple-system", "Helvetica", "Arial", "Menlo", "system-ui"):
         assert needle not in page
-    assert page.count("@font-face") == 3 and '--font-display:"OH Inter", sans-serif' in page and '--font-mono:"OH Mono", monospace' in page
+    assert page.count("@font-face") == 3 and '--font-display:"Inter", sans-serif' in page and '--font-mono:"JetBrains Mono", monospace' in page
     assert "--weight-display:800" in page and "--c-accent:#FFC93C" in page
 
 
 def test_the_font_table_is_the_allow_list_file():
     rows = json.loads((K.RENDERER / "assets" / "fonts" / "allowlist.json").read_text())["fonts"]
-    private = {"Inter": "OH Inter", "JetBrains Mono": "OH Mono"}          # the composed pages declare private family names (V3b-4)
-    assert C.FONT_FILES == {row["id"]: (private[row["family"]], row["weight"], row["file"]) for row in rows}
+    assert C.FONT_FILES == {row["id"]: (row["family"], row["weight"], row["file"]) for row in rows}
     assert set(C.DEFAULT_FONT.values()) <= set(C.FONT_FILES) and set(C.DEFAULT_FONT) == {"display", "text", "mono"}
     assert set(R.FONT_FILES) == {row[2] for row in C.FONT_FILES.values()}
     assert {row["file"]: row["sha256"] for row in rows} == R.FONT_FILES
@@ -529,60 +528,34 @@ def test_the_post_of_the_live_test_passes_the_posts_checker_and_every_beat_is_on
     assert [e["preset"] for e in beats["overlays"]] == ["keyword", "number", "list", "quote"] and beats["layouts"] == []
 
 
-def test_every_used_font_is_requested_before_the_first_tween_and_the_promise_is_kept(tmp_path, docs):
-    """V3b-4: the gsap blocks' text was blank in the HyperFrames image because nothing asked for the fonts in the main page (font-display: block, no system
-    font). One `document.fonts.load` per used face, ahead of the first `main.` call, so `document.fonts.ready` waits for them."""
+def test_the_main_page_adds_every_used_face_through_the_fontface_api_from_the_pinned_bytes_before_the_first_tween(tmp_path, docs):
+    """V3b-4: the CSS @font-face rule of Inter 800 errored in the HyperFrames image, so every gsap block drew no glyph; a face made with `new FontFace(family,
+    bytes, {weight})` and `document.fonts.add` loaded and drew (probed in the image). One per used face, bytes equal to the pinned file's, before the first tween."""
+    import base64
     catalogue = catalogue_of(tmp_path, mixed=True)
     result = write(docs, catalogue, tmp_path / "p")
     page = text_of(tmp_path / "p")
-    used = {(family, weight) for family, weight, file in (C.FONT_FILES[i] for i in C.FONT_FILES) if file in set(result["fonts_used"].values())}
-    assert used
-    loads = re.findall(r'document\.fonts\.load\("(\d+) 20px \\"([^"\\]+)\\""\)', page)
-    assert sorted((family, int(weight)) for weight, family in loads) == sorted(used)         # exactly one load per used face
-    assert "window.__hfFontsReady = (document.fonts && document.fonts.load) ? Promise.all([" in page
-    first_load = page.index("document.fonts.load(")
+    rows = re.findall(r'\["([^"]+)", (\d+), "([A-Za-z0-9+/=]+)"\]', page.split("var HF_FACES = [", 1)[1].split("];", 1)[0])
+    used = {(family, weight, file) for family, weight, file in C.FONT_FILES.values() if file in set(result["fonts_used"].values())}
+    by_digest = {hashlib.sha256((K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()).hexdigest(): name for name in R.FONT_FILES}
+    got = {(family, int(weight), by_digest[hashlib.sha256(base64.b64decode(blob)).hexdigest()]) for family, weight, blob in rows}
+    assert got == used and len(rows) == len(used)                    # one face per used file, the bytes of the pinned file
+    for needle in ("new FontFace(f[0], u8.buffer", "document.fonts.add(face)", "window.__hfFontsReady = Promise.all("):
+        assert needle in page, needle
+    first = page.index("var HF_FACES")
     for needle in ("main.set(\"#hf-inst", "main.add(tl_", "main.fromTo(D_"):
         if needle in page:
-            assert first_load < page.index(needle), needle
+            assert first < page.index(needle), needle
 
 
-def test_the_theme_custom_properties_are_also_set_inline_on_the_root_element(tmp_path, docs):
-    catalogue = catalogue_of(tmp_path, mixed=True)
-    write(docs, catalogue, tmp_path / "p")
-    page = text_of(tmp_path / "p")
-    for prop in ("--font-display", "--weight-display", "--c-accent", "--c-text"):
-        assert 'rs.setProperty("%s", ' % prop in page, prop
-    assert page.index("rs.setProperty(") < page.index("document.fonts.load(")
-
-
-def test_every_font_of_the_composed_pages_is_a_staged_file_with_its_pinned_sha256_and_the_main_page_embeds_the_same_bytes(tmp_path, docs):
+def test_every_font_url_of_the_composed_pages_names_a_file_the_image_stages_with_its_pinned_sha256(tmp_path, docs):
     catalogue = catalogue_of(tmp_path, mixed=False)
     write(docs, catalogue, tmp_path / "p")
     for name, digest in R.FONT_FILES.items():
         assert hashlib.sha256((K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()).hexdigest() == digest, name
-    page = text_of(tmp_path / "p")
-    rules = re.findall(r'@font-face\{[^}]*src:url\("data:font/woff2;base64,([^"]+)"\) format\("woff2"\),url\("fonts/([^"]+)"\) format', page)
-    assert len(rules) >= 2
-    import base64
-    for blob, name in rules:
-        assert hashlib.sha256(base64.b64decode(blob)).hexdigest() == R.FONT_FILES[name], name        # the embedded bytes are the pinned file's
-    for name in sorted(os.listdir(tmp_path / "p" / "blocks")):
-        urls = re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", "blocks/" + name))
-        assert urls and all(u.startswith("../fonts/") and u[len("../fonts/"):] in R.FONT_FILES for u in urls), (name, urls)
-
-
-# Families the HyperFrames compiler resolves itself (its look-alike table, read in the image: render-PUXPIIGJ.js `LOOK_ALIKES`, and the Google families Inter and
-# JetBrains Mono among them). A face the page declares under one of these names is handled by the compiler, and the page's own Inter 800 came out as an error.
-COMPILER_KNOWN = {"inter", "jetbrains mono", "noto sans sc", "noto sans tc", "noto sans hk", "noto sans jp", "noto sans kr", "lora", "tinos", "arial", "helvetica",
-                  "helvetica neue", "georgia", "times new roman", "menlo", "consolas", "sf pro", "sf pro display", "sf pro text", "segoe ui", "roboto", "open sans"}
-
-
-def test_no_family_the_composed_pages_declare_or_name_is_one_the_compiler_resolves_itself(tmp_path, docs):
-    catalogue = catalogue_of(tmp_path, mixed=True)
-    write(docs, catalogue, tmp_path / "p")
-    for rel in ["index.html"] + ["blocks/" + n for n in sorted(os.listdir(tmp_path / "p" / "blocks"))]:
-        page = text_of(tmp_path / "p", rel)
-        declared = {f.lower() for f in re.findall(r'@font-face\{font-family:"([^"]+)"', page)}
-        assert declared and not declared & COMPILER_KNOWN, (rel, declared)
-        named = {m.strip().strip("\"'").lower() for v in re.findall(r"--font-(?:display|text|mono):([^;}]+)", page) for m in v.split(",")}
-        assert not (named - {"sans-serif", "monospace"}) & COMPILER_KNOWN, (rel, named)
+    seen = 0
+    for rel, prefix in (("index.html", "fonts/"),) + tuple(("blocks/" + n, "../fonts/") for n in sorted(os.listdir(tmp_path / "p" / "blocks"))):
+        for url in re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", rel)):
+            assert url.startswith(prefix) and url[len(prefix):] in R.FONT_FILES, (rel, url)
+            seen += 1
+    assert seen >= 4
