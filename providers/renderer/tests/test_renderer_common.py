@@ -154,7 +154,7 @@ def test_the_image_manifest_lists_the_new_common_modules_and_the_host_module_sta
 def test_the_host_exports_the_common_verbs_and_the_ffmpeg_engine_serves_them_beside_its_drawing_verbs():
     import argparse
     import ffmpeg
-    assert _host.COMMON_VERBS == ("analyse", "base", "align", "check", "cover", "still", "verify")
+    assert _host.COMMON_VERBS == ("analyse", "base", "align", "check", "cover", "still", "preview", "verify")
     assert tuple(_host.COMMON_HANDLERS) == _host.COMMON_VERBS
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="verb")

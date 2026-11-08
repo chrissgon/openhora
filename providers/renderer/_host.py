@@ -31,6 +31,7 @@ from _vocab import load_data, load_vocabulary
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
 COVER_MAX_BYTES = 16 * 1024 * 1024
+PREVIEW_FILE = "preview-%s.mp4"           # the stored preview, named by the first 12 hex characters of its own sha256
 STILL_MAX_BYTES = 8 * 1024 * 1024        # the largest still the host keeps (the service refuses to serve more): a 1080x1920 photograph is a few MiB
 CRASH_CODES = {125: "docker_run_failed", 126: "docker_run_failed", 127: "docker_run_failed", 137: "container_killed", 143: "container_killed"}
 
@@ -285,6 +286,36 @@ def verb_still(args) -> dict:
                     image={"id": job.image["id"], "tag": job.image["tag"]})
 
 
+def verb_preview(args) -> dict:
+    """A smaller copy of a finished render for a phone (renderer-presets.json `preview`). The render is mounted read-only; the container
+    writes `preview.mp4`; the host hashes it on the way out, refuses more than the preset's max_bytes, a result that does not name this
+    render or whose size or frame differs from the file and the preset, and a file that does not start with `ftyp` or has its index after
+    its data; then stores it as `preview-<sha12>.mp4`, 0400, never rewritten (the same bytes are a replay)."""
+    spec = load_data()["preview"]
+    digest = args.sha256 or _media.sha256_file(args.input)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise Usage("--sha256 takes 64 lowercase hex digits")
+    cap = int(spec["max_bytes"])
+    out_dir = os.path.abspath(args.out)
+    with Job(args, int(spec["time_limit_seconds"]), "preview") as job:
+        result = job.run(["preview", "--in", job.mount_recording(args.input), "--sha256", digest, "--out", D.MOUNT_OUT + "/preview.mp4"], "preview")
+        made = result.get("sha256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", made) or result.get("from_sha256") != digest:
+            raise Refusal("container_result_invalid", "preview")
+        candidate = os.path.join(job.root, "candidate.mp4")
+        job.collect("preview.mp4", candidate, max_bytes=cap, mode=0o400, expect_sha256=made)
+        if result.get("bytes") != os.path.getsize(candidate) or (result.get("width"), result.get("height")) != (spec["width"], spec["height"]):
+            raise Refusal("container_result_invalid", "preview")      # the container's own account must be the file and the preset
+        boxes = _media.top_level_boxes(candidate)
+        if not boxes or boxes[0] != "ftyp" or not _media.faststart(candidate):
+            raise Refusal("container_result_invalid", "preview")
+        final = os.path.join(out_dir, PREVIEW_FILE % made[:12])
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
+        outcome = D.copy_out(candidate, final, max_bytes=cap, mode=0o400, expect_sha256=made, exclusive=True)
+        return dict(result, path=final, name=os.path.basename(final), replayed=(outcome == "replayed"),
+                    image={"id": job.image["id"], "tag": job.image["tag"]})
+
+
 def verb_verify(args) -> dict:
     """Check a finished render, a file that is already stored, in a fresh container: its sha256 (given, or the file's own when not given),
     ffprobe's facts against the platform file's video spec, the colour tags, and the length when an edit list says what it should be. The
@@ -306,7 +337,7 @@ def verb_verify(args) -> dict:
 
 
 COMMON_HANDLERS = {"analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "cover": verb_cover,
-                   "still": verb_still, "verify": verb_verify}
+                   "still": verb_still, "preview": verb_preview, "verify": verb_verify}
 COMMON_VERBS = tuple(COMMON_HANDLERS)
 
 
@@ -405,6 +436,11 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--in", dest="input", required=True)
     sp.add_argument("--at-ms", type=int, required=True)
     sp.add_argument("--out", required=True, help="the folder the still is written into")
+    sp = sub.add_parser("preview")
+    add_limits(sp)
+    sp.add_argument("--in", dest="input", required=True, help="the stored render (an MP4)")
+    sp.add_argument("--sha256", help="the render's sha256; the file's own when left out")
+    sp.add_argument("--out", required=True, help="the folder the preview is written into")
     sp = sub.add_parser("verify")
     add_limits(sp)
     sp.add_argument("--in", dest="input", required=True, help="the stored render (an MP4)")

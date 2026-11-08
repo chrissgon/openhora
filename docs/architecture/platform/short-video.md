@@ -102,8 +102,8 @@ The flow `new-video` (`flows/new-video.json`) starts one step task of the kind `
 2. `transcribe`, 3. `analyse`, 4. `still` (a side step, `_still_due`), 5. `retakes`, 6. `align-proposal`: each calls one verb of the transcriber or the renderer through `MediaEngine.call`, whose list of verbs is closed (`MediaEngine.CLASSES`).
 7. `review`: the stop "Check the captions" (`_review_decision`).
 8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors and added animations, and the renderer's check.
-12. `render`, 13. `cover`, 14. `verify`: the file `render-<sha12>.mp4`, its cover (`MediaStore.settle_cover` names it by its own hash) and the renderer's verify; `render.json` carries the blocks the renderer drew and their hash.
-15. `document`: the delivery document (`deliver_document.build`), written through `EffectFiles.write`. 16. `deliver`: the gate (`steps.Gate`, redo `remap`).
+12. `render`, 13. `cover`, 14. `verify`: the file `render-<sha12>.mp4`, its cover (`MediaStore.settle_cover` names it by its own hash) and the renderer's verify; 15. `preview` (a side step, `_preview_due`): the renderer's `preview`, only for a render larger than 15 MiB; `render.json` carries the blocks the renderer drew and their hash.
+16. `document`: the delivery document (`deliver_document.build`), written through `EffectFiles.write`. 17. `deliver`: the gate (`steps.Gate`, redo `remap`).
 
 The gate and its hash: the decision's hash is the hash of the document, which names the render's sha256 (limit L67). Approving it marks that exact file downloadable (`runtime/effect_deliver.py` `execute`, `media.mark_delivered`); nothing is published.
 
@@ -121,7 +121,7 @@ Retention (decision 12): the recording and the transcript 7 days after delivery,
 
 Removing a recording (media-remove): `media-remove --media <id>` shows what would go (bytes, files, the tasks that named it) and removes nothing; with `--confirm` the whole folder goes, the delivered video included. It is refused while a task that is not `done`, `cancelled` or `failed` names the recording, or while its task lock is held. The route is `POST /api/v1/projects/<id>/media/remove`, which crosses the LAN socket (only an id crosses). The quota refusal tells the person to remove a recording they no longer need, with no command (the same sentence reaches a phone). The page's button comes with a later page package.
 
-V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
+The side step `preview` (V3d) stands between `verify` and `document` (`step_media.ORDER`): for a render larger than `deliver_document.PREVIEW_MAX_BYTES` (15 MiB) it asks the renderer for a copy that fits, and `_document` records it as the delivery document's `preview` (`deliver_document.preview_name` names its file), which makes `deliver_document.on_cards` true; `preview` is in `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
 
 From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the group `media-phone` sends a video. The bridge checks its declared size against the least of the media store's 1 GiB, the quota left and the provider's file limit before fetching anything (Telegram's bot download is 20 MB, so most recordings of a minute or more get the over-cap sentence, and the Drive link or the page is the way in for them). `video-phone-in` keeps it, the caption (the post's name) or a numbered list chooses the post, `video-phone-start` runs the video to the caption review, and the words go to the sender's chat. A reply to the caption card, one line per correction `wrong -> right`, is mapped by `runtime/media_phone_words.py` to the closed edits and applied by `ops_media_edit.edit`; `continue` answers the review and runs the video. A correction in a reply to the delivery card renders again and asks again. A Google Drive link sent instead of the file (V1d-3, limit L70) is fetched with the project's Google account when one is connected, otherwise from the shared link over https from a closed host list, global addresses only, at most three checked redirects and the size known first; it becomes a recording and goes on from the post choice.
 
@@ -136,7 +136,7 @@ From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the
 - The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
 - The HyperFrames engine has no `block-params` yet, so a project whose engine is HyperFrames (today only by `RENDERER_PROVIDER`) cannot add an animation (`block_check_unavailable`); V4 adds the verb. Picking the block of a script beat's preset (G14) and a preview of an added animation are later (V1b3 OPEN-5, OPEN-10).
 
-On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 20 MiB, the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. A larger render is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
+On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 15 MiB, and a larger render gets a copy that fits from the renderer's `preview` verb (V3d), the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. When that copy cannot be made, the delivery is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
 
 ## Changes
 
@@ -158,6 +158,8 @@ Written on 2026-11-07 by V1a-3.
 2026-11-08: V1d-3, a recording from a Google Drive link and limit L70
 
 2026-11-08: media-remove, one recording removed from the media store
+
+2026-11-08: V3d, the renderer's preview verb and the side step preview
 
 Updated on 2026-11-07 by V3a-2.
 

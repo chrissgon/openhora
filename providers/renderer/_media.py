@@ -516,6 +516,41 @@ def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
             "-t", "%.6f" % (plan["out_frames"] / float(plan["fps"])), out]
 
 
+def preview_rate(duration: float, spec: dict, has_audio: bool):
+    """The video rate (kbit/s) of a preview of a render `duration` seconds long, so that the whole file fits spec["max_bytes"] with
+    spec["margin"] of room: the audio's share (spec["audio_kbps"], none without audio) is taken first and one second is added for the
+    container and the rounding. At most spec["max_video_kbps"]; None when it would be under spec["min_video_kbps"] (too long to fit)."""
+    seconds = float(duration) + 1.0
+    audio = spec["audio_kbps"] * 1000 if has_audio else 0
+    rate = int((spec["max_bytes"] * 8 * spec["margin"] - audio * seconds) / seconds / 1000)
+    if rate < spec["min_video_kbps"]:
+        return None
+    return min(rate, spec["max_video_kbps"])
+
+
+def preview_argv(ffmpeg: str, src: str, out: str, spec: dict, *, video_kbps: int, has_audio: bool) -> list:
+    """The preview of a finished render: scaled to spec["width"] x spec["height"] with the bit-exact scaler, x264 at CRF spec["crf"] capped
+    by `video_kbps` (maxrate and a one-second buffer), AAC at spec["audio_kbps"] when the render has audio, the bt709 tags, no metadata, the
+    index first (faststart). Pinned as the final encode is (encode_argv): the decoder, the filter graph and x264 on one thread each, so the
+    bytes do not follow the machine. The render is read under the same input rules as a recording (RECORDING_IN)."""
+    one = ENCODE_INPUT_THREADS
+    rate = "%dk" % video_kbps
+    vf = "scale=%d:%d:flags=%s,format=yuv420p,%s" % (spec["width"], spec["height"], SWS, TAGS)
+    argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(one), "-filter_complex_threads", str(one),
+            "-threads", str(one), *RECORDING_IN, "-i", src, "-map", "0:v:0"]
+    if has_audio:
+        argv += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "%dk" % spec["audio_kbps"], "-ar", "48000"]
+    else:
+        argv += ["-an"]
+    argv += ["-sn", "-dn", "-vf", vf, "-sws_flags", SWS, "-c:v", "libx264", "-threads", str(ENCODE_THREADS),
+             "-x264-params", "threads=%d:lookahead_threads=1:sliced-threads=0" % ENCODE_THREADS,
+             "-preset", spec["preset"], "-crf", str(spec["crf"]), "-maxrate", rate, "-bufsize", rate, "-profile:v", "high", "-pix_fmt", "yuv420p",
+             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+             "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",
+             "-movflags", "+faststart", out]
+    return argv
+
+
 def cover_argv(ffmpeg: str, src: str, offset_seconds: float, out_name: str) -> list:
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", "%.3f" % offset_seconds, *RECORDING_IN,
             "-i", src, "-frames:v", "1", "-f", "image2", "-c:v", "png", out_name]

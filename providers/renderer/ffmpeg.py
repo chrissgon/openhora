@@ -56,6 +56,11 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         One PNG frame of a recording at N ms, framed exactly as the render frames the source into 1080x1920 (the same scale and crop, so
         a pixel of the still is a pixel of the render's unzoomed picture). Writes DIR/still-<sha12>.png (mode 0400, never rewritten) and
         prints its sha256, size and offset. The recording is read under the same rules as `analyse` and `render`.
+  preview --in MP4 [--sha256 HEX] --out DIR
+        A smaller copy of a finished render for a phone: 720x1280 H.264 at a rate capped from the render's length, AAC 96 kbit/s, at
+        most 15 MiB (renderer-presets.json `preview`), as long as the render, its index first. Writes DIR/preview-<sha12>.mp4 (mode
+        0400, never rewritten) and prints its sha256, the render's (`from_sha256`), bytes, size, duration and rates. One encoder
+        thread: the same render gives the same bytes whatever the cores.
   pin-blocks --confirmed
         Maintainer tool: after a reviewed change of a block, rewrite blocks/pins.json and the generated blocks/catalogue.json.
   block-params --block NAME --params FILE --vocabulary V

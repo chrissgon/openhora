@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The preview of a delivery on a messaging app (package V1d-2, decision 14): the bytes of the render a deliver card is for, checked, and nothing else.
+"""The preview of a delivery on a messaging app (package V1d-2, decision 14): the bytes of the preview a deliver card is for, checked, and nothing else.
 
 `video_preview(project, pending_id, channel=None, sender=None)` is a public helper of the operations layer, not a row of the table of operations: only the
 messaging bridge calls it (runtime/messaging_preview.py), as the channel `messaging` and as the sender the card is for. It answers
@@ -11,11 +11,11 @@ messaging bridge calls it (runtime/messaging_preview.py), as the channel `messag
 
   - the channel is `messaging`, and the sender's profile covers `approve` for a deliver effect (the check the approval itself makes);
   - the decision is open, an effect, and the effect of the gate `deliver` of a step task of the kind `media`;
-  - its document (read by the hash the decision carries) holds a preview made from this very render (deliver_document.on_cards), which is the render itself
-    when it is at most deliver_document.PREVIEW_MAX_BYTES;
-  - the render's file, read from the store, still hashes to the hash the document recorded.
+  - its document (read by the hash the decision carries) holds a preview made from this very render (deliver_document.on_cards): the render itself
+    when it is at most deliver_document.PREVIEW_MAX_BYTES, else the renderer's copy (deliver_document.preview_name);
+  - the preview's file, read from the store, still hashes to the hash the document recorded.
 
-It writes nothing, sends nothing and answers nobody. It reads at most 20 MiB into memory. The approval stays a decision of the hash of the exact render: the
+It writes nothing, sends nothing and answers nobody. It reads at most deliver_document.PREVIEW_MAX_BYTES (15 MiB) into memory. The approval stays a decision of the hash of the exact render: the
 preview is for looking.
 
 Standard library only. Runs on Python 3.9.
@@ -76,7 +76,7 @@ def video_preview(project: str, pending_id, channel=None, sender=None) -> dict:
     if preview["size"] > deliver_document.PREVIEW_MAX_BYTES:
         raise core.OpsError(NO_PREVIEW, 1)
     try:
-        data = media.read_work(ctx["cfg"]["data_dir"], doc["recording"], doc["video"]["name"], limit=preview["size"])
+        data = media.read_work(ctx["cfg"]["data_dir"], doc["recording"], deliver_document.preview_name(doc), limit=preview["size"])
     except media.MediaError as e:
         raise core.OpsError(str(e), 1) from None
     found_sha = hashlib.sha256(data).hexdigest()
