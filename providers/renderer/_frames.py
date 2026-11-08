@@ -21,6 +21,7 @@ import _redact
 from _assets import (FONT_ID, FONT_MAGIC, font_allowlist, fonts_dir, image_facts, load_assets, load_fonts, read_regular)  # noqa: F401  (moved: the callers and tests still find them here)
 from _layout import caption_hit, face_hit  # noqa: F401
 from _lint import lint
+from _payload import beat_data, caption_data, pip_geometry  # noqa: F401  (moved: the callers and tests still find them here)
 from _text import Refusal
 
 ASSET_MIME = {"png": "image/png", "jpg": "image/jpeg"}
@@ -61,31 +62,7 @@ def load_templates(names: list, blocks_dir: str = BLOCKS_DIR) -> tuple:
 
 # ---------------------------------------------------------------- assets
 
-# ---------------------------------------------------------------- the frame data of each page
-
-def pip_geometry(data: dict, position: str) -> dict:
-    f, size = data["frame"], data["pip"]["size"]
-    x = (f["width"] - size) // 2
-    y = f["safe"]["top"] if position == "top" else f["safe"]["bottom"] - size
-    return {"x": x, "y": y, "size": size}
-
-
-def caption_data(data: dict, edl: dict, chunk: dict, by_index: dict, fps: int) -> dict:
-    f = data["frame"]
-    origin = chunk["start_frame"] / fps
-    words = [by_index[i] for i in sorted(by_index) if chunk["word_from"] <= i <= chunk["word_to"]]
-    return {"duration": (chunk["end_frame"] - chunk["start_frame"]) / fps, "anchor": edl["captions"]["position"],
-            "words": [{"text": w["text"], "start": round(w["start"] - origin, 4), "end": round(w["end"] - origin, 4)} for w in words],
-            "zones": _layout.zones(data, chunk["face"]), "margin": data["zones"]["caption_margin"]}
-
-
-def beat_data(data: dict, entry: dict, fps: int, edl: dict) -> dict:
-    out = {"params": entry["params"], "look": data["presets"][entry["preset"]]["looks"], "zones": _layout.zones(data, entry["face"]),
-           "duration": (entry["end_frame"] - entry["start_frame"]) / fps}
-    if entry["preset"] == "pip":
-        out["geom"] = pip_geometry(data, entry["params"].get("position", "top"))
-    return out
-
+# ---------------------------------------------------------------- the frame data of each page (moved to _payload.py)
 
 REASON_LINES = 4
 REASON_MAX = 200

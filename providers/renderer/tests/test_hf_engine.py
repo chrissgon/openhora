@@ -11,6 +11,7 @@ import ast
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -25,6 +26,7 @@ import renderer_kit as K
 import _container as box
 import _docker as D
 import _host
+import _blocks
 import _media
 import hyperframes as H
 from _text import Refusal
@@ -43,9 +45,10 @@ class FakeRun:
     """Stands where `_container.run` stands. `fail` maps a stage name to what to do instead: "refuse:<code>" (the drawing container writes a
     refusal row and exits 1), "raise" (the run itself fails), or a callable."""
 
-    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000):
+    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000, page_blocks_sha=None):
         self.commands, self.verbs, self.fail = [], [], fail or {}
         self.hf_bytes, self.hf_sha, self.memory_peak = hf_bytes, hf_sha, memory_peak
+        self.page_blocks_sha = page_blocks_sha
         self.seen = {}
 
     def __call__(self, command, name, timeout, **kw):
@@ -68,6 +71,11 @@ class FakeRun:
             "selfcheck": {"ok": True, "ffmpeg": "ffmpeg version fake", "ffprobe": "ffprobe version fake", "missing": [], "python": "3.11.2",
                           "browser": "HeadlessChrome/fake", "libass": True, "container": True},
         }
+        if verb == "hf-page" and "--blocks-sha256" in inner:
+            self.seen["page"] = inner
+            rows["hf-page"] = dict(rows["hf-page"], layers=["cuts", "zoom", "captions", "beats"], blocks={"oh:caption": "c" * 64, "oh:keyword": "d" * 64},
+                                   blocks_sha256=self.page_blocks_sha or inner[inner.index("--blocks-sha256") + 1], captions_drawn=4, beats_drawn=2,
+                                   runtimes={"oh:caption": "renderat", "oh:keyword": "renderat"}, fonts_used={"display": "inter-800.woff2", "text": "inter-500.woff2"})
         if verb == "proxy":
             Path(mounts["/work/media"][0], "proxy.mp4").write_bytes(PROXY_BYTES)
             rows["proxy"] = {"ok": True, "sha256": SHA(PROXY_BYTES), "bytes": len(PROXY_BYTES), "seconds": 1.5, "width": 1080, "height": 1920, "fps": 30, "has_audio": True}
@@ -185,10 +193,10 @@ def test_the_least_memory_passes_and_one_above_the_boxs_maximum_is_refused(world
     assert caught.value.code == "memory_too_large"
 
 
-def test_a_render_without_base_only_is_refused_before_any_docker_call(world, monkeypatch):
+def test_a_render_without_base_only_and_without_an_engines_file_is_refused_engine_unknown_before_any_docker_call(world, monkeypatch):
     with pytest.raises(Refusal) as caught:
         run(world, monkeypatch, base_only=False)
-    assert (caught.value.code, caught.value.field) == ("overlays_not_built", "render") and world.calls() == []
+    assert (caught.value.code, caught.value.field) == ("engine_unknown", "hyperframes") and world.calls() == []
     assert H.main(["render", "--edl", "e", "--beats", "b", "--in", "i", "--out", "o", "--platform-file", "p", "--vocabulary", "v"]) == 1
 
 
@@ -314,6 +322,106 @@ def test_a_result_that_does_not_fit_its_schema_or_a_container_that_died_without_
     with pytest.raises(Refusal) as row:
         H.read_hf_result(str(out), 1)
     assert row.value.code == "container_result_invalid"
+
+
+# ---------------------------------------------------------------- a render that draws (V3b-1)
+
+@pytest.fixture
+def test_blocks(world, monkeypatch, tmp_path):
+    """A copy of the committed blocks plus the HyperFrames engine's own file (renderat runtime, the oh: pages), used in test mode."""
+    folder = tmp_path / "test-blocks"
+    shutil.copytree(K.BLOCKS, folder)
+    K.write_hf_compose_blocks(folder)
+    monkeypatch.setenv("RENDERER_TEST", "1")
+    monkeypatch.setenv("RENDERER_BLOCKS_DIR", str(folder))
+    return folder
+
+
+def pins_sha(folder) -> str:
+    return SHA(Path(folder, "pins.json").read_bytes())
+
+
+def test_the_blocks_folder_is_the_committed_one_unless_test_mode_names_another(tmp_path, monkeypatch):
+    monkeypatch.delenv("RENDERER_TEST", raising=False)
+    monkeypatch.setenv("RENDERER_BLOCKS_DIR", str(tmp_path))
+    assert _blocks.blocks_dir() == _blocks.BLOCKS_DIR
+    monkeypatch.setenv("RENDERER_TEST", "0")
+    assert _blocks.blocks_dir() == _blocks.BLOCKS_DIR
+    monkeypatch.setenv("RENDERER_TEST", "1")
+    assert _blocks.blocks_dir() == str(tmp_path)
+    monkeypatch.delenv("RENDERER_BLOCKS_DIR")
+    assert _blocks.blocks_dir() == _blocks.BLOCKS_DIR
+
+
+def test_a_composed_render_stages_the_blocks_and_passes_their_hash_to_the_page_stage(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch, "--dry-run", base_only=False)
+    page = result["commands"]["page"]
+    inner = page[page.index(COMMON_ID) + 1:]
+    assert "--base-only" not in inner and option(inner, "--blocks") == "/job/blocks" and option(inner, "--blocks-sha256") == pins_sha(test_blocks)
+    assert inner[2] == "hf-page" and option(inner, "--out") == "/work/project"
+    assert run_folders(world) == []
+
+
+def test_a_base_only_render_still_passes_base_only_and_no_blocks(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch, "--dry-run")
+    inner = result["commands"]["page"][result["commands"]["page"].index(COMMON_ID) + 1:]
+    assert inner[-1] == "--base-only" and "--blocks" not in inner and "--blocks-sha256" not in inner
+
+
+def test_a_composed_render_returns_what_the_page_stage_drew(world, monkeypatch, test_blocks):
+    result, fake = run(world, monkeypatch, base_only=False)
+    assert fake.verbs == ["hf-page", "proxy", "hf", "encode", "verify"]
+    assert result["layers"] == ["cuts", "zoom", "captions", "beats"] and result["engine"] == "hyperframes"
+    assert result["blocks_sha256"] == pins_sha(test_blocks) and result["blocks"] == {"oh:caption": "c" * 64, "oh:keyword": "d" * 64}
+    assert result["captions_drawn"] == 4 and result["beats_drawn"] == 2 and result["runtimes"] == {"oh:caption": "renderat", "oh:keyword": "renderat"}
+    assert result["fonts_used"] == {"display": "inter-800.woff2", "text": "inter-500.woff2"} and result["verified"] is True
+    assert run_folders(world) == []
+
+
+def test_a_base_only_render_adds_none_of_the_composed_fields(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch)
+    assert result["layers"] == ["cuts", "zoom"] and not set(H.COMPOSED_FIELDS) & set(result)
+
+
+def test_a_page_stage_that_reports_other_blocks_than_the_ones_staged_is_refused_and_nothing_else_runs(world, monkeypatch, test_blocks):
+    fake = FakeRun(page_blocks_sha="0" * 64)
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=fake, base_only=False)
+    assert (caught.value.code, caught.value.field) == ("blocks_changed", "blocks") and fake.verbs == ["hf-page"] and run_folders(world) == []
+
+
+def test_a_page_stage_that_leaves_out_a_composed_field_is_a_closed_failure(world, monkeypatch, test_blocks):
+    class Short(FakeRun):
+        def __call__(self, command, name, timeout, **kw):
+            done = super().__call__(command, name, timeout, **kw)
+            if self.verbs[-1] == "hf-page":
+                out = Path([c.rsplit(":", 2)[0] for i, c in enumerate(command) if command[i - 1] == "-v" and c.endswith(":/out:rw")][0], "result.json")
+                row = json.loads(out.read_text())
+                del row["fonts_used"]
+                out.write_text(json.dumps(row))
+            return done
+
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=Short(), base_only=False)
+    assert (caught.value.code, caught.value.field) == ("container_result_invalid", "hf-page") and run_folders(world) == []
+
+
+def test_a_render_that_draws_is_refused_gates_not_built_outside_test_mode_even_with_an_engines_file(world, monkeypatch, test_blocks):
+    monkeypatch.delenv("RENDERER_TEST")
+    monkeypatch.setattr(_blocks, "BLOCKS_DIR", str(test_blocks))
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, base_only=False)
+    assert (caught.value.code, caught.value.field) == ("gates_not_built", "render") and world.calls() == []
+    result, _ = run(world, monkeypatch)                       # the cuts and the zoom are not gated by this
+    assert result["layers"] == ["cuts", "zoom"]
+
+
+def test_the_composed_page_stage_result_has_the_closed_schema():
+    keys = D.RESULT_SCHEMAS["hf-page"][1]
+    assert {"blocks", "blocks_sha256", "captions_drawn", "beats_drawn", "runtimes", "fonts_used"} <= set(keys)
+    base = D.sanitise({"ok": True, "page_sha256": "a" * 64, "vars_sha256": "b" * 64, "clips": 1, "zooms": 0, "duration": 1.0, "fps": 30, "layers": ["cuts"]},
+                      D.RESULT_SCHEMAS["hf-page"], "hf-page")
+    assert set(base) == {"ok", "page_sha256", "vars_sha256", "clips", "zooms", "duration", "fps", "layers"}
 
 
 # ---------------------------------------------------------------- the HyperFrames image: check, build, record, reap

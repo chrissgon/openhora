@@ -2,10 +2,13 @@
 The edit list is made from the kit's fictional transcript and a synthetic analysis; no media tool is needed."""
 from __future__ import annotations
 
+import hashlib
 import html.parser
 import json
 import os
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -54,6 +57,19 @@ class Texts(html.parser.HTMLParser):
     def handle_data(self, data):
         if data.strip() and not (self.stack and self.stack[-1] in ("script", "style")):
             self.found.append(data.strip())
+
+
+GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "hf-page-base.sha256")
+
+
+def test_the_base_page_is_the_bytes_it_was_before_the_composer_existed(tmp_path):
+    """The two sha256 values were computed on the untouched V3a-2 code (7e23eac) for this edit list; the page may be split into functions, never
+    change a byte (stop rule 2 of the V3b spec)."""
+    _, edl = make_edl()
+    write(edl, tmp_path / "p")
+    want = dict(line.split("  ")[::-1] for line in open(GOLDEN, encoding="utf-8").read().split("\n") if line)
+    got = {name: hashlib.sha256((tmp_path / "p" / name).read_bytes()).hexdigest() for name in ("index.html", "vars.json")}
+    assert got == {name: want[name] for name in got} and set(want) == {"index.html", "vars.json"}
 
 
 def test_two_calls_write_the_same_bytes(tmp_path):
@@ -160,10 +176,12 @@ def verb(tmp_path, edl, *more):
                       "--platform-file", K.INSTAGRAM, "--out", tmp_path / "page", *more)
 
 
-def test_the_verb_without_base_only_refuses_overlays_not_built(tmp_path):
+def test_the_verb_with_neither_base_only_nor_blocks_is_a_usage_error_and_writes_nothing(tmp_path):
     _, edl = make_edl()
-    rc, out, err = verb(tmp_path, edl)
-    assert rc == 1 and out["code"] == "overlays_not_built" and out["field"] == "hf-page"
+    for more in ((), ("--blocks", str(K.BLOCKS)), ("--blocks-sha256", "a" * 64), ("--base-only", "--blocks", str(K.BLOCKS), "--blocks-sha256", "a" * 64),
+                 ("--base-only", "--blocks-sha256", "a" * 64)):
+        rc, out, err = verb(tmp_path, edl, *more)
+        assert rc == 2 and out is None and "usage" in err.lower(), more
     assert not (tmp_path / "page").exists()
 
 
@@ -183,3 +201,42 @@ def test_the_verb_checks_the_documents_before_it_writes(tmp_path):
     rc, out, err = verb(tmp_path, edl, "--base-only")
     assert rc == 1 and out["ok"] is False
     assert not (tmp_path / "page").exists()
+
+
+def test_the_composed_verb_writes_the_page_the_vars_and_the_block_pages_and_its_result_passes_the_closed_schema(tmp_path):
+    import _docker as D
+    import shutil
+    doc, edl, beats, _ = K.hf_documents(tmp_path)
+    folder = tmp_path / "blocks"
+    shutil.copytree(K.BLOCKS, folder)
+    K.write_hf_compose_blocks(folder, mixed=True)
+    K.write_json(tmp_path / "edl.json", edl)
+    K.write_json(tmp_path / "beats.json", beats)
+    sha = hashlib.sha256((folder / "pins.json").read_bytes()).hexdigest()
+    rc, out, err = K.run_verb("hf-page", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--vocabulary", K.VOCABULARY,
+                              "--platform-file", K.INSTAGRAM, "--out", tmp_path / "page", "--blocks", folder, "--blocks-sha256", sha)
+    assert rc == 0, err
+    assert sorted(os.listdir(tmp_path / "page")) == ["blocks", "index.html", "vars.json"]
+    clean = D.sanitise(out, D.RESULT_SCHEMAS["hf-page"], "hf-page")
+    assert clean["blocks_sha256"] == sha and clean["layers"] == ["cuts", "zoom", "captions", "beats"] and clean["runtimes"]["hf:demo-pop"] == "gsap"
+    assert clean["captions_drawn"] > 0 and clean["beats_drawn"] == 4 and clean["fonts_used"]["display"] == "inter-800.woff2" and set(clean["blocks"]) == set(clean["runtimes"])
+    assert clean == {k: out[k] for k in clean} and set(out) == set(clean)
+
+
+def test_the_composed_verb_refuses_blocks_that_are_not_the_ones_named_and_a_missing_engine_file(tmp_path):
+    _, edl, beats, _ = K.hf_documents(tmp_path)
+    K.write_json(tmp_path / "edl.json", edl)
+    K.write_json(tmp_path / "beats.json", beats)
+    args = ("hf-page", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--vocabulary", K.VOCABULARY, "--platform-file", K.INSTAGRAM,
+            "--out", tmp_path / "page")
+    rc, out, err = K.run_verb(*args, "--blocks", K.BLOCKS, "--blocks-sha256", "0" * 64)
+    assert rc == 1 and out["code"] == "blocks_changed" and os.listdir(tmp_path / "page") == []
+    rc, out, err = K.run_verb(*args, "--blocks", K.BLOCKS, "--blocks-sha256", K.BLOCKS_SHA256)
+    assert rc == 1 and (out["code"], out["field"]) == ("engine_unknown", "hyperframes")
+
+
+@pytest.mark.parametrize("args", [["--help"], ["hf-page", "--help"]])
+def test_the_inner_entry_point_starts_as_a_script_with_no_path_but_its_own(args, tmp_path):
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
+    done = subprocess.run([sys.executable, "-I", str(K.SCRIPT), *args], capture_output=True, text=True, env=env, timeout=60, cwd=str(tmp_path))
+    assert done.returncode == 0 and "usage" in done.stdout.lower() and (args == ["--help"] or "--blocks-sha256" in done.stdout), done.stderr[-800:]

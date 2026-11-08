@@ -5,10 +5,11 @@ Run inside the image, with no network, as
 
     python3 -I /opt/hf-run/hf_render.py --project /work/project --out /work/out --tmp /work/tmp --fps <n> --timeout <s>
 
-`--project` holds exactly `index.html`, `vars.json` and `media/proxy.mp4` (each a regular file within a cap), written by the common image
-and mounted read-write; this script checks the folder, checks that the page names no font outside the allow-list (HyperFrames adds a
-bundled font for any family a page names and does not declare), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes
-HQ `.mov`, four workers, no frame cache. The intermediate, a log and `result.json` go to `--out`. The host reads `result.json` as
+`--project` holds exactly `index.html`, `vars.json` and `media/proxy.mp4` (each a regular file within a cap), and, for a page that draws,
+a folder `blocks/` of at most 16 pages (`blocks/<name>.html`, each at most 1 MiB), written by the common image and mounted read-write; this
+script checks the folder, checks that the page and each block page name no font outside the allow-list (HyperFrames adds a bundled font for
+any family a page names and does not declare), copies the three allow-listed font files into `fonts/` when a page uses them (each checked
+against its sha256), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes HQ `.mov`, four workers, no frame cache. The intermediate, a log and `result.json` go to `--out`. The host reads `result.json` as
 untrusted and hashes the intermediate again. The only HyperFrames command this file ever runs is `render`. Standard library only.
 """
 from __future__ import annotations
@@ -35,6 +36,13 @@ PROXY_MAX_BYTES = 2 * 1024 ** 3          # the proxy's cap (the same figure as _
 LOG_CAP = 1024 ** 2                      # the most of HyperFrames' own output that is kept
 CHUNK = 64 * 1024
 PROJECT_FILES = {"index.html": INDEX_MAX_BYTES, "vars.json": VARS_MAX_BYTES, "media/proxy.mp4": PROXY_MAX_BYTES}
+BLOCK_PAGE = re.compile(r"blocks/[a-z0-9-]{1,80}\.html")
+BLOCK_PAGE_MAX_BYTES = 1024 ** 2         # one block page's cap
+BLOCK_PAGES_MAX = 16                     # the most block pages a project holds
+FONTS_SOURCE = "/opt/fonts"              # the image's fonts (hyperframes-image/fonts/SHA256SUMS); copied into the project as fonts/
+FONT_FILES = {"inter-500.woff2": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f",
+              "inter-800.woff2": "a7d0a50f15d389cad679238466bdb5fc9787aa0715719064ce25abaff042820d",
+              "jetbrains-mono-500.woff2": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a"}
 GSAP_SOURCE = "/opt/hf/node_modules/gsap/dist/gsap.min.js"
 HF_PACKAGE = "/opt/hf/node_modules/hyperframes/package.json"
 MEMORY_PEAK = "/sys/fs/cgroup/memory.peak"
@@ -55,7 +63,7 @@ def refuse(code: str, field: str):
     raise Refuse(code, field)
 
 
-def check_fonts(html: str) -> None:
+def check_fonts(html: str, field: str = "index.html") -> None:
     """Every font family the page names (in CSS, in @font-face and in the canvas font strings of a script) is one of ours or a generic
     keyword. HyperFrames' compiler adds a bundled font for any other NAMED family it does not find declared, so a page that names one
     is refused before any render (`font_not_allowed`). The base page names none."""
@@ -70,12 +78,13 @@ def check_fonts(html: str) -> None:
         if name and name not in ALLOWED_FAMILIES and name not in GENERIC_FAMILIES:
             problems.append(name)
     if problems:
-        refuse("font_not_allowed", "index.html")
+        refuse("font_not_allowed", field)
 
 
 def check_project(project: str) -> str:
-    """The folder holds exactly the three files, each a regular file (never a link) within its cap, and nothing else. Returns the page's text."""
-    found = set()
+    """The folder holds exactly the three files, each a regular file (never a link) within its cap, and at most BLOCK_PAGES_MAX block pages
+    in a `blocks` folder (`blocks/<name>.html`, each a regular file within BLOCK_PAGE_MAX_BYTES), and nothing else. Returns the page's text."""
+    found, pages = set(), 0
     for base, dirs, files in os.walk(project, followlinks=False):
         for name in dirs + files:
             path = os.path.join(base, name)
@@ -85,7 +94,12 @@ def check_project(project: str) -> str:
             except OSError:
                 refuse("project_unexpected_file", rel[:80])
             if os.path.isdir(path) and not os.path.islink(path):
-                if rel != "media":
+                if rel not in ("media", "blocks"):
+                    refuse("project_unexpected_file", rel[:80])
+                continue
+            if BLOCK_PAGE.fullmatch(rel):
+                pages += 1
+                if pages > BLOCK_PAGES_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > BLOCK_PAGE_MAX_BYTES:
                     refuse("project_unexpected_file", rel[:80])
                 continue
             if rel not in PROJECT_FILES or (mode & 0o170000) != 0o100000:
@@ -99,6 +113,34 @@ def check_project(project: str) -> str:
             refuse("project_unexpected_file", rel)
     with open(os.path.join(project, "index.html"), "rb") as fh:
         return fh.read(INDEX_MAX_BYTES).decode("utf-8", "replace")
+
+
+def block_pages(project: str) -> dict:
+    """{field: text} of the block pages of a project `check_project` accepted (the field is `blocks:<name>.html`, which holds no slash)."""
+    folder = os.path.join(project, "blocks")
+    pages = {}
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            with open(os.path.join(folder, name), "rb") as fh:
+                pages["blocks:" + name] = fh.read(BLOCK_PAGE_MAX_BYTES).decode("utf-8", "replace")
+    return pages
+
+
+def copy_fonts(project: str) -> None:
+    """Copy the three allow-listed font files from the image into `<project>/fonts/`, each checked against its sha256 first (`font_hash`).
+    Called after the project was checked: the check refuses a `fonts` folder it did not expect, so this one is made here."""
+    os.mkdir(os.path.join(project, "fonts"), 0o700)
+    for name, digest in sorted(FONT_FILES.items()):
+        source = os.path.join(FONTS_SOURCE, name)
+        try:
+            with open(source, "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            refuse("font_hash", name)
+        if hashlib.sha256(raw).hexdigest() != digest:
+            refuse("font_hash", name)
+        with open(os.path.join(project, "fonts", name), "wb") as out:
+            out.write(raw)
 
 
 def render_argv(out: str, fps: int) -> list:
@@ -182,7 +224,13 @@ def write_result(out: str, doc: dict) -> None:
 
 def render(project: str, out: str, tmp: str, fps: int, timeout: int) -> dict:
     started = time.monotonic()
-    check_fonts(check_project(project))
+    page = check_project(project)
+    check_fonts(page)
+    pages = block_pages(project)
+    for field, text in pages.items():
+        check_fonts(text, field)
+    if pages or "fonts/" in page:                          # a page that draws names the fonts by path; the base page names none
+        copy_fonts(project)
     shutil.copyfile(GSAP_SOURCE, os.path.join(project, "gsap.min.js"))
     run_render(render_argv(out, fps), project, render_env(tmp), os.path.join(out, "hf.log"), timeout)
     target = os.path.join(out, "intermediate.mov")

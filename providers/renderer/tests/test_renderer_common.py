@@ -30,7 +30,8 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 FOLDER = K.RENDERER
 
-COMMON = ("_align", "_assets", "_blocks", "_edl", "_hf_page", "_layout", "_media", "_output", "_redact", "_text", "_timeline", "_vocab")
+COMMON = ("_align", "_assets", "_blocks", "_edl", "_gsap_lint", "_hf_compose", "_hf_page", "_layout", "_media", "_output", "_payload", "_redact", "_text",
+          "_timeline", "_vocab")
 DRAWING = ("_cdp", "_frames", "_lint", "_preview", "_render", "_browser")
 HOST = ("_docker", "_host", "_image", "ffmpeg", "hyperframes")
 needs_media = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
@@ -256,3 +257,35 @@ def test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_n
     assert e.value.code == "caption_below_line"
     assert e.value.field.startswith("frame ") and e.value.field.endswith(" bottom 1561")
     assert D.FIELD.fullmatch(e.value.field)               # the host can pass it on as a closed field
+
+
+# ---------------------------------------------------------------- the payload moved to a common module (V3b-1)
+
+# Computed on the untouched code (7e23eac) for the kit's fictional post: the sha256 of the three functions' source and of the data they gave
+# every caption chunk and beat of its timeline. The move is byte for byte, so both are unchanged and the ffmpeg engine's frames cannot differ.
+PAYLOAD_SOURCE_SHA256 = "dd5673930a1e9b7928382ce7ce347579e91827f5286ca9b6bbfbe57259adaf81"
+PAYLOAD_ROWS_SHA256 = "5305315267830c6a0db50f81d827d01041071bbb4b964c2b2afc023eec8cab90"
+
+
+def test_the_payload_functions_moved_byte_for_byte_and_the_frames_module_still_exports_them():
+    import inspect
+    import _payload
+    for name in ("pip_geometry", "caption_data", "beat_data"):
+        assert getattr(_frames, name) is getattr(_payload, name)
+    source = "".join(inspect.getsource(getattr(_payload, name)) for name in ("pip_geometry", "caption_data", "beat_data"))
+    assert hashlib.sha256(source.encode()).hexdigest() == PAYLOAD_SOURCE_SHA256
+
+
+def test_the_payload_of_every_caption_and_beat_of_the_fictional_post_is_what_it_was(tmp_path):
+    import _payload
+    data, edl, beats, vocab = K.hf_documents(tmp_path)
+    rc, out, err = K.run_verb("align", "--post", tmp_path / "post.md", "--transcript", tmp_path / "transcript.json", "--checker", K.CHECKER,
+                              "--vocabulary", K.VOCABULARY, "--out", tmp_path / "all-beats.json")
+    assert rc == 0, err
+    beats = json.loads((tmp_path / "all-beats.json").read_text())             # with the cutaway and the pip, as when the golden was computed
+    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    by_index = {x["index"]: x for x in edl["words"]}
+    rows = [_payload.caption_data(data, edl, c, by_index, edl["fps"]) for c in timeline["captions"]]
+    rows += [_payload.beat_data(data, e, edl["fps"], edl) for e in timeline["beats"]]
+    assert (len(timeline["captions"]), len(timeline["beats"])) == (29, 6)
+    assert hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest() == PAYLOAD_ROWS_SHA256

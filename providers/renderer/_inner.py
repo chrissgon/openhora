@@ -13,7 +13,8 @@ only writable mount) and /scratch (memory-backed), with no network.
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   proxy    --edl EDL --in VIDEO --out FILE.mp4         a 1080x1920 H.264 proxy of the recording, at the edit list's fps (the HyperFrames engine)
   encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR   a ProRes intermediate to the final H.264, with fixed threads
-  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR --base-only   the HyperFrames engine's base page: cuts and zoom
+  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H)   the HyperFrames
+           engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
@@ -41,6 +42,7 @@ import _align  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
+import _hf_compose  # noqa: E402
 import _hf_page  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
@@ -352,10 +354,14 @@ def verb_encode(args) -> dict:
 
 
 def verb_hf_page(args) -> dict:
-    """The base page of the HyperFrames engine (cuts and zoom). The four documents are checked as `check` checks them (the beats are
-    checked and not drawn); the overlays are not built yet, so `--base-only` is required."""
-    if not args.base_only:
-        raise Refusal("overlays_not_built", "hf-page")
+    """The page of the HyperFrames engine. The four documents are checked as `check` checks them. With `--base-only`: the cuts and the zoom
+    (the beats are checked and not drawn). Without it: `--blocks` and `--blocks-sha256` are required, the catalogue is loaded from that folder
+    (every hash checked there, the pins file's sha256 against the one given) and the captions and the beats are drawn with the blocks the
+    HyperFrames engine runs (`_hf_compose`)."""
+    if args.base_only == bool(args.blocks or args.blocks_sha256):
+        raise Usage("hf-page takes --base-only, or --blocks and --blocks-sha256 together, not both and not neither")
+    if not args.base_only and not (args.blocks and args.blocks_sha256):
+        raise Usage("hf-page without --base-only needs --blocks and --blocks-sha256")
     data = load_data()
     vocab = load_vocabulary(args.vocabulary)
     platform = _output.read_platform(args.platform_file)
@@ -364,7 +370,11 @@ def verb_hf_page(args) -> dict:
     _output.check_documents(data, edl, beats, platform, vocab, _assets.font_allowlist())
     os.makedirs(args.out, mode=0o700, exist_ok=True)
     frame = data["frame"]
-    page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
+    if args.base_only:
+        page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
+    else:
+        catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256)
+        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"])
     return dict(page, ok=True)
 
 
@@ -504,8 +514,10 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--beats", required=True)
     sp.add_argument("--vocabulary", required=True)
     sp.add_argument("--platform-file", required=True)
-    sp.add_argument("--out", required=True, help="an empty folder that gets index.html and vars.json")
-    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only (required: the overlays are not built yet)")
+    sp.add_argument("--out", required=True, help="an empty folder that gets index.html and vars.json (and blocks/ with the renderat pages)")
+    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only")
+    sp.add_argument("--blocks", help="the staged blocks folder (the captions and the beats are drawn with the blocks the engine runs)")
+    sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)

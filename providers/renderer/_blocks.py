@@ -22,6 +22,16 @@ from _vocab import check_param
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BLOCKS_DIR = os.path.join(HERE, "blocks")
+
+
+def blocks_dir() -> str:
+    """The blocks folder: the committed one, or another folder in test mode only (RENDERER_TEST=1 and RENDERER_BLOCKS_DIR), the pattern of
+    `_assets.fonts_dir`. Nothing else turns the override on."""
+    if os.environ.get("RENDERER_TEST") == "1" and os.environ.get("RENDERER_BLOCKS_DIR"):
+        return os.environ["RENDERER_BLOCKS_DIR"]
+    return BLOCKS_DIR
+
+
 MAX_FILE = 1 << 20
 SCHEMA_VERSION = 1
 SOURCES = {"oh": "openhora", "hf": "hyperframes-registry"}

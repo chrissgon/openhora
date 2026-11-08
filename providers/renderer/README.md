@@ -104,6 +104,18 @@ names it (`blocks_sha256`) with the sha256 of each drawn block (`blocks`). The i
 After a reviewed change of a block: `python3 providers/renderer/ffmpeg.py pin-blocks --confirmed` (pins and catalogue). Tests:
 `tests/test_renderer_blocks.py`.
 
+## The HyperFrames engine's composed page (V3b-1)
+
+`hyperframes.py render` without `--base-only` draws the captions and the beats. The page stage (`hf-page` with `--blocks` and `--blocks-sha256`)
+runs in the common image: `_hf_compose.py` writes one root composition, `index.html` (structure and numbers only), `vars.json` (every text) and
+`blocks/<ns>-<name>.html` for the `renderat` blocks. A block is drawn with its `gsap.html` when the engine runs `gsap` (the fragment of
+`_gsap_lint.py`, inlined once per entry in an instance clipped to its band and scoped with `@scope`) and with its `renderat.html` otherwise (one
+iframe per block, driven by one getter/setter tween). The theme's fonts are the three allow-listed files (`fonts/`, copied into the project by
+`hyperframes-image/hf_render.py`); `default` means Inter 800, Inter 500 and JetBrains Mono 500 for display, text and mono (`fonts_used` says so).
+The staging, the `blocks_sha256` check and the engine file work as in `ffmpeg.py`. Until the gates of V3b-2 (the face box, the line at 1560, the
+pixel check) are built, a render that draws is refused (`gates_not_built`) unless the blocks folder is the test folder of test mode
+(`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`). Tests: `tests/test_hf_compose.py`, `tests/test_gsap_lint.py`.
+
 ## Contract: replacing this implementation (lego)
 
 The class is the verbs of `providers/CONTRACT.md` and two renderer-neutral files (`edl.schema.json`): another implementation (a Remotion

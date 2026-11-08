@@ -108,6 +108,155 @@ def test_an_oversized_page_is_refused(tmp_path):
     assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "index.html")
 
 
+# ---------------------------------------------------------------- the blocks folder and the fonts (V3b-1)
+
+def add_blocks(project: Path, names=("oh-caption.html", "oh-keyword.html"), text="<!doctype html><title>block</title>") -> None:
+    (project / "blocks").mkdir()
+    for name in names:
+        (project / "blocks" / name).write_text(text, encoding="utf-8")
+
+
+def test_a_project_with_block_pages_is_accepted_and_the_pages_are_read(tmp_path):
+    project = make_project(tmp_path / "project")
+    add_blocks(project)
+    assert R.check_project(str(project)) == BASE_PAGE
+    assert sorted(R.block_pages(str(project))) == ["blocks:oh-caption.html", "blocks:oh-keyword.html"]
+    assert R.block_pages(str(make_project(tmp_path / "plain"))) == {}
+
+
+@pytest.mark.parametrize("name", ["Caption.html", "oh_caption.html", "oh-caption.htm", "oh-caption.html.bak", "-.HTML", ".hidden.html", "a" * 81 + ".html"])
+def test_a_block_page_with_a_name_outside_the_pattern_is_refused(tmp_path, name):
+    project = make_project(tmp_path / "project")
+    add_blocks(project, names=(name,))
+    assert refusal(R.check_project, str(project))[0] == "project_unexpected_file"
+
+
+def test_more_than_sixteen_block_pages_and_a_page_over_one_mebibyte_are_refused(tmp_path):
+    project = make_project(tmp_path / "project")
+    add_blocks(project, names=tuple("p%02d.html" % k for k in range(16)))
+    R.check_project(str(project))
+    (project / "blocks" / "p16.html").write_text("x")
+    assert refusal(R.check_project, str(project))[0] == "project_unexpected_file"
+    other = make_project(tmp_path / "other")
+    add_blocks(other, names=("big.html",), text="a" * (R.BLOCK_PAGE_MAX_BYTES + 1))
+    assert refusal(R.check_project, str(other)) == ("project_unexpected_file", "blocks/big.html")
+    fits = make_project(tmp_path / "fits")
+    add_blocks(fits, names=("big.html",), text="a" * R.BLOCK_PAGE_MAX_BYTES)
+    R.check_project(str(fits))
+
+
+def test_a_block_folder_with_a_folder_a_link_or_a_non_page_inside_is_refused(tmp_path):
+    project = make_project(tmp_path / "project")
+    add_blocks(project)
+    (project / "blocks" / "sub").mkdir()
+    assert refusal(R.check_project, str(project))[0] == "project_unexpected_file"
+    other = make_project(tmp_path / "other")
+    add_blocks(other)
+    (tmp_path / "elsewhere.html").write_text("x")
+    (other / "blocks" / "link.html").symlink_to(tmp_path / "elsewhere.html")
+    assert refusal(R.check_project, str(other))[0] == "project_unexpected_file"
+    third = make_project(tmp_path / "third")
+    (tmp_path / "folder").mkdir()
+    (third / "blocks").symlink_to(tmp_path / "folder")
+    assert refusal(R.check_project, str(third))[0] == "project_unexpected_file"
+    for name in ("fonts", "other"):
+        fourth = make_project(tmp_path / ("fourth-" + name))
+        (fourth / name).mkdir()
+        assert refusal(R.check_project, str(fourth))[0] == "project_unexpected_file"
+
+
+def make_fonts(folder: Path, bad=None) -> Path:
+    folder.mkdir()
+    for name in R.FONT_FILES:
+        (folder / name).write_bytes(b"not the font" if name == bad else b"font " + name.encode())
+    return folder
+
+
+def with_fake_fonts(monkeypatch, tmp_path, bad=None):
+    """The image's three font files, stood in for by small files whose sha256 the guard's table is made to hold."""
+    folder = make_fonts(tmp_path / "opt-fonts", bad)
+    table = {name: __import__("hashlib").sha256(b"font " + name.encode()).hexdigest() for name in R.FONT_FILES}
+    monkeypatch.setattr(R, "FONTS_SOURCE", str(folder))
+    monkeypatch.setattr(R, "FONT_FILES", table)
+    return folder
+
+
+def test_the_font_table_holds_the_hashes_of_the_images_font_files():
+    sums = dict(line.split("  ")[::-1] for line in (FOLDER / "fonts" / "SHA256SUMS").read_text().splitlines() if line.endswith(".woff2"))
+    assert R.FONT_FILES == sums and set(R.FONT_FILES) == {"inter-500.woff2", "inter-800.woff2", "jetbrains-mono-500.woff2"}
+    for name, digest in R.FONT_FILES.items():
+        assert __import__("hashlib").sha256((FOLDER / "fonts" / name).read_bytes()).hexdigest() == digest
+
+
+def test_the_fonts_are_copied_into_the_project_once_each_is_checked_and_the_copy_is_the_source(tmp_path, monkeypatch):
+    folder = with_fake_fonts(monkeypatch, tmp_path)
+    project = make_project(tmp_path / "project")
+    R.copy_fonts(str(project))
+    assert sorted(os.listdir(project / "fonts")) == sorted(R.FONT_FILES)
+    assert all((project / "fonts" / name).read_bytes() == (folder / name).read_bytes() for name in R.FONT_FILES)
+
+
+@pytest.mark.parametrize("bad", ["inter-500.woff2", "inter-800.woff2", "jetbrains-mono-500.woff2"])
+def test_a_font_file_whose_hash_differs_is_refused_by_name(tmp_path, monkeypatch, bad):
+    with_fake_fonts(monkeypatch, tmp_path, bad=bad)
+    project = make_project(tmp_path / "project")
+    assert refusal(R.copy_fonts, str(project)) == ("font_hash", bad)
+
+
+def test_a_missing_font_file_is_a_font_hash_refusal_too(tmp_path, monkeypatch):
+    folder = with_fake_fonts(monkeypatch, tmp_path)
+    (folder / "inter-800.woff2").unlink()
+    assert refusal(R.copy_fonts, str(make_project(tmp_path / "project"))) == ("font_hash", "inter-800.woff2")
+
+
+def test_a_render_with_block_pages_checks_each_page_copies_the_fonts_and_runs_once(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    seen = []
+
+    def fake_run(argv, project, env, log_path, timeout):
+        seen.append(sorted(os.listdir(os.path.join(project, "fonts"))))
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"prores")
+
+    project, out, tmp = fake_world(tmp_path, monkeypatch, fake_run)
+    add_blocks(project)
+    assert R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", "120"]) == 0
+    assert seen == [sorted(R.FONT_FILES)] and (project / "gsap.min.js").exists()
+
+
+def test_a_block_page_that_names_a_font_outside_the_allow_list_is_refused_naming_the_page_and_nothing_runs(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    project, out, tmp = fake_world(tmp_path, monkeypatch, lambda *a: pytest.fail("HyperFrames was started"))
+    add_blocks(project, names=("oh-caption.html",), text="<style>.a { font-family: Papyrus; }</style>")
+    assert R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", "120"]) == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "font_not_allowed", "field": "blocks:oh-caption.html"}
+    assert not (project / "fonts").exists() and not (project / "gsap.min.js").exists()
+
+
+def fonts_seen_by_a_render(tmp_path, monkeypatch, page):
+    """Run a render of a project whose page is `page`; whether the project had a `fonts` folder when HyperFrames started."""
+    seen = []
+
+    def fake_run(argv, project, env, log_path, timeout):
+        seen.append(os.path.isdir(os.path.join(project, "fonts")))
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"x")
+
+    project, out, tmp = fake_world(tmp_path, monkeypatch, fake_run)
+    (project / "index.html").write_text(page)
+    assert R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", "120"]) == 0
+    return seen[0]
+
+
+def test_a_page_that_names_the_fonts_folder_gets_the_fonts(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    page = BASE_PAGE.replace("</style>", '@font-face{font-family:"Inter";src:url("fonts/inter-500.woff2");}</style>')
+    assert fonts_seen_by_a_render(tmp_path, monkeypatch, page) is True
+
+
+def test_the_base_page_names_no_font_and_gets_no_fonts_folder(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    assert fonts_seen_by_a_render(tmp_path, monkeypatch, BASE_PAGE) is False
+
+
 # ---------------------------------------------------------------- the command and its environment
 
 def test_the_command_is_exactly_hyperframes_render_with_the_fixed_flags_and_none_of_the_commands_that_reach_a_network():
