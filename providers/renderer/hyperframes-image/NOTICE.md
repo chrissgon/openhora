@@ -23,6 +23,6 @@ Notes:
 - **GSAP is never committed.** It is installed from the lockfile at build time, and the pages a render writes load it from the image.
 - **The fonts' provenance is weaker than the rest**, as the ffmpeg engine's `assets/fonts/allowlist.json` states: they are Fontsource's
   Latin subsets of the upstream fonts, and the exact package version they came from was not recorded. Their sha256 is pinned.
-- **The registry blocks of HyperFrames are not in this image.** They come with package V3b and its allowlist, with their own entries in
-  this notice.
+- **The registry blocks of HyperFrames are not in this image.** Package V3b-3 admitted none (the maintainer's choice), so the image holds only the
+  registry's `LICENSE` file at the pinned commit, and no block has an entry in this notice. A block admitted later gets its entry here.
 - What the image installed is listed in `/opt/hf/npm-ls.txt` (every npm package) and in the image's labels (the pins).

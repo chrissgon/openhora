@@ -18,7 +18,8 @@
 // each must be Inter or JetBrains Mono and a custom font (the three files of /project/fonts), else the refusal `font_not_allowed` (field `drawn`).
 //
 // A refusal is a row {"ok": false, "code", "field"} written to the output path with exit code 1: boxes_too_many (more than MAX_BOXES_PER_FRAME in
-// a frame), boxes_too_large (more than MAX_OUT_BYTES of boxes), font_not_allowed, measure_failed (a page error, a console error, a request
+// a frame), boxes_too_large (more than MAX_OUT_BYTES of boxes), font_not_allowed, block_escaped (a tier-A component tried to leave its scope: the guard of
+// hf_wrap.py set `window.__hfEscape` or the `data-hf-escape` attribute of the document element, read after every frame's measure), measure_failed (a page error, a console error, a request
 // outside the loopback, a page that never became ready). The page is allowed to request only the loopback server this file starts.
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -276,7 +277,12 @@ async function main() {
     const rows = [];
     let bytes = 0;
     for (let f = 0; f < frames; f++) {
-      const boxes = await page.evaluate((t) => window.__hfMeasure(t), f / fps);
+      const got = await page.evaluate(async (t) => {
+        const boxes = await window.__hfMeasure(t);
+        return { boxes, escaped: window.__hfEscape === true || document.documentElement.hasAttribute("data-hf-escape") };
+      }, f / fps);
+      if (got.escaped) throw new Refusal("block_escaped", "frame " + f);
+      const boxes = got.boxes;
       if (boxes.length > MAX_BOXES_PER_FRAME) throw new Refusal("boxes_too_many", "frame " + f);
       const text = JSON.stringify(boxes);
       bytes += text.length + 1;

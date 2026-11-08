@@ -13,7 +13,8 @@ The document, every key present: `effect` ("deliver"), `version` (1), `task` (th
 first 12 characters of its `sha256`, `size`, `duration_ms`), `cover` (null, or `name` `cover-<12 hex>.png`, `sha256`, `size`), `verify`
 (`passed`, true, and the `platform` the renderer's check ran for), `blocks` (animation blocks the render mounted: `{id, sha256}`, sorted by id,
 at most 64; empty until the block catalogue fills them) and `preview` (null, or `{sha256, size, from_sha256}`; the preview of the render a
-messaging card carries, `from_sha256` equal to `video.sha256`; the render itself when it is at most `PREVIEW_MAX_BYTES` (20 MiB), else null).
+messaging card carries, `from_sha256` equal to `video.sha256`: the render itself when it is at most `PREVIEW_MAX_BYTES` (15 MiB), else the copy the
+renderer's `preview` verb made (`preview_name` names its file), else null).
 
 `check` refuses any other key or type and never echoes content: its `ValueError` names a field. `on_cards` is decision 14: a messaging card may
 approve a delivery only when the preview it carries was made from this render. With no preview it is always False.
@@ -34,9 +35,11 @@ PLATFORM = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 POST = re.compile(r"docs/marketing/content/[a-z0-9][a-z0-9.-]{0,79}\.md")   # as runtime/publish_document.py CONTENT_PATH
 BLOCK_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}:[a-z0-9][a-z0-9_.-]{0,63}")
 BLOCKS_MAX = 64
-# the largest render that is its own preview on a messaging app: the first app's send limit (Telegram, 20 MiB as this runtime reads it); a larger
-# render has no preview, so it is approved in the terminal or on the page
-PREVIEW_MAX_BYTES = 20 << 20
+# the largest preview a messaging card carries: under Telegram's 20 MiB and Twilio's 16 MB, read as 16,000,000 bytes or as 16 MiB. A render up to
+# this size is its own preview; a larger one gets a copy from the renderer's `preview` verb (V3d), made to fit this size; with neither, the
+# delivery is approved in the terminal or on the page. = providers/renderer/renderer-presets.json preview.max_bytes (a test compares)
+PREVIEW_MAX_BYTES = 15 << 20
+PREVIEW_FILE = "preview-{sha12}.mp4"
 TITLE = "Deliver the video"
 CLOSING = "Approving marks this exact file downloadable. Nothing is published."
 
@@ -127,6 +130,8 @@ def check(doc) -> dict:
             raise ValueError("preview.size")
         if preview["from_sha256"] != video["sha256"]:
             raise ValueError("preview.from_sha256")
+        if preview["sha256"] == video["sha256"] and preview["size"] != video["size"]:
+            raise ValueError("preview.size")
     return doc
 
 
@@ -148,6 +153,15 @@ def on_cards(doc) -> bool:
     preview = doc.get("preview") if isinstance(doc, dict) else None
     video = doc.get("video") if isinstance(doc, dict) else None
     return isinstance(preview, dict) and isinstance(video, dict) and preview.get("from_sha256") == video.get("sha256")
+
+
+def preview_name(doc: dict) -> str:
+    """The store's name of the file a document's preview is: the render itself when the preview's sha256 is the render's, else the copy the
+    renderer's `preview` verb made, `preview-<12 hex>.mp4` of its own sha256. The document must hold a preview (check it first)."""
+    preview, video = doc["preview"], doc["video"]
+    if preview["sha256"] == video["sha256"]:
+        return video["name"]
+    return PREVIEW_FILE.format(sha12=preview["sha256"][:12])
 
 
 def title(doc: dict) -> str:

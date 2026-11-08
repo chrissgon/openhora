@@ -91,6 +91,14 @@ class FakeEngine:
         self._write(os.path.join(flag(a, "--out"), name), data)
         return {"ok": True, "name": name, "sha256": sha(data), "at_ms": int(flag(a, "--at-ms"))}
 
+    def _preview(self, a):
+        data = b"preview " + self.salt
+        digest = sha(data)
+        name = f"preview-{digest[:12]}.mp4"
+        self._write(os.path.join(flag(a, "--out"), name), data)
+        return {"ok": True, "name": name, "path": os.path.join(flag(a, "--out"), name), "sha256": digest, "from_sha256": flag(a, "--sha256"),
+                "bytes": len(data), "width": 720, "height": 1280}
+
     def _base(self, a):
         proposal = flag(a, "--out").endswith("proposal.edl.json")
         doc = {"proposals": [], "normalisation": {}}

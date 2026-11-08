@@ -541,6 +541,7 @@ RESULT_SCHEMAS = {
                       sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), blocks=mp(S), blocks_sha256=S,
                       font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
     "proxy": dct(ok=B, sha256=S, bytes=I, seconds=N, width=I, height=I, fps=I, has_audio=B),
+    "preview": dct(ok=B, sha256=S, from_sha256=S, bytes=I, width=I, height=I, duration=N, has_audio=B, video_kbps=I, audio_kbps=I, seconds=N),
     "encode": dct(ok=B, sha256=S, out_seconds=N, out_frames=I, intermediate_sha256=S, gate_frames=opt(I), gate_boxes=opt(I), lowest_caption_bottom=opt(N),
                   pixel_min_psnr_db=opt(N), pixel_ranges=opt(I), pixel_seconds=opt(N)),
     "hf-page": dct(ok=B, page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
