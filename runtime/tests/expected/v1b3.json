@@ -1,0 +1,8 @@
+{
+  "package": "v1b3",
+  "add": {
+    "operations_table.PUBLIC_MODULES": ["ops_media_catalogue"],
+    "mcp.CHANNEL_ARG": ["video-catalogue"],
+    "interpreter_coverage.INTERNAL": ["video-catalogue"]
+  }
+}

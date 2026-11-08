@@ -17,7 +17,8 @@ kind `media` (runtime/step_media.py), in one of two places:
 `view(ctx, task_id)` reads the same files and writes nothing: the caption review as the person reads it (words, chunks, proposed retakes, beats, and the revision an edit must name).
 
 An edit that changes nothing is refused before anything is written or answered. The files it writes are the person's work: the engine's cleanup never
-removes them. Nothing here reaches a provider or the network.
+removes them. An added animation's parameters are checked by the renderer's own checker (`block-params`, through runtime/media_animation.py and
+`MediaEngine`), a process on this computer; nothing here reaches the network.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -33,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import captions  # noqa: E402
+import media_animation  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import ops_step_seams  # noqa: E402
@@ -122,7 +124,8 @@ def edit(ctx: dict, task_id: int, revision: int, edits: list, *, actor=None) -> 
             edited, review, counts = captions.apply_edits(
                 read_edited, read_review, edits, revision=revision, proposals=captions.retake_ranges(proposal_edl),
                 beats={r["beat"] for r in proposal_beats.get("report") or [] if r.get("preset")},
-                slots={s["slot"] for s in proposal_beats.get("slots") or []}, limits=_limits(media_store.root()))
+                slots={s["slot"] for s in proposal_beats.get("slots") or []}, limits=_limits(media_store.root()),
+                animate=media_animation.checker(ctx))
         except captions.CaptionError as e:
             raise core.OpsError(f"refused: {e.code} {e.field}".strip(), 1) from None
         if _content(edited, review) == _content(read_edited, read_review):
