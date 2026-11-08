@@ -132,6 +132,7 @@ operations.LAN_REFUSED_MEDIA, before one byte of the request's body is read and 
 operations layer sees the channel page for both sockets). A refusal sent before the body was read leaves the client's bytes unread, and the response
 closes the connection, as every response does. The download is an attachment named video-<12 hex>.mp4, sent in chunks from the open file the
 operation hashed again. The captions, the list and the starts are text and ids under the token and may cross the LAN socket.
+The catalogue of animations (GET /projects/<id>/video-catalogue, package V1b3) is our data and crosses the LAN socket as well.
 
 Before the token. The page cannot tell the person where the token file is until it holds the token, so the service answers
 one unauthenticated read, GET /token-file (outside /api/, under rules 2, 3, 5 and 9: no CORS header, Cache-Control no-store,
@@ -401,6 +402,8 @@ ROUTES = (
     _route("POST", "/projects/{p}/videos/{id}/captions", "captions-edit", bind={"task_id": "id"}, take=("revision", "edits")),
     _route("GET", "/projects/{p}/videos/{id}/download", "video-download", bind={"task_id": "id"}, take=(), hidden=("out",), download=True),
     _route("GET", "/projects/{p}/videos/{id}/still", "video-still", bind={"task_id": "id"}, take=(), hidden=("out",), raw=True),
+    # V1b3: the catalogue of animations (VD15); our data, it crosses the LAN socket too (VD18; not in operations.LAN_REFUSED_OPS).
+    _route("GET", "/projects/{p}/video-catalogue", "video-catalogue", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )
 PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
