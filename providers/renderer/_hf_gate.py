@@ -34,7 +34,7 @@ MAX_BOXES_PER_FRAME = 2000                      # the same figure as hf_measure.
 ZONES = ("card", "caption")                     # the bands boxes sit in; the `frame` band is not drawn on this engine
 ALLOWED_FAMILIES = ("Inter", "JetBrains Mono")  # the families of assets/fonts/allowlist.json
 KEY = re.compile(r"[A-Za-z0-9_.:\-]{1,60}")
-PIXEL_MIN_PSNR_DB = 30.0                        # OPEN-9: kept only if the supervisor's calibration shows clean >= 33 dB and planted <= 27 dB
+PIXEL_MIN_PSNR_DB = 30.0                        # calibrated 2026-11-08 on synthetic content: clean 36.31 dB live and 49.85 and 51.65 offline, planted 19.8 dB (decision file of V3b-2)
 PSNR_CAP = 99.0                                 # two identical frames give an infinite PSNR; the result carries this figure instead
 PIXEL_TIMEOUT = 3600
 STATS_NAME = "psnr-%d.log"                      # one stats file per kept range, in the working folder (the command runs there)
