@@ -332,14 +332,15 @@ def framing_filter(w: int, h: int, src_matrix: str) -> str:
             "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
 
 
-def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True) -> list:
+def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_up=None) -> list:
     """The filter strings of the cut and zoomed picture, with no layer and no pip: the source cut into the kept ranges, each zoomed about
     the face as the plan says, joined by `concat` into `[cv]` (and, when the plan has audio and `audio` is true, `[aout]`). The render
     (`compose_argv`) and the pixel check of the HyperFrames engine (`_hf_gate`) build the picture from this one function, so the
     reference the check compares with is the base the ffmpeg engine draws. `plan` holds fps, size [w, h], kept, zoom, anchor, fade and
     has_audio, and src_matrix unless `prepare` is given. `source` is the label of the video input; `prepare` the filters from it to `[sv]`
     (by default the recording's framing at `base` times the output size); `base` the factor the picture is cut at, which `zoom_filter`
-    needs to know."""
+    needs to know. `zoom_up`, when given, is a filter chain that brings a picture at the output size to `base` times it, applied only to the
+    ranges that zoom (an unzoomed range stays the exact picture): the reference of the pixel check zooms the 1080x1920 proxy this way."""
     fps, (w, h) = plan["fps"], plan["size"]
     kept, has_audio = plan["kept"], plan["has_audio"] and audio
     n = len(kept)
@@ -355,8 +356,11 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
     zoom, fade = plan["zoom"], plan["fade"]
     for k, (a, b) in enumerate(kept):
         z0, z1 = zoom_levels(zoom, k, b - a, fps)
+        zf = zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
+        if zoom_up and zf.startswith("zoompan"):
+            zf = zoom_up + "," + zf
         g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
-                 % (src_v[k], a, b, zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base), k))
+                 % (src_v[k], a, b, zf, k))
         cat_in.append("[v%d]" % k)
         if has_audio:
             # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and

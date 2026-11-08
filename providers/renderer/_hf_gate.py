@@ -38,6 +38,7 @@ PIXEL_MIN_PSNR_DB = 30.0                        # OPEN-9: kept only if the super
 PSNR_CAP = 99.0                                 # two identical frames give an infinite PSNR; the result carries this figure instead
 PIXEL_TIMEOUT = 3600
 STATS_NAME = "psnr-%d.log"                      # one stats file per kept range, in the working folder (the command runs there)
+FIELD_OK = re.compile(r"[A-Za-z0-9_.\[\]:\- ]{0,80}")      # the characters a refusal field may hold (the same shape `_docker` accepts)
 MIN_CROP = 2                                    # pixels: the smallest face region the pixel check compares
 
 
@@ -153,6 +154,17 @@ def reference_plan(edl: dict, data: dict) -> dict:
             "anchor": _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])}
 
 
+def reference_graph(edl: dict, data: dict, source: str) -> list:
+    """The filters that make the undrawn base from the proxy at label `source`, ending at `[cv]`: the kept ranges cut and zoomed by the one base graph.
+    A range that zooms is brought to twice the output size first and zoomed there, as the ffmpeg engine zooms a picture it cut at twice the size: a
+    zoom done on the 1080x1920 picture itself snaps to whole pixels and deviates from a renderer's smooth zoom by 25 to 30 dB on fine detail (found
+    against an eight-times-finer reference), the one at twice the size by about 38 dB at the median and 33 at the worst. An unzoomed range is the proxy as it
+    is."""
+    frame = data["frame"]
+    return _media.base_graph(reference_plan(edl, data), source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=_media.BASE, audio=False,
+                             zoom_up="scale=%d:%d:flags=%s" % (frame["width"] * _media.BASE, frame["height"] * _media.BASE, _media.SWS))
+
+
 def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list) -> list:
     """The one ffmpeg command of the pixel check. Inputs: the intermediate (0) and the proxy (1). The proxy is cut into the kept ranges and
     zoomed by `_media.base_graph` (the reference, on the output timeline); the intermediate is converted to the same format; each stream is
@@ -164,7 +176,7 @@ def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict
     fps, out_frames, frame = edl["fps"], edl["out_frames"], data["frame"]
     width, height = frame["width"], frame["height"]
     n = len(range_faces)
-    g = _media.base_graph(reference_plan(edl, data), source="[1:v:0]", prepare="fps=%s:start_time=0,format=yuv420p" % fps, base=1, audio=False)
+    g = reference_graph(edl, data, "[1:v:0]")
     g.append("[0:v:0]scale=flags=%s,format=yuv420p,setsar=1[hv]" % _media.SWS)
     if n == 1:
         ref, hf = ["[cv]"], ["[hv]"]
@@ -205,7 +217,7 @@ def read_stats(path: str, expect_frames: int) -> list:
     return values
 
 
-def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None) -> dict:
+def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None, timeline=None) -> dict:
     """Run the pixel check in the folder `work` (the stats files are written there, and are the caller's to remove) and judge it: the
     minimum PSNR over every frame of every kept range, refused `face_pixels_changed` ("range <k> frame <f> psnr <x>") when any frame is
     under PIXEL_MIN_PSNR_DB. Returns {pixel_min_psnr_db, pixel_ranges}. `run` stands where `_media.run` stands (a test's seam; production
@@ -219,5 +231,25 @@ def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dic
         if lowest is None or values[worst] < lowest:
             lowest = values[worst]
         if values[worst] < PIXEL_MIN_PSNR_DB:
-            raise Refusal("face_pixels_changed", "range %d frame %d psnr %.1f" % (k, first + worst, values[worst]))
+            err = Refusal("face_pixels_changed", "range %d frame %d psnr %.1f" % (k, first + worst, values[worst]))
+            err.problems = explain(k, edl, first, last, values, worst, timeline)
+            raise err
     return {"pixel_min_psnr_db": round(lowest if lowest is not None else PSNR_CAP, 2), "pixel_ranges": len(range_faces)}
+
+
+def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, timeline) -> list:
+    """What a refusal of the pixel check says about the range, in closed shapes (each a code and a field of the characters a field may hold): the
+    range's output frames, the worst frame's offset in it, how many frames are under the threshold, the median, the zoom at both ends of the range and
+    what the timeline draws at the worst frame, so a clean render that fails explains itself."""
+    ordered = sorted(values)
+    median = ordered[len(ordered) // 2]
+    z0, z1 = _media.zoom_levels(edl["zoom"], k, edl["kept"][k][1] - edl["kept"][k][0], edl["fps"])
+    rows = [("range_frames", "first %d last %d" % (first, last - 1)), ("worst_offset", "offset %d of %d" % (worst, len(values))),
+            ("frames_under", "under %d of %d" % (sum(1 for v in values if v < PIXEL_MIN_PSNR_DB), len(values))), ("median", "median %.1f" % median),
+            ("zoom", "zoom %.4f to %.4f" % (z0, z1))]
+    if timeline:
+        at = first + worst
+        on = ["caption" for e in timeline.get("captions", []) if e["start_frame"] <= at < e["end_frame"]]
+        on += [str(e["preset"]) for e in timeline.get("beats", []) if e["start_frame"] <= at < e["end_frame"]]
+        rows.append(("drawn_at_worst", ("drawn " + " ".join(sorted(set(on)))) if on else "drawn none"))
+    return [{"beat": None, "code": code, "field": field[:80]} for code, field in rows]

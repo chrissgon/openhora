@@ -281,11 +281,12 @@ def test_the_pixel_command_pins_every_thread_ends_every_stream_and_never_uses_sh
     assert "/in/" not in graph and "[1:v:0]fps=30:start_time=0,format=yuv420p[sv]" in graph and "concat=n=2:v=1:a=0[cv]" in graph
 
 
-def test_the_reference_is_the_proxy_cut_and_zoomed_by_the_one_base_graph_at_a_base_of_one():
+def test_the_reference_is_the_proxy_cut_and_zoomed_by_the_one_base_graph_with_a_zoomed_range_brought_to_twice_the_size_first():
     edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
-    graph = ";".join(_media.base_graph(G.reference_plan(edl, DATA), source="[1:v:0]", prepare="fps=30:start_time=0,format=yuv420p", base=1, audio=False))
+    graph = ";".join(G.reference_graph(edl, DATA, "[1:v:0]"))
     ax, ay = _media.anchor_point(edl["face_box"], 0.25)
-    assert "zoompan=z='1.15000':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)'" % (ax, ay) in graph and "scale=1080:1920:flags=%s" % _media.SWS in graph
+    assert "scale=2160:3840:flags=%s,zoompan=z='1.15000':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)'" % (_media.SWS, ax * 2, ay * 2) in graph
+    assert graph.count("scale=2160:3840") == 1 and "scale=1080:1920:flags=%s" % _media.SWS in graph        # the unzoomed range is the proxy as it is
     assert "a=1" not in graph and "[0:a:0]" not in graph
 
 
@@ -353,7 +354,7 @@ def clip(tmp_path_factory):
 
 def clean_intermediate(folder, proxy, edl, name, extra_filter=""):
     out = folder / name
-    graph = ";".join(_media.base_graph(G.reference_plan(edl, DATA), source="[0:v:0]", prepare="fps=30:start_time=0,format=yuv420p", base=1, audio=False))
+    graph = ";".join(G.reference_graph(edl, DATA, "[0:v:0]"))
     tail = "[cv]%sformat=yuv422p10le[o]" % (extra_filter + "," if extra_filter else "")
     ffmpeg("-i", proxy, "-filter_complex", graph + ";" + tail, "-map", "[o]", "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", edl["out_frames"], out)
     return out
@@ -395,6 +396,44 @@ def test_a_box_outside_the_face_region_is_not_what_the_pixel_check_looks_at(clip
     assert G.pixel_check(K.FFMPEG, str(elsewhere), str(proxy), edl, DATA, ranges_of(edl), str(work))["pixel_min_psnr_db"] >= 40.0
 
 
+@needs_ffmpeg
+def test_the_reference_of_a_pushed_in_range_stays_within_30_db_of_a_smooth_zoom_made_at_four_times_the_size(clip, tmp_path):
+    """The renderer's zoom is smooth: the stand-in is the same zoom made at four times the size and brought down by area. The reference made on the
+    1080x1920 proxy itself would sit near 26 dB at its worst here; the one at twice the size must keep clear of the threshold."""
+    folder, proxy = clip
+    edl = small_edl(kept=((0, 60),))
+    z1 = 1.05                                                                  # a push-in is made by hand: the clip is under the five seconds that earn one
+    ax, ay = _media.anchor_point(edl["face_box"], 0.25)
+    ideal = folder / "ideal.mov"
+    ffmpeg("-i", proxy, "-vf", "scale=4320:7680:flags=lanczos,zoompan=z='1+%s*on/59':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=4320x7680:fps=30,scale=1080:1920:flags=area,format=yuv422p10le" % (z1 - 1, ax * 4, ay * 4),
+           "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", 60, ideal)
+    reference = folder / "reference.mov"
+    zoomed = "scale=2160:3840:flags=%s,zoompan=z='1+%s*on/59':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=1080x1920:fps=30" % (_media.SWS, z1 - 1, ax * 2, ay * 2)
+    ffmpeg("-i", proxy, "-vf", "format=yuv420p,%s,format=yuv422p10le" % zoomed, "-c:v", "prores_ks", "-profile:v", "3", "-frames:v", 60, reference)
+    done = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", ideal, "-i", reference, "-lavfi", "[0:v]crop=480:600:300:700,format=yuv420p[a];[1:v]crop=480:600:300:700,format=yuv420p[b];[a][b]psnr=stats_file=%s" % (tmp_path / "s.log"), "-f", "null", "-"],
+                          capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-300:]
+    assert min(float(line.split("psnr_avg:")[1].split()[0]) for line in (tmp_path / "s.log").read_text().splitlines()) >= 30.0
+
+
+def test_a_refusal_of_the_pixel_check_explains_the_range_the_worst_frame_the_count_the_median_the_zoom_and_what_is_drawn(tmp_path):
+    edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
+    timeline = {"captions": [{"start_frame": 0, "end_frame": 20}], "beats": [{"start_frame": 5, "end_frame": 8, "preset": "keyword"}]}
+
+    def run(argv, timeout, cwd=None):
+        (Path(cwd) / "psnr-0.log").write_text("".join("n:%d mse_avg:1 psnr_avg:%s psnr_y:1 \n" % (i + 1, v) for i, v in enumerate(["45.0"] * 6 + ["24.6", "29.0"] + ["45.0"] * 12)))
+        (Path(cwd) / "psnr-1.log").write_text("".join("n:%d mse_avg:1 psnr_avg:45.0 psnr_y:1 \n" % (i + 1) for i in range(30)))
+        return "", ""
+
+    with pytest.raises(Refusal) as caught:
+        G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, timeline)
+    assert (caught.value.code, caught.value.field) == ("face_pixels_changed", "range 0 frame 6 psnr 24.6")
+    rows = {p["code"]: p["field"] for p in caught.value.problems}
+    assert rows == {"range_frames": "first 0 last 19", "worst_offset": "offset 6 of 20", "frames_under": "under 2 of 20", "median": "median 45.0",
+                    "zoom": "zoom 1.0000 to 1.0000", "drawn_at_worst": "drawn caption keyword"}
+    assert all(p["beat"] is None and len(p["field"]) <= 80 and G.FIELD_OK.fullmatch(p["field"]) for p in caught.value.problems)
+
+
 # ---------------------------------------------------------------- the encode verb with the gates
 
 @pytest.fixture(scope="module")
@@ -406,7 +445,7 @@ def gated(tmp_path_factory, docs):
     seconds = edl["source"]["duration"] + 1
     proxy = folder / "proxy.mp4"
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=%d:duration=%s" % (edl["fps"], seconds), "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-pix_fmt", "yuv420p", proxy)
-    graph = ";".join(_media.base_graph(G.reference_plan(edl, data), source="[0:v:0]", prepare="fps=%d:start_time=0,format=yuv420p" % edl["fps"], base=1, audio=False))
+    graph = ";".join(G.reference_graph(edl, data, "[0:v:0]"))
     mov = folder / "hf.mov"
     ffmpeg("-i", proxy, "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000", "-filter_complex", graph + ";[cv]format=yuv422p10le[o]", "-map", "[o]", "-map", "1:a",
            "-c:v", "prores_ks", "-profile:v", "3", "-c:a", "pcm_s16le", "-frames:v", edl["out_frames"], "-t", "%.6f" % (edl["out_frames"] / float(edl["fps"])), mov)

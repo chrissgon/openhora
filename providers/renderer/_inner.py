@@ -339,7 +339,7 @@ def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
         raise Refusal("proxy_changed", "proxy")
     if _media.probe(ffprobe, args.proxy)["duration"] < edl["kept"][-1][1] / float(edl["fps"]) - 2.0 / edl["fps"]:
         raise Refusal("proxy_truncated", "proxy")                                # a short proxy would be padded by the filter graph, never compared
-    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces)
+    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces, timeline=timeline)
 
 
 def verb_encode(args) -> dict:
@@ -375,7 +375,7 @@ def verb_encode(args) -> dict:
         _media.run(_media.encode_argv(ffmpeg, args.input, part, plan), 3600)
         if gate is not None:
             started = time.time()
-            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work)
+            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work, timeline=gate["timeline"])
             pixel_seconds = round(time.time() - started, 2)
         verdict = _media.check_output(ffprobe, part, platform)
         if verdict["failures"]:
