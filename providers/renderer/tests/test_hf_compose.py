@@ -554,17 +554,17 @@ def test_the_theme_custom_properties_are_also_set_inline_on_the_root_element(tmp
     assert page.index("rs.setProperty(") < page.index("document.fonts.load(")
 
 
-def test_every_font_url_of_the_composed_pages_names_a_file_the_image_stages_with_its_pinned_sha256(tmp_path, docs):
+def test_every_font_of_the_composed_pages_is_a_staged_file_with_its_pinned_sha256_and_the_main_page_embeds_the_same_bytes(tmp_path, docs):
     catalogue = catalogue_of(tmp_path, mixed=False)
     write(docs, catalogue, tmp_path / "p")
-    staged = {}
     for name, digest in R.FONT_FILES.items():
-        raw = (K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == digest, name
-        staged[name] = digest
-    seen = 0
-    for rel, prefix in (("index.html", "fonts/"),) + tuple(("blocks/" + n, "../fonts/") for n in sorted(os.listdir(tmp_path / "p" / "blocks"))):
-        for url in re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", rel)):
-            assert url.startswith(prefix) and url[len(prefix):] in staged, (rel, url)
-            seen += 1
-    assert seen >= 4
+        assert hashlib.sha256((K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()).hexdigest() == digest, name
+    page = text_of(tmp_path / "p")
+    rules = re.findall(r'@font-face\{[^}]*src:url\("data:font/woff2;base64,([^"]+)"\) format\("woff2"\),url\("fonts/([^"]+)"\) format', page)
+    assert len(rules) >= 2
+    import base64
+    for blob, name in rules:
+        assert hashlib.sha256(base64.b64decode(blob)).hexdigest() == R.FONT_FILES[name], name        # the embedded bytes are the pinned file's
+    for name in sorted(os.listdir(tmp_path / "p" / "blocks")):
+        urls = re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", "blocks/" + name))
+        assert urls and all(u.startswith("../fonts/") and u[len("../fonts/"):] in R.FONT_FILES for u in urls), (name, urls)

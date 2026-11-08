@@ -23,6 +23,7 @@ same bytes: sorted keys, no clock, no random. Standard library only; imports onl
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 
@@ -105,13 +106,33 @@ def map_fonts(edl: dict) -> dict:
     return used
 
 
-def font_face_css(fonts: dict, prefix: str) -> str:
+def font_face_css(fonts: dict, prefix: str, embed: dict = None) -> str:
+    """One `@font-face` per file used. With `embed` ({file: base64}) the data comes first and the file by path second: the HyperFrames renderer failed to load the
+    800 face of the main page from its path (V3b-4, read inside the image: status `error`) while it loaded the other two, so the main page carries its own bytes."""
     seen, rows = set(), []
     for family, weight, file in sorted(fonts.values()):
         if file not in seen:
             seen.add(file)
-            rows.append('@font-face{font-family:"%s";font-weight:%d;font-display:block;src:url("%s%s") format("woff2");}' % (family, weight, prefix, file))
+            src = 'url("%s%s") format("woff2")' % (prefix, file)
+            if embed:
+                src = 'url("data:font/woff2;base64,%s") format("woff2"),%s' % (embed[file], src)
+            rows.append('@font-face{font-family:"%s";font-weight:%d;font-display:block;src:%s;}' % (family, weight, src))
     return "\n".join(rows)
+
+
+def embedded_fonts(fonts: dict) -> dict:
+    """{file: base64} of the font files the page uses, each read from the allow-listed folder and checked against its sha256 (`font_hash`)."""
+    allow = {row["file"]: row for row in _assets.font_allowlist().values()}
+    out = {}
+    for _, _, file in sorted(fonts.values()):
+        row = allow.get(file)
+        if row is None:
+            fail("font_not_allowed", file)
+        raw = _assets.read_regular(os.path.join(_assets.fonts_dir(), file), 1 << 20, "font_unreadable", file)
+        if hashlib.sha256(raw).hexdigest() != row["sha256"]:
+            fail("font_hash", file)
+        out[file] = base64.b64encode(raw).decode("ascii")
+    return out
 
 
 def theme_pairs(edl: dict, fonts: dict) -> list:
@@ -269,7 +290,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
     parts = _hf_page.build_parts(edl, fps=fps)
 
-    css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
+    css = [font_face_css(fonts, "fonts/", embedded_fonts(fonts)), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']
     layers, tail, inst, ra, ra_frames, ra_keys = [], [], [], {}, {}, []
     tier_a_rows = {}
