@@ -100,7 +100,7 @@ The flow `new-video` (`flows/new-video.json`) starts one step task of the kind `
 1. `take`: reads the post (`_take`), takes the platform from its `- Network:` line, needs a video entry in the platform's data file and a script, and binds the recording to the task (`MediaStore.bind`, `runtime/ops_step_seams.py`).
 2. `transcribe`, 3. `analyse`, 4. `still` (a side step, `_still_due`), 5. `retakes`, 6. `align-proposal`: each calls one verb of the transcriber or the renderer through `MediaEngine.call`, whose list of verbs is closed (`MediaEngine.CLASSES`).
 7. `review`: the stop "Check the captions" (`_review_decision`).
-8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors, and the renderer's check.
+8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors and added animations, and the renderer's check.
 12. `render`, 13. `cover`, 14. `verify`: the file `render-<sha12>.mp4`, its cover (`MediaStore.settle_cover` names it by its own hash) and the renderer's verify; `render.json` carries the blocks the renderer drew and their hash.
 15. `document`: the delivery document (`deliver_document.build`), written through `EffectFiles.write`. 16. `deliver`: the gate (`steps.Gate`, redo `remap`).
 
@@ -111,6 +111,8 @@ The way back: while the video waits at the delivery approval, `ops_media_edit.ed
 From the terminal (V1b2-1): `media-in --path <file>` takes the recording and prints its id; `video-new --media <id> --post docs/marketing/content/<name>.md` makes one request with one step task and runs it to the caption review; `captions-read --task <id>` shows the captions and their revision; `captions-edit --task <id> --revision <n> --edits-file <path>` edits them (at the review, or at the delivery approval, where the delivery is answered by code); `answer --id <id> --text continue` closes the review; `video-run --task <id>` runs the video on to the delivery approval; `approve --id <id> --sha256 <hash>` approves the exact render; `video-download --task <id> --out <file>` saves it to a new file outside the project (the render is hashed again as it is copied); `video-still --task <id> --out <file>` saves the face-box still. The settings of a new video are the key `media` of `runtime.json` (`language`, `transcriber_model`; the defaults are `pt` and `small`). The page reaches the same operations from V1b2-2.
 
 From the page (V1b2-2): the eight operations are routes of the local service, in the policy group `media` (no grant list holds it, so no messaging app or connected client can use it): `GET` and `POST /api/v1/projects/<id>/media` (the list; the upload, the file as the body with `Content-Type: video/mp4` or `video/quicktime`, read as a stream, at most 1 GiB), `POST .../videos` (`media_id`, `post`: a job), `POST .../videos/<task>/run` (a job), `GET` and `POST .../videos/<task>/captions` (the review; an edit `{revision, edits}` with the edits as JSON text), `GET .../videos/<task>/still` and `.../download` (the face-box still; the delivered video as an attachment `video-<12 hex>.mp4`). The upload, the still and the download are answered `409` on the `--lan` socket before a byte is read (limit L68); the approval of the delivery uses the existing `POST .../pending/<id>/approve`, which the `--lan` socket also refuses (L67).
+
+Add an animation (V1b3): `captions-edit` has the edit kind `animation` (VD15): `{"op": "animation", "block", "params", "word_from", "word_to"}` adds a review-only beat, `{"op": "animation", "id", "remove": true}` removes one. The catalogue is read as data from `providers/renderer/blocks/catalogue.json` (`media_animation.read_catalogue`), and refused when its `blocks_sha256` is not the sha256 of `blocks/pins.json`. The parameters are checked by the renderer's own checker: `media_animation.checker` calls the host verb `block-params` through `MediaEngine`, which keeps only that verb's closed refusal line (a code and a parameter's name, never a value). The animation is stored in `review.json` (`animations`, an origin word range like an anchor) and never written into the post file; `align` appends it to `beats.json` as an overlay `a<n>` with `beat` 1000 + n and score 1, and an animation whose words were all cut stops the step (`animation_lost`). Added animations plus the script's beats that are not dropped are at most 12 (`limits.beats_max`). Only overlays with a preset, no asset slot and a block of the project's engine can be added in M1. The route `GET /api/v1/projects/<id>/video-catalogue` (operation `video-catalogue`) lists the blocks with `addable` and `why`, and crosses the LAN socket (VD18).
 
 Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
 
@@ -125,6 +127,7 @@ V1d plugs in at the `preview` step between `verify` and `document` (`step_media.
 - `selfcheck` is the one inner verb that is not a drawing verb and still imports the drawing part (`_cdp`), because it reports the container mode.
 - The `hf:` allowlist is empty and no committed engine file runs the `gsap` runtime yet (the composer of V3b-1 can draw `gsap` blocks and tests do, from a temporary blocks folder; the committed `blocks/engines/hyperframes.json` and the first `gsap` blocks come with the one-file measurement and V3b-4); a block whose parameters differ from its preset's cannot be named by a beat yet (OPEN-6 of the V3b0 spec).
 - The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
+- The HyperFrames engine has no `block-params` yet, so a project whose engine is HyperFrames (today only by `RENDERER_PROVIDER`) cannot add an animation (`block_check_unavailable`); V4 adds the verb. Picking the block of a script beat's preset (G14) and a preview of an added animation are later (V1b3 OPEN-5, OPEN-10).
 
 ## Changes
 
@@ -135,5 +138,7 @@ Written on 2026-11-07 by V1a-3.
 2026-11-07: V1b2-1, the media operations and the media settings key
 
 2026-11-07: V1b2-2, the media routes and limit L68
+
+2026-11-08: V1b3, "Add an animation" in the runtime (VD15)
 
 Updated on 2026-11-07 by V3a-2.

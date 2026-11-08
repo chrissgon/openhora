@@ -49,5 +49,6 @@
  {"op": "captions-read", "kind": "internal", "group": "media", "why": "the caption review's data, read by the page; not served in words in M1"},
  {"op": "captions-edit", "kind": "internal", "group": "media", "why": "the caption review's closed edits; not served in words in M1 (a caption correction from a messaging app is V1d's)"},
  {"op": "video-download", "kind": "internal", "group": "media", "why": "hands out the delivered render (limit L67); never served in words"},
- {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"}
+ {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"},
+ {"op": "video-catalogue", "kind": "internal", "group": "media", "why": "the catalogue of animations the caption review offers (our fields only), read by the page; not served in words in M1"}
 ]}

@@ -1082,6 +1082,12 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "save the still of a new video (the frame of the face box) to --out (a new file, outside the project)",
      "natural": {"class": "G", "since": 4, "order": 158, "privacy": "own", "cost": "none", "what": "save the still of a new video to a file", "about": "Save the still of a new video to a file.", "slots": {}}},
+    # V1b3: "Add an animation" (VD15). Class G, kind internal: never served in words in M1.
+    {"name": "video-catalogue", "call": "video_catalogue",
+     "args": (),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "the catalogue of animations the caption review of a new video can add: each block, its parameters and their bounds, a sample, the engines that draw it, and whether this project's engine can add it now",
+     "natural": {"class": "G", "since": 4, "order": 159, "privacy": "own", "cost": "none", "what": "list the animations a new video can add", "about": "List the animations a new video can add.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1208,7 +1214,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
 }
 # S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
 # command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
@@ -1337,7 +1343,7 @@ GROUP_TEXT = {
     "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
-    "media": "adds recordings, starts new videos and runs them, reads and edits their captions, and saves a delivered video; a recording, its still and the video cross only this computer's own page, never the local network",
+    "media": "adds recordings, starts and runs new videos, reads and edits their captions, lists the animations they can add, and saves a delivered video; a recording, its still and the video never cross the local network",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 
