@@ -4,7 +4,8 @@
     WB_TIER_A_SURVEY=<the survey folder: <component>/<file>> WB_TIER_A_REPORT=<compat-report.json> WB_TIER_A_OUT=<the dynamic report to write> \
     uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_hf_tier_a_live.py
 
-with no `-n`. `WB_TIER_A_ONLY=name,name` limits the candidates. Test 1 draws each `admit-candidate` of the report on one keyword beat of the synthetic
+with no `-n`. `WB_TIER_A_ONLY=name,name` limits the candidates. `WB_TIER_A_KEEP=<folder>` (optional, for the C10 contact sheet) keeps each fit candidate's first
+final mp4 as `<folder>/<name>.mp4` and writes `<folder>/times.json` (the keyword beat's window and five instants inside it); nothing changes when it is unset. Test 1 draws each `admit-candidate` of the report on one keyword beat of the synthetic
 recording (the component as a test allowlist entry, its files mounted from the survey over the image's registry folder, every file checked by the report's
 sha256), twice, through both gates, and writes the verdict (`fit` or `refuse:<code>`). Test 2 draws a planted run-time escape that the text lint admits
 and the guard stops, through the full render path, and asserts that the render is refused `block_escaped` with field `render`: the log check of the
@@ -37,6 +38,7 @@ SURVEY = os.environ.get("WB_TIER_A_SURVEY")
 REPORT = os.environ.get("WB_TIER_A_REPORT")
 OUT = os.environ.get("WB_TIER_A_OUT")
 ONLY = os.environ.get("WB_TIER_A_ONLY", "")
+KEEP = os.environ.get("WB_TIER_A_KEEP")                  # optional: a folder to keep each fit candidate's first final mp4 in, and the beat's times (times.json)
 
 
 def need(value, name: str) -> str:
@@ -127,6 +129,9 @@ def test_each_admit_candidate_is_drawn_twice_through_the_gates_and_gets_a_verdic
     comps = [c for c in report["components"] if c["verdict"] == "admit-candidate" and (not only or c["name"] in only)]
     assert comps, "the report has no admit-candidate (or WB_TIER_A_ONLY names none)"
     recording = prepare(images, tmp_path)
+    if KEEP:
+        Path(KEEP).mkdir(parents=True, exist_ok=True, mode=0o700)
+        (Path(KEEP) / "times.json").write_text(json.dumps(T.beat_times(tmp_path / "edl.json", tmp_path / "beats.json"), sort_keys=True, indent=1) + "\n", encoding="utf-8")
     rows = []
     for comp in comps:
         blocks = T.blocks_folder(tmp_path, comp)
@@ -138,6 +143,8 @@ def test_each_admit_candidate_is_drawn_twice_through_the_gates_and_gets_a_verdic
             if rc != 0:
                 break
         rows.append(T.candidate_row(comp, runs))
+        if rows[-1]["dynamic"] == "fit":
+            T.keep_render(tmp_path / ("out-" + comp["name"] + "a"), KEEP, comp["name"])
         T.update_report(out_path, candidates=rows)
         assert leftovers() == [] and run_folders() == []
         print("%s: %s" % (comp["name"], rows[-1]["dynamic"]))

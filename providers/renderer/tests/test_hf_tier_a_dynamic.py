@@ -165,7 +165,7 @@ def test_the_report_is_closed_and_is_written_whole_each_time(tmp_path):
 
 def test_the_live_file_skips_without_the_docker_flag_and_names_every_variable_it_needs():
     text = (K.RENDERER / "tests" / "test_hf_tier_a_live.py").read_text(encoding="utf-8")
-    for name in ("WB_HYPERFRAMES_DOCKER_TESTS", "WB_TIER_A_SURVEY", "WB_TIER_A_REPORT", "WB_TIER_A_OUT", "WB_TIER_A_ONLY", "RENDERER_REGISTRY_DIR", "OPENHORA_STATE_DIR"):
+    for name in ("WB_HYPERFRAMES_DOCKER_TESTS", "WB_TIER_A_SURVEY", "WB_TIER_A_REPORT", "WB_TIER_A_OUT", "WB_TIER_A_ONLY", "WB_TIER_A_KEEP", "RENDERER_REGISTRY_DIR", "OPENHORA_STATE_DIR"):
         assert name in text, name
     done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(K.RENDERER / "tests" / "test_hf_tier_a_live.py")],
                           capture_output=True, text=True, timeout=300, env={k: v for k, v in os.environ.items() if k != "WB_HYPERFRAMES_DOCKER_TESTS"}, cwd=str(K.RENDERER / "tests"))
@@ -192,7 +192,34 @@ def test_the_live_file_reads_the_persons_variables_at_import_and_never_inside_a_
             else:
                 call = parents.get(node)
                 inside_reads.append(isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "dict")
-    assert top_reads == {"OPENHORA_STATE_DIR", "WB_TIER_A_SURVEY", "WB_TIER_A_REPORT", "WB_TIER_A_OUT", "WB_TIER_A_ONLY", "WB_HYPERFRAMES_DOCKER_TESTS"}, top_reads
+    assert top_reads == {"OPENHORA_STATE_DIR", "WB_TIER_A_SURVEY", "WB_TIER_A_REPORT", "WB_TIER_A_OUT", "WB_TIER_A_ONLY", "WB_TIER_A_KEEP", "WB_HYPERFRAMES_DOCKER_TESTS"}, top_reads
     assert inside_reads and all(inside_reads), "inside a function the environment is only copied whole with dict(os.environ, ...)"
     source = path.read_text(encoding="utf-8")
     assert 'monkeypatch.setenv("OPENHORA_STATE_DIR", need(REAL_STATE_DIR, "OPENHORA_STATE_DIR"))' in source and "def images(real_state)" in source
+
+
+def test_keep_copies_the_one_final_mp4_only_when_a_folder_is_given_and_the_live_file_gates_it():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "out")
+        os.makedirs(out)
+        with open(os.path.join(out, "render-abc123.mp4"), "wb") as fh:
+            fh.write(b"final bytes")
+        assert T.keep_render(out, None, "aster-pop") is None and T.keep_render(out, "", "aster-pop") is None
+        kept = T.keep_render(out, os.path.join(tmp, "keep"), "aster-pop")
+        assert kept == os.path.join(tmp, "keep", "aster-pop.mp4") and open(kept, "rb").read() == b"final bytes"
+        open(os.path.join(out, "render-def456.mp4"), "wb").close()
+        with pytest.raises(AssertionError):
+            T.keep_render(out, os.path.join(tmp, "keep"), "other")
+    live = (K.RENDERER / "tests" / "test_hf_tier_a_live.py").read_text(encoding="utf-8")
+    assert 'if rows[-1]["dynamic"] == "fit":\n            T.keep_render(' in live and "if KEEP:" in live
+
+
+def test_the_beat_times_are_five_instants_inside_the_keyword_beats_window_from_the_input_timeline(tmp_path, docs):
+    data, edl, beats, vocab = copy.deepcopy(docs)
+    K.write_json(tmp_path / "edl.json", edl)
+    K.write_json(tmp_path / "beats.json", beats)
+    got = T.beat_times(tmp_path / "edl.json", tmp_path / "beats.json")
+    assert got["preset"] == "keyword" and got["start"] < got["end"] and len(got["times"]) == 5 and got["times"] == sorted(got["times"])
+    assert all(got["start"] < t < got["end"] for t in got["times"]) and abs(got["times"][2] - (got["start"] + got["end"]) / 2) < 0.002
+    assert abs(got["times"][0] - (got["start"] + 0.1 * (got["end"] - got["start"]))) < 0.002

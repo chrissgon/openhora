@@ -96,6 +96,36 @@ def planted_survey(tmp) -> str:
     return str(folder.parent)
 
 
+def keep_render(out_dir, keep_dir, name: str):
+    """Test-only (`WB_TIER_A_KEEP`): copy the one final mp4 of a render folder to `<keep_dir>/<name>.mp4` (the folder made 0700 when it is new). Nothing
+    happens when `keep_dir` is empty. Returns the copy's path, or None."""
+    if not keep_dir:
+        return None
+    found = sorted(Path(out_dir).glob("render-*.mp4"))
+    assert len(found) == 1, "expected one final mp4 in %s, found %d" % (out_dir, len(found))
+    Path(keep_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = Path(keep_dir) / (name + ".mp4")
+    shutil.copyfile(found[0], target)
+    return str(target)
+
+
+def beat_times(edl_path, beats_path, preset: str = "keyword", count: int = 5) -> dict:
+    """Where the candidate is on screen, from the synthetic input's own timeline: the edit list and the beats the test made (the same files the render
+    read) resolved with the renderer's `_edl.resolve_timeline`, the beat of `preset` read as frames at the edit list's fps. `times` are `count` instants
+    inside that window, at 10 %, 30 %, 50 %, 70 % and 90 % of it for five, in seconds of the final video."""
+    import _edl
+    from _vocab import load_data, load_vocabulary
+    data, vocab = load_data(), load_vocabulary(str(K.VOCABULARY))
+    edl = json.loads(Path(edl_path).read_text(encoding="utf-8"))
+    beats = json.loads(Path(beats_path).read_text(encoding="utf-8"))
+    entries = [e for e in _edl.resolve_timeline(edl, beats, vocab, data)["beats"] if e["preset"] == preset]
+    assert len(entries) == 1, "expected one %s beat, found %d" % (preset, len(entries))
+    fps = float(edl["fps"])
+    start, end = entries[0]["start_frame"] / fps, entries[0]["end_frame"] / fps
+    return {"fps": edl["fps"], "start": round(start, 3), "end": round(end, 3), "preset": preset,
+            "times": [round(start + (end - start) * (2 * k + 1) / (2.0 * count), 3) for k in range(count)]}
+
+
 def candidate_row(comp: dict, runs: list) -> dict:
     """The report row of one candidate from its two renders, each `(returncode, result object or None)`: `fit` when both rendered, drew the block on a
     beat, passed the gates and gave the same bytes; else `refuse:<the refusal code>` (`not_repeatable`, `not_drawn`, `no_result`)."""
