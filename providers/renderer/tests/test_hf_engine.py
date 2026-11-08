@@ -193,10 +193,23 @@ def test_the_least_memory_passes_and_one_above_the_boxs_maximum_is_refused(world
     assert caught.value.code == "memory_too_large"
 
 
-def test_a_render_without_base_only_and_without_an_engines_file_is_refused_engine_unknown_before_any_docker_call(world, monkeypatch):
+def test_a_render_without_base_only_and_without_an_engines_file_is_refused_engine_unknown_before_any_docker_call(world, monkeypatch, tmp_path):
+    bare = tmp_path / "bare-blocks"
+    shutil.copytree(K.BLOCKS, bare)
+    os.unlink(bare / "engines" / "hyperframes.json")
+    _blocks.write_pins(str(bare))
+    monkeypatch.setenv("RENDERER_TEST", "1")
+    monkeypatch.setenv("RENDERER_BLOCKS_DIR", str(bare))
     with pytest.raises(Refusal) as caught:
         run(world, monkeypatch, base_only=False)
     assert (caught.value.code, caught.value.field) == ("engine_unknown", "hyperframes") and world.calls() == []
+
+
+def test_a_render_that_draws_on_the_committed_blocks_is_refused_gates_not_built_before_any_docker_call(world, monkeypatch):
+    monkeypatch.delenv("RENDERER_TEST", raising=False)
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, base_only=False)
+    assert (caught.value.code, caught.value.field) == ("gates_not_built", "render") and world.calls() == []
     assert H.main(["render", "--edl", "e", "--beats", "b", "--in", "i", "--out", "o", "--platform-file", "p", "--vocabulary", "v"]) == 1
 
 

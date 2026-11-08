@@ -1,0 +1,7 @@
+{
+ "schema_version": 1,
+ "engine": "hyperframes",
+ "note": "The HyperFrames engine draws the oh: pages through the renderat runtime (one iframe per block, driven per seek); the one-file measurement of V3b-1 showed the same frames as the ffmpeg engine within 40.33 dB mean and 37.4 dB minimum. It draws no cutaway and no pip.",
+ "runtimes": ["renderat"],
+ "presets": {"caption": "oh:caption", "keyword": "oh:keyword", "list": "oh:list", "number": "oh:number", "quote": "oh:quote"}
+}

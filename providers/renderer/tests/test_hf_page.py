@@ -231,7 +231,14 @@ def test_the_composed_verb_refuses_blocks_that_are_not_the_ones_named_and_a_miss
             "--out", tmp_path / "page")
     rc, out, err = K.run_verb(*args, "--blocks", K.BLOCKS, "--blocks-sha256", "0" * 64)
     assert rc == 1 and out["code"] == "blocks_changed" and os.listdir(tmp_path / "page") == []
-    rc, out, err = K.run_verb(*args, "--blocks", K.BLOCKS, "--blocks-sha256", K.BLOCKS_SHA256)
+    import shutil
+    import _blocks
+    bare = tmp_path / "bare"
+    shutil.copytree(K.BLOCKS, bare)
+    os.unlink(bare / "engines" / "hyperframes.json")
+    _blocks.write_pins(str(bare))
+    sha = hashlib.sha256((bare / "pins.json").read_bytes()).hexdigest()
+    rc, out, err = K.run_verb(*args, "--blocks", bare, "--blocks-sha256", sha)
     assert rc == 1 and (out["code"], out["field"]) == ("engine_unknown", "hyperframes")
 
 

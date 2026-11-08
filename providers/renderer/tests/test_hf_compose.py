@@ -322,6 +322,8 @@ def test_a_beat_of_a_preset_the_engine_does_not_list_is_refused_and_nothing_is_w
 def test_a_render_with_no_engines_file_is_refused_engine_unknown(tmp_path, docs):
     folder = tmp_path / "bare"
     shutil.copytree(K.BLOCKS, folder)
+    os.unlink(folder / "engines" / "hyperframes.json")
+    _blocks.write_pins(str(folder))
     catalogue = _blocks.load_catalogue(str(folder))
     err = refused(docs, catalogue, tmp_path / "p")
     assert (err.code, err.field) == ("engine_unknown", "hyperframes")

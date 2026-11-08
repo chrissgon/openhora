@@ -15,8 +15,8 @@ checked for fonts) and copies the three allow-listed font files into `fonts/` wh
 **Why.** Plan row V3b (conditions 1-9, decisions VD3, VD9, VD12, VD13, VD15 of `2026-11-07-v0-short-video-hyperframes.md`); V3b spec sections 5.1
 to 5.12. The text rule of S2 (`vars.json` carries the text, `index.html` structure and numbers) and the one-timeline rule (a layer is inlined in
 the root composition, because `--variables` reaches only the top-level composition) decide the design. The engine file
-`blocks/engines/hyperframes.json` is not committed in this change: it depends on the one-file measurement (spec 5.9), which waits on the
-supervisor's local builds (STOP B). Until it exists, a render that draws is refused `engine_unknown`.
+`blocks/engines/hyperframes.json` depended on the one-file measurement (spec 5.9), which waited on the
+supervisor's local builds (STOP B); the measurement passed and the file is committed. A render that draws on the committed blocks is refused `gates_not_built` until V3b-2.
 
 **Settled by the supervisor on the spec's recommendation (2026-11-07), not the maintainer's word.** OPEN-1: the one-file measurement passes when
 both engines repeat their own bytes, the mean PSNR over all frames is at least 40 dB and no frame is below 30 dB. OPEN-2: the theme font `default`
@@ -39,9 +39,22 @@ of either is `preset_not_on_engine`, and a block of the `frame` band is refused 
   the additions to `test_hf_page.py`, `test_hf_engine.py`, `test_hf_render_inner.py`, `test_renderer_common.py`, and the whole renderer test folder
   (684 passed, 6 skipped before the changes of the tests; the skips are the live tests and the ones that need images). Python 3.9 import test
   passes. See the PR body for the final counts.
-- The one-file measurement (spec 5.9; mean PSNR, minimum and its frame, repeatability, image ids), its outcome and whether the engines file is
-  committed: not run, waits on STOP B. The live repeatability at 2 and 4 cpus (`test_hf_docker_live.py -k composed`): not run, waits on STOP B.
-  The supervisor's commands are in the V3b-1 steps file.
+- The one-file measurement (spec 5.9), run by the supervisor at 1b10907 on this Mac (arm64), synthetic inputs (412 output frames, 409 with a
+  caption or a beat on), both engines drawing with the same font files, the HyperFrames engine from a temporary blocks folder with
+  `runtimes: ["renderat"]` and the `oh:` defaults, `--cpus 4`: common image `openhora-renderer:aab28633881d` (`sha256:2ae02177...4f77`),
+  HyperFrames image `openhora-hyperframes:cfe682d1c563` (`sha256:f260f120...7a4e`), `hyperframes` 0.9.19, all eight `render` flags present
+  (D-help). Repeatability: ffmpeg engine twice `05b59f4c82d9...5d84` both; HyperFrames engine twice `695568005cf7...f73d` both. Stage seconds of
+  one HyperFrames render: page 4.94, proxy 16.36, hf 43.31, encode 19.33; layers cuts, zoom, captions, beats; every block on `renderat`. PSNR of
+  the HyperFrames final against the ffmpeg final: all 412 frames mean 40.33 dB, minimum 37.4 dB at frame 138; the 409 frames with a caption or a
+  beat on, mean 40.311 dB, minimum 37.4 dB at frame 138. Verdict PASS (mean at least 40, minimum at least 30, each engine repeats its own
+  bytes). Contact sheet (synthetic, not committed) sha256 `08c37409...68dd`, times 2.02, 4.12, 7.57, 7.58, 11.48 s, rows ffmpeg then
+  hyperframes. Outcome: `blocks/engines/hyperframes.json` is committed (`renderat`; presets caption, keyword, list, number, quote to the `oh:`
+  blocks) and `pin-blocks --confirmed` was run (blocks_sha256 `9e259583...1957`).
+- The live test `test_hf_docker_live.py -k composed` (one sha256 at 4 cpus twice and at 2 cpus, result fields, no leftovers), run by the
+  supervisor: 1 passed in 366.06 s.
+- STOP C10, the maintainer's own words (2026-11-07): "Aprovo mas elas ainda estao simples demais. Porem acho que melhorar elas e questao de uma
+  proxima etapa, onde irei trazer referencias de outros videos". The look is approved for merging V3b-1; the maintainer finds the blocks too
+  simple, and richer blocks belong to a later stage built on reference videos (V7/V8 and V5's further blocks), not to V3b.
 - No new ffmpeg stage was added, so no new stage needs a determinism measurement at 2 and 4 cpus: the page stage writes text, the encode stage is
   V3a-1's. The page's determinism is a byte comparison of two calls in `test_hf_compose.py`.
 
