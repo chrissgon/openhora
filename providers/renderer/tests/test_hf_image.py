@@ -525,3 +525,12 @@ def test_the_inner_entry_is_in_the_definition_the_build_context_and_the_dockerfi
     assert copy > last_run and not any(s.startswith("RUN ") for s in steps[copy:])
     first_label = next(i for i, s in enumerate(steps) if s.startswith("LABEL "))
     assert copy < first_label
+
+
+def test_the_tier_a_files_are_in_the_definition_and_the_build_context_and_copied_by_the_dockerfile():
+    listed = set(hf.manifest_files())
+    ignore = (FOLDER / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    text = (FOLDER / "Dockerfile").read_text(encoding="utf-8")
+    for name in ("hf_wrap.py", "hf_compat.py", "fetch_registry.py", "registry.sha256"):
+        assert name in listed and "!" + name in ignore and name in text, name
+    assert "compat-report.json" not in listed

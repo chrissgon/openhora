@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -39,6 +40,13 @@ PROJECT_FILES = {"index.html": INDEX_MAX_BYTES, "vars.json": VARS_MAX_BYTES, "me
 BLOCK_PAGE = re.compile(r"blocks/[a-z0-9-]{1,80}\.html")
 BLOCK_PAGE_MAX_BYTES = 1024 ** 2         # one block page's cap
 BLOCK_PAGES_MAX = 16                     # the most block pages a project holds
+INSTANCES_FILE = "instances.json"        # the tier-A rows the page stage wrote (V3b-3); optional
+INSTANCES_MAX_BYTES = 256 * 1024
+REGISTRY_ROOT = "/opt/hf-registry"       # the registry files baked into the image from registry.sha256
+ESCAPE_MARKER = b"hf-escape"             # what the wrapper's guard says (and throws) when a tier-A component tries to leave its scope
+INSTANCE_NAME = re.compile(r"hf:[a-z][a-z0-9-]{0,39}")
+REGISTRY_REL = re.compile(r"[a-z0-9][a-z0-9._-]{0,60}(/[a-z0-9][a-z0-9._-]{0,60}){0,4}")
+HEX64 = re.compile(r"[0-9a-f]{64}")
 FONTS_SOURCE = "/opt/fonts"              # the image's fonts (hyperframes-image/fonts/SHA256SUMS); copied into the project as fonts/
 FONT_FILES = {"inter-500.woff2": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f",
               "inter-800.woff2": "a7d0a50f15d389cad679238466bdb5fc9787aa0715719064ce25abaff042820d",
@@ -97,6 +105,10 @@ def check_project(project: str) -> str:
                 if rel not in ("media", "blocks"):
                     refuse("project_unexpected_file", rel[:80])
                 continue
+            if rel == INSTANCES_FILE:
+                if (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > INSTANCES_MAX_BYTES:
+                    refuse("project_unexpected_file", rel)
+                continue
             if BLOCK_PAGE.fullmatch(rel):
                 pages += 1
                 if pages > BLOCK_PAGES_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > BLOCK_PAGE_MAX_BYTES:
@@ -124,6 +136,94 @@ def block_pages(project: str) -> dict:
             with open(os.path.join(folder, name), "rb") as fh:
                 pages["blocks:" + name] = fh.read(BLOCK_PAGE_MAX_BYTES).decode("utf-8", "replace")
     return pages
+
+
+def load_wrap():
+    """hf_wrap.py, loaded by path from this file's folder (`python3 -I` puts nothing on the path)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hf_wrap.py")
+    spec = importlib.util.spec_from_file_location("hf_wrap", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("hf_wrap", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def read_instances(project: str):
+    """The rows of `instances.json` as {int: row}, each row checked for its shape; None when the project has no such file."""
+    path = os.path.join(project, INSTANCES_FILE)
+    if not os.path.lexists(path):
+        return None
+    try:
+        with open(path, "rb") as fh:
+            doc = json.loads(fh.read(INSTANCES_MAX_BYTES).decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        refuse("project_unexpected_file", INSTANCES_FILE)
+    rows = {}
+    if not isinstance(doc, dict) or not doc:
+        refuse("project_unexpected_file", INSTANCES_FILE)
+    for key, row in doc.items():
+        files = row.get("files") if isinstance(row, dict) else None
+        band = row.get("band") if isinstance(row, dict) else None
+        if not re.fullmatch(r"[0-9]{1,3}", key) or set(row) != {"name", "files", "implementation", "start", "end", "band"} \
+                or not isinstance(row["name"], str) or not INSTANCE_NAME.fullmatch(row["name"]) or not isinstance(files, dict) or not 1 <= len(files) <= 50 \
+                or not all(isinstance(k, str) and REGISTRY_REL.fullmatch(k) and isinstance(v, str) and HEX64.fullmatch(v) for k, v in files.items()) \
+                or row["implementation"] not in files or not all(isinstance(row[k], (int, float)) and not isinstance(row[k], bool) for k in ("start", "end")) \
+                or not 0 <= row["start"] < row["end"] or not isinstance(band, list) or len(band) != 2 \
+                or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 for x in band):
+            refuse("project_unexpected_file", INSTANCES_FILE)
+        rows[int(key)] = row
+    return rows
+
+
+def inline_tier_a(project: str, page: str, registry_root: str = REGISTRY_ROOT) -> str:
+    """The page with each tier-A placeholder replaced by the wrapped component. For every row: every file is read from the image's registry
+    folder (`tier_a_file_missing`), its sha256 checked (`tier_a_hash`), the implementation linted again (`block_lint`) and wrapped, and the
+    placeholder replaced (`block_lint` when the page has none, or more placeholders than rows). The result is written back to `index.html`."""
+    rows = read_instances(project)
+    if rows is None:
+        return page
+    wrap = load_wrap()
+    if page.count('data-hf-tier-a="') != len(rows):
+        refuse("block_lint", "instances")
+    for n in sorted(rows):
+        row = rows[n]
+        folder = os.path.join(registry_root, "registry", "components", row["name"][3:])
+        texts = {}
+        for rel in sorted(row["files"]):
+            path = os.path.join(folder, rel)
+            try:
+                if (os.lstat(path).st_mode & 0o170000) != 0o100000:
+                    refuse("tier_a_file_missing", row["name"])
+                with open(path, "rb") as fh:
+                    raw = fh.read(INSTANCES_MAX_BYTES + 1024 ** 2)
+            except OSError:
+                refuse("tier_a_file_missing", row["name"])
+            if hashlib.sha256(raw).hexdigest() != row["files"][rel]:
+                refuse("tier_a_hash", row["name"])
+            texts[rel] = raw
+        html = texts[row["implementation"]].decode("utf-8", "replace")
+        if wrap.lint(html):
+            refuse("block_lint", row["name"])
+        placeholder = re.compile(r'<div id="hf-inst-%d" class="hf-inst" data-hf-zone="card" data-hf-tier-a="%d"[^>]*></div>' % (n, n))
+        if len(placeholder.findall(page)) != 1:
+            refuse("block_lint", row["name"])
+        inst = {"n": n, "zone": "card", "top": row["band"][0], "height": row["band"][1], "start": row["start"], "end": row["end"]}
+        try:
+            text = wrap.wrap(html, inst, row["files"], wrap.typed_variables(html))
+        except (wrap.WrapRefusal, ValueError):
+            refuse("block_lint", row["name"])
+        page = placeholder.sub(lambda _m: text, page, count=1)
+    with open(os.path.join(project, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(page)
+    return page
+
+
+def log_shows_escape(log_path: str) -> bool:
+    try:
+        with open(log_path, "rb") as fh:
+            return ESCAPE_MARKER in fh.read(LOG_CAP)
+    except OSError:
+        return False
 
 
 def copy_fonts(project: str) -> None:
@@ -225,6 +325,8 @@ def write_result(out: str, doc: dict) -> None:
 def render(project: str, out: str, tmp: str, fps: int, timeout: int) -> dict:
     started = time.monotonic()
     page = check_project(project)
+    tier_a = os.path.lexists(os.path.join(project, INSTANCES_FILE))
+    page = inline_tier_a(project, page)
     check_fonts(page)
     pages = block_pages(project)
     for field, text in pages.items():
@@ -232,7 +334,15 @@ def render(project: str, out: str, tmp: str, fps: int, timeout: int) -> dict:
     if pages or "fonts/" in page:                          # a page that draws names the fonts by path; the base page names none
         copy_fonts(project)
     shutil.copyfile(GSAP_SOURCE, os.path.join(project, "gsap.min.js"))
-    run_render(render_argv(out, fps), project, render_env(tmp), os.path.join(out, "hf.log"), timeout)
+    log = os.path.join(out, "hf.log")
+    try:
+        run_render(render_argv(out, fps), project, render_env(tmp), log, timeout)
+    except Refuse as err:
+        if tier_a and err.code == "hf_failed" and log_shows_escape(log):
+            refuse("block_escaped", "render")
+        raise
+    if tier_a and log_shows_escape(log):                      # a component that caught the guard's error and went on still left the marker
+        refuse("block_escaped", "render")
     target = os.path.join(out, "intermediate.mov")
     if not os.path.isfile(target) or os.path.islink(target):
         refuse("hf_no_output", "render")

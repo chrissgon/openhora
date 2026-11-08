@@ -92,12 +92,11 @@ RUN npm ci --ignore-scripts --no-audit --no-fund \
 COPY fonts/ /opt/fonts/
 RUN cd /opt/fonts && sha256sum -c --strict SHA256SUMS
 
-# Hook for V3b: the HyperFrames registry files of the committed allowlist go here, before the user and the font purge, so that the purge
-# covers them too. V3b adds registry.sha256 and fetch_registry.py to this folder, lists both in manifest.json and in .dockerignore, and
-# inserts these two lines at this place:
-#   COPY registry.sha256 fetch_registry.py /opt/hf-build/
-#   RUN python3 -I /opt/hf-build/fetch_registry.py /opt/hf-build/registry.sha256 /opt/hf-registry
-# The definition's hash then changes, so this image alone is rebuilt: the ffmpeg engine's image does not hash these files.
+# Hook for V3b (built by V3b-3): the registry files named in registry.sha256 (the LICENSE, and the files of every admitted component) are
+# fetched at the pinned commit by fetch_registry.py, each checked against its sha256, before the user and the font purge, so that the purge
+# covers them too. The definition's hash changes with them, so this image alone is rebuilt: the ffmpeg engine's image does not hash these files.
+COPY registry.sha256 fetch_registry.py /opt/hf-build/
+RUN python3 -I /opt/hf-build/fetch_registry.py /opt/hf-build/registry.sha256 /opt/hf-registry
 
 # The user a job runs as (on Linux a job runs with the caller's numeric user instead: providers/_container.py argv).
 RUN useradd --system --uid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin hf
@@ -117,8 +116,9 @@ RUN dpkg --purge --force-depends fonts-dejavu-core \
     && printf '%s\n' /opt/fonts/inter-500.woff2 /opt/fonts/inter-800.woff2 /opt/fonts/jetbrains-mono-500.woff2 > /opt/hf-build/font-files.expected \
     && diff /opt/hf-build/font-files.expected /opt/hf-build/font-files.txt
 
-# The inner entry of the provider (V3a-2): copied after the purge, so no RUN follows it.
+# The inner entries of the provider (V3a-2, V3b-3): copied after the purge, so no RUN follows them.
 COPY hf_render.py /opt/hf-run/hf_render.py
+COPY hf_wrap.py hf_compat.py /opt/hf-run/
 
 LABEL org.openhora.component="renderer-hyperframes" \
       org.openhora.definition="${DEFINITION_HASH}" \

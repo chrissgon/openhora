@@ -11,6 +11,11 @@ Two runtimes draw a block on this engine, chosen per block (our `gsap` first, el
             full-frame iframe per block, with the colours and fonts set as the ffmpeg engine's driver sets them and the same guard on timers
             and the network; one tween of a getter/setter object on the root timeline calls the page's `renderAt` at every seek.
 
+A tier-A block (an overlay admitted from the registry, `hyperframes-image/hf_compat.py`) is a third case: the page holds only its placeholder
+element and one row of `instances.json` (the block's files with their sha256, its start and end in seconds, its band); the drawing image reads
+the component's files from its own registry folder, checks each hash, lints and wraps it (`hyperframes-image/hf_wrap.py`) and replaces the
+placeholder. Its parameters are `inst[N]` in `vars.json`, under their snake_case names.
+
 Text never reaches `index.html`: every word is in `vars.json` (`inst[N]` for a gsap instance, `ra[key][i]` for a renderat entry), cleaned as
 `check_beats` cleans it. `index.html` holds structure and numbers only. Fonts are the three allow-listed files (`fonts/<file>`, copied into
 the project by the HyperFrames image); a page never names another family and never the theme's `system_fallback`. The same inputs write the
@@ -37,6 +42,7 @@ MAX_VARS_BYTES = 256 * 1024                             # the same figures as hy
 MAX_PAGE_BYTES = 2 * 1024 ** 2
 MAX_BLOCK_PAGE_BYTES = 1 << 20
 MAX_BLOCK_PAGES = 16
+MAX_INSTANCES_BYTES = 256 * 1024                        # instances.json, the tier-A rows (the same figure as hf_render.py)
 ZONE_ORDER = ("card", "caption")                        # the layers above the video, bottom first (the frame band is not drawn on this engine)
 
 # The three allow-listed fonts (assets/fonts/allowlist.json; a test keeps the two equal): id -> (family, weight, file).
@@ -138,6 +144,17 @@ def impl_path(block: dict, runtime: str) -> str:
     return "%s/%s/%s" % (ns, short, block["implementations"][runtime])
 
 
+def tier_a_digest(block: dict) -> str:
+    """The pin of a tier-A block in the render's `blocks` map: the sha256 of its files' sha256 lines (`<sha256>  <file>`, sorted by file)."""
+    return hashlib.sha256("".join("%s  %s\n" % (block["files"][k], k) for k in sorted(block["files"])).encode("utf-8")).hexdigest()
+
+
+def block_pin(catalogue: dict, block: dict, runtime: str) -> str:
+    if block.get("tier") == "A":
+        return tier_a_digest(block)
+    return catalogue["files"][impl_path(block, runtime)]
+
+
 def read_block_file(catalogue: dict, block: dict, runtime: str) -> tuple:
     """(path inside blocks/, its text) of the implementation, read again from the staged folder and checked against the pinned hash."""
     rel = impl_path(block, runtime)
@@ -164,7 +181,7 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
     if timeline["captions"]:
         block = _blocks.resolve(catalogue, ENGINE, "caption", None, "edl.captions")
         if block.get("tier") == "A":
-            fail("tier_a_not_built", "edl.captions")
+            fail("caption_tier_b_only", "edl.captions")                         # tier A admits overlays only (OPEN-7)
         for k, chunk in enumerate(timeline["captions"]):
             for w in (by_index[i] for i in range(chunk["word_from"], chunk["word_to"] + 1) if i in by_index):
                 if not is_clean(w["text"]):
@@ -174,15 +191,17 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
     for e in timeline["beats"]:
         field = "beats.%s" % e["id"]
         block = _blocks.resolve(catalogue, ENGINE, e["preset"], e.get("block"), field)
-        if block.get("tier") == "A":
-            fail("tier_a_not_built", field)
         if block["band"] != "card":
             fail("preset_not_on_engine", field)
         clean = _blocks.check_params(block, e["params"], vocab, field + ".params")
         if clean != e["params"]:
             fail("text_not_clean", field + ".params")
         e["block"] = block["name"]
-        plan.append({"zone": "card", "key": block["name"], "block": block, "field": field, "entry": e, "payload": _payload.beat_data(data, e, fps, edl)})
+        tier_a = block.get("tier") == "A"
+        # A tier-A instance gets only the parameters its block declares (snake_case names, as `check_params` just checked them); the page gets
+        # them as `inst[N]`, and the drawing image's wrapper hands them to the component as its own variables.
+        payload = dict(clean) if tier_a else _payload.beat_data(data, e, fps, edl)
+        plan.append({"zone": "card", "key": block["name"], "block": block, "field": field, "entry": e, "payload": payload, "tier_a": tier_a})
     plan.sort(key=lambda p: ZONE_ORDER.index(p["zone"]))                         # stable: the timeline order inside a layer
     for p in plan:
         top, bottom = _layout.zones(data, p["entry"]["face"])[p["zone"]]
@@ -201,7 +220,7 @@ def gsap_scripts(plan: list, catalogue: dict) -> tuple:
     parts, suffix = {}, {}
     for p in plan:
         name = p["block"]["name"]
-        if p["runtime"] == "gsap" and name not in parts:
+        if p["runtime"] == "gsap" and not p.get("tier_a") and name not in parts:
             rel, text = read_block_file(catalogue, p["block"], "gsap")
             _gsap_lint.check(text, name)
             parts[name] = _gsap_lint.parse(text, name)
@@ -240,9 +259,21 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']
     layers, tail, inst, ra, ra_frames, ra_keys = [], [], [], {}, {}, []
+    tier_a_rows = {}
     for p in plan:
         name = p["block"]["name"]
-        if p["runtime"] == "gsap":
+        if p.get("tier_a"):
+            n = len(inst)
+            ident = "hf-inst-%d" % n
+            top, height = p["band"]
+            layers.append('<div id="%s" class="hf-inst" data-hf-zone="%s" data-hf-tier-a="%d" style="position:absolute; left:0; top:%spx; width:%dpx; '
+                          'height:%spx; contain:paint; overflow:clip; visibility:hidden"></div>' % (ident, p["zone"], n, px(top), frame["width"], px(height)))
+            start, end = p["start"] / float(fps), p["end"] / float(fps)
+            tail.append("__hfTierA[%d](main, V, gsap);" % n)
+            tier_a_rows[str(n)] = {"name": p["block"]["name"], "files": dict(sorted(p["block"]["files"].items())),
+                                   "implementation": p["block"]["implementations"]["gsap"], "start": start, "end": end, "band": [top, height]}
+            inst.append(p["payload"])
+        elif p["runtime"] == "gsap":
             n = len(inst)
             ident = "hf-inst-%d" % n
             top, height = p["band"]
@@ -294,6 +325,10 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
                                 css="\n".join(css) + "\n", layers=("\n" + "\n".join(layers)) if layers else "",
                                 tail=("\n".join(scripts) + "\n") if scripts else "")
     files["index.html"] = page.encode("utf-8")
+    if tier_a_rows:
+        files["instances.json"] = (dumps(tier_a_rows) + "\n").encode("utf-8")
+        if len(files["instances.json"]) > MAX_INSTANCES_BYTES:
+            fail("page_too_large", "instances.json")
     files["vars.json"] = (dumps(full_vars) + "\n").encode("utf-8")
     if len(files["vars.json"]) > MAX_VARS_BYTES:
         fail("vars_too_large", "vars.json")
@@ -303,7 +338,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     shown = [name for name in ("captions" if any(p["zone"] == "caption" for p in plan) else None, "beats" if any(p["zone"] == "card" for p in plan) else None) if name]
     return {"page_sha256": hashlib.sha256(files["index.html"]).hexdigest(), "vars_sha256": hashlib.sha256(files["vars.json"]).hexdigest(),
             "clips": len(parts["clips"]), "zooms": len(parts["zooms"]), "duration": round(parts["out_seconds"], 3), "fps": fps,
-            "layers": ["cuts", "zoom"] + shown, "blocks": {name: catalogue["files"][impl_path(catalogue["blocks"][name], rt)] for name, rt in sorted(runtimes.items())},
+            "layers": ["cuts", "zoom"] + shown, "blocks": {name: block_pin(catalogue, catalogue["blocks"][name], rt) for name, rt in sorted(runtimes.items())},
             "blocks_sha256": catalogue["sha256"], "captions_drawn": sum(1 for p in plan if p["zone"] == "caption"),
             "beats_drawn": sum(1 for p in plan if p["zone"] == "card"), "runtimes": dict(sorted(runtimes.items())),
             "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())}}

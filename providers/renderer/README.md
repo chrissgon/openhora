@@ -116,6 +116,18 @@ The staging, the `blocks_sha256` check and the engine file work as in `ffmpeg.py
 pixel check) are built, a render that draws is refused (`gates_not_built`) unless the blocks folder is the test folder of test mode
 (`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`). Tests: `tests/test_hf_compose.py`, `tests/test_gsap_lint.py`.
 
+## Tier A: registry components (V3b-3)
+
+A component of the HyperFrames registry is drawn only after `hyperframes.py compat --survey <dir> --out <file>` ran its admission in the
+HyperFrames image (no network, the survey mounted read-only): `hf_compat.py` first refuses every planted escape (a list of more than a dozen
+fictional components, each doing one thing a block may not; one admitted fails the run, and there is no flag that skips the step), then gives each
+component of the survey `admit-candidate` or `refuse:<code>` (licence, name, files all fetched, the two files needed, kind, the lint of `hf_wrap.py`,
+parameter names). Tier A admits overlays only; a caption is only a reviewed port. An admitted block is an entry of `blocks/hf/allowlist.json` with
+its files' sha256; a render that draws one writes a placeholder and a row of `instances.json`, and `hyperframes-image/hf_render.py` reads the files from the
+image's registry folder, checks each hash, lints and wraps the component (`@scope`, a guarded `window` and `document`) and refuses
+`tier_a_file_missing`, `tier_a_hash`, `block_lint` or `block_escaped`. Tests: `tests/test_hf_wrap.py`, `tests/test_hf_compat.py`,
+`tests/test_hf_registry.py`.
+
 ## Contract: replacing this implementation (lego)
 
 The class is the verbs of `providers/CONTRACT.md` and two renderer-neutral files (`edl.schema.json`): another implementation (a Remotion

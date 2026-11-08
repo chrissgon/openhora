@@ -5,6 +5,7 @@ one with a test engines file and a fictional tier-B block. Every input is synthe
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -297,17 +298,61 @@ def _with_media(project):
 
 # ---------------------------------------------------------------- the engine, tiers and presets
 
-def test_a_tier_a_block_is_refused_until_the_admission_run_exists(tmp_path, docs):
+def tier_a_blocks(tmp_path, caption=False):
+    """A copy of the blocks with one fictional tier-A overlay for the keyword preset (and, when `caption`, a tier-A caption block, which the
+    composer must refuse), on an engine that runs gsap and renderat."""
     folder = tmp_path / "tier-a"
     shutil.copytree(K.BLOCKS, folder)
-    K.write_hf_fixture(folder)
-    catalogue = _blocks.load_catalogue(str(folder))
+    entry = dict(K.HF_ENTRY, params={"text": {"type": "text", "max": 24, "required": True}, "icon": {"type": "icon"}}, samples=[{"text": "Name every dollar"}])
+    blocks, presets = [entry], dict(K.OH_PRESETS, keyword="hf:demo-pop")
+    if caption:
+        blocks.append(dict(entry, name="hf:demo-caption", kind="caption", preset="caption", band="caption", natural_duration=None, params={},
+                           samples=[{}], implementations={"gsap": "demo-caption.html"}, files={"demo-caption.html": "c" * 64}))
+        presets["caption"] = "hf:demo-caption"
+    allow = json.loads((folder / "hf" / "allowlist.json").read_text())
+    allow.update(registry_commit="a" * 40, blocks=blocks)
+    (folder / "hf" / "allowlist.json").write_text(json.dumps(allow, indent=1))
+    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
+        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap", "renderat"], "presets": presets}, indent=1))
+    _blocks.write_pins(str(folder))
+    return _blocks.load_catalogue(str(folder))
+
+
+def test_a_tier_a_beat_is_a_placeholder_and_a_row_of_instances_json_and_its_parameters_are_in_vars_json(tmp_path, docs):
+    catalogue = tier_a_blocks(tmp_path)
     data, edl, beats, vocab = copy.deepcopy(docs)
     edl["captions"]["chunks"] = []
     beats["overlays"] = [e for e in beats["overlays"] if e["preset"] == "keyword"]
-    err = refused(docs, catalogue, tmp_path / "p", edl=edl, beats=beats)
-    assert err.code == "tier_a_not_built" and err.field == "beats.%s" % beats["overlays"][0]["id"]
-    assert os.listdir(tmp_path / "p") == []
+    result = write(docs, catalogue, tmp_path / "p", edl=edl, beats=beats)
+    files = files_of(tmp_path / "p")
+    assert set(files) == {"index.html", "vars.json", "instances.json"}
+    page = text_of(tmp_path / "p")
+    first = beats["overlays"][0]
+    assert 'id="hf-inst-0" class="hf-inst" data-hf-zone="card" data-hf-tier-a="0"' in page and "__hfTierA[0](main, V, gsap);" in page
+    assert "<template" not in page and first["params"]["text"] not in page
+    timeline = _edl.resolve_timeline(copy.deepcopy(edl), copy.deepcopy(beats), vocab, data)
+    entry = [e for e in timeline["beats"] if e["id"] == first["id"]][0]
+    rows = json.loads(text_of(tmp_path / "p", "instances.json"))
+    top, bottom = _layout.zones(data, entry["face"])["card"]
+    assert rows == {"0": {"name": "hf:demo-pop", "files": {"demo-pop.html": "b" * 64}, "implementation": "demo-pop.html", "start": entry["start_frame"] / float(edl["fps"]),
+                          "end": entry["end_frame"] / float(edl["fps"]), "band": [top, bottom - top]}}
+    variables = json.loads(text_of(tmp_path / "p", "vars.json"))
+    assert variables["inst"] == [first["params"]] and variables["ra"] == {}
+    assert result["runtimes"] == {"hf:demo-pop": "gsap"} and result["beats_drawn"] == 1 and result["captions_drawn"] == 0
+    assert result["blocks"] == {"hf:demo-pop": C.tier_a_digest(catalogue["blocks"]["hf:demo-pop"])}
+    assert result["blocks"]["hf:demo-pop"] == hashlib.sha256(("%s  demo-pop.html\n" % ("b" * 64)).encode()).hexdigest()
+    assert files == files_of(_write_again(tmp_path, docs, catalogue, edl, beats))
+
+
+def _write_again(tmp_path, docs, catalogue, edl, beats):
+    write(docs, catalogue, tmp_path / "q", edl=edl, beats=beats)
+    return tmp_path / "q"
+
+
+def test_a_tier_a_caption_block_is_refused_caption_tier_b_only_and_nothing_is_written(tmp_path, docs):
+    catalogue = tier_a_blocks(tmp_path, caption=True)
+    err = refused(docs, catalogue, tmp_path / "p")
+    assert (err.code, err.field) == ("caption_tier_b_only", "edl.captions") and os.listdir(tmp_path / "p") == []
 
 
 def test_a_beat_of_a_preset_the_engine_does_not_list_is_refused_and_nothing_is_written(tmp_path, docs):

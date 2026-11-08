@@ -343,3 +343,130 @@ def test_a_good_exit_returns_and_the_child_sees_only_the_given_environment(tmp_p
     code = "import os, sys; sys.stdout.write(','.join(sorted(os.environ)))"
     R.run_render([sys.executable, "-c", code], str(tmp_path), {"ONLY": "1"}, str(log), 60)
     assert "ONLY" in log.read_text() and "PATH" not in log.read_text().split(",")
+
+
+# ---------------------------------------------------------------- tier A: instances.json, the registry files, the wrapper
+
+import hashlib
+
+COMPONENT = """<template>
+<style>#root { font-family: "Inter", sans-serif; }</style>
+<div id="root" data-composition-id="aster-pop" data-duration="3" data-composition-variables='[{"id":"text","type":"string"}]'></div>
+<script>
+(function () {
+  var tl = gsap.timeline({ paused: true });
+  window.__timelines = window.__timelines || {};
+  window.__timelines["aster-pop"] = tl;
+})();
+</script>
+</template>
+"""
+PLACEHOLDER = ('<div id="hf-inst-0" class="hf-inst" data-hf-zone="card" data-hf-tier-a="0" style="position:absolute; left:0; top:110px; width:1080px; '
+               'height:300px; contain:paint; overflow:clip; visibility:hidden"></div>')
+
+
+def tier_a_project(tmp_path, component=COMPONENT, tamper=None, drop=False):
+    """(project folder, registry root): a base project whose page holds one placeholder, one row of instances.json and the component's files."""
+    project = make_project(tmp_path / "project", page=BASE_PAGE.replace('<div id="root"></div>', '<div id="root">%s</div>' % PLACEHOLDER))
+    root = tmp_path / "registry"
+    folder = root / "registry" / "components" / "aster-pop"
+    folder.mkdir(parents=True)
+    files = {"aster-pop.html": component.encode(), "registry-item.json": b"{}"}
+    row = {"name": "hf:aster-pop", "files": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}, "implementation": "aster-pop.html", "start": 1.0, "end": 3.0,
+           "band": [110, 300]}
+    for name, raw in files.items():
+        if not (drop and name == "aster-pop.html"):
+            (folder / name).write_bytes(raw if tamper != name else raw + b"\n")
+    (project / "instances.json").write_text(json.dumps({"0": row}))
+    return project, root
+
+
+def test_a_project_with_instances_json_is_accepted_and_one_with_an_oversize_or_linked_one_is_not(tmp_path):
+    project, _ = tier_a_project(tmp_path)
+    assert R.check_project(str(project)).startswith("<!doctype html>")
+    (project / "instances.json").write_bytes(b"x" * (R.INSTANCES_MAX_BYTES + 1))
+    assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "instances.json")
+    (project / "instances.json").unlink()
+    (project / "instances.json").symlink_to(project / "vars.json")
+    assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "instances.json")
+
+
+def test_a_tier_a_instance_is_read_from_the_registry_folder_checked_linted_wrapped_and_put_in_place_of_its_placeholder(tmp_path):
+    project, root = tier_a_project(tmp_path)
+    page = R.inline_tier_a(str(project), (project / "index.html").read_text(), str(root))
+    assert PLACEHOLDER not in page and 'id="hf-inst-0-root"' in page and "@scope (#hf-inst-0)" in page and "__hfTierA" in page
+    assert (project / "index.html").read_text() == page
+    R.check_fonts(page)
+
+
+def test_a_registry_file_that_is_missing_or_changed_is_refused_before_anything_is_wrapped(tmp_path):
+    project, root = tier_a_project(tmp_path, drop=True)
+    before = (project / "index.html").read_text()
+    assert refusal(R.inline_tier_a, str(project), before, str(root)) == ("tier_a_file_missing", "hf:aster-pop")
+    project, root = tier_a_project(tmp_path / "two", tamper="registry-item.json")
+    assert refusal(R.inline_tier_a, str(project), (project / "index.html").read_text(), str(root)) == ("tier_a_hash", "hf:aster-pop")
+    assert PLACEHOLDER in (project / "index.html").read_text()
+
+
+def test_a_component_the_lint_refuses_is_a_block_lint_refusal_even_when_its_hash_matches(tmp_path):
+    project, root = tier_a_project(tmp_path, component=COMPONENT.replace("var tl", 'fetch("/x"); var tl'))
+    assert refusal(R.inline_tier_a, str(project), (project / "index.html").read_text(), str(root)) == ("block_lint", "hf:aster-pop")
+
+
+def test_a_page_with_a_different_number_of_placeholders_than_rows_is_refused(tmp_path):
+    project, root = tier_a_project(tmp_path)
+    page = (project / "index.html").read_text()
+    assert refusal(R.inline_tier_a, str(project), page.replace(PLACEHOLDER, ""), str(root)) == ("block_lint", "instances")
+    assert R.inline_tier_a(str(project / "nowhere"), page, str(root)) == page
+
+
+def test_a_malformed_instances_row_is_refused(tmp_path):
+    project, _ = tier_a_project(tmp_path)
+    rows = json.loads((project / "instances.json").read_text())
+    for change in ({"name": "oh:x"}, {"files": {}}, {"implementation": "other.html"}, {"start": 3.0, "end": 1.0}, {"band": [1]}, {"extra": 1}):
+        (project / "instances.json").write_text(json.dumps({"0": dict(rows["0"], **change)}))
+        assert refusal(R.read_instances, str(project)) == ("project_unexpected_file", "instances.json"), change
+
+
+def test_a_render_whose_log_shows_the_guards_marker_is_refused_block_escaped_even_when_hyperframes_succeeded(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    project, root = tier_a_project(tmp_path / "t")
+    monkeypatch.setattr(R, "inline_tier_a", lambda p, page, registry_root=str(root): ORIGINAL_INLINE(p, page, registry_root))
+
+    def fake_run(argv, project, env, log_path, timeout):
+        Path(log_path).write_bytes(b"page error: hf-escape\n")
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"prores")
+
+    out, tmp = tmp_path / "out", tmp_path / "tmp"
+    out.mkdir()
+    tmp.mkdir()
+    gsap = tmp_path / "gsap.min.js"
+    gsap.write_text("/* gsap */")
+    monkeypatch.setattr(R, "GSAP_SOURCE", str(gsap))
+    monkeypatch.setattr(R, "run_render", fake_run)
+    assert R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", "120"]) == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "block_escaped", "field": "render"}
+
+
+def test_a_failed_render_with_the_marker_in_its_log_is_block_escaped_and_without_it_hf_failed(tmp_path, monkeypatch):
+    with_fake_fonts(monkeypatch, tmp_path)
+    gsap = tmp_path / "gsap.min.js"
+    gsap.write_text("/* gsap */")
+    monkeypatch.setattr(R, "GSAP_SOURCE", str(gsap))
+    for marker, code in ((b"hf-escape", "block_escaped"), (b"some other error", "hf_failed")):
+        project, root = tier_a_project(tmp_path / code)
+        monkeypatch.setattr(R, "inline_tier_a", lambda p, page, registry_root=str(root): ORIGINAL_INLINE(p, page, registry_root))
+
+        def fake_run(argv, project, env, log_path, timeout, marker=marker):
+            Path(log_path).write_bytes(marker)
+            R.refuse("hf_failed", "render")
+
+        monkeypatch.setattr(R, "run_render", fake_run)
+        out, tmp = tmp_path / ("o" + code), tmp_path / ("t" + code)
+        out.mkdir()
+        tmp.mkdir()
+        assert R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", "120"]) == 1
+        assert json.loads((out / "result.json").read_text())["code"] == code
+
+
+ORIGINAL_INLINE = R.inline_tier_a
