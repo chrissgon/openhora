@@ -52,7 +52,7 @@ def test_the_engine_reaches_only_the_closed_verbs_of_the_two_classes_and_passes_
     resolver = Resolver()
     eng = engine(monkeypatch, resolver)
     assert seams.MediaEngine.CLASSES == {"transcriber:speech": ("transcribe",),
-                                         "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "verify", "block-params")}
+                                         "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "preview", "verify", "block-params")}
     assert eng.call("renderer:video", "render", ["--edl", "e"], 9) == {"ok": True}
     cls, verb, args, kw = resolver.calls[0]
     assert (cls, verb, args) == ("renderer:video", "render", ["--edl", "e"]) and "implementation" not in kw and kw["timeout"] == 9 and kw["root"] == "/root"

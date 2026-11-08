@@ -9,7 +9,7 @@ enters git. It stores and nothing else. It has no host ffprobe and no knowledge 
 
 A recording is one folder named by 16 hex characters. It holds `record.json` (mode 0600, the folder 0700, written whole by a temporary
 file and `os.replace` under `.record.lock`), the recording itself as `raw.mp4` or `raw.mov`, and the work files the step kind writes by
-closed names (`WORK_NAMES`, plus the renders, covers and stills named by a hash). Every path is opened with O_NOFOLLOW, and every file is
+closed names (`WORK_NAMES`, plus the renders, covers, stills and previews named by a hash). Every path is opened with O_NOFOLLOW, and every file is
 opened through the descriptor of its folder.
 
   * Taking a recording: `receive` (a stream) and `receive_file` (a file) go through `runtime/intake.py` (`stream_in`): the length is
@@ -18,6 +18,8 @@ opened through the descriptor of its folder.
   * The record binds one task (`bind_task`) and, once a person approved the delivery, names the render that is downloadable.
     `mark_delivered` is the one function that writes `delivered`, and `delivered_file` the one reader that hands a render out; both hash
     the file again, so a render that changed after it was shown is `stale`, never delivered.
+  * A removal the person asked for (`media-remove`, runtime/ops_media_remove.py): `remove` takes the record's lock, checks that the record
+    still names the task the caller checked, renames the folder `.removed-<id>` and removes it; `purge` sweeps what a removal cut short left.
   * Retention (decision 12), run by `runtime/upkeep.py`, part `media`, through `purge`: the recording and its transcript 7 days after the
     delivery, the render 30 days after it, an undelivered recording 30 days after it was last touched; never one whose task is running.
     A folder with no record, or an upload's temporary file, goes after a day.
@@ -62,7 +64,9 @@ WORK_NAMES = frozenset({"transcript.json", "analysis.json", "transcript.edited.j
 RENDER = re.compile(r"render-[0-9a-f]{12}\.mp4")
 COVER = re.compile(r"cover-[0-9a-f]{12}\.png")
 STILL = re.compile(r"still-[0-9a-f]{12}\.png")
+PREVIEW = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 RAW = re.compile(r"raw\.(mp4|mov)")
+REMOVED = re.compile(r"\.removed-[0-9a-f]{16}")   # a recording a person removed (media-remove), renamed out of the store before its files go
 KEPT_AFTER_RAW = (RECORD, "render.json", "verify.json")   # plus RENDER and COVER names: what survives the 7-day purge
 JSON_LIMIT = 5 * 1024 * 1024
 
@@ -123,8 +127,8 @@ def _is_int(value) -> bool:
 
 
 def _check_name(name) -> str:
-    """A work file's name: one of WORK_NAMES, or a render, cover, still or raw file named by its hash or type."""
-    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, RAW))):
+    """A work file's name: one of WORK_NAMES, or a render, cover, still, preview or raw file named by its hash or type."""
+    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, PREVIEW, RAW))):
         return name
     raise MediaError("that is not the name of a file the store keeps", "usage")
 
@@ -513,7 +517,7 @@ def write_work(data_dir: str, rid: str, name: str, data: bytes) -> str:
 
 
 def remove_work(data_dir: str, rid: str, names) -> int:
-    """Remove the work files that match `names`: strings from WORK_NAMES or compiled patterns (RENDER, COVER, STILL). Never the record and
+    """Remove the work files that match `names`: strings from WORK_NAMES or compiled patterns (RENDER, COVER, STILL, PREVIEW). Never the record and
     never the recording. Returns the number removed."""
     exact, patterns = set(), []
     for item in names:
@@ -617,6 +621,82 @@ def delivered_file(data_dir: str, rid: str) -> dict:
     if found != delivered["sha256"]:
         raise MediaError("the delivered render changed after it was approved", "stale")
     return {"path": path, "sha256": found, "size": size}
+
+
+# --- a removal the person asked for --------------------------------------------------------------------------------------------
+
+
+def footprint(data_dir: str, rid: str) -> dict:
+    """{"bytes", "files"}: the regular files of one recording's folder, at any depth, counted with lstat (no link is followed). `not_found`
+    when there is no such recording folder, `unreadable` when it is not a folder."""
+    check_id(rid)
+    path = folder_of(data_dir, rid)
+    try:
+        info = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        raise MediaError("there is no such recording", "not_found") from None
+    except OSError:
+        raise MediaError("the recording's folder cannot be opened", "unreadable") from None
+    if not stat.S_ISDIR(info.st_mode):
+        raise MediaError("the recording's folder cannot be opened", "unreadable")
+    total, count, stack = 0, 0, [path]
+    while stack:
+        folder = stack.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                found = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if stat.S_ISDIR(found.st_mode):
+                stack.append(entry.path)
+            elif stat.S_ISREG(found.st_mode):
+                total += found.st_size
+                count += 1
+    return {"bytes": total, "files": count}
+
+
+def remove(data_dir: str, rid: str, *, task) -> dict:
+    """Remove one recording for good, at the person's request (`media-remove`): the folder whole, with the recording, the transcript, every
+    work file, the renders, the covers and the stills. Under the record's lock the record must still name `task` (the task id the caller
+    checked, or None): otherwise `taken`, and nothing is removed. The folder is renamed `.removed-<id>` under that lock, so a reader sees
+    the recording whole or not at all; then its files are removed. What a removal cut short leaves is swept by the next `purge`.
+    Returns {"recording", "bytes", "files", "delivered_at", "left"}: `left` is True when some of it could not be removed now."""
+    check_id(rid)
+    if task is not None and not (_is_int(task) and task >= 0):
+        raise MediaError("a task id is a whole number", "usage")
+    rfd = _open_root(data_dir)
+    if rfd is None:
+        raise MediaError("there is no such recording", "not_found")
+    try:
+        dfd = _open_folder(data_dir, rid)
+        try:
+            with _record_lock(dfd):
+                record = _read_record(dfd, rid)
+                if record["task"] != task:
+                    raise MediaError("the recording changed while it was being removed: look at it again", "taken")
+                measured = footprint(data_dir, rid)
+                try:
+                    named = os.stat(rid, dir_fd=rfd, follow_symlinks=False)
+                except OSError:
+                    raise MediaError("the recording's folder cannot be opened", "unreadable") from None
+                if not os.path.samestat(named, os.fstat(dfd)):
+                    raise MediaError("the recording's folder cannot be opened", "unreadable")
+                tomb = f".removed-{rid}"
+                try:
+                    os.rename(rid, tomb, src_dir_fd=rfd, dst_dir_fd=rfd)
+                except OSError:
+                    raise MediaError("the recording cannot be removed now", "busy") from None
+        finally:
+            os.close(dfd)
+        clean = _remove_tree(rfd, tomb)
+    finally:
+        os.close(rfd)
+    return {"recording": rid, "bytes": measured["bytes"], "files": measured["files"],
+            "delivered_at": (record["delivered"] or {}).get("at"), "left": not clean}
 
 
 # --- size and retention ----------------------------------------------------------------------------------------------------------
@@ -763,7 +843,7 @@ def _purge_raw(data_dir: str, rid: str, now: float) -> bool:
 
 def _sweep_strays(data_dir: str, rfd: int, now: float) -> int:
     """Remove what no record owns: a folder with an id for a name and no record, and the temporary files of an upload or a write, once they
-    are older than STRAY_DAYS. Returns how many were removed."""
+    are older than STRAY_DAYS; and, at once, what a removal the person asked for left (`.removed-<id>`). Returns how many were removed."""
     count, limit = 0, STRAY_DAYS * DAY
     for name in sorted(os.listdir(rfd)):
         try:
@@ -791,6 +871,9 @@ def _sweep_strays(data_dir: str, rfd: int, now: float) -> int:
                 finally:
                     os.close(sub)
             if not has_record and now - _newest(rfd, name, info) >= limit and _remove_tree(rfd, name):
+                count += 1
+        elif REMOVED.fullmatch(name):          # a removal the person asked for, cut short: it goes at once, whatever its age
+            if _remove_tree(rfd, name):
                 count += 1
         elif _is_part(name) and name.startswith(intake.PART_PREFIX) and now - info.st_mtime >= limit and _remove_tree(rfd, name):
             count += 1

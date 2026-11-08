@@ -85,9 +85,9 @@ the download. The ffmpeg engine's `browser-pin.json` pins the same archive; a te
 
 ## Not part of this image yet
 
-- **The HyperFrames registry blocks.** They come with package V3b, with the allowlist that admits them. The Dockerfile marks the place
-  (`# Hook for V3b`): V3b adds `registry.sha256` and `fetch_registry.py` here, lists both in `manifest.json` and `.dockerignore`, and
-  this image alone is rebuilt.
+- **Registry blocks admitted so far: none.** `registry.sha256` pins the registry's LICENSE at commit `b4cc674f` and, once a component is admitted,
+  that component's two files (`<name>.html` and `registry-item.json`); `fetch_registry.py` fetches them at build time and refuses a hash that
+  differs, into `/opt/hf-registry`. `hf_compat.py` (the admission run) and `hf_wrap.py` (the lint and the wrapper) sit beside `hf_render.py`.
 - **The program that renders.** Package V3a adds the provider and what it runs in this image.
 
 ## What is never done

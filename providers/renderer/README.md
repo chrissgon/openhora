@@ -125,6 +125,18 @@ by frame with `psnr`, and refuses `face_pixels_changed` under 30 dB: that is wha
 proxy is hashed again in the encode container, since the drawing container could write to it. Tests: `tests/test_hf_gate.py`,
 `tests/test_hf_measure_static.py`.
 
+## Tier A: registry components (V3b-3)
+
+A component of the HyperFrames registry is drawn only after `hyperframes.py compat --survey <dir> --out <file>` ran its admission in the
+HyperFrames image (no network, the survey mounted read-only): `hf_compat.py` first refuses every planted escape (a list of more than a dozen
+fictional components, each doing one thing a block may not; one admitted fails the run, and there is no flag that skips the step), then gives each
+component of the survey `admit-candidate` or `refuse:<code>` (licence, name, files all fetched, the two files needed, kind, the lint of `hf_wrap.py`,
+parameter names). Tier A admits overlays only; a caption is only a reviewed port. An admitted block is an entry of `blocks/hf/allowlist.json` with
+its files' sha256; a render that draws one writes a placeholder and a row of `instances.json`, and `hyperframes-image/hf_render.py` reads the files from the
+image's registry folder, checks each hash, lints and wraps the component (`@scope`, a guarded `window` and `document`) and refuses
+`tier_a_file_missing`, `tier_a_hash`, `block_lint` or `block_escaped`. Tests: `tests/test_hf_wrap.py`, `tests/test_hf_compat.py`,
+`tests/test_hf_registry.py`.
+
 ## The HyperFrames ports (V3b-4)
 
 Five blocks under `blocks/hf/` are our own rewrites of components of the HyperFrames registry at commit `b4cc674f`, each one a `gsap.html` of the
@@ -168,6 +180,22 @@ still equal, within the codec's loss, to the render's own first picture of a ran
 ## The storyboard (`storyboard`)
 
 What a script's beats will look like, before a recording exists. The verb takes a post (`--post`, with the post-writing skill's own checker, as `align` does) or one beat as JSON (`--beat`: `preset`, `params`, `line`), the vocabulary, and the theme flags of `base` (`--face-box`, `--color`, `--font`). **No recording and no transcript go in, and the container mounts none** (two mounts: the staged job folder and the output folder). In order: the checker refuses a post it does not pass (`--beat`: the typed parameters are checked by `_vocab.check_params`); each beat's line becomes words spoken at 2.5 words a second (`renderer-presets.json`, `storyboard`), one beat after another with 2 s between them and 2.5 s after the last, with no cut and no zoom; `_edl.build_base` makes the edit list and `_align.build_beats` the beats list; `check_documents` (the credential scan included) runs, **and a refusal there means no frame was drawn and no browser started**; then the render's frame loop (`_frames.draw_frames`, with an `only` filter that the render does not use) draws one frame per beat, the one where the overlay has settled (`settled` seconds into the beat, per preset, in `renderer-presets.json`; a beat too short for that, its end less its tail less one frame), over an opaque neutral picture, **and runs every other frame of every beat through the page and the face-box check without writing it** (a card overshoots while it pops in), so the face check is the render's, frame for frame; a layout's asset slot is a flat generated colour, never a file of the person; a card that touches the face box is the render's `overlay_hits_face`. `beat-<n>.png` (1080x1920) for each beat with a preset and `sheet.png` (a grid of 270x480 tiles, four to a row, no text) are written read-only, never over a file that is there; the host trusts nothing the container reports about them: every key must be there, a still is the frame's size, the sheet is the grid the presets give for that many tiles, all under a fixed ceiling, each file hashed and its header checked before it is named. A script over the 300 s input bound is refused as `script_too_long`. A platform file that is not a JSON object is refused as `bad_platform` by `render`, `verify` and `check`. The same inputs give the same bytes on the same image and architecture, whatever the cores or jobs.
+
+## The preview (`preview`, V3d)
+
+`preview --in <render> [--sha256 <hex>] --out <dir>` makes a smaller copy of a finished render for a phone, whose messaging app takes at
+most 20 MiB (Telegram) or 16 MB (WhatsApp through Twilio): 720x1280 H.264 at CRF 23, capped by a rate computed from the render's length
+so that the whole file fits 15 MiB with 6 % room (60 s: 1843 kbit/s; 300 s: 296 kbit/s), AAC at 96 kbit/s, the bt709 tags, the index
+first. The numbers are the block `preview` of `renderer-presets.json`. The encode is pinned as the final encode is (decoder, filter
+graph and x264 on one thread, bit-exact scaling), so the same render gives the same bytes at any CPU count. The container checks the
+render's hash, its length, the copy's size, frame, length and audio; the host hashes the file on the way out, refuses more than 15 MiB, a
+result that names another render, and a file that is not an MP4 with its index first, and stores it as `preview-<sha12>.mp4` (0400,
+never rewritten). The runtime asks for it only for a render larger than 15 MiB (`runtime/step_media.py`, the side step `preview`). This
+verb is not `_preview.py`, which is the storyboard's module. Adding it changed the image definition (no file was added), so the tag changed:
+until `build --confirmed` runs again every renderer step reports `image_not_built`. Measured with a local ffmpeg on synthetic test
+patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tests: `tests/test_renderer_preview.py`; in a real container,
+`test_the_preview_of_a_60_second_render_fits_15_mib_at_720x1280_and_is_the_same_bytes_at_two_and_four_cpus` of
+`tests/test_renderer_docker_live.py`.
 
 ## What the edit does
 

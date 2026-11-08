@@ -1,11 +1,11 @@
 // The client of the local service (runtime/service.py): one function per route of its ROUTES table, named after the
 // operation. Each sends the token as "Authorization: Bearer" (one exception, tokenFile: the read of the token file's path, before the page
-// has a token, sends none), a POST sends "Content-Type: application/json", and
+// has a token, sends none), a POST sends "Content-Type: application/json" (the recording's upload sends its own type), and
 // only a route that takes a query (progress, conversation, costs, artifact, artifact/raw) is sent one. An error body {error, message} becomes an ApiError with
 // the status and the word. A route whose operation calls a model or a platform answers 202 with a job: the function
 // returns that job and pollJob(job.job, every) asks for it again until it is done or failed. The token is read from
-// token.js for each request and appears nowhere else here. One route answers bytes (the raw artifact): `artifactRaw` returns a Blob,
-// through the same `send`, so the token still travels only as the bearer header. `send` is the one place a request leaves the client, and it
+// token.js for each request and appears nowhere else here. One POST sends bytes (the recording of a new video, as the body with its own type) and two GETs answer bytes
+// (an image of a project or the still of a recording, as a Blob; the delivered video, as {blob, name}), all through the same `send`, so the token still travels only as the bearer header. `send` is the one place a request leaves the client, and it
 // hands the request to transport.js (the page's single network call).
 
 import { getToken } from "./token.js";
@@ -83,6 +83,7 @@ async function send(method, path, options = {}) {
     if (text) url += "?" + text;
   }
   const headers = { Accept: options.raw ? "image/*" : "application/json" };
+  if (typeof options.accept === "string" && options.accept) headers.Accept = options.accept;
   if (!open) headers.Authorization = `Bearer ${token}`;
   const init = {
     method, headers, credentials: "omit", cache: "no-store", redirect: "error", mode: "same-origin",
@@ -90,7 +91,10 @@ async function send(method, path, options = {}) {
     // Origin of a POST as `null`, which the service refuses. Same-origin keeps the real Origin and sends a referrer to this service alone.
     referrerPolicy: "same-origin", signal: options.signal,
   };
-  if (method === "POST") {
+  if (method === "POST" && options.bytes) {
+    headers["Content-Type"] = options.type;
+    init.body = options.bytes;
+  } else if (method === "POST") {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body || {});
   }
@@ -104,7 +108,10 @@ async function send(method, path, options = {}) {
   // A route marked `raw` answers bytes: read them as a Blob on success; a refusal is JSON as everywhere else.
   if (options.raw && response.ok) {
     try {
-      return await response.blob();
+      const blob = await response.blob();
+      if (!options.named) return blob;
+      const found = /^attachment; filename="(video-[0-9a-f]{12}\.mp4)"$/.exec((response.headers && response.headers.get && response.headers.get("Content-Disposition")) || "");
+      return { blob, name: found ? found[1] : "video.mp4" };     // the page never uses another name than the one the service gives
     } catch (e) {
       throw new ApiError(response.status, "internal", "The service answered with bytes this page could not read.");
     }
@@ -411,6 +418,58 @@ export function artifact(p, path, { signal } = {}) {
 /** GET /projects/{p}/artifact/raw?path=: the bytes of one image under docs/, as a Blob (the media type is the blob's). A refusal is an ApiError whose message is the sentence to show. */
 export function artifactRaw(p, path, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/artifact/raw`, { query: { path }, signal, raw: true });
+}
+
+/** The type a recording is sent with: the two the service takes by name, else a generic one (the service reads the type from the bytes). */
+function mediaType(file) {
+  if (file && file.type === "video/mp4") return "video/mp4";
+  if (file && file.type === "video/quicktime") return "video/quicktime";
+  return "application/octet-stream";
+}
+
+/** GET /projects/{p}/media: {recordings: [{media, created_at, updated_at, size, type, raw_kept, task, task_state, delivered_at}], used_bytes, quota_bytes}, oldest first. */
+export function mediaList(p, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/media`, { signal });
+}
+
+/** POST /projects/{p}/media: the recording (a File or Blob) as the body; answers the recording's record, its `media` id first. */
+export function mediaIn(p, file, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/media`, { bytes: file, type: mediaType(file), signal });
+}
+
+/** POST /projects/{p}/videos (job): a new video from a recording (`media_id`) and a post (a path under docs/marketing/content/). */
+export function videoNew(p, mediaId, post, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos`, { body: { media_id: mediaId, post }, signal });
+}
+
+/** POST /projects/{p}/videos/{id}/run (job): runs a video whose step task is ready. */
+export function videoRun(p, id, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/run`, { signal });
+}
+
+/** GET /projects/{p}/videos/{id}/captions: {task, media, mode, still, view}, the caption review of a new video. */
+export function captionsRead(p, id, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/captions`, { signal });
+}
+
+/** POST /projects/{p}/videos/{id}/captions: one edit list (`edits`, sent as a JSON text) against the `revision` that was read. */
+export function captionsEdit(p, id, revision, edits, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/captions`, { body: { revision, edits: JSON.stringify(edits) }, signal });
+}
+
+/** GET /projects/{p}/videos/{id}/download: the delivered video as {blob, name}, `name` being `video-<12 hex>.mp4` or `video.mp4`. */
+export function videoDownload(p, id, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/download`, { raw: true, accept: "video/mp4", named: true, signal });
+}
+
+/** GET /projects/{p}/videos/{id}/still: the still of the recording, as a Blob (image/png). */
+export function videoStill(p, id, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/still`, { raw: true, signal });
+}
+
+/** GET /projects/{p}/video-catalogue: {engine, blocks_sha256, animations_max, beats_max, presets, blocks: [entry + addable + why]}. */
+export function videoCatalogue(p, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/video-catalogue`, { signal });
 }
 
 /** GET /projects/{p}/commands: {commands: [{command, arguments, help}]}, the lines `/help` prints, in its order. */

@@ -202,3 +202,17 @@ def test_every_character_of_the_demo_text_is_in_the_fonts_so_nothing_falls_back_
 def test_a_font_that_is_not_ours_or_not_custom_is_described_in_the_refusal_in_closed_shapes():
     assert 'note("font", "frame " + frame + " family " + (family || "other") + " custom " + (f.isCustomFont === true) + " glyphs " + f.glyphCount + " in " + what)' in CODE
     assert 'if (!family || f.isCustomFont !== true)' in CODE and 'throw new Refusal("font_not_allowed", "drawn")' in CODE
+
+
+def test_it_reads_the_guards_page_flag_after_every_frames_measure_and_refuses_block_escaped_before_it_counts_the_boxes():
+    assert "window.__hfEscape === true" in CODE and 'document.documentElement.hasAttribute("data-hf-escape")' in CODE
+    assert 'throw new Refusal("block_escaped", "frame " + f)' in CODE
+    loop = CODE[CODE.index("for (let f = 0; f < frames; f++)"):]
+    assert loop.index("window.__hfMeasure(t)") < loop.index("got.escaped") < loop.index('"boxes_too_many"')
+    assert "block_escaped" in R.MEASURE_REFUSALS
+
+
+def test_what_it_reads_is_what_the_wrapper_writes():
+    wrap = load("hf_wrap_for_measure_static", FOLDER / "hf_wrap.py")
+    script = wrap.REGISTER
+    assert "REAL_WIN.__hfEscape = true" in script and 'setAttribute("data-hf-escape", "1")' in script and "REAL.documentElement" in script
