@@ -157,6 +157,7 @@ import messaging_file as sendfile
 import messaging_guard as guard
 import messaging_outcome as outcome
 import messaging_pending as pending_view
+import messaging_preview as preview
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
@@ -701,6 +702,18 @@ class Bridge(shell_kit.Jobs):
         item = self.for_reader(project, item, sender)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, sender=sender, cfg=settings)
+        watched = None
+        if preview.applies(item) and card["approvable"]:
+            # decision 14: the preview goes first, as a video of its own; the card offers its approval only after the provider confirmed it
+            try:
+                watched = preview.send(self, project, item, chat, settings)
+            except provider.MessengerError as e:      # only "not-configured" is raised by it, as send_document does
+                raise Fatal(e.reason) from None
+            if watched is None:
+                return False
+            if watched == "failed":
+                card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
+                                   operations=operations, delivery="failed", sender=sender, cfg=settings)
         document = card["message"]["document"]
         if document and card["gated"] and card["approvable"]:
             # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
@@ -730,7 +743,7 @@ class Bridge(shell_kit.Jobs):
         try:
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
                              "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
-                             "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed,
+                             "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed and watched != "failed",
                              "approvable": bool(card.get("approvable")), "offers": list(card.get("offers") or []), "blocked": card.get("blocked"),
                              "effect_word": item.get("effect_word")})
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again

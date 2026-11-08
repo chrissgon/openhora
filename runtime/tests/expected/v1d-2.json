@@ -1,0 +1,11 @@
+{
+  "package": "v1d-2",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media_preview"
+    ],
+    "operations_table.NOT_OPERATIONS": [
+      "video_preview"
+    ]
+  }
+}
