@@ -41,6 +41,10 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
          [--time-limit S] [--dry-run] [--memory-mb N] [--cpus N] [--scratch-mb N] [--timeout S]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). --work-dir names an existing folder of this user's (not a link) that
         holds the run folder; the default is the renderer's own work folder. --dry-run prints the four stage commands.
+  compat --survey DIR --out FILE [--timeout S] [--dry-run]
+        The compatibility run of tier A: checks the survey folder (regular files only, at most 2000 files, 20 MB, 256 KiB each), mounts it
+        read-only in the HyperFrames image with no network, runs `hf_compat.py` (the planted escapes first, then the verdict of each registry
+        component) and writes its report to FILE (a new file, mode 0600). Writes nothing else.
   analyse, base, align, check, cover, still, verify
         the common verbs, served by the same code as `ffmpeg.py` (providers/renderer/_host.py).
 
@@ -81,6 +85,16 @@ from _text import Refusal  # noqa: E402
 from _vocab import load_data  # noqa: E402
 
 NotConfigured = D.NotConfigured
+
+
+def _load_hf_compat():
+    """hyperframes-image/hf_compat.py, loaded by path, for `check_report` (it loads `hf_wrap.py` itself)."""
+    path = os.path.join(HERE, "hyperframes-image", "hf_compat.py")
+    spec = importlib.util.spec_from_file_location("hf_compat", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("hf_compat", module)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _load_hf_image():
@@ -299,6 +313,22 @@ def hf_limits(args) -> tuple:
     return check_memory(args), max(1, min(args.cpus, D.daemon_facts()["cpus"]))
 
 
+def test_registry_dir():
+    """The folder of registry files a dynamic run of tier A mounts read-only over `/opt/hf-registry`: only in test mode (RENDERER_TEST=1 and
+    RENDERER_REGISTRY_DIR), an absolute real folder with no link in its path. None otherwise. The instances' sha256 are checked against the files in
+    either case, so the folder can only supply files the allowlist entry already names by hash."""
+    if os.environ.get("RENDERER_TEST") != "1" or not os.environ.get("RENDERER_REGISTRY_DIR"):
+        return None
+    path = os.environ["RENDERER_REGISTRY_DIR"]
+    try:
+        ok = os.path.isabs(path) and stat.S_ISDIR(os.lstat(path).st_mode) and os.path.realpath(path) == path
+    except OSError:
+        ok = False
+    if not ok:
+        raise Refusal("bad_registry_dir", "registry")
+    return path
+
+
 def hf_command(args, image: dict, run_dir: str, fps: int, t: int, measure: bool = False):
     """(container name, the exact `docker run` command) of the drawing stage. Three read-write mounts, no recording, no network. `measure` is
     true for a page that draws: the container then also measures the boxes the page reports (`hf_measure.mjs`); a render of the base page
@@ -307,6 +337,9 @@ def hf_command(args, image: dict, run_dir: str, fps: int, t: int, measure: bool 
     memory, cpus = hf_limits(args)
     mounts = [(os.path.join(run_dir, "project"), "/work/project", "rw"), (os.path.join(run_dir, "out"), "/work/out", "rw"),
               (os.path.join(run_dir, "tmp"), "/work/tmp", "rw")]
+    registry = test_registry_dir()
+    if registry:                                   # test mode only: the registry files of a dynamic run, over the image's own folder (every file is still checked by sha256)
+        mounts.append((registry, "/opt/hf-registry", "ro"))
     inner = ["python3", "-I", "/opt/hf-run/hf_render.py", "--project", "/work/project", "--out", "/work/out", "--tmp", "/work/tmp",
              "--fps", str(fps), "--timeout", str(max(1, t - 30))] + (["--measure"] if measure else [])
     try:
@@ -524,6 +557,136 @@ def verb_render(args) -> dict:
         shutil.rmtree(run_dir, ignore_errors=True)       # the proxy and the intermediate never outlive the render (OPEN-6)
 
 
+# ---------------------------------------------------------------- compat (tier A)
+
+COMPAT_MEMORY_MB = 2048
+COMPAT_CPUS = 2
+COMPAT_TIMEOUT_DEFAULT = 600
+COMPAT_OUT_NAMES = ("compat-report.json", "result.json")       # hf_compat.py's OUT_NAMES (a test keeps the two equal; the module is loaded only when `compat` runs)
+SURVEY_MAX_FILES = 2000
+SURVEY_MAX_BYTES = 20 * 1024 * 1024
+SURVEY_FILE_CAP = 256 * 1024
+SURVEY_DOC_CAP = 8 * 1024 * 1024
+_COMPAT = []
+
+
+def compat_module():
+    """hyperframes-image/hf_compat.py, loaded by path the first time `compat` needs it (not when this file is imported)."""
+    if not _COMPAT:
+        _COMPAT.append(_load_hf_compat())
+    return _COMPAT[0]
+
+
+def check_survey(path: str) -> int:
+    """The survey folder: absolute, a real folder (no link), holding `survey.json` and regular files only, at most SURVEY_MAX_FILES files
+    and SURVEY_MAX_BYTES bytes, each file within its cap. Returns the file count. `bad_survey` otherwise."""
+    try:
+        found = os.lstat(path)
+        real = os.path.realpath(path)
+        ok = os.path.isabs(path) and stat.S_ISDIR(found.st_mode) and real == path
+    except OSError:
+        ok, real = False, path
+    if not ok:
+        err = Refusal("bad_survey", "survey")
+        if os.path.isabs(path) and real != path:
+            err.reason = "the path goes through a link; give the real path: %s" % real
+        raise err
+    count = total = 0
+    for base, dirs, files in os.walk(path, followlinks=False):
+        for name in dirs + files:
+            full = os.path.join(base, name)
+            mode = os.lstat(full).st_mode
+            if stat.S_ISDIR(mode):
+                continue
+            size = os.lstat(full).st_size
+            cap = SURVEY_DOC_CAP if full == os.path.join(path, "survey.json") else SURVEY_FILE_CAP
+            count += 1
+            total += size
+            if not stat.S_ISREG(mode) or size > cap or count > SURVEY_MAX_FILES or total > SURVEY_MAX_BYTES:
+                raise Refusal("bad_survey", os.path.relpath(full, path)[:80])
+    if not os.path.isfile(os.path.join(path, "survey.json")):
+        raise Refusal("bad_survey", "survey.json")
+    return count
+
+
+def overlay_presets(catalogue: dict) -> dict:
+    """{preset: {parameter: {type, required}}} of our own overlay blocks, for the preset rule of `hf_compat.py`."""
+    out = {}
+    for name, block in sorted(catalogue["blocks"].items()):
+        if name.startswith("oh:") and block["kind"] == "overlay" and block["preset"] and block["band"] == "card":
+            out[block["preset"]] = {pname: {"type": spec["type"] if isinstance(spec["type"], str) else "slot", "required": bool(spec.get("required"))}
+                                    for pname, spec in sorted(block["params"].items())}
+    return out
+
+
+def compat_command(args, image: dict, run_dir: str, t: int):
+    name = "openhora-hyperframes-%s" % uuid.uuid4().hex[:12]
+    memory, cpus = args.memory_mb, max(1, min(COMPAT_CPUS, D.daemon_facts()["cpus"]))
+    if memory < 1024 or memory > D.MAX_MEMORY_MB:
+        raise Refusal("memory_too_small" if memory < 1024 else "memory_too_large", "memory-mb")
+    mounts = [(args.survey, "/work/survey", "ro"), (os.path.join(run_dir, "out"), "/work/out", "rw"), (os.path.join(run_dir, "in"), "/work/in", "ro")]
+    inner = ["python3", "-I", "/opt/hf-run/hf_compat.py", "--survey", "/work/survey", "--out", "/work/out", "--presets", "/work/in/presets.json"]
+    try:
+        return name, box.argv(name, image["id"], inner, label=HF_LABEL, deadline=int(time.time()) + t + 60, mounts=mounts, memory_mb=memory, cpus=cpus,
+                              scratch_mb=HF_SCRATCH_MB, pids_limit=HF_PIDS, tmp_mb=HF_TMP_MB)
+    except box.ContainerError as err:
+        raise D.refusal_of(err) from None
+
+
+def read_compat_result(out_dir: str, rc: int) -> dict:
+    """The report the compat container wrote, as untrusted: regular files of the two names only, `result.json` through its closed schema, the
+    report through `hf_compat.check_report`."""
+    for entry in os.scandir(out_dir):
+        if entry.name not in COMPAT_OUT_NAMES or not stat.S_ISREG(entry.stat(follow_symlinks=False).st_mode):
+            raise Refusal("container_left_non_regular_file", "output")
+    try:
+        doc = json.loads(_assets.read_regular(os.path.join(out_dir, "result.json"), RESULT_MAX_BYTES, "container_wrote_no_file", "result.json").decode("utf-8"))
+        assert isinstance(doc, dict)
+    except (Refusal, ValueError, AssertionError, UnicodeDecodeError, RecursionError):
+        raise Refusal(CRASH_CODES.get(rc, "container_failed"), "container") from None
+    if rc != 0 or doc.get("ok") is not True:
+        row = D.sanitise(doc, HF_REFUSAL, "compat")
+        raise Refusal(row.get("code", "container_failed"), row.get("field", ""))
+    try:
+        raw = _assets.read_regular(os.path.join(out_dir, "compat-report.json"), SURVEY_DOC_CAP, "container_wrote_no_file", "compat-report.json")
+        return compat_module().check_report(json.loads(raw.decode("utf-8")))
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        raise Refusal("container_result_invalid", "compat") from None
+
+
+def verb_compat(args) -> dict:
+    compat_module()                                      # loaded here, by path, with hf_wrap.py: a broken file fails this verb and no other
+    args.survey = os.path.abspath(args.survey) if args.survey else args.survey
+    count = check_survey(args.survey)
+    out = os.path.abspath(args.out)
+    if not os.path.isdir(os.path.dirname(out)) or os.path.lexists(out):
+        raise Refusal("bad_out", "out")
+    t = max(MIN_STAGE_SECONDS, min(D.MAX_TIMEOUT, args.timeout or COMPAT_TIMEOUT_DEFAULT))
+    presets = overlay_presets(_blocks.load_catalogue(_blocks.blocks_dir()))
+    work = work_folder(None)
+    run_dir = os.path.join(work, "%s%s" % (RUN_PREFIX, uuid.uuid4().hex[:12]))
+    try:
+        image = check_hf_image()
+        os.mkdir(run_dir, 0o700)
+        for folder in ("out", "in"):
+            os.mkdir(os.path.join(run_dir, folder), 0o700)
+        D.write_private_json(os.path.join(run_dir, "in", "presets.json"), presets)
+        name, command = compat_command(args, image, run_dir, t)
+        if args.dry_run:
+            return {"ok": True, "dry_run": True, "command": command, "hf_image": image, "survey_files": count}
+        try:
+            done = box.run(command, name, t)
+        except box.ContainerError as err:
+            raise D.refusal_of(err) from None
+        report = read_compat_result(os.path.join(run_dir, "out"), done.returncode)
+        D.write_private_json(out, report)
+        admitted = sum(1 for c in report["components"] if c["verdict"] == "admit-candidate")
+        return {"ok": True, "report": out, "planted": report["planted"], "components": len(report["components"]), "admit_candidates": admitted,
+                "hf_image": {"id": image["id"], "tag": image["tag"]}}
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 def composed_gate(result: dict) -> dict:
     """The gates' figures out of the encode stage's result, taken out of it: `frames`, `boxes`, `lowest_caption_bottom` (when a caption box was
     drawn), `pixel_min_psnr_db`, `pixel_ranges` and `pixel_seconds`. An encode stage of a render that draws that reports no gate is refused:
@@ -553,6 +716,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--confirmed", action="store_true")
     sp.add_argument("--dry-run", action="store_true")
     sp.add_argument("--arch", choices=("arm64", "amd64"))
+    sp = sub.add_parser("compat", help="the compatibility run of tier A: the planted escapes and the verdict of each registry component of a survey folder")
+    sp.add_argument("--survey", required=True, help="the survey folder: survey.json and <component>/<file> (absolute, no link)")
+    sp.add_argument("--out", required=True, help="the report to write (a new file)")
+    sp.add_argument("--timeout", type=int, help="seconds before the container is removed (default %d)" % COMPAT_TIMEOUT_DEFAULT)
+    sp.add_argument("--memory-mb", type=int, default=COMPAT_MEMORY_MB)
+    sp.add_argument("--dry-run", action="store_true")
     sub.add_parser("reap", help="remove containers and run folders a killed render left behind")
     add_common_parsers(sub)
     sp = sub.add_parser("render", help="render with HyperFrames (the cuts and the zoom, plus the captions and the beats unless --base-only) and encode it "
@@ -573,7 +742,7 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-VERBS = {"build": verb_build, "reap": verb_reap, "render": verb_render, **COMMON_HANDLERS}
+VERBS = {"build": verb_build, "reap": verb_reap, "render": verb_render, "compat": verb_compat, **COMMON_HANDLERS}
 
 
 def main(argv=None) -> int:

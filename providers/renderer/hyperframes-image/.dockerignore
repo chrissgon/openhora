@@ -3,6 +3,10 @@
 !_fetch_browser.py
 !fetch_ffmpeg.py
 !hf_render.py
+!hf_wrap.py
+!hf_compat.py
+!fetch_registry.py
+!registry.sha256
 !hf_measure.mjs
 !package.json
 !package-lock.json

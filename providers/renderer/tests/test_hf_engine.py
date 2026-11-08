@@ -737,6 +737,15 @@ def test_what_the_page_reported_comes_through_the_drawing_containers_refusal_as_
     assert bad.value.code == "container_result_invalid"
 
 
+def test_a_block_escaped_refusal_of_the_measure_step_reaches_the_host_as_the_renders_refusal(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "result.json").write_text(json.dumps({"ok": False, "code": "block_escaped", "field": "frame 7", "problems": []}))
+    with pytest.raises(Refusal) as caught:
+        H.read_hf_result(str(out), 1)
+    assert (caught.value.code, caught.value.field) == ("block_escaped", "frame 7")
+
+
 def test_the_pages_ready_time_is_in_the_drawing_result_schema_and_in_a_composed_renders_result(world, monkeypatch, test_blocks):
     assert "measure_ready_ms" in H.HF_SCHEMA[1]
     result, _ = run(world, monkeypatch, base_only=False)
