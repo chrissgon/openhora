@@ -169,6 +169,9 @@
 .wb-vd-error { margin: 0; padding: 0 4px; font-size: 12px; overflow-wrap: anywhere; color: var(--wb-ink-error); }
 .wb-vd-error[hidden], .wb-vd-note[hidden], .wb-vd-quota[hidden], .wb-vd-no-post[hidden] { display: none; }
 .wb-vd-note, .wb-vd-quota, .wb-vd-lan, .wb-vd-no-post { overflow-wrap: anywhere; }
+.wb-vd-stage { display: grid; gap: 4px; min-width: 0; }
+.wb-vd-stage[hidden] { display: none; }
+.wb-vd-video { display: block; width: 100%; max-width: 100%; max-height: 60vh; margin-top: 6px; }
 .wb-in-sec[hidden], .wb-in-problem[hidden], .wb-in-changed[hidden] { display: none; }      /* the project's standing instructions */
 .wb-in-field { width: 100%; box-sizing: border-box; min-height: 8rem; resize: vertical; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-in-count, .wb-in-changed { overflow-wrap: anywhere; }

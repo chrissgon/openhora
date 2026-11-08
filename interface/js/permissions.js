@@ -60,7 +60,7 @@ export const EXEMPT = Object.freeze({
 export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
   ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"], ["instructions-set"], ["instructions-add"], ["attachments"], ["attachment-add"], ["attachment-discard"],
-  ["media-in"], ["media-list"], ["video-new"], ["video-run"], ["captions-read"], ["captions-edit"], ["video-download"], ["video-still"], ["video-catalogue"],
+  ["media-in"], ["media-list"], ["video-new"], ["video-run"], ["captions-read"], ["captions-edit"], ["video-download"], ["video-still"], ["video-catalogue"], ["video-watch"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
   ["approve", "effect:create"], ["approve", "effect:write"], ["approve", "effect:send"], ["approve", "effect:send-own"], ["approve", "effect:publish"], ["approve", "effect:calendar"], ["approve", "effect:files"], ["approve", "effect:mailbox"], ["approve", "effect:tasks"], ["approve", "effect:deliver"],
 ]);
