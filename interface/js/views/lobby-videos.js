@@ -38,7 +38,8 @@ export function createVideos(env) {
   const noPost = h("p", { class: "wb-steps-note wb-vd-no-post", text: "No post file under docs/marketing/content/ yet.", hidden: true });
   const uploadButton = h("button", { class: "pui-btn pui-solid pui-theme wb-vd-upload", type: "button", text: "Upload and start" });
   const form = h("div", { class: "wb-vd-form" }, fileBox, postLabel, postSelect, noPost, uploadButton);
-  const el = h("section", { class: "wb-sec wb-vd-sec", hidden: true }, head, lead, form, list, quota, note, error);
+  const stage = h("div", { class: "wb-vd-stage", hidden: true });   // holds the playing video outside the list, so a redraw of the list never detaches (and so never pauses) it
+  const el = h("section", { class: "wb-sec wb-vd-sec", hidden: true }, head, lead, form, list, stage, quota, note, error);
   let media = null;         // the last answer of the media list
   let artifacts = null;     // the last answer of the artifacts list (the posts)
   let readAt = 0;
@@ -51,6 +52,7 @@ export function createVideos(env) {
   let boxShown = null;
   let readingPosts = false;
   let controller = null;
+  let watching = null;      // {task, url, video}: the one video played before its approval, from a blob URL the page built
   const may = (op) => pageMay(env.entry ? env.entry() : null, op);
   const here = () => onLoopback(hostOf(env));
 
@@ -190,6 +192,31 @@ export function createVideos(env) {
     }, { reread: false });
   }
 
+  /** Gives the playing video's address back and removes it. */
+  function stopWatching() {
+    if (!watching) return;
+    if (typeof watching.video.pause === "function") watching.video.pause();
+    stage.replaceChildren();
+    stage.hidden = true;
+    URL.revokeObjectURL(watching.url);
+    watching = null;
+  }
+
+  /** Plays the render the open delivery decision names, in a video element under its item, one at a time. A refusal shows as it came. */
+  function watch(record, key) {
+    if (!may("video-watch") || !here()) return;
+    perform(key, "Loading the video...", async () => {
+      const blob = await env.api.videoWatch(env.project, record.task);
+      stopWatching();      // one at a time: the earlier address is given back
+      const url = URL.createObjectURL(blob);
+      const video = h("video", { class: "wb-vd-video", controls: "", playsinline: "", src: url, "aria-label": "The video waiting for your approval" });
+      watching = { task: record.task, url, video };
+      stage.replaceChildren(h("p", { class: "wb-steps-note wb-vd-stage-name", text: `Recording ${String(record.media).slice(0, 8)}: the video waiting for your approval` }), video);
+      stage.hidden = false;
+      return "";
+    }, { reread: false });
+  }
+
   function button(key, label, onClick) {
     const mine = busy !== null && busy.key === key;
     const control = h("button", { class: "pui-btn pui-surface pui-outline wb-vd-button", type: "button", "aria-busy": mine ? "true" : null, text: mine ? busy.label : label });
@@ -220,6 +247,11 @@ export function createVideos(env) {
       if (held) out.push(link("Open the decision", router.lobbyHash(env.project, "inbox", held.id)));
     } else if (state === "deliver") {
       out.push(reviewButton(record, "gate", key));
+      if (may("video-watch") && here()) {
+        out.push(watching && watching.task === record.task
+          ? button(`${key}:unwatch`, "Close the video", () => { stopWatching(); draw(); })
+          : button(`${key}:watch`, "Watch the video", () => watch(record, `${key}:watch`)));
+      }
       if (held) out.push(link("Open the delivery card", router.lobbyHash(env.project, "inbox", held.id)));
     } else if (state === "waiting") {
       out.push(link("Open the Inbox", router.lobbyHash(env.project, "inbox")));
@@ -245,6 +277,8 @@ export function createVideos(env) {
     const found = media && Array.isArray(media.recordings) ? newestFirst(media.recordings) : [];
     const shownRows = found.slice(0, LIST_MAX);
     const items = shownRows.map(item);
+    // the video stays in the stage, which a redraw never touches; it goes when its recording leaves the delivery state
+    if (watching && !found.some((r) => r.task === watching.task && stateOf(r, rows) === "deliver")) stopWatching();
     if (found.length > LIST_MAX) items.push(h("li", { class: "wb-vd-more", text: `and ${found.length - LIST_MAX} older` }));
     if (media && !found.length) items.push(h("li", { class: "wb-vd-more", text: "No recording yet." }));
     list.replaceChildren(...items);
@@ -310,6 +344,7 @@ export function createVideos(env) {
       if (!shown) {
         media = null;
         artifacts = null;
+        stopWatching();
         clearMessages();
         if (controller) controller.abort();
         controller = null;

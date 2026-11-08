@@ -51,6 +51,7 @@
  {"op": "video-download", "kind": "internal", "group": "media", "why": "hands out the delivered render (limit L67); never served in words"},
  {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"},
  {"op": "video-catalogue", "kind": "internal", "group": "media", "why": "the catalogue of animations the caption review offers (our fields only), read by the page; not served in words in M1"},
+ {"op": "video-watch", "kind": "internal", "group": "media", "why": "hands the page the bytes of a video waiting for its delivery approval; never served in words"},
  {"op": "video-phone-in", "kind": "internal", "group": "media-phone", "why": "the messaging bridge's own call for a recording a listed sender sent; never served in words"},
  {"op": "video-phone-start", "kind": "internal", "group": "media-phone", "why": "starts a video from a recording sent from a messaging app, for a post the sender chose; never served in words"},
  {"op": "video-phone-reply", "kind": "internal", "group": "media-phone", "why": "reads a reply to the caption review or the delivery card of a video; never served in words"},

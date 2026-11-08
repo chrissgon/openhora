@@ -1088,6 +1088,12 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "the catalogue of animations the caption review of a new video can add: each block, its parameters and their bounds, a sample, the engines that draw it, and whether this project's engine can add it now",
      "natural": {"class": "G", "since": 4, "order": 159, "privacy": "own", "cost": "none", "what": "list the animations a new video can add", "about": "List the animations a new video can add.", "slots": {}}},
+    # V1c-3: watch a video before approving its delivery (L71). Class G, kind internal, page only; refused on the LAN socket.
+    {"name": "video-watch", "call": "video_watch",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("page",), "model": False, "channel_arg": True,
+     "help": "the bytes of a rendered video that waits for its delivery approval, to watch it on this computer's own page before approving; marks nothing",
+     "natural": {"class": "G", "since": 4, "order": 160, "privacy": "own", "cost": "none", "what": "watch a video before approving its delivery", "about": "Watch a video before approving its delivery.", "slots": {}}},
     # V1d-1: a video from a messaging app (decision 14). Class G, kind internal: the bridge's own calls, never served in words.
     {"name": "video-phone-in", "call": "video_phone_in",
      "args": ({"name": "incoming", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"}, {"name": "ref", "kind": "str", "required": True},),
@@ -1235,7 +1241,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
     # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
     "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"), "kind": None},
 }
@@ -1264,7 +1270,7 @@ SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
 LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
-LAN_REFUSED_OPS = ("media-in", "video-download", "video-still")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py)
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py)
 LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
@@ -1366,7 +1372,7 @@ GROUP_TEXT = {
     "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
-    "media": "adds recordings, starts and runs new videos, reads and edits their captions, lists the animations they can add, and saves a delivered video; a recording, its still and the video never cross the local network",
+    "media": "adds and lists recordings, starts and runs new videos, edits their captions and animations, shows a video before its delivery and saves it; a recording, its still and the video never cross the local network",
     "media-phone": "takes a recording a listed sender sends from this app (within its file limit), starts its video for a post they choose, sends them the captions and reads their corrections; both pass through the app's servers",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)

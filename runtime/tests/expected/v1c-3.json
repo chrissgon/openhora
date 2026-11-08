@@ -1,0 +1,9 @@
+{
+  "package": "v1c-3",
+  "add": {
+    "operations_table.PUBLIC_MODULES": ["ops_media_watch"],
+    "mcp.CHANNEL_ARG": ["video-watch"],
+    "interpreter_coverage.INTERNAL": ["video-watch"],
+    "run_limits.NUMBERS": [71]
+  }
+}

@@ -326,7 +326,7 @@ def test_the_section_lists_newest_first_offers_each_state_its_action_and_says_ea
     assert got["titles"] == ["Recording a7000000 · 2026-10-07 · 46.0 MiB", "Recording c6000000 · 2026-10-06 · 46.0 MiB"]
     assert got["states"] == {"a7": "Working: transcribing, cutting or rendering.", "c6": "Failed.", "b5": "Not started.", "a4": "Ready to run.", "f3": "Waiting for you: approve the delivery.",
                              "e2": "Waiting for you: check the captions.", "d1": "Delivered."}
-    assert got["buttons"] == {"a7": [], "c6": ["Start"], "b5": ["Start"], "a4": ["Run"], "f3": ["Check the captions"], "e2": ["Check the captions"], "d1": ["Download", "Check the captions"]}
+    assert got["buttons"] == {"a7": [], "c6": ["Start"], "b5": ["Start"], "a4": ["Run"], "f3": ["Check the captions", "Watch the video"], "e2": ["Check the captions"], "d1": ["Download", "Check the captions"]}
     assert got["links"] == {"review": [["Open the decision", "#/p/p/lobby/inbox/50"]], "deliver": [["Open the delivery card", "#/p/p/lobby/inbox/51"]]}
     assert got["quota"] == "Recordings use 1.2 GiB of 8.0 GiB."
     assert got["form"] == {"options": ["Choose a post", "docs/marketing/content/launch-day.md"], "file": 1, "upload": True, "reads": [1, 1]}

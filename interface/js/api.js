@@ -472,6 +472,11 @@ export function videoCatalogue(p, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/video-catalogue`, { signal });
 }
 
+/** GET /projects/{p}/videos/{id}/watch: the render the open delivery decision of the video names, as a Blob to play before the approval (this computer's own page only). */
+export function videoWatch(p, id, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/watch`, { raw: true, accept: "video/mp4", signal });
+}
+
 /** GET /projects/{p}/commands: {commands: [{command, arguments, help}]}, the lines `/help` prints, in its order. */
 export function commands(p, options) {
   return send("GET", `/projects/${enc(p)}/commands`, options);

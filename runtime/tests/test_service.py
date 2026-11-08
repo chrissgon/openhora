@@ -189,7 +189,7 @@ def path_of(world, route):
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["download"]]   # the two are tested in test_service_media.py
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
 READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda",
-            "media-list", "captions-read", "video-download", "video-still", "video-catalogue") + VIEW_READS
+            "media-list", "captions-read", "video-download", "video-still", "video-catalogue", "video-watch") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -410,11 +410,11 @@ def test_every_response_carries_the_cache_and_sniffing_headers_and_a_page_the_po
         status, headers, _ = call(world, method, path, body, auth=auth, raw=b"" if body is None and method == "POST" else None)
         assert headers["Cache-Control"] == "no-store" and headers["X-Content-Type-Options"] == "nosniff", (path, status)
         page = headers["Content-Type"].startswith("text/html")
-        assert (headers.get("Content-Security-Policy") == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'") == page, path
+        assert (headers.get("Content-Security-Policy") == "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'") == page, path
         assert (headers.get("Referrer-Policy") == "no-referrer") == page, path
     (world.interface / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
     headers = call(world, "GET", "/logo.svg", auth=False)[1]
-    assert headers["Content-Security-Policy"] == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"  # an svg can hold a script
+    assert headers["Content-Security-Policy"] == "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'"  # an svg can hold a script
 
 
 def test_a_post_needs_json_a_known_length_and_a_body_the_route_takes(world):
@@ -1185,15 +1185,15 @@ def test_the_command_prints_its_help_and_refuses_an_unknown_call_and_a_missing_p
     assert missing.returncode == 3 and str(tmp_path / "nothing") in missing.stderr and missing.stdout == ""
 
 
-def test_the_policy_of_a_page_is_exactly_three_directives_and_never_allows_data():
+def test_the_policy_of_a_page_is_exactly_four_directives_and_never_allows_data():
     """The header is a security decision: `blob:` is there so that the page can show an image it fetched with the token
     (contracts/runtime.md, "The local service"); `default-src` and `frame-ancestors` are as they were."""
-    assert service.CSP == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
-    assert [d.split()[0] for d in service.CSP.split("; ")] == ["default-src", "img-src", "frame-ancestors"]
+    assert service.CSP == "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'"
+    assert [d.split()[0] for d in service.CSP.split("; ")] == ["default-src", "img-src", "media-src", "frame-ancestors"]
     assert "data:" not in service.CSP and "unsafe" not in service.CSP and "http" not in service.CSP
     contract = (st.REPO / "contracts" / "runtime.md").read_text(encoding="utf-8")
     assert f"`Content-Security-Policy: {service.CSP}`" in contract
-    assert all(d in contract for d in ("`default-src 'self'`", "`frame-ancestors 'none'`", "`img-src 'self' blob:`"))
+    assert all(d in contract for d in ("`default-src 'self'`", "`frame-ancestors 'none'`", "`img-src 'self' blob:`", "`media-src 'self' blob:`"))
 
 
 # --- ADJ-B3 (A-39): the token file's path and the commands that read it, before the page holds a token -------------------------------

@@ -313,6 +313,8 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `ops_media_catalogue.py`: the operation `video-catalogue` (V1b3): the blocks the caption review can add, each with `addable` and `why`, for this project's engine; terminal and page, group `media`, class G kind `internal`; it is our data and crosses the LAN socket (VD18). Standard library only.
 
+`ops_media_watch.py`: the operation `video-watch` (V1c-3, limit L71): the bytes of the render the open deliver decision of a media task names, hashed again against the delivery document and at most the preview bound, for the page to play before the approval; page only, group `media`, class G kind `internal`, refused on the `--lan` socket; it writes and marks nothing. Standard library only.
+
 `ops_media_phone.py`: the four operations of a video that comes from a messaging app (V1d-1, decision 14) and the helper `video_phone_posts`: a recording in, the video started for one of the posts offered, the reading of a reply to the captions, and the run again. The operations layer decides (the channel `messaging` only, the group `media-phone`, the post, the words); the bridge only carries. A correction goes through `ops_media_edit.edit`; the caption words are returned and never kept.
 
 `media_phone_words.py`: the pure reading of a reply about captions (V1d-1): `continue`, `wrong -> right` lines, the run of words a correction names, and its mapping to the closed edits of `captions.py`. It reads no file and imports nothing of this checkout; the words of a correction are read on the operations side because a messaging module may not import it.

@@ -119,7 +119,7 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      with `queues` (say, route): it starts anyway, and the operation itself queues its call while a run holds the
      project. Jobs live in memory; the records are in the store.
   9. Every response: Cache-Control no-store and X-Content-Type-Options nosniff; a page also a Content-Security-Policy of
-     "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
+     "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
  10. A static path is served only when its real path is inside the interface folder, with a known extension, no
      dotfile and no listing. /favicon.ico (which browsers ask for by default) is answered with /favicon.svg.
  11. The log line is the method, the path (never the query), the status and the duration. Never a header, a body or the
@@ -243,8 +243,9 @@ ONCE = ("host", "origin", "authorization", "content-type", "content-length", "tr
 # Three directives. `default-src 'self'` and `frame-ancestors 'none'` are the rule since the first page. `img-src 'self'
 # blob:` is there for one reason: the raw bytes of an image sit behind the bearer header, so the page fetches them itself
 # and shows them from a `blob:` URL it built; `blob:` can only name bytes the page made, nothing from another origin.
-# Never `data:`, and no other directive is widened.
-CSP = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+# `media-src 'self' blob:` is there for the same reason (V1c-3, L71): a video waiting for its approval is fetched with the bearer header and played from a
+# `blob:` URL the page built. Never `data:`, and no other directive is widened.
+CSP = "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'"
 # What a static file is served as. An extension not here is not served (the rule fails closed).
 TYPES = {
     ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -404,6 +405,8 @@ ROUTES = (
     _route("GET", "/projects/{p}/videos/{id}/still", "video-still", bind={"task_id": "id"}, take=(), hidden=("out",), raw=True),
     # V1b3: the catalogue of animations (VD15); our data, it crosses the LAN socket too (VD18; not in operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/video-catalogue", "video-catalogue", take=()),
+    # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
+    _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
     _route("GET", "/jobs/{id}", own="job"),
 )
 PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
