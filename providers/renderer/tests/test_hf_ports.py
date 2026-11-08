@@ -210,7 +210,7 @@ def test_a_caption_ports_declared_numbers_keep_the_lowest_line_box_above_the_ban
     text = text_of(short)
     parts = _gsap_lint.parse(text, "hf:" + short)
     pad = _number(parts["script"], r"\bPAD_BOTTOM = (\d+)")
-    css_pad = _number(parts["style"], r"\.stage \{[^}]*padding: 0 \d+px (\d+)px;")
+    css_pad = _number(parts["style"], r"\.stage \{[^}]*inset: 0 0 (\d+)px 0;")      # the stage ends PAD_BOTTOM above the band bottom, so no element box reaches 1560
     line_height = _number(parts["style"], r"line-height: ([0-9.]+);")
     assert pad == css_pad and pad >= 24                              # the bottom padding of the stage: what is left under the last line
     assert line_height >= 1.21                                       # the glyph rectangle of Inter (1.21 em) sits inside the line box: nothing hangs below it
@@ -302,7 +302,7 @@ def test_the_composed_scripts_of_the_ports_parse_when_node_exists(tmp_path, docs
     source = tmp_path / "scripts.js"
     source.write_text("\n".join(scripts), encoding="utf-8")
     done = subprocess.run([node, "--check", str(source)], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr[-400:]
+    assert done.returncode == 0, done.stderr[:500]
 
 
 @pytest.mark.parametrize("short", sorted(PORTS))
@@ -311,3 +311,44 @@ def test_each_ports_gsap_page_is_pinned_with_the_sha256_of_its_bytes(short):
     pins = _frames.template_pins()
     rel = "hf/%s/gsap.html" % short
     assert pins[rel] == hashlib.sha256((HF_DIR / short / "gsap.html").read_bytes()).hexdigest()
+
+
+NODE_STUB = r"""
+function el(cls) {
+  const o = {cls, kids: [], text: "", style: {setProperty() {}}, removed: false};
+  o.querySelector = (sel) => { const c = sel.slice(1); if (o.cls === c) return o; for (const k of o.kids) { if (k.cls === c) return k; } const k = el(c); o.kids.push(k); return k; };
+  o.cloneNode = () => el(o.cls);
+  o.appendChild = (k) => { o.kids.push(k); return k; };
+  o.remove = () => { o.removed = true; };
+  o.querySelectorAll = () => [];
+  Object.defineProperty(o, "textContent", {get() { return o.text; }, set(v) { o.text = v; }});
+  return o;
+}
+const root = el("root");
+const tl = {fromTo() {}, to() {}, set() {}};
+const data = JSON.parse(process.argv[2]);
+build(root, tl, data, {fps: 30, duration: 1.2, band: {top: 1240, height: 320}});
+const texts = [];
+(function walk(o) { if (o.removed) return; if (o.text) texts.push(o.text); o.kids.forEach(walk); })(root);
+console.log(JSON.stringify(texts));
+"""
+
+
+@pytest.mark.parametrize("short", CAPTION_PORTS)
+def test_a_caption_ports_build_puts_every_word_of_a_chunk_into_the_page_as_text(tmp_path, short):
+    """Runs the fragment's `build` in node against a minimal stand-in for the elements it touches: every word of the chunk must end up as non-empty
+    text in the line it builds. Fails when a caption port draws a chunk that has words and no text."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    script = _gsap_lint.parse(text_of(short), "hf:" + short)["script"]
+    words = [{"text": "Alpha", "start": 0.0, "end": 0.4}, {"text": "beta", "start": 0.4, "end": 0.8}, {"text": "Gamma", "start": 0.8, "end": 1.1}]
+    data = {"words": words, "anchor": "bottom", "duration": 1.2, "zones": {"caption": [1240, 1560]}, "margin": 14}
+    program = tmp_path / "build_stub.js"
+    program.write_text(script + "\n" + NODE_STUB, encoding="utf-8")
+    done = subprocess.run([node, str(program), json.dumps(data)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[:500]
+    shown = json.loads(done.stdout)
+    assert shown and all(t for t in shown)
+    for word in ("Alpha", "beta", "Gamma"):
+        assert word in shown, (short, shown)
