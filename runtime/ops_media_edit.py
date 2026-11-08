@@ -14,6 +14,8 @@ kind `media` (runtime/step_media.py), in one of two places:
            starts it again the engine finds the answered decision, prepares `remap` again (the gate's redo) and renders again, which gives a new hash
            and a new approval: the old approval can never pass the new gate.
 
+`view(ctx, task_id)` reads the same files and writes nothing: the caption review as the person reads it (words, chunks, proposed retakes, beats, and the revision an edit must name).
+
 An edit that changes nothing is refused before anything is written or answered. The files it writes are the person's work: the engine's cleanup never
 removes them. Nothing here reaches a provider or the network.
 
@@ -138,6 +140,48 @@ def edit(ctx: dict, task_id: int, revision: int, edits: list, *, actor=None) -> 
                 ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, item["id"], resolution="answered", by="code", answer=BACK_ANSWER))
             answered = item["id"]
     return {"task": task_id, "mode": mode, "applied": counts, "answered": answered}
+
+
+NOT_READY = "the captions are not ready: the video has not reached the caption review yet"
+
+
+def _still_name(state: dict):
+    """The name of the still the engine made for the face box, or None when none was made."""
+    name = ((state["steps"].get("still") or {}).get("result") or {}).get("name")
+    return name if isinstance(name, str) and step_media.STILL_NAME.fullmatch(name) else None
+
+
+def view(ctx: dict, task_id: int) -> dict:
+    """The caption review of the video of `task_id` as the page and the terminal read it (`captions-read`). Returns {"task", "media",
+    "mode": "review" or "gate" (where an edit would go) or None (no edit is taken now), "still": the still's name or None,
+    "view": runtime/captions.py view(...)}. core.OpsError for a task that is not a new video, or one whose proposal is not made yet.
+    It writes nothing and takes no lock."""
+    task = core._stored(ctx, ctx["store"].task_get, task_id)
+    if not ctx["store"].is_step_task(task) or task.get("step_kind") != KIND:
+        raise core.OpsError("this task is not a new video", 1)
+    try:
+        state = steps.state_of(steps.kind_of(KIND), task.get("step_state"))
+    except steps.StepFailure:
+        raise core.OpsError("the state of this task cannot be read", 1) from None
+    rid = (task.get("step_args") or {}).get("media")
+    if not isinstance(rid, str):
+        raise core.OpsError("this task names no recording", 1)
+    if steps.step_status(state, "align-proposal") != "done":
+        raise core.OpsError(NOT_READY, 1)
+    media_store = ops_step_seams.MediaStore(ctx)
+    transcript = _json(media_store, rid, TRANSCRIPT)
+    try:
+        read_edited = captions.check_edited(_json(media_store, rid, EDITED, default=captions.start_edited(transcript)))
+        read_review = captions.reconcile(read_edited, captions.check_review(_json(media_store, rid, REVIEW, default=captions.new_review())))
+        proposal_edl, proposal_beats = _json(media_store, rid, PROPOSAL_EDL), _json(media_store, rid, PROPOSAL_BEATS)
+        shown = captions.view(read_edited, read_review, proposal_edl, proposal_beats, {})
+    except captions.CaptionError as e:
+        raise core.OpsError(f"refused: {e.code} {e.field}".strip(), 1) from None
+    try:
+        mode = _where(ctx, task, state)[0]
+    except core.OpsError:
+        mode = None
+    return {"task": task_id, "media": rid, "mode": mode, "still": _still_name(state), "view": shown}
 
 
 if __name__ == "__main__":

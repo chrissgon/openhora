@@ -300,7 +300,9 @@ One paragraph each, `path`: what it owns, a blank line between (SPEC-HOTSPOTS: a
 
 `runtime/step_media.py`: The step kind `media` (package V1b1-4): take, transcribe, analyse, a side step still, retakes, align-proposal, the stop review, remap, base, align, check, render, cover, verify, document and the gate `deliver` (word `deliver`, redo `remap`). It imports no module that calls a provider (limit L30): the engine and the store are `ctx.services` (`media_engine`, `media_store`, `runtime/ops_step_seams.py`). Not unattended; no file of the project is written
 
-`runtime/ops_media_edit.py`: `edit`, the caption edit of a new video, at the review or at the delivery approval, where it answers the open delivery by code so the video is rendered again and approved again (package V1b1-4; the command and route are V1b2's)
+`runtime/ops_media_edit.py`: `edit`, the caption edit of a new video, at the review or at the delivery approval, where it answers the open delivery by code so the video is rendered again and approved again (package V1b1-4); `view` reads the review and writes nothing (V1b2-1)
+
+`runtime/ops_media.py`: the eight operations of a new video: a recording in, the list, the start (`video-new`: one step task, no plan), the person's own run, the caption review read and edit, the delivered video and the still saved to a new file outside the project (package V1b2-1; terminal rows of class G, kind `internal`; the page's routes are V1b2-2)
 
 `runtime/orphans.py`: The sweep of orphan containers and networks of the eval harness, by the names `wb-eval-run-`, `wb-eval-keys-`, `wb-eval-model-` (a local model's server) and `wb-eval-held-` followed by 16 hexadecimal characters (the label alone selects nothing); it removes an ended run container, a key proxy or model server whose run container is gone and a network nothing of its run is on, and never a running container unless asked; the harness's shared proxy, networks and key holders are never selected; `tool` is the container client (the lab facade's `container_tool`; a test passes a fake)
 

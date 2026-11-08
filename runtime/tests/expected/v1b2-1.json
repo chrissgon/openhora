@@ -1,0 +1,18 @@
+{
+  "package": "v1b2-1",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "media-in",
+      "media-list",
+      "video-new",
+      "video-run",
+      "captions-read",
+      "captions-edit",
+      "video-download",
+      "video-still"
+    ]
+  }
+}
