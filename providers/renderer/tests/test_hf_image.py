@@ -525,3 +525,12 @@ def test_the_inner_entry_is_in_the_definition_the_build_context_and_the_dockerfi
     assert copy > last_run and not any(s.startswith("RUN ") for s in steps[copy:])
     first_label = next(i for i, s in enumerate(steps) if s.startswith("LABEL "))
     assert copy < first_label
+
+
+def test_the_measure_script_is_in_the_definition_the_build_context_and_the_dockerfile_after_the_purge_beside_the_inner_entry():
+    assert "hf_measure.mjs" in hf.manifest_files() and "!hf_measure.mjs" in (FOLDER / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    steps = instructions((FOLDER / "Dockerfile").read_text(encoding="utf-8"))
+    last_run = max(i for i, s in enumerate(steps) if s.startswith("RUN "))
+    copy = steps.index("COPY hf_measure.mjs /opt/hf-run/hf_measure.mjs")
+    assert copy > last_run and copy == steps.index("COPY hf_render.py /opt/hf-run/hf_render.py") + 1 and not any(s.startswith("RUN ") for s in steps[copy:])
+    assert copy < next(i for i, s in enumerate(steps) if s.startswith("LABEL "))

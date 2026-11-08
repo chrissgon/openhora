@@ -97,6 +97,52 @@ def write_hf_compose_blocks(folder, mixed=False) -> None:
     _blocks.write_pins(str(folder))
 
 
+# --- planted blocks: fictional, test-only blocks that break a rule, for the gates of the HyperFrames engine (never committed)
+PLANTED_BLOCK = {"schema_version": 1, "license": ["Apache-2.0"], "source": "hyperframes-registry", "may_cross_face": False, "tier": "B", "commit": "a" * 40,
+                 "notice": "Apache-2.0; adapted from a fictional registry at aaaaaaaa; notices in the image folder", "implementations": {"gsap": "gsap.html"}}
+PLANTED_FRAGMENT = """<template data-hf-block="%(name)s">
+  <style>
+    :scope { display: block; }
+    .line { position: absolute; left: 65px; font-family: var(--font-display); font-weight: var(--weight-display); color: var(--c-text); font-size: 48px; }
+  </style>
+  <div class="line"><span class="words"></span></div>
+  <script data-hf-build>
+    function build(root, tl, data, ctx) {
+      var band = data.zones.%(zone)s;
+      root.querySelector(".line").style.top = (band[1] - band[0] + %(down)d) + "px";
+      root.querySelector(".words").textContent = %(text)s;
+      tl.fromTo(root.querySelector(".line"), { opacity: 0 }, { opacity: 1, duration: 0.1 }, 0);
+    }
+  </script>
+</template>
+"""
+
+
+def planted_blocks(tmp_path, which):
+    """A copy of the committed blocks plus the HyperFrames engine's file and one fictional test-only block that breaks a rule, never committed:
+    `hf:demo-cover` (the keyword card) puts its text 20 px into the face box (the card band's bottom, the 18 px gap and 20 px), `hf:demo-low`
+    (the caption) puts its words 20 px under the caption band's bottom. Both sit inside an instance that clips what it draws to its band, so the
+    refusal comes from the text's own rectangles, which the page reports unclipped."""
+    folder = tmp_path / ("blocks-" + which)
+    shutil.copytree(BLOCKS, folder)
+    name, preset, band, zone, down, text = {
+        "demo-cover": ("hf:demo-cover", "keyword", "card", "card", 38, "data.params.text"),
+        "demo-low": ("hf:demo-low", "caption", "caption", "caption", 20, 'data.words.map(function (w) { return w.text; }).join(" ")'),
+    }[which]
+    block = dict(PLANTED_BLOCK, name=name, kind="caption" if preset == "caption" else "overlay", preset=preset, band=band,
+                 use_when="a fictional block that breaks a rule, used by the live tests only", samples=[{} if preset == "caption" else {"text": "Name every dollar"}],
+                 params={} if preset == "caption" else {"text": {"type": "text", "max": 24, "required": True}, "icon": {"type": "icon"}}, natural_duration=None if preset == "caption" else 1.2)
+    (folder / "hf" / which).mkdir()
+    (folder / "hf" / which / "block.json").write_text(json.dumps(block, indent=1))
+    (folder / "hf" / which / "gsap.html").write_text(PLANTED_FRAGMENT % {"name": name, "zone": zone, "down": down, "text": text})
+    presets = dict(OH_PRESETS)
+    presets[preset] = name
+    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
+        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap", "renderat"], "presets": presets}, indent=1))
+    _blocks.write_pins(str(folder))
+    return folder
+
+
 def hf_documents(tmp):
     """(data, edl, beats, vocab) of the fictional post for the HyperFrames engine: the base edit list of the kit's transcript, the post's beats
     without the cutaway and the pip (which this engine does not draw). Written under `tmp` for the `align` verb."""
