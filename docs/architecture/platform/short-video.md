@@ -100,7 +100,7 @@ The flow `new-video` (`flows/new-video.json`) starts one step task of the kind `
 1. `take`: reads the post (`_take`), takes the platform from its `- Network:` line, needs a video entry in the platform's data file and a script, and binds the recording to the task (`MediaStore.bind`, `runtime/ops_step_seams.py`).
 2. `transcribe`, 3. `analyse`, 4. `still` (a side step, `_still_due`), 5. `retakes`, 6. `align-proposal`: each calls one verb of the transcriber or the renderer through `MediaEngine.call`, whose list of verbs is closed (`MediaEngine.CLASSES`).
 7. `review`: the stop "Check the captions" (`_review_decision`).
-8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors, and the renderer's check.
+8. `remap`, 9. `base`, 10. `align`, 11. `check`: the edited transcript, the edit list with the project's theme (`theme.theme_from_text`), the beats with the person's anchors and added animations, and the renderer's check.
 12. `render`, 13. `cover`, 14. `verify`: the file `render-<sha12>.mp4`, its cover (`MediaStore.settle_cover` names it by its own hash) and the renderer's verify; `render.json` carries the blocks the renderer drew and their hash.
 15. `document`: the delivery document (`deliver_document.build`), written through `EffectFiles.write`. 16. `deliver`: the gate (`steps.Gate`, redo `remap`).
 
@@ -112,9 +112,13 @@ From the terminal (V1b2-1): `media-in --path <file>` takes the recording and pri
 
 From the page (V1b2-2): the eight operations are routes of the local service, in the policy group `media` (no grant list holds it, so no messaging app or connected client can use it): `GET` and `POST /api/v1/projects/<id>/media` (the list; the upload, the file as the body with `Content-Type: video/mp4` or `video/quicktime`, read as a stream, at most 1 GiB), `POST .../videos` (`media_id`, `post`: a job), `POST .../videos/<task>/run` (a job), `GET` and `POST .../videos/<task>/captions` (the review; an edit `{revision, edits}` with the edits as JSON text), `GET .../videos/<task>/still` and `.../download` (the face-box still; the delivered video as an attachment `video-<12 hex>.mp4`). The upload, the still and the download are answered `409` on the `--lan` socket before a byte is read (limit L68); the approval of the delivery uses the existing `POST .../pending/<id>/approve`, which the `--lan` socket also refuses (L67).
 
+Add an animation (V1b3): `captions-edit` has the edit kind `animation` (VD15): `{"op": "animation", "block", "params", "word_from", "word_to"}` adds a review-only beat, `{"op": "animation", "id", "remove": true}` removes one. The catalogue is read as data from `providers/renderer/blocks/catalogue.json` (`media_animation.read_catalogue`), and refused when its `blocks_sha256` is not the sha256 of `blocks/pins.json`. The parameters are checked by the renderer's own checker: `media_animation.checker` calls the host verb `block-params` through `MediaEngine`, which keeps only that verb's closed refusal line (a code and a parameter's name, never a value). The animation is stored in `review.json` (`animations`, an origin word range like an anchor) and never written into the post file; `align` appends it to `beats.json` as an overlay `a<n>` with `beat` 1000 + n and score 1, and an animation whose words were all cut stops the step (`animation_lost`). Added animations plus the script's beats that are not dropped are at most 12 (`limits.beats_max`). Only overlays with a preset, no asset slot and a block of the project's engine can be added in M1. The route `GET /api/v1/projects/<id>/video-catalogue` (operation `video-catalogue`) lists the blocks with `addable` and `why`, and crosses the LAN socket (VD18).
+
 Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
 
 V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
+
+From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the group `media-phone` sends a video. The bridge checks its declared size against the least of the media store's 1 GiB, the quota left and the provider's file limit before fetching anything (Telegram's bot download is 20 MB, so most recordings of a minute or more get the over-cap sentence, and the Drive link or the page is the way in for them). `video-phone-in` keeps it, the caption (the post's name) or a numbered list chooses the post, `video-phone-start` runs the video to the caption review, and the words go to the sender's chat. A reply to the caption card, one line per correction `wrong -> right`, is mapped by `runtime/media_phone_words.py` to the closed edits and applied by `ops_media_edit.edit`; `continue` answers the review and runs the video. A correction in a reply to the delivery card renders again and asks again. A Google Drive link sent instead of the file (V1d-3, limit L70) is fetched with the project's Google account when one is connected, otherwise from the shared link over https from a closed host list, global addresses only, at most three checked redirects and the size known first; it becomes a recording and goes on from the post choice.
 
 ## Known limits and improvements
 
@@ -125,6 +129,9 @@ V1d plugs in at the `preview` step between `verify` and `document` (`step_media.
 - `selfcheck` is the one inner verb that is not a drawing verb and still imports the drawing part (`_cdp`), because it reports the container mode.
 - The `hf:` allowlist is empty and no committed engine file runs the `gsap` runtime yet (the composer of V3b-1 can draw `gsap` blocks and tests do, from a temporary blocks folder; the committed `blocks/engines/hyperframes.json` and the first `gsap` blocks come with the one-file measurement and V3b-4); a block whose parameters differ from its preset's cannot be named by a beat yet (OPEN-6 of the V3b0 spec).
 - The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
+- The HyperFrames engine has no `block-params` yet, so a project whose engine is HyperFrames (today only by `RENDERER_PROVIDER`) cannot add an animation (`block_check_unavailable`); V4 adds the verb. Picking the block of a script beat's preset (G14) and a preview of an added animation are later (V1b3 OPEN-5, OPEN-10).
+
+On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 20 MiB, the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. A larger render is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
 
 ## Changes
 
@@ -135,5 +142,13 @@ Written on 2026-11-07 by V1a-3.
 2026-11-07: V1b2-1, the media operations and the media settings key
 
 2026-11-07: V1b2-2, the media routes and limit L68
+2026-11-08: V1d-2, the preview and the deliver card on a messaging app
+
+2026-11-08: V1b3, "Add an animation" in the runtime (VD15)
+
+2026-11-08: V1d-1, a video from a messaging app and limit L69
+
+2026-11-08: V1d-3, a recording from a Google Drive link and limit L70
 
 Updated on 2026-11-07 by V3a-2.
+

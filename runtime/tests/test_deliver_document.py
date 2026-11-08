@@ -151,7 +151,7 @@ def test_the_text_the_person_reads_holds_every_fact_and_the_closing_sentence():
 
 def test_the_title_the_description_and_the_closed_facts():
     doc = make()
-    assert dd.title(doc) == "Deliver the video for instagram"
+    assert dd.title(doc) == "Deliver the video"
     assert dd.describe(doc) == f"deliver render-{VIDEO_SHA[:12]}.mp4 (instagram)"
     assert dd.summary(doc) == {"word": "deliver", "platform": "instagram", "video_sha256": VIDEO_SHA, "size": 12_345_678,
                                "duration_ms": 31_000, "blocks": 0, "preview": False}

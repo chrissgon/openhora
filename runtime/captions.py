@@ -15,7 +15,9 @@ Three documents, all under <data_dir>/media/<id>/ (never in the project, in git,
                           `source` ("transcriber" or "edited"). It is a transcript for every rule of the plan (the credential
                           scan, the consent setting, retention).
   review.json             what the person decided: the retakes they confirmed, the beats they anchored to a word range, the
-                          overlays they dropped, the choice for an asset slot with no file, the face box, the cover's offset
+                          overlays they dropped, the choice for an asset slot with no file, the face box, the cover's offset, the
+                          animations they added (a catalogue block, its parameters as the renderer's checker accepted them, and an
+                          origin word range)
 
 The person changes WORDS, never times. An edit is a closed object, `edits()` below lists them; a key that names a time
 (`start`, `end`, `time`...) is refused, not ignored. Times are code's:
@@ -24,6 +26,10 @@ The person changes WORDS, never times. An edit is a closed object, `edits()` bel
   split   one word becomes several; the word's time is shared out by their lengths and each part is flagged `estimated`.
   merge   adjacent words (of one segment) become one; it starts where the first starts and ends where the last ends.
   delete  the word is not in the captions.
+
+`animation` adds a review-only beat (VD15): a block of the catalogue over a word range, its parameters checked by the caller's `animate`
+(the renderer's own checker, runtime/media_animation.py); `{"op": "animation", "id": "a2", "remove": true}` removes one. The step kind
+appends them to beats.json after alignment; the post file is never changed.
 
 Captions are written AS SPOKEN (a speaker's contractions and slang stay as said): nothing here normalises a spelling. The one change a text goes
 through is the renderer's own hardening (NFC, none of the characters of the categories Cc, Cf, Zl, Zp, Cs, Co, Cn, at most
@@ -40,6 +46,8 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import copy
+import math
+import re
 import unicodedata
 
 SCHEMA_VERSION = 1
@@ -66,10 +74,20 @@ OPS = {
     "face_box": {"x", "y", "w", "h", "clear"},
     "cover": {"offset_ms"},
     "theme": {"choice"},
+    "animation": {"id", "block", "params", "word_from", "word_to", "remove"},
 }
 WORD_OPS = ("edit", "delete", "merge", "split")
 SLOT_CHOICES = ("keyword", "none")
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
+ANIMATIONS_MAX = 12            # the animations one review may add
+BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
+ANIMATION_ID = re.compile(r"a([1-9]|1[0-2])")
+ANIMATION_BEAT_BASE = 1000     # an added animation's `beat` in beats.json is 1000 + its number: never a script beat's number
+BLOCK_NAME = re.compile(r"(oh|hf):[a-z][a-z0-9-]{0,39}")      # = providers/renderer/_blocks.py NAME (a test reads that file as text and compares)
+PRESET_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")             # = _blocks.py PRESET
+PARAM_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")              # = _blocks.py PARAM_NAME
+PARAMS_MAX = 12                                               # = _blocks.py: at most 12 parameters a block
+PARAM_TEXT_MAX = 240                                          # = the longest text parameter _blocks.py allows
 
 
 class CaptionError(Exception):
@@ -92,7 +110,7 @@ def new_review() -> dict:
     """The review state of a recording nobody has reviewed yet."""
     return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "anchors": {}, "dropped_beats": [],
             "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
-            "theme": "identity"}
+            "theme": "identity", "animations": []}
 
 
 def check_review(value) -> dict:
@@ -123,7 +141,39 @@ def check_review(value) -> dict:
         raise CaptionError("review_unreadable", "cover_offset_ms")
     if out["theme"] not in THEME_CHOICES:
         raise CaptionError("review_unreadable", "theme")
+    _check_animations(out["animations"])
     return out
+
+
+def _check_animations(items) -> None:
+    """The stored animations, closed, or CaptionError("review_unreadable", "animations")."""
+    bad = CaptionError("review_unreadable", "animations")
+    if not isinstance(items, list) or len(items) > ANIMATIONS_MAX:
+        raise bad
+    seen = set()
+    for item in items:
+        if not (isinstance(item, dict) and set(item) == {"id", "block", "preset", "params", "from", "to"}):
+            raise bad
+        if not (isinstance(item["id"], str) and ANIMATION_ID.fullmatch(item["id"])) or item["id"] in seen:
+            raise bad
+        seen.add(item["id"])
+        if not (isinstance(item["block"], str) and BLOCK_NAME.fullmatch(item["block"])):
+            raise bad
+        if not (isinstance(item["preset"], str) and PRESET_NAME.fullmatch(item["preset"])):
+            raise bad
+        params = item["params"]
+        if not isinstance(params, dict) or len(params) > PARAMS_MAX:
+            raise bad
+        for key, value in params.items():
+            if not (isinstance(key, str) and PARAM_NAME.fullmatch(key)):
+                raise bad
+            if isinstance(value, str):
+                if len(value) > PARAM_TEXT_MAX:
+                    raise bad
+            elif isinstance(value, bool) or not isinstance(value, (int, float)) or (isinstance(value, float) and not math.isfinite(value)):
+                raise bad
+        if not (_is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]):
+            raise bad
 
 
 def start_edited(transcript: dict) -> dict:
@@ -233,7 +283,7 @@ def _index(value, n: int, where: str, field: str = "index") -> int:
     return value
 
 
-def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None) -> tuple:
+def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None) -> tuple:
     """(edited transcript, review, counts) after `edits`, or a CaptionError with nothing changed (both inputs are copied).
 
     edited      the current transcript.edited.json
@@ -244,6 +294,9 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
     beats       the beat numbers that have a preset (an anchor and a dropped overlay name one of these)
     slots       the slot ids of the script (a choice for an empty slot names one of these)
     limits      {"word_chars_max", "words_max"} (the renderer's own, read by the caller); defaults above
+    animate     the check of an added animation: `animate(block, params, where)` returns {"block", "preset", "params"} (the
+                parameters as the renderer's checker accepted them) or raises a CaptionError; None refuses every `animation`
+                edit (`animation_unavailable`)
     counts      {"edited", "split", "merged", "deleted"}: how many words each kind of edit touched; never a text."""
     limits = dict({"word_chars_max": WORD_CHARS_MAX, "words_max": WORDS_MAX}, **(limits or {}))
     review = check_review(review)
@@ -264,7 +317,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
             decisions.append((op, edit, where))
     out_review = copy.deepcopy(review)
     for op, edit, where in decisions:
-        _decide(op, edit, where, words, out_review, proposals, beats, slots)
+        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate)
     out, counts = _rebuild(edited, actions, limits)
     out_review["revision"] += 1
     out["facts"] = dict(out.get("facts") or {}, edited=True, revision=out_review["revision"])
@@ -306,7 +359,7 @@ def _plan_word_edit(op: str, edit: dict, where: str, n: int, words: list, chars:
         actions[i] = ("split", [harden_word(p, f"{where}.parts", chars) for p in parts], None)
 
 
-def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots) -> None:
+def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None) -> None:
     if op == "retake":
         rid = edit.get("id")
         if not isinstance(rid, str) or rid not in proposals or type(edit.get("confirmed")) is not bool:
@@ -366,6 +419,37 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         if edit.get("choice") not in THEME_CHOICES:
             raise CaptionError("bad_choice", f"{where}.choice")
         review["theme"] = edit["choice"]
+    elif op == "animation":
+        _decide_animation(edit, where, words, review, beats, animate)
+
+
+def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, animate) -> None:
+    if "id" in edit or "remove" in edit:
+        if set(edit) != {"op", "id", "remove"} or edit["remove"] is not True:
+            raise CaptionError("bad_edit", where)
+        kept = [a for a in review["animations"] if a["id"] == edit["id"]]
+        if not kept:
+            raise CaptionError("unknown_animation", f"{where}.id")
+        review["animations"] = [a for a in review["animations"] if a["id"] != edit["id"]]
+        return
+    if set(edit) != {"op", "block", "params", "word_from", "word_to"}:
+        raise CaptionError("bad_edit", where)
+    if animate is None:
+        raise CaptionError("animation_unavailable", where)
+    n = len(words)
+    first, last = _index(edit["word_from"], n, where, "word_from"), _index(edit["word_to"], n, where, "word_to")
+    if first > last:
+        raise CaptionError("bad_index", f"{where}.word_to")
+    stored = review["animations"]
+    if len(stored) >= ANIMATIONS_MAX or len(stored) + len(set(beats) - set(review["dropped_beats"])) >= BEATS_MAX:
+        raise CaptionError("too_many_animations", where)
+    checked = animate(edit["block"], edit["params"], where)
+    used = {a["id"] for a in stored}
+    number = next(k for k in range(1, ANIMATIONS_MAX + 1) if f"a{k}" not in used)
+    o_from, o_to = origin_span(words, first, last)
+    stored.append({"id": f"a{number}", "block": checked["block"], "preset": checked["preset"], "params": checked["params"],
+                   "from": o_from, "to": o_to})
+    stored.sort(key=lambda a: (a["from"], int(a["id"][1:])))
 
 
 def _share(start: float, end: float, parts: list) -> list:
@@ -512,6 +596,14 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                       "below_threshold": (not anchor) and threshold is not None and score is not None and score < threshold,
                       "reordered": bool(item.get("reordered")) and not anchor, "fallback": item.get("fallback"),
                       "word_from": now and now[0], "word_to": now and now[1], "dropped": beat in review["dropped_beats"]})
+    animations = []
+    for item in review["animations"]:
+        now = span_current(words, item["from"], item["to"])
+        meets = now is not None and any(
+            not b["dropped"] and b["word_from"] is not None and b["word_to"] is not None
+            and b["word_from"] <= now[1] and b["word_to"] >= now[0] for b in beats)
+        animations.append({"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
+                           "word_from": now and now[0], "word_to": now and now[1], "lost": now is None, "overlaps_beat": meets})
     slot_rows = [{"slot": s["slot"], "beat": s["beat"], "param": s["param"], "type": s["type"], "description": s["description"],
                   "file": assets.get(s["slot"]), "choice": review["empty_slots"].get(s["slot"])}
                  for s in proposal_beats.get("slots") or []]
@@ -519,11 +611,12 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                       "end": u["end"]} for u in unplaced.values()]
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
             "beats": beats, "slots": slot_rows, "unplaced": unplaced_rows, "threshold": threshold, "face_box": review["face_box"],
-            "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"],
+            "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"], "animations": animations,
             "counts": {"words": len(words), "edited": sum(1 for w in shown if w["edited"]), "estimated": sum(1 for w in shown if w["estimated"]),
                        "timing_adjusted": sum(1 for w in shown if w["timing_adjusted"]), "unplaced": len(unplaced_rows),
                        "retakes": len(retakes), "confirmed": len(confirmed), "beats": len(beats),
-                       "below_threshold": sum(1 for b in beats if b["below_threshold"])}}
+                       "below_threshold": sum(1 for b in beats if b["below_threshold"]),
+                       "animations": len(review["animations"])}}
 
 
 # --- what the later steps are given -------------------------------------------------------------------------------------------
@@ -593,4 +686,22 @@ def anchors_current(review: dict, edited: dict, live: set) -> tuple:
             out[int(beat)] = (inside[0], inside[-1])
         else:
             lost.append(int(beat))
+    return out, lost
+
+
+def animations_current(review: dict, edited: dict, live: set) -> tuple:
+    """([{"id", "block", "preset", "params", "word_from", "word_to"}] in the edited numbering, lost ids). Each added animation is moved to
+    the edited words that stand for its origin range and shrunk to the words that are live in the final edit list, as an anchor is
+    (anchors_current); one left with no live word is lost. Sorted by word_from, then by number."""
+    words = edited["words"]
+    out, lost = [], []
+    for item in review["animations"]:
+        now = span_current(words, item["from"], item["to"])
+        inside = [i for i in range(now[0], now[1] + 1) if i in live] if now else []
+        if inside:
+            out.append({"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
+                        "word_from": inside[0], "word_to": inside[-1]})
+        else:
+            lost.append(item["id"])
+    out.sort(key=lambda a: (a["word_from"], int(a["id"][1:])))
     return out, lost

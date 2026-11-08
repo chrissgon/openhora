@@ -69,6 +69,13 @@ Files (ATT-1b). A file a listed sender sends is fetched only when THAT sender's 
 add or the discard. The bridge dispatches to it in three places: an update of the kind `attachment`, a tap on a card of the kind `attachment`, and `/add <n>` and
 `/discard <n>`; `/pending` also lists the files that wait.
 
+Videos (V1d-1). A video a listed sender sends is taken only when THAT sender's profile permits `video-phone-in` (the group `media-phone`, in no default policy:
+`accept-config --widen` turns it on); runtime/messaging_video.py does the work and the rules are the operations of runtime/ops_media_phone.py. A recording is fetched
+only after its declared size was found within the least of the media store's bound, the quota left and the provider's file limit; a larger one is never fetched. The
+caption words go back to the chat that sent the recording, a reply to the caption card corrects them (`wrong -> right`) or continues, and a correction at the delivery
+card renders the video again. The bridge dispatches to it from three rows of runtime/messaging_turn.py (a video that arrives, a line that names the post, a reply to a
+card) and adds no row to the precedence table.
+
 Waiting lines (BQ-1). A text line that would run `say` (a plain line, `/new`, `/ask`) and meets a busy project is kept, not refused: when a model job of the
 project holds its slot (`shell_kit.Busy`), or the operation answers `RunBusy` (a run of another shell holds the planning agent), the bridge keeps the line in
 MEMORY (at most 1 per chat, 5 per project; beyond that the sentence it always gave) and answers `QUEUED`. The oldest line of a project whose slot is free is
@@ -157,11 +164,13 @@ import messaging_file as sendfile
 import messaging_guard as guard
 import messaging_outcome as outcome
 import messaging_pending as pending_view
+import messaging_preview as preview
 import messaging_inbound as inbound
 import messaging_provider as provider
 import messaging_remind as remind
 import messaging_turn
 import messaging_typing as indicator
+import messaging_video as video
 import natural
 import natural_time
 import phone_errors
@@ -320,6 +329,7 @@ class Bridge(shell_kit.Jobs):
             raise Fatal(f"the natural-request language tables are not valid: {e}") from None
         self.attach = attach.Attachments(self)
         self.remind = remind.Reminders(self)
+        self.video = video.Videos(self)      # V1d-1: a video from a messaging app
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
         self.remind.drafts.clear()      # a new bridge starts with no question open: they are lost on a restart (the store of drafts is shared with the operations layer)
         self.clock = clock or shell_kit.now
@@ -701,6 +711,18 @@ class Bridge(shell_kit.Jobs):
         item = self.for_reader(project, item, sender)
         card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"],
                            settings["page_url"], operations=operations, sender=sender, cfg=settings)
+        watched = None
+        if preview.applies(item) and card["approvable"]:
+            # decision 14: the preview goes first, as a video of its own; the card offers its approval only after the provider confirmed it
+            try:
+                watched = preview.send(self, project, item, chat, settings)
+            except provider.MessengerError as e:      # only "not-configured" is raised by it, as send_document does
+                raise Fatal(e.reason) from None
+            if watched is None:
+                return False
+            if watched == "failed":
+                card = cards.build(project["name"], item, caps, settings["policy"], settings["notices"], settings["page_url"],
+                                   operations=operations, delivery="failed", sender=sender, cfg=settings)
         document = card["message"]["document"]
         if document and card["gated"] and card["approvable"]:
             # An approval needs the whole text DELIVERED: the file goes first, as a message of its own, and the card with the buttons only after
@@ -730,7 +752,7 @@ class Bridge(shell_kit.Jobs):
         try:
             self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
                              "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
-                             "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed,
+                             "actions": made, "sent_at": self.clock(), "whole": bool(card.get("whole")) and confirmed and watched != "failed",
                              "approvable": bool(card.get("approvable")), "offers": list(card.get("offers") or []), "blocked": card.get("blocked"),
                              "effect_word": item.get("effect_word")})
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again

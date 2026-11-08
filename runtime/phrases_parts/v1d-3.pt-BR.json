@@ -1,0 +1,7 @@
+{"package": "v1d-3", "table": {
+  "VID_CLOUD_FETCHING": "Buscando o arquivo no Google Drive.",
+  "VID_CLOUD_NOT_SHARED": "O link não entregou o arquivo. Compartilhe como \"qualquer pessoa com o link\", ou conecte a conta Google, e mande o link de novo.",
+  "VID_CLOUD_TOO_LARGE": "Esse arquivo é maior do que o armazenamento de mídia aceita (1 GiB, ou o espaço que resta).",
+  "VID_CLOUD_NO_LENGTH": "O Google Drive não informou o tamanho do arquivo, então ele não foi buscado. Envie pela página aberta neste computador.",
+  "VID_CLOUD_FAILED": "Não foi possível buscar o arquivo desse link."
+}, "same_as_english": []}

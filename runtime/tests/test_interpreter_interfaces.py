@@ -33,13 +33,15 @@ GATED = [
     "stage-file", "sync", "hand-over", "dispatch", "verdict", "deps", "run-next", "run-task", "run-step", "proof", "approve-policy", "revoke-policy",
     "standing", "execute-under-policy", "contained-run", "poll", "handler", "pin", "stop-runs", "service-check", "route-queued", "attachment-hold",
     "conversation", "version", "artifact-raw",
-    "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still"]
+    "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue",
+    "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"]
 OPERATIONAL = ["routine-resume", "instructions-set", "instructions-add", "source-refresh", "source-describe", "flow-save", "stage-file", "sync", "hand-over",
                "dispatch", "verdict", "run-next", "run-task", "run-step", "proof", "revoke-policy", "stop-runs"]
 WIDENING = ["give-consent", "set-mode", "set-model", "config", "accept-config", "routine-approve", "source-add", "source-import", "source-drive",
             "source-onedrive", "source-mail", "source-calendar", "approve-policy", "standing", "execute-under-policy", "deps"]
 INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-queued", "attachment-hold", "conversation", "version", "artifact-raw",
-            "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still"]
+            "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue",
+            "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"]
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
@@ -124,8 +126,8 @@ def snapshot_problems(snap: dict) -> list:
 # --- runtime/gated_ops.json ----------------------------------------------------------------------------------------------------------------------
 
 def test_the_literal_lists_are_what_the_test_says_they_are():
-    assert len(GATED) == 51 and len(set(GATED)) == 51
-    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 18
+    assert len(GATED) == 57 and len(set(GATED)) == 57
+    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 24
     assert sorted(OPERATIONAL + WIDENING + INTERNAL) == sorted(GATED)
     assert len(DECISIONS) == 5
 

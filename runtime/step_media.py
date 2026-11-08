@@ -15,7 +15,7 @@
   review          STOP: "Check the captions". The person edits the captions (runtime/ops_media_edit.py), then continues
   remap           the edited transcript is made (or confirmed), hardened and scanned for credentials
   base            the renderer's `base` on the edited transcript, the confirmed retakes cut, the project's theme from its identity
-  align           the renderer's `align` on it, the person's anchors over the match
+  align           the renderer's `align` on it, the person's anchors over the match, then the person's added animations appended (VD15)
   check           the renderer's `check` (schema, bounds, hardening, credential shapes)
   render          the renderer's `render`: the file `render-<sha12>.mp4`, verified in a fresh container by the renderer itself
   cover           the renderer's `cover`
@@ -24,6 +24,8 @@
   deliver         the gate (runtime/steps.py, Gate): it opens an `effect` decision whose hash is the hash of the document; approving it marks that
                   render downloadable (runtime/effect_deliver.py, limit L67). Nothing is published. Its redo is `remap`: an answered delivery (the
                   captions were edited, or the render changed) renders again and asks again.
+                  The document carries the render as its preview when it is at most 20 MiB, which is what lets a messaging app show and approve it
+                  (decision 14).
 
 Limit L30, in the structure of this file: it imports no module that calls a provider. The engine (`transcriber:speech` and `renderer:video`, a closed
 list of verbs) and the store of recordings are asked of `ctx.services` (`media_engine`, `media_store`; runtime/ops_step_seams.py). Every file name
@@ -309,7 +311,7 @@ def _review_decision(ctx: steps.Context, state: dict) -> dict:
     still = (state["steps"].get("still") or {}).get("result") or {}
     lines = [f"{state['steps']['transcribe']['result']['words']} words were transcribed.",
              f"{_below_threshold(beats)} beats are below the match threshold.",
-             f"Still for the face box: {still['name']}." if STILL_NAME.fullmatch(str(still.get("name") or "")) else "No still was made for the face box.",
+             "A still was made for the face box." if STILL_NAME.fullmatch(str(still.get("name") or "")) else "No still was made for the face box.",
              REVIEW_NEXT]
     return {"title": "Check the captions", "body": "\n".join(lines)}
 
@@ -389,9 +391,13 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     edited = captions.check_edited(_json(store, rid, EDITED))
     review = _load_review(store, rid)
     edl, proposal = _json(store, rid, EDL), _json(store, rid, PROPOSAL_BEATS)
-    anchors, lost = captions.anchors_current(review, edited, {w["index"] for w in edl.get("words") or []})
+    live = {w["index"] for w in edl.get("words") or []}
+    anchors, lost = captions.anchors_current(review, edited, live)
     if lost:
         raise steps.StepFailure("anchor_lost", f"beat{lost[0]}", "", "open the caption review again and anchor the beat again")
+    placed, gone = captions.animations_current(review, edited, live)
+    if gone:
+        raise steps.StepFailure("animation_lost", gone[0], "", "open the caption review again and place the animation again, or remove it")
     args = _beat_args(ctx, _asked(store.path, rid, EDITED), _asked(store.path, rid, BEATS, False)) + ["--edl", _asked(store.path, rid, EDL)]
     for slot in proposal.get("slots") or []:      # no asset slots in this package: an empty slot is the person's choice, else none
         args += ["--empty-slot", f"{slot['slot']}={review['empty_slots'].get(slot['slot'], 'none')}"]
@@ -403,9 +409,16 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     if dropped:
         beats["overlays"] = [e for e in beats.get("overlays") or [] if e.get("beat") not in dropped]
         beats["layouts"] = [e for e in beats.get("layouts") or [] if e.get("beat") not in dropped]
+    if placed:
+        added = beats.setdefault("overlays", [])
+        for a in placed:
+            added.append({"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
+                          "block": a["block"], "word_from": a["word_from"], "word_to": a["word_to"], "score": 1.0})
+    if dropped or placed:
         _asked(store.write, rid, BEATS, _dump(beats))
     return {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
-            "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped)}
+            "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
+            "animations": len(placed)}
 
 
 def _check(ctx: steps.Context, state: dict) -> dict:
@@ -484,9 +497,12 @@ def _document(ctx: steps.Context, state: dict) -> dict:
     render, verify = _json(store, rid, RENDER_JSON), _json(store, rid, VERIFY_JSON)
     cover = (state["steps"].get("cover") or {}).get("result") or {}
     held = {"name": cover["name"], "sha256": _asked(store.sha256, rid, cover["name"]), "size": cover["size"]} if cover.get("name") else None
+    # The render is its own preview when it is small enough for a messaging app: no second file, no renderer verb (decision 14).
+    fits = render["size"] <= deliver_document.PREVIEW_MAX_BYTES
+    preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]} if fits else None
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
-                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=None)
+                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview)
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 
 
@@ -496,7 +512,7 @@ def _open(ctx: steps.Context, state: dict) -> dict:
     doc = _service(ctx, "effect_files").read(ctx.task_id, int(state.get("cycle", 0)), recorded)
     deliver_document.check(doc)
     return {"title": deliver_document.title(doc)[:200], "body": deliver_document.body(doc, recorded), "payload_sha256": recorded,
-            "payload": {"effect": deliver_document.summary(doc)}}
+            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded)}}
 
 
 # --- what a step prepared again removes ---------------------------------------------------------------------------------------

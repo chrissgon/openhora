@@ -1,0 +1,11 @@
+{
+  "package": "v1d-3",
+  "add": {
+    "operations_table.PUBLIC_MODULES": ["ops_media_cloud"],
+    "mcp.CHANNEL_ARG": ["video-phone-fetch"],
+    "interpreter_coverage.INTERNAL": ["video-phone-fetch"],
+    "messaging_policy.ON_MESSAGING": ["video-phone-fetch"],
+    "messaging_policy.NOT_PERMITTED_BY_DEFAULT": ["video-phone-fetch"],
+    "run_limits.NUMBERS": [70]
+  }
+}
