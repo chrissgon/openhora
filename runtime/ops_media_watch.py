@@ -6,16 +6,17 @@
 """Watching a video before its delivery (package V1c-3, limit L71): the bytes of the render the open deliver decision names, checked, and nothing else.
 
 `video_watch(project, task_id, channel=None)` is the operation `video-watch` (page only, refused on the --lan socket). It answers
-`{"media_type": "video/mp4", "data": bytes}` for the one open deliver decision of the media task `task_id`, and refuses (core.OpsError, code 1) unless all
+`{"media_type": "video/mp4", "data": bytes}` for the one open deliver decision of the media task `task_id` (the bytes of its preview: the render itself
+when it is at most deliver_document.PREVIEW_MAX_BYTES, else the renderer's copy that deliver_document.preview_name names), and refuses (core.OpsError, code 1) unless all
 of these hold:
 
   - the channel is `page`, and the page may approve a deliver effect (the check the approval itself makes: it may watch only what it may approve);
   - the task waits at the delivery approval, with one open decision that is the effect of the gate `deliver` of a step task of the kind `media`;
   - its document (read by the hash the decision carries) holds a preview made from this very render (deliver_document.on_cards), which is the render
     itself when it is at most deliver_document.PREVIEW_MAX_BYTES;
-  - the render's file, read from the store, still hashes to the hash the document recorded.
+  - the preview's file, read from the store, still hashes to the hash the document recorded.
 
-It writes nothing, marks nothing (media.mark_delivered is never called) and sends nothing. It reads at most 20 MiB into memory. The approval stays a
+It writes nothing, marks nothing (media.mark_delivered is never called) and sends nothing. It reads at most deliver_document.PREVIEW_MAX_BYTES (15 MiB) into memory. The approval stays a
 decision of the hash of the exact render: this is for looking.
 
 Standard library only. Runs on Python 3.9.
@@ -88,7 +89,7 @@ def video_watch(project: str, task_id, channel=None) -> dict:
     if preview["size"] > deliver_document.PREVIEW_MAX_BYTES:
         raise core.OpsError(TOO_LARGE, 1)
     try:
-        data = media.read_work(ctx["cfg"]["data_dir"], doc["recording"], doc["video"]["name"], limit=preview["size"])
+        data = media.read_work(ctx["cfg"]["data_dir"], doc["recording"], deliver_document.preview_name(doc), limit=preview["size"])
     except media.MediaError as e:
         raise core.OpsError(str(e), 1) from None
     if hashlib.sha256(data).hexdigest() != preview["sha256"]:

@@ -57,7 +57,7 @@ def test_it_marks_nothing_and_writes_nothing(world):
     before = dict(media.load(world["data"], world["rid"]))
     for _ in range(2):
         ops.video_watch(world["path"], task, channel="page")
-    assert media.load(world["data"], world["rid"]) == before and "delivered_at" not in before
+    assert media.load(world["data"], world["rid"]) == before and before["delivered"] is None
     assert [p["id"] for p in open_items(world, task)] == [gate["id"]] and task_row(world, task)["state"] == "waiting"
 
 
@@ -78,7 +78,7 @@ def test_after_the_approval_it_is_refused(world):
     task, gate = to_gate(world)
     ops.approve(world["path"], gate["id"], sha256=gate["payload_sha256"], channel="terminal")
     assert refused(ops.video_watch, world["path"], task, channel="page").code == 1
-    assert "delivered" in media.load(world["data"], world["rid"])
+    assert media.load(world["data"], world["rid"])["delivered"] is not None
 
 
 @pytest.mark.parametrize("task", [999, True, "7", None])
@@ -105,13 +105,29 @@ def test_a_render_over_the_preview_bound_is_not_shown_and_the_sentence_says_to_d
     assert error.code == 1 and str(error) == watch.TOO_LARGE and "after you approve" in str(error)
 
 
+def test_a_render_over_the_limit_is_watched_through_the_renderers_preview_copy(world, monkeypatch):
+    dd = st.load("deliver_document")
+    monkeypatch.setattr(dd, "PREVIEW_MAX_BYTES", 20)
+    task, gate = to_gate(world)
+    doc = document(world, task, gate)
+    assert doc["preview"]["sha256"] != doc["video"]["sha256"]
+    path = work_file(world, dd.preview_name(doc))
+    got = ops.video_watch(world["path"], task, channel="page")
+    assert got["data"] == path.read_bytes() and hashlib.sha256(got["data"]).hexdigest() == doc["preview"]["sha256"]
+    assert got["data"] != work_file(world, doc["video"]["name"]).read_bytes(), "the copy, not the render"
+    path.write_bytes(bytes(b ^ 1 for b in got["data"]))      # the same length, other bytes
+    error = refused(ops.video_watch, world["path"], task, channel="page")
+    assert error.code == 1 and str(error) == watch.CHANGED
+    assert media.load(world["data"], world["rid"])["delivered"] is None
+
+
 def test_the_route_answers_the_bytes_inline_and_marks_nothing(world):
     task, gate = to_gate(world)
     svc, project = stage(world)
     status, headers, body = get_with(svc, f"/api/v1/projects/{project}/videos/{task}/watch")
     expected = work_file(world, document(world, task, gate)["video"]["name"]).read_bytes()
     assert (status, body, headers["Content-Type"], headers["Content-Disposition"]) == (200, expected, "video/mp4", "inline")
-    assert "delivered_at" not in media.load(world["data"], world["rid"])
+    assert media.load(world["data"], world["rid"])["delivered"] is None
 
 
 def test_limit_71_a_video_is_watched_only_on_the_loopback_page_and_only_the_render_the_decision_names(world):
