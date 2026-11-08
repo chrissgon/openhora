@@ -228,14 +228,17 @@ def gsap_scripts(plan: list, catalogue: dict) -> tuple:
     return parts, suffix
 
 
-def font_load_js(fonts: dict) -> str:
+def font_load_js(fonts: dict, pairs: list) -> str:
     """The script that requests every font file the page uses, once per face, through `document.fonts.load`. The `@font-face` rules use
     `font-display: block` and the HyperFrames image has no system font, so a frame captured before a face is in would show no glyph (V3b-4: every gsap
-    block drew blank text). The requests start before anything else in the script, so `document.fonts.ready`, which the HyperFrames runtime waits for
+    block drew blank text). The theme's custom properties (`--font-*`, `--weight-*`, `--c-*`) are also set inline on the root element here, since the HyperFrames
+    renderer did not apply the ones of the page's `:root` rule (the `renderat` pages always got them inline). The requests start before anything else in the script, so `document.fonts.ready`, which the HyperFrames runtime waits for
     before it captures, stays pending until every face is loaded; the promise is also kept as `window.__hfFontsReady`. The `renderat` pages already
     did this in their own setup (`renderat_page`)."""
     loads = ",\n  ".join("document.fonts.load(%s)" % dumps("%d 20px \"%s\"" % (weight, family)) for family, weight, _ in sorted(set(fonts.values())))
-    return "window.__hfFontsReady = (document.fonts && document.fonts.load) ? Promise.all([\n  %s\n]) : Promise.resolve();" % loads
+    sets = "\n".join("rs.setProperty(%s, %s);" % (dumps(k), dumps(v)) for k, v in pairs)
+    return ("var rs = document.documentElement.style;   // the theme as inline custom properties on the root element, as the renderat pages get it\n%s\n"
+            "window.__hfFontsReady = (document.fonts && document.fonts.load) ? Promise.all([\n  %s\n]) : Promise.resolve();" % (sets, loads))
 
 
 def renderat_page(text: str, name: str, pairs: list, fonts: dict) -> str:
@@ -329,7 +332,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             seconds = num(parts["out_seconds"])
             scripts.append('var D_%d = {at: function (v) { if (v === undefined) return this._t || 0; this._t = v; drive(%s, v); }};\n'
                            'main.fromTo(D_%d, {at: 0}, {at: %s, duration: %s, ease: "none", immediateRender: true}, 0);' % (j, dumps(key), j, seconds, seconds))
-    scripts.insert(0, font_load_js(fonts))                                       # before the first tween: every used face is requested from the first line of the script
+    scripts.insert(0, font_load_js(fonts, pairs))                                       # before the first tween: every used face is requested from the first line of the script
     scripts.extend(tail)
 
     full_vars = dict(parts["vars"], inst=inst, ra=ra)

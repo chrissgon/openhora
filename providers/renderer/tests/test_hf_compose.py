@@ -543,3 +543,28 @@ def test_every_used_font_is_requested_before_the_first_tween_and_the_promise_is_
     for needle in ("main.set(\"#hf-inst", "main.add(tl_", "main.fromTo(D_"):
         if needle in page:
             assert first_load < page.index(needle), needle
+
+
+def test_the_theme_custom_properties_are_also_set_inline_on_the_root_element(tmp_path, docs):
+    catalogue = catalogue_of(tmp_path, mixed=True)
+    write(docs, catalogue, tmp_path / "p")
+    page = text_of(tmp_path / "p")
+    for prop in ("--font-display", "--weight-display", "--c-accent", "--c-text"):
+        assert 'rs.setProperty("%s", ' % prop in page, prop
+    assert page.index("rs.setProperty(") < page.index("document.fonts.load(")
+
+
+def test_every_font_url_of_the_composed_pages_names_a_file_the_image_stages_with_its_pinned_sha256(tmp_path, docs):
+    catalogue = catalogue_of(tmp_path, mixed=False)
+    write(docs, catalogue, tmp_path / "p")
+    staged = {}
+    for name, digest in R.FONT_FILES.items():
+        raw = (K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == digest, name
+        staged[name] = digest
+    seen = 0
+    for rel, prefix in (("index.html", "fonts/"),) + tuple(("blocks/" + n, "../fonts/") for n in sorted(os.listdir(tmp_path / "p" / "blocks"))):
+        for url in re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", rel)):
+            assert url.startswith(prefix) and url[len(prefix):] in staged, (rel, url)
+            seen += 1
+    assert seen >= 4
