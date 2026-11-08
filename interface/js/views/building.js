@@ -99,7 +99,7 @@ export function createBuildingView(frame, env) {
   // the caption review of a new video (views/lobby-captions.js): a dialog the Videos section opens, placed in the document once and taken out on dispose
   const review = createCaptionReview({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
-  document.body.append(review.el);
+  if (document.body) document.body.append(review.el);
   const videos = createVideos({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); }, openReview: (task, mode) => review.open(task, mode),
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
   const docsCount = h("span", { class: "wb-muted" });
@@ -497,7 +497,6 @@ export function createBuildingView(frame, env) {
     },
     dispose() {
       disposed = true;
-      review.el.remove();
       observer.disconnect();
       drawer.destroy();   // before the panel leaves the page: the frame hears that nothing covers the scene
       phone.removeEventListener("change", onPhone);
@@ -510,6 +509,7 @@ export function createBuildingView(frame, env) {
       panel.remove();   // the scene is the frame's: the City takes it over (the building closes), or the frame takes it down
       stateDialog.remove();
       steps.remove();
+      review.el.remove();   // the caption review dialog was added to the document by this view
       frame.sceneUnavailable(false);
     },
     /** For the page's checks: the engine's counters, or null without WebGL. */

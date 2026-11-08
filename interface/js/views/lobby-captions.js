@@ -16,7 +16,7 @@ import {
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
-export const TERMINAL_LINE = "Change the face box, the cover, the theme or a slot in the terminal: python3 runtime/cli.py captions-edit";
+export const TERMINAL_LINE = "Change the face box, the cover, the theme or a slot in the terminal with the captions-edit command";
 export const STALE_TEXT = "The captions changed; they were read again.";
 export const NO_REVIEW = "There is no review waiting for this video.";
 export const GATE_LINE = "The delivery card was answered by your edit: the video renders again when you run it.";
