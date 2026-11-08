@@ -221,7 +221,7 @@ def inline_tier_a(project: str, page: str, registry_root: str = REGISTRY_ROOT) -
 def log_shows_escape(log_path: str) -> bool:
     try:
         with open(log_path, "rb") as fh:
-            return ESCAPE_MARKER in fh.read(LOG_CAP)
+            return ESCAPE_MARKER in fh.read(LOG_CAP + 64)
     except OSError:
         return False
 
@@ -274,14 +274,19 @@ def run_render(argv: list, project: str, env: dict, log_path: str, timeout: int)
                                 start_new_session=True)
 
         def pump():
-            kept = 0
+            kept, tail, flagged = 0, b"", False
             while True:
                 chunk = proc.stdout.read(CHUNK)
                 if not chunk:
                     return
+                seen = not flagged and ESCAPE_MARKER in tail + chunk
+                tail = chunk[-(len(ESCAPE_MARKER) - 1):]
                 if kept < LOG_CAP:
                     log.write(chunk[:LOG_CAP - kept])
                     kept += len(chunk)
+                if seen:                                          # the guard's marker is kept even when it arrives past the cap (or is cut by it)
+                    flagged = True
+                    log.write(b"\n" + ESCAPE_MARKER + b"\n")
 
         reader = threading.Thread(target=pump, daemon=True)
         reader.start()

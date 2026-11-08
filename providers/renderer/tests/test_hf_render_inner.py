@@ -470,3 +470,14 @@ def test_a_failed_render_with_the_marker_in_its_log_is_block_escaped_and_without
 
 
 ORIGINAL_INLINE = R.inline_tier_a
+
+
+def test_the_guards_marker_is_kept_in_the_log_even_when_it_arrives_past_the_logs_cap_or_is_cut_by_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(R, "LOG_CAP", 4096)
+    for body in ("sys.stdout.write('x' * 20000 + ' page error: hf-escape ' + 'y' * 100)", "sys.stdout.write('x' * (4096 - 4) + 'hf-escape' + 'y' * 100)",
+                 "sys.stdout.write('quiet')"):
+        project, log = tmp_path / ("p%d" % len(body)), tmp_path / ("log%d" % len(body))
+        project.mkdir()
+        R.run_render([sys.executable, "-c", "import sys; " + body], str(project), {"PATH": os.environ["PATH"]}, str(log), 60)
+        assert R.log_shows_escape(str(log)) is ("hf-escape" in body), body
+        assert log.stat().st_size <= 4096 + 64 + len("\nhf-escape\n")

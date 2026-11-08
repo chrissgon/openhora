@@ -104,7 +104,6 @@ def _load_hf_image():
 
 
 hf_image = _load_hf_image()
-hf_compat = _load_hf_compat()
 
 ENGINE = "hyperframes"
 LAYERS = ["cuts", "zoom"]
@@ -504,11 +503,19 @@ def verb_render(args) -> dict:
 COMPAT_MEMORY_MB = 2048
 COMPAT_CPUS = 2
 COMPAT_TIMEOUT_DEFAULT = 600
-COMPAT_OUT_NAMES = hf_compat.OUT_NAMES
-SURVEY_MAX_FILES = hf_compat.MAX_FILES
-SURVEY_MAX_BYTES = hf_compat.MAX_TOTAL_BYTES
-SURVEY_FILE_CAP = hf_compat.MAX_FILE_BYTES
+COMPAT_OUT_NAMES = ("compat-report.json", "result.json")       # hf_compat.py's OUT_NAMES (a test keeps the two equal; the module is loaded only when `compat` runs)
+SURVEY_MAX_FILES = 2000
+SURVEY_MAX_BYTES = 20 * 1024 * 1024
+SURVEY_FILE_CAP = 256 * 1024
 SURVEY_DOC_CAP = 8 * 1024 * 1024
+_COMPAT = []
+
+
+def compat_module():
+    """hyperframes-image/hf_compat.py, loaded by path the first time `compat` needs it (not when this file is imported)."""
+    if not _COMPAT:
+        _COMPAT.append(_load_hf_compat())
+    return _COMPAT[0]
 
 
 def check_survey(path: str) -> int:
@@ -516,11 +523,15 @@ def check_survey(path: str) -> int:
     and SURVEY_MAX_BYTES bytes, each file within its cap. Returns the file count. `bad_survey` otherwise."""
     try:
         found = os.lstat(path)
-        ok = os.path.isabs(path) and stat.S_ISDIR(found.st_mode) and os.path.realpath(path) == path
+        real = os.path.realpath(path)
+        ok = os.path.isabs(path) and stat.S_ISDIR(found.st_mode) and real == path
     except OSError:
-        ok = False
+        ok, real = False, path
     if not ok:
-        raise Refusal("bad_survey", "survey")
+        err = Refusal("bad_survey", "survey")
+        if os.path.isabs(path) and real != path:
+            err.reason = "the path goes through a link; give the real path: %s" % real
+        raise err
     count = total = 0
     for base, dirs, files in os.walk(path, followlinks=False):
         for name in dirs + files:
@@ -570,7 +581,7 @@ def read_compat_result(out_dir: str, rc: int) -> dict:
         if entry.name not in COMPAT_OUT_NAMES or not stat.S_ISREG(entry.stat(follow_symlinks=False).st_mode):
             raise Refusal("container_left_non_regular_file", "output")
     try:
-        doc = json.loads(_assets.read_regular(os.path.join(out_dir, hf_compat.RESULT_NAME), RESULT_MAX_BYTES, "container_wrote_no_file", "result.json").decode("utf-8"))
+        doc = json.loads(_assets.read_regular(os.path.join(out_dir, "result.json"), RESULT_MAX_BYTES, "container_wrote_no_file", "result.json").decode("utf-8"))
         assert isinstance(doc, dict)
     except (Refusal, ValueError, AssertionError, UnicodeDecodeError, RecursionError):
         raise Refusal(CRASH_CODES.get(rc, "container_failed"), "container") from None
@@ -578,13 +589,14 @@ def read_compat_result(out_dir: str, rc: int) -> dict:
         row = D.sanitise(doc, HF_REFUSAL, "compat")
         raise Refusal(row.get("code", "container_failed"), row.get("field", ""))
     try:
-        raw = _assets.read_regular(os.path.join(out_dir, hf_compat.REPORT_NAME), SURVEY_DOC_CAP, "container_wrote_no_file", "compat-report.json")
-        return hf_compat.check_report(json.loads(raw.decode("utf-8")))
+        raw = _assets.read_regular(os.path.join(out_dir, "compat-report.json"), SURVEY_DOC_CAP, "container_wrote_no_file", "compat-report.json")
+        return compat_module().check_report(json.loads(raw.decode("utf-8")))
     except (ValueError, UnicodeDecodeError, RecursionError):
         raise Refusal("container_result_invalid", "compat") from None
 
 
 def verb_compat(args) -> dict:
+    compat_module()                                      # loaded here, by path, with hf_wrap.py: a broken file fails this verb and no other
     args.survey = os.path.abspath(args.survey) if args.survey else args.survey
     count = check_survey(args.survey)
     out = os.path.abspath(args.out)

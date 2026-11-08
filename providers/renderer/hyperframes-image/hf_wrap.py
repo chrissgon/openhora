@@ -41,9 +41,19 @@ BAND_WIDTH, BAND_HEIGHT_MAX = 1080, 1920                  # the frame of the eng
 
 ALLOWED_FAMILIES = {"inter", "jetbrains mono"}
 GENERIC_FAMILIES = {"sans-serif", "serif", "monospace", "system-ui", "ui-monospace", "inherit", "initial", "unset"}
-VARIABLE_TYPES = {"string": "text", "color": "color", "number": "number"}
+VARIABLE_TYPES = {"string": "text", "color": "color", "number": "number", "enum": "choice"}
+CHOICE_VALUE = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")             # a declared enum option: a closed identifier, never prose (the block parameter's own rule)
+CHOICE_MAX = 20
 VARIABLE_ID = re.compile(r"[^\x00-\x1f\x7f\"'<>\\]{1,64}")
 SCRIPT_TYPES = ("", "text/javascript", "application/javascript")
+HTML_TAGS = ("div", "span", "p", "b", "i", "em", "strong", "small", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "aside",
+             "blockquote", "cite", "code", "figure", "figcaption", "footer", "header", "hr", "main", "mark", "nav", "pre", "q", "s", "sub", "sup", "time", "u",
+             "wbr", "label")
+SVG_TAGS = ("svg", "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect", "text", "tspan", "defs", "lineargradient", "radialgradient", "stop",
+            "clippath", "mask", "pattern", "symbol", "use", "filter", "feblend", "fecolormatrix", "fecomponenttransfer", "fecomposite", "fedisplacementmap",
+            "fedropshadow", "feflood", "fefunca", "fefuncb", "fefuncg", "fefuncr", "fegaussianblur", "femerge", "femergenode", "femorphology", "feoffset",
+            "feturbulence")
+ALLOWED_TAGS = frozenset(HTML_TAGS + SVG_TAGS)          # the markup tags a component may hold: no img, image, feImage, video, audio, canvas, iframe, object, embed, meta, link, dialog
 SAFE_TAGS = ("div", "span", "p", "b", "i", "em", "strong", "small", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "section")
 TIMING_ATTRIBUTES = ("data-composition-id", "data-start", "data-width", "data-height", "data-track-index", "data-composition-src",
                      "data-composition-variables", "data-duration")
@@ -55,7 +65,10 @@ CDN_GSAP = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']https://(?:cdn\.jsdelivr\
 
 # The only form `window.__timelines` may be written in: the registry's own idiom and an assignment to one key of it.
 TIMELINES_IDIOM = re.compile(r"window\s*\.\s*__timelines\s*=\s*window\s*\.\s*__timelines\s*\|\|\s*\{\s*\}")
-TIMELINES_KEY = re.compile(r"window\s*\.\s*__timelines\s*\[[^\]\n]{1,80}\]\s*=(?!=)")
+TIMELINES_KEY = re.compile(r"window\s*\.\s*__timelines\s*\[\s*(?:\"[\w-]{1,64}\"|'[\w-]{1,64}'|[A-Za-z_$][\w$]{0,40})\s*\]\s*=(?!=)")
+
+# The one use of `prototype` that is a read: the two methods every script borrows (`Object.prototype.hasOwnProperty.call(`). Any other `prototype` is a refusal.
+PROTOTYPE_IDIOM = re.compile(r"Object\s*\.\s*prototype\s*\.\s*(?:hasOwnProperty|toString)\s*\.\s*call\s*\(")
 
 _ASSIGN = r"(?:[-+*/%&|^]|\*\*|<<|>>>?|&&|\|\||\?\?)?=(?!=)|\+\+|--"
 _URL_SCHEME = r"(?:[a-z][a-z0-9+.\-]*:|//)"
@@ -63,14 +76,15 @@ _URL_SCHEME = r"(?:[a-z][a-z0-9+.\-]*:|//)"
 RULES = [
     ("writes_window", r"\b(?:window|globalThis|self)\s*\.\s*[A-Za-z_$][\w$]*\s*(?:" + _ASSIGN + r")", 0),
     ("writes_window", r"\b(?:window|globalThis|self)\s*\[", 0),
-    ("writes_window", r"\b(?:getPrototypeOf|setPrototypeOf|defineProperty|defineProperties|__defineGetter__|__defineSetter__)\b|__proto__|\bReflect\b", 0),
+    ("writes_window", r"\b(?:getPrototypeOf|setPrototypeOf|defineProperty|defineProperties|__defineGetter__|__defineSetter__|prototype)\b|__proto__|\bReflect\b", 0),
     ("top_layer", r"\bshowModal\b|\bpopover\b|\bshowPopover\b|\bshowPicker\b|\brequestFullscreen\b|<\s*dialog\b", 0),
     ("escapes_scope", r"\bownerDocument\b|\bparentNode\b|\bparentElement\b|\.\s*closest\s*\(|\bgetRootNode\b|\boffsetParent\b|\bcontentDocument\b|"
                       r"\bdocumentElement\b|\bdocument\s*\.\s*(?:body|head|scrollingElement)\b|\bcomposedPath\b", 0),
     ("network", r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|Worker|SharedWorker|importScripts)\b|\bsendBeacon\b|\bimport\s*\(", 0),
     ("network", r"<\s*link\b|@import", re.I),
-    ("network", r"\burl\s*\(\s*[\"']?\s*" + _URL_SCHEME, re.I),
-    ("network", r"\b(?:src|href|xlink:href|srcset|poster|action|formaction)\s*=\s*[\"']?\s*" + _URL_SCHEME, re.I),
+    ("network", r"\burl\s*\((?!\s*[\"']?#[A-Za-z_][\w-]*[\"']?\s*\))", re.I),                  # every url( but a reference to an id of the component itself
+    ("network", r"\b(?:src|srcset|poster|action|formaction)\s*=", re.I),
+    ("network", r"\b(?:href|xlink:href)\s*=\s*(?:\"(?!#)|'(?!#)|(?![\"'#\s]))", re.I),               # an href is only ever a reference to an id
     ("network", r"<\s*script\b[^>]*\bsrc\s*=", re.I),
     ("network", r"\.\s*(?:src|href|srcset|action)\s*=(?!=)|setAttribute\s*\(\s*[\"'](?:src|href|srcset|action)\b", 0),
     ("dynamic_code", r"\beval\b|\bFunction\s*\(|\bnew\s+Function\b|\.\s*constructor\b|\[\s*[\"'`]constructor|\bAsyncFunction\b|\bGeneratorFunction\b", 0),
@@ -78,6 +92,8 @@ RULES = [
     ("dynamic_code", r"\bdocument\s*\.\s*write(?:ln)?\b|\binnerHTML\b|\bouterHTML\b|\binsertAdjacentHTML\b|\bsrcdoc\b|\bcreateContextualFragment\b|\bDOMParser\b", 0),
     ("dynamic_code", r"<[^>]*\son[a-z]{3,}\s*=|javascript\s*:|setAttribute\s*\(\s*[\"']on|createElement\s*\(\s*[\"'`](?:script|link|style|base|meta)\b", re.I),
     ("nondeterministic", r"Math\s*\.\s*random|\bDate\s*\.\s*now|\bnew\s+Date\b|\bDate\s*\(|\bperformance\b|\bgetRandomValues\b|\bcrypto\b", 0),
+    ("nondeterministic", r"\brandom\s*\(|[\"'`]random\b", 0),                                   # GSAP's own "random(...)" values and from: "random"
+    ("gsap_api", r"\bgsap\s*\.\s*(?!timeline\b|utils\s*\.\s*(?:clamp|mapRange|interpolate|normalize|snap|wrap|wrapYoyo|pipe|unitize|toArray|splitColor)\b)|\bgsap\s*\[", 0),
     ("timers", r"\b(?:setTimeout|setInterval|setImmediate|requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|queueMicrotask)\b", 0),
     ("media", r"<\s*(?:img|video|audio|canvas|iframe|object|embed|picture|source|track)\b|background-image", re.I),
     ("media", r"\bnew\s+(?:Image|Audio|OffscreenCanvas|Option)\b|\bgetContext\b|\bOffscreenCanvas\b|createElement\s*\(\s*[\"'`](?:canvas|img|video|audio|iframe|object|embed)\b", 0),
@@ -86,8 +102,8 @@ RULES = [
     ("fonts", r"@font-face", re.I),
 ]
 _COMPILED = [(code, re.compile(pattern, flags)) for code, pattern, flags in RULES]
-CODES = ("writes_window", "top_layer", "escapes_scope", "network", "dynamic_code", "nondeterministic", "timers", "media", "storage", "frames",
-         "fonts", "variables_untyped", "too_large")
+CODES = ("writes_window", "top_layer", "escapes_scope", "network", "dynamic_code", "nondeterministic", "gsap_api", "timers", "media", "storage",
+         "frames", "fonts", "variables_untyped", "unbalanced", "too_large")
 
 
 class WrapRefusal(Exception):
@@ -136,8 +152,29 @@ def typed_variables(text: str) -> list:
         if not isinstance(vid, str) or not VARIABLE_ID.fullmatch(vid) or kind not in VARIABLE_TYPES or vid in seen:
             raise ValueError("variables")
         seen.add(vid)
-        out.append({"id": vid, "name": snake_case(vid), "type": VARIABLE_TYPES[kind], "declared": row})
+        var = {"id": vid, "name": snake_case(vid), "type": VARIABLE_TYPES[kind], "declared": row}
+        if kind == "enum":
+            var["values"] = enum_values(row)
+        out.append(var)
     return out
+
+
+def enum_values(row: dict) -> list:
+    """The options a declared enum variable offers, as a list of closed identifiers (`options` is a list of `{"value", "label"}` rows or of plain
+    strings; the labels are prose and are never read). ValueError when there are none, more than CHOICE_MAX, a repeat, or a value that is not a closed
+    identifier; when a `default` is declared it must be one of them."""
+    options = row.get("options")
+    if not isinstance(options, list) or not 1 <= len(options) <= CHOICE_MAX:
+        raise ValueError("variables")
+    values = []
+    for option in options:
+        value = option.get("value") if isinstance(option, dict) else option
+        if not isinstance(value, str) or not CHOICE_VALUE.fullmatch(value) or value in values:
+            raise ValueError("variables")
+        values.append(value)
+    if "default" in row and row["default"] not in values:
+        raise ValueError("variables")
+    return values
 
 
 def _families(css: str):
@@ -164,6 +201,125 @@ def fonts_ok(text: str) -> bool:
     return True
 
 
+def strip_comments(text: str) -> str:
+    """The text with `/* */`, `//` line and `<!-- -->` comments each replaced by one space. It is a second copy for the lint to scan, never a
+    replacement of the first: a `//` inside a string hides the rest of its line from this copy only, and the raw text is scanned too."""
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return re.sub(r"(?m)//[^\n]*", " ", text)
+
+
+def script_bodies(text: str) -> list:
+    out = []
+    for m in _SCRIPT.finditer(text):
+        kind = re.search(r"\btype\s*=\s*[\"']?([^\"'\s>]*)", m.group(1), re.I)
+        if (kind.group(1).lower() if kind else "") in SCRIPT_TYPES:
+            out.append(m.group(2))
+    return out
+
+
+_REGEX_AFTER = "(,=:[!&|?{};+-*%<>~^"
+
+
+def balanced(js: str) -> bool:
+    """True when every bracket of the script closes in order outside strings, comments, template literals and regular expressions, and none of
+    those is left open. It decides whether the text can be pasted into a function body without closing it early; a script it cannot read is
+    refused. (A regular expression after a keyword is read as a division: that errs towards refusing.)"""
+    stack, i, n, prev = [], 0, len(js), ""
+    pairs = {")": "(", "]": "[", "}": "{"}
+
+    def template(i):
+        """Scan template text from `i` up to its closing backtick (returns the index after it) or to a `${` (pushes it, returns the index after)."""
+        while i < n:
+            ch = js[i]
+            if ch == "\\":
+                i += 2
+            elif ch == "`":
+                return i + 1
+            elif ch == "$" and js[i + 1:i + 2] == "{":
+                stack.append("T")
+                return i + 2
+            else:
+                i += 1
+        return -1
+
+    while i < n:
+        ch = js[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if js.startswith("//", i):
+            j = js.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if js.startswith("/*", i):
+            j = js.find("*/", i + 2)
+            if j < 0:
+                return False
+            i = j + 2
+            continue
+        if ch in "\"'":
+            j = i + 1
+            while j < n and js[j] != ch:
+                if js[j] == "\n":
+                    return False
+                j += 2 if js[j] == "\\" else 1
+            if j >= n:
+                return False
+            i, prev = j + 1, ch
+            continue
+        if ch == "`":
+            i = template(i + 1)
+            if i < 0:
+                return False
+            prev = "`"
+            continue
+        if ch == "/" and (prev == "" or prev in _REGEX_AFTER):
+            j, in_class = i + 1, False
+            while j < n:
+                c = js[j]
+                if c == "\n":
+                    return False
+                if c == "\\":
+                    j += 2
+                    continue
+                if c == "[":
+                    in_class = True
+                elif c == "]":
+                    in_class = False
+                elif c == "/" and not in_class:
+                    break
+                j += 1
+            if j >= n:
+                return False
+            i, prev = j + 1, "/"
+            continue
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in ")]}":
+            if ch == "}" and stack and stack[-1] == "T":
+                stack.pop()
+                i = template(i + 1)
+                if i < 0:
+                    return False
+                prev = "`"
+                continue
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+        prev = ch
+        i += 1
+    return not stack
+
+
+_COMPUTED = re.compile(r"(?<=[\w$)\]])\s*\[\s*([^\]\[]*)\]")
+
+
+def computed_access(js: str) -> bool:
+    """True when the script reaches a member through a computed key that is not a plain number (`a[0]` is fine; `a[i]`, `a["x"]` and `a["x" + y]`
+    are not): a key built at run time is how a forbidden name is spelled around a text lint."""
+    return any(not re.fullmatch(r"\d+", m.group(1).strip()) for m in _COMPUTED.finditer(js))
+
+
 def lint(html: str) -> list:
     """The closed codes of what the component does that it may not, in the order of CODES; [] admits it."""
     if not isinstance(html, str):
@@ -172,21 +328,32 @@ def lint(html: str) -> list:
     if len(html.encode("utf-8")) > MAX_BYTES:
         found.add("too_large")
     text = strip_cdn(html)
-    scan = TIMELINES_KEY.sub("", TIMELINES_IDIOM.sub("", text))              # the two ways `window.__timelines` may be written are not assignments to window
-    for code, rx in _COMPILED:
-        if code in found:
-            continue
-        if rx.search(scan):
-            found.add(code)
-    if not fonts_ok(text):
+    scan = PROTOTYPE_IDIOM.sub(" (", TIMELINES_KEY.sub(" ", TIMELINES_IDIOM.sub(" ", text)))    # the ways `window.__timelines` may be written are not assignments to window
+    for copy in (scan, strip_comments(scan)):                                  # the raw text and a copy without comments
+        for code, rx in _COMPILED:
+            if code not in found and rx.search(copy):
+                found.add(code)
+    if not fonts_ok(text) or not fonts_ok(strip_comments(text)):
         found.add("fonts")
     try:
-        declared = typed_variables(text)
+        typed_variables(text)
     except ValueError:
         found.add("variables_untyped")
-        declared = []
     if re.search(r"\bgetVariables\b|__hfVariables|__hfV\b", text) and declared_variables_present(text) is False:
         found.add("variables_untyped")
+    for body in script_bodies(text):
+        if re.search(r"\\u[0-9a-fA-F{]|\\x[0-9a-fA-F]", body):
+            found.add("dynamic_code")
+        if not balanced(body):
+            found.add("unbalanced")
+        elif computed_access(TIMELINES_KEY.sub(" ", TIMELINES_IDIOM.sub(" ", body))):
+            found.add("dynamic_code")
+    try:
+        tags = {t.lower() for t in re.findall(r"<\s*([A-Za-z][A-Za-z0-9:-]*)", parse_component(text)["markup"])}
+    except Exception:                                                           # a component the reader cannot take apart is refused
+        tags = {"unreadable"}
+    if tags - ALLOWED_TAGS:
+        found.add("media")
     return [code for code in CODES if code in found]
 
 
@@ -365,11 +532,24 @@ DENIED = ("fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "Shar
           "history", "open", "alert", "postMessage", "importScripts", "Function", "Reflect")
 ALIASES = ("window", "self", "globalThis", "top", "parent", "frames")       # every name the page's global object goes by, all bound to the guarded window
 
-REGISTER = """(window.__hfTierA = window.__hfTierA || {})[%(n)d] = function (main, V, gsap) {
+UTILS = ("clamp", "mapRange", "interpolate", "normalize", "snap", "wrap", "wrapYoyo", "pipe", "unitize", "toArray", "splitColor")   # gsap.utils without random and shuffle
+DETERMINISM = """(function () {
+  if (window.__hfDeterministic) return;
+  window.__hfDeterministic = true;
+  var seed = 1234567;
+  Math.random = function () { seed = (seed * 1664525 + 1013904223) %% 4294967296; return seed / 4294967296; };
+})();"""
+
+REGISTER = DETERMINISM + """
+(window.__hfTierA = window.__hfTierA || {})[%(n)d] = function (main, V, gsap) {
   "use strict";
   var REAL = document, REAL_WIN = window, INST = REAL.getElementById(%(inst)s), PFX = %(pfx)s, IDS = %(ids)s, DECL = %(decl)s;
   var ESC = {hit: false};
-  function hit() { ESC.hit = true; try { console.error(%(msg)s); } catch (e) {} throw new Error(%(msg)s); }
+  function hit() {
+    ESC.hit = true;
+    try { REAL_WIN.__hfEscape = true; REAL.documentElement.setAttribute("data-hf-escape", "1"); console.error(%(msg)s); } catch (e) {}
+    throw new Error(%(msg)s);
+  }
   var deny = new Proxy(function () {}, {get: hit, set: hit, apply: hit, construct: hit, has: hit, defineProperty: hit, deleteProperty: hit});
   function sel(s) { return String(s).replace(/#([A-Za-z][\\w-]*)/g, function (m, id) { return IDS.indexOf(id) < 0 ? m : "#" + PFX + id; }); }
   var SAFE = %(safe)s;
@@ -379,6 +559,13 @@ REGISTER = """(window.__hfTierA = window.__hfTierA || {})[%(n)d] = function (mai
     getElementById: function (id) { return REAL.getElementById(PFX + id); },
     createElement: function (t) { t = String(t).toLowerCase(); if (SAFE.indexOf(t) < 0) hit(); return REAL.createElement(t); }
   });
+  var UTILS = %(utils)s, utils = {};
+  UTILS.forEach(function (k) { if (gsap && gsap.utils && typeof gsap.utils[k] === "function") utils[k] = gsap.utils[k]; });
+  var G = Object.freeze({timeline: function (v) { return gsap.timeline(v); }, utils: Object.freeze(utils)});
+  var M = {};
+  Object.getOwnPropertyNames(Math).forEach(function (k) { if (k !== "random") M[k] = Math[k]; });
+  M.random = function () { return hit(); };
+  M = Object.freeze(M);
   var timelines = {};
   var vars = Object.freeze({getVariables: function () {
     var src = (V.inst && V.inst[%(n)d]) || {}, out = {};
@@ -407,11 +594,11 @@ RUN_ONE = """  (function (%(params)s) {
 
 
 def build_script(parts: dict, n: int, ids: list, decl: list, start: float, end: float, band: dict) -> str:
-    params = list(ALIASES) + ["document", "gsap"] + list(DENIED)
-    args = ["guarded"] * len(ALIASES) + ["D", "gsap"] + ["deny"] * len(DENIED)
+    params = list(ALIASES) + ["document", "gsap", "Math"] + list(DENIED)
+    args = ["guarded"] * len(ALIASES) + ["D", "G", "M"] + ["deny"] * len(DENIED)
     runs = "\n".join(RUN_ONE % {"params": ", ".join(params), "args": ", ".join(args), "code": script} for script in parts["scripts"])
     return REGISTER % {"n": n, "inst": js("hf-inst-%d" % n), "pfx": js(PREFIX % n), "ids": js(ids), "decl": js([{"id": d["id"], "name": d["name"]} for d in decl]),
-                       "msg": js(ESCAPE_MESSAGE), "safe": js(list(SAFE_TAGS)), "width": BAND_WIDTH, "height": BAND_HEIGHT_MAX, "scripts": runs,
+                       "msg": js(ESCAPE_MESSAGE), "safe": js(list(SAFE_TAGS)), "utils": js(list(UTILS)), "width": BAND_WIDTH, "height": BAND_HEIGHT_MAX, "scripts": runs,
                        "start": num(start), "end": num(end)}
 
 
@@ -424,6 +611,12 @@ def wrap(html: str, inst: dict, files_sha: dict, variables: list) -> str:
     `WrapRefusal` when the lint refuses the component. The same inputs give the same text."""
     if lint(html):
         raise WrapRefusal("block_lint")
+    return wrap_unchecked(html, inst, files_sha, variables)
+
+
+def wrap_unchecked(html: str, inst: dict, files_sha: dict, variables: list) -> str:
+    """`wrap` without the lint. Only the guard run of the compatibility run uses it, to put a planted escape (which the lint refuses) in front of the
+    guard; nothing that draws calls it."""
     n = inst["n"]
     prefix = PREFIX % n
     parts = parse_component(html)

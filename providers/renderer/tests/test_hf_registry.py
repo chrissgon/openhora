@@ -123,3 +123,16 @@ def test_a_hash_mismatch_an_oversize_file_a_bad_path_or_no_commit_is_refused_and
             F.main([manifest(tmp_path, rows), str(tmp_path / "o3")])
     with pytest.raises(SystemExit):
         F.main([manifest(tmp_path, [], commit="short"), str(tmp_path / "o4")])
+
+
+def test_a_manifest_line_with_one_token_and_a_duplicate_path_are_refused_with_a_clean_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(F.urllib.request, "urlopen", lambda url, timeout: pytest.fail("a download was started"))
+    one = tmp_path / "one.sha256"
+    one.write_text("# commit %s\n%s\n" % (COMMIT, "a" * 64))
+    with pytest.raises(SystemExit) as caught:
+        F.main([str(one), str(tmp_path / "o")])
+    assert "bad manifest line" in str(caught.value)
+    digest = "a" * 64
+    with pytest.raises(SystemExit) as dup:
+        F.main([manifest(tmp_path, [(digest, "LICENSE"), (digest, "LICENSE")]), str(tmp_path / "o2")])
+    assert "duplicate path" in str(dup.value)

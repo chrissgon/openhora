@@ -102,66 +102,84 @@ CONTROL = """<template>
 </template>
 """
 
-# (id, where, snippet): a fictional component doing one thing a block may not do. `where` is script, markup, style or special.
+# (id, where, snippet, expected lint code, acts at run time): a fictional component doing one thing a block may not do. `where` is script, markup,
+# style or special. The lint must refuse each one WITH its expected code; the ones that act at run time must also be stopped by the guard, run in
+# the image's browser with the lint out of the way.
 PLANTED = (
-    ("window_dot", "script", "window.foo = 1;"),
-    ("window_bracket", "script", 'window["foo"] = 1;'),
-    ("globalthis", "script", "globalThis.x = 1;"),
-    ("indirect_eval", "script", '(0, eval)("1");'),
-    ("body_parent", "script", "document.body.parentNode;"),
-    ("closest", "script", 'root.closest("body");'),
-    ("root_node", "script", "root.getRootNode();"),
-    ("show_modal", "script", "dialog.showModal();"),
-    ("fullscreen", "script", "root.requestFullscreen();"),
-    ("fetch", "script", 'fetch("/x");'),
-    ("image_src", "script", 'new Image().src = "//x";'),
-    ("timeout_string", "script", 'setTimeout("x", 1);'),
-    ("random", "script", "Math.random();"),
-    ("local_storage", "script", "localStorage.x = 1;"),
-    ("top_location", "script", "var t = top.location;"),
-    ("prototype_of_window", "script", "Object.getPrototypeOf(window).x = 1;"),
-    ("web_socket", "script", 'new WebSocket("wss://x.example/");'),
-    ("xhr", "script", "new XMLHttpRequest();"),
-    ("date_now", "script", "var d = Date.now();"),
-    ("animation_frame", "script", "requestAnimationFrame(function () {});"),
-    ("interval", "script", "setInterval(function () {}, 5);"),
-    ("constructor_chain", "script", '({}).constructor.constructor("return 1")();'),
-    ("inner_html", "script", 'root.innerHTML = "<b>x</b>";'),
-    ("cookie", "script", 'document.cookie = "a=1";'),
-    ("parent_post", "script", 'parent.postMessage("x", "*");'),
-    ("opener", "script", "var o = opener;"),
-    ("timelines_replaced", "script", "window.__timelines = {};"),
-    ("define_property", "script", 'Object.defineProperty(window, "x", { value: 1 });'),
-    ("dynamic_import", "script", 'import("x");'),
-    ("beacon", "script", 'navigator.sendBeacon("/x");'),
-    ("canvas_font", "script", 'var f = "16px Papyrus";'),
-    ("untyped_variables", "script", "var v = window.__hyperframes.getVariables();"),
-    ("img", "markup", '<img alt="x">'),
-    ("iframe", "markup", "<iframe></iframe>"),
-    ("link", "markup", '<link rel="stylesheet" href="https://x.example/a.css">'),
-    ("video", "markup", "<video></video>"),
-    ("audio", "markup", "<audio></audio>"),
-    ("canvas", "markup", "<canvas></canvas>"),
-    ("object", "markup", "<object></object>"),
-    ("embed", "markup", "<embed>"),
-    ("src_scheme", "markup", '<div src="https://x.example/a"></div>'),
-    ("inline_handler", "markup", '<div onclick="x()"></div>'),
-    ("dialog", "markup", "<dialog open>x</dialog>"),
-    ("css_import", "style", '@import "x.css";'),
-    ("css_url_scheme", "style", ".a { background: url(https://x.example/a.png); }"),
-    ("css_url_slashes", "style", ".a { cursor: url(//x.example/a.cur), auto; }"),
-    ("background_image", "style", ".a { background-image: linear-gradient(red, blue); }"),
-    ("font_face", "style", '@font-face { font-family: "Inter"; src: local("x"); }'),
-    ("font_family", "style", '.a { font-family: "Papyrus", serif; }'),
-    ("bad_variable_type", "special", ""),
-    ("too_large", "special", ""),
+    ("window_dot", "script", "window.foo = 1;", "writes_window", True),
+    ("window_bracket", "script", 'window["foo"] = 1;', "writes_window", True),
+    ("globalthis", "script", "globalThis.x = 1;", "writes_window", True),
+    ("indirect_eval", "script", '(0, eval)("1");', "dynamic_code", False),
+    ("body_parent", "script", "document.body.parentNode;", "escapes_scope", False),
+    ("closest", "script", 'root.closest("body");', "escapes_scope", False),
+    ("root_node", "script", "root.getRootNode();", "escapes_scope", False),
+    ("show_modal", "script", "dialog.showModal();", "top_layer", False),
+    ("fullscreen", "script", "root.requestFullscreen();", "top_layer", False),
+    ("fetch", "script", 'fetch("/x");', "network", True),
+    ("image_src", "script", 'new Image().src = "//x";', "media", True),
+    ("timeout_string", "script", 'setTimeout("x", 1);', "dynamic_code", True),
+    ("random", "script", "Math.random();", "nondeterministic", True),
+    ("local_storage", "script", "localStorage.x = 1;", "storage", True),
+    ("top_location", "script", "var t = top.location;", "frames", False),
+    ("prototype_of_window", "script", "Object.getPrototypeOf(window).x = 1;", "writes_window", False),
+    ("web_socket", "script", 'new WebSocket("wss://x.example/");', "network", True),
+    ("xhr", "script", "new XMLHttpRequest();", "network", True),
+    ("date_now", "script", "var d = Date.now();", "nondeterministic", True),
+    ("animation_frame", "script", "requestAnimationFrame(function () {});", "timers", True),
+    ("interval", "script", "setInterval(function () {}, 5);", "timers", True),
+    ("constructor_chain", "script", '({}).constructor.constructor("return 1")();', "dynamic_code", False),
+    ("inner_html", "script", 'root.innerHTML = "<b>x</b>";', "dynamic_code", False),
+    ("cookie", "script", 'document.cookie = "a=1";', "storage", False),
+    ("parent_post", "script", 'parent.postMessage("x", "*");', "frames", False),
+    ("opener", "script", "var o = opener;", "frames", False),
+    ("timelines_replaced", "script", "window.__timelines = {};", "writes_window", True),
+    ("define_property", "script", 'Object.defineProperty(window, "x", { value: 1 });', "writes_window", True),
+    ("dynamic_import", "script", 'import("x");', "network", False),
+    ("beacon", "script", 'navigator.sendBeacon("/x");', "network", False),
+    ("canvas_font", "script", 'var f = "16px Papyrus";', "fonts", False),
+    ("untyped_variables", "script", "var v = window.__hyperframes.getVariables();", "variables_untyped", False),
+    ("timelines_key_call", "script", "window.__timelines[Math.random()] = tl;", "nondeterministic", False),
+    ("gsap_random", "script", "var r = gsap.utils.random(1, 2);", "gsap_api", False),
+    ("gsap_delayed", "script", "gsap.delayedCall(1, function () {});", "gsap_api", False),
+    ("gsap_global_tween", "script", "gsap.to(root, { x: 1 });", "gsap_api", False),
+    ("random_string", "script", 'tl.to(root, { x: "random(1, 5)" });', "nondeterministic", False),
+    ("unicode_escape", "script", 'var f = "\\u0066etch";', "dynamic_code", False),
+    ("comment_split", "script", "window/**/.foo = 1;", "writes_window", True),
+    ("computed_key", "script", 'var p = root["par" + "entNode"];', "dynamic_code", False),
+    ("variable_key", "script", "var p = root[k];", "dynamic_code", False),
+    ("unbalanced", "script", "}); var a = 1;", "unbalanced", False),
+    ("prototype_write", "script", "Object.prototype.x = 1;", "writes_window", False),
+    ("img", "markup", '<img alt="x">', "media", False),
+    ("iframe", "markup", "<iframe></iframe>", "media", False),
+    ("link", "markup", '<link rel="stylesheet" href="https://x.example/a.css">', "network", False),
+    ("video", "markup", "<video></video>", "media", False),
+    ("audio", "markup", "<audio></audio>", "media", False),
+    ("canvas", "markup", "<canvas></canvas>", "media", False),
+    ("object", "markup", "<object></object>", "media", False),
+    ("embed", "markup", "<embed>", "media", False),
+    ("src_scheme", "markup", '<div src="https://x.example/a"></div>', "network", False),
+    ("inline_handler", "markup", '<div onclick="x()"></div>', "dynamic_code", False),
+    ("dialog", "markup", "<dialog open>x</dialog>", "top_layer", False),
+    ("svg_image", "markup", "<svg><image></image></svg>", "media", False),
+    ("svg_use_external", "markup", '<svg><use href="x.svg#a"></use></svg>', "network", False),
+    ("meta_refresh", "markup", '<meta http-equiv="refresh" content="0">', "media", False),
+    ("css_import", "style", '@import "x.css";', "network", False),
+    ("css_url_scheme", "style", ".a { background: url(https://x.example/a.png); }", "network", False),
+    ("css_url_slashes", "style", ".a { cursor: url(//x.example/a.cur), auto; }", "network", False),
+    ("css_url_relative", "style", ".a { background: url(x.png); }", "network", False),
+    ("background_image", "style", ".a { background-image: linear-gradient(red, blue); }", "media", False),
+    ("font_face", "style", '@font-face { font-family: "Inter"; src: local("x"); }', "fonts", False),
+    ("font_family", "style", '.a { font-family: "Papyrus", serif; }', "fonts", False),
+    ("bad_variable_type", "special", "", "variables_untyped", False),
+    ("enum_without_options", "special", "", "variables_untyped", False),
+    ("too_large", "special", "", "too_large", False),
 )
 MIN_PLANTED = 16
 
 
 def planted_component(item):
     """(id, html) of one planted escape, built from the control."""
-    ident, where, snippet = item
+    ident, where, snippet = item[:3]
     html = CONTROL
     fill = {"{{STYLE}}": "", "{{MARKUP}}": "", "{{SCRIPT}}": ""}
     if where == "script":
@@ -174,13 +192,15 @@ def planted_component(item):
         html = html.replace(key, value)
     if ident == "bad_variable_type":
         html = html.replace('data-duration="2"', 'data-duration="2" data-composition-variables=\'[{"id":"flag","type":"boolean"}]\'')
+    elif ident == "enum_without_options":
+        html = html.replace('data-duration="2"', 'data-duration="2" data-composition-variables=\'[{"id":"mode","type":"enum"}]\'')
     elif ident == "too_large":
         html = html.replace("</template>", "<!-- %s -->\n</template>" % ("x" * (W.MAX_BYTES + 1)))
     return ident, html
 
 
 def control_component() -> str:
-    return planted_component(("control", "none", ""))[1]
+    return planted_component(("control", "none", "", None, False))[1]
 
 
 # ---------------------------------------------------------------- the guard, in the image's browser
@@ -201,19 +221,19 @@ document.title = verdict;
 """
 
 
-def run_guard(html: str, browser: str = BROWSER, scratch: str = SCRATCH) -> bool:
-    """True when the wrapped component is stopped by the guard (the browser's page title says `escaped-refused`). The wrapped component is run
-    once in the image's headless browser, with no network, from a page in the scratch folder. False for anything else: the component ran
-    through, failed in another way, or the browser could not be run (the caller treats False as `admitted`)."""
+def guard_verdict(html: str, browser: str = BROWSER, scratch: str = SCRATCH) -> str:
+    """What the wrapper's guard does with `html` when it is run once in the image's headless browser, with no network, from a page in the scratch
+    folder: "ran" (the component ran through), "escaped-refused" (the guard stopped it), "error" (another failure), or "unavailable" (the browser
+    could not be run or said nothing). The wrapper is built WITHOUT the lint, so a planted escape reaches the guard."""
     inst = {"n": 0, "zone": "card", "top": 0, "height": 100, "start": 0.0, "end": 1.0}
     try:
-        text = W.wrap(html, inst, {}, W.typed_variables(html))
+        text = W.wrap_unchecked(html, inst, {}, W.typed_variables(html))
     except (W.WrapRefusal, ValueError):
-        return False
+        return "unavailable"
     try:
         folder = tempfile.mkdtemp(dir=scratch)
     except OSError:
-        return False
+        return "unavailable"
     try:
         path = os.path.join(folder, "guard.html")
         with open(path, "w", encoding="utf-8") as fh:
@@ -224,26 +244,36 @@ def run_guard(html: str, browser: str = BROWSER, scratch: str = SCRATCH) -> bool
                                    "--dump-dom", "file://" + path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                   timeout=GUARD_TIMEOUT, env={"HOME": folder, "PATH": os.environ.get("PATH", "")})
         except (OSError, subprocess.SubprocessError):
-            return False
-        return b"<title>escaped-refused</title>" in done.stdout
+            return "unavailable"
+        for verdict in ("ran", "escaped-refused", "error"):
+            if ("<title>%s</title>" % verdict).encode() in done.stdout:
+                return verdict
+        return "unavailable"
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def try_planted(guard=run_guard) -> dict:
-    """{"total", "refused", "admitted": [ids]}: every planted escape through the lint and, when the lint admits one, through the guard.
-    The control must pass the lint; if it does not, the run fails `control_refused`."""
+def try_planted(guard=guard_verdict) -> dict:
+    """{"total", "refused", "admitted": [ids], "guarded": n}: every planted escape must be refused by the lint WITH its own expected code, and every
+    one that acts at run time must also be stopped by the guard in the image's browser. The guard is proven first: the clean control must pass the
+    lint and must run to the end in the browser (`ran`), else the run fails `control_refused` or `guard_unavailable`."""
     if W.lint(control_component()):
         raise RunFailed("control_refused", "control")
-    admitted, refused = [], 0
-    items = PLANTED
-    for item in items:
+    if guard(control_component()) != "ran":
+        raise RunFailed("guard_unavailable", "control")
+    admitted, refused, guarded = [], 0, 0
+    for item in PLANTED:
         ident, html = planted_component(item)
-        if W.lint(html) or guard(html):
-            refused += 1
-        else:
+        code, runtime = item[3], item[4]
+        if code not in W.lint(html):
             admitted.append(ident)
-    return {"total": len(items), "refused": refused, "admitted": admitted}
+            continue
+        if runtime:
+            if guard(html) != "escaped-refused":
+                raise RunFailed("guard_unavailable", ident)
+            guarded += 1
+        refused += 1
+    return {"total": len(PLANTED), "refused": refused, "admitted": admitted, "guarded": guarded}
 
 
 # ---------------------------------------------------------------- the survey
@@ -340,7 +370,11 @@ def param_specs(variables: list):
         if not PARAM_NAME.fullmatch(name) or name in specs:
             return {}, False
         spec = {"type": var["type"]}
-        if var["type"] == "text":
+        if var["type"] == "choice":
+            spec["values"] = list(var["values"])
+            if declared.get("default") in var["values"]:
+                spec["default"] = declared["default"]
+        elif var["type"] == "text":
             maximum = declared.get("max", declared.get("maxLength"))
             spec["max"] = maximum if isinstance(maximum, int) and not isinstance(maximum, bool) and 1 <= maximum <= 240 else TEXT_MAX_DEFAULT
         elif var["type"] == "number":
@@ -420,7 +454,7 @@ def check_report(doc) -> dict:
             or doc["commit"] != REGISTRY_COMMIT or not isinstance(doc["licence_sha256"], str) or not (HEX64.fullmatch(doc["licence_sha256"]) or doc["licence_sha256"] == ""):
         bad()
     planted = doc["planted"]
-    if not isinstance(planted, dict) or set(planted) != {"total", "refused"} or not all(type(v) is int and v >= 0 for v in planted.values()) \
+    if not isinstance(planted, dict) or set(planted) != {"total", "refused", "guarded"} or not all(type(v) is int and v >= 0 for v in planted.values()) \
             or planted["refused"] != planted["total"] or planted["total"] < MIN_PLANTED:
         bad()
     rows, comps = [], doc["components"]
@@ -443,8 +477,12 @@ def check_report(doc) -> dict:
                     or not (comp["preset"] is None or (isinstance(comp["preset"], str) and re.fullmatch(r"[a-z][a-z0-9_]{0,31}", comp["preset"]))):
                 bad()
             for pname, spec in comp["params"].items():
-                if not PARAM_NAME.fullmatch(pname) or not isinstance(spec, dict) or spec.get("type") not in ("text", "color", "number") \
-                        or not set(spec) <= {"type", "max", "min", "required"}:
+                if not PARAM_NAME.fullmatch(pname) or not isinstance(spec, dict) or spec.get("type") not in ("text", "color", "number", "choice") \
+                        or not set(spec) <= {"type", "max", "min", "required", "values", "default"}:
+                    bad()
+                if spec["type"] == "choice" and (not isinstance(spec.get("values"), list) or not 1 <= len(spec["values"]) <= W.CHOICE_MAX
+                                                 or not all(isinstance(v, str) and W.CHOICE_VALUE.fullmatch(v) for v in spec["values"])
+                                                 or ("default" in spec and spec["default"] not in spec["values"])):
                     bad()
         elif comp["files"] or comp["params"] or comp["preset"] is not None or comp["natural_duration"] is not None:
             bad()
@@ -452,15 +490,15 @@ def check_report(doc) -> dict:
     return doc
 
 
-def run(survey: str, out: str, presets: dict, registry_root: str = REGISTRY_ROOT, guard=run_guard) -> dict:
-    tried = try_planted(guard)
+def run(survey: str, out: str, presets: dict, registry_root: str = REGISTRY_ROOT, guard=None) -> dict:
+    tried = try_planted(guard or guard_verdict)
     if tried["admitted"]:
         raise RunFailed("planted_escape_admitted", tried["admitted"][0])
     doc = load_survey(survey)
     licence_ok = licence_known(registry_root)
     components = [judge(survey, comp, presets, licence_ok) for comp in doc["components"]]
     report = {"schema": 1, "commit": REGISTRY_COMMIT, "licence_sha256": LICENCE_SHA256 if licence_ok else "",
-              "planted": {"total": tried["total"], "refused": tried["refused"]}, "components": sorted(components, key=lambda c: (c["name"], c["verdict"]))}
+              "planted": {"total": tried["total"], "refused": tried["refused"], "guarded": tried["guarded"]}, "components": sorted(components, key=lambda c: (c["name"], c["verdict"]))}
     check_report(report)
     return report
 

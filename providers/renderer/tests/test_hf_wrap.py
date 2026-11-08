@@ -86,6 +86,8 @@ CLASSES = {
     "frames": with_script("var t = top.location;"),
     "fonts": C.planted_component(("x", "style", '@font-face { font-family: "Inter"; src: local("x"); }'))[1],
     "variables_untyped": with_script("var v = window.__hyperframes.getVariables();"),
+    "gsap_api": with_script("gsap.delayedCall(1, function () {});"),
+    "unbalanced": with_script("}); var a = 1;"),
     "too_large": C.planted_component(("too_large", "special", ""))[1],
 }
 
@@ -108,8 +110,8 @@ def test_a_declared_variable_of_an_unmapped_type_is_variables_untyped_and_the_de
 
 
 @pytest.mark.parametrize("item", C.PLANTED, ids=[row[0] for row in C.PLANTED])
-def test_every_planted_escape_is_refused_by_the_lint(item):
-    assert W.lint(C.planted_component(item)[1]), item[0]
+def test_every_planted_escape_is_refused_by_the_lint_with_the_code_it_declares(item):
+    assert item[3] in W.lint(C.planted_component(item)[1]), item[0]
 
 
 def test_the_planted_list_holds_at_least_sixteen_and_a_case_of_every_lint_class():
@@ -118,6 +120,7 @@ def test_the_planted_list_holds_at_least_sixteen_and_a_case_of_every_lint_class(
     for item in C.PLANTED:
         seen.update(W.lint(C.planted_component(item)[1]))
     assert seen == set(W.CODES)
+    assert all(len(row) == 5 and row[3] in W.CODES and isinstance(row[4], bool) for row in C.PLANTED)
 
 
 def test_the_two_ways_the_timeline_registry_may_be_written_are_not_assignments_to_window():
@@ -160,8 +163,9 @@ def test_the_wrapper_shims_the_variables_nests_the_timeline_and_guards_the_windo
     assert "V.inst[0]" in script and "main.add(timelines[k], 1.0)" in script and "timelines[k].paused(false)" in script
     assert 'main.set(INST, {visibility: "visible"}, 1.0)' in script and 'main.set(INST, {visibility: "hidden"}, 3.0)' in script
     assert "throw new Error(\"hf-escape\")" in script and "setPrototypeOf: hit" in script and "defineProperty: hit" in script
-    for name in ("fetch", "XMLHttpRequest", "setTimeout", "Date", "localStorage"):
-        assert '"%s"' % name in script or name in script.split("function (")[0] or True
+    params = re.search(r"\(function \(([^)]*)\) \{\n    \"use strict\";", script).group(1).split(", ")
+    assert params[:8] == ["window", "self", "globalThis", "top", "parent", "frames", "document", "gsap"] and params[8] == "Math"
+    assert set(W.DENIED) <= set(params) and "eval" not in params
     assert script.count(".call(undefined,") == 1
 
 
@@ -208,17 +212,18 @@ NODE = shutil.which("node")
 HARNESS = """
 const vm = require("vm"), fs = require("fs");
 const script = fs.readFileSync(process.argv[2], "utf8");
-const added = [], sets = [];
+const added = [], sets = [], probes = [];
 const el = {querySelector() { return {}; }, querySelectorAll() { return []; }};
 const window = {getComputedStyle() { return {}; }};
 const document = {getElementById() { return el; }, createElement(t) { return {tag: t}; }};
 const ctx = vm.createContext({window, document, console: {error() {}}});
 vm.runInContext(script, ctx);
-const main = {add(tl, at) { added.push(at); return main; }, set(sel, vars, at) { sets.push(at); return main; }};
-const gsap = {timeline() { const t = {paused() { return t; }, to() { return t; }}; return t; }};
+const main = {add(tl, at) { added.push(at); if (tl.r !== undefined) probes.push(tl.r); return main; }, set(sel, vars, at) { sets.push(at); return main; }};
+const gsap = {timeline() { const t = {paused() { return t; }, to() { return t; }}; return t; }, utils: {clamp() {}, random() {}, shuffle() {}}, delayedCall() {}, ticker: {}};
 let error = null;
 try { window.__hfTierA[0](main, {inst: [{headline_text: "x"}]}, gsap); } catch (e) { error = e.message; }
-console.log(JSON.stringify({error, added, sets}));
+const rand = vm.runInContext("Math.random()", ctx);
+console.log(JSON.stringify({error, added, sets, probes, flag: window.__hfEscape === true, rand}));
 """
 
 
@@ -236,21 +241,129 @@ def run_guard_script(html, tmp_path, lint_first=False):
 @pytest.mark.skipif(NODE is None, reason="node is not on the path")
 def test_the_guard_lets_a_clean_component_run_and_nests_its_timeline(tmp_path):
     out = run_guard_script(COMPONENT, tmp_path)
-    assert out == {"error": None, "added": [1.0], "sets": [1.0, 3.0]}
-
-
-GUARDED = ("window_dot", "window_bracket", "globalthis", "fetch", "image_src", "timeout_string", "local_storage", "web_socket", "xhr", "interval",
-           "animation_frame", "date_now", "define_property", "timelines_replaced")
-
-
-@pytest.mark.skipif(NODE is None, reason="node is not on the path")
-@pytest.mark.parametrize("ident", GUARDED)
-def test_the_guard_stops_what_a_planted_escape_does_at_run_time_even_with_the_lint_out_of_the_way(tmp_path, ident):
-    item = next(row for row in C.PLANTED if row[0] == ident)
-    assert run_guard_script(C.planted_component(item)[1], tmp_path)["error"] == "hf-escape"
+    assert (out["error"], out["added"], out["sets"], out["flag"]) == (None, [1.0], [1.0, 3.0], False)
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not on the path")
 def test_a_component_that_catches_the_guards_error_still_fails_the_instance(tmp_path):
     html = with_script("try { window.foo = 1; } catch (e) {}")
     assert run_guard_script(html, tmp_path)["error"] == "hf-escape"
+
+
+# ---------------------------------------------------------------- the review's fixes (V3b-3 fix round)
+
+def test_a_forbidden_call_inside_the_timeline_key_is_not_hidden_by_the_allowed_forms():
+    assert "nondeterministic" in W.lint(with_script("window.__timelines[Math.random()] = tl;"))
+    assert "network" in W.lint(with_script('window.__timelines[fetch("/x")] = tl;'))
+    assert W.lint(with_script('window.__timelines["a-1"] = tl;')) == []
+    assert W.lint(with_script("window.__timelines[compositionId] = tl;")) == []
+
+
+@pytest.mark.parametrize("snippet", ["gsap.to(root, { x: 1 });", "gsap.delayedCall(1, f);", "gsap.ticker.add(f);", "gsap.globalTimeline.clear();",
+                                     "gsap.config({});", "gsap.registerPlugin(x);", "gsap.exportRoot();", "var r = gsap.utils.random(1, 2);",
+                                     "var r = gsap.utils.shuffle(x);", 'gsap["to"](root, {});'])
+def test_gsap_members_other_than_timeline_and_the_pruned_utils_are_refused(snippet):
+    assert "gsap_api" in W.lint(with_script(snippet))
+
+
+def test_gsap_timeline_and_the_safe_utils_are_admitted():
+    assert W.lint(with_script("var t = gsap.timeline({ paused: true }); var c = gsap.utils.clamp(0, 1, 2);")) == []
+
+
+@pytest.mark.parametrize("snippet", ['tl.to(root, { x: "random(1, 5)" });', 'tl.to(root, { stagger: { from: "random" } });'])
+def test_gsaps_own_random_forms_are_refused(snippet):
+    assert "nondeterministic" in W.lint(with_script(snippet))
+
+
+@pytest.mark.parametrize("snippet,code", [('var f = "\\u0066etch";', "dynamic_code"), ('var f = "\\x66etch";', "dynamic_code"),
+                                           ("window/**/.foo = 1;", "writes_window"), ("window // c\n.foo = 1;", "writes_window"),
+                                           ('var p = root["par" + "entNode"];', "dynamic_code"), ("var p = root[k];", "dynamic_code"),
+                                           ("}); var a = 1;", "unbalanced"), ("var a = {;", "unbalanced"), ('var s = "open;', "unbalanced"),
+                                           ("Object.prototype.x = 1;", "writes_window"), ("var P = Object.prototype;", "writes_window")])
+def test_spellings_that_get_past_a_plain_text_scan_are_refused(snippet, code):
+    assert code in W.lint(with_script(snippet))
+
+
+def test_a_numeric_index_the_borrowed_methods_and_balanced_scripts_are_admitted():
+    assert W.lint(with_script("var a = [1, 2][0]; var h = Object.prototype.hasOwnProperty.call({}, 'a'); var r = /[)]/.test('x'); var t = `a${ {b: 1}.b }c`;")) == []
+
+
+@pytest.mark.parametrize("text,ok", [("var a = {b: [1,(2)]}; // )", True), ("a(); }", False), ("var s = '}';", True), ("var t = `${ '}' }`;", True),
+                                      ("var t = `${ { a: 1 }", False), ("/* ( */ var a;", True), ("/* (", False)])
+def test_the_bracket_scanner_reads_strings_comments_templates_and_regexes(text, ok):
+    assert W.balanced(text) is ok
+
+
+@pytest.mark.parametrize("markup,code", [("<svg><image></image></svg>", "media"), ('<meta http-equiv="refresh" content="0">', "media"),
+                                          ('<svg><use href="x.svg#a"></use></svg>', "network"), (".", None)])
+def test_markup_tags_outside_the_allow_list_and_external_references_are_refused(markup, code):
+    if code is None:
+        assert W.lint(C.planted_component(("x", "markup", '<svg><use href="#a"></use><path d="M0 0"></path></svg><div></div>'))[1]) == []
+    else:
+        assert code in W.lint(C.planted_component(("x", "markup", markup))[1])
+
+
+def test_every_url_but_a_reference_to_an_own_id_is_refused():
+    style = lambda css: C.planted_component(("x", "style", css))[1]          # noqa: E731
+    assert W.lint(style(".a { fill: url(#grad); }")) == []
+    for css in (".a { background: url(x.png); }", ".a { background: url(data:image/png;base64,AA); }", ".a { background: url('//x'); }"):
+        assert "network" in W.lint(style(css)), css
+
+
+def enum_component(options, default=None):
+    row = {"id": "mode", "type": "enum", "options": options}
+    if default is not None:
+        row["default"] = default
+    return COMPONENT.replace(VARIABLES, "data-composition-variables='%s'" % json.dumps([row]))
+
+
+def test_an_enum_variable_becomes_a_choice_with_the_values_it_declares_and_odd_options_are_refused():
+    html = enum_component([{"value": "coarse", "label": "Coarse"}, {"value": "med", "label": "Medium"}], "med")
+    assert W.lint(html) == []
+    var = W.typed_variables(html)[0]
+    assert (var["type"], var["values"]) == ("choice", ["coarse", "med"])
+    assert W.lint(enum_component(["left", "right"])) == []
+    for options, default in (([], None), ([{"value": "Two Words"}], None), ([{"value": "a"}, {"value": "a"}], None), (["a"], "b"), ([{"label": "x"}], None),
+                             (["x" * 33], None), (["v%d" % i for i in range(21)], None)):
+        assert "variables_untyped" in W.lint(enum_component(options, default)), options
+    assert "variables_untyped" in W.lint(COMPONENT.replace(VARIABLES, "data-composition-variables='[{\"id\":\"m\",\"type\":\"enum\"}]'"))
+
+
+def test_the_wrapper_hands_the_component_a_frozen_gsap_a_math_without_random_and_sets_a_page_flag_when_it_stops_something():
+    script = wrapped().split("<script>")[1]
+    assert "var G = Object.freeze({timeline:" in script and 'UTILS = ["clamp","mapRange"' in script and "random" not in script.split("UTILS = ")[1].split(";")[0]
+    assert "M.random = function () { return hit(); };" in script and "REAL_WIN.__hfEscape = true" in script and 'setAttribute("data-hf-escape", "1")' in script
+    assert script.startswith("(function () {\n  if (window.__hfDeterministic) return;") or "window.__hfDeterministic = true;" in script
+
+
+def test_wrap_unchecked_exists_for_the_guard_run_only_and_nothing_that_draws_calls_it():
+    for path in (FOLDER / "hf_render.py", FOLDER.parent / "hyperframes.py", FOLDER.parent / "_hf_compose.py"):
+        assert "wrap_unchecked" not in path.read_text(encoding="utf-8"), path.name
+    assert "wrap_unchecked" in (FOLDER / "hf_compat.py").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------- the guard in node: facade, Math, flag, determinism
+
+PROBE = ("var probe = gsap.timeline(); probe.r = [typeof gsap.utils.random, typeof gsap.utils.shuffle, typeof gsap.delayedCall, typeof gsap.ticker, "
+         "typeof gsap.utils.clamp, typeof Math.floor, typeof Math.random].join(','); window.__timelines['p'] = probe;")
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the path")
+def test_the_component_sees_a_gsap_without_random_shuffle_delayedcall_and_ticker_and_a_math_whose_random_stops_it(tmp_path):
+    out = run_guard_script(with_script(PROBE), tmp_path)
+    assert out["probes"] == ["undefined,undefined,undefined,undefined,function,function,function"] and out["error"] is None
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the path")
+def test_a_stopped_escape_sets_the_page_flag_and_the_pages_math_random_is_deterministic(tmp_path):
+    escaped = run_guard_script(with_script("window.foo = 1;"), tmp_path)
+    assert escaped["error"] == "hf-escape" and escaped["flag"] is True
+    one, two = run_guard_script(COMPONENT, tmp_path), run_guard_script(COMPONENT, tmp_path)
+    assert one["flag"] is False and one["rand"] == two["rand"] and 0 <= one["rand"] < 1
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the path")
+@pytest.mark.parametrize("ident", [row[0] for row in C.PLANTED if row[4]])
+def test_the_guard_stops_every_planted_escape_that_acts_at_run_time(tmp_path, ident):
+    item = next(row for row in C.PLANTED if row[0] == ident)
+    assert run_guard_script(C.planted_component(item)[1], tmp_path)["error"] == "hf-escape"

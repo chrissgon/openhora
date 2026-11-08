@@ -36,6 +36,11 @@ POP = """<template>
 </script>
 </template>
 """
+def good_guard(html):
+    """The browser as it should answer: the control runs through, every planted escape is stopped."""
+    return "ran" if html == C.control_component() else "escaped-refused"
+
+
 ITEM = {"name": "x", "type": "hyperframes:component", "tags": ["reveal"]}
 PRESETS = {"keyword": {"text": {"type": "text", "required": True}, "icon": {"type": "icon"}}, "number": {"value": {"type": "number", "required": True}}}
 
@@ -88,7 +93,7 @@ def licence_root(tmp_path, monkeypatch):
 
 
 def run(tmp_path, monkeypatch, survey=None):
-    return C.run(str(survey or make(tmp_path)), str(tmp_path), PRESETS, licence_root(tmp_path, monkeypatch), guard=lambda html: False)
+    return C.run(str(survey or make(tmp_path)), str(tmp_path), PRESETS, licence_root(tmp_path, monkeypatch), guard=good_guard)
 
 
 def by_name(report):
@@ -105,7 +110,7 @@ def test_each_component_gets_the_verdict_of_its_own_fault_and_the_report_is_clos
                    "dash-var": "refuse:param_name", "loose-pop": "admit-candidate"}
     assert C.check_report(report) is report
     assert report["schema"] == 1 and report["commit"] == C.REGISTRY_COMMIT and report["licence_sha256"] == C.LICENCE_SHA256
-    assert report["planted"] == {"total": len(C.PLANTED), "refused": len(C.PLANTED)} and report["planted"]["total"] >= 16
+    assert report["planted"] == {"total": len(C.PLANTED), "refused": len(C.PLANTED), "guarded": sum(1 for r in C.PLANTED if r[4])} and report["planted"]["total"] >= 16
 
 
 def test_an_admit_candidate_lists_its_two_files_its_parameters_its_preset_and_its_duration(tmp_path, monkeypatch):
@@ -134,15 +139,16 @@ def test_a_licence_file_that_is_not_the_reviewed_text_refuses_every_component(tm
     root = tmp_path / "registry"
     root.mkdir()
     (root / "LICENSE").write_text("some other text")
-    report = C.run(str(make(tmp_path)), str(tmp_path), PRESETS, str(root), guard=lambda html: False)
+    report = C.run(str(make(tmp_path)), str(tmp_path), PRESETS, str(root), guard=good_guard)
     assert {c["verdict"] for c in report["components"]} == {"refuse:licence_unknown"} and report["licence_sha256"] == ""
 
 
 # ---------------------------------------------------------------- the planted escapes and the run's own failures
 
 def test_every_planted_escape_is_refused_and_the_control_is_admitted():
-    tried = C.try_planted(lambda html: False)
-    assert tried == {"total": len(C.PLANTED), "refused": len(C.PLANTED), "admitted": []}
+    tried = C.try_planted(good_guard)
+    runtime = sum(1 for row in C.PLANTED if row[4])
+    assert tried == {"total": len(C.PLANTED), "refused": len(C.PLANTED), "admitted": [], "guarded": runtime} and runtime >= 14
 
 
 def test_a_planted_escape_the_lint_admits_fails_the_whole_run_and_no_report_is_written(tmp_path, monkeypatch):
@@ -151,15 +157,38 @@ def test_a_planted_escape_the_lint_admits_fails_the_whole_run_and_no_report_is_w
     with pytest.raises(C.RunFailed) as caught:
         run(tmp_path, monkeypatch)
     assert (caught.value.code, caught.value.field) == ("planted_escape_admitted", "window_dot")
+    monkeypatch.setattr(C, "guard_verdict", good_guard)
     code = C.main(["--survey", str(tmp_path / "survey"), "--out", str(tmp_path)])
     assert code == 1 and json.loads((tmp_path / "result.json").read_text()) == {"ok": False, "code": "planted_escape_admitted", "field": "window_dot"}
     assert not (tmp_path / "compat-report.json").exists()
 
 
-def test_the_guard_can_refuse_what_the_lint_admits(monkeypatch):
+def test_a_planted_escape_refused_with_another_code_than_the_one_it_declares_counts_as_admitted(monkeypatch):
     real = C.W.lint
-    monkeypatch.setattr(C.W, "lint", lambda html: [] if "window.foo = 1" in html else real(html))
-    assert C.try_planted(lambda html: "window.foo = 1" in html)["admitted"] == []
+    monkeypatch.setattr(C.W, "lint", lambda html: ["media"] if "window.foo = 1" in html else real(html))
+    assert C.try_planted(good_guard)["admitted"] == ["window_dot"]
+
+
+def test_the_guard_is_proven_first_the_control_must_run_in_the_browser_or_the_run_fails_guard_unavailable():
+    for verdict in ("unavailable", "error", "escaped-refused"):
+        with pytest.raises(C.RunFailed) as caught:
+            C.try_planted(lambda html, v=verdict: v)
+        assert (caught.value.code, caught.value.field) == ("guard_unavailable", "control")
+
+
+def test_a_runtime_escape_the_guard_does_not_stop_fails_the_run_guard_unavailable_naming_it():
+    def lax(html):
+        return "ran"
+    with pytest.raises(C.RunFailed) as caught:
+        C.try_planted(lax)
+    assert caught.value.code == "guard_unavailable" and caught.value.field == next(row[0] for row in C.PLANTED if row[4])
+
+
+def test_every_planted_escape_that_acts_at_run_time_is_put_in_front_of_the_guard_with_the_lint_out_of_the_way():
+    seen = []
+    C.try_planted(lambda html: seen.append(html) or good_guard(html))
+    runtime = [C.planted_component(row)[1] for row in C.PLANTED if row[4]]
+    assert seen[0] == C.control_component() and seen[1:] == runtime
 
 
 def test_a_lint_that_refuses_the_control_fails_the_run(monkeypatch):
@@ -169,8 +198,9 @@ def test_a_lint_that_refuses_the_control_fails_the_run(monkeypatch):
     assert caught.value.code == "control_refused"
 
 
-def test_the_guard_is_false_when_the_browser_cannot_run(tmp_path):
-    assert C.run_guard(C.control_component(), browser=str(tmp_path / "no-browser"), scratch=str(tmp_path)) is False
+def test_the_guard_verdict_is_unavailable_when_the_browser_or_the_scratch_folder_cannot_be_used(tmp_path):
+    assert C.guard_verdict(C.control_component(), browser=str(tmp_path / "no-browser"), scratch=str(tmp_path)) == "unavailable"
+    assert C.guard_verdict(C.control_component(), browser="/bin/true", scratch=str(tmp_path / "no-scratch")) == "unavailable"
 
 
 def test_a_file_that_differs_from_the_surveys_hash_fails_the_run(tmp_path, monkeypatch):
@@ -193,7 +223,8 @@ def test_a_survey_of_another_commit_or_a_bad_shape_is_refused(tmp_path):
         C.load_survey(str(survey))
 
 
-def test_the_command_line_writes_the_report_and_a_result_row(tmp_path):
+def test_the_command_line_writes_the_report_and_a_result_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "guard_verdict", good_guard)
     out = tmp_path / "out"
     out.mkdir()
     assert C.main(["--survey", str(make(tmp_path)), "--out", str(out)]) == 0
@@ -202,9 +233,9 @@ def test_the_command_line_writes_the_report_and_a_result_row(tmp_path):
 
 
 def test_the_report_check_refuses_an_open_form():
-    good = {"schema": 1, "commit": C.REGISTRY_COMMIT, "licence_sha256": "", "planted": {"total": 16, "refused": 16}, "components": []}
+    good = {"schema": 1, "commit": C.REGISTRY_COMMIT, "licence_sha256": "", "planted": {"total": 16, "refused": 16, "guarded": 14}, "components": []}
     assert C.check_report(good)
-    for change in ({"planted": {"total": 16, "refused": 15}}, {"planted": {"total": 3, "refused": 3}}, {"schema": 2}, {"extra": 1},
+    for change in ({"planted": {"total": 16, "refused": 15, "guarded": 14}}, {"planted": {"total": 3, "refused": 3, "guarded": 3}}, {"planted": {"total": 16, "refused": 16}}, {"schema": 2}, {"extra": 1},
                    {"components": [{"name": "a", "files": {}, "bytes": 0, "verdict": "refuse:free text", "dynamic": None, "params": {}, "preset": None, "natural_duration": None}]}):
         with pytest.raises(ValueError):
             C.check_report(dict(copy.deepcopy(good), **change))
@@ -268,7 +299,7 @@ def args(survey, out, **over):
 
 def test_the_verb_mounts_the_survey_read_only_with_no_network_and_copies_the_report_back(tmp_path, monkeypatch):
     survey = make(tmp_path)
-    report = C.run(str(survey), str(tmp_path), PRESETS, licence_root(tmp_path, monkeypatch), guard=lambda h: False)
+    report = C.run(str(survey), str(tmp_path), PRESETS, licence_root(tmp_path, monkeypatch), guard=good_guard)
     work, calls = fake_world(tmp_path, monkeypatch, report)
     out = tmp_path / "report.json"
     result = H.verb_compat(args(survey, out))
@@ -300,3 +331,48 @@ def test_the_verb_never_overwrites_a_file_and_a_dry_run_runs_nothing(tmp_path, m
     monkeypatch.setattr(H.box, "run", lambda *a, **k: pytest.fail("a container was started"))
     dry = H.verb_compat(args(survey, tmp_path / "new.json", dry_run=True))
     assert dry["dry_run"] is True and dry["command"][0] == "docker" and not (tmp_path / "new.json").exists()
+
+
+# ---------------------------------------------------------------- the review's fixes
+
+def enum_component(options, **row):
+    spec = dict({"id": "mode", "type": "enum", "options": options}, **row)
+    return POP.replace('data-composition-variables=\'[{"id":"text","type":"string","max":24,"required":true}]\'', "data-composition-variables='%s'" % json.dumps([spec]))
+
+
+def test_an_enum_variable_is_a_choice_parameter_with_the_options_the_component_declares(tmp_path, monkeypatch):
+    survey = tmp_path / "survey"
+    survey.mkdir()
+    write_survey(survey, {"aster-pick": {"aster-pick.html": enum_component([{"value": "coarse", "label": "Coarse"}, {"value": "med", "label": "Medium"}], default="med"),
+                                         "registry-item.json": item("aster-pick")},
+                          "aster-bad": {"aster-bad.html": enum_component([{"value": "Two Words"}]), "registry-item.json": item("aster-bad")},
+                          "aster-none": {"aster-none.html": enum_component([]), "registry-item.json": item("aster-none")}})
+    report = C.run(str(survey), str(tmp_path), PRESETS, licence_root(tmp_path, monkeypatch), guard=good_guard)
+    got = by_name(report)
+    assert got["aster-pick"]["verdict"] == "admit-candidate"
+    assert got["aster-pick"]["params"] == {"mode": {"type": "choice", "values": ["coarse", "med"], "default": "med"}}
+    assert got["aster-bad"]["verdict"] == "refuse:variables_untyped" and got["aster-none"]["verdict"] == "refuse:variables_untyped"
+    C.check_report(report)
+    bad = copy.deepcopy(report)
+    for comp in bad["components"]:
+        if comp["name"] == "aster-pick":
+            comp["params"]["mode"]["values"] = ["Two Words"]
+    with pytest.raises(ValueError):
+        C.check_report(bad)
+
+
+def test_hyperframes_py_does_not_load_the_admission_modules_until_compat_runs():
+    code = ("import sys; sys.path.insert(0, %r); import hyperframes; print('hf_compat' in sys.modules, 'hf_wrap' in sys.modules, "
+            "'hf_compat' in vars(hyperframes))" % str(FOLDER.parent))
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd="/", timeout=120, env={"PATH": os.environ["PATH"], "HOME": "/nonexistent"})
+    assert done.stdout.split() == ["False", "False", "False"], done.stderr[-500:]
+    assert H.COMPAT_OUT_NAMES == C.OUT_NAMES and H.SURVEY_MAX_FILES == C.MAX_FILES and H.SURVEY_MAX_BYTES == C.MAX_TOTAL_BYTES and H.SURVEY_FILE_CAP == C.MAX_FILE_BYTES
+
+
+def test_a_survey_path_that_goes_through_a_link_is_refused_and_the_refusal_names_the_real_path(tmp_path):
+    survey = make(tmp_path)
+    link = tmp_path / "link"
+    link.symlink_to(survey)
+    with pytest.raises(Refusal) as caught:
+        H.check_survey(str(link))
+    assert caught.value.code == "bad_survey" and str(os.path.realpath(survey)) in caught.value.reason

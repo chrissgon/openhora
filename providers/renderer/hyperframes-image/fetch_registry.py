@@ -30,13 +30,19 @@ def read_manifest(path):
             if line.startswith("# commit "):
                 commit = line.split()[2]
             elif line and not line.startswith("#"):
-                digest, name = line.split(None, 1)
-                rows.append((digest, name.strip()))
+                parts = line.split(None, 1)
+                if len(parts) != 2:
+                    sys.exit("bad manifest line: %s" % line[:60])
+                rows.append((parts[0], parts[1].strip()))
     if not commit or not HEX40.fullmatch(commit):
         sys.exit("registry.sha256 has no '# commit <40 hex>' line")
+    seen = set()
     for digest, name in rows:
         if not HEX64.fullmatch(digest) or not PATH.fullmatch(name):
             sys.exit("bad manifest line: %s" % name[:60])
+        if name in seen:
+            sys.exit("duplicate path in the manifest: %s" % name[:60])
+        seen.add(name)
     return commit, rows
 
 
