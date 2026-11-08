@@ -47,6 +47,17 @@ def mp4_file(world, name="take.mp4", total=64) -> Path:
     return path
 
 
+def set_page(world, groups):
+    """Write the page's policy (channels.page) into the project's runtime.json and accept the new hash, as the person does; None removes the entry."""
+    file = Path(world["path"]) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(file.read_text())
+    raw.pop("channels", None)
+    if groups is not None:
+        raw["channels"] = {"page": groups}
+    file.write_text(json.dumps(raw))
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
+
+
 def refused(call, *args, **kwargs):
     with pytest.raises(ops_core.OpsError) as caught:
         call(*args, **kwargs)
@@ -82,9 +93,10 @@ def test_media_in_refuses_a_link_a_folder_a_missing_path_and_a_png_and_keeps_not
 
 
 def test_media_in_takes_a_stream_of_the_declared_length_only_through_the_page_path(world, monkeypatch):
+    set_page(world, ["read"])                          # a page policy that does not list `media` refuses it
     err = refused(ops_media.media_in, world["path"], stream=Body(64, mp4_head()), length=64, channel="page")
     assert err.code == 1
-    monkeypatch.setattr(ops_media, "_channel", lambda *a: None)
+    set_page(world, None)                              # no page policy: the page keeps its ceiling, which lists the group
     got = ops_media.media_in(world["path"], stream=Body(64, mp4_head()), length=64, channel="page")
     assert got["size"] == 64 and got["type"] == "mp4"
     assert refused(ops_media.media_in, world["path"], stream=Body(64, mp4_head()), length=64).code == 2
@@ -94,8 +106,7 @@ def test_media_in_takes_a_stream_of_the_declared_length_only_through_the_page_pa
         assert refused(ops_media.media_in, world["path"], stream=Body(64, mp4_head()), length=bad, channel="page").code == 2
 
 
-def test_media_in_a_short_stream_is_refused_and_the_new_folder_is_removed(world, monkeypatch):
-    monkeypatch.setattr(ops_media, "_channel", lambda *a: None)
+def test_media_in_a_short_stream_is_refused_and_the_new_folder_is_removed(world):
     before = folders(world)
     for body in (Body(4096, mp4_head(), fail_after=0), Body(64, mp4_head())):      # a dropped connection, and a body that ends before its length
         err = refused(ops_media.media_in, world["path"], stream=body, length=4096, channel="page")
@@ -286,10 +297,9 @@ def test_video_download_never_writes_inside_the_project_and_needs_a_name_outside
     assert refused(ops_media.video_download, world["path"], task).code == 2
 
 
-def test_video_download_without_out_hands_an_open_file_through_the_page_path(world, monkeypatch):
+def test_video_download_without_out_hands_an_open_file_through_the_page_path(world):
     task, gate = to_gate(world)
     approve(world, gate)
-    monkeypatch.setattr(ops_media, "_channel", lambda *a: None)
     got = ops_media.video_download(world["path"], task, channel="page")
     try:
         assert got["stream"].read() == b"the rendered video of Aster Lane one" and got["size"] == len(b"the rendered video of Aster Lane one")
@@ -297,13 +307,12 @@ def test_video_download_without_out_hands_an_open_file_through_the_page_path(wor
         got["stream"].close()
 
 
-def test_video_download_refuses_a_render_that_changed_after_the_approval_on_both_paths(world, monkeypatch):
+def test_video_download_refuses_a_render_that_changed_after_the_approval_on_both_paths(world):
     task, gate = to_gate(world)
     approve(world, gate)
     path = media.delivered_file(world["data"], world["rid"])["path"]
     with open(path, "ab") as f:
         f.write(b"x")
-    monkeypatch.setattr(ops_media, "_channel", lambda *a: None)
     out = world["tmp"] / "video.mp4"
     assert refused(ops_media.video_download, world["path"], task, str(out)).code == 1 and not out.exists()
     assert refused(ops_media.video_download, world["path"], task, channel="page").code == 1
@@ -327,13 +336,12 @@ def test_video_download_rehashes_from_the_descriptor_it_copies_from(world, monke
 # 11. video_still
 
 
-def test_video_still_to_a_file_and_through_the_page_path(world, monkeypatch):
+def test_video_still_to_a_file_and_through_the_page_path(world):
     task = to_review(world)
     out = world["tmp"] / "still.png"
     got = ops_media.video_still(world["path"], task, str(out), "terminal")
     data = b"\x89PNG\r\n\x1a\nstill"
     assert out.read_bytes() == data and got["sha256"] == sha(data) and got["size"] == len(data) and re.fullmatch(r"still-[0-9a-f]{12}\.png", got["name"])
-    monkeypatch.setattr(ops_media, "_channel", lambda *a: None)
     assert ops_media.video_still(world["path"], task, channel="page") == {"media_type": "image/png", "data": data}
     assert refused(ops_media.video_still, world["path"], task, str(out)).code == 1
     assert refused(ops_media.video_still, world["path"], task).code == 2
@@ -349,13 +357,21 @@ def test_video_still_refuses_a_task_with_no_still(world):
 # 12. the channel rule
 
 
-@pytest.mark.parametrize("channel", ["mcp", "messaging", "page", "other"])
-def test_every_operation_refuses_any_channel_but_the_terminal_before_it_reads_anything(world, channel):
-    calls = [(ops_media.media_in, ("/nope.mp4",)), (ops_media.media_list, ()), (ops_media.video_new, (FRESH, POST)), (ops_media.video_run, (999999,)),
-             (ops_media.captions_read, (999999,)), (ops_media.captions_edit, (999999, 0, "[]")), (ops_media.video_download, (999999, "/x/y")),
-             (ops_media.video_still, (999999, "/x/y"))]
-    for call, args in calls:
+CALLS = [(ops_media.media_in, ("/nope.mp4",)), (ops_media.media_list, ()), (ops_media.video_new, (FRESH, POST)), (ops_media.video_run, (999999,)),
+         (ops_media.captions_read, (999999,)), (ops_media.captions_edit, (999999, 0, "[]")), (ops_media.video_download, (999999, "/x/y")),
+         (ops_media.video_still, (999999, "/x/y"))]
+
+
+@pytest.mark.parametrize("channel", ["mcp", "messaging", "other"])
+def test_every_operation_refuses_any_channel_but_the_terminal_and_the_page_before_it_reads_anything(world, channel):
+    for call, args in CALLS:
         assert refused(call, world["path"], *args, channel=channel).code == 1
+
+
+def test_every_operation_refuses_a_page_whose_policy_does_not_list_the_group_media_before_it_reads_anything(world):
+    set_page(world, ["read"])
+    for call, args in CALLS:
+        assert refused(call, world["path"], *args, channel="page").code == 1
 
 
 # 13. the module starts on its own

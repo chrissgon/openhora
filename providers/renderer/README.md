@@ -112,9 +112,18 @@ runs in the common image: `_hf_compose.py` writes one root composition, `index.h
 `_gsap_lint.py`, inlined once per entry in an instance clipped to its band and scoped with `@scope`) and with its `renderat.html` otherwise (one
 iframe per block, driven by one getter/setter tween). The theme's fonts are the three allow-listed files (`fonts/`, copied into the project by
 `hyperframes-image/hf_render.py`); `default` means Inter 800, Inter 500 and JetBrains Mono 500 for display, text and mono (`fonts_used` says so).
-The staging, the `blocks_sha256` check and the engine file work as in `ffmpeg.py`. Until the gates of V3b-2 (the face box, the line at 1560, the
-pixel check) are built, a render that draws is refused (`gates_not_built`) unless the blocks folder is the test folder of test mode
-(`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`). Tests: `tests/test_hf_compose.py`, `tests/test_gsap_lint.py`.
+The staging, the `blocks_sha256` check and the engine file work as in `ffmpeg.py`. Tests: `tests/test_hf_compose.py`, `tests/test_gsap_lint.py`.
+
+Every render that draws runs the gates of V3b-2, and nothing turns them off. After the drawing, the HyperFrames container runs
+`hyperframes-image/hf_measure.mjs`: it serves the project on the loopback, seeks every frame as the renderer does and writes the boxes the page
+reports (every visible box inside a `gsap` instance clipped to its band, every `data-zone` box of a `renderat` page, and the rectangles of the text
+unclipped) into `boxes.json`. The encode container (`_hf_gate.py`, in the common image where `_layout` and `_edl` live) reads it with its sha256 and
+refuses, before the encode, a box that touches the face box of its frame (`overlay_hits_face`) or a caption box whose bottom is below the band's
+bottom, 1560 on the presets (`caption_below_line`), with the ffmpeg engine's own arithmetic. After the encode it compares the face region of every
+kept range of the intermediate with the same region of the base the ffmpeg engine would draw (the proxy, cut and zoomed by `_media.base_graph`) frame
+by frame with `psnr`, and refuses `face_pixels_changed` under 30 dB: that is what sees a block that draws on the face with no box of its own. The
+proxy is hashed again in the encode container, since the drawing container could write to it. Tests: `tests/test_hf_gate.py`,
+`tests/test_hf_measure_static.py`.
 
 ## Tier A: registry components (V3b-3)
 

@@ -18,6 +18,7 @@ image of its own, which also does the verify step, so a project that renders wit
 | `fetch_ffmpeg.py` | Downloads the static ffmpeg and refuses an archive whose sha256 differs from the pin | yes |
 | `fonts/` | `inter-500.woff2`, `inter-800.woff2`, `jetbrains-mono-500.woff2`, their OFL texts and `SHA256SUMS` | yes |
 | `hf_render.py` | The inner entry: checks the project folder and the page's fonts, runs `hyperframes render` into a ProRes intermediate, writes `result.json` | yes |
+| `hf_measure.mjs` | The measure step of a render that draws: serves the project on the loopback, seeks every frame as the renderer does and writes the boxes the page reports into `boxes.json` (V3b-2) | yes |
 | `hf_image.py` | Builds the image (`build --confirmed`), says whether it is here (`--check`), checks a built image (`selfcheck`) | no: the build driver |
 | `NOTICE.md` | What the image installs, and under which licence | no |
 | `README.md` | This file | no |
@@ -100,6 +101,7 @@ has one.
 `hf_render.py` is the one file of this folder the image runs (`python3 -I /opt/hf-run/hf_render.py`, copied after the font purge so that no
 `RUN` follows it). It checks the project folder the common image prepared (exactly `index.html`, `vars.json` and `media/proxy.mp4`, each a
 regular file within a cap), refuses a page that names a font outside the allow-list, copies GSAP in, runs `hyperframes render` once into a
-ProRes HQ intermediate and writes `result.json`. It is in the definition, so a change to it gives a new tag. The provider is
+ProRes HQ intermediate and writes `result.json`; with `--measure` (a render that draws) it then runs `node /opt/hf-run/hf_measure.mjs` once, the one other program it starts, which
+writes `boxes.json` for the encode stage's gates (`_hf_gate.py`). It is in the definition, so a change to it gives a new tag. The provider is
 `providers/renderer/hyperframes.py`: `build --confirmed` there calls `hf_image.build_image` and writes the build record that `--check` and
 `render` read; `render --base-only` runs the page, the proxy and the final encode in the common image and only the drawing here.

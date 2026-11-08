@@ -10,6 +10,7 @@
   "hf_wrap.py",
   "fetch_registry.py",
   "registry.sha256",
+  "hf_measure.mjs",
   "fonts/Inter-OFL.txt",
   "fonts/JetBrainsMono-OFL.txt",
   "fonts/SHA256SUMS",

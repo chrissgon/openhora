@@ -7,6 +7,7 @@
 !hf_compat.py
 !fetch_registry.py
 !registry.sha256
+!hf_measure.mjs
 !package.json
 !package-lock.json
 !fonts

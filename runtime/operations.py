@@ -1044,42 +1044,42 @@ OPERATIONS = (
     # V1b2: a new video. Class G, kind internal (runtime/gated_ops.json): never served in words in M1; the page reaches them from V1b2-2.
     {"name": "media-in", "call": "media_in",
      "args": ({"name": "path", "kind": "str", "required": True},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "add a recording (an MP4 or MOV of at most 1 GiB) to the project's media store, outside the project: --path names the file on this computer; prints its id, which video-new takes",
      "natural": {"class": "G", "since": 4, "order": 151, "privacy": "own", "cost": "none", "what": "add a recording to the media store", "about": "Add a recording to the media store.", "slots": {}}},
     {"name": "media-list", "call": "media_list",
      "args": (),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "the recordings of the media store, oldest first: id, size, the task working on it and its state, and when it was delivered",
      "natural": {"class": "G", "since": 4, "order": 152, "privacy": "own", "cost": "none", "what": "list the recordings of the media store", "about": "List the recordings of the media store.", "slots": {}}},
     {"name": "video-new", "call": "video_new",
      "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "post", "kind": "str", "required": True},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
      "help": "start a new video: --media the recording's id (media-in), --post the post whose script was recorded (docs/marketing/content/<name>.md, with its - Network: line); it runs until the caption review",
      "natural": {"class": "G", "since": 4, "order": 153, "privacy": "own", "cost": "none", "what": "start a new video from a recording", "about": "Start a new video from a recording.", "slots": {}}},
     {"name": "video-run", "call": "video_run",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
      "help": "run a new video that is ready: after you answered the caption review (answer <id> continue), after an edit at the delivery approval, or after a retry; it runs until the next stop",
      "natural": {"class": "G", "since": 4, "order": 154, "privacy": "own", "cost": "none", "what": "run a new video that is ready", "about": "Run a new video that is ready.", "slots": {}}},
     {"name": "captions-read", "call": "captions_read",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "the captions of a new video as the review shows them: words, chunks, proposed retakes, beats, and the revision an edit must name",
      "natural": {"class": "G", "since": 4, "order": 155, "privacy": "own", "cost": "none", "what": "read the captions of a new video", "about": "Read the captions of a new video.", "slots": {}}},
     {"name": "captions-edit", "call": "captions_edit",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "revision", "kind": "int", "required": True}, {"name": "edits", "kind": "str"}, {"name": "edits_file", "kind": "file", "flag": "edits-file"},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "edit the captions of a new video at the caption review or at the delivery approval: --revision the revision you read, and the edits as a JSON list (--edits or --edits-file); at the approval the video is rendered again for a new approval",
      "natural": {"class": "G", "since": 4, "order": 156, "privacy": "own", "cost": "none", "what": "edit the captions of a new video", "about": "Edit the captions of a new video.", "slots": {}}},
     {"name": "video-download", "call": "video_download",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "out", "kind": "str", "required": True},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "save the delivered video to --out (a new file, outside the project): only the exact render the approval named, hashed again",
      "natural": {"class": "G", "since": 4, "order": 157, "privacy": "own", "cost": "none", "what": "save a delivered video to a file", "about": "Save a delivered video to a file.", "slots": {}}},
     {"name": "video-still", "call": "video_still",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "out", "kind": "str", "required": True},),
-     "channels": ("terminal",), "model": False, "channel_arg": True,
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "save the still of a new video (the frame of the face box) to --out (a new file, outside the project)",
      "natural": {"class": "G", "since": 4, "order": 158, "privacy": "own", "cost": "none", "what": "save the still of a new video to a file", "about": "Save the still of a new video to a file.", "slots": {}}},
 )
@@ -1208,6 +1208,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
 }
 # S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
 # command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
@@ -1234,6 +1235,8 @@ SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
 LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py)
+LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
@@ -1334,6 +1337,7 @@ GROUP_TEXT = {
     "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
+    "media": "adds recordings, starts new videos and runs them, reads and edits their captions, and saves a delivered video; a recording, its still and the video cross only this computer's own page, never the local network",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

@@ -12,7 +12,9 @@ only writable mount) and /scratch (memory-backed), with no network.
   storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR   a still per beat and a contact sheet, no recording
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   proxy    --edl EDL --in VIDEO --out FILE.mp4         a 1080x1920 H.264 proxy of the recording, at the edit list's fps (the HyperFrames engine)
-  encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR   a ProRes intermediate to the final H.264, with fixed threads
+  encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR [--boxes B --boxes-sha256 H --beats BEATS --vocabulary V --proxy P
+           --proxy-sha256 H]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
+           refuses a box on the face or a caption below the line, and after the encode a face region that differs from the undrawn base
   hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
@@ -43,6 +45,7 @@ import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
 import _hf_compose  # noqa: E402
+import _hf_gate  # noqa: E402
 import _hf_page  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
@@ -317,10 +320,35 @@ def verb_proxy(args) -> dict:
             "width": proxy["width"], "height": proxy["height"], "fps": fps, "has_audio": proxy["has_audio"]}
 
 
+def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
+    """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
+    path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
+    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`."""
+    flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
+    if not any(flags):
+        return None
+    if not all(flags):
+        raise Usage("encode takes --boxes, --boxes-sha256, --beats, --vocabulary, --proxy and --proxy-sha256 together, or none of them")
+    vocab = load_vocabulary(args.vocabulary)
+    beats = read_json(args.beats, data["limits"]["json_max_bytes"])
+    _output.check_documents(data, edl, beats, platform, vocab, _assets.font_allowlist())
+    doc = _hf_gate.read_boxes(args.boxes, args.boxes_sha256, edl["out_frames"])
+    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    faces = _edl.range_faces(edl, data)
+    if _media.sha256_file(args.proxy) != args.proxy_sha256:                      # the drawing container could write to the proxy it was given
+        raise Refusal("proxy_changed", "proxy")
+    if _media.probe(ffprobe, args.proxy)["duration"] < edl["kept"][-1][1] / float(edl["fps"]) - 2.0 / edl["fps"]:
+        raise Refusal("proxy_truncated", "proxy")                                # a short proxy would be padded by the filter graph, never compared
+    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces, timeline=timeline)
+
+
 def verb_encode(args) -> dict:
     """The final H.264 encode of a ProRes intermediate: the intermediate is the file the host named by its sha256 and has the frame the
     edit list says; the encode uses the ffmpeg engine's output options with a fixed thread count, so the same intermediate gives the
-    same bytes whatever the cores. The result is written once as render-<sha12>.mp4."""
+    same bytes whatever the cores. The result is written once as render-<sha12>.mp4.
+
+    With the gate's flags (a composed render always has them; see `_hf_gate`) the boxes are checked before the encode and the pixels
+    of the face region after it, and the candidate is written only when both pass."""
     ffmpeg, ffprobe = tools(args)
     data = load_data()
     edl = read_json(args.edl, data["limits"]["json_max_bytes"])
@@ -336,13 +364,19 @@ def verb_encode(args) -> dict:
     has_audio = bool(edl["source"]["has_audio"])
     if has_audio and not facts["has_audio"]:
         raise Refusal("intermediate_no_audio", "intermediate")
+    gate = encode_gate(args, edl, data, platform, ffprobe)
     plan = {"fps": fps, "out_frames": out_frames, "max_bytes": _media.byte_limit(platform), "has_audio": has_audio}
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, mode=0o700, exist_ok=True)
     work = tempfile.mkdtemp(prefix=".encode-", dir=out_dir)
+    pixels, pixel_seconds = None, None
     try:
         part = os.path.join(work, "out.mp4")
         _media.run(_media.encode_argv(ffmpeg, args.input, part, plan), 3600)
+        if gate is not None:
+            started = time.time()
+            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work, timeline=gate["timeline"])
+            pixel_seconds = round(time.time() - started, 2)
         verdict = _media.check_output(ffprobe, part, platform)
         if verdict["failures"]:
             raise Refusal("platform_spec", ",".join(verdict["failures"]))
@@ -350,7 +384,13 @@ def verb_encode(args) -> dict:
         _output.write_once(part, os.path.join(out_dir, "render-%s.mp4" % digest[:12]), digest)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    return {"ok": True, "sha256": digest, "out_seconds": round(out_frames / float(fps), 3), "out_frames": out_frames, "intermediate_sha256": args.sha256}
+    result = {"ok": True, "sha256": digest, "out_seconds": round(out_frames / float(fps), 3), "out_frames": out_frames, "intermediate_sha256": args.sha256}
+    if gate is not None:
+        result.update(gate_frames=gate["frames"], gate_boxes=gate["boxes"], pixel_min_psnr_db=pixels["pixel_min_psnr_db"],
+                      pixel_ranges=pixels["pixel_ranges"], pixel_seconds=pixel_seconds)
+        if gate["lowest_caption_bottom"] is not None:
+            result["lowest_caption_bottom"] = gate["lowest_caption_bottom"]
+    return result
 
 
 def verb_hf_page(args) -> dict:
@@ -509,6 +549,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--edl", required=True)
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--out", required=True, help="the folder that gets render-<sha12>.mp4")
+    sp.add_argument("--boxes", help="the boxes the page reported (boxes.json); the gate's flags come all together or not at all")
+    sp.add_argument("--boxes-sha256", help="the sha256 of boxes.json, as the host hashed it")
+    sp.add_argument("--beats", help="the beats document, for the entries on the timeline")
+    sp.add_argument("--vocabulary", help="the vocabulary file, for the entries on the timeline")
+    sp.add_argument("--proxy", help="the proxy of the recording (the undrawn base the pixel check compares with)")
+    sp.add_argument("--proxy-sha256", help="the sha256 of the proxy, as the host hashed it before the drawing")
     sp = sub.add_parser("hf-page")
     sp.add_argument("--edl", required=True)
     sp.add_argument("--beats", required=True)

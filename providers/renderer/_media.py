@@ -305,14 +305,30 @@ def zoomed_box(face: dict, z0: float, z1: float, anchor: tuple, w: int, h: int) 
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
-def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, fps) -> str:
-    """The filter from the picture cut at BASE times the output size to the output for one kept range: a plain scale at 100%, else
-    a zoompan about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it."""
+def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, fps, base: int = BASE) -> str:
+    """The filter from the picture cut at `base` (BASE by default) times the output size to the output for one kept range: a plain scale
+    at 100%, else a zoompan about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it.
+    The pixel check of the HyperFrames engine gives `base` 1: it zooms the 1080x1920 proxy, not a picture cut at twice the size."""
     if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
         return "scale=%d:%d:flags=%s" % (w, h, SWS)
-    ax, ay = anchor[0] * BASE, anchor[1] * BASE
+    ax, ay = anchor[0] * base, anchor[1] * base
     z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "%.5f+%.6f*on" % (z0, (z1 - z0) / max(1, frames - 1))
     return "zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps)
+
+
+def zoom_filter_linear(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int) -> str:
+    """The same zoom as `zoom_filter` about the same fixed point, sampled bilinearly at exact fractional positions: `perspective` with linear
+    interpolation maps the window of the picture (its size divided by the zoom, its corner at the anchor's fixed point) onto the whole frame, per frame
+    (`on` counts the range's frames). It is what a browser does to a scaled video layer, which is why the pixel check's reference uses it; the ffmpeg
+    engine's own render keeps `zoom_filter`. Both zooms are the same arithmetic about the same point."""
+    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+        return "scale=%d:%d:flags=%s" % (w, h, SWS)
+    ax, ay = anchor
+    z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "(%.5f+%.6f*on)" % (z0, (z1 - z0) / max(1, frames - 1))
+    x0, y0 = "%.2f*(1-1/%s)" % (ax, z), "%.2f*(1-1/%s)" % (ay, z)
+    wz, hz = "%d/%s" % (w, z), "%d/%s" % (h, z)
+    return ("perspective=x0='%s':y0='%s':x1='%s+%s':y1='%s':x2='%s':y2='%s+%s':x3='%s+%s':y3='%s+%s':interpolation=linear:eval=frame:sense=source"
+            % (x0, y0, x0, wz, y0, x0, y0, hz, x0, wz, y0, hz))
 
 
 def bubble_crop(face: dict, w: int, h: int) -> tuple:
@@ -331,6 +347,47 @@ def framing_filter(w: int, h: int, src_matrix: str) -> str:
             "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
 
 
+def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False) -> list:
+    """The filter strings of the cut and zoomed picture, with no layer and no pip: the source cut into the kept ranges, each zoomed about
+    the face as the plan says, joined by `concat` into `[cv]` (and, when the plan has audio and `audio` is true, `[aout]`). The render
+    (`compose_argv`) and the pixel check of the HyperFrames engine (`_hf_gate`) build the picture from this one function, so the
+    reference the check compares with is the base the ffmpeg engine draws. `plan` holds fps, size [w, h], kept, zoom, anchor, fade and
+    has_audio, and src_matrix unless `prepare` is given. `source` is the label of the video input; `prepare` the filters from it to `[sv]`
+    (by default the recording's framing at `base` times the output size); `base` the factor the picture is cut at, which `zoom_filter`
+    needs to know. `zoom_linear` zooms with `zoom_filter_linear` (bilinear, exact positions, on a picture at the output size, so `base` is 1) instead of
+    `zoom_filter`: the reference of the pixel check zooms the 1080x1920 proxy this way, as a browser zooms a video layer."""
+    fps, (w, h) = plan["fps"], plan["size"]
+    kept, has_audio = plan["kept"], plan["has_audio"] and audio
+    n = len(kept)
+    if prepare is None:
+        prepare = "fps=%s:start_time=0,%s,format=yuv420p" % (fps, framing_filter(w, h, plan["src_matrix"]))
+    g = ["%s%s[sv]" % (source, prepare)]
+    if n > 1:
+        g.append("[sv]split=%d%s" % (n, "".join("[s%d]" % k for k in range(n))))
+        src_v = ["[s%d]" % k for k in range(n)]
+    else:
+        src_v = ["[sv]"]
+    cat_in = []
+    zoom, fade = plan["zoom"], plan["fade"]
+    for k, (a, b) in enumerate(kept):
+        z0, z1 = zoom_levels(zoom, k, b - a, fps)
+        zf = zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h) if zoom_linear else zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
+        g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
+                 % (src_v[k], a, b, zf, k))
+        cat_in.append("[v%d]" % k)
+        if has_audio:
+            # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and
+            # picture stay in step
+            d = min(fade, (b - a) / fps / 2)
+            g.append("[0:a:0]aresample=async=1:first_pts=0,atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=%.4f,afade=t=out:st=%.6f:d=%.4f[a%d]"
+                     % (a / fps, b / fps, d, (b - a) / fps - d, d, k))
+            cat_in.append("[a%d]" % k)
+    g.append("%sconcat=n=%d:v=1:a=%d[cv]%s" % ("".join(cat_in), n, 1 if has_audio else 0, "[ca]" if has_audio else ""))
+    if has_audio:
+        g.append("[ca]aformat=sample_rates=48000:channel_layouts=stereo[aout]")
+    return g
+
+
 def compose_argv(ffmpeg: str, plan: dict) -> list:
     """The whole render as one ffmpeg command, built as a list. `plan` holds:
 
@@ -343,8 +400,7 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     range and written back as bt709, tagged with setparams. No path is inside the filter graph.
     """
     fps, (w, h) = plan["fps"], plan["size"]
-    kept, has_audio = plan["kept"], plan["has_audio"]
-    n = len(kept)
+    has_audio = plan["has_audio"]
     inputs = ["-threads", str(THREADS), *RECORDING_IN, "-i", plan["src"]]    # the decoder's threads: speed only, a decoder is exact whatever the count
     idx, nxt = {}, 1
     for layer, prefix in (("beat", "beat"), ("caption", "cap")):
@@ -366,29 +422,8 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         mask_in = nxt
         nxt += 1
 
-    g = ["[0:v:0]fps=%s:start_time=0,%s,format=yuv420p[sv]" % (fps, framing_filter(w, h, plan["src_matrix"]))]
-    if n > 1:
-        g.append("[sv]split=%d%s" % (n, "".join("[s%d]" % k for k in range(n))))
-        src_v = ["[s%d]" % k for k in range(n)]
-    else:
-        src_v = ["[sv]"]
-    cat_in = []
-    zoom, face, fade = plan["zoom"], plan["face"], plan["fade"]
-    for k, (a, b) in enumerate(kept):
-        z0, z1 = zoom_levels(zoom, k, b - a, fps)
-        g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
-                 % (src_v[k], a, b, zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps), k))
-        cat_in.append("[v%d]" % k)
-        if has_audio:
-            # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and
-            # picture stay in step
-            d = min(fade, (b - a) / fps / 2)
-            g.append("[0:a:0]aresample=async=1:first_pts=0,atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=%.4f,afade=t=out:st=%.6f:d=%.4f[a%d]"
-                     % (a / fps, b / fps, d, (b - a) / fps - d, d, k))
-            cat_in.append("[a%d]" % k)
-    g.append("%sconcat=n=%d:v=1:a=%d[cv]%s" % ("".join(cat_in), n, 1 if has_audio else 0, "[ca]" if has_audio else ""))
-    if has_audio:
-        g.append("[ca]aformat=sample_rates=48000:channel_layouts=stereo[aout]")
+    face = plan["face"]
+    g = base_graph(plan)
 
     if not idx and not pips:
         g.append("[cv]%s[vout]" % TAGS)
