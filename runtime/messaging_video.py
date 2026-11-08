@@ -39,6 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import attachments as att  # noqa: E402
+import messaging_cloud as cloud  # noqa: E402
 import messaging_provider as provider  # noqa: E402
 
 CHANNEL = "messaging"
@@ -54,6 +55,7 @@ class Videos:
         self.bridge = bridge
         self.held = {}              # chat -> {"media", "posts", "at", "project"}: a recording waiting for the post's number; memory only
         self.lock = threading.Lock()
+        self.cloud = cloud.Cloud(bridge, self)      # V1d-3: a Google Drive link
 
     def _say(self, chat: str, project: dict, key: str, **fields) -> None:
         self.bridge.reply(chat, self.bridge.t(key, project=project, **fields), project)
@@ -167,7 +169,9 @@ class Videos:
 
     def line(self, project: dict, chat: str, text: str) -> bool:
         """A line of text from a chat that has a recording waiting for its post: a number from the list, or the post's exact name, starts the video; a number
-        out of range is told; anything else returns False (the recording waits until it is an hour old)."""
+        out of range is told; anything else returns False (the recording waits until it is an hour old). A line with a Google Drive link comes first (V1d-3)."""
+        if self.cloud.link(project, chat, text):
+            return True
         with self.lock:
             entry = self.held.get(chat)
             if entry is None or entry["project"] != project["id"]:

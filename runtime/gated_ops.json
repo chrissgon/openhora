@@ -54,5 +54,7 @@
  {"op": "video-phone-in", "kind": "internal", "group": "media-phone", "why": "the messaging bridge's own call for a recording a listed sender sent; never served in words"},
  {"op": "video-phone-start", "kind": "internal", "group": "media-phone", "why": "starts a video from a recording sent from a messaging app, for a post the sender chose; never served in words"},
  {"op": "video-phone-reply", "kind": "internal", "group": "media-phone", "why": "reads a reply to the caption review or the delivery card of a video; never served in words"},
- {"op": "video-phone-run", "kind": "internal", "group": "media-phone", "why": "runs a video again after the captions were answered from a messaging app; never served in words"}
+ {"op": "video-phone-run", "kind": "internal", "group": "media-phone", "why": "runs a video again after the captions were answered from a messaging app; never served in words"},
+ {"op": "video-phone-fetch", "kind": "internal", "group": "media-phone", "why": "fetches a recording from a Google Drive link a listed sender sent; never served in words"},
+ {"op": "media-remove", "kind": "internal", "group": "media", "why": "removes one recording of the media store for good, at the person's confirmed request; never served in words"}
 ]}

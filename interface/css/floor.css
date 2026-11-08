@@ -132,6 +132,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-card-hint { color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .wb-card-line { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .wb-pre { margin: 0; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-dl-rows { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; }      /* the rows of a delivery document (V1c-1): one line each, wrapping, never a sideways scroll */
 .wb-hash { display: block; padding: 8px 10px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .wb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .wb-card-actions.is-end { justify-content: flex-end; }
@@ -381,7 +382,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   .wb-summary, .wb-plan-text > summary, .wb-blocked, .wb-blocked-title, .wb-busy-card, .wb-request-line, .wb-tl-title, .wb-resolved-title, .wb-tl-body, .wb-resolved-body,
   .wb-res-said, .wb-state-block, .wb-resolved, .wb-card-result, .wb-ret, .wb-path, .wb-path-button, .wb-task-toggle, .wb-task-head, .wb-task-title, .wb-task-failure,
   .wb-task-note, .wb-task-waits, .wb-waits, .wb-waits-title, .wb-waits-reasons, .wb-runs-total, .wb-drop-line, .wb-hand-name, .wb-plan-table, .wb-plan-stacked { font-size: 16px; }
-  .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
+  .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code, .wb-dl-rows { font-size: 14px; }
   .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
 }

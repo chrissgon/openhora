@@ -13,7 +13,9 @@
 //   env = {project, now(), api: {answer, release, approve, reject, verdict, cancel, route, flows, handOver, pollJob}, requestIds: Set of request ids,
 //          links: {floor(agent), lobby(), open(item, path)}, reread(id) -> item, task(id) -> the task's body (optional: the review card reads
 //          the file-drop line from it), changed(id, outcome), gone(id), can(op, kind) (optional: whether the page may do an operation, read at every draw;
-//          js/permissions.js; without it everything is allowed)}.
+//          js/permissions.js; without it everything is allowed), host() (optional: the page's host, for a test; the approval of a delivery is not drawn or sent when it is
+//          not a loopback name, js/cards/deliver.js: a courtesy, since the service refuses it there)}. A deliver decision (an effect whose word is `deliver`) has its own body: the
+//          delivery document's lines as the decision holds them, their hash, and no wording of a publish.
 // A control the page may not use (the channel policy of the project) is not drawn, a line under the remaining controls says which operations are turned
 // off, and the same check stands in press(): a key that sends without a button (Ctrl+Enter in an answer) is refused there too. Cancelling a request is a brake and
 // is never withheld. The service still refuses what it must (409): this only stops the card drawing a control that would be refused.
@@ -27,6 +29,7 @@ import { markdownView, onPlainChoice, plainChoice, setPlainChoice } from "../mar
 import { replyView } from "./reply.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
+import { LAN_APPROVE, deliverRows, hostOf, isDeliver, onLoopback } from "../cards/deliver.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { reader, wordOf } from "../permissions.js";
 import { runningNote } from "../views/lobby-model.js";
@@ -127,8 +130,14 @@ export function createCard(item, env) {
     return null;
   }
 
+  /** The approval of a delivery on a page that is not this computer's own: the service refuses it there (L67), so the page neither draws it nor sends it. A courtesy, not a policy. */
+  function lanRefused(word) {
+    return word === "approved" && isDeliver(state.item) && !onLoopback(hostOf(env));
+  }
+
   /** Whether the page may send the button's word (press() asks this too, without drawing anything). */
   function permits(word) {
+    if (lanRefused(word)) return false;
     const ask = askOf(word);
     return ask === null || can(ask[0], ask[1]);
   }
@@ -187,6 +196,7 @@ export function createCard(item, env) {
   function buttons(extra) {
     const row = h("div", { class: "wb-card-actions" });
     const drawn = buttonsFor(state.item).filter(([word]) => {
+      if (lanRefused(word)) return false;      // not a policy: it is not added to the line of what the page may not do
       const ask = askOf(word);
       return ask === null || allow(ask[0], ask[1]);
     });
@@ -253,6 +263,16 @@ export function createCard(item, env) {
     // a tab stop with a name (K-5): the keyboard reaches the whole hash the approval sends
     const hash = h("code", { class: "wb-hash", "data-hash": "effect", tabindex: "0", role: "group", "aria-label": "Hash of this content" }, it.payload_sha256 || "");
     state.hashNode = hash;
+    if (isDeliver(it)) {
+      return [
+        h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
+        h("div", { class: "wb-card-hint", text: "The delivery: what your approval covers" }),
+        h("ul", { class: "wb-dl-rows", tabindex: "0", "aria-label": "The delivery document" }, ...deliverRows(it.body).map((line) => h("li", { text: line }))),
+        h("div", { class: "wb-card-hint", text: "Hash of the delivery document" }), hash,
+        h("p", { class: "wb-card-line", text: onLoopback(hostOf(env)) ? "Nothing is marked downloadable before you approve this exact content." : LAN_APPROVE }),
+        can("reject") ? noteInput() : null, message(), buttons(),
+      ];
+    }
     return [
       h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
       h("div", { class: "wb-card-hint", text: "Exact content of the publish (what will be sent):" }),

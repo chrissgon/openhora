@@ -25,6 +25,8 @@ import { createAttachments } from "./lobby-attachments.js";
 import { createInstructions } from "./lobby-instructions.js";
 import { createRoutines } from "./lobby-routines.js";
 import { createStepsBrake } from "./lobby-steps-brake.js";
+import { createVideos } from "./lobby-videos.js";
+import { createCaptionReview } from "./lobby-captions.js";
 
 export const PLATE_GAP_X = 14;
 export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (css/building.css: `.wb-plate { margin-left }`), where building.html draws them
@@ -93,6 +95,13 @@ export function createBuildingView(frame, env) {
   // the files people sent through a messaging app (views/lobby-attachments.js): held for an answer, added as a source or discarded; drawn when there is one
   const attachments = createAttachments({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
+  // the new videos of the project (views/lobby-videos.js): the form, the recordings with their state, download of a delivered one; drawn when the project is accepted
+  // the caption review of a new video (views/lobby-captions.js): a dialog the Videos section opens, placed in the document once and taken out on dispose
+  const review = createCaptionReview({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
+    entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
+  document.body.append(review.el);
+  const videos = createVideos({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); }, openReview: (task, mode) => review.open(task, mode),
+    entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
   const docsCount = h("span", { class: "wb-muted" });
   const docsLink = h("a", { class: "wb-docs-link", href: "#" }, icon("file-text", 16), h("strong", { text: "Documents" }), " ", docsCount, h("span", { class: "wb-fl-chev" }, icon("chevron-right", 14)));
   const docsSection = h("section", { class: "wb-sec wb-docs", hidden: true }, docsLink);
@@ -101,7 +110,7 @@ export function createBuildingView(frame, env) {
   const moreLine = h("p", { class: "wb-muted wb-sec-empty", hidden: true });
   const noneLine = h("p", { class: "wb-muted wb-sec-empty", text: "This project has no area agents in its configuration.", hidden: true });
   const floorSection = h("section", { id: "wb-scene-list", tabindex: "-1", class: "wb-sec", hidden: true }, listHeading, moreLine, list, noneLine);
-  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, floorSection, stepsBrake.el, attachments.el, instructions.el, routines.el);
+  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, floorSection, stepsBrake.el, videos.el, attachments.el, instructions.el, routines.el);
   const grip = createGrip();
   const panel = h("section", { class: "pui-card wb-panel wb-drawer wb-panel-building wb-bpanel", role: "region", "aria-labelledby": "wb-building-title", id: "wb-panel", tabindex: "-1" }, grip, head, body);
   const drawer = bindDrawer(panel, { screen: "building", grip });
@@ -412,6 +421,7 @@ export function createBuildingView(frame, env) {
       drawDocuments(view);
       stepsBrake.update(detail, view.accepted || view.kept);
       attachments.update(detail, view.accepted || view.kept, last ? last.reload : undefined);
+      videos.update(detail, view.accepted || view.kept, last ? last.reload : undefined);
       instructions.update(detail, view.accepted || view.kept);
       routines.update(detail, view.accepted || view.kept);
       floorSection.hidden = false;
@@ -427,6 +437,7 @@ export function createBuildingView(frame, env) {
       floorSection.hidden = true;
       stepsBrake.update(null, false);
       attachments.update(null, false);
+      videos.update(null, false);
       instructions.update(null, false);
       routines.update(null, false);
       requestsShown = "";
@@ -486,6 +497,7 @@ export function createBuildingView(frame, env) {
     },
     dispose() {
       disposed = true;
+      review.el.remove();
       observer.disconnect();
       drawer.destroy();   // before the panel leaves the page: the frame hears that nothing covers the scene
       phone.removeEventListener("change", onPhone);

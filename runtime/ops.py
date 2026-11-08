@@ -1514,6 +1514,8 @@ from ops_media import captions_edit, captions_read, media_in, media_list, video_
 from ops_media_preview import video_preview  # noqa: E402,F401  (V1d-2: the preview of a delivery for a messaging app; a helper, not an operation)
 from ops_media_catalogue import video_catalogue  # noqa: E402,F401  (V1b3: the catalogue of animations)
 from ops_media_phone import video_phone_in, video_phone_posts, video_phone_reply, video_phone_run, video_phone_start  # noqa: E402,F401  (V1d-1: a video from a messaging app)
+from ops_media_cloud import video_phone_fetch  # noqa: E402,F401  (V1d-3: a recording from a Drive link)
+from ops_media_remove import media_remove  # noqa: E402,F401  (media-remove: one recording removed for good)
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402

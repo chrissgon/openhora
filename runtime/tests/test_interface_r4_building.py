@@ -319,7 +319,7 @@ def test_the_panel_is_the_head_with_project_state_as_an_icon_button_the_facts_re
         "R-27: an icon button (information; soft, muted), named Project state, no text"
     assert g["facts"][:2] == ["Configuration", "Accepted"] and g["facts"][2] == "Running now", "C-2: Configuration and Running now only"
     assert "Request" not in g["facts"] and "Waiting for you" not in g["facts"], "C-2: the request followed is the selected row, the decisions' count is the KPI card"
-    assert [x[0] for x in g["sections"]] == ["", "", "wb-scene-list"] and [x[2] for x in g["sections"]] == [False, False, False]
+    assert [x[0] for x in g["sections"]] == ["", "", "wb-scene-list", ""] and [x[2] for x in g["sections"]] == [False, False, False, False]
     assert g["requestsHeading"] == ["Requests (3)", "Floors"], "R-27: `Requests (n)` and `Floors` (not `Floors, top to bottom`)"
     assert g["floors"]["heading"] == "Floors" and g["floors"]["label"] == "Floors, top to bottom", "the list keeps its accessible name"
 

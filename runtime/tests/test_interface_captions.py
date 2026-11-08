@@ -484,8 +484,7 @@ if (typeof api.captionsEdit !== "function") { console.log(JSON.stringify(null));
 def test_the_client_sends_the_edit_as_a_json_text_when_the_client_has_the_call(tmp_path):
     """The client's `captionsEdit` is V1c-1's. Once it is in the page, the body is `{revision, edits}` with `edits` a JSON text, as the route takes it."""
     got = run_node(tmp_path, WIRE)
-    if got is None:
-        pytest.skip("js/api.js has no captionsEdit yet (V1c-1 not merged)")
+    assert got is not None, "js/api.js must export captionsEdit"
     assert got == [["POST", "/api/v1/projects/abc/videos/900/captions", {"revision": 4, "edits": '[{"op":"edit","index":3,"text":"Northwind"}]'}]]
 
 

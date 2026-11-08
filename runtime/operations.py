@@ -1109,6 +1109,18 @@ OPERATIONS = (
      "channels": ("messaging",), "model": False, "channel_arg": True,
      "help": "the messaging bridge's call: run a video again after the caption review was answered or the captions were corrected at the delivery approval",
      "natural": {"class": "G", "since": 4, "order": 174, "privacy": "own", "cost": "none", "what": "run the video again after the captions were answered", "about": "Run the video again after the captions were answered.", "slots": {}}},
+    # V1d-3: a recording from a Google Drive link (decision 14). Class G, kind internal: the bridge's own call, never served in words.
+    {"name": "video-phone-fetch", "call": "video_phone_fetch",
+     "args": ({"name": "text", "kind": "text", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call for a Google Drive link a listed sender sent: the file is fetched with the project's Google account when one is connected, otherwise from the shared link over https from the closed host list, bounded by 1 GiB and the quota, and kept as a recording",
+     "natural": {"class": "G", "since": 4, "order": 175, "privacy": "own", "cost": "none", "what": "fetch a recording from a Google Drive link sent from a messaging app", "about": "Fetch a recording from a Google Drive link sent from a messaging app.", "slots": {}}},
+    # media-remove: one recording removed from the media store for good. Class G, kind internal: never served in words.
+    {"name": "media-remove", "call": "media_remove",
+     "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "confirm", "kind": "flag"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "remove a recording from the media store for good, with its transcript, its work files, its still and its delivered video: --media the recording's id (media-list); without --confirm it removes nothing and says what would go; refused while a task that has not ended works on it (finish the video or cancel its request first)",
+     "natural": {"class": "G", "since": 4, "order": 176, "privacy": "own", "cost": "none", "what": "remove a recording from the media store", "about": "Remove a recording from the media store.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1235,9 +1247,9 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "media-remove"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
     # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
-    "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run"), "kind": None},
+    "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"), "kind": None},
 }
 # S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
 # command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
@@ -1366,8 +1378,8 @@ GROUP_TEXT = {
     "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
-    "media": "adds recordings, starts and runs new videos, reads and edits their captions, lists the animations they can add, and saves a delivered video; a recording, its still and the video never cross the local network",
-    "media-phone": "takes a recording a listed sender sends from this app (within its file limit), starts its video for a post they choose, sends them the captions and reads their corrections; both pass through the app's servers",
+    "media": "adds, lists and removes recordings, starts and runs new videos, reads and edits their captions and animations, and saves a delivered video; a recording, its still and the video never cross the local network",
+    "media-phone": "takes a recording a listed sender sends here (within its file limit) or links on Google Drive, starts its video for a post they choose, sends the captions and reads corrections; all pass through the app's servers",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

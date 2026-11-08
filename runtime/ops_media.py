@@ -60,8 +60,8 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 STILL_LIMIT = step_media.COVER_LIMIT               # 16 MiB
 NOT_A_VIDEO = "this task is not a new video"
 OUT_INSIDE = "a video or a still is never written inside the project (it would enter git): name a file outside the project folder"
-QUOTA_TEXT = ("the store of recordings is full: no operation removes a recording yet, and the retention frees one that was never delivered after 30 days "
-              "(the folder is media/ in the project's data folder)")
+QUOTA_TEXT = ("the store of recordings is full: remove a recording you no longer need, or wait for the retention, which frees a recording "
+              "never delivered after 30 days")      # no command and no path: it also reaches a phone (video-phone-in, limit L62)
 USAGE_CODES = ("usage", "type", "size")
 
 

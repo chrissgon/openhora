@@ -373,6 +373,15 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `mail-move` | `--account` `--messages` `--folder` | `mail_move` |
 | `mail-mark` | `--account` `--messages` `--state` | `mail_mark` |
 | `mail-trash` | `--account` `--messages` | `mail_trash` |
+| `media-in` | `--path` | `media_in` |
+| `media-list` | - | `media_list` |
+| `video-new` | `--media` `--post` | `video_new` |
+| `video-run` | `--task` | `video_run` |
+| `captions-read` | `--task` | `captions_read` |
+| `captions-edit` | `--task` `--revision` `[--edits]` `[--edits-file]` | `captions_edit` |
+| `video-download` | `--task` `--out` | `video_download` |
+| `video-still` | `--task` `--out` | `video_still` |
+| `video-catalogue` | - | `video_catalogue` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -517,6 +526,15 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/mail/mark` | `mail-mark` | - | every other argument | - | - |
 | POST | `/projects/{p}/mail/trash` | `mail-trash` | - | every other argument | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
+| GET | `/projects/{p}/media` | `media-list` | - | none | - | - |
+| POST | `/projects/{p}/media` | `media-in` | - | none | `path` | streamed upload |
+| POST | `/projects/{p}/videos` | `video-new` | - | `media_id`, `post` | - | - |
+| POST | `/projects/{p}/videos/{id}/run` | `video-run` | `task_id` from `{id}` | none | - | - |
+| GET | `/projects/{p}/videos/{id}/captions` | `captions-read` | `task_id` from `{id}` | none | - | - |
+| POST | `/projects/{p}/videos/{id}/captions` | `captions-edit` | `task_id` from `{id}` | `revision`, `edits` | - | - |
+| GET | `/projects/{p}/videos/{id}/download` | `video-download` | `task_id` from `{id}` | none | `out` | streamed download |
+| GET | `/projects/{p}/videos/{id}/still` | `video-still` | `task_id` from `{id}` | none | `out` | answers bytes |
+| GET | `/projects/{p}/video-catalogue` | `video-catalogue` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
 

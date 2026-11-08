@@ -1,0 +1,7 @@
+## 2026-11-08: a recording from a Google Drive link, and limit L70 (V1d-3; no measurement change, no skill changed, no lab run)
+
+- The cloud way in of decision 14, Google Drive first (plan OPEN-1): a link a listed sender with `media-phone` sends is fetched with the project's Google account when one is connected (the documents provider, at most 256 MiB, held in memory by that provider), otherwise from the shared link.
+- The shared link is fetched by the runtime over https only, from a closed host list (drive.google.com, docs.google.com, drive.usercontent.google.com), from global addresses only (the address checked is the address connected), with at most three redirects each checked again, and only after the response gave a size within the least of 1 GiB and the quota (limit L70). An HTML answer is a file that is not shared.
+- Other clouds are later packages, each a host list entry and its own link reader.
+- Settled by the supervisor on the spec's recommendation: OPEN-1 (the link; the account route when an account is connected, otherwise the anonymous fetch), OPEN-3 (`drive.usercontent.google.com` is on the host list), OPEN-7 (the documents provider holds the file in memory; recordings over 256 MiB use the anonymous link or the page), OPEN-10 (three parts).
+- Not verified live: Google's download host and its answer for a large shared file (an HTML confirmation page above some size, which this fetch refuses as not shared), and whether every answer carries a `Content-Length`.
