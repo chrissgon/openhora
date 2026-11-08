@@ -24,6 +24,8 @@
   deliver         the gate (runtime/steps.py, Gate): it opens an `effect` decision whose hash is the hash of the document; approving it marks that
                   render downloadable (runtime/effect_deliver.py, limit L67). Nothing is published. Its redo is `remap`: an answered delivery (the
                   captions were edited, or the render changed) renders again and asks again.
+                  The document carries the render as its preview when it is at most 20 MiB, which is what lets a messaging app show and approve it
+                  (decision 14).
 
 Limit L30, in the structure of this file: it imports no module that calls a provider. The engine (`transcriber:speech` and `renderer:video`, a closed
 list of verbs) and the store of recordings are asked of `ctx.services` (`media_engine`, `media_store`; runtime/ops_step_seams.py). Every file name
@@ -309,7 +311,7 @@ def _review_decision(ctx: steps.Context, state: dict) -> dict:
     still = (state["steps"].get("still") or {}).get("result") or {}
     lines = [f"{state['steps']['transcribe']['result']['words']} words were transcribed.",
              f"{_below_threshold(beats)} beats are below the match threshold.",
-             f"Still for the face box: {still['name']}." if STILL_NAME.fullmatch(str(still.get("name") or "")) else "No still was made for the face box.",
+             "A still was made for the face box." if STILL_NAME.fullmatch(str(still.get("name") or "")) else "No still was made for the face box.",
              REVIEW_NEXT]
     return {"title": "Check the captions", "body": "\n".join(lines)}
 
@@ -495,9 +497,12 @@ def _document(ctx: steps.Context, state: dict) -> dict:
     render, verify = _json(store, rid, RENDER_JSON), _json(store, rid, VERIFY_JSON)
     cover = (state["steps"].get("cover") or {}).get("result") or {}
     held = {"name": cover["name"], "sha256": _asked(store.sha256, rid, cover["name"]), "size": cover["size"]} if cover.get("name") else None
+    # The render is its own preview when it is small enough for a messaging app: no second file, no renderer verb (decision 14).
+    fits = render["size"] <= deliver_document.PREVIEW_MAX_BYTES
+    preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]} if fits else None
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
-                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=None)
+                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview)
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 
 
@@ -507,7 +512,7 @@ def _open(ctx: steps.Context, state: dict) -> dict:
     doc = _service(ctx, "effect_files").read(ctx.task_id, int(state.get("cycle", 0)), recorded)
     deliver_document.check(doc)
     return {"title": deliver_document.title(doc)[:200], "body": deliver_document.body(doc, recorded), "payload_sha256": recorded,
-            "payload": {"effect": deliver_document.summary(doc)}}
+            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded)}}
 
 
 # --- what a step prepared again removes ---------------------------------------------------------------------------------------

@@ -131,6 +131,8 @@ From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the
 - The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
 - The HyperFrames engine has no `block-params` yet, so a project whose engine is HyperFrames (today only by `RENDERER_PROVIDER`) cannot add an animation (`block_check_unavailable`); V4 adds the verb. Picking the block of a script beat's preset (G14) and a preview of an added animation are later (V1b3 OPEN-5, OPEN-10).
 
+On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 20 MiB, the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. A larger render is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
+
 ## Changes
 
 Written on 2026-11-07 by V1a-3.
@@ -140,6 +142,7 @@ Written on 2026-11-07 by V1a-3.
 2026-11-07: V1b2-1, the media operations and the media settings key
 
 2026-11-07: V1b2-2, the media routes and limit L68
+2026-11-08: V1d-2, the preview and the deliver card on a messaging app
 
 2026-11-08: V1b3, "Add an animation" in the runtime (VD15)
 

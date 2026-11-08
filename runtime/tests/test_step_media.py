@@ -11,8 +11,11 @@ import os
 
 import pytest
 
+import standin_tree as st
 from media_kit import (FakeEngine, KEY, POST, RENDER_BLOCKS, add, flag, media, open_items, ops, ops_core, ops_steps, ops_step_seams, post_text, run_task, sha,
                        step_media, steps, task_row, to_gate, to_review, work_file, world)  # noqa: F401  (world is a fixture)
+
+dd = st.load("deliver_document")
 
 FRESH = "0123456789abcdef"
 
@@ -64,7 +67,9 @@ def test_a_full_run_stops_at_the_review_and_after_continue_at_the_deliver_gate_w
     ctx = ops_core.context(world["path"])
     effect = ops_step_seams.EffectFiles(ctx["cfg"]).read(task, 0, gate["payload_sha256"])
     assert effect["video"]["sha256"] == sha(b"the rendered video of Aster Lane " + b"one") and effect["recording"] == world["rid"]
-    assert effect["platform"] == "instagram" and effect["post"] == POST and effect["preview"] is None
+    assert effect["platform"] == "instagram" and effect["post"] == POST
+    assert effect["preview"] == {"sha256": effect["video"]["sha256"], "size": effect["video"]["size"], "from_sha256": effect["video"]["sha256"]}, "the render is its own preview"
+    assert dd.on_cards(effect) is True and gate["payload"]["card"] == dd.card_lines(effect, gate["payload_sha256"]) and gate["title"] == "Deliver the video"
     assert effect["blocks"] == [{"id": k, "sha256": v} for k, v in sorted(RENDER_BLOCKS.items())] and effect["cover"]["size"] > 0
     assert effect["verify"] == {"passed": True, "platform": "instagram"} and gate["payload_sha256"] in gate["body"]
 
