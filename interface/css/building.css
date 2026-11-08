@@ -154,6 +154,21 @@
 .wb-at-list, .wb-at-latest { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .wb-at-item, .wb-at-done { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
 .wb-at-name, .wb-at-line { margin: 0; }
+.wb-vd-sec { display: grid; gap: 8px; min-width: 0; }      /* the new videos of the project (V1c-1) */
+.wb-vd-sec[hidden] { display: none; }
+.wb-vd-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.wb-vd-item { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
+.wb-vd-more { padding: 0 4px; font-size: 12px; color: var(--pui-text-muted); }
+.wb-vd-name, .wb-vd-state { margin: 0; padding: 0; }
+.wb-vd-form { display: grid; gap: 6px; padding: 0 4px; min-width: 0; }
+.wb-vd-form[hidden], .wb-vd-upload[hidden] { display: none; }
+.wb-vd-form select, .wb-vd-form input[type="file"] { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.wb-vd-form .wb-vd-upload { justify-self: start; }
+.wb-vd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 4px; }
+.wb-vd-actions:empty { display: none; }
+.wb-vd-error { margin: 0; padding: 0 4px; font-size: 12px; overflow-wrap: anywhere; color: var(--wb-ink-error); }
+.wb-vd-error[hidden], .wb-vd-note[hidden], .wb-vd-quota[hidden], .wb-vd-no-post[hidden] { display: none; }
+.wb-vd-note, .wb-vd-quota, .wb-vd-lan, .wb-vd-no-post { overflow-wrap: anywhere; }
 .wb-in-sec[hidden], .wb-in-problem[hidden], .wb-in-changed[hidden] { display: none; }      /* the project's standing instructions */
 .wb-in-field { width: 100%; box-sizing: border-box; min-height: 8rem; resize: vertical; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-in-count, .wb-in-changed { overflow-wrap: anywhere; }
@@ -207,6 +222,8 @@
   .wb-rq-title, .wb-rq-n, .wb-rq-sub, .wb-docs-link, .wb-fl-name, .wb-sec-head, .wb-sec-empty { font-size: 16px; }
   .wb-rq-cancel { min-height: 32px; font-size: 16px; }
   .wb-fl-mode, .wb-fl-chips, .wb-st, .wb-acting, .wb-floor-counter, .wb-fc-runs, .wb-label-board .wb-label-sub { font-size: 12px; }
+  .wb-vd-form select, .wb-vd-form input, .wb-vd-button { font-size: 16px; }      /* V1c-1: the form's fields and the buttons of the list are 16 px on a phone */
+  .wb-vd-button, .wb-vd-upload { min-height: 44px; }
   .wb-fc-name { font-size: 16px; }   /* the card's line of mode, runs and spend is a meta line: at 12 px the card is two lines and the room above the sheet keeps its height */
 }
 
