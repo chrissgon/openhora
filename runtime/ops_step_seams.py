@@ -655,12 +655,15 @@ def renderer(root: str):
 # --- package V1b1: the media store and the media engine ---------------------------------------------------------------------------------------------
 
 MEDIA_ENGINE_CLASSES = {"transcriber:speech": ("transcribe",),
-                        "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "verify")}
+                        "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "verify",
+                                           "block-params")}     # block-params: the renderer's checker of a block's parameters, on the host, for "Add an animation" (V1b3, VD15)
 MEDIA_REFERENCES = ("shared/references/video-presets.json",)      # the workbench files a media step may name for the engine
 MEDIA_SETTINGS = ("transcriber_model", "language")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)
 MEDIA_CHECKER_SKILL, MEDIA_CHECKER_SCRIPT = "mkt-social-copy", "check_script.py"      # the checker the renderer's `align` stages and runs in its container; named, never imported
 PLATFORM_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 PLATFORM_FILE_MAX = 1024 * 1024
+REFUSAL_LINE = re.compile(r"refused: ([a-z_]{1,40}) ([A-Za-z0-9_.:\[\]-]{1,80})")   # the renderer's first line of a refusal (providers/renderer/ffmpeg.py main)
+REASON_VERBS = ("block-params",)      # the one verb whose closed refusal is kept: it names a parameter the person typed, never its value
 
 
 def _media_error(e) -> "StepServiceError":
@@ -787,7 +790,8 @@ class MediaStore:
 
 class MediaEngine:
     """The two engines of the media step, through the resolver: the transcriber and the renderer, a closed list of verbs each, the class's default
-    implementation (no `implementation` is passed: a second engine is the resolver's configuration alone). It reads no credential and keeps no reason."""
+    implementation (no `implementation` is passed: a second engine is the resolver's configuration alone). It reads no credential and keeps no reason,
+    except the closed refusal line of `block-params` (a code and a field name, never a value)."""
 
     CLASSES = MEDIA_ENGINE_CLASSES
 
@@ -803,7 +807,11 @@ class MediaEngine:
         except resolver.ProviderCallError as e:
             if e.kind == "not-configured":
                 raise StepServiceError("not_configured") from None
-            raise StepServiceError("refused" if e.kind == "usage" or e.exit_code == 1 else "engine_failed") from None
+            if e.kind != "usage" and e.exit_code == 1:
+                found = REFUSAL_LINE.search(getattr(e, "stderr_tail", "") or "") if verb in REASON_VERBS else None
+                reason = found.group(1) + " " + found.group(2) if found else ""
+                raise StepServiceError("refused", reason) from None
+            raise StepServiceError("refused" if e.kind == "usage" else "engine_failed") from None
         if not isinstance(done, dict):
             raise StepServiceError("engine_failed")
         return done

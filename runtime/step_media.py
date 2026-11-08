@@ -15,7 +15,7 @@
   review          STOP: "Check the captions". The person edits the captions (runtime/ops_media_edit.py), then continues
   remap           the edited transcript is made (or confirmed), hardened and scanned for credentials
   base            the renderer's `base` on the edited transcript, the confirmed retakes cut, the project's theme from its identity
-  align           the renderer's `align` on it, the person's anchors over the match
+  align           the renderer's `align` on it, the person's anchors over the match, then the person's added animations appended (VD15)
   check           the renderer's `check` (schema, bounds, hardening, credential shapes)
   render          the renderer's `render`: the file `render-<sha12>.mp4`, verified in a fresh container by the renderer itself
   cover           the renderer's `cover`
@@ -391,9 +391,13 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     edited = captions.check_edited(_json(store, rid, EDITED))
     review = _load_review(store, rid)
     edl, proposal = _json(store, rid, EDL), _json(store, rid, PROPOSAL_BEATS)
-    anchors, lost = captions.anchors_current(review, edited, {w["index"] for w in edl.get("words") or []})
+    live = {w["index"] for w in edl.get("words") or []}
+    anchors, lost = captions.anchors_current(review, edited, live)
     if lost:
         raise steps.StepFailure("anchor_lost", f"beat{lost[0]}", "", "open the caption review again and anchor the beat again")
+    placed, gone = captions.animations_current(review, edited, live)
+    if gone:
+        raise steps.StepFailure("animation_lost", gone[0], "", "open the caption review again and place the animation again, or remove it")
     args = _beat_args(ctx, _asked(store.path, rid, EDITED), _asked(store.path, rid, BEATS, False)) + ["--edl", _asked(store.path, rid, EDL)]
     for slot in proposal.get("slots") or []:      # no asset slots in this package: an empty slot is the person's choice, else none
         args += ["--empty-slot", f"{slot['slot']}={review['empty_slots'].get(slot['slot'], 'none')}"]
@@ -405,9 +409,16 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     if dropped:
         beats["overlays"] = [e for e in beats.get("overlays") or [] if e.get("beat") not in dropped]
         beats["layouts"] = [e for e in beats.get("layouts") or [] if e.get("beat") not in dropped]
+    if placed:
+        added = beats.setdefault("overlays", [])
+        for a in placed:
+            added.append({"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
+                          "block": a["block"], "word_from": a["word_from"], "word_to": a["word_to"], "score": 1.0})
+    if dropped or placed:
         _asked(store.write, rid, BEATS, _dump(beats))
     return {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
-            "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped)}
+            "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
+            "animations": len(placed)}
 
 
 def _check(ctx: steps.Context, state: dict) -> dict:

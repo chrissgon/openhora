@@ -23,6 +23,7 @@ Usage:
   python3 runtime/cli.py captions-edit --project <dir> --task <id> --revision <n> (--edits <json> | --edits-file <path>)
   python3 runtime/cli.py video-download --project <dir> --task <id> --out <file>
   python3 runtime/cli.py video-still --project <dir> --task <id> --out <file>
+  python3 runtime/cli.py video-catalogue --project <dir>
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -187,6 +188,10 @@ captions-edit edits the captions of a new video (--task <id>) at the caption rev
 video-download saves the delivered video (--task <id>) to --out, a new file outside the project: only the exact render the approval
           named, hashed again as it is copied.
 video-still saves the still of a new video (--task <id>), the frame of the face box, to --out, a new file outside the project.
+video-catalogue lists the animations the caption review of a new video can add (each block, its parameters, a sample, the engines
+          that draw it, and `addable` with the reason when it is not). An animation is added with `captions-edit` and the edit
+          `{"op": "animation", "block": "oh:keyword", "params": {"text": "..."}, "word_from": <i>, "word_to": <j>}`, removed with
+          `{"op": "animation", "id": "a1", "remove": true}`; the renderer's own checker checks the parameters.
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. The answer to a

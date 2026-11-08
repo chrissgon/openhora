@@ -1512,6 +1512,7 @@ import ops_steps  # noqa: E402  (the step task's run and its brake; this file re
 from ops_steps import run_step  # noqa: E402,F401
 from ops_media import captions_edit, captions_read, media_in, media_list, video_download, video_new, video_run, video_still  # noqa: E402,F401  (V1b2: the media operations)
 from ops_media_preview import video_preview  # noqa: E402,F401  (V1d-2: the preview of a delivery for a messaging app; a helper, not an operation)
+from ops_media_catalogue import video_catalogue  # noqa: E402,F401  (V1b3: the catalogue of animations)
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
