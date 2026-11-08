@@ -42,12 +42,12 @@
  {"op": "conversation", "kind": "internal", "group": "read", "why": "machinery that gives the interface the messages of the conversation; no person asks for it"},
  {"op": "version", "kind": "internal", "group": "read", "why": "machinery that gives the interface the change signal of the store; no person asks for it"},
  {"op": "artifact-raw", "kind": "internal", "group": "read", "why": "machinery that gives the interface the bytes of one image under docs/; no person asks for it"},
- {"op": "media-in", "kind": "internal", "group": null, "why": "the upload of a recording into the media store; a person starts it from the terminal or the page, never in words in M1"},
- {"op": "media-list", "kind": "internal", "group": null, "why": "the list of the media store, read by the page's new-video view; not served in words in M1"},
- {"op": "video-new", "kind": "internal", "group": null, "why": "starts a new video from a recording and a post; not served in words in M1"},
- {"op": "video-run", "kind": "internal", "group": null, "why": "runs a ready new video by the person's own start; not served in words in M1"},
- {"op": "captions-read", "kind": "internal", "group": null, "why": "the caption review's data, read by the page; not served in words in M1"},
- {"op": "captions-edit", "kind": "internal", "group": null, "why": "the caption review's closed edits; not served in words in M1 (a caption correction from a messaging app is V1d's)"},
- {"op": "video-download", "kind": "internal", "group": null, "why": "hands out the delivered render (limit L67); never served in words"},
- {"op": "video-still", "kind": "internal", "group": null, "why": "hands out the still of a recording; never served in words"}
+ {"op": "media-in", "kind": "internal", "group": "media", "why": "the upload of a recording into the media store; a person starts it from the terminal or the page, never in words in M1"},
+ {"op": "media-list", "kind": "internal", "group": "media", "why": "the list of the media store, read by the page's new-video view; not served in words in M1"},
+ {"op": "video-new", "kind": "internal", "group": "media", "why": "starts a new video from a recording and a post; not served in words in M1"},
+ {"op": "video-run", "kind": "internal", "group": "media", "why": "runs a ready new video by the person's own start; not served in words in M1"},
+ {"op": "captions-read", "kind": "internal", "group": "media", "why": "the caption review's data, read by the page; not served in words in M1"},
+ {"op": "captions-edit", "kind": "internal", "group": "media", "why": "the caption review's closed edits; not served in words in M1 (a caption correction from a messaging app is V1d's)"},
+ {"op": "video-download", "kind": "internal", "group": "media", "why": "hands out the delivered render (limit L67); never served in words"},
+ {"op": "video-still", "kind": "internal", "group": "media", "why": "hands out the still of a recording; never served in words"}
 ]}

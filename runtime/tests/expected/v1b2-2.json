@@ -1,0 +1,18 @@
+{
+  "package": "v1b2-2",
+  "add": {
+    "interpreter_coverage.INTERNAL": [
+      "media-in",
+      "media-list",
+      "video-new",
+      "video-run",
+      "captions-read",
+      "captions-edit",
+      "video-download",
+      "video-still"
+    ],
+    "run_limits.NUMBERS": [
+      68
+    ]
+  }
+}

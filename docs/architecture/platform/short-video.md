@@ -110,6 +110,8 @@ The way back: while the video waits at the delivery approval, `ops_media_edit.ed
 
 From the terminal (V1b2-1): `media-in --path <file>` takes the recording and prints its id; `video-new --media <id> --post docs/marketing/content/<name>.md` makes one request with one step task and runs it to the caption review; `captions-read --task <id>` shows the captions and their revision; `captions-edit --task <id> --revision <n> --edits-file <path>` edits them (at the review, or at the delivery approval, where the delivery is answered by code); `answer --id <id> --text continue` closes the review; `video-run --task <id>` runs the video on to the delivery approval; `approve --id <id> --sha256 <hash>` approves the exact render; `video-download --task <id> --out <file>` saves it to a new file outside the project (the render is hashed again as it is copied); `video-still --task <id> --out <file>` saves the face-box still. The settings of a new video are the key `media` of `runtime.json` (`language`, `transcriber_model`; the defaults are `pt` and `small`). The page reaches the same operations from V1b2-2.
 
+From the page (V1b2-2): the eight operations are routes of the local service, in the policy group `media` (no grant list holds it, so no messaging app or connected client can use it): `GET` and `POST /api/v1/projects/<id>/media` (the list; the upload, the file as the body with `Content-Type: video/mp4` or `video/quicktime`, read as a stream, at most 1 GiB), `POST .../videos` (`media_id`, `post`: a job), `POST .../videos/<task>/run` (a job), `GET` and `POST .../videos/<task>/captions` (the review; an edit `{revision, edits}` with the edits as JSON text), `GET .../videos/<task>/still` and `.../download` (the face-box still; the delivered video as an attachment `video-<12 hex>.mp4`). The upload, the still and the download are answered `409` on the `--lan` socket before a byte is read (limit L68); the approval of the delivery uses the existing `POST .../pending/<id>/approve`, which the `--lan` socket also refuses (L67).
+
 Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
 
 V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
@@ -131,5 +133,7 @@ Written on 2026-11-07 by V1a-3.
 2026-11-07: V1b1, the media step, the deliver effect, decision 14
 
 2026-11-07: V1b2-1, the media operations and the media settings key
+
+2026-11-07: V1b2-2, the media routes and limit L68
 
 Updated on 2026-11-07 by V3a-2.

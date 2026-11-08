@@ -186,9 +186,10 @@ def path_of(world, route):
     return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"])
 
 
-OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
+OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["download"]]   # the two are tested in test_service_media.py
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda") + VIEW_READS
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda",
+            "media-list", "captions-read", "video-download", "video-still") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -482,9 +483,11 @@ def test_every_route_calls_exactly_one_operation_and_returns_what_it_returned(wo
     path = path_of(world, route)
     if route["raw"]:  # the bytes of a file, with the media type the operation names
         world.fake.answers[row["call"]] = {"media_type": "image/png", "data": b"\x89PNG\r\n\x1a\nbytes"}
-        status, headers, body = call(world, "GET", path + "?path=docs/x.png")
+        names_path = "path" in (route["take"] if route["take"] is not None else [a["name"] for a in row["args"]])
+        status, headers, body = call(world, "GET", path + ("?path=docs/x.png" if names_path else ""))
         assert (status, body, headers["Content-Type"]) == (200, b"\x89PNG\r\n\x1a\nbytes", "image/png")
-        assert world.fake.calls == [(row["call"], world.projects[0]["path"], {"path": "docs/x.png"})]
+        wanted = {"path": "docs/x.png"} if names_path else expected
+        assert world.fake.calls == [(row["call"], world.projects[0]["path"], wanted)]
         return
     if route["method"] == "GET":
         path += "?" + "&".join(f"{k}={v}" for k, v in given.items()) if given else ""
@@ -547,7 +550,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
         {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask",
          "event-change", "event-cancel", "research", "file-ask", "mail-ask",
-         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash"}
+         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "video-new", "video-run"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):
