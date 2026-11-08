@@ -14,16 +14,20 @@ A render runs five containers, each with no network (providers/_container.py):
   page     common image  `hf-page`: writes index.html and vars.json into the run folder's project/ (with `--base-only`: numbers only, the
                          cuts and the zoom; without it: the captions and the beats too, from the staged blocks, and every text in vars.json)
   proxy    common image  `proxy`: a 1080x1920 H.264 proxy of the recording, at the edit list's fps, into project/media/
-  hf       HyperFrames   `hf_render.py`: `hyperframes render` of the project into a ProRes HQ intermediate (4 workers, no frame cache)
+  hf       HyperFrames   `hf_render.py`: `hyperframes render` of the project into a ProRes HQ intermediate (4 workers, no frame cache);
+                         for a page that draws, then `hf_measure.mjs`: the boxes the page reports at every frame, into `boxes.json`
   encode   common image  `encode`: the final H.264 from the intermediate with the same output options and fixed threads as the ffmpeg
-                         engine, so the same intermediate gives the same bytes whatever the cores
+                         engine, so the same intermediate gives the same bytes whatever the cores. A render that draws first runs the
+                         gates (`_hf_gate`): the boxes the drawing container reported against the face box and the line at 1560, then,
+                         after the encode, the face region of every kept range against the undrawn base (the proxy)
   verify   common image  a fresh container checks the candidate against the platform's spec (`_host.finish_render`)
 
 The frames, the proxy and the intermediate live in a disk work folder, `<work>/hf-<id>/`, checked for free space before the first
 container and removed when the render ends. Without `--base-only` a render draws the captions and the beats with the blocks that have a runtime this
 engine runs (`blocks/engines/hyperframes.json`: `gsap` pages inlined, `renderat` pages in iframes), stages and hashes the blocks as `ffmpeg.py`
-does, and refuses `engine_unknown` while that file does not exist. The gates on what is drawn (the face box, the line at 1560, the pixels) are
-package V3b-2's: until they are built, a render that draws is refused (`gates_not_built`) unless the blocks folder is the test folder of test mode.
+does, and refuses `engine_unknown` while that file does not exist. The gates on what is drawn (the face box, the line at 1560, the pixels)
+run on every render that draws and no flag turns them off: a render whose drawing container left no `boxes.json`, or whose encode stage
+reported no gate, is refused.
 
 Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the first line of a refusal is `refused: <closed code> <field>`):
 
@@ -69,6 +73,7 @@ import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _container as box  # noqa: E402
 import _docker as D  # noqa: E402
+import _hf_gate  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
 from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, stage_blocks, CRASH_CODES)  # noqa: E402
@@ -114,10 +119,12 @@ RUN_PREFIX = "hf-"                                      # the run folder's prefi
 RUN_FOLDER = re.compile(r"hf-[0-9a-f]{12}")
 MIN_STAGE_SECONDS = 30                                  # a stage that would get less than this refuses as render_timeout
 STAGES = ("page", "proxy", "hf", "encode")
-HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I))
-HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD)
-HF_OUT_NAMES = ("intermediate.mov", "result.json", "hf.log")
-GATES_BUILT = False                                     # V3b-2 builds the face-box, 1560 and pixel gates and removes this line and its check
+HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I), boxes_sha256=D.opt(D.S), measure_seconds=D.opt(D.N), measure_ready_ms=D.opt(D.I))
+HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD, problems=D.opt(D.PROBLEMS))
+HF_OUT_NAMES = ("intermediate.mov", "result.json", "hf.log", "boxes.json")
+BOXES_MAX_BYTES = _hf_gate.BOXES_MAX_BYTES              # boxes.json's cap, the figure hf_measure.mjs refuses at
+GATE_FIELDS = ("gate_frames", "gate_boxes", "pixel_min_psnr_db", "pixel_ranges", "pixel_seconds")     # what a composed render's encode stage must report
+GATE_OPTIONAL = ("lowest_caption_bottom",)              # reported only when a caption box was drawn
 COMPOSED_FIELDS = ("blocks", "blocks_sha256", "captions_drawn", "beats_drawn", "runtimes", "fonts_used")   # what the page stage adds to a render that draws
 RESULT_MAX_BYTES = 64 * 1024
 
@@ -292,14 +299,16 @@ def hf_limits(args) -> tuple:
     return check_memory(args), max(1, min(args.cpus, D.daemon_facts()["cpus"]))
 
 
-def hf_command(args, image: dict, run_dir: str, fps: int, t: int):
-    """(container name, the exact `docker run` command) of the drawing stage. Three read-write mounts, no recording, no network."""
+def hf_command(args, image: dict, run_dir: str, fps: int, t: int, measure: bool = False):
+    """(container name, the exact `docker run` command) of the drawing stage. Three read-write mounts, no recording, no network. `measure` is
+    true for a page that draws: the container then also measures the boxes the page reports (`hf_measure.mjs`); a render of the base page
+    has nothing drawn to measure."""
     name = "openhora-hyperframes-%s" % uuid.uuid4().hex[:12]
     memory, cpus = hf_limits(args)
     mounts = [(os.path.join(run_dir, "project"), "/work/project", "rw"), (os.path.join(run_dir, "out"), "/work/out", "rw"),
               (os.path.join(run_dir, "tmp"), "/work/tmp", "rw")]
     inner = ["python3", "-I", "/opt/hf-run/hf_render.py", "--project", "/work/project", "--out", "/work/out", "--tmp", "/work/tmp",
-             "--fps", str(fps), "--timeout", str(max(1, t - 30))]
+             "--fps", str(fps), "--timeout", str(max(1, t - 30))] + (["--measure"] if measure else [])
     try:
         return name, box.argv(name, image["id"], inner, label=HF_LABEL, deadline=int(time.time()) + t + 60, mounts=mounts, memory_mb=memory, cpus=cpus,
                               scratch_mb=HF_SCRATCH_MB, pids_limit=HF_PIDS, tmp_mb=HF_TMP_MB, cpuset=getattr(args, "cpuset", None), shm_mb=HF_SHM_MB)
@@ -322,7 +331,9 @@ def read_hf_result(out_dir: str, rc: int) -> dict:
         raise Refusal(CRASH_CODES.get(rc, "container_failed"), "container") from None
     if rc != 0 or doc.get("ok") is not True:
         row = D.sanitise(doc, HF_REFUSAL, "hf")
-        raise Refusal(row.get("code", "container_failed"), row.get("field", ""))
+        err = Refusal(row.get("code", "container_failed"), row.get("field", ""))
+        err.problems = row.get("problems") or []                       # what the page reported (hf_measure.mjs), so a live failure explains itself
+        raise err
     result = D.sanitise(doc, HF_SCHEMA, "hf")
     if not re.fullmatch(r"[0-9a-f]{64}", result.get("sha256", "")) or not isinstance(result.get("bytes"), int) or "hyperframes" not in result:
         raise Refusal("container_result_invalid", "hf")
@@ -331,7 +342,8 @@ def read_hf_result(out_dir: str, rc: int) -> dict:
 
 def run_hf_stage(args, run_dir: str, fps: int, t: int, cap: int, dry: bool):
     image = check_hf_image()
-    name, command = hf_command(args, image, run_dir, fps, t)
+    measure = not args.base_only
+    name, command = hf_command(args, image, run_dir, fps, t, measure)
     if dry:
         return image, command, None
     try:
@@ -351,7 +363,28 @@ def run_hf_stage(args, run_dir: str, fps: int, t: int, cap: int, dry: bool):
         raise Refusal("intermediate_too_large", "intermediate")
     if found.st_size != result["bytes"] or _media.sha256_file(target) != result["sha256"]:
         raise Refusal("intermediate_differs", "intermediate")
+    if measure:
+        result["boxes_sha256"] = check_boxes_file(out_dir, result)
     return image, command, result
+
+
+def check_boxes_file(out_dir: str, result: dict) -> str:
+    """The boxes of a render that draws: `boxes.json` is a regular file within its cap and its sha256 is the one the drawing container
+    reported (`container_wrote_no_file`, `container_file_not_regular`, `container_file_too_large`, `container_file_differs`); the result
+    also carries the seconds of the measure step. Returns the sha256 the host computed, which the encode stage is given."""
+    target = os.path.join(out_dir, "boxes.json")
+    try:
+        found = os.lstat(target)
+    except OSError:
+        raise Refusal("container_wrote_no_file", "boxes") from None
+    if not stat.S_ISREG(found.st_mode):
+        raise Refusal("container_file_not_regular", "boxes")
+    if found.st_size > BOXES_MAX_BYTES:
+        raise Refusal("container_file_too_large", "boxes")
+    digest = _media.sha256_file(target)
+    if result.get("boxes_sha256") != digest or result.get("measure_seconds") is None:
+        raise Refusal("container_file_differs", "boxes")
+    return digest
 
 
 def read_documents(args, data: dict) -> tuple:
@@ -370,13 +403,10 @@ def read_documents(args, data: dict) -> tuple:
 
 def check_may_draw() -> None:
     """A render that draws needs the engine's own file in the blocks folder (`blocks/engines/hyperframes.json`): refused before any container
-    runs while there is none (`engine_unknown`). And it needs the gates on what is drawn: while GATES_BUILT is False (package V3b-2 builds them)
-    only a test blocks folder (test mode) may draw, so that nothing drawn reaches a recording unchecked. The folder is the committed one, or the
-    test folder in test mode only."""
+    runs while there is none (`engine_unknown`). The folder is the committed one, or the test folder in test mode only. The gates on what is
+    drawn are not a choice made here: every render that draws runs them (the drawing stage measures, the encode stage judges)."""
     if ENGINE not in _blocks.load_catalogue(_blocks.blocks_dir())["engines"]:
         raise Refusal("engine_unknown", ENGINE)
-    if not GATES_BUILT and _blocks.blocks_dir() == _blocks.BLOCKS_DIR:
-        raise Refusal("gates_not_built", "render")
 
 
 def verb_render(args) -> dict:
@@ -465,11 +495,17 @@ def verb_render(args) -> dict:
             job.add_mount(hf_out, "/work/hf", "ro")
             inner = ["encode", "--in", "/work/hf/intermediate.mov", "--sha256", drawn["sha256"] if drawn else "0" * 64,
                      "--edl", job.stage("edl.json", args.edl), "--platform-file", job.stage("platform.json", args.platform_file), "--out", D.MOUNT_OUT]
+            if not args.base_only:                          # the gates: every composed render has them, and there is no way to leave them out
+                job.add_mount(media, "/work/media", "ro")
+                inner += ["--boxes", "/work/hf/boxes.json", "--boxes-sha256", drawn["boxes_sha256"] if drawn else "0" * 64,
+                          "--beats", job.stage("beats.json", args.beats), "--vocabulary", job.stage("vocabulary.json", args.vocabulary),
+                          "--proxy", "/work/media/proxy.mp4", "--proxy-sha256", proxy_sha256]
             if dry:
                 commands["encode"] = job.argv(inner)[2]
                 return {"ok": True, "dry_run": True, "engine": ENGINE, "commands": commands, "image": job.image, "hf_image": image,
                         "time_limit_seconds": limit, "out_dir": out_dir, "limits": hf_limit_facts(args, cap, out_seconds)}
             result = job.run(inner, "encode")
+            gate = composed_gate(result) if not args.base_only else None
             result = finish_render(args, job, result, out_dir=out_dir, byte_cap=byte_cap, out_seconds=out_seconds)
         seconds["encode"] = round(time.monotonic() - started, 2)
         result.update(engine=ENGINE, layers=list(LAYERS), stage_seconds=seconds, proxy_sha256=proxy_sha256, intermediate_sha256=drawn["sha256"],
@@ -479,9 +515,27 @@ def verb_render(args) -> dict:
             if any(key not in page for key in COMPOSED_FIELDS + ("layers",)):
                 raise Refusal("container_result_invalid", "hf-page")
             result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
+            seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")
+            if drawn.get("measure_ready_ms") is not None:
+                result["measure_ready_ms"] = drawn["measure_ready_ms"]          # how long the page took to be ready, to size the wait from a measurement
+            result["gate"] = gate
         return result
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)       # the proxy and the intermediate never outlive the render (OPEN-6)
+
+
+def composed_gate(result: dict) -> dict:
+    """The gates' figures out of the encode stage's result, taken out of it: `frames`, `boxes`, `lowest_caption_bottom` (when a caption box was
+    drawn), `pixel_min_psnr_db`, `pixel_ranges` and `pixel_seconds`. An encode stage of a render that draws that reports no gate is refused:
+    the figures are the proof that the gates ran."""
+    if any(key not in result for key in GATE_FIELDS):
+        raise Refusal("container_result_invalid", "encode")
+    gate = {"frames": result.pop("gate_frames"), "boxes": result.pop("gate_boxes"), "pixel_min_psnr_db": result.pop("pixel_min_psnr_db"),
+            "pixel_ranges": result.pop("pixel_ranges"), "pixel_seconds": result.pop("pixel_seconds")}
+    for key in GATE_OPTIONAL:
+        if key in result:
+            gate[key] = result.pop(key)
+    return gate
 
 
 def hf_limit_facts(args, cap: int, out_seconds: float) -> dict:

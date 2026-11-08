@@ -30,7 +30,7 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 FOLDER = K.RENDERER
 
-COMMON = ("_align", "_assets", "_blocks", "_edl", "_gsap_lint", "_hf_compose", "_hf_page", "_layout", "_media", "_output", "_payload", "_redact", "_text",
+COMMON = ("_align", "_assets", "_blocks", "_edl", "_gsap_lint", "_hf_compose", "_hf_gate", "_hf_page", "_layout", "_media", "_output", "_payload", "_redact", "_text",
           "_timeline", "_vocab")
 DRAWING = ("_cdp", "_frames", "_lint", "_preview", "_render", "_browser")
 HOST = ("_docker", "_host", "_image", "ffmpeg", "hyperframes")

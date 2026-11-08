@@ -35,6 +35,8 @@ from _browser import NotConfigured
 HF_ID = "sha256:" + "ef" * 32
 COMMON_ID = "sha256:" + "cd" * 32
 PROXY_BYTES, HF_BYTES, FINAL_BYTES = b"proxy" * 100, b"prores" * 200, b"final-mp4" * 50
+BOXES_BYTES = b'{"fonts":[],"fps":30,"frames":90,"per_frame":[],"schema":1}'
+GATE = {"gate_frames": 90, "gate_boxes": 12, "lowest_caption_bottom": 1544.5, "pixel_min_psnr_db": 41.25, "pixel_ranges": 3, "pixel_seconds": 6.5}
 SHA = lambda raw: hashlib.sha256(raw).hexdigest()   # noqa: E731
 OUTPUT = {"container": "mov,mp4,m4a,3gp,3g2,mj2", "codec": "h264", "profile": "High", "pix_fmt": "yuv420p", "width": 1080, "height": 1920, "fps": 30.0,
           "duration": 3.0, "bytes": len(FINAL_BYTES), "audio_codec": "aac", "faststart": True, "color": ["tv", "bt709", "bt709", "bt709"], "frames": "90"}
@@ -45,10 +47,11 @@ class FakeRun:
     """Stands where `_container.run` stands. `fail` maps a stage name to what to do instead: "refuse:<code>" (the drawing container writes a
     refusal row and exits 1), "raise" (the run itself fails), or a callable."""
 
-    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000, page_blocks_sha=None):
+    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000, page_blocks_sha=None, boxes=BOXES_BYTES, boxes_sha=None, gate=GATE):
         self.commands, self.verbs, self.fail = [], [], fail or {}
         self.hf_bytes, self.hf_sha, self.memory_peak = hf_bytes, hf_sha, memory_peak
         self.page_blocks_sha = page_blocks_sha
+        self.boxes, self.boxes_sha, self.gate = boxes, boxes_sha, gate     # boxes None: the drawing container writes no boxes.json
         self.seen = {}
 
     def __call__(self, command, name, timeout, **kw):
@@ -83,8 +86,16 @@ class FakeRun:
             host, mode = mounts["/work/hf"]
             intermediate = Path(host, "intermediate.mov")
             assert mode == "ro" and SHA(intermediate.read_bytes()) == inner[inner.index("--sha256") + 1]
+            self.seen["encode"], self.seen["encode_mounts"] = inner, mounts
+            if str(self.fail.get("encode", "")).startswith("refuse:"):
+                (out / "result.json").write_text(json.dumps({"ok": False, "code": self.fail["encode"].split(":", 1)[1], "field": "frame 3 hf-inst-1", "problems": []}))
+                return box.Finished(1, "", False)
             (out / ("render-%s.mp4" % SHA(FINAL_BYTES)[:12])).write_bytes(FINAL_BYTES)
             rows["encode"] = {"ok": True, "sha256": SHA(FINAL_BYTES), "out_seconds": 3.0, "out_frames": 90, "intermediate_sha256": inner[inner.index("--sha256") + 1]}
+            if "--boxes" in inner:
+                assert mounts["/work/media"][1] == "ro" and SHA(Path(mounts["/work/media"][0], "proxy.mp4").read_bytes()) == inner[inner.index("--proxy-sha256") + 1]
+                assert SHA(Path(host, "boxes.json").read_bytes()) == inner[inner.index("--boxes-sha256") + 1]
+                rows["encode"].update(self.gate or {})
         elif verb == "verify":
             rows["verify"] = {"ok": True, "sha256": inner[inner.index("--sha256") + 1], "output": OUTPUT}
         (out / "result.json").write_text(json.dumps(rows[verb]))
@@ -103,8 +114,13 @@ class FakeRun:
             (out / "result.json").write_text(json.dumps({"ok": False, "code": self.fail["hf"].split(":", 1)[1], "field": "index.html"}))
             return box.Finished(1, "", False)
         (out / "intermediate.mov").write_bytes(self.hf_bytes)
-        (out / "result.json").write_text(json.dumps({"ok": True, "sha256": self.hf_sha or SHA(self.hf_bytes), "bytes": len(self.hf_bytes), "seconds": 4.2,
-                                                     "hyperframes": "0.9.19", "memory_peak_bytes": self.memory_peak}))
+        row = {"ok": True, "sha256": self.hf_sha or SHA(self.hf_bytes), "bytes": len(self.hf_bytes), "seconds": 4.2, "hyperframes": "0.9.19",
+               "memory_peak_bytes": self.memory_peak}
+        self.seen["hf_inner"] = command[command.index(HF_ID) + 1:]
+        if "--measure" in self.seen["hf_inner"] and self.boxes is not None:
+            (out / "boxes.json").write_bytes(self.boxes)
+            row.update(boxes_sha256=self.boxes_sha or SHA(self.boxes), measure_seconds=2.5)
+        (out / "result.json").write_text(json.dumps(row))
         return box.Finished(0, "", False)
 
 
@@ -205,12 +221,17 @@ def test_a_render_without_base_only_and_without_an_engines_file_is_refused_engin
     assert (caught.value.code, caught.value.field) == ("engine_unknown", "hyperframes") and world.calls() == []
 
 
-def test_a_render_that_draws_on_the_committed_blocks_is_refused_gates_not_built_before_any_docker_call(world, monkeypatch):
+def test_there_is_no_gates_not_built_refusal_and_no_constant_that_turns_a_gate_off():
+    source = (K.RENDERER / "hyperframes.py").read_text(encoding="utf-8")
+    assert not hasattr(H, "GATES_BUILT") and "gates_not_built" not in source
+    assert not any(word in source for word in ("--no-gate", "--skip-gate", "--no-gates", "RENDERER_NO_GATE"))
+
+
+def test_a_render_that_draws_on_the_committed_blocks_is_not_refused_before_docker_and_runs_the_gates(world, monkeypatch):
     monkeypatch.delenv("RENDERER_TEST", raising=False)
-    with pytest.raises(Refusal) as caught:
-        run(world, monkeypatch, base_only=False)
-    assert (caught.value.code, caught.value.field) == ("gates_not_built", "render") and world.calls() == []
-    assert H.main(["render", "--edl", "e", "--beats", "b", "--in", "i", "--out", "o", "--platform-file", "p", "--vocabulary", "v"]) == 1
+    result, fake = run(world, monkeypatch, base_only=False)
+    assert fake.verbs == ["hf-page", "proxy", "hf", "encode", "verify"] and "--boxes" in fake.seen["encode"] and "--measure" in fake.seen["hf_inner"]
+    assert result["gate"]["pixel_ranges"] == 3
 
 
 def test_a_bad_cpu_set_is_refused_before_docker(world, monkeypatch):
@@ -396,6 +417,138 @@ def test_a_base_only_render_adds_none_of_the_composed_fields(world, monkeypatch,
     assert result["layers"] == ["cuts", "zoom"] and not set(H.COMPOSED_FIELDS) & set(result)
 
 
+GATE_FLAGS = ("--boxes", "--boxes-sha256", "--beats", "--vocabulary", "--proxy", "--proxy-sha256")
+
+
+def test_a_composed_renders_dry_run_has_the_measure_flag_the_gates_flags_and_the_media_mount(world, monkeypatch, test_blocks):
+    result, fake = run(world, monkeypatch, "--dry-run", base_only=False)
+    hf_inner = result["commands"]["hf"][result["commands"]["hf"].index(HF_ID) + 1:]
+    assert hf_inner[-1] == "--measure" and fake.commands == []
+    encode = result["commands"]["encode"]
+    inner = encode[encode.index(COMMON_ID) + 1:]
+    assert inner[2] == "encode" and all(flag in inner for flag in GATE_FLAGS)
+    assert option(inner, "--boxes") == "/work/hf/boxes.json" and option(inner, "--proxy") == "/work/media/proxy.mp4"
+    assert option(inner, "--beats").startswith("/job/") and option(inner, "--vocabulary").startswith("/job/")
+    mounts = [w.rsplit(":", 2)[1:] for i, w in enumerate(encode) if encode[i - 1] == "-v"]
+    assert ["/work/hf", "ro"] in mounts and ["/work/media", "ro"] in mounts and option(encode, "--network") == "none"
+    assert run_folders(world) == []
+
+
+def test_a_base_only_renders_dry_run_has_no_measure_flag_no_gates_flags_and_no_media_mount(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch, "--dry-run")
+    assert "--measure" not in result["commands"]["hf"]
+    encode = result["commands"]["encode"]
+    assert not any(flag in encode for flag in GATE_FLAGS) and ["/work/media", "ro"] not in [w.rsplit(":", 2)[1:] for i, w in enumerate(encode) if encode[i - 1] == "-v"]
+
+
+def test_a_composed_render_hands_the_encode_the_boxes_and_proxy_hashes_the_host_computed(world, monkeypatch, test_blocks):
+    result, fake = run(world, monkeypatch, base_only=False)
+    inner = fake.seen["encode"]
+    assert option(inner, "--boxes-sha256") == SHA(BOXES_BYTES) and option(inner, "--proxy-sha256") == SHA(PROXY_BYTES) == result["proxy_sha256"]
+    assert fake.seen["encode_mounts"]["/work/media"][1] == "ro" and fake.seen["encode_mounts"]["/work/hf"][1] == "ro"
+
+
+def test_a_composed_render_reports_the_gate_and_the_two_new_stage_seconds_and_nothing_loose(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch, base_only=False)
+    assert result["gate"] == {"frames": 90, "boxes": 12, "lowest_caption_bottom": 1544.5, "pixel_min_psnr_db": 41.25, "pixel_ranges": 3}
+    assert set(result["stage_seconds"]) == {"page", "proxy", "hf", "encode", "measure", "pixel"}
+    assert result["stage_seconds"]["measure"] == 2.5 and result["stage_seconds"]["pixel"] == 6.5
+    assert not {"gate_frames", "gate_boxes", "pixel_min_psnr_db", "pixel_ranges", "pixel_seconds", "lowest_caption_bottom", "boxes_sha256"} & set(result)
+
+
+def test_a_composed_render_with_no_caption_box_has_no_lowest_caption_bottom(world, monkeypatch, test_blocks):
+    gate = {k: v for k, v in GATE.items() if k != "lowest_caption_bottom"}
+    result, _ = run(world, monkeypatch, fake=FakeRun(gate=gate), base_only=False)
+    assert "lowest_caption_bottom" not in result["gate"] and result["gate"]["boxes"] == 12
+
+
+def test_a_base_only_render_has_no_gate_and_the_two_old_stage_seconds_only(world, monkeypatch, test_blocks):
+    result, fake = run(world, monkeypatch)
+    assert "gate" not in result and set(result["stage_seconds"]) == {"page", "proxy", "hf", "encode"}
+    assert "--measure" not in fake.seen["hf_inner"] and "--boxes" not in fake.seen["encode"]
+
+
+def test_a_composed_render_whose_drawing_container_left_no_boxes_is_refused_and_nothing_is_encoded(world, monkeypatch, test_blocks):
+    fake = FakeRun(boxes=None)
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=fake, base_only=False)
+    assert (caught.value.code, caught.value.field) == ("container_wrote_no_file", "boxes") and fake.verbs == ["hf-page", "proxy", "hf"] and run_folders(world) == []
+
+
+def test_boxes_that_are_not_the_ones_the_container_named_or_not_a_regular_file_or_too_large_are_refused(world, monkeypatch, test_blocks):
+    with pytest.raises(Refusal) as differs:
+        run(world, monkeypatch, fake=FakeRun(boxes_sha="0" * 64), base_only=False)
+    assert (differs.value.code, differs.value.field) == ("container_file_differs", "boxes")
+    monkeypatch.setattr(H, "BOXES_MAX_BYTES", 10)
+    with pytest.raises(Refusal) as large:
+        run(world, monkeypatch, base_only=False)
+    assert (large.value.code, large.value.field) == ("container_file_too_large", "boxes") and run_folders(world) == []
+
+
+def test_a_boxes_file_that_is_a_link_is_refused(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (tmp_path / "elsewhere").write_bytes(BOXES_BYTES)
+    (out / "boxes.json").symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(Refusal) as caught:
+        H.check_boxes_file(str(out), {"boxes_sha256": SHA(BOXES_BYTES), "measure_seconds": 1.0})
+    assert (caught.value.code, caught.value.field) == ("container_file_not_regular", "boxes")
+
+
+def test_a_drawing_result_with_no_measure_seconds_is_refused_for_a_composed_render(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "boxes.json").write_bytes(BOXES_BYTES)
+    assert H.check_boxes_file(str(out), {"boxes_sha256": SHA(BOXES_BYTES), "measure_seconds": 0.0}) == SHA(BOXES_BYTES)
+    with pytest.raises(Refusal) as caught:
+        H.check_boxes_file(str(out), {"boxes_sha256": SHA(BOXES_BYTES)})
+    assert caught.value.code == "container_file_differs"
+
+
+def test_an_encode_stage_that_reports_no_gate_for_a_render_that_draws_is_a_closed_failure(world, monkeypatch, test_blocks):
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=FakeRun(gate={"gate_frames": 90}), base_only=False)
+    assert (caught.value.code, caught.value.field) == ("container_result_invalid", "encode") and run_folders(world) == []
+    with pytest.raises(Refusal) as none:
+        run(world, monkeypatch, fake=FakeRun(gate=None), base_only=False)
+    assert (none.value.code, none.value.field) == ("container_result_invalid", "encode")
+
+
+@pytest.mark.parametrize("code", ["overlay_hits_face", "caption_below_line", "face_pixels_changed", "boxes_changed"])
+def test_a_refusal_of_the_gates_in_the_encode_container_is_the_same_refusal_here_and_leaves_no_run_folder(world, monkeypatch, test_blocks, code):
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=FakeRun(fail={"encode": "refuse:" + code}), base_only=False)
+    assert (caught.value.code, caught.value.field) == (code, "frame 3 hf-inst-1") and run_folders(world) == [] and not (world.tmp / "out").exists()
+
+
+def test_a_refusal_of_the_measure_step_comes_through_the_drawing_containers_result(world, monkeypatch, test_blocks):
+    with pytest.raises(Refusal) as caught:
+        run(world, monkeypatch, fake=FakeRun(fail={"hf": "refuse:font_not_allowed"}), base_only=False)
+    assert caught.value.code == "font_not_allowed" and run_folders(world) == []
+
+
+def test_boxes_json_is_a_name_the_drawing_container_may_leave_and_any_other_is_still_refused(tmp_path):
+    assert "boxes.json" in H.HF_OUT_NAMES and H.HF_OUT_NAMES == ("intermediate.mov", "result.json", "hf.log", "boxes.json")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "result.json").write_text(json.dumps({"ok": True, "sha256": "a" * 64, "bytes": 1, "seconds": 1, "hyperframes": "0.9.19", "memory_peak_bytes": None,
+                                                 "boxes_sha256": "b" * 64, "measure_seconds": 2.0}))
+    (out / "boxes.json").write_bytes(BOXES_BYTES)
+    result = H.read_hf_result(str(out), 0)
+    assert result["boxes_sha256"] == "b" * 64 and result["measure_seconds"] == 2.0
+    (out / "boxes2.json").write_bytes(b"{}")
+    with pytest.raises(Refusal) as caught:
+        H.read_hf_result(str(out), 0)
+    assert caught.value.code == "container_left_non_regular_file"
+
+
+def test_the_hf_result_schema_has_the_two_optional_measure_fields():
+    keys = H.HF_SCHEMA[1]
+    assert {"boxes_sha256", "measure_seconds"} <= set(keys)
+    base = D.sanitise({"ok": True, "sha256": "a" * 64, "bytes": 1, "seconds": 1.0, "hyperframes": "0.9.19"}, H.HF_SCHEMA, "hf")
+    assert "boxes_sha256" not in base and "measure_seconds" not in base
+
+
 def test_a_page_stage_that_reports_other_blocks_than_the_ones_staged_is_refused_and_nothing_else_runs(world, monkeypatch, test_blocks):
     fake = FakeRun(page_blocks_sha="0" * 64)
     with pytest.raises(Refusal) as caught:
@@ -419,14 +572,11 @@ def test_a_page_stage_that_leaves_out_a_composed_field_is_a_closed_failure(world
     assert (caught.value.code, caught.value.field) == ("container_result_invalid", "hf-page") and run_folders(world) == []
 
 
-def test_a_render_that_draws_is_refused_gates_not_built_outside_test_mode_even_with_an_engines_file(world, monkeypatch, test_blocks):
+def test_a_render_that_draws_outside_test_mode_runs_the_gates_whatever_the_blocks_folder_is(world, monkeypatch, test_blocks):
     monkeypatch.delenv("RENDERER_TEST")
     monkeypatch.setattr(_blocks, "BLOCKS_DIR", str(test_blocks))
-    with pytest.raises(Refusal) as caught:
-        run(world, monkeypatch, base_only=False)
-    assert (caught.value.code, caught.value.field) == ("gates_not_built", "render") and world.calls() == []
-    result, _ = run(world, monkeypatch)                       # the cuts and the zoom are not gated by this
-    assert result["layers"] == ["cuts", "zoom"]
+    result, fake = run(world, monkeypatch, base_only=False)
+    assert result["gate"]["boxes"] == 12 and "--boxes" in fake.seen["encode"]
 
 
 def test_the_composed_page_stage_result_has_the_closed_schema():
@@ -570,3 +720,24 @@ def test_hf_render_py_starts_as_a_script_from_a_clean_environment():
     done = subprocess.run([sys.executable, "-I", str(K.RENDERER / "hyperframes-image" / "hf_render.py"), "--help"], capture_output=True, text=True, env=env,
                           timeout=60, cwd="/")
     assert done.returncode == 0 and "--project" in done.stdout, done.stderr[-800:]
+
+
+def test_what_the_page_reported_comes_through_the_drawing_containers_refusal_as_problems(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "result.json").write_text(json.dumps({"ok": False, "code": "measure_failed", "field": "player", "problems": [
+        {"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"}]}))
+    with pytest.raises(Refusal) as caught:
+        H.read_hf_result(str(out), 1)
+    assert (caught.value.code, caught.value.field) == ("measure_failed", "player")
+    assert [p["code"] for p in caught.value.problems] == ["page_error", "state"] and caught.value.problems[1]["field"] == "player undefined timelines main"
+    (out / "result.json").write_text(json.dumps({"ok": False, "code": "measure_failed", "field": "player", "problems": [{"code": "x y", "field": "z"}]}))
+    with pytest.raises(Refusal) as bad:
+        H.read_hf_result(str(out), 1)
+    assert bad.value.code == "container_result_invalid"
+
+
+def test_the_pages_ready_time_is_in_the_drawing_result_schema_and_in_a_composed_renders_result(world, monkeypatch, test_blocks):
+    assert "measure_ready_ms" in H.HF_SCHEMA[1]
+    result, _ = run(world, monkeypatch, base_only=False)
+    assert "measure_ready_ms" not in result                     # the fake container reports none

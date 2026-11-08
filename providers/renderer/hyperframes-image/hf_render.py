@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""The inner entry of the HyperFrames image (package V3a-2): it draws the base page into a ProRes intermediate and nothing else.
+"""The inner entry of the HyperFrames image (package V3a-2): it draws the page into a ProRes intermediate and, for a page that draws,
+measures the boxes the page reports (package V3b-2).
 
 Run inside the image, with no network, as
 
-    python3 -I /opt/hf-run/hf_render.py --project /work/project --out /work/out --tmp /work/tmp --fps <n> --timeout <s>
+    python3 -I /opt/hf-run/hf_render.py --project /work/project --out /work/out --tmp /work/tmp --fps <n> --timeout <s> [--measure]
 
 `--project` holds exactly `index.html`, `vars.json` and `media/proxy.mp4` (each a regular file within a cap), and, for a page that draws,
 a folder `blocks/` of at most 16 pages (`blocks/<name>.html`, each at most 1 MiB), written by the common image and mounted read-write; this
 script checks the folder, checks that the page and each block page name no font outside the allow-list (HyperFrames adds a bundled font for
 any family a page names and does not declare), copies the three allow-listed font files into `fonts/` when a page uses them (each checked
-against its sha256), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes HQ `.mov`, four workers, no frame cache. The intermediate, a log and `result.json` go to `--out`. The host reads `result.json` as
-untrusted and hashes the intermediate again. The only HyperFrames command this file ever runs is `render`. Standard library only.
+against its sha256), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes HQ `.mov`, four workers, no frame cache. With
+`--measure` (the host gives it to every render that draws, and to no other) it then runs `node /opt/hf-run/hf_measure.mjs` once on the project:
+the boxes of every frame as the page reports them, into `boxes.json`, which the encode stage's gate reads. The intermediate, the boxes, a log and
+`result.json` go to `--out`. The host reads `result.json` as untrusted and hashes both files again. The only HyperFrames command this file
+ever runs is `render`; the only other program is that one script. Standard library only.
 """
 from __future__ import annotations
 
@@ -45,6 +49,11 @@ FONT_FILES = {"inter-500.woff2": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08
               "jetbrains-mono-500.woff2": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a"}
 GSAP_SOURCE = "/opt/hf/node_modules/gsap/dist/gsap.min.js"
 HF_PACKAGE = "/opt/hf/node_modules/hyperframes/package.json"
+MEASURE_SCRIPT = "/opt/hf-run/hf_measure.mjs"   # the measure step (V3b-2); it serves the project on the loopback and reads /opt/hf only
+BOXES_MAX_BYTES = 64 * 1024 ** 2         # boxes.json's cap, the figure hf_measure.mjs refuses at (`boxes_too_large`) and the host checks again
+MEASURE_MIN_SECONDS = 10                 # a render with less time than this left does not start the measure step
+# What the measure script may refuse with (it writes the row into boxes.json and exits 1); anything else it leaves is `measure_failed`.
+MEASURE_REFUSALS = ("boxes_too_many", "boxes_too_large", "font_not_allowed", "measure_failed")
 MEMORY_PEAK = "/sys/fs/cgroup/memory.peak"
 WORKERS = "4"                            # S2 (check C2): `--workers auto` changes the bytes, so the count is fixed
 # What the child process sees, copied from the image's own environment: nothing of the caller's.
@@ -54,13 +63,13 @@ NEVER_CALLED = ("cloud", "billing", "publish", "lambda", "tts", "transcribe", "s
 
 
 class Refuse(Exception):
-    def __init__(self, code: str, field: str):
+    def __init__(self, code: str, field: str, problems=None):
         super().__init__("%s %s" % (code, field))
-        self.code, self.field = code, field
+        self.code, self.field, self.problems = code, field, problems or []
 
 
-def refuse(code: str, field: str):
-    raise Refuse(code, field)
+def refuse(code: str, field: str, problems=None):
+    raise Refuse(code, field, problems)
 
 
 def check_fonts(html: str, field: str = "index.html") -> None:
@@ -165,12 +174,12 @@ def sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
-def run_render(argv: list, project: str, env: dict, log_path: str, timeout: int) -> None:
-    """Run HyperFrames: no shell, its own process group, a timeout that kills the group. Its stdout and stderr are read in chunks on a
-    thread into the log: the first LOG_CAP bytes are kept, the rest is read and dropped, so a chatty child can neither fill the disk nor
-    block on a full pipe."""
-    with open(log_path, "wb") as log:
-        proc = subprocess.Popen(argv, cwd=project, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+def run_child(argv: list, cwd: str, env: dict, log_path: str, timeout: int, mode: str, timed_out: tuple, failed: tuple) -> None:
+    """Run a program: no shell, its own process group, a timeout that kills the group (`timed_out` is the refusal's (code, field)). Its stdout
+    and stderr are read in chunks on a thread into the log (`mode` "wb" starts it, "ab" goes on): the first LOG_CAP bytes are kept, the rest is
+    read and dropped, so a chatty child can neither fill the disk nor block on a full pipe. A non-zero exit is the refusal `failed`."""
+    with open(log_path, mode) as log:
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 start_new_session=True)
 
         def pump():
@@ -194,10 +203,77 @@ def run_render(argv: list, project: str, env: dict, log_path: str, timeout: int)
                 pass
             proc.wait()
             reader.join(5)
-            refuse("hf_timeout", "render")
+            refuse(*timed_out)
         reader.join(30)
     if code != 0:
-        refuse("hf_failed", "render")
+        refuse(*failed)
+
+
+def run_render(argv: list, project: str, env: dict, log_path: str, timeout: int) -> None:
+    """Run HyperFrames (`render_argv`) in the project; its output is the first log."""
+    run_child(argv, project, env, log_path, timeout, "wb", ("hf_timeout", "render"), ("hf_failed", "render"))
+
+
+def measure_argv(project: str, boxes: str) -> list:
+    argv = ["node", MEASURE_SCRIPT, project, boxes]
+    assert argv[0] == "node" and argv[1] == MEASURE_SCRIPT, "the only program besides `hyperframes render` is the measure script"
+    return argv
+
+
+def measure_refusal(boxes: str) -> tuple:
+    """(code, field, problems) of the row the measure script left in boxes.json when it exited non-zero: a code of MEASURE_REFUSALS and a short field,
+    else `measure_failed`. The file is removed: a refused render leaves no boxes."""
+    code, field, problems = "measure_failed", "measure", []
+    try:
+        with open(boxes, "rb") as fh:
+            row = json.loads(fh.read(4096).decode("utf-8"))
+        if isinstance(row, dict) and row.get("ok") is False and row.get("code") in MEASURE_REFUSALS \
+                and isinstance(row.get("field"), str) and re.fullmatch(r"[A-Za-z0-9_.:\- ]{0,40}", row["field"]):
+            code, field = row["code"], row["field"]
+            for p in (row.get("problems") if isinstance(row.get("problems"), list) else [])[:10]:     # what the page reported: closed shapes only
+                if isinstance(p, dict) and isinstance(p.get("code"), str) and re.fullmatch(r"[a-z_]{1,30}", p["code"]) \
+                        and isinstance(p.get("field"), str) and re.fullmatch(r"[A-Za-z0-9_.:\- ]{0,80}", p["field"]):
+                    problems.append({"code": p["code"], "field": p["field"]})
+    except (OSError, ValueError):
+        pass
+    try:
+        os.unlink(boxes)
+    except OSError:
+        pass
+    return code, field, problems
+
+
+def boxes_ready_ms(boxes: str):
+    """The milliseconds the page took to become ready, which hf_measure.mjs writes last in boxes.json (`"ready_ms":N,"schema":1}`): read from the end of the
+    file, never the whole of it. None when it is not there."""
+    try:
+        with open(boxes, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 64))
+            tail = fh.read()
+    except OSError:
+        return None
+    m = re.search(rb'"ready_ms":([0-9]{1,9}),"schema":1\}\s*$', tail)
+    return int(m.group(1)) if m else None
+
+
+def run_measure(project: str, out: str, env: dict, log_path: str, timeout: int) -> str:
+    """The measure step: `node hf_measure.mjs <project> <out>/boxes.json`, its output appended to the log. A refusal of the script (its row
+    in boxes.json, exit 1) is passed on; a timeout is `hf_timeout measure`; any other failure is `measure_failed`. Returns the boxes' sha256."""
+    boxes = os.path.join(out, "boxes.json")
+    try:
+        run_child(measure_argv(project, boxes), project, env, log_path, timeout, "ab", ("hf_timeout", "measure"), ("measure_failed", "measure"))
+    except Refuse as err:
+        if err.code == "measure_failed":
+            refuse(*measure_refusal(boxes))
+        try:
+            os.unlink(boxes)
+        except OSError:
+            pass
+        raise
+    if not os.path.isfile(boxes) or os.path.islink(boxes) or os.path.getsize(boxes) > BOXES_MAX_BYTES:
+        refuse("measure_failed", "measure")
+    return sha256_file(boxes)
 
 
 def memory_peak():
@@ -222,7 +298,7 @@ def write_result(out: str, doc: dict) -> None:
         fh.write("\n")
 
 
-def render(project: str, out: str, tmp: str, fps: int, timeout: int) -> dict:
+def render(project: str, out: str, tmp: str, fps: int, timeout: int, measure: bool = False) -> dict:
     started = time.monotonic()
     page = check_project(project)
     check_fonts(page)
@@ -236,8 +312,20 @@ def render(project: str, out: str, tmp: str, fps: int, timeout: int) -> dict:
     target = os.path.join(out, "intermediate.mov")
     if not os.path.isfile(target) or os.path.islink(target):
         refuse("hf_no_output", "render")
-    return {"ok": True, "sha256": sha256_file(target), "bytes": os.path.getsize(target), "seconds": round(time.monotonic() - started, 2),
-            "hyperframes": hyperframes_version(), "memory_peak_bytes": memory_peak()}
+    result = {"ok": True, "sha256": sha256_file(target), "bytes": os.path.getsize(target), "seconds": 0.0,
+              "hyperframes": hyperframes_version(), "memory_peak_bytes": memory_peak()}
+    if measure:
+        measure_started = time.monotonic()
+        left = timeout - (measure_started - started)
+        if left < MEASURE_MIN_SECONDS:
+            refuse("hf_timeout", "measure")
+        result["boxes_sha256"] = run_measure(project, out, render_env(tmp), os.path.join(out, "hf.log"), int(left))
+        result["measure_seconds"] = round(time.monotonic() - measure_started, 2)
+        ready = boxes_ready_ms(os.path.join(out, "boxes.json"))
+        if ready is not None:
+            result["measure_ready_ms"] = ready
+    result["seconds"] = round(time.monotonic() - started, 2)
+    return result
 
 
 def main(argv=None) -> int:
@@ -247,12 +335,13 @@ def main(argv=None) -> int:
     p.add_argument("--tmp", required=True)
     p.add_argument("--fps", type=int, required=True)
     p.add_argument("--timeout", type=int, required=True)
+    p.add_argument("--measure", action="store_true", help="also measure the boxes the page reports at every frame (a page that draws): boxes.json")
     args = p.parse_args(argv)
     try:
-        write_result(args.out, render(args.project, args.out, args.tmp, args.fps, args.timeout))
+        write_result(args.out, render(args.project, args.out, args.tmp, args.fps, args.timeout, args.measure))
         return 0
     except Refuse as err:
-        write_result(args.out, {"ok": False, "code": err.code, "field": err.field})
+        write_result(args.out, dict({"ok": False, "code": err.code, "field": err.field}, **({"problems": err.problems} if err.problems else {})))
         return 1
 
 

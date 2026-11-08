@@ -6,6 +6,7 @@
   "_fetch_browser.py",
   "fetch_ffmpeg.py",
   "hf_render.py",
+  "hf_measure.mjs",
   "fonts/Inter-OFL.txt",
   "fonts/JetBrainsMono-OFL.txt",
   "fonts/SHA256SUMS",

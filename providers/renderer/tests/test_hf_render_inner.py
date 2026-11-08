@@ -343,3 +343,149 @@ def test_a_good_exit_returns_and_the_child_sees_only_the_given_environment(tmp_p
     code = "import os, sys; sys.stdout.write(','.join(sorted(os.environ)))"
     R.run_render([sys.executable, "-c", code], str(tmp_path), {"ONLY": "1"}, str(log), 60)
     assert "ONLY" in log.read_text() and "PATH" not in log.read_text().split(",")
+
+
+# ---------------------------------------------------------------- the measure step (V3b-2): a harmless Python child stands in for node
+
+MEASURE_OK = ("import json, os, sys\nopen(sys.argv[1], 'w').write(json.dumps({'fonts': [], 'fps': 30, 'frames': 1, 'per_frame': [[]], 'schema': 1}))\n"
+              "print('measure saw', sorted(k for k in os.environ if k in ('HOME', 'TMPDIR', 'AWS_SECRET_ACCESS_KEY')))")
+
+
+def fake_measure(monkeypatch, code=MEASURE_OK):
+    seen = []
+    monkeypatch.setattr(R, "measure_argv", lambda project, boxes: seen.append((project, boxes)) or [sys.executable, "-c", code, boxes])
+    return seen
+
+
+def measured_world(tmp_path, monkeypatch, order=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+
+    def fake_run(argv, project, env, log_path, timeout):
+        (order if order is not None else []).append("render")
+        Path(log_path).write_text("render output\n")
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"prores bytes")
+
+    return fake_world(tmp_path, monkeypatch, fake_run)
+
+
+def run_main(project, out, tmp, *more, timeout="120"):
+    return R.main(["--project", str(project), "--out", str(out), "--tmp", str(tmp), "--fps", "30", "--timeout", timeout, *more])
+
+
+def test_the_measure_command_is_node_and_the_one_script_on_the_project_and_the_boxes_path():
+    assert R.measure_argv("/work/project", "/work/out/boxes.json") == ["node", "/opt/hf-run/hf_measure.mjs", "/work/project", "/work/out/boxes.json"]
+    assert R.MEASURE_SCRIPT == "/opt/hf-run/hf_measure.mjs" and R.render_argv("/work/out", 30)[1] == "render" and not set(R.NEVER_CALLED) & set(R.measure_argv("a", "b"))
+
+
+def test_with_measure_the_boxes_are_made_after_the_render_and_their_hash_and_seconds_are_in_the_result(tmp_path, monkeypatch):
+    order = []
+    project, out, tmp = measured_world(tmp_path, monkeypatch, order)
+    seen = fake_measure(monkeypatch)
+    assert run_main(project, out, tmp, "--measure") == 0
+    result = json.loads((out / "result.json").read_text())
+    boxes = (out / "boxes.json").read_bytes()
+    assert order == ["render"] and seen == [(str(project), str(out / "boxes.json"))]
+    assert result["boxes_sha256"] == __import__("hashlib").sha256(boxes).hexdigest() and result["measure_seconds"] >= 0 and result["ok"] is True
+    assert result["sha256"] == __import__("hashlib").sha256(b"prores bytes").hexdigest()
+    assert (out / "intermediate.mov").is_file() and (out / "boxes.json").is_file() and (out / "result.json").is_file()
+
+
+def test_the_measure_runs_with_the_renders_environment_and_its_output_goes_on_after_the_renders_log(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    fake_measure(monkeypatch)
+    assert run_main(project, out, tmp, "--measure") == 0
+    log = (out / "hf.log").read_text()
+    assert log.startswith("render output\n") and "measure saw" in log and "AWS_SECRET_ACCESS_KEY" not in log
+
+
+def test_without_measure_no_boxes_are_made_and_the_measure_program_never_starts(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(R, "measure_argv", lambda *a: pytest.fail("the measure step ran for a render that draws nothing"))
+    assert run_main(project, out, tmp) == 0
+    result = json.loads((out / "result.json").read_text())
+    assert "boxes_sha256" not in result and "measure_seconds" not in result and not (out / "boxes.json").exists()
+
+
+@pytest.mark.parametrize("row, expect", [
+    ({"ok": False, "code": "font_not_allowed", "field": "drawn"}, ("font_not_allowed", "drawn")),
+    ({"ok": False, "code": "boxes_too_many", "field": "frame 12"}, ("boxes_too_many", "frame 12")),
+    ({"ok": False, "code": "boxes_too_large", "field": "frame 3"}, ("boxes_too_large", "frame 3")),
+    ({"ok": False, "code": "measure_failed", "field": "page error at frame 4"}, ("measure_failed", "page error at frame 4")),
+    ({"ok": False, "code": "hf_failed", "field": "x"}, ("measure_failed", "measure")),                       # not a code the script may use
+    ({"ok": False, "code": "font_not_allowed", "field": "a/../b"}, ("measure_failed", "measure")),           # a field outside the closed shape
+    ({"ok": True, "code": "font_not_allowed", "field": "drawn"}, ("measure_failed", "measure")),
+])
+def test_a_refusal_row_of_the_script_becomes_the_renders_refusal_and_leaves_no_boxes(tmp_path, monkeypatch, row, expect):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    fake_measure(monkeypatch, "import json, sys\nopen(sys.argv[1], 'w').write(json.dumps(%r))\nsys.exit(1)" % row)
+    assert run_main(project, out, tmp, "--measure") == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": expect[0], "field": expect[1]} and not (out / "boxes.json").exists()
+
+
+def test_a_script_that_dies_without_a_row_or_leaves_a_row_that_is_not_json_is_measure_failed(tmp_path, monkeypatch):
+    for code in ("import sys; sys.exit(7)", "import sys; open(sys.argv[1], 'w').write('not json'); sys.exit(1)"):
+        project, out, tmp = measured_world(tmp_path / ("w%d" % len(code)), monkeypatch)
+        fake_measure(monkeypatch, code)
+        assert run_main(project, out, tmp, "--measure") == 1
+        assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "measure_failed", "field": "measure"} and not (out / "boxes.json").exists()
+
+
+def test_a_script_that_exits_well_without_boxes_or_with_too_many_bytes_is_measure_failed(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path / "a", monkeypatch)
+    fake_measure(monkeypatch, "pass")
+    assert run_main(project, out, tmp, "--measure") == 1 and json.loads((out / "result.json").read_text())["code"] == "measure_failed"
+    project, out, tmp = measured_world(tmp_path / "b", monkeypatch)
+    fake_measure(monkeypatch)
+    monkeypatch.setattr(R, "BOXES_MAX_BYTES", 5)
+    assert run_main(project, out, tmp, "--measure") == 1 and json.loads((out / "result.json").read_text())["code"] == "measure_failed"
+
+
+def test_a_measure_step_past_the_time_left_is_killed_as_a_group_and_refused_as_hf_timeout(tmp_path):
+    started = __import__("time").monotonic()
+    out = tmp_path / "out"
+    out.mkdir()
+    R_argv = R.measure_argv
+    try:
+        R.measure_argv = lambda project, boxes: [sys.executable, "-c", "import time; time.sleep(60)"]
+        assert refusal(R.run_measure, str(tmp_path), str(out), {"PATH": os.environ["PATH"]}, str(tmp_path / "hf.log"), 1) == ("hf_timeout", "measure")
+    finally:
+        R.measure_argv = R_argv
+    assert __import__("time").monotonic() - started < 30 and not (out / "boxes.json").exists()
+
+
+def test_a_render_that_leaves_less_than_the_least_time_for_the_measure_does_not_start_it(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(R, "measure_argv", lambda *a: pytest.fail("the measure step started with no time left"))
+    assert run_main(project, out, tmp, "--measure", timeout=str(R.MEASURE_MIN_SECONDS - 1)) == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "hf_timeout", "field": "measure"}
+
+
+def test_the_measure_flag_is_the_only_way_the_inner_entry_runs_the_step_and_help_lists_it(tmp_path):
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
+    done = subprocess.run([sys.executable, "-I", str(FOLDER / "hf_render.py"), "--help"], capture_output=True, text=True, env=env, timeout=60, cwd=str(tmp_path))
+    assert done.returncode == 0 and "--measure" in done.stdout
+
+
+def test_what_the_page_reported_travels_with_the_refusal_in_closed_shapes_only(tmp_path, monkeypatch):
+    rows = [{"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"},
+            {"code": "Bad Code", "field": "x"}, {"code": "console_error", "field": "a/b"}, "no", {"code": "request_failed", "field": "blocks oh-caption.html"}]
+    row = {"ok": False, "code": "measure_failed", "field": "player", "problems": rows}
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    fake_measure(monkeypatch, "import json, sys\nopen(sys.argv[1], 'w').write(json.dumps(%r))\nsys.exit(1)" % row)
+    assert run_main(project, out, tmp, "--measure") == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "measure_failed", "field": "player", "problems": [
+        {"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"},
+        {"code": "request_failed", "field": "blocks oh-caption.html"}]}
+
+
+def test_the_time_the_page_took_to_be_ready_is_read_from_the_end_of_boxes_json_and_reaches_the_result(tmp_path, monkeypatch):
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    body = "{'fonts': [], 'fps': 30, 'frames': 1, 'per_frame': [[]], 'ready_ms': 4321, 'schema': 1}"
+    fake_measure(monkeypatch, "import json, sys\nopen(sys.argv[1], 'w').write(json.dumps(%s, separators=(',', ':'), sort_keys=True))" % body)
+    assert run_main(project, out, tmp, "--measure") == 0
+    assert json.loads((out / "result.json").read_text())["measure_ready_ms"] == 4321
+    path = tmp_path / "b.json"
+    for text, expect in (('{"per_frame":[[]],"ready_ms":12,"schema":1}\n', 12), ('{"schema":1}', None), ('x' * 500 + '"ready_ms":7,"schema":1}', 7), ('"ready_ms":7,"schema":2}', None)):
+        path.write_text(text)
+        assert R.boxes_ready_ms(str(path)) == expect
+    assert R.boxes_ready_ms(str(tmp_path / "missing")) is None
