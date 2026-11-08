@@ -328,7 +328,7 @@ def test_a_tier_a_beat_is_a_placeholder_and_a_row_of_instances_json_and_its_para
     assert set(files) == {"index.html", "vars.json", "instances.json"}
     page = text_of(tmp_path / "p")
     first = beats["overlays"][0]
-    assert 'id="hf-inst-0" class="hf-inst" data-hf-zone="card" data-hf-tier-a="0"' in page and "__hfTierA[0](main, V, gsap);" in page
+    assert 'id="hf-inst-0" class="hf-inst" data-hf-zone="card" data-hf-tier-a="0"' in page and "try { __hfTierA[0](main, V, gsap); } catch (e) { if (!window.__hfEscape) throw e; }" in page
     assert "<template" not in page and first["params"]["text"] not in page
     timeline = _edl.resolve_timeline(copy.deepcopy(edl), copy.deepcopy(beats), vocab, data)
     entry = [e for e in timeline["beats"] if e["id"] == first["id"]][0]

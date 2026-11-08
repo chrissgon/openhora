@@ -269,7 +269,9 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             layers.append('<div id="%s" class="hf-inst" data-hf-zone="%s" data-hf-tier-a="%d" style="position:absolute; left:0; top:%spx; width:%dpx; '
                           'height:%spx; contain:paint; overflow:clip; visibility:hidden"></div>' % (ident, p["zone"], n, px(top), frame["width"], px(height)))
             start, end = p["start"] / float(fps), p["end"] / float(fps)
-            tail.append("__hfTierA[%d](main, V, gsap);" % n)
+            # An escape the guard stopped has set `window.__hfEscape` before it threw; the page goes on (so that it registers its timeline and the measure
+            # step can read the flag and refuse `block_escaped`); any other error is a real failure and is thrown again.
+            tail.append("try { __hfTierA[%d](main, V, gsap); } catch (e) { if (!window.__hfEscape) throw e; }" % n)
             tier_a_rows[str(n)] = {"name": p["block"]["name"], "files": dict(sorted(p["block"]["files"].items())),
                                    "implementation": p["block"]["implementations"]["gsap"], "start": start, "end": end, "band": [top, height]}
             inst.append(p["payload"])

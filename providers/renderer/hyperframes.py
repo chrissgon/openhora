@@ -313,6 +313,22 @@ def hf_limits(args) -> tuple:
     return check_memory(args), max(1, min(args.cpus, D.daemon_facts()["cpus"]))
 
 
+def test_registry_dir():
+    """The folder of registry files a dynamic run of tier A mounts read-only over `/opt/hf-registry`: only in test mode (RENDERER_TEST=1 and
+    RENDERER_REGISTRY_DIR), an absolute real folder with no link in its path. None otherwise. The instances' sha256 are checked against the files in
+    either case, so the folder can only supply files the allowlist entry already names by hash."""
+    if os.environ.get("RENDERER_TEST") != "1" or not os.environ.get("RENDERER_REGISTRY_DIR"):
+        return None
+    path = os.environ["RENDERER_REGISTRY_DIR"]
+    try:
+        ok = os.path.isabs(path) and stat.S_ISDIR(os.lstat(path).st_mode) and os.path.realpath(path) == path
+    except OSError:
+        ok = False
+    if not ok:
+        raise Refusal("bad_registry_dir", "registry")
+    return path
+
+
 def hf_command(args, image: dict, run_dir: str, fps: int, t: int, measure: bool = False):
     """(container name, the exact `docker run` command) of the drawing stage. Three read-write mounts, no recording, no network. `measure` is
     true for a page that draws: the container then also measures the boxes the page reports (`hf_measure.mjs`); a render of the base page
@@ -321,6 +337,9 @@ def hf_command(args, image: dict, run_dir: str, fps: int, t: int, measure: bool 
     memory, cpus = hf_limits(args)
     mounts = [(os.path.join(run_dir, "project"), "/work/project", "rw"), (os.path.join(run_dir, "out"), "/work/out", "rw"),
               (os.path.join(run_dir, "tmp"), "/work/tmp", "rw")]
+    registry = test_registry_dir()
+    if registry:                                   # test mode only: the registry files of a dynamic run, over the image's own folder (every file is still checked by sha256)
+        mounts.append((registry, "/opt/hf-registry", "ro"))
     inner = ["python3", "-I", "/opt/hf-run/hf_render.py", "--project", "/work/project", "--out", "/work/out", "--tmp", "/work/tmp",
              "--fps", str(fps), "--timeout", str(max(1, t - 30))] + (["--measure"] if measure else [])
     try:
