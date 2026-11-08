@@ -136,8 +136,8 @@ def test_the_worst_case_is_far_under_the_cursor_and_keeps_room_for_the_next_grou
     size = worst_case(NAMES)
     # approve-effect-deliver (V1b1-3) crossed a 6-bit boundary of the dense mask (55 groups need 10 digits): +128 bytes once, 3636 -> 3764. The next +128 boundary is at the 61st group.
     assert size < 3800, f"{size} bytes: the worst case moved again; if a group crossed a 6-bit boundary say so here, as approve-effect-deliver did (3636 -> 3764)"
-    # The room is measured, not estimated: nine more groups with names as long as the longest one, through the real dump, so the growth of the digits is in the figure.
-    dummies = {f"approve-effect-rooms{n:02d}": {"operations": (), "kind": None} for n in range(9)}
+    # The room is measured, not estimated: eight more groups (nine until the group `media` of V1b2-2 took the 56th place; the 65th group of all, with a name this long, is where the record is full) with names as long as the longest one, through the real dump, so the growth of the digits is in the figure.
+    dummies = {f"approve-effect-rooms{n:02d}": {"operations": (), "kind": None} for n in range(8)}
     assert all(len(name) == len("approve-effect-publish") for name in dummies)
     monkeypatch.setattr(operations, "GROUPS", {**operations.GROUPS, **dummies})
     room = worst_case(list(operations.GROUPS))
