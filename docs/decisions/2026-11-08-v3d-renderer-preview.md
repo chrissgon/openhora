@@ -15,5 +15,7 @@
   sha256 of the exact render (L67, unchanged).
 - The image definition changed (three listed files; no file added and no new download), so the image tag changed: the image is built
   again, by CI's renderer job and on the maintainer's machine from the same pins.
-- Not measured: the image's own ffmpeg (a Debian snapshot build, not the local 9.0.2 the figures came from); a real recording; how the
-  messaging apps show the copy.
+- Measured in the image on the maintainer's Mac (common image `openhora-renderer:bc65247adec9`, built from the same pins, image files
+  unchanged), synthetic test patterns only: the live preview test passed (176 s) and the whole live file passed (5 tests, 13 min 27 s); a
+  300 s render gave a preview of 15,066,995 bytes against the cap of 15,728,640, 720x1280, 296 kbit/s video, 96 kbit/s audio, 275.0 s.
+- Not measured: a real recording; how the messaging apps show the copy.
