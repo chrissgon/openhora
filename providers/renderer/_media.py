@@ -276,7 +276,7 @@ PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
 SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
 THREADS = 4                                # encoder, filter graph (and with it swscale's slices); the decoder's too, which changes speed only
 ENCODE_INPUT_THREADS = 1                   # the encode's decoder and filter graph: one thread, so no worker can race another at the end of the stream (CI: 7 of 8 encodes matched, the tail frame of one differed)
-ENCODE_THREADS = THREADS                   # the final encode's x264 threads: a fixed count, never the cores the container sees
+ENCODE_THREADS = 1                         # the final encode's x264 threads: one, so its output does not depend on the machine (amd64 CI: 1 of 8 encodes differed at four threads, mid-stream; costs about 2x: 85 s against 179 s for 114 s of 1080x1920 at --cpus 4)
 BASE = 2                   # the picture is cut at twice the output size, so a zoom never upscales (and a slow zoom does not jitter)
 
 
@@ -471,7 +471,7 @@ def proxy_argv(ffmpeg: str, src: str, src_matrix: str, out: str, *, fps: int, ha
 def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
     """The final H.264 encode of the HyperFrames engine: the ProRes intermediate (video, and its audio when it has one) written with
     the same output options as the ffmpeg engine's render. Nothing automatic is left that can follow the machine: the decoder's
-    threads and the filter graph's (with swscale's slices), both one, x264's threads, its lookahead threads and sliced threads are all named, and
+    threads and the filter graph's (with swscale's slices), both one, x264's threads (one: ENCODE_THREADS), its lookahead threads and sliced threads are all named, and
     both streams end exactly (`-frames:v` and `-t` from the frame count), with no `-shortest`, so the end of the streams is not a
     race between the muxer's inputs. `plan` carries fps, out_frames and max_bytes (and has_audio, true by default)."""
     n, one = ENCODE_THREADS, ENCODE_INPUT_THREADS
