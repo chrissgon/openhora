@@ -61,7 +61,7 @@ MEASURE_SCRIPT = "/opt/hf-run/hf_measure.mjs"   # the measure step (V3b-2); it s
 BOXES_MAX_BYTES = 64 * 1024 ** 2         # boxes.json's cap, the figure hf_measure.mjs refuses at (`boxes_too_large`) and the host checks again
 MEASURE_MIN_SECONDS = 10                 # a render with less time than this left does not start the measure step
 # What the measure script may refuse with (it writes the row into boxes.json and exits 1); anything else it leaves is `measure_failed`.
-MEASURE_REFUSALS = ("boxes_too_many", "boxes_too_large", "font_not_allowed", "measure_failed")
+MEASURE_REFUSALS = ("boxes_too_many", "boxes_too_large", "font_not_allowed", "block_escaped", "measure_failed")
 MEMORY_PEAK = "/sys/fs/cgroup/memory.peak"
 WORKERS = "4"                            # S2 (check C2): `--workers auto` changes the bytes, so the count is fixed
 # What the child process sees, copied from the image's own environment: nothing of the caller's.

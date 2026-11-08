@@ -548,6 +548,7 @@ def test_without_measure_no_boxes_are_made_and_the_measure_program_never_starts(
     ({"ok": False, "code": "font_not_allowed", "field": "drawn"}, ("font_not_allowed", "drawn")),
     ({"ok": False, "code": "boxes_too_many", "field": "frame 12"}, ("boxes_too_many", "frame 12")),
     ({"ok": False, "code": "boxes_too_large", "field": "frame 3"}, ("boxes_too_large", "frame 3")),
+    ({"ok": False, "code": "block_escaped", "field": "frame 7"}, ("block_escaped", "frame 7")),
     ({"ok": False, "code": "measure_failed", "field": "page error at frame 4"}, ("measure_failed", "page error at frame 4")),
     ({"ok": False, "code": "hf_failed", "field": "x"}, ("measure_failed", "measure")),                       # not a code the script may use
     ({"ok": False, "code": "font_not_allowed", "field": "a/../b"}, ("measure_failed", "measure")),           # a field outside the closed shape
