@@ -80,6 +80,7 @@ What the three newest common modules hold: `_layout` is the arithmetic of where 
 | A page that names a font family outside the allow-list is refused before HyperFrames runs, and the project folder holds exactly three regular files | `test_hf_render_inner.py` (`test_a_page_that_names_a_font_outside_the_allow_list_is_refused`, `test_an_extra_file_is_refused`, `test_the_allowed_families_are_the_allow_lists_families_in_lower_case`) |
 | Only `hyperframes render` is run in the image, with a fixed environment and fixed flags | `test_hf_render_inner.py` (`test_the_command_is_exactly_hyperframes_render_with_the_fixed_flags_and_none_of_the_commands_that_reach_a_network`, `test_the_environment_has_exactly_the_named_keys_and_nothing_of_the_callers`) |
 | The HyperFrames image must be built, current and the recorded one, or the render stops with the build command | `test_hf_engine.py` (`test_check_hf_image_names_the_three_ways_the_image_is_not_ready_and_the_command_that_fixes_them`, `test_a_render_with_no_hf_image_exits_3_with_the_hint_before_any_container_runs`) |
+| A recording is removed only by `media-remove` with `confirm`, never while a task that has not ended works on it, and never through a link | `runtime/tests/test_media_remove.py` (`test_refused_while_a_task_that_has_not_ended_works_on_it`, `test_a_task_lock_that_is_held_refuses_the_removal`, `test_a_link_named_like_a_recording_is_not_followed`) |
 
 ## Entry points
 
@@ -118,6 +119,8 @@ Add an animation (V1b3): `captions-edit` has the edit kind `animation` (VD15): `
 
 Retention (decision 12): the recording and the transcript 7 days after delivery, the render 30 days after it, an undelivered recording 30 days untouched (`media.purge`, `runtime/upkeep.py`).
 
+Removing a recording (media-remove): `media-remove --media <id>` shows what would go (bytes, files, the tasks that named it) and removes nothing; with `--confirm` the whole folder goes, the delivered video included. It is refused while a task that is not `done`, `cancelled` or `failed` names the recording, or while its task lock is held. The route is `POST /api/v1/projects/<id>/media/remove`, which crosses the LAN socket (only an id crosses). The quota refusal tells the person to remove a recording they no longer need, with no command (the same sentence reaches a phone). The page's button comes with a later page package.
+
 V1d plugs in at the `preview` step between `verify` and `document` (`step_media.ORDER`), which fills the delivery document's `preview` and makes `deliver_document.on_cards` true; it adds the preview verb to `MediaEngine.CLASSES`. The messaging package then sends the recording in through `media.receive` and a caption correction through `ops_media_edit.edit`.
 
 From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the group `media-phone` sends a video. The bridge checks its declared size against the least of the media store's 1 GiB, the quota left and the provider's file limit before fetching anything (Telegram's bot download is 20 MB, so most recordings of a minute or more get the over-cap sentence, and the Drive link or the page is the way in for them). `video-phone-in` keeps it, the caption (the post's name) or a numbered list chooses the post, `video-phone-start` runs the video to the caption review, and the words go to the sender's chat. A reply to the caption card, one line per correction `wrong -> right`, is mapped by `runtime/media_phone_words.py` to the closed edits and applied by `ops_media_edit.edit`; `continue` answers the review and runs the video. A correction in a reply to the delivery card renders again and asks again. A Google Drive link sent instead of the file (V1d-3, limit L70) is fetched with the project's Google account when one is connected, otherwise from the shared link over https from a closed host list, global addresses only, at most three checked redirects and the size known first; it becomes a recording and goes on from the post choice.
@@ -153,6 +156,8 @@ Written on 2026-11-07 by V1a-3.
 2026-11-08: V1c-1, the Videos section and the deliver card on the page
 
 2026-11-08: V1d-3, a recording from a Google Drive link and limit L70
+
+2026-11-08: media-remove, one recording removed from the media store
 
 Updated on 2026-11-07 by V3a-2.
 
