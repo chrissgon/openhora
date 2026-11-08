@@ -7,7 +7,9 @@
 with no `-n`. `WB_TIER_A_ONLY=name,name` limits the candidates. Test 1 draws each `admit-candidate` of the report on one keyword beat of the synthetic
 recording (the component as a test allowlist entry, its files mounted from the survey over the image's registry folder, every file checked by the report's
 sha256), twice, through both gates, and writes the verdict (`fit` or `refuse:<code>`). Test 2 draws a planted run-time escape that the text lint admits
-and the guard stops, through the full render path, and asserts that the render is refused `block_escaped`. Both write the one closed report. A refused
+and the guard stops, through the full render path, and asserts that the render is refused `block_escaped` with field `render`: the log check of the
+render stage (`hf_render.py`, the guard's marker in `hf.log`) refuses before the measure step runs, which is the earlier layer and the one this test proves
+live; the measure step's own read of the page flag is proven offline only. Both write the one closed report. A refused
 candidate is a result, not a test failure."""
 from __future__ import annotations
 
@@ -149,7 +151,7 @@ def test_a_planted_escape_the_lint_admits_is_refused_block_escaped_by_the_full_r
     blocks = T.blocks_folder(tmp_path, comp)
     registry = T.registry_folder(tmp_path, T.planted_survey(tmp_path), [comp])
     rc, out, err = render(tmp_path, recording, blocks, registry, "planted")
-    assert rc == 1 and out["code"] == "block_escaped" and out["field"].startswith("frame "), (out, err[-2000:])
+    assert rc == 1 and out["code"] == "block_escaped" and out["field"] == "render", (out, err[-2000:])
     assert not (tmp_path / "out-planted").exists() or list((tmp_path / "out-planted").iterdir()) == []
     assert leftovers() == [] and run_folders() == []
     T.update_report(out_path, planted={"name": T.PLANTED_NAME, "code": out["code"], "field": out["field"]})

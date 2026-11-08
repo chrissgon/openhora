@@ -152,6 +152,9 @@ def test_the_report_is_closed_and_is_written_whole_each_time(tmp_path):
     T.update_report(path, candidates=[T.candidate_row(comp, [(0, ok), (0, ok)])])
     doc = T.update_report(path, planted={"name": T.PLANTED_NAME, "code": "block_escaped", "field": "frame 0"})
     assert json.loads(open(path).read()) == doc and set(doc) == {"schema", "commit", "candidates", "planted"} and not os.path.exists(path + ".part")
+    for field in ("render", "measure", "frame 7"):
+        T.check_report(dict(doc, planted={"name": T.PLANTED_NAME, "code": "block_escaped", "field": field}))
+    assert 'out["field"] == "render"' in open(os.path.join(os.path.dirname(__file__), "test_hf_tier_a_live.py")).read()
     for bad in ({"candidates": [{"name": "x", "dynamic": "free text", "render_sha256": None, "repeatable": None, "gate": {}}]},
                 {"planted": {"name": "other", "code": "block_escaped", "field": "frame 0"}},
                 {"planted": {"name": T.PLANTED_NAME, "code": "Block Escaped", "field": "frame 0"}},

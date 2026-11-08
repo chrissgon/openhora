@@ -132,7 +132,7 @@ def check_report(doc) -> dict:
             bad()
     planted = doc.get("planted")
     if planted is not None and (not isinstance(planted, dict) or set(planted) != {"name", "code", "field"} or planted["name"] != PLANTED_NAME
-                                or not re.fullmatch(r"[a-z_]{1,40}", str(planted["code"])) or not re.fullmatch(r"[A-Za-z0-9_.:\- ]{0,40}", str(planted["field"]))):
+                                or not re.fullmatch(r"[a-z_]{1,40}", str(planted["code"])) or planted["field"] not in ("render", "measure") and not re.fullmatch(r"frame [0-9]{1,6}", str(planted["field"]))):
         bad()
     return doc
 
