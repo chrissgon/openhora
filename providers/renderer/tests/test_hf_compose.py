@@ -526,3 +526,20 @@ def test_the_post_of_the_live_test_passes_the_posts_checker_and_every_beat_is_on
     assert rc == 0, err
     beats = json.loads((tmp_path / "beats.json").read_text())
     assert [e["preset"] for e in beats["overlays"]] == ["keyword", "number", "list", "quote"] and beats["layouts"] == []
+
+
+def test_every_used_font_is_requested_before_the_first_tween_and_the_promise_is_kept(tmp_path, docs):
+    """V3b-4: the gsap blocks' text was blank in the HyperFrames image because nothing asked for the fonts in the main page (font-display: block, no system
+    font). One `document.fonts.load` per used face, ahead of the first `main.` call, so `document.fonts.ready` waits for them."""
+    catalogue = catalogue_of(tmp_path, mixed=True)
+    result = write(docs, catalogue, tmp_path / "p")
+    page = text_of(tmp_path / "p")
+    used = {(family, weight) for family, weight, file in (C.FONT_FILES[i] for i in C.FONT_FILES) if file in set(result["fonts_used"].values())}
+    assert used
+    loads = re.findall(r'document\.fonts\.load\("(\d+) 20px \\"([^"\\]+)\\""\)', page)
+    assert sorted((family, int(weight)) for weight, family in loads) == sorted(used)         # exactly one load per used face
+    assert "window.__hfFontsReady = (document.fonts && document.fonts.load) ? Promise.all([" in page
+    first_load = page.index("document.fonts.load(")
+    for needle in ("main.set(\"#hf-inst", "main.add(tl_", "main.fromTo(D_"):
+        if needle in page:
+            assert first_load < page.index(needle), needle
