@@ -13,11 +13,14 @@
 !_cdp.py
 !_edl.py
 !_frames.py
+!_gsap_lint.py
+!_hf_compose.py
 !_hf_page.py
 !_layout.py
 !_lint.py
 !_media.py
 !_output.py
+!_payload.py
 !_preview.py
 !_redact.py
 !_render.py

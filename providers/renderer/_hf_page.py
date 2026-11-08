@@ -1,4 +1,5 @@
-"""The base page of the HyperFrames engine: the cuts and the zoom, nothing else.
+"""The base page of the HyperFrames engine: the cuts and the zoom, nothing else. `write_page` writes it and keeps its bytes; the
+functions it is made of (`build_parts`, `render_page`, `write_files`) are what `_hf_compose.py` reuses to add the layers above the video.
 
 The common image writes this page (the drawing image holds no Python of the edit list), from the same checked edit list the ffmpeg
 engine cuts. It is one `index.html` and one `vars.json` in an empty folder: one `<video>` per kept range, all of the same proxy
@@ -33,11 +34,11 @@ html, body { margin: 0; background: %(bg)s; }
 #root { position: relative; width: 100%%; height: 100%%; overflow: hidden; background: %(bg)s; }
 .zw { position: absolute; inset: 0; overflow: hidden; z-index: 0; transform-origin: %(origin)s; }
 .zw video { position: absolute; inset: 0; width: 100%%; height: 100%%; object-fit: cover; }
-</style>
+%(css)s</style>
 </head>
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-width="%(w)d" data-height="%(h)d" data-duration="%(dur)s" data-fps="%(fps)d">
-%(clips)s
+%(clips)s%(layers)s
 </div>
 <script>
 window.__timelines = window.__timelines || {};
@@ -48,7 +49,7 @@ main.set({}, {}, V.duration);
 (V.zooms || []).forEach(function (zm) {
   main.fromTo("#zw" + zm[0], { scale: zm[3] }, { scale: zm[4], duration: zm[2], ease: "none" }, zm[1]);
 });
-window.__timelines["main"] = main;
+%(tail)swindow.__timelines["main"] = main;
 </script>
 </body>
 </html>
@@ -64,13 +65,17 @@ def dumps(obj) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
 
 
-def write_page(edl: dict, out_dir: str, *, width: int, height: int, fps: int, background: str) -> dict:
-    """Write `index.html` and `vars.json` into `out_dir`, an existing empty folder (`page_dir_not_empty` otherwise), for the edit list's
-    kept ranges. Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers}. `background` is `#rrggbb`."""
+def check_target(out_dir: str, background: str) -> None:
+    """The background is `#rrggbb` and the folder exists and is empty, else a refusal."""
     if not isinstance(background, str) or not COLOR.fullmatch(background):
         raise Refusal("bad_color", "background")
     if not os.path.isdir(out_dir) or os.listdir(out_dir):
         raise Refusal("page_dir_not_empty", "out")
+
+
+def build_parts(edl: dict, *, fps: int) -> dict:
+    """What the cuts and the zoom are made of: the markup of the kept ranges (one zoom wrapper and one `<video>` each), the zooms, the
+    numbers the page keeps as defaults, and the length. The same edit list gives the same parts."""
     data = load_data()
     anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
     has_audio = bool(edl["source"]["has_audio"])
@@ -88,13 +93,36 @@ def write_page(edl: dict, out_dir: str, *, width: int, height: int, fps: int, ba
         if abs(z0 - 1.0) > 1e-9 or abs(z1 - 1.0) > 1e-9:
             zooms.append([k, start, dur, z0, z1])
         pos += b - a
-    vars_doc = {"duration": out_seconds, "fps": fps, "zooms": zooms}
-    page = PAGE % {"w": width, "h": height, "dur": num(out_seconds), "fps": fps, "bg": background, "clips": "\n".join(clips),
-                   "origin": "%.2fpx %.2fpx" % anchor, "defaults": dumps(vars_doc)}
-    files = {"index.html": page.encode("utf-8"), "vars.json": (dumps(vars_doc) + "\n").encode("utf-8")}
+    return {"clips": clips, "zooms": zooms, "anchor": anchor, "out_seconds": out_seconds, "vars": {"duration": out_seconds, "fps": fps, "zooms": zooms}}
+
+
+def render_page(parts: dict, *, width: int, height: int, fps: int, background: str, css: str = "", layers: str = "", tail: str = "") -> str:
+    """The page's text. `css` goes at the end of the page's style, `layers` after the kept ranges inside the root composition, `tail` in the
+    script after the zooms and before the timeline is registered; all three empty is the base page, byte for byte."""
+    return PAGE % {"w": width, "h": height, "dur": num(parts["out_seconds"]), "fps": fps, "bg": background, "clips": "\n".join(parts["clips"]),
+                   "origin": "%.2fpx %.2fpx" % parts["anchor"], "defaults": dumps(parts["vars"]), "css": css, "layers": layers, "tail": tail}
+
+
+def write_files(out_dir: str, files: dict) -> None:
+    """Write {name: bytes} into `out_dir`, each file new (O_EXCL, no link followed) and mode 0600. A name with a folder in it (`blocks/x.html`)
+    makes the folder, mode 0700, once."""
+    for name in files:
+        folder = os.path.dirname(os.path.join(out_dir, name))
+        if not os.path.isdir(folder):
+            os.mkdir(folder, 0o700)
     for name, raw in files.items():
         fd = os.open(os.path.join(out_dir, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "wb") as fh:
             fh.write(raw)
+
+
+def write_page(edl: dict, out_dir: str, *, width: int, height: int, fps: int, background: str) -> dict:
+    """Write `index.html` and `vars.json` into `out_dir`, an existing empty folder (`page_dir_not_empty` otherwise), for the edit list's
+    kept ranges. Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers}. `background` is `#rrggbb`."""
+    check_target(out_dir, background)
+    parts = build_parts(edl, fps=fps)
+    page = render_page(parts, width=width, height=height, fps=fps, background=background)
+    files = {"index.html": page.encode("utf-8"), "vars.json": (dumps(parts["vars"]) + "\n").encode("utf-8")}
+    write_files(out_dir, files)
     return {"page_sha256": hashlib.sha256(files["index.html"]).hexdigest(), "vars_sha256": hashlib.sha256(files["vars.json"]).hexdigest(),
-            "clips": len(clips), "zooms": len(zooms), "duration": round(out_seconds, 3), "fps": fps, "layers": list(LAYERS)}
+            "clips": len(parts["clips"]), "zooms": len(parts["zooms"]), "duration": round(parts["out_seconds"], 3), "fps": fps, "layers": list(LAYERS)}

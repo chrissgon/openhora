@@ -57,6 +57,68 @@ def write_hf_fixture(folder) -> None:
         {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap"], "presets": {"keyword": "hf:demo-pop"}}, indent=1))
     _blocks.write_pins(str(folder))
 
+POP_GSAP = """<!-- hf:demo-pop: a fictional pop card, used by the tests only. -->
+<template data-hf-block="hf:demo-pop">
+  <style>
+    :scope { display: block; }
+    .card { position: absolute; left: 65px; right: 65px; top: 0; height: 100%; display: flex; align-items: center; justify-content: center;
+            font-family: var(--font-display); font-weight: var(--weight-display); color: var(--c-text); }
+  </style>
+  <div class="card"><span class="label"></span></div>
+  <script data-hf-build>
+    function build(root, tl, data, ctx) {
+      root.querySelector(".label").textContent = data.params.text;
+      tl.fromTo(root.querySelector(".card"), { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: "back.out(2)" }, 0);
+    }
+  </script>
+</template>
+"""
+POP_BLOCK = {"schema_version": 1, "name": "hf:demo-pop", "kind": "overlay", "preset": "keyword", "band": "card", "may_cross_face": False, "license": ["Apache-2.0"],
+             "source": "hyperframes-registry", "use_when": "a fictional pop card for one short phrase, used by the tests only",
+             "params": {"text": {"type": "text", "max": 24, "required": True}, "icon": {"type": "icon"}},
+             "samples": [{"text": "Name every dollar"}], "natural_duration": 1.2, "implementations": {"gsap": "gsap.html"},
+             "tier": "B", "commit": "a" * 40, "notice": "Apache-2.0; adapted from a fictional registry at aaaaaaaa; notices in the image folder"}
+OH_PRESETS = {"caption": "oh:caption", "keyword": "oh:keyword", "list": "oh:list", "number": "oh:number", "quote": "oh:quote"}
+
+
+def write_hf_compose_blocks(folder, mixed=False) -> None:
+    """In a copy of the blocks: the HyperFrames engine's own file and, when `mixed`, a fictional tier-B gsap block `hf:demo-pop` that draws the
+    keyword preset. Without `mixed` the engine runs the renderat runtime only and draws the oh: pages (the one-file measurement's setup:
+    no cutaway and no pip, which this engine does not draw). Pinned again."""
+    folder = Path(folder)
+    runtimes, presets = ["renderat"], dict(OH_PRESETS)
+    if mixed:
+        (folder / "hf" / "demo-pop").mkdir()
+        (folder / "hf" / "demo-pop" / "block.json").write_text(json.dumps(POP_BLOCK, indent=1))
+        (folder / "hf" / "demo-pop" / "gsap.html").write_text(POP_GSAP)
+        runtimes, presets["keyword"] = ["gsap", "renderat"], "hf:demo-pop"
+    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
+        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": runtimes, "presets": presets}, indent=1))
+    _blocks.write_pins(str(folder))
+
+
+def hf_documents(tmp):
+    """(data, edl, beats, vocab) of the fictional post for the HyperFrames engine: the base edit list of the kit's transcript, the post's beats
+    without the cutaway and the pip (which this engine does not draw). Written under `tmp` for the `align` verb."""
+    import _edl
+    from _vocab import load_data, load_vocabulary
+    data, vocab = load_data(), load_vocabulary(str(VOCABULARY))
+    doc = build_transcript()
+    spans = speech_spans(doc["words"], join=0.6)
+    silences = [{"start": round(a[1], 3), "end": round(b[0], 3)} for a, b in zip(spans, spans[1:]) if b[0] - a[1] > 0.5]
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "c" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": silences}
+    edl, _ = _edl.build_base(doc, analysis, data, {})
+    tmp = Path(tmp)
+    write_json(tmp / "transcript.json", doc)
+    (tmp / "post.md").write_text(POST, encoding="utf-8")
+    rc, out, err = run_verb("align", "--post", tmp / "post.md", "--transcript", tmp / "transcript.json", "--checker", CHECKER, "--vocabulary", VOCABULARY,
+                            "--out", tmp / "beats.json")
+    assert rc == 0, err
+    beats = json.loads((tmp / "beats.json").read_text())
+    beats["layouts"] = []
+    return data, edl, beats, vocab
+
+
 FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 FFPROBE = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
 HAVE_FFMPEG = os.access(FFMPEG, os.X_OK) and os.access(FFPROBE, os.X_OK)
@@ -195,6 +257,45 @@ on-screen: Weekly savings
 preset: pip
 asset: a bar chart of weekly savings
 position: bottom
+```
+
+```post
+Money habits. What would you track first?
+```
+"""
+
+
+HF_POST = """# Post: Money habits, for the HyperFrames engine (a fictional fixture)
+
+- Owner: mkt-social-copy
+- Status: draft
+- Network: instagram
+- Format: reel
+
+```script
+beat: 1
+line: Hey, quick story about money.
+on-screen: Money story
+preset: keyword
+icon: coin
+
+beat: 2
+line: Last year I tracked every expense for ninety days.
+on-screen: ninety days of expenses
+preset: number
+value: 90
+
+beat: 3
+line: The first rule is simple: name every dollar.
+on-screen: Review | Adjust | Celebrate
+preset: list
+icon: check
+
+beat: 4
+line: Then do three things each week: review, adjust, and celebrate.
+on-screen: Small steps beat big plans.
+preset: quote
+author: A wise friend
 ```
 
 ```post

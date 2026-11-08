@@ -3,7 +3,8 @@
   {
    "band": "caption",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "caption",
    "license": [
@@ -27,7 +28,8 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "layout",
    "license": [
@@ -75,7 +77,8 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "overlay",
    "license": [
@@ -114,7 +117,8 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "overlay",
    "license": [
@@ -153,7 +157,8 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "overlay",
    "license": [
@@ -195,7 +200,8 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "layout",
    "license": [
@@ -243,7 +249,8 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg"
+    "ffmpeg",
+    "hyperframes"
    ],
    "kind": "overlay",
    "license": [
@@ -281,7 +288,7 @@
    "use_when": "the speaker repeats a sentence someone said"
   }
  ],
- "blocks_sha256": "dc4bc149c15ee1e0e928eb83dba2613d57ce327cf65108ebbe4c2d63b917fb13",
+ "blocks_sha256": "9e2595832a78b77415c9ff33d171419d5f2af2b1f55e4e7ae552fdc7980b1957",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -291,6 +298,18 @@
     "list": "oh:list",
     "number": "oh:number",
     "pip": "oh:pip",
+    "quote": "oh:quote"
+   },
+   "runtimes": [
+    "renderat"
+   ]
+  },
+  "hyperframes": {
+   "presets": {
+    "caption": "oh:caption",
+    "keyword": "oh:keyword",
+    "list": "oh:list",
+    "number": "oh:number",
     "quote": "oh:quote"
    },
    "runtimes": [

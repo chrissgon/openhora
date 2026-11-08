@@ -11,7 +11,8 @@ image (the ffmpeg engine's), with the common modules, so that the two engines' o
 
 A render runs five containers, each with no network (providers/_container.py):
 
-  page     common image  `hf-page`: writes index.html and vars.json (numbers only) into the run folder's project/
+  page     common image  `hf-page`: writes index.html and vars.json into the run folder's project/ (with `--base-only`: numbers only, the
+                         cuts and the zoom; without it: the captions and the beats too, from the staged blocks, and every text in vars.json)
   proxy    common image  `proxy`: a 1080x1920 H.264 proxy of the recording, at the edit list's fps, into project/media/
   hf       HyperFrames   `hf_render.py`: `hyperframes render` of the project into a ProRes HQ intermediate (4 workers, no frame cache)
   encode   common image  `encode`: the final H.264 from the intermediate with the same output options and fixed threads as the ffmpeg
@@ -19,7 +20,10 @@ A render runs five containers, each with no network (providers/_container.py):
   verify   common image  a fresh container checks the candidate against the platform's spec (`_host.finish_render`)
 
 The frames, the proxy and the intermediate live in a disk work folder, `<work>/hf-<id>/`, checked for free space before the first
-container and removed when the render ends. Captions, cards and `hf:` blocks are package V3b's: until then `render` needs `--base-only`.
+container and removed when the render ends. Without `--base-only` a render draws the captions and the beats with the blocks that have a runtime this
+engine runs (`blocks/engines/hyperframes.json`: `gsap` pages inlined, `renderat` pages in iframes), stages and hashes the blocks as `ffmpeg.py`
+does, and refuses `engine_unknown` while that file does not exist. The gates on what is drawn (the face box, the line at 1560, the pixels) are
+package V3b-2's: until they are built, a render that draws is refused (`gates_not_built`) unless the blocks folder is the test folder of test mode.
 
 Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the first line of a refusal is `refused: <closed code> <field>`):
 
@@ -29,7 +33,7 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
                            build the HyperFrames image (the common image is built by `ffmpeg.py build`). The one step that uses the
                            network, at the person's word; --confirmed writes the build record that --check and render read.
   reap                     remove containers and run folders a killed render left behind.
-  render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V --base-only [--work-dir DIR] [--cpuset 0-3]
+  render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--base-only] [--work-dir DIR] [--cpuset 0-3]
          [--time-limit S] [--dry-run] [--memory-mb N] [--cpus N] [--scratch-mb N] [--timeout S]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). --work-dir names an existing folder of this user's (not a link) that
         holds the run folder; the default is the renderer's own work folder. --dry-run prints the four stage commands.
@@ -62,11 +66,12 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as _docker.py puts it on the path)
 
 import _assets  # noqa: E402
+import _blocks  # noqa: E402
 import _container as box  # noqa: E402
 import _docker as D  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
-from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, CRASH_CODES)  # noqa: E402
+from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, stage_blocks, CRASH_CODES)  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import load_data  # noqa: E402
 
@@ -112,6 +117,8 @@ STAGES = ("page", "proxy", "hf", "encode")
 HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I))
 HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD)
 HF_OUT_NAMES = ("intermediate.mov", "result.json", "hf.log")
+GATES_BUILT = False                                     # V3b-2 builds the face-box, 1560 and pixel gates and removes this line and its check
+COMPOSED_FIELDS = ("blocks", "blocks_sha256", "captions_drawn", "beats_drawn", "runtimes", "fonts_used")   # what the page stage adds to a render that draws
 RESULT_MAX_BYTES = 64 * 1024
 
 BUILD_HINT = "python3 providers/renderer/hyperframes.py build --confirmed"
@@ -361,9 +368,20 @@ def read_documents(args, data: dict) -> tuple:
     return out_seconds, fps, byte_cap, limit
 
 
+def check_may_draw() -> None:
+    """A render that draws needs the engine's own file in the blocks folder (`blocks/engines/hyperframes.json`): refused before any container
+    runs while there is none (`engine_unknown`). And it needs the gates on what is drawn: while GATES_BUILT is False (package V3b-2 builds them)
+    only a test blocks folder (test mode) may draw, so that nothing drawn reaches a recording unchecked. The folder is the committed one, or the
+    test folder in test mode only."""
+    if ENGINE not in _blocks.load_catalogue(_blocks.blocks_dir())["engines"]:
+        raise Refusal("engine_unknown", ENGINE)
+    if not GATES_BUILT and _blocks.blocks_dir() == _blocks.BLOCKS_DIR:
+        raise Refusal("gates_not_built", "render")
+
+
 def verb_render(args) -> dict:
     if not args.base_only:
-        raise Refusal("overlays_not_built", "render")
+        check_may_draw()
     if args.cpuset is not None:
         try:
             box.check_cpuset(args.cpuset)
@@ -392,15 +410,20 @@ def verb_render(args) -> dict:
 
         # Stage 1, the page, in the common image.
         started = time.monotonic()
+        page = {}
         with Job(args, left_for(deadline, "page"), "hf-page") as job:
             job.add_mount(project, "/work/project", "rw")
             inner = ["hf-page", "--edl", job.stage("edl.json", args.edl), "--beats", job.stage("beats.json", args.beats),
                      "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--platform-file", job.stage("platform.json", args.platform_file),
-                     "--out", "/work/project", "--base-only"]
+                     "--out", "/work/project"]
+            blocks_args = ["--base-only"] if args.base_only else stage_blocks(job, _blocks.blocks_dir())
+            inner += blocks_args
             if dry:
                 commands["page"] = job.argv(inner)[2]
             else:
-                job.run(inner, "hf-page")
+                page = job.run(inner, "hf-page")
+                if not args.base_only and page.get("blocks_sha256") != blocks_args[-1]:
+                    raise Refusal("blocks_changed", "blocks")
         seconds["page"] = round(time.monotonic() - started, 2)
         os.mkdir(media, 0o700)
 
@@ -452,6 +475,10 @@ def verb_render(args) -> dict:
         result.update(engine=ENGINE, layers=list(LAYERS), stage_seconds=seconds, proxy_sha256=proxy_sha256, intermediate_sha256=drawn["sha256"],
                       intermediate_bytes=drawn["bytes"], memory_peak_bytes=drawn.get("memory_peak_bytes"), hyperframes=drawn["hyperframes"],
                       hf_image={"id": image["id"], "tag": image["tag"]})
+        if not args.base_only:
+            if any(key not in page for key in COMPOSED_FIELDS + ("layers",)):
+                raise Refusal("container_result_invalid", "hf-page")
+            result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
         return result
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)       # the proxy and the intermediate never outlive the render (OPEN-6)
@@ -474,7 +501,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--arch", choices=("arm64", "amd64"))
     sub.add_parser("reap", help="remove containers and run folders a killed render left behind")
     add_common_parsers(sub)
-    sp = sub.add_parser("render", help="render the base page (cuts and zoom) with HyperFrames and encode it in the common image")
+    sp = sub.add_parser("render", help="render with HyperFrames (the cuts and the zoom, plus the captions and the beats unless --base-only) and encode it "
+                                       "in the common image")
     add_limits(sp)
     sp.set_defaults(memory_mb=HF_MEMORY_MB_DEFAULT)
     sp.add_argument("--edl", required=True)
@@ -483,7 +511,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", required=True)
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--vocabulary", required=True)
-    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only (required until the overlays are built)")
+    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only, no captions and no beats")
     sp.add_argument("--work-dir", help="an existing absolute folder of this user's (not a link) that holds the run folder; default: the renderer's work folder")
     sp.add_argument("--cpuset", help="pin the containers to these cores, for example 0-3")
     sp.add_argument("--time-limit", type=int)
