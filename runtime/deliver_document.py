@@ -13,7 +13,7 @@ The document, every key present: `effect` ("deliver"), `version` (1), `task` (th
 first 12 characters of its `sha256`, `size`, `duration_ms`), `cover` (null, or `name` `cover-<12 hex>.png`, `sha256`, `size`), `verify`
 (`passed`, true, and the `platform` the renderer's check ran for), `blocks` (animation blocks the render mounted: `{id, sha256}`, sorted by id,
 at most 64; empty until the block catalogue fills them) and `preview` (null, or `{sha256, size, from_sha256}`; the preview of the render a
-messaging card carries, `from_sha256` equal to `video.sha256`; null until a channel can send one).
+messaging card carries, `from_sha256` equal to `video.sha256`; the render itself when it is at most `PREVIEW_MAX_BYTES` (20 MiB), else null).
 
 `check` refuses any other key or type and never echoes content: its `ValueError` names a field. `on_cards` is decision 14: a messaging card may
 approve a delivery only when the preview it carries was made from this render. With no preview it is always False.
@@ -34,6 +34,10 @@ PLATFORM = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 POST = re.compile(r"docs/marketing/content/[a-z0-9][a-z0-9.-]{0,79}\.md")   # as runtime/publish_document.py CONTENT_PATH
 BLOCK_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}:[a-z0-9][a-z0-9_.-]{0,63}")
 BLOCKS_MAX = 64
+# the largest render that is its own preview on a messaging app: the first app's send limit (Telegram, 20 MiB as this runtime reads it); a larger
+# render has no preview, so it is approved in the terminal or on the page
+PREVIEW_MAX_BYTES = 20 << 20
+TITLE = "Deliver the video"
 CLOSING = "Approving marks this exact file downloadable. Nothing is published."
 
 
@@ -147,7 +151,8 @@ def on_cards(doc) -> bool:
 
 
 def title(doc: dict) -> str:
-    return f"Deliver the video for {doc['platform']}"
+    """The fixed title (the platform is the first line of the body), so a phone says it in the project's language."""
+    return TITLE
 
 
 def describe(doc: dict) -> str:
@@ -158,6 +163,27 @@ def summary(doc: dict) -> dict:
     """The closed facts a decision's payload records: words, hashes and numbers."""
     return {"word": WORD, "platform": doc["platform"], "video_sha256": doc["video"]["sha256"], "size": doc["video"]["size"],
             "duration_ms": doc["video"]["duration_ms"], "blocks": len(doc["blocks"]), "preview": doc["preview"] is not None}
+
+
+def card_lines(doc: dict, digest: str) -> list:
+    """The lines of the body as `[key, {field: text}]`, every value a str: what a messaging card says in the project's language
+    (runtime/phrases.py `card_text`). `body` is their English sentences, so the stored body and its hash do not change."""
+    video, cover, preview = doc["video"], doc["cover"], doc["preview"]
+    mb = f"{video['size'] / 1_000_000:.1f}"
+    seconds = f"{video['duration_ms'] / 1000:.1f}"
+    lines = [["CARD_VIDEO_PLATFORM", {"platform": doc["platform"]}],
+             ["CARD_VIDEO_POST", {"post": doc["post"]}],
+             ["CARD_VIDEO_FILE", {"name": video["name"], "mb": mb, "seconds": seconds, "sha": video["sha256"]}]]
+    lines.append(["CARD_VIDEO_COVER", {"name": cover["name"], "sha": cover["sha256"]}] if cover else ["CARD_VIDEO_NO_COVER", {}])
+    lines.append(["CARD_VIDEO_VERIFIED", {"platform": doc["verify"]["platform"]}])
+    if doc["blocks"]:
+        lines.extend(["CARD_VIDEO_BLOCK", {"id": b["id"], "sha": b["sha256"]}] for b in doc["blocks"])
+    else:
+        lines.append(["CARD_VIDEO_NO_BLOCKS", {}])
+    lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
+    lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
+    lines.append(["CARD_VIDEO_CLOSING", {}])
+    return lines
 
 
 def body(doc: dict, digest: str) -> str:

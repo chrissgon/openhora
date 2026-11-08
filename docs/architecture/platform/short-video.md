@@ -126,6 +126,8 @@ V1d plugs in at the `preview` step between `verify` and `document` (`step_media.
 - The `hf:` allowlist is empty and no committed engine file runs the `gsap` runtime yet (the composer of V3b-1 can draw `gsap` blocks and tests do, from a temporary blocks folder; the committed `blocks/engines/hyperframes.json` and the first `gsap` blocks come with the one-file measurement and V3b-4); a block whose parameters differ from its preset's cannot be named by a beat yet (OPEN-6 of the V3b0 spec).
 - The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
 
+On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 20 MiB, the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. A larger render is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
+
 ## Changes
 
 Written on 2026-11-07 by V1a-3.
@@ -135,5 +137,6 @@ Written on 2026-11-07 by V1a-3.
 2026-11-07: V1b2-1, the media operations and the media settings key
 
 2026-11-07: V1b2-2, the media routes and limit L68
+2026-11-08: V1d-2, the preview and the deliver card on a messaging app
 
 Updated on 2026-11-07 by V3a-2.
