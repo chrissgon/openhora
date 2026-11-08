@@ -63,13 +63,13 @@ NEVER_CALLED = ("cloud", "billing", "publish", "lambda", "tts", "transcribe", "s
 
 
 class Refuse(Exception):
-    def __init__(self, code: str, field: str):
+    def __init__(self, code: str, field: str, problems=None):
         super().__init__("%s %s" % (code, field))
-        self.code, self.field = code, field
+        self.code, self.field, self.problems = code, field, problems or []
 
 
-def refuse(code: str, field: str):
-    raise Refuse(code, field)
+def refuse(code: str, field: str, problems=None):
+    raise Refuse(code, field, problems)
 
 
 def check_fonts(html: str, field: str = "index.html") -> None:
@@ -221,22 +221,26 @@ def measure_argv(project: str, boxes: str) -> list:
 
 
 def measure_refusal(boxes: str) -> tuple:
-    """(code, field) of the row the measure script left in boxes.json when it exited non-zero: a code of MEASURE_REFUSALS and a short field,
+    """(code, field, problems) of the row the measure script left in boxes.json when it exited non-zero: a code of MEASURE_REFUSALS and a short field,
     else `measure_failed`. The file is removed: a refused render leaves no boxes."""
-    code, field = "measure_failed", "measure"
+    code, field, problems = "measure_failed", "measure", []
     try:
         with open(boxes, "rb") as fh:
             row = json.loads(fh.read(4096).decode("utf-8"))
         if isinstance(row, dict) and row.get("ok") is False and row.get("code") in MEASURE_REFUSALS \
                 and isinstance(row.get("field"), str) and re.fullmatch(r"[A-Za-z0-9_.:\- ]{0,40}", row["field"]):
             code, field = row["code"], row["field"]
+            for p in (row.get("problems") if isinstance(row.get("problems"), list) else [])[:10]:     # what the page reported: closed shapes only
+                if isinstance(p, dict) and isinstance(p.get("code"), str) and re.fullmatch(r"[a-z_]{1,30}", p["code"]) \
+                        and isinstance(p.get("field"), str) and re.fullmatch(r"[A-Za-z0-9_.:\- ]{0,80}", p["field"]):
+                    problems.append({"code": p["code"], "field": p["field"]})
     except (OSError, ValueError):
         pass
     try:
         os.unlink(boxes)
     except OSError:
         pass
-    return code, field
+    return code, field, problems
 
 
 def run_measure(project: str, out: str, env: dict, log_path: str, timeout: int) -> str:
@@ -320,7 +324,7 @@ def main(argv=None) -> int:
         write_result(args.out, render(args.project, args.out, args.tmp, args.fps, args.timeout, args.measure))
         return 0
     except Refuse as err:
-        write_result(args.out, {"ok": False, "code": err.code, "field": err.field})
+        write_result(args.out, dict({"ok": False, "code": err.code, "field": err.field}, **({"problems": err.problems} if err.problems else {})))
         return 1
 
 

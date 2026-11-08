@@ -720,3 +720,18 @@ def test_hf_render_py_starts_as_a_script_from_a_clean_environment():
     done = subprocess.run([sys.executable, "-I", str(K.RENDERER / "hyperframes-image" / "hf_render.py"), "--help"], capture_output=True, text=True, env=env,
                           timeout=60, cwd="/")
     assert done.returncode == 0 and "--project" in done.stdout, done.stderr[-800:]
+
+
+def test_what_the_page_reported_comes_through_the_drawing_containers_refusal_as_problems(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "result.json").write_text(json.dumps({"ok": False, "code": "measure_failed", "field": "player", "problems": [
+        {"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"}]}))
+    with pytest.raises(Refusal) as caught:
+        H.read_hf_result(str(out), 1)
+    assert (caught.value.code, caught.value.field) == ("measure_failed", "player")
+    assert [p["code"] for p in caught.value.problems] == ["page_error", "state"] and caught.value.problems[1]["field"] == "player undefined timelines main"
+    (out / "result.json").write_text(json.dumps({"ok": False, "code": "measure_failed", "field": "player", "problems": [{"code": "x y", "field": "z"}]}))
+    with pytest.raises(Refusal) as bad:
+        H.read_hf_result(str(out), 1)
+    assert bad.value.code == "container_result_invalid"

@@ -464,3 +464,15 @@ def test_the_measure_flag_is_the_only_way_the_inner_entry_runs_the_step_and_help
     env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
     done = subprocess.run([sys.executable, "-I", str(FOLDER / "hf_render.py"), "--help"], capture_output=True, text=True, env=env, timeout=60, cwd=str(tmp_path))
     assert done.returncode == 0 and "--measure" in done.stdout
+
+
+def test_what_the_page_reported_travels_with_the_refusal_in_closed_shapes_only(tmp_path, monkeypatch):
+    rows = [{"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"},
+            {"code": "Bad Code", "field": "x"}, {"code": "console_error", "field": "a/b"}, "no", {"code": "request_failed", "field": "blocks oh-caption.html"}]
+    row = {"ok": False, "code": "measure_failed", "field": "player", "problems": rows}
+    project, out, tmp = measured_world(tmp_path, monkeypatch)
+    fake_measure(monkeypatch, "import json, sys\nopen(sys.argv[1], 'w').write(json.dumps(%r))\nsys.exit(1)" % row)
+    assert run_main(project, out, tmp, "--measure") == 1
+    assert json.loads((out / "result.json").read_text()) == {"ok": False, "code": "measure_failed", "field": "player", "problems": [
+        {"code": "page_error", "field": "TypeError Cannot read properties of undefined"}, {"code": "state", "field": "player undefined timelines main"},
+        {"code": "request_failed", "field": "blocks oh-caption.html"}]}

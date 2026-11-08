@@ -49,8 +49,16 @@ class Refusal extends Error {
   }
 }
 
+// What the page and the browser reported before the refusal, so a live failure explains itself: [{code, text}], at most 10, each text cut and
+// reduced to the characters a field may hold. Module level: the final handler reads it whatever was thrown.
+const problems = [];
+function note(code, text) {
+  if (problems.length < 10) problems.push({ code, text: String(text).replace(/[^A-Za-z0-9_.:\- ]+/g, " ").trim().slice(0, 78) });
+}
+
 function writeRefusal(code, field) {
-  fs.writeFileSync(outPath, JSON.stringify({ ok: false, code, field: String(field).slice(0, 40) }));
+  const rows = problems.map((p) => ({ code: p.code, field: p.text }));
+  fs.writeFileSync(outPath, JSON.stringify({ ok: false, code, field: String(field).slice(0, 40), problems: rows }));
 }
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".woff2": "font/woff2", ".mov": "video/quicktime", ".mp4": "video/mp4" };
@@ -159,8 +167,9 @@ async function main() {
     if (p.endsWith(".html")) {
       const { stripped, script } = withFonts(body.toString("utf8"));
       let inject = script;
-      if (p === "/index.html") inject += "<script>window.__hfVariables = " + JSON.stringify(vars).replace(/</g, "\\u003c") + ";</script><script src=\"/__runtime.js\"></script>";
-      body = Buffer.from(stripped.replace("<head>", "<head>" + inject), "utf8");
+      if (p === "/index.html") inject += "<script>window.__hfVariables = " + JSON.stringify(vars).replace(/</g, "\\u003c") + ";</script><script src=\"/__runtime.js\"></script>" +
+        "<script>if (window.__hyperframes) window.__hyperframes.getVariables = function () { return window.__hfVariables; };</script>";
+      body = Buffer.from(stripped.replace("<head>", () => "<head>" + inject), "utf8");
     }
     res.writeHead(200, { "content-type": MIME[path.extname(file)] || "application/octet-stream", "accept-ranges": "bytes" });
     res.end(body);
@@ -176,19 +185,23 @@ async function main() {
     });
     const page = await browser.newPage();
     await page.setViewport({ width: 1080, height: 1920, deviceScaleFactor: 1 });
-    const problems = [];
     await page.setRequestInterception(true);
     page.on("request", (req) => {
       const url = req.url();
       if (url.startsWith(origin) || url.startsWith("data:") || url.startsWith("blob:")) req.continue();
-      else { problems.push("request outside the loopback"); req.abort(); }
+      else { note("request_outside", url.slice(0, 40)); req.abort(); }
     });
-    page.on("console", (m) => { if (m.type() === "error") problems.push("console error"); });
-    page.on("pageerror", () => problems.push("page error"));
-    page.on("requestfailed", (r) => { if (r.url().startsWith(origin)) problems.push("request failed"); });
+    page.on("console", (m) => { if (m.type() === "error") note("console_error", m.text()); });
+    page.on("pageerror", (e) => note("page_error", e && e.message ? e.message : e));
+    page.on("requestfailed", (r) => { if (r.url().startsWith(origin)) note("request_failed", r.url().slice(origin.length)); });
     await page.goto(origin + "index.html", { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
     await page.waitForFunction(() => window.__player && window.__player.renderSeek && window.__timelines && window.__timelines.main, { timeout: READY_TIMEOUT_MS, polling: 100 })
-      .catch(() => { throw new Refusal("measure_failed", "player"); });
+      .catch(async () => {
+        const seen = await page.evaluate(() => ["player " + typeof window.__player, "seek " + !!(window.__player && window.__player.renderSeek), "hf " + typeof window.__hyperframes,
+          "timelines " + Object.keys(window.__timelines || {}).join(","), "ready " + document.readyState].join(" ")).catch(() => "page unreadable");
+        note("state", seen);
+        throw new Refusal("measure_failed", "player");
+      });
     for (const frame of page.frames()) await frame.evaluate(() => Promise.all(window.__hfFaceLoads || []));
     await new Promise((r) => setTimeout(r, 500));
     await page.evaluate(IN_PAGE);
@@ -225,9 +238,9 @@ async function main() {
       if (bytes > MAX_OUT_BYTES) throw new Refusal("boxes_too_large", "frame " + f);
       rows.push(text);
       if (f % FONT_EVERY === 0) await checkFonts();
-      if (problems.length) throw new Refusal("measure_failed", problems[0] + " at frame " + f);
+      if (problems.length) throw new Refusal("measure_failed", problems[0].code + " at frame " + f);
     }
-    if (problems.length) throw new Refusal("measure_failed", problems[0]);
+    if (problems.length) throw new Refusal("measure_failed", problems[0].code);
     const list = [...fonts.values()].sort((a, b) => (a.family < b.family ? -1 : 1));
     fs.writeFileSync(outPath, '{"fonts":' + JSON.stringify(list) + ',"fps":' + fps + ',"frames":' + frames + ',"per_frame":[' + rows.join(",") + '],"schema":1}');
   } finally {

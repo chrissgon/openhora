@@ -120,7 +120,7 @@ RUN_FOLDER = re.compile(r"hf-[0-9a-f]{12}")
 MIN_STAGE_SECONDS = 30                                  # a stage that would get less than this refuses as render_timeout
 STAGES = ("page", "proxy", "hf", "encode")
 HF_SCHEMA = D.dct(ok=D.B, sha256=D.S, bytes=D.I, seconds=D.N, hyperframes=D.S, memory_peak_bytes=D.opt(D.I), boxes_sha256=D.opt(D.S), measure_seconds=D.opt(D.N))
-HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD)
+HF_REFUSAL = D.dct(ok=D.B, code=D.COD, field=D.FLD, problems=D.opt(D.PROBLEMS))
 HF_OUT_NAMES = ("intermediate.mov", "result.json", "hf.log", "boxes.json")
 BOXES_MAX_BYTES = _hf_gate.BOXES_MAX_BYTES              # boxes.json's cap, the figure hf_measure.mjs refuses at
 GATE_FIELDS = ("gate_frames", "gate_boxes", "pixel_min_psnr_db", "pixel_ranges", "pixel_seconds")     # what a composed render's encode stage must report
@@ -331,7 +331,9 @@ def read_hf_result(out_dir: str, rc: int) -> dict:
         raise Refusal(CRASH_CODES.get(rc, "container_failed"), "container") from None
     if rc != 0 or doc.get("ok") is not True:
         row = D.sanitise(doc, HF_REFUSAL, "hf")
-        raise Refusal(row.get("code", "container_failed"), row.get("field", ""))
+        err = Refusal(row.get("code", "container_failed"), row.get("field", ""))
+        err.problems = row.get("problems") or []                       # what the page reported (hf_measure.mjs), so a live failure explains itself
+        raise err
     result = D.sanitise(doc, HF_SCHEMA, "hf")
     if not re.fullmatch(r"[0-9a-f]{64}", result.get("sha256", "")) or not isinstance(result.get("bytes"), int) or "hyperframes" not in result:
         raise Refusal("container_result_invalid", "hf")
