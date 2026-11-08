@@ -24,10 +24,13 @@ export const READ_ONLY_LINE = "This video is not waiting for a review: its capti
 const POLL_MS = 1000;
 const OPTIONAL_HINT = "Optional; the renderer checks it";
 
-/** The words of the caption counts line. */
+const noun = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/** The words of the caption counts line: each count is singular at 1 and plural otherwise ("1 retake", "2 retakes", "0 beats"). */
 export function countsText(counts) {
   const c = counts || {};
-  return `${c.words || 0} words, ${c.edited || 0} edited, ${c.retakes || 0} retakes, ${c.beats || 0} beats, ${c.animations || 0} animations`;
+  return [noun(c.words || 0, "word", "words"), `${c.edited || 0} edited`, noun(c.retakes || 0, "retake", "retakes"), noun(c.beats || 0, "beat", "beats"),
+    noun(c.animations || 0, "animation", "animations")].join(", ");
 }
 
 /** "Words a to b" for a range. */

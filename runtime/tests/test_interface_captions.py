@@ -241,7 +241,7 @@ def test_the_dialog_draws_the_words_by_chunk_and_sends_exactly_one_closed_edit_p
     got = run_node(tmp_path, REVIEW)
     assert got["rows"] == [["Aster", "Lane", "opens"], ["a", "new", "shop"], ["in", "Northwynd"], ["aside"]], "the chunks, then the words left out of the captions"
     assert "wb-cr-left-out" in got["classes"]["left"] and "wb-cr-estimated" in got["classes"]["estimated"] and "edited" in got["classes"]["edited"]
-    assert got["counts"] == "9 words, 1 edited, 1 retakes, 3 beats, 1 animations" and got["title"] == "Check the captions" and got["terminal"] is True
+    assert got["counts"] == "9 words, 1 edited, 1 retake, 3 beats, 1 animation" and got["title"] == "Check the captions" and got["terminal"] is True
     assert got["openAfter"] == [True, ["read", "proj", 900]]
     assert got["range"] == "Words 3 to 3" and got["prefill"] == "a"
     assert got["edit"]["edit"] == [["edit", "proj", 900, 4, [{"op": "edit", "index": 3, "text": "Northwind"}]]] and got["edit"]["reads"] == 2, "one edit, then one new read"
@@ -518,3 +518,17 @@ def test_the_stylesheet_has_the_review_rules_in_tokens_with_the_phone_band():
     assert re.search(r"width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0", css), "the dialog fills the screen on a phone"
     assert re.search(r"\.wb-cr-word \{ min-height: 44px", css)
     assert not [n for n in re.findall(r"font-size: (\d+)px", rules) if int(n) < 12]
+
+
+COUNTS = r"""
+import { countsText } from "@JS@/views/lobby-captions.js";
+const c = (words, edited, retakes, beats, animations) => countsText({ words, edited, retakes, beats, animations });
+console.log(JSON.stringify([c(0, 0, 0, 0, 0), c(1, 1, 1, 1, 1), c(2, 2, 2, 2, 2), countsText(null)]));
+"""
+
+
+@needs_node
+def test_each_count_of_the_summary_line_is_singular_at_one_and_plural_otherwise(tmp_path):
+    got = run_node(tmp_path, COUNTS)
+    assert got == ["0 words, 0 edited, 0 retakes, 0 beats, 0 animations", "1 word, 1 edited, 1 retake, 1 beat, 1 animation",
+                   "2 words, 2 edited, 2 retakes, 2 beats, 2 animations", "0 words, 0 edited, 0 retakes, 0 beats, 0 animations"]
