@@ -9,7 +9,7 @@ enters git. It stores and nothing else. It has no host ffprobe and no knowledge 
 
 A recording is one folder named by 16 hex characters. It holds `record.json` (mode 0600, the folder 0700, written whole by a temporary
 file and `os.replace` under `.record.lock`), the recording itself as `raw.mp4` or `raw.mov`, and the work files the step kind writes by
-closed names (`WORK_NAMES`, plus the renders, covers and stills named by a hash). Every path is opened with O_NOFOLLOW, and every file is
+closed names (`WORK_NAMES`, plus the renders, covers, stills and previews named by a hash). Every path is opened with O_NOFOLLOW, and every file is
 opened through the descriptor of its folder.
 
   * Taking a recording: `receive` (a stream) and `receive_file` (a file) go through `runtime/intake.py` (`stream_in`): the length is
@@ -62,6 +62,7 @@ WORK_NAMES = frozenset({"transcript.json", "analysis.json", "transcript.edited.j
 RENDER = re.compile(r"render-[0-9a-f]{12}\.mp4")
 COVER = re.compile(r"cover-[0-9a-f]{12}\.png")
 STILL = re.compile(r"still-[0-9a-f]{12}\.png")
+PREVIEW = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 RAW = re.compile(r"raw\.(mp4|mov)")
 KEPT_AFTER_RAW = (RECORD, "render.json", "verify.json")   # plus RENDER and COVER names: what survives the 7-day purge
 JSON_LIMIT = 5 * 1024 * 1024
@@ -123,8 +124,8 @@ def _is_int(value) -> bool:
 
 
 def _check_name(name) -> str:
-    """A work file's name: one of WORK_NAMES, or a render, cover, still or raw file named by its hash or type."""
-    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, RAW))):
+    """A work file's name: one of WORK_NAMES, or a render, cover, still, preview or raw file named by its hash or type."""
+    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, PREVIEW, RAW))):
         return name
     raise MediaError("that is not the name of a file the store keeps", "usage")
 
@@ -513,7 +514,7 @@ def write_work(data_dir: str, rid: str, name: str, data: bytes) -> str:
 
 
 def remove_work(data_dir: str, rid: str, names) -> int:
-    """Remove the work files that match `names`: strings from WORK_NAMES or compiled patterns (RENDER, COVER, STILL). Never the record and
+    """Remove the work files that match `names`: strings from WORK_NAMES or compiled patterns (RENDER, COVER, STILL, PREVIEW). Never the record and
     never the recording. Returns the number removed."""
     exact, patterns = set(), []
     for item in names:

@@ -77,8 +77,8 @@ def test_the_title_is_fixed_and_a_phone_reads_it_in_the_project_language():
     assert phrases.heading(dd.title(FOUR[0]), None) == "Deliver the video"
 
 
-def test_the_largest_render_that_is_its_own_preview_is_20_mib():
-    assert dd.PREVIEW_MAX_BYTES == 20 * 1024 * 1024
+def test_the_largest_render_that_is_its_own_preview_is_15_mib():
+    assert dd.PREVIEW_MAX_BYTES == 15 * 1024 * 1024
 
 
 @pytest.mark.parametrize("still", [True, False])

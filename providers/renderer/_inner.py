@@ -15,6 +15,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR [--boxes B --boxes-sha256 H --beats BEATS --vocabulary V --proxy P
            --proxy-sha256 H]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
            refuses a box on the face or a caption below the line, and after the encode a face region that differs from the undrawn base
+  preview  --in MP4 --sha256 H --out FILE.mp4             a 720x1280 copy of a finished render, at most 15 MiB, one encoder thread
   hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
@@ -393,6 +394,47 @@ def verb_encode(args) -> dict:
     return result
 
 
+def verb_preview(args) -> dict:
+    """A smaller copy of a finished render for a phone (renderer-presets.json `preview`): the render is the file the host named by its
+    sha256 and at most the input limit long; the copy is spec width x height, at most spec max_bytes, as long as the render within
+    spec duration_tolerance_seconds, with audio exactly when the render has it, and its index first. Written to --out (0600). Refusals:
+    `render_differs`, `render_too_long`, `preview_too_long`, `preview_too_large`, `preview_mismatch`."""
+    ffmpeg, ffprobe = tools(args)
+    data = load_data()
+    spec = data["preview"]
+    started = time.time()
+    if _media.sha256_file(args.input) != args.sha256:
+        raise Refusal("render_differs", "render")
+    facts = _media.probe(ffprobe, args.input)
+    if facts["duration"] > data["limits"]["input_seconds_max"] + 1:
+        raise Refusal("render_too_long", "render")
+    video_kbps = _media.preview_rate(facts["duration"], spec, facts["has_audio"])
+    if video_kbps is None:
+        raise Refusal("preview_too_long", "render")
+    out = os.path.abspath(args.out)
+    folder = os.path.dirname(out)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    work = tempfile.mkdtemp(prefix=".preview-", dir=folder)
+    try:
+        part = os.path.join(work, "preview.mp4")
+        _media.run(_media.preview_argv(ffmpeg, args.input, part, spec, video_kbps=video_kbps, has_audio=facts["has_audio"]), spec["encode_seconds"])
+        size = os.path.getsize(part)
+        if size > spec["max_bytes"]:
+            raise Refusal("preview_too_large", "preview")
+        made = _media.probe(ffprobe, part)
+        if (made["width"], made["height"]) != (spec["width"], spec["height"]) or made["has_audio"] != facts["has_audio"] \
+                or abs(made["duration"] - facts["duration"]) > spec["duration_tolerance_seconds"] or not _media.faststart(part):
+            raise Refusal("preview_mismatch", "preview")
+        digest = _media.sha256_file(part)
+        os.chmod(part, 0o600)
+        os.replace(part, out)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return {"ok": True, "sha256": digest, "from_sha256": args.sha256, "bytes": size, "width": made["width"], "height": made["height"],
+            "duration": made["duration"], "has_audio": made["has_audio"], "video_kbps": video_kbps,
+            "audio_kbps": spec["audio_kbps"] if facts["has_audio"] else 0, "seconds": round(time.time() - started, 2)}
+
+
 def verb_hf_page(args) -> dict:
     """The page of the HyperFrames engine. The four documents are checked as `check` checks them. With `--base-only`: the cuts and the zoom
     (the beats are checked and not drawn). Without it: `--blocks` and `--blocks-sha256` are required, the catalogue is loaded from that folder
@@ -555,6 +597,11 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--vocabulary", help="the vocabulary file, for the entries on the timeline")
     sp.add_argument("--proxy", help="the proxy of the recording (the undrawn base the pixel check compares with)")
     sp.add_argument("--proxy-sha256", help="the sha256 of the proxy, as the host hashed it before the drawing")
+    sp = sub.add_parser("preview")
+    common(sp)
+    sp.add_argument("--in", dest="input", required=True, help="the finished render (an MP4)")
+    sp.add_argument("--sha256", required=True, help="the render's sha256, as the host hashed it")
+    sp.add_argument("--out", required=True, help="the preview file (.mp4), inside the writable folder")
     sp = sub.add_parser("hf-page")
     sp.add_argument("--edl", required=True)
     sp.add_argument("--beats", required=True)
@@ -579,7 +626,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "proxy": verb_proxy, "encode": verb_encode, "hf-page": verb_hf_page}
+         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page}
 
 
 def write_result(path, obj) -> None:

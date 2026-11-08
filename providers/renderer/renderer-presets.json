@@ -177,5 +177,20 @@
    "gap": 12,
    "fill": "#14181E"
   }
+ },
+ "preview": {
+  "note": "The preview verb: a copy of a finished render small enough for a phone (Telegram sends at most 20 MiB, WhatsApp through Twilio 16 MB). 720x1280 H.264, CRF 23 capped by a rate computed from the render's length so that the whole file fits max_bytes with `margin` of room (the audio's share taken first, one second added for the container), at most max_video_kbps; a render that would need less than min_video_kbps is refused. One encoder thread, so the same render gives the same bytes on any machine. Measured on synthetic test patterns: 60 s gave 14,101,201 bytes in 21 s, 300 s gave 15,053,020 bytes in 72 s.",
+  "width": 720,
+  "height": 1280,
+  "crf": 23,
+  "preset": "medium",
+  "max_bytes": 15728640,
+  "margin": 0.94,
+  "audio_kbps": 96,
+  "max_video_kbps": 2500,
+  "min_video_kbps": 250,
+  "duration_tolerance_seconds": 0.2,
+  "encode_seconds": 840,
+  "time_limit_seconds": 900
  }
 }
