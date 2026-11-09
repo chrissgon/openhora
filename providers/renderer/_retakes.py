@@ -7,8 +7,9 @@ each `{id, kind, word_from, word_to, keep_from, seconds, confirmed, default, rea
   restart  a shorter run (`restart_min`, or a cut-off fragment) that is begun again and carried on;
   near     two consecutive phrases that differ by a word or two (a number said again, corrected).
 
-`default` is `cut` or `keep` and `reason` is a closed word (RETAKES), decided by a fixed table, in order: far, cut_off, hesitation,
-continues, abandoned, pause, complete. The constants and the hesitation, filler and cue lists of a language are in the block `retakes`
+`default` is `cut` or `keep` and `reason` is a closed word (REASONS), decided by a fixed table, in order: far, cut_off, hesitation,
+continues, abandoned, pause, complete; `redo` (a whole sentence said again in other words, right after it) rescues a take that `far`
+would keep. The constants and the hesitation, filler and cue lists of a language are in the block `retakes`
 of renderer-presets.json. Nothing here changes a word: `_edl.build_base` cuts what the mode and the person's choices say.
 Standard library only.
 """
@@ -20,7 +21,7 @@ import unicodedata
 
 from _align import norm_tokens
 
-REASONS = ("far", "cut_off", "hesitation", "continues", "abandoned", "pause", "complete")
+REASONS = ("redo", "far", "cut_off", "hesitation", "continues", "abandoned", "pause", "complete")
 KINDS = ("repeat", "restart", "near")
 _KIND_ORDER = {"restart": 0, "repeat": 1, "near": 2}
 _TRIM = "\"')]»”’"
@@ -117,11 +118,59 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
 
     def start(p): return words[p]["start"]
 
-    def has_content(p): return p in content_set
-
     content_set = set(content_words)
 
+    # ---- phrases: split after a final or cut mark, around a hesitation or cue, and at a pause
+    phrases, cur = [], []
+    for p in range(n_words):
+        if p in hes_words:
+            if cur:
+                phrases.append(cur)
+            cur = []
+            continue
+        cur.append(p)
+        if marks[p] in ("final", "cut") or (p + 1 < n_words and (p + 1 in hes_words or pauses.between(words[p], words[p + 1]) >= cfg["phrase_pause"])):
+            phrases.append(cur)
+            cur = []
+    if cur:
+        phrases.append(cur)
+    phrases = [ph for ph in phrases if any(p in content_set for p in ph)]
+    phrase_of = {p: k for k, ph in enumerate(phrases) for p in ph}
+    toks_of = {}
+    for t, p in ((c[0], c[1]) for c in content):
+        toks_of.setdefault(p, []).append(t)
     candidates = []
+
+    def redo_ok(i, j, length):
+        """A whole sentence said again right after itself, in other words: both takes are phrases that START with the same run, the
+        earlier one is one phrase of bounded size that ends at a phrase boundary, and the opening is not a series (anaphora)."""
+        first_pos, last_pos, later_pos = content[i][1], content[j - 1][1], content[j][1]
+        a_ph, b_ph = phrase_of.get(first_pos), phrase_of.get(later_pos)
+        if a_ph is None or b_ph is None or a_ph == b_ph or phrase_of.get(last_pos) != a_ph or length < run_min:
+            return False
+        starts = lambda ph: next(p for p in phrases[ph] if p in content_set)
+        if starts(a_ph) != first_pos or starts(b_ph) != later_pos:
+            return False
+        if marks[last_pos] not in ("final", "cut") and pauses.between(words[last_pos], words[later_pos]) < cfg["phrase_pause"]:
+            return False
+        if length >= j - i or j - i - length < cfg["near_min_tokens"]:      # a short earlier phrase after the run: emphasis
+            return False
+        if last_pos - first_pos + 1 > cfg["redo_words_max"] or words[last_pos]["end"] - words[first_pos]["start"] > cfg["redo_seconds_max"]:
+            return False
+        later_tokens = sum(len(toks_of.get(p, [])) for p in phrases[b_ph])
+        if later_tokens < cfg["redo_later_share"] * (j - i):
+            return False
+        run = tuple(c[0] for c in content[i:i + length])
+        def opens(ph):
+            got = tuple(t for p in phrases[ph] for t in toks_of.get(p, []))
+            return got[:length] == run
+        series = 1
+        for step in (-1, 1):
+            k = a_ph + step
+            while 0 <= k < len(phrases) and opens(k):
+                series += 1
+                k += step
+        return series < 3
 
     # ---- the token scan: repeat and restart
     window, run_min, restart_min = cfg["window_seconds"], cfg["run_min"], cfg["restart_min"]
@@ -167,6 +216,7 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
         head = {content[i + m][1] for m in range(length)}
         cut_off = fragment or marks[keep_pos - 1] == "cut" or marks[content[i + length - 1][1]] == "cut"
         candidates.append(_candidate("repeat" if length >= run_min else "restart", word_from, keep_pos, head, tail, continues, cut_off))
+        candidates[-1]["redo"] = tail >= 1 and redo_ok(i, j, length)
         if _decide(candidates[-1], words, marks, hes_words, content_set, punctuated, pauses, cfg)[0] == "cut":
             i = j
         else:
@@ -174,23 +224,6 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
             i += 1
 
     # ---- the phrase scan: near
-    phrases, cur = [], []
-    for p in range(n_words):
-        if p in hes_words:
-            if cur:
-                phrases.append(cur)
-            cur = []
-            continue
-        cur.append(p)
-        if marks[p] in ("final", "cut") or (p + 1 < n_words and (p + 1 in hes_words or pauses.between(words[p], words[p + 1]) >= cfg["phrase_pause"])):
-            phrases.append(cur)
-            cur = []
-    if cur:
-        phrases.append(cur)
-    phrases = [ph for ph in phrases if any(p in content_set for p in ph)]
-    toks_of = {}
-    for t, p in ((c[0], c[1]) for c in content):
-        toks_of.setdefault(p, []).append(t)
     for a_ph, b_ph in zip(phrases, phrases[1:]):
         if start(b_ph[0]) - words[a_ph[-1]]["end"] > cfg["near_gap_max"]:
             continue
@@ -240,7 +273,7 @@ def _decide(c: dict, words: list, marks: list, hes_words: set, content_set: set,
     """(default, reason): the first row of the table that holds decides."""
     lo, hi = c["from"], c["to"]
     if c["tail"] > cfg["tail_cut_max"] or words[c["keep"]]["start"] - words[lo]["start"] > cfg["cut_seconds_max"]:
-        return "keep", "far"
+        return ("cut", "redo") if c.get("redo") else ("keep", "far")
     if c["cut_off"]:
         return "cut", "cut_off"
     if any(p in hes_words and p not in c["head"] for p in range(lo, hi + 1)):

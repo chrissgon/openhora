@@ -280,6 +280,7 @@
               },
               "reason": {
                 "enum": [
+                  "redo",
                   "far",
                   "cut_off",
                   "hesitation",

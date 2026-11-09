@@ -17,7 +17,7 @@ CFG = DATA["retakes"]
 PAUSE = re.compile(r"/([0-9.]+)/")
 
 
-def words_of(text: str, language: str = "pt") -> list:
+def words_of(text: str, language: str = "pt", dur: float = 0.25, gap: float = 0.05) -> list:
     """Each token of `text` is a word of 0.25 s, 0.05 s after the previous one; a token `/P/` adds a pause of P seconds and is not a word."""
     out, t = [], 0.0
     for tok in text.split():
@@ -25,13 +25,13 @@ def words_of(text: str, language: str = "pt") -> list:
         if m:
             t += float(m.group(1))
             continue
-        out.append({"index": len(out), "text": tok, "start": round(t, 3), "end": round(t + 0.25, 3), "segment": 0, "estimated": False, "dropped": False})
-        t += 0.3
+        out.append({"index": len(out), "text": tok, "start": round(t, 3), "end": round(t + dur, 3), "segment": 0, "estimated": False, "dropped": False})
+        t += dur + gap
     return out
 
 
-def detect(text: str, language: str = "pt") -> tuple:
-    words = words_of(text, language)
+def detect(text: str, language: str = "pt", **timing) -> tuple:
+    words = words_of(text, language, **timing)
     return words, R.detect_retakes(words, language, CFG)
 
 
@@ -154,10 +154,11 @@ def test_an_unknown_language_uses_the_universal_list_only():
 
 def test_the_presets_block_has_exactly_the_keys_and_clean_lists():
     expected = {"window_seconds", "run_min", "restart_min", "fragment_min_chars", "tail_propose_max", "tail_cut_max", "cut_seconds_max",
-                "retake_pause", "phrase_pause", "near_min_tokens", "near_head_tokens", "near_ratio", "near_edits_max", "near_gap_max",
+                "redo_words_max", "redo_seconds_max", "redo_later_share", "retake_pause", "phrase_pause", "near_min_tokens", "near_head_tokens", "near_ratio", "near_edits_max", "near_gap_max",
                 "punctuation_min_share", "proposals_max", "words"}
     assert set(CFG) == expected
     bounds = {"run_min": (3, 4), "restart_min": (2, 3), "tail_cut_max": (4, 8), "cut_seconds_max": (6, 15), "retake_pause": (0.9, 1.5),
+              "redo_words_max": (30, 60), "redo_seconds_max": (12, 20),
               "phrase_pause": (0.5, 0.8), "near_ratio": (0.75, 0.9)}
     for key, (lo, hi) in bounds.items():
         assert lo <= CFG[key] <= hi, key
@@ -207,3 +208,60 @@ def test_the_module_is_standard_library_only():
 
 def test_the_presets_file_is_valid_json_with_the_block():
     assert "retakes" in json.loads((Path(__file__).resolve().parents[1] / "renderer-presets.json").read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------- the whole-sentence redo (real check of V3e)
+
+A_FIRST = "Quando a gente guarda dinheiro todo mês durante vários anos seguidos, a pessoa consegue comprar uma casa pequena perto da família inteira."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+A_REDO = "Quando a gente guarda um pouco de cada salário com paciência e disciplina, em poucos anos nasce a entrada para o primeiro lar."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+B_FIRST = ("When I first started tracking every single expense in a small notebook, I noticed that the biggest leaks were never the large purchases "
+           "but the tiny daily habits that nobody ever questions or even remembers.")
+B_REDO = ("When I first started tracking all of my spending, the real surprise came from the coffee, the snacks and the small subscriptions "
+          "that I had completely forgotten about.")
+ANAPHORA = " ".join("Eu quero ver %s." % tail for tail in (  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    "a cidade crescer com paciência e cuidado em cada bairro pequeno do interior",
+    "as famílias vivendo melhor depois de tanto trabalho duro nas lavouras vizinhas",  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    "os jovens estudando sem medo do futuro que ainda vai chegar para todos nós"))  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+LONG_50 = " ".join("w%d" % k for k in range(50))
+LONG_70 = " ".join("v%d" % k for k in range(70))
+
+REDO_ROWS = [
+    # (name, language, text, timing, expected [(kind, default, reason)], expected kept text or None for unchanged)
+    ("shape-a", "pt", A_FIRST + " " + A_REDO, {}, [("repeat", "cut", "redo")], A_REDO),
+    ("shape-b", "en", B_FIRST + " " + B_REDO, {}, [("repeat", "cut", "redo")], B_REDO),
+    ("filler-pt", "pt", A_FIRST + " é… " + A_REDO, {}, [("repeat", "cut", "redo")], A_REDO),  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    ("filler-en", "en", B_FIRST + " um " + B_REDO, {}, [("repeat", "cut", "redo")], B_REDO),
+    ("anaphora", "pt", ANAPHORA, {}, [("repeat", "keep", "far")] * 2, None),
+    ("emphatic", "en", "We will never quit this fight. We will never quit this fight.", {}, [("repeat", "keep", "complete")], None),
+    # an earlier take over redo_words_max words is kept as `far`; a take so long that no proposal is made at all is kept too
+    ("too-long-50", "en", "Once upon a time " + LONG_50 + ". Once upon a time again z1 z2 z3 z4 z5 z6.", {"dur": 0.08, "gap": 0.02},
+     [("repeat", "keep", "far")], None),
+    ("too-long-70", "en", "Once upon a time " + LONG_70 + ". Once upon a time again z1 z2 z3 z4 z5 z6.", {"dur": 0.08, "gap": 0.02}, [], None),
+    ("long-pause", "pt", A_FIRST + " /3.0/ " + A_REDO, {}, [("repeat", "cut", "redo")], A_REDO),
+]
+
+
+@pytest.mark.parametrize("row", REDO_ROWS, ids=[r[0] for r in REDO_ROWS])
+def test_the_whole_sentence_redo_shapes(row):
+    _, language, text, timing, expected, expected_kept = row
+    words, props = detect(text, language, **timing)
+    assert [(p["kind"], p["default"], p["reason"]) for p in props] == expected
+    want = expected_kept if expected_kept is not None else " ".join(t for t in text.split() if not PAUSE.fullmatch(t))
+    assert kept(words, props) == want
+
+
+def test_the_redo_sentences_have_the_sizes_the_real_shapes_had():
+    assert 20 <= len(A_FIRST.split()) <= 24 and 30 <= len(B_FIRST.split()) <= 36 and len(LONG_50.split()) == 50 and len(LONG_70.split()) == 70
+    assert A_FIRST.split()[:4] == A_REDO.split()[:4] and A_FIRST.split()[4] != A_REDO.split()[4]
+    assert B_FIRST.split()[:5] == B_REDO.split()[:5] and B_FIRST.split()[5] != B_REDO.split()[5]
+
+
+def test_a_redo_is_not_cut_when_another_sentence_lies_between_the_takes():
+    middle = "Isso foi o que eu aprendi no ano passado com muito esforço."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    _, props = detect(A_FIRST + " " + middle + " " + A_REDO, "pt")
+    assert all(p["reason"] != "redo" for p in props)
+
+
+def test_a_shorter_summary_said_after_a_long_sentence_is_not_a_redo():
+    _, props = detect(ROWS[19][2], "pt")        # row 20: a 13-word sentence, then a four-word summary of it
+    assert [(p["default"], p["reason"]) for p in props] == [("keep", "far")]

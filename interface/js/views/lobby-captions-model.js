@@ -157,6 +157,7 @@ export const WHY_TEXT = Object.freeze({
 
 /** Why the rule proposed a retake, by the service's closed word (providers/renderer/_retakes.py REASONS). */
 export const RETAKE_REASONS = Object.freeze({
+  redo: "a whole sentence said again in other words",
   cut_off: "it was cut off",
   hesitation: "a hesitation came before the new take",
   continues: "said again and carried on",
