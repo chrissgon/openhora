@@ -561,6 +561,7 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
     retimed = {r["index"] for r in norm.get("retimed_words") or []}
     unplaced = {u["index"]: u for u in norm.get("unplaced_words") or []}
     dropped_segments = {d["segment"] for d in norm.get("dropped_segments") or []}
+    phantom = {i for r in norm.get("phantom_words") or [] for i in range(r["from"], r["to"] + 1)}
     chunk_of = {}
     for number, (a, b) in enumerate((proposal_edl.get("captions") or {}).get("chunks") or []):
         for o in range(a, b + 1):
@@ -571,6 +572,8 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
         reasons = []
         if any(o in unplaced for o in range(first, last + 1)):
             reasons.append("unplaced")
+        if any(o in phantom for o in range(first, last + 1)):
+            reasons.append("phantom")
         if w["segment"] in dropped_segments:
             reasons.append("dropped_segment")
         row = {"index": w["index"], "text": w["text"], "start": w["start"], "end": w["end"], "segment": w["segment"],

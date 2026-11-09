@@ -52,11 +52,12 @@ def _nfc(text: str) -> str:
 
 
 def word_lists(cfg: dict, language) -> tuple:
-    """(single, cues, connectors): `single` maps a token to `hesitation`, `filler` or `cue`; `cues` is the list of multi-token cues
+    """(single, cues, connectors, conjunctions): `single` maps a token to `hesitation`, `filler` or `cue`; `cues` is the list of multi-token cues
     (tuples), the longest first; `connectors` is the list of connector words (tuples of folded tokens: "but", "so that") that may
-    stand before the earlier take of a redo. The language's lists are merged with those of "*"; an unknown language uses "*" only."""
+    stand before the earlier take of a redo; `conjunctions` is the set of folded coordinating conjunctions ("and", "e"), which end a
+    clause of a deliberate parallel structure (never a retake). The language's lists are merged with those of "*"; an unknown language uses "*" only."""
     words = cfg["words"]
-    single, cues, connectors = {}, [], set()
+    single, cues, connectors, conjunctions = {}, [], set(), set()
     for lang in ("*", language):
         block = words.get(lang) if isinstance(lang, str) else None
         if not block:
@@ -65,6 +66,10 @@ def word_lists(cfg: dict, language) -> tuple:
             toks = tuple(fold(t) for t in norm_tokens(_nfc(entry)))
             if toks:
                 connectors.add(toks)
+        for entry in block.get("conjunction", []):
+            toks = tuple(fold(t) for t in norm_tokens(_nfc(entry)))
+            if len(toks) == 1:
+                conjunctions.add(toks[0])
         for cls in ("hesitation", "filler", "cue"):
             for entry in block.get(cls, []):
                 toks = tuple(norm_tokens(_nfc(entry)))
@@ -73,7 +78,7 @@ def word_lists(cfg: dict, language) -> tuple:
                 elif len(toks) > 1 and cls == "cue":
                     cues.append(toks)
     cues = sorted(set(cues), key=lambda c: (-len(c), c))
-    return single, cues, sorted(connectors)
+    return single, cues, sorted(connectors), conjunctions
 
 
 class _Pauses:
@@ -100,7 +105,7 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
     None. Deterministic: the same input gives the same list."""
     if not words:
         return []
-    single, cues, connectors = word_lists(cfg, language if isinstance(language, str) else None)
+    single, cues, connectors, conjunctions = word_lists(cfg, language if isinstance(language, str) else None)
     pauses = _Pauses(silences)
     n_words = len(words)
     marks = [end_mark(w["text"]) for w in words]
@@ -186,6 +191,15 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
                 k += step
         return series < 3
 
+    def coordination(i, j, tail):
+        """The earlier take ends in a coordinating conjunction that stands right before the later take (no pause of `retake_pause`),
+        with at least `coordination_between_min` content tokens between the end of the matched run and the conjunction: two clauses
+        with the same opening, joined by "and". With nothing between them ("de que ele e de que ele...") it is still a restart."""
+        conj = content[j - 1]
+        if tail - 1 < cfg["coordination_between_min"] or conj[0] not in conjunctions or marks[conj[1]] not in ("bare", "comma"):
+            return False
+        return pauses.between(words[conj[1]], words[content[j][1]]) < cfg["retake_pause"]
+
     # ---- the token scan: repeat and restart
     window, run_min, restart_min = cfg["window_seconds"], cfg["run_min"], cfg["restart_min"]
     frag_min = cfg["fragment_min_chars"]
@@ -219,6 +233,8 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
                          or (length == 1 and (fragment or cut_mark) and continues))
             elif length >= run_min and tail <= cfg["tail_propose_max"]:
                 valid = True
+            if valid and coordination(i, j, tail):
+                continue                       # "de que ele nos ama e de que ele apenas...": a parallel structure, not a retake
             if valid:
                 chosen = (j, length, tail, continues, fragment)
                 break

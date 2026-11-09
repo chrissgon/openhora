@@ -154,7 +154,7 @@ def test_an_unknown_language_uses_the_universal_list_only():
 
 def test_the_presets_block_has_exactly_the_keys_and_clean_lists():
     expected = {"window_seconds", "run_min", "restart_min", "fragment_min_chars", "tail_propose_max", "tail_cut_max", "cut_seconds_max",
-                "redo_words_max", "redo_seconds_max", "redo_later_share", "retake_pause", "phrase_pause", "near_min_tokens", "near_head_tokens", "near_ratio", "near_edits_max", "near_gap_max",
+                "redo_words_max", "redo_seconds_max", "redo_later_share", "coordination_between_min", "retake_pause", "phrase_pause", "near_min_tokens", "near_head_tokens", "near_ratio", "near_edits_max", "near_gap_max",
                 "punctuation_min_share", "proposals_max", "words"}
     assert set(CFG) == expected
     bounds = {"run_min": (3, 4), "restart_min": (2, 3), "tail_cut_max": (4, 8), "cut_seconds_max": (6, 15), "retake_pause": (0.9, 1.5),
@@ -163,12 +163,12 @@ def test_the_presets_block_has_exactly_the_keys_and_clean_lists():
     for key, (lo, hi) in bounds.items():
         assert lo <= CFG[key] <= hi, key
     for language, block in CFG["words"].items():
-        assert set(block) == {"hesitation", "filler", "cue", "connector"}
+        assert set(block) == {"hesitation", "filler", "cue", "connector", "conjunction"}
         seen = {}
         for cls, entries in block.items():
             for entry in entries:
                 assert entry == unicodedata.normalize("NFC", entry).casefold(), (language, entry)
-                if cls == "connector":          # a connector may also be a filler ("so"): it is only looked up before a redo's earlier take
+                if cls in ("connector", "conjunction"):          # a connector may also be a filler ("so"): it is only looked up before a redo's earlier take
                     continue
                 assert entry not in seen, (language, entry, seen.get(entry), cls)
                 seen[entry] = cls
@@ -306,3 +306,40 @@ def test_a_connector_is_matched_after_folding_and_a_two_word_connector_counts():
     assert [(p["default"], p["reason"]) for p in R.detect_retakes(words, "pt", cfg)] == [("cut", "redo")]
     words = words_of(PT_LEAD + " so que " + PT_EARLIER + " " + PT_LATER, "pt")
     assert [(p["default"], p["reason"]) for p in R.detect_retakes(words, "pt", cfg)] == [("cut", "redo")]      # accents are folded on both sides
+
+
+# ---------------------------------------------------------------- coordination: two clauses with the same opening joined by a conjunction
+
+COORD = [
+    ("pt", "Nós podemos ter a certeza de que ele nos ama e de que ele apenas permite o que acontece.", []),  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a retake case must hold the words as said
+    ("pt", "podemos ter a certeza de que ele nos ama ou de que ele apenas permite o que acontece.", []),
+    ("en", "We can be sure that she cares and that she only allows what happens to be good.", []),
+    ("en", "We can be sure that she cares or that she only allows what happens to be good.", []),
+]
+
+
+@pytest.mark.parametrize("language,text,expected", COORD, ids=["pt-e", "pt-ou", "en-and", "en-or"])
+def test_a_parallel_structure_joined_by_a_conjunction_is_never_proposed(language, text, expected):
+    words, props = detect(text, language)
+    assert props == expected
+    assert kept(words, props) == " ".join(words[k]["text"] for k in range(len(words)))
+
+
+def test_the_same_shape_with_nothing_between_the_run_and_the_conjunction_is_still_a_retake():
+    """"de que ele e de que ele apenas permite": the earlier take is only the run and the conjunction, a restart as before."""
+    words, props = detect("podemos ter a certeza de que ele e de que ele apenas permite o que acontece.", "pt")
+    # the answer the rule gave before the exemption existed, held so a change shows: a repeat of the run, cut as abandoned
+    assert [(p["kind"], p["default"], p["reason"], p["word_from"], p["word_to"]) for p in props] == [("repeat", "cut", "abandoned", 4, 7)]
+
+
+def test_a_long_pause_before_the_following_run_leaves_the_decision_to_the_current_rule():
+    text = "podemos ter a certeza de que ele nos ama e /1.5/ de que ele apenas permite o que acontece."
+    words, props = detect(text, "pt")
+    assert [(p["kind"], p["default"], p["reason"]) for p in props] == [("repeat", "cut", "abandoned")]
+    assert kept(words, props).startswith("podemos ter a certeza de que ele apenas permite")
+
+
+def test_a_conjunction_of_another_language_or_an_unknown_one_exempts_nothing():
+    words = words_of("podemos ter a certeza de que ele nos ama e de que ele apenas permite o que acontece.", "xx")
+    props = R.detect_retakes(words, "xx", CFG)
+    assert [(p["kind"], p["default"], p["reason"]) for p in props] == [("repeat", "cut", "abandoned")]

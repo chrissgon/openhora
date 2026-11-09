@@ -580,3 +580,72 @@ def test_a_confirmed_retake_is_a_wall_for_the_retiming_and_a_word_in_a_short_pau
     ws = [lw(0, "end.", 1.0, 1.4), dict(lw(1, "gone", 3.0, 3.3), dropped=True), lw(2, "ok", 3.4, 3.7), lw(3, "later", 9.0, 9.4)]
     moved, unplaced = T.retime_misplaced(ws, [(1.5, 8.9)])
     assert [w["index"] for w in unplaced] == [2] and ws[1]["start"] == 3.0
+
+
+# ---------------------------------------------------------------- phantom words: a transcriber's words inside a silence
+
+def _phantom_spans(n, at):
+    return [("ghost%d" % k, at, at) for k in range(n)]
+
+
+def _phantom_base(spans, silences, duration=12.0, has_audio=True):
+    analysis = {"facts": {"duration": duration, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": has_audio},
+                "silences": None if silences is None else [{"start": a, "end": b} for a, b in silences]}
+    edl, _ = _edl.build_base(transcript_of(spans, duration), analysis, DATA, {})
+    _edl.check_edl(edl, DATA, VOCAB, {})
+    return edl
+
+
+def _speech(start, texts):
+    return [(t, round(start + 0.4 * k, 3), round(start + 0.4 * k + 0.35, 3)) for k, t in enumerate(texts)]
+
+
+def test_a_run_of_zero_length_words_inside_a_silence_is_dropped_with_no_island_and_no_caption():
+    """Twelve zero-length words at one instant, at the end of a 4.5 s silence (the transcriber's hallucination in silence)."""
+    before = _speech(0.5, ["Good", "morning", "to", "everyone."])
+    after = _speech(7.0, ["Now", "the", "next", "part", "begins."])
+    spans = before + _phantom_spans(12, 6.9) + after
+    edl = _phantom_base(spans, [(2.4, 6.9)])
+    assert edl["normalisation"]["phantom_words"] == [{"from": 4, "to": 15, "count": 12}]
+    assert [w["index"] for w in edl["words"]] == [0, 1, 2, 3] + [16, 17, 18, 19, 20]           # indices are never renumbered
+    assert not any(w["text"].startswith("ghost") for w in edl["words"])
+    in_chunks = {i for a, b in edl["captions"]["chunks"] for i in range(a, b + 1)}
+    assert not in_chunks & set(range(4, 16))
+    for a, b in edl["kept"]:                                                                    # the kept ranges skip the silence entirely
+        assert b / FPS <= 2.4 + 0.2 or a / FPS >= 6.9 - 0.2
+    assert len(edl["kept"]) == 2
+
+
+def test_two_zero_length_words_in_a_silence_are_below_the_run_minimum_and_stay():
+    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(2, 6.9) + _speech(7.0, ["Now", "the", "next"])
+    edl = _phantom_base(spans, [(2.4, 6.9)])
+    assert edl["normalisation"]["phantom_words"] == []
+    assert {4, 5} <= {w["index"] for w in edl["words"]}
+
+
+def test_twelve_zero_length_words_in_speech_with_no_silence_over_them_stay():
+    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(12, 3.0) + _speech(3.5, ["Now", "the", "next"])
+    edl = _phantom_base(spans, [(8.0, 12.0)])
+    assert edl["normalisation"]["phantom_words"] == []
+    assert set(range(4, 16)) <= {w["index"] for w in edl["words"]}
+
+
+def test_a_recording_with_no_audio_has_no_phantom_words():
+    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(12, 6.9) + _speech(7.0, ["Now", "the", "next"])
+    edl = _phantom_base(spans, None, has_audio=False)
+    assert edl["normalisation"]["phantom_words"] == []
+    assert set(range(4, 16)) <= {w["index"] for w in edl["words"]}
+
+
+def test_a_word_that_is_not_zero_length_is_not_a_phantom_and_a_run_is_broken_by_it():
+    spans = _speech(0.5, ["Good", "morning"]) + _phantom_spans(2, 6.9) + [("spoken", 6.9, 7.3)] + _phantom_spans(2, 7.3) + _speech(7.5, ["Now"])
+    assert T.find_phantoms([{"index": k, "text": t, "start": a, "end": b} for k, (t, a, b) in enumerate(spans)], [(2.4, 7.4)], 0.02, 3, 0.05) == []
+
+
+def test_an_older_list_without_phantom_words_still_passes_the_check():
+    spans = _speech(0.5, ["Good", "morning", "to", "everyone."])
+    edl = _phantom_base(spans, [(3.0, 5.0)], duration=6.0)
+    del edl["normalisation"]["phantom_words"]
+    _edl.check_edl(edl, DATA, VOCAB, {})
+    edl["normalisation"]["phantom_words"] = [{"from": 3, "to": 2, "count": 1}]
+    assert refused(_edl.check_edl, edl, DATA, VOCAB, {}).code == "bad_normalisation"

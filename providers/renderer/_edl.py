@@ -19,10 +19,10 @@ from _align import norm_tokens, token_sim
 from _retakes import KINDS as RETAKE_KINDS, REASONS as RETAKE_REASONS, detect_retakes
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
-from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, out_frames_of)
+from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, find_phantoms, out_frames_of)
 from _vocab import HEX_COLOR, check_params, script_section, slot_params
 
-EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words
+EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words (and, optionally, phantom_words)
 BEATS_SCHEMA_VERSION = 1
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
@@ -39,7 +39,8 @@ ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "sco
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
 SLOT_KEYS = {"slot", "beat", "param", "type", "description"}
-NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words"}
+NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words",
+                      "phantom_words"}
 
 
 def _num(x) -> bool:
@@ -166,13 +167,18 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
         raise Refusal("analysis_schema", "analysis.duration")
     if tr["duration"] > duration + 1.0:
         raise Refusal("transcript_longer_than_recording", "transcript")
-    words, report = normalise_words(tr["words"], tr["segments"], duration)
+    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
+    # words a transcriber wrote into a silence (a run of zero-length words at one instant): never spoken there, so they are dropped
+    # before anything else reads the words: no island range, no caption, no retake evidence. Their indices stay (nothing is renumbered)
+    # and the runs are listed in `normalisation.phantom_words` for the review.
+    runs = find_phantoms(tr["words"], sil, cuts["phantom_max_seconds"], cuts["phantom_run_min"], cuts["phantom_edge_seconds"])
+    words, report = normalise_words(tr["words"], tr["segments"], duration, {i for run in runs for i in run})
+    report["phantom_words"] = [{"from": run[0], "to": run[-1], "count": len(run)} for run in runs]
     live = [w for w in words if not w["dropped"]]
     if not live:
         raise Refusal("no_words", "transcript")
     if retake_mode not in RETAKE_MODES:
         raise Refusal("bad_choice", "retakes")
-    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
     proposals = detect_retakes(live, tr["language"], data["retakes"], sil)
     both = sorted(set(confirm) & set(keep))
     if both:
@@ -379,7 +385,14 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
         if f["weight"] not in range(100, 1000, 100):
             raise Refusal("bad_font_weight", "edl.theme.fonts.%s" % role)
     norm = edl["normalisation"]
-    closed(norm, NORMALISATION_KEYS, "edl.normalisation")
+    closed(norm, NORMALISATION_KEYS, "edl.normalisation", NORMALISATION_KEYS - {"phantom_words"})      # phantom_words is optional: an older list has none
+    for k, run in enumerate(norm.get("phantom_words", [])):
+        field = "edl.normalisation.phantom_words[%d]" % k
+        if k >= 2000 or not isinstance(run, dict):
+            raise Refusal("bad_normalisation", field)
+        closed(run, {"from", "to", "count"}, field)
+        if not all(_int(run[x]) and run[x] >= 0 for x in ("from", "to", "count")) or run["to"] < run["from"] or run["count"] < 1:
+            raise Refusal("bad_normalisation", field)
     for key, shape in (("retimed_words", {"index", "from", "to"}), ("unplaced_words", {"index", "start", "end"})):
         rows = norm[key]
         if not isinstance(rows, list) or len(rows) > 2000:

@@ -61,8 +61,37 @@ def check_transcript(doc, limits: dict) -> dict:
     return {"duration": float(duration), "language": language, "words": out, "segments": segments}
 
 
-def normalise_words(words: list, segments: list, duration: float) -> tuple:
-    """Return (words, report). `words` keeps every index and gains `dropped` (a bool); times are made safe:
+def find_phantoms(words: list, silences, max_seconds: float, run_min: int, edge: float) -> list:
+    """Runs of phantom words: words a transcriber wrote into a silence. A word is in a run when its length is at most `max_seconds` (a
+    word that ends before it starts counts) and it starts inside a silence (`edge` seconds of slack at both ends, since a transcriber
+    puts them at the instant the silence ends); a run is `run_min` or more such words in a row, in index order. Returns the runs as
+    lists of word indices. `silences` is a list of (start, end) pairs or None (no audio: nothing is phantom). The words are the
+    transcript's own, before any time is made safe."""
+    if not silences:
+        return []
+    rows = sorted((float(s), float(e)) for s, e in silences)
+
+    def hit(w):
+        if w["end"] - w["start"] > max_seconds + 1e-6:      # a length of exactly `max_seconds` counts, whatever the rounding of the times
+            return False
+        return any(s - edge <= w["start"] <= e + edge for s, e in rows)
+
+    runs, cur = [], []
+    for w in words:
+        if hit(w):
+            cur.append(w["index"])
+            continue
+        if len(cur) >= run_min:
+            runs.append(cur)
+        cur = []
+    if len(cur) >= run_min:
+        runs.append(cur)
+    return runs
+
+
+def normalise_words(words: list, segments: list, duration: float, phantoms=()) -> tuple:
+    """Return (words, report). `phantoms` is a set of word indices found by `find_phantoms`: they come out dropped (after the segment rule, which
+    counts them as before) and take no part in the zero-length spreading, so they create no island and no caption. `words` keeps every index and gains `dropped` (a bool); times are made safe:
 
       1. A segment of 3 or more words whose rate is over 8 words a second (by its own start and end when the transcript
          gives them, else by its words') is dropped: whisper repeated a sentence in a fraction of a second.
@@ -75,6 +104,7 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
     The report counts what was done (never a text) for the base list's facts."""
     seg_times = {s["index"]: (s["start"], s["end"]) for s in segments}
     by_segment = {}
+    phantoms = set(phantoms)
     for w in words:
         by_segment.setdefault(w["segment"], []).append(w["index"])
     dropped_segments = []
@@ -89,6 +119,8 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
         if len(members) > MAX_WORDS_PER_SECOND * span:
             drop.update(members)
             dropped_segments.append({"segment": seg, "words": len(members), "seconds": round(span, 3)})
+    dropped_count = len(drop)
+    drop |= phantoms
     out = [dict(w, dropped=w["index"] in drop) for w in words]
     live = [w for w in out if not w["dropped"]]
     clamped = 0
@@ -139,7 +171,7 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
             clamped += 1
             w["end"] = max(w["end"], w["start"] + MIN_WORD_SECONDS)
         prev_start = w["start"]
-    report = {"words": len(words), "dropped_words": len(drop), "dropped_segments": dropped_segments,
+    report = {"words": len(words), "dropped_words": dropped_count, "dropped_segments": dropped_segments,
               "zero_length_words": sum(1 for w in words if w["end"] <= w["start"]), "spread_runs": estimated_runs,
               "estimated_words": sum(1 for w in out if w["estimated"] and not w["dropped"]), "clamped_starts": clamped}
     return out, report

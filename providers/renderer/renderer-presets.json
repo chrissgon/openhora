@@ -160,7 +160,10 @@
   "wordless_max": 0.3,
   "pad_head": 0.1,
   "pad_tail": 0.14,
-  "wordless_keep": 1.5
+  "wordless_keep": 1.5,
+  "phantom_max_seconds": 0.02,
+  "phantom_run_min": 3,
+  "phantom_edge_seconds": 0.05
  },
  "retakes": {
   "window_seconds": 20.0,
@@ -173,6 +176,7 @@
   "redo_words_max": 45,
   "redo_seconds_max": 16.0,
   "redo_later_share": 0.4,
+  "coordination_between_min": 2,
   "retake_pause": 1.0,
   "phrase_pause": 0.6,
   "near_min_tokens": 4,
@@ -183,16 +187,18 @@
   "punctuation_min_share": 0.03,
   "proposals_max": 100,
   "words": {
-   "*": {"hesitation": ["hmm", "hm", "mm", "uhm"], "filler": [], "cue": [], "connector": []},
+   "*": {"hesitation": ["hmm", "hm", "mm", "uhm"], "filler": [], "cue": [], "connector": [], "conjunction": []},
    "pt": {
     "hesitation": ["ahn", "\u00e3h", "h\u00e3", "hum", "éé", "ééé", "aa", "aaa", "eee"],
     "filler": ["é", "né", "tipo", "ent\u00e3o", "aí", "bom", "olha", "assim", "ah", "eh", "uh"],
+    "conjunction": ["e", "ou", "nem"],
     "connector": ["e", "mas", "ent\u00e3o", "porque", "por\u00e9m", "que", "s\u00f3 que"],
     "cue": ["desculpa", "desculpe", "perd\u00e3o", "pera", "peraí", "espera", "calma", "corta", "de novo", "vou de novo", "vou repetir", "deixa eu", "come\u00e7ando de novo"]
    },
    "en": {
     "hesitation": ["uh", "um", "er", "erm"],
     "filler": ["so", "well", "like", "ah"],
+    "conjunction": ["and", "or", "nor"],
     "connector": ["and", "but", "so", "because", "that"],
     "cue": ["sorry", "wait", "again", "scratch that", "start over", "let me start over", "let me try again", "cut"]
    }

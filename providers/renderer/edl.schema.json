@@ -171,7 +171,7 @@
         },
         "normalisation": {
           "type": "object",
-          "description": "Counts of what was done to the transcript's times (zero-length words spread, starts clamped, segments dropped as impossible speech) retimed_words (a word that silence covers is misplaced, not absent: it is moved into the voiced span next to it, {index, from, to} in source seconds) and unplaced_words (no voiced span: left out of the captions, {index, start, end}): facts, never text."
+          "description": "Counts of what was done to the transcript's times (zero-length words spread, starts clamped, segments dropped as impossible speech) retimed_words (a word that silence covers is misplaced, not absent: it is moved into the voiced span next to it, {index, from, to} in source seconds) and unplaced_words (no voiced span: left out of the captions, {index, start, end}): phantom_words (optional: runs of {from, to, count} word indices a transcriber wrote into a silence, three or more zero-length words in a row that all start inside it: never spoken there, dropped from the words and the captions and left out of the cut planning) facts, never text."
         },
         "face_box": {
           "type": "object",
