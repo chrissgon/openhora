@@ -495,3 +495,21 @@ def test_block_params_checks_a_blocks_parameters_on_the_host_and_never_echoes_th
     rc, out, err = world.host("block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "q.json", {"text": "x" * 25}), "--vocabulary", K.VOCABULARY)
     assert rc == 1 and err.startswith("refused: text_too_long")
     assert world.runs() == []
+
+
+def test_the_host_passes_the_retake_flags_to_the_inner_verb_and_keeps_the_proposals_default_and_reason(world, tmp_path):
+    doc = K.build_transcript([(1.0, "so the first rule is uh sorry"), (1.0, "the first rule is simple name every dollar")])
+    transcript = K.write_json(tmp_path / "t.json", doc)
+    analysis = K.write_json(tmp_path / "analysis.json", {"schema_version": 1, "noise_db": -35, "min_silence": 0.25, "silences": None, "facts": {
+        "video_start": 0.0, "audio_start": 0.0, "width": 1080, "height": 1920, "rotation": 0, "fps": 30.0, "duration": doc["duration"], "has_audio": True,
+        "codec": "h264", "pix_fmt": "yuv420p", "color_space": None, "color_transfer": None, "color_primaries": None, "color_range": None, "bytes": 1,
+        "audio_codec": "aac", "sha256": "d" * 64}})
+    before = len(world.runs())
+    rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl.json", "--retakes", "propose", "--keep", "retake-1")
+    assert rc == 0, err
+    argv = world.runs()[before]["argv"]
+    assert argv[argv.index("--retakes") + 1] == "propose" and argv[argv.index("--keep") + 1] == "retake-1"
+    assert out["proposals"] and set(out["proposals"][0]) == {"id", "kind", "seconds", "confirmed", "default", "reason"}      # the sanitiser keeps both
+    assert out["proposals"][0]["default"] == "cut" and out["proposals"][0]["confirmed"] is False
+    rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl2.json")
+    assert rc == 0 and world.runs()[before + 1]["argv"][world.runs()[before + 1]["argv"].index("--retakes") + 1] == "auto" and out["proposals"][0]["confirmed"] is True

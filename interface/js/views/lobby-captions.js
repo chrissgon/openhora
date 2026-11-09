@@ -12,7 +12,7 @@ import { can as pageMay } from "../permissions.js";
 import { hostOf, onLoopback, LAN_MEDIA } from "../cards/deliver.js";
 import {
   selection, grow, shrink, sameSegment, editOf, retakeEdit, anchorEdit, clearAnchor, overlayEdit, removeAnimation, addAnimation,
-  fieldsOf, paramsOf, WHY_TEXT, canEdit,
+  fieldsOf, paramsOf, WHY_TEXT, canEdit, RETAKE_REASONS, retakeState, wordsText,
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
@@ -408,8 +408,10 @@ export function createCaptionReview(env) {
     if (!view.retakes.length) return null;
     const list = h("ul", { class: "wb-cr-list", "aria-label": "Retakes" });
     for (const r of view.retakes) {
+      const why = r.decided === "rule" && RETAKE_REASONS[r.reason] ? ` (${RETAKE_REASONS[r.reason]})` : "";
       const li = h("li", { class: "wb-cr-item" },
-        h("p", { class: "wb-cr-line", text: `Retake ${r.id}: ${r.kind}, ${r.seconds} s, words ${r.word_from} to ${r.word_to}${r.confirmed ? ", cut" : ", kept"}` }));
+        h("p", { class: "wb-cr-line", text: `Retake ${r.id}: ${r.kind}, ${r.seconds} s, words ${r.word_from} to ${r.word_to}, ${retakeState(r)}${why}` }),
+        h("p", { class: r.confirmed ? "wb-cr-line wb-cr-retake-words wb-cr-cut" : "wb-cr-line wb-cr-retake-words", text: wordsText(view.words, r.word_from, r.word_to) }));
       if (editable()) li.append(h("div", { class: "wb-cr-actions" }, button(r.confirmed ? "Keep it" : "Cut it", () => sendEdit(retakeEdit(r.id, !r.confirmed)))));
       list.append(li);
     }

@@ -22,7 +22,7 @@ ALLOW = {"fixture-800": {"id": "fixture-800"}}
 def make(post=K.POST, transcript=None):
     doc = transcript or K.build_transcript()
     analysis = {"facts": {"duration": doc["duration"], "sha256": "c" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
-    edl, _ = _edl.build_base(doc, analysis, DATA, ALLOW)
+    edl, _ = _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose")      # retakes are not this suite's subject
     rows = [r for r in A.read_beats(post, VOCAB) if r["preset"]]
     tr = T.check_transcript(doc, DATA["limits"])
     words, _ = T.normalise_words(tr["words"], tr["segments"], tr["duration"])
@@ -77,7 +77,32 @@ def test_the_schema_file_lists_the_same_keys_as_the_checks():
     assert set(schema["edl"]["properties"]["source"]["properties"]) == _edl.SOURCE_KEYS
     assert set(schema["beats"]["properties"]) == _edl.BEATS_KEYS
     assert set(schema["entry"]["properties"]) == _edl.ENTRY_KEYS
+    assert set(schema["edl"]["properties"]["proposals"]["items"]["properties"]) == _edl.PROPOSAL_KEYS
+    item = schema["edl"]["properties"]["proposals"]["items"]
+    assert set(item["required"]) == _edl.PROPOSAL_REQUIRED and set(item["properties"]["kind"]["enum"]) == set(_edl.RETAKE_KINDS)
+    assert tuple(item["properties"]["reason"]["enum"]) == _edl.RETAKE_REASONS and item["properties"]["default"]["enum"] == ["cut", "keep"]
     assert set(schema["beats"]["properties"]["slots"]["items"]["properties"]) == _edl.SLOT_KEYS
+
+
+def test_a_proposal_checks_its_kind_default_and_reason_and_an_old_list_without_them_passes():
+    doc = K.build_transcript([(1.0, "so the first rule is uh sorry"), (1.0, "the first rule is simple name every dollar")])
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "c" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    edl, _ = _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose")
+    assert edl["proposals"] and all("default" in p and "reason" in p for p in edl["proposals"])
+    _edl.check_edl(edl, DATA, VOCAB, ALLOW)
+    for key, value in (("default", "maybe"), ("reason", "because"), ("kind", "repeated"), ("default", None), ("reason", 3)):
+        bad = copy.deepcopy(edl)
+        bad["proposals"][0][key] = value
+        with pytest.raises(Refusal) as e:
+            _edl.check_edl(bad, DATA, VOCAB, ALLOW)
+        assert e.value.code == "bad_proposals", (key, value)
+    old = copy.deepcopy(edl)
+    for p in old["proposals"]:
+        del p["default"], p["reason"]
+    _edl.check_edl(old, DATA, VOCAB, ALLOW)
+    near = copy.deepcopy(edl)
+    near["proposals"][0]["kind"] = "near"
+    _edl.check_edl(near, DATA, VOCAB, ALLOW)
 
 
 def test_the_bounds_on_ranges_words_and_beats():

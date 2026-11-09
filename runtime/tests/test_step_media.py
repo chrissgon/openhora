@@ -12,6 +12,7 @@ import os
 import pytest
 
 import standin_tree as st
+cap = st.load("captions")
 from media_kit import (FakeEngine, KEY, POST, RENDER_BLOCKS, add, flag, media, open_items, ops, ops_core, ops_steps, ops_step_seams, post_text, run_task, sha,
                        step_media, steps, task_row, to_gate, to_review, work_file, world)  # noqa: F401  (world is a fixture)
 
@@ -115,7 +116,7 @@ def test_each_engine_call_has_the_arguments_of_its_step(world):
     assert still["args"] == ["--in", os.path.join(folder, "raw.mp4"), "--at-ms", "1500", "--out", folder]
     retakes, align = engine.of("base")[0], engine.of("align")[0]
     assert retakes["args"] == ["--transcript", os.path.join(folder, "transcript.json"), "--analysis", os.path.join(folder, "analysis.json"),
-                               "--out", os.path.join(folder, "proposal.edl.json")]
+                               "--out", os.path.join(folder, "proposal.edl.json"), "--retakes", "propose"]
     assert flag(align["args"], "--post").endswith(POST) and flag(align["args"], "--transcript") == os.path.join(folder, "transcript.json")
     assert flag(align["args"], "--checker").endswith(os.path.join("skills", "mkt-social-copy", "scripts", "check_script.py"))
     assert flag(align["args"], "--vocabulary").endswith(os.path.join("shared", "references", "video-presets.json"))
@@ -129,8 +130,8 @@ def test_the_steps_after_the_review_call_the_engine_with_their_arguments_and_wri
     platform = os.path.join(os.path.dirname(ops_step_seams.__file__), "..", "shared", "references", "platforms", "instagram.json")
     assert [c["verb"] for c in engine.calls][5:] == ["base", "align", "check", "render", "cover", "verify"]
     base, align, check, render, cover, verify = engine.calls[5:]
-    assert base["args"][:6] == ["--transcript", os.path.join(folder, "transcript.edited.json"), "--analysis", os.path.join(folder, "analysis.json"),
-                                "--out", os.path.join(folder, "edl.json")] and "--confirm" not in base["args"]
+    assert base["args"][:8] == ["--transcript", os.path.join(folder, "transcript.edited.json"), "--analysis", os.path.join(folder, "analysis.json"),
+                                "--out", os.path.join(folder, "edl.json"), "--retakes", "propose"] and "--confirm" not in base["args"]
     assert flag(align["args"], "--edl") == os.path.join(folder, "edl.json") and flag(align["args"], "--out") == os.path.join(folder, "beats.json")
     assert check["args"][:4] == ["--edl", os.path.join(folder, "edl.json"), "--beats", os.path.join(folder, "beats.json")]
     assert os.path.realpath(flag(check["args"], "--platform-file")) == os.path.realpath(platform)
@@ -209,3 +210,112 @@ def test_preparing_the_proposals_again_starts_the_review_over_and_the_still_patt
     steps.prepare_again(pctx, kind, state, "analyse")
     names = {p.name for p in work_file(world, "x").parent.iterdir()}
     assert not [n for n in names if n.startswith("still-")] and "analysis.json" not in names and "transcript.json" in names
+
+
+# ---------------------------------------------------------------- retakes: the rule's defaults and the person's choices
+
+def retake(ident, first, last, default, seconds=0.8, reason="continues"):
+    return {"id": ident, "kind": "repeat", "word_from": first, "word_to": last, "keep_from": last + 1, "seconds": seconds, "confirmed": False,
+            "default": default, "reason": reason}
+
+
+CUT, KEPT = retake("retake-1", 1, 2, "cut"), retake("retake-2", 4, 5, "keep", reason="complete")
+
+
+def base_calls(engine):
+    return engine.of("base")
+
+
+def result_of(world, task, step):
+    state = steps.state_of(steps.kind_of("media"), task_row(world, task)["step_state"])
+    return state["steps"][step]["result"]
+
+
+def confirms(call):
+    return [call["args"][i + 1] for i, a in enumerate(call["args"]) if a == "--confirm"]
+
+
+def test_the_proposals_are_made_with_propose_and_the_result_counts_what_the_rule_cuts(world):
+    world["engine"].proposals = [CUT, KEPT]
+    task = to_review(world)
+    first = base_calls(world["engine"])[0]
+    assert flag(first["args"], "--retakes") == "propose" and "--confirm" not in first["args"]
+    got = result_of(world, task, "retakes")
+    assert got["proposals"] == 2 and got["cut_by_rule"] == 1
+
+
+@pytest.mark.parametrize("cuts,line", [([CUT, KEPT], "1 repeated take will be cut by rule; open the captions to keep one."),
+                                       ([CUT, retake("retake-3", 6, 6, "cut")], "2 repeated takes will be cut by rule; open the captions to keep one."),
+                                       ([], "0 repeated takes will be cut by rule; open the captions to keep one.")])
+def test_the_review_question_has_one_more_fixed_line_with_the_count_and_no_word(world, cuts, line):
+    world["engine"].proposals = cuts
+    task = to_review(world)
+    [item] = open_items(world, task)
+    lines = item["body"].splitlines()
+    assert lines[3] == line and lines[4] == "Edit the captions, then continue."          # the new line sits before the one that says what to do next
+    assert "Aster" not in item["body"]
+
+
+def test_a_rule_default_that_the_person_did_not_keep_is_confirmed_in_the_final_base_and_a_kept_one_is_not(world):
+    world["engine"].proposals = [CUT, KEPT]
+    task = to_review(world)
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    run_task(world, task)
+    final = base_calls(world["engine"])[-1]
+    assert flag(final["args"], "--retakes") == "propose" and confirms(final) == ["retake-1"]          # the rule's cut; the kept proposal stays
+    got = result_of(world, task, "base")
+    assert got["retakes_confirmed"] == 1 and got["retakes_by_rule"] == 1 and got["retakes_unmatched"] == 0
+
+
+def test_a_take_the_person_kept_is_not_confirmed_even_though_the_rule_says_cut(world):
+    world["engine"].proposals = [CUT, KEPT]
+    task = to_review(world)
+    review = cap.new_review()
+    review["kept_retakes"] = [{"id": "retake-1", "from": 1, "to": 2, "seconds": 0.8}]
+    work_file(world, "review.json").write_text(json.dumps(review))
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    run_task(world, task)
+    final = base_calls(world["engine"])[-1]
+    assert confirms(final) == [] and "--confirm" not in final["args"] and len(base_calls(world["engine"])) == 2
+    assert result_of(world, task, "base")["retakes_by_rule"] == 0
+
+
+def test_a_take_the_person_cut_is_confirmed_with_the_rules_cuts(world):
+    world["engine"].proposals = [CUT, KEPT]
+    task = to_review(world)
+    review = cap.new_review()
+    review["confirmed_retakes"] = [{"id": "retake-2", "from": 4, "to": 5, "seconds": 0.8}]
+    work_file(world, "review.json").write_text(json.dumps(review))
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    run_task(world, task)
+    assert sorted(confirms(base_calls(world["engine"])[-1])) == ["retake-1", "retake-2"]
+
+
+def test_a_rule_default_with_no_matching_proposal_is_counted_and_never_stops_the_step(world):
+    world["engine"].proposals = [CUT, KEPT]
+    world["engine"].final_proposals = [KEPT]            # the rule finds nothing where the person saw the first take
+    task = to_review(world)
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    out = run_task(world, task)
+    assert out["ok"] is True and out.get("stopped") == "deliver"
+    assert confirms(base_calls(world["engine"])[-1]) == [] or "--confirm" not in base_calls(world["engine"])[-1]["args"]
+    got = result_of(world, task, "base")
+    assert got["retakes_unmatched"] == 1 and got["retakes_by_rule"] == 0 and got["retakes_confirmed"] == 0
+
+
+def test_a_lost_confirmation_of_the_person_still_stops_with_retake_lost(world):
+    world["engine"].proposals = [CUT, KEPT]
+    world["engine"].final_proposals = [CUT]
+    task = to_review(world)
+    review = cap.new_review()
+    review["confirmed_retakes"] = [{"id": "retake-2", "from": 4, "to": 5, "seconds": 0.8}]
+    work_file(world, "review.json").write_text(json.dumps(review))
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    out = run_task(world, task)
+    assert out["ok"] is False and out["failed"] == "base" and out["code"] == "retake_lost"
+    assert json.loads(work_file(world, "review.json").read_text())["confirmed_retakes"] == []

@@ -16,19 +16,22 @@ import _blocks
 import _media
 import _redact
 from _align import norm_tokens, token_sim
+from _retakes import KINDS as RETAKE_KINDS, REASONS as RETAKE_REASONS, detect_retakes
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
-from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, detect_retakes, kept_ranges, normalise_words, out_frames_of)
+from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, find_phantoms, out_frames_of)
 from _vocab import HEX_COLOR, check_params, script_section, slot_params
 
-EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words
+EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words (and, optionally, phantom_words)
 BEATS_SCHEMA_VERSION = 1
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 MENTION = re.compile(r"(?<![\w@])@[\w.]{1,30}")
 EDL_KEYS = {"schema_version", "fps", "size", "source", "kept", "out_frames", "words", "captions", "theme", "normalisation", "face_box", "zoom",
             "proposals"}
-PROPOSAL_KEYS = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
+PROPOSAL_REQUIRED = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
+PROPOSAL_KEYS = PROPOSAL_REQUIRED | {"default", "reason"}      # `default` and `reason` are optional: a list written before them reads as `keep`
+RETAKE_MODES = ("auto", "propose")
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
 BEATS_KEYS = BEATS_REQUIRED | {"script"}          # `script` is optional: a beats file without it stays valid, schema_version 1
@@ -36,7 +39,8 @@ ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "sco
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
 SLOT_KEYS = {"slot", "beat", "param", "type", "description"}
-NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words"}
+NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words",
+                      "phantom_words"}
 
 
 def _num(x) -> bool:
@@ -122,12 +126,13 @@ def parse_face_box(text: str) -> dict:
 
 def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None) -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto") -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
-    decide); the words only protect speech. Retakes are found by rule and written into the list as PROPOSALS, none applied:
-    `confirm` names the proposals the person confirmed (by id), and only those are cut. A cut of `long_cut` seconds or more
+    decide); the words only protect speech. Retakes are found by rule (`_retakes`) and written into the list as proposals, each with
+    a `default` (`cut` or `keep`) and a `reason`. `retake_mode` `auto` cuts every proposal whose default is `cut` except those named in
+    `keep`, and those named in `confirm`; `propose` cuts only `confirm`. An id in both `keep` and `confirm` is refused. A cut of `long_cut` seconds or more
     also takes the wordless sound of more than `wordless_max` seconds at its edges. `face_box` is {x, y, w, h} in
     frame pixels (the person gives it once per recording; a default is used otherwise). `zoom_mode` is `alternate` (every
     second kept range is drawn at `zoom_factor`, about a fixed point: the face's centre, `anchor_y` of the box's height down
@@ -162,18 +167,32 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
         raise Refusal("analysis_schema", "analysis.duration")
     if tr["duration"] > duration + 1.0:
         raise Refusal("transcript_longer_than_recording", "transcript")
-    words, report = normalise_words(tr["words"], tr["segments"], duration)
+    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
+    # a transcriber's repetition hallucination in a silence (a run of zero-length words that repeats the words just before it): never spoken, dropped
+    # before anything else reads the words: no island range, no caption, no retake evidence. Their indices stay (nothing is renumbered)
+    # and the runs are listed in `normalisation.phantom_words` for the review.
+    runs = find_phantoms(tr["words"], sil, cuts["phantom_max_seconds"], cuts["phantom_run_min"], cuts["phantom_edge_seconds"], cuts["phantom_repeat_min"])
+    words, report = normalise_words(tr["words"], tr["segments"], duration, {i for run in runs for i in run})
+    report["phantom_words"] = [{"from": run[0], "to": run[-1], "count": len(run)} for run in runs]
     live = [w for w in words if not w["dropped"]]
     if not live:
         raise Refusal("no_words", "transcript")
-    proposals = detect_retakes(live)
-    unknown = sorted(set(confirm) - {p["id"] for p in proposals})
+    if retake_mode not in RETAKE_MODES:
+        raise Refusal("bad_choice", "retakes")
+    proposals = detect_retakes(live, tr["language"], data["retakes"], sil)
+    both = sorted(set(confirm) & set(keep))
+    if both:
+        raise Refusal("retake_conflict", both[0][:32])
+    unknown = sorted((set(confirm) | set(keep)) - {p["id"] for p in proposals})
     if unknown:
         raise Refusal("unknown_proposal", unknown[0][:32])
+    cut_ids = set(confirm)
+    if retake_mode == "auto":
+        cut_ids |= {p["id"] for p in proposals if p["default"] == "cut"} - set(keep)
     forced = []
     by_index = {w["index"]: w for w in live}
     for p in proposals:
-        if p["id"] not in confirm:
+        if p["id"] not in cut_ids:
             continue
         p["confirmed"] = True
         first, last = by_index[p["word_from"]], by_index[p["word_to"]]
@@ -194,8 +213,6 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     kept_words = [w for w in live if not w["dropped"]]
     if not kept_words:
         raise Refusal("nothing_kept", "transcript")
-    silences = analysis.get("silences")
-    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
     long_cut = cuts["long_cut"] if long_cut is None else long_cut
     wordless_max = cuts["wordless_max"] if wordless_max is None else wordless_max
     if not _num(long_cut) or not _num(wordless_max) or long_cut < 0 or wordless_max < 0:
@@ -368,7 +385,14 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
         if f["weight"] not in range(100, 1000, 100):
             raise Refusal("bad_font_weight", "edl.theme.fonts.%s" % role)
     norm = edl["normalisation"]
-    closed(norm, NORMALISATION_KEYS, "edl.normalisation")
+    closed(norm, NORMALISATION_KEYS, "edl.normalisation", NORMALISATION_KEYS - {"phantom_words"})      # phantom_words is optional: an older list has none
+    for k, run in enumerate(norm.get("phantom_words", [])):
+        field = "edl.normalisation.phantom_words[%d]" % k
+        if k >= 2000 or not isinstance(run, dict):
+            raise Refusal("bad_normalisation", field)
+        closed(run, {"from", "to", "count"}, field)
+        if not all(_int(run[x]) and run[x] >= 0 for x in ("from", "to", "count")) or run["to"] < run["from"] or run["count"] < 1:
+            raise Refusal("bad_normalisation", field)
     for key, shape in (("retimed_words", {"index", "from", "to"}), ("unplaced_words", {"index", "start", "end"})):
         rows = norm[key]
         if not isinstance(rows, list) or len(rows) > 2000:
@@ -387,8 +411,9 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
     seen = set()
     for k, p in enumerate(props):
         field = "edl.proposals[%d]" % k
-        closed(p, PROPOSAL_KEYS, field)
-        if not isinstance(p["id"], str) or not ID.fullmatch(p["id"]) or p["id"] in seen or p["kind"] not in ("repeat", "restart") \
+        closed(p, PROPOSAL_KEYS, field, PROPOSAL_REQUIRED)
+        if not isinstance(p["id"], str) or not ID.fullmatch(p["id"]) or p["id"] in seen or p["kind"] not in RETAKE_KINDS \
+                or ("default" in p and p["default"] not in ("cut", "keep")) or ("reason" in p and p["reason"] not in RETAKE_REASONS) \
                 or not all(_int(p[x]) and p[x] >= 0 for x in ("word_from", "word_to", "keep_from")) or p["word_from"] > p["word_to"] \
                 or p["keep_from"] <= p["word_to"] or not _num(p["seconds"]) or not isinstance(p["confirmed"], bool):
             raise Refusal("bad_proposals", field)

@@ -13,7 +13,10 @@ Frames are integers on the grid of the output fps. Standard library only.
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 
+from _align import norm_tokens
 from _text import Refusal, clean_text
 
 MIN_WORD_SECONDS = 0.04     # a word the transcriber gave no length gets at least this much
@@ -24,8 +27,8 @@ MAX_END_OVERSHOOT = 1.0     # a word may end this long after the audio's duratio
 
 def check_transcript(doc, limits: dict) -> dict:
     """The transcriber's transcript.json (providers/transcriber/transcript.schema.json), checked for what the renderer
-    reads: words with `index`, `text`, `start`, `end`, `segment`. Returns {duration, words, segments}; the text of
-    every word is hardened (NFC, no Cc, Cf, Zl or Zp character)."""
+    reads: words with `index`, `text`, `start`, `end`, `segment`. Returns {duration, language, words, segments}; the text of
+    every word is hardened (NFC, no Cc, Cf, Zl or Zp character); `language` is the 2-3 letter code, None when absent or malformed."""
     if not isinstance(doc, dict) or doc.get("schema_version") != 1:
         raise Refusal("transcript_schema", "schema_version")
     duration = doc.get("duration")
@@ -54,11 +57,59 @@ def check_transcript(doc, limits: dict) -> dict:
         if isinstance(seg, dict) and isinstance(seg.get("index"), int) and all(
                 isinstance(seg.get(k), (int, float)) and not isinstance(seg.get(k), bool) and math.isfinite(seg.get(k)) for k in ("start", "end")):
             segments.append({"index": seg["index"], "start": float(seg["start"]), "end": float(seg["end"])})
-    return {"duration": float(duration), "words": out, "segments": segments}
+    language = doc.get("language")
+    if not isinstance(language, str) or not re.fullmatch(r"[a-z]{2,3}", language):
+        language = None
+    return {"duration": float(duration), "language": language, "words": out, "segments": segments}
 
 
-def normalise_words(words: list, segments: list, duration: float) -> tuple:
-    """Return (words, report). `words` keeps every index and gains `dropped` (a bool); times are made safe:
+def _folded_tokens(text: str) -> list:
+    return ["".join(c for c in unicodedata.normalize("NFKD", tok) if not unicodedata.combining(c)) for tok in norm_tokens(text)]
+
+
+def find_phantoms(words: list, silences, max_seconds: float, run_min: int, edge: float, repeat_min: int) -> list:
+    """Runs of phantom words: a transcriber's repetition hallucination in a silence (typically at the end of a file, the last sentence
+    written again). A run is `run_min` or more words in a row, each at most `max_seconds` long (a word that ends before it starts
+    counts) and each starting inside a silence (`edge` seconds of slack at both ends); and it is phantom only when its folded text
+    repeats words said just before it: its first `repeat_min` tokens (all of them when the run has fewer) are found, in order, among
+    the tokens of the preceding words (the last twice the run's length, at least 40). Any other run of zero-length words is a
+    transcriber's collapsed timing of words that were spoken (a sentence opening squeezed into the end of a silence): it is not
+    touched here (`normalise_words` spreads it). Returns the phantom runs as lists of word indices. `silences` is a list of
+    (start, end) pairs or None (no audio: nothing is phantom). The words are the transcript's own, before any time is made safe."""
+    if not silences:
+        return []
+    rows = sorted((float(s), float(e)) for s, e in silences)
+
+    def hit(w):
+        if w["end"] - w["start"] > max_seconds + 1e-6:      # a length of exactly `max_seconds` counts, whatever the rounding of the times
+            return False
+        return any(s - edge <= w["start"] <= e + edge for s, e in rows)
+
+    def repeats(run):
+        first = next(k for k, w in enumerate(words) if w["index"] == run[0])
+        run_tokens = [x for w in words[first:first + len(run)] for x in _folded_tokens(w["text"])]
+        before = [x for w in words[:first] for x in _folded_tokens(w["text"])]
+        need = min(repeat_min, len(run_tokens))
+        if need == 0 or len(before) < need:
+            return False
+        window = before[-max(2 * len(run_tokens), 40):]
+        head = run_tokens[:need]
+        return any(window[k:k + need] == head for k in range(len(window) - need + 1))
+
+    runs, cur = [], []
+    for w in words + [None]:
+        if w is not None and hit(w):
+            cur.append(w["index"])
+            continue
+        if len(cur) >= run_min and repeats(cur):
+            runs.append(cur)
+        cur = []
+    return runs
+
+
+def normalise_words(words: list, segments: list, duration: float, phantoms=()) -> tuple:
+    """Return (words, report). `phantoms` is a set of word indices found by `find_phantoms`: they come out dropped (after the segment rule, which
+    counts them as before) and take no part in the zero-length spreading, so they create no island and no caption. `words` keeps every index and gains `dropped` (a bool); times are made safe:
 
       1. A segment of 3 or more words whose rate is over 8 words a second (by its own start and end when the transcript
          gives them, else by its words') is dropped: whisper repeated a sentence in a fraction of a second.
@@ -71,6 +122,7 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
     The report counts what was done (never a text) for the base list's facts."""
     seg_times = {s["index"]: (s["start"], s["end"]) for s in segments}
     by_segment = {}
+    phantoms = set(phantoms)
     for w in words:
         by_segment.setdefault(w["segment"], []).append(w["index"])
     dropped_segments = []
@@ -85,6 +137,8 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
         if len(members) > MAX_WORDS_PER_SECOND * span:
             drop.update(members)
             dropped_segments.append({"segment": seg, "words": len(members), "seconds": round(span, 3)})
+    dropped_count = len(drop)
+    drop |= phantoms
     out = [dict(w, dropped=w["index"] in drop) for w in words]
     live = [w for w in out if not w["dropped"]]
     clamped = 0
@@ -135,7 +189,7 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
             clamped += 1
             w["end"] = max(w["end"], w["start"] + MIN_WORD_SECONDS)
         prev_start = w["start"]
-    report = {"words": len(words), "dropped_words": len(drop), "dropped_segments": dropped_segments,
+    report = {"words": len(words), "dropped_words": dropped_count, "dropped_segments": dropped_segments,
               "zero_length_words": sum(1 for w in words if w["end"] <= w["start"]), "spread_runs": estimated_runs,
               "estimated_words": sum(1 for w in out if w["estimated"] and not w["dropped"]), "clamped_starts": clamped}
     return out, report
@@ -445,69 +499,6 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
             break
     bounds = [0] + [x for c in merged for x in c[:2]] + [total]
     return [[bounds[i], bounds[i + 1]] for i in range(0, len(bounds), 2) if bounds[i + 1] > bounds[i]]
-
-
-def detect_retakes(words: list, window: float = 20.0, run: int = 4, pause: float = 0.6) -> list:
-    """Retakes by rule, as proposals. Never applied here: the person confirms each one (a proposal is data in the edit
-    list, struck through on the page; the render drops only a confirmed one).
-
-      repeat   a run of at least `run` normalised words that occurs again within `window` seconds: the earlier take, from
-               its first word up to the word before the later one, is proposed for dropping;
-      restart  a sentence that was cut mid-way and begun again: the first of two consecutive sentences does not end in
-               sentence punctuation, is not longer than the second, starts with the same two normalised words and the second begins within
-               `window` seconds: propose dropping the first.
-
-    A proposal holds indices only: {kind, word_from, word_to (the words to drop), keep_from (the first word of the take that
-    stays), seconds}. Proposals never overlap; the earlier one wins."""
-    toks = []                                  # (normalised token, word index, start)
-    from _align import norm_tokens
-    for w in words:
-        for t in norm_tokens(w["text"]):
-            toks.append((t, w["index"], w["start"]))
-    found = []
-    n = len(toks)
-    i = 0
-    while i < n:
-        best = None
-        for j in range(i + 1, n):
-            if toks[j][2] - toks[i][2] > window:
-                break
-            length = 0
-            while j + length < n and i + length < j and toks[i + length][0] == toks[j + length][0]:
-                length += 1
-            if length >= run and (best is None or length > best[1]):
-                best = (j, length)
-        if best:
-            j, length = best
-            found.append({"kind": "repeat", "word_from": toks[i][1], "word_to": toks[j][1] - 1, "keep_from": toks[j][1],
-                          "seconds": 0.0})
-            i = j
-        else:
-            i += 1
-    # sentences: split at a sentence end or a pause
-    sentences, cur = [], []
-    for k, w in enumerate(words):
-        cur.append(w)
-        nxt = words[k + 1] if k + 1 < len(words) else None
-        if w["text"].rstrip("\"')]»”’").endswith((".", "?", "!", "…")) or nxt is None or nxt["start"] - w["end"] > pause:
-            sentences.append(cur)
-            cur = []
-    for a, b in zip(sentences, sentences[1:]):
-        ta = [t for w in a for t in norm_tokens(w["text"])]
-        tb = [t for w in b for t in norm_tokens(w["text"])]
-        ended = a[-1]["text"].rstrip("\"')]»”’").endswith((".", "?", "!", "…"))
-        if len(ta) >= 2 and ta[:2] == tb[:2] and len(ta) <= len(tb) and not ended and b[0]["start"] - a[-1]["end"] <= window:
-            found.append({"kind": "restart", "word_from": a[0]["index"], "word_to": a[-1]["index"], "keep_from": b[0]["index"], "seconds": 0.0})
-    found.sort(key=lambda p: (p["word_from"], p["word_to"]))
-    out, last_to = [], -1
-    by_index = {w["index"]: w for w in words}
-    for p in found:
-        if p["word_from"] <= last_to:
-            continue
-        last_to = p["word_to"]
-        p["seconds"] = round(by_index[p["word_to"]]["end"] - by_index[p["word_from"]]["start"], 3)
-        out.append(dict(p, id="retake-%d" % (len(out) + 1), confirmed=False))
-    return out
 
 
 def out_offsets(kept: list) -> list:

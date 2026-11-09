@@ -350,6 +350,66 @@ def test_the_cover_offset_is_a_whole_number_of_milliseconds():
             apply([{"op": "cover", "offset_ms": bad}])
 
 
+def test_a_review_has_the_kept_retakes_list_and_an_old_review_without_it_reads_as_empty():
+    review = cap.new_review()
+    assert review["kept_retakes"] == [] and cap.check_review(review) == review
+    old = {k: v for k, v in review.items() if k != "kept_retakes"}
+    assert cap.check_review(old)["kept_retakes"] == []
+    entry = {"id": "retake-1", "from": 28, "to": 33, "seconds": 2.4}
+    assert cap.check_review({**review, "kept_retakes": [entry]})["kept_retakes"] == [entry]
+    for broken in ([{"id": "retake-1"}], [{"id": 1, "from": 1, "to": 2}], [{"id": "r", "from": 3, "to": 2}], [{"id": "r", "from": 1, "to": 2, "seconds": "x"}], "no", [3]):
+        with pytest.raises(cap.CaptionError):
+            cap.check_review({**review, "kept_retakes": broken})
+
+
+def test_keeping_and_cutting_a_take_move_it_between_the_two_lists_and_each_is_sorted():
+    proposals = {"retake-1": (28, 33, 2.4), "retake-2": (10, 12, 1.0)}
+    _, review, _ = apply([{"op": "retake", "id": "retake-1", "confirmed": False}], proposals=proposals)
+    assert review["kept_retakes"] == [{"id": "retake-1", "from": 28, "to": 33, "seconds": 2.4}] and review["confirmed_retakes"] == []
+    out, review, _ = apply([{"op": "retake", "id": "retake-2", "confirmed": False}], *fresh_with(review), proposals=proposals)
+    assert [r["id"] for r in review["kept_retakes"]] == ["retake-2", "retake-1"]
+    _, review, _ = apply([{"op": "retake", "id": "retake-1", "confirmed": True}], out, review, revision=review["revision"], proposals=proposals)
+    assert [r["id"] for r in review["confirmed_retakes"]] == ["retake-1"] and [r["id"] for r in review["kept_retakes"]] == ["retake-2"]
+    assert cap.check_review(review) == review
+
+
+def rule_edl():
+    return {"proposals": [
+        {"id": "retake-1", "kind": "repeat", "word_from": 28, "word_to": 33, "keep_from": 34, "seconds": 2.4, "confirmed": False, "default": "cut", "reason": "hesitation"},
+        {"id": "retake-2", "kind": "repeat", "word_from": 40, "word_to": 42, "keep_from": 43, "seconds": 1.0, "confirmed": False, "default": "keep", "reason": "complete"},
+        {"id": "retake-3", "kind": "near", "word_from": 50, "word_to": 52, "keep_from": 53, "seconds": 1.1, "confirmed": False, "default": "cut", "reason": "pause"},
+        {"id": "retake-4", "kind": "repeat", "word_from": 55, "word_to": 56, "keep_from": 57, "seconds": 0.5, "confirmed": False}]}      # an old list: no default
+
+
+def test_cut_entries_are_the_persons_confirmations_and_the_rules_cuts_the_person_did_not_keep():
+    review = cap.new_review()
+    got = cap.cut_entries(review, rule_edl())
+    assert [(e["id"], e["from"], e["to"], e.get("rule")) for e in got] == [("retake-1", 28, 33, True), ("retake-3", 50, 52, True)]
+    assert all(e["seconds"] is not None for e in got) and "rule" not in review["confirmed_retakes"]
+    review["kept_retakes"] = [{"id": "retake-1", "from": 28, "to": 33}]
+    review["confirmed_retakes"] = [{"id": "retake-2", "from": 40, "to": 42, "seconds": 1.0}]
+    got = cap.cut_entries(review, rule_edl())
+    assert [(e["id"], e.get("rule")) for e in got] == [("retake-2", None), ("retake-3", True)]
+    assert cap.cut_entries(cap.new_review(), {}) == []
+    review["confirmed_retakes"] = [{"id": "retake-3", "from": 50, "to": 52}]      # the person's own cut is not listed twice
+    assert [e["id"] for e in cap.cut_entries(review, rule_edl())] == ["retake-3"]
+
+
+def test_the_view_shows_the_effective_state_the_default_the_reason_who_decided_and_the_start():
+    edited, review = fresh()
+    beats = proposal_documents()[1]
+    shown = cap.view(edited, review, rule_edl(), beats, {"beat7": None})
+    rows = {r["id"]: r for r in shown["retakes"]}
+    assert [(r["default"], r["reason"], r["decided"], r["confirmed"]) for r in shown["retakes"]] == [
+        ("cut", "hesitation", "rule", True), ("keep", "complete", "rule", False), ("cut", "pause", "rule", True), ("keep", None, "rule", False)]
+    assert rows["retake-1"]["start"] == edited["words"][28]["start"] and shown["counts"]["confirmed"] == 2
+    review["kept_retakes"] = [{"id": "retake-1", "from": 28, "to": 33}]
+    review["confirmed_retakes"] = [{"id": "retake-2", "from": 40, "to": 42}]
+    shown = cap.view(edited, review, rule_edl(), beats, {"beat7": None})
+    assert [(r["decided"], r["confirmed"]) for r in shown["retakes"]] == [("person", False), ("person", True), ("rule", True), ("rule", False)]
+    assert shown["counts"]["confirmed"] == 2 and shown["counts"]["retakes"] == 4
+
+
 def test_a_review_that_is_stored_is_read_back_closed():
     review = cap.new_review()
     assert cap.check_review(review) == review
@@ -409,7 +469,8 @@ def test_the_view_shows_chunks_retakes_adjusted_timing_beats_and_what_was_left_o
     assert words[0]["timing_adjusted"] is True and words[1]["timing_adjusted"] is False
     assert words[9]["left_out"] == "unplaced" and shown["unplaced"] == [{"index": 9, "word": 9, "start": 0.1, "end": 0.2}]
     assert words[40]["chunk"] is None
-    assert shown["retakes"] == [{"id": "retake-1", "kind": "repeat", "seconds": 2.4, "word_from": 28, "word_to": 33, "keep_from": 34, "confirmed": False}]
+    assert shown["retakes"] == [{"id": "retake-1", "kind": "repeat", "seconds": 2.4, "word_from": 28, "word_to": 33, "keep_from": 34, "confirmed": False,
+                                 "default": "keep", "reason": None, "decided": "rule", "start": edited["words"][28]["start"]}]      # a list with no `default` reads as keep
     rows = {b["beat"]: b for b in shown["beats"]}
     assert set(rows) == {3, 5, 6}, "a beat with no preset has no overlay to check"
     assert rows[3]["below_threshold"] is False and rows[5]["below_threshold"] is True and rows[5]["word_from"] is None
@@ -499,3 +560,14 @@ def test_a_merge_of_long_words_or_a_text_with_a_space_is_refused_when_it_is_made
             apply([edit])
         assert caught.value.code == "space_in_word"
     assert cap.harden_word("x" * 40, "w") and cap.harden_word("é", "w") == "é"
+
+
+def test_the_demos_retake_row_has_every_key_of_the_views_retake_row():
+    import re
+    from pathlib import Path
+    edl, beats = proposal_documents()
+    edited, review = fresh()
+    keys = set(cap.view(edited, review, edl, beats, {"beat7": None})["retakes"][0])
+    demo = (Path(__file__).resolve().parents[2] / "interface" / "demo" / "world-reads.js").read_text(encoding="utf-8")
+    row = re.search(r"retakes: \[\{(.*?)\}\],", demo).group(1)
+    assert keys == set(re.findall(r"(\w+):", row))

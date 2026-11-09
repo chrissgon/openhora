@@ -10,6 +10,7 @@ import renderer_kit as K
 import _align as A
 import _edl
 import _media
+import _retakes as R
 import _timeline as T
 from _text import Refusal
 from _vocab import load_data, load_vocabulary
@@ -36,7 +37,7 @@ def refused(fn, *a, **k):
 
 def test_a_run_of_four_words_that_recurs_proposes_dropping_the_earlier_take():
     w = mk("so the first rule is uh sorry the first rule is simple name every dollar")
-    (p,) = T.detect_retakes(w)
+    (p,) = R.detect_retakes(w, "en", DATA["retakes"])
     assert p["kind"] == "repeat" and p["confirmed"] is False and p["id"] == "retake-1"
     assert (p["word_from"], p["word_to"], p["keep_from"]) == (1, 6, 7)      # up to the word before the later take
     assert p["seconds"] == pytest.approx(1.45)
@@ -50,29 +51,29 @@ def test_a_sentence_cut_midway_and_restarted_is_a_restart():
     for x in w[6:]:
         x["start"] += 1.0
         x["end"] += 1.0
-    props = T.detect_retakes(w)
-    assert [p["kind"] for p in props] in (["restart"], ["repeat"])        # either rule names the same earlier take
+    props = R.detect_retakes(w, "en", DATA["retakes"])
+    assert [p["kind"] for p in props] == ["repeat"]        # "then I went" is three tokens: the run rule (run_min 3) names it
     assert props[0]["word_from"] == 0 and props[0]["keep_from"] == 6
 
 
 def test_ordinary_speech_has_no_proposal_and_a_repeat_far_apart_is_not_one():
-    assert T.detect_retakes([dict(w) for w in K.build_transcript()["words"] and mk("name every dollar then review adjust and celebrate each week")]) == []
+    assert R.detect_retakes(mk("name every dollar then review adjust and celebrate each week"), "en", DATA["retakes"]) == []
     far = mk("name every dollar today") + mk("name every dollar today", t0=40.0)
     for k, w in enumerate(far):
         w["index"] = k
-    assert T.detect_retakes(far) == []                         # 40 s apart, over the 20 s window
+    assert R.detect_retakes(far, "en", DATA["retakes"]) == []                         # 40 s apart, over the 20 s window
     near = mk("name every dollar today") + mk("name every dollar today", t0=6.0)
     for k, w in enumerate(near):
         w["index"] = k
-    assert len(T.detect_retakes(near)) == 1
+    assert len(R.detect_retakes(near, "en", DATA["retakes"])) == 1
 
 
 def test_proposals_never_overlap_and_carry_indices_only():
     w = mk("a b c d e f a b c d e f a b c d e f")
-    props = T.detect_retakes(w)
+    props = R.detect_retakes(w, "en", DATA["retakes"])
     assert all(set(p) == _edl.PROPOSAL_KEYS for p in props)
     assert all(a["word_to"] < b["word_from"] for a, b in zip(props, props[1:]))
-    assert not any(isinstance(v, str) and v not in ("repeat", "restart") and not v.startswith("retake-") for p in props for v in p.values())
+    assert not any(isinstance(v, str) and v not in R.KINDS + R.REASONS + ("cut", "keep") and not v.startswith("retake-") for p in props for v in p.values())
 
 
 def retake_transcript():
@@ -87,12 +88,12 @@ def analysis_for(doc, silences=None):
 
 def test_a_proposal_is_not_applied_until_it_is_confirmed():
     doc = retake_transcript()
-    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {})
+    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, retake_mode="propose")
     assert edl["proposals"] and not any(p["confirmed"] for p in edl["proposals"])
     assert len(edl["words"]) == len(doc["words"])               # nothing dropped
     _edl.check_edl(edl, DATA, VOCAB, {})
     pid = edl["proposals"][0]["id"]
-    done, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, confirm={pid})
+    done, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, confirm={pid}, retake_mode="propose")
     p = next(x for x in done["proposals"] if x["id"] == pid)
     assert p["confirmed"] and len(done["words"]) == len(doc["words"]) - (p["word_to"] - p["word_from"] + 1)
     assert not {w["index"] for w in done["words"]} & set(range(p["word_from"], p["word_to"] + 1))
@@ -107,7 +108,7 @@ def test_confirming_a_proposal_that_does_not_exist_is_refused():
 
 def test_a_confirmed_proposal_whose_words_are_still_drawn_is_refused_by_check():
     doc = retake_transcript()
-    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {})
+    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, retake_mode="propose")
     bad = copy.deepcopy(edl)
     bad["proposals"][0]["confirmed"] = True
     assert refused(_edl.check_edl, bad, DATA, VOCAB, {}).code == "confirmed_drop_still_drawn"
@@ -121,7 +122,7 @@ def test_a_confirmed_proposal_whose_words_are_still_drawn_is_refused_by_check():
 
 def test_the_beat_aligner_can_leave_out_the_dropped_words(tmp_path):
     doc = retake_transcript()
-    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, confirm={"retake-1"})
+    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, confirm={"retake-1"}, retake_mode="propose")
     post = tmp_path / "post.md"
     post.write_text(K.POST.replace("line: The first rule is simple: name every dollar.", "line: The first rule is simple, name every dollar."), encoding="utf-8")
     kept_idx = {w["index"] for w in edl["words"]}
@@ -131,6 +132,55 @@ def test_the_beat_aligner_can_leave_out_the_dropped_words(tmp_path):
     live = [w for w in words if w["index"] in kept_idx]
     res = A.align_beats(live, [r for r in rows if r["beat"] == 3])
     assert res[0]["matched"] and res[0]["word_from"] in kept_idx and res[0]["word_to"] in kept_idx
+
+
+def test_auto_cuts_the_rule_default_and_keep_brings_it_back():
+    doc = retake_transcript()
+    propose, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, retake_mode="propose")
+    auto, _ = _edl.build_base(doc, analysis_for(doc), DATA, {})
+    (p,) = [x for x in auto["proposals"] if x["default"] == "cut"]
+    assert p["confirmed"] and not any(x["confirmed"] for x in propose["proposals"])
+    assert not {w["index"] for w in auto["words"]} & set(range(p["word_from"], p["word_to"] + 1))
+    assert auto["out_frames"] < propose["out_frames"]
+    _edl.check_edl(auto, DATA, VOCAB, {})
+    kept, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, keep={p["id"]})
+    assert not any(x["confirmed"] for x in kept["proposals"]) and len(kept["words"]) == len(doc["words"])
+    assert kept["out_frames"] == propose["out_frames"]
+    _edl.check_edl(kept, DATA, VOCAB, {})
+
+
+def test_confirm_cuts_a_keep_proposal_in_auto_and_the_refusals():
+    doc = pt_transcript(ROW_8)
+    auto, _ = _edl.build_base(doc, analysis_for(doc), DATA, {})
+    (p,) = auto["proposals"]
+    assert (p["default"], p["confirmed"]) == ("keep", False) and len(auto["words"]) == len(doc["words"])
+    cut, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, confirm={p["id"]})
+    assert cut["proposals"][0]["confirmed"] and len(cut["words"]) < len(doc["words"])
+    assert refused(_edl.build_base, doc, analysis_for(doc), DATA, {}, confirm={p["id"]}, keep={p["id"]}).code == "retake_conflict"
+    assert refused(_edl.build_base, doc, analysis_for(doc), DATA, {}, keep={"retake-99"}).code == "unknown_proposal"
+    assert refused(_edl.build_base, doc, analysis_for(doc), DATA, {}, retake_mode="maybe").code == "bad_choice"
+
+
+ROW_2 = "a gente... a gente passa por isso todo dia."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a retake case must hold the words as said
+ROW_8 = "Seja forte e corajoso. Seja forte e corajoso."
+
+
+def pt_transcript(*sentences):
+    doc = K.build_transcript([(0.9, text) for text in sentences])
+    doc["language"] = "pt"
+    return doc
+
+
+def test_end_to_end_a_pt_transcript_with_a_cut_off_and_a_repeated_sentence():
+    doc = pt_transcript(ROW_2, ROW_8)
+    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {})
+    _edl.check_edl(edl, DATA, VOCAB, {})
+    assert all(set(p) <= _edl.PROPOSAL_KEYS for p in edl["proposals"])
+    shown = " ".join(w["text"] for w in edl["words"])
+    assert shown.startswith("a gente passa por isso todo dia.") and "gente..." not in shown          # row 2: the cut-off take is gone  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a retake case must hold the words as said
+    assert shown.count("corajoso.") == 2                                                              # row 8: kept, a complete sentence said twice
+    assert [(p["kind"], p["default"], p["reason"], p["confirmed"]) for p in edl["proposals"]] == [
+        ("restart", "cut", "cut_off", True), ("repeat", "keep", "complete", False)]
 
 
 # ---------------------------------------------------------------- the face box
@@ -270,9 +320,9 @@ def test_base_confirms_a_retake_by_id_through_the_verb_and_refuses_an_unknown_id
     doc = retake_transcript()
     tr = K.write_json(tmp_path / "t.json", doc)
     analysis = K.write_json(tmp_path / "a.json", analysis_for(doc))
-    rc, out, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e.json")
+    rc, out, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e.json", "--retakes", "propose")
     assert rc == 0 and out["proposals"] and out["proposals"][0]["confirmed"] is False
-    rc, done, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e2.json", "--confirm", out["proposals"][0]["id"])
+    rc, done, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e2.json", "--retakes", "propose", "--confirm", out["proposals"][0]["id"])
     assert rc == 0 and done["proposals"][0]["confirmed"] is True and done["out_seconds"] < out["out_seconds"]
     rc, _, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e3.json", "--confirm", "retake-42")
     assert rc == 1 and err.startswith("refused: unknown_proposal") and not (tmp_path / "e3.json").exists()

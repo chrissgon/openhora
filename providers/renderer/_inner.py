@@ -146,12 +146,13 @@ def verb_base(args) -> dict:
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
     edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.pad_head, args.pad_tail, args.caption_position,
                                  colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
-                                 args.long_cut, args.wordless_max, args.zoom_anchor_y)
+                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes)
     write_json(args.out, edl)
     return {"ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
             "words": len(edl["words"]), "caption_chunks": len(edl["captions"]["chunks"]), "normalisation": edl["normalisation"],
-            "font_fallbacks": notes, "proposals": [{"id": p["id"], "kind": p["kind"], "seconds": p["seconds"], "confirmed": p["confirmed"]} for p in edl["proposals"]],
+            "font_fallbacks": notes, "proposals": [{"id": p["id"], "kind": p["kind"], "seconds": p["seconds"], "confirmed": p["confirmed"], "default": p["default"], "reason": p["reason"]}
+                          for p in edl["proposals"]],
             "face_box": edl["face_box"], "zoom": edl["zoom"]}
 
 
@@ -524,6 +525,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--push-in", type=float, help="slow extra zoom over each range of 5 s or more, as a fraction up to 0.03 (default 0.02, 0 for none)")
     sp.add_argument("--zoom-anchor-y", type=float, help="the zoom's fixed point: this fraction of the face box's height down from its top (default 0.25)")
     sp.add_argument("--confirm", action="append", metavar="RETAKE-ID", help="cut this proposed retake (repeatable)")
+    sp.add_argument("--keep", action="append", metavar="RETAKE-ID", help="keep this proposed retake that the rule would cut (repeatable)")
+    sp.add_argument("--retakes", choices=("auto", "propose"), default="auto", help="auto: cut the proposals the rule says to cut; propose: cut only --confirm")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
     sp = sub.add_parser("align")

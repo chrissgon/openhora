@@ -278,9 +278,10 @@ def _counts(edl: dict) -> dict:
 def _retakes(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     done = _call(ctx, "renderer:video", "base", ["--transcript", _asked(store.path, rid, TRANSCRIPT), "--analysis", _asked(store.path, rid, ANALYSIS),
-                                                  "--out", _asked(store.path, rid, PROPOSAL_EDL, False)])
+                                                  "--out", _asked(store.path, rid, PROPOSAL_EDL, False), "--retakes", "propose"])
     edl = _json(store, rid, PROPOSAL_EDL)
-    return {"proposals": len(edl.get("proposals") or []), "kept_ranges": _num(done.get("kept_ranges")), "out_seconds": _num(done.get("out_seconds")),
+    return {"proposals": len(edl.get("proposals") or []), "cut_by_rule": sum(1 for p in edl.get("proposals") or [] if p.get("default") == "cut"),
+            "kept_ranges": _num(done.get("kept_ranges")), "out_seconds": _num(done.get("out_seconds")),
             **_counts(edl)}
 
 
@@ -313,9 +314,11 @@ def _review_decision(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     beats = _json(store, rid, PROPOSAL_BEATS)
     still = (state["steps"].get("still") or {}).get("result") or {}
+    cut = sum(1 for p in _json(store, rid, PROPOSAL_EDL).get("proposals") or [] if p.get("default") == "cut")
     lines = [f"{state['steps']['transcribe']['result']['words']} words were transcribed.",
              f"{_below_threshold(beats)} beats are below the match threshold.",
              "A still was made for the face box." if STILL_NAME.fullmatch(str(still.get("name") or "")) else "No still was made for the face box.",
+             f"{cut} repeated take{'' if cut == 1 else 's'} will be cut by rule; open the captions to keep one.",
              REVIEW_NEXT]
     return {"title": "Check the captions", "body": "\n".join(lines)}
 
@@ -372,11 +375,15 @@ def _base(ctx: steps.Context, state: dict) -> dict:
     review = _load_review(store, rid)
     flags, record = theme.theme_from_text(_identity(ctx), _asked(store.root), review["theme"] == "default")
     out = _asked(store.path, rid, EDL, False)
-    args = ["--transcript", _asked(store.path, rid, EDITED), "--analysis", _asked(store.path, rid, ANALYSIS), "--out", out] + _face_args(review) + flags
+    args = ["--transcript", _asked(store.path, rid, EDITED), "--analysis", _asked(store.path, rid, ANALYSIS), "--out", out, "--retakes", "propose"] + _face_args(review) + flags
     done = _call(ctx, "renderer:video", "base", args)
-    confirm = []
-    if review["confirmed_retakes"]:
-        confirm, lost = captions.confirmed_ids(review, edited, _json(store, rid, EDL).get("proposals") or [])
+    confirm, by_rule, unmatched = [], 0, 0
+    entries = captions.cut_entries(review, _json(store, rid, PROPOSAL_EDL))      # what the person saw as cut: theirs and the rule's
+    if entries:
+        confirm, lost = captions.confirmed_ids(dict(review, confirmed_retakes=entries), edited, _json(store, rid, EDL).get("proposals") or [])
+        unmatched = sum(1 for r in lost if r.get("rule"))
+        by_rule = sum(1 for r in entries if r.get("rule")) - unmatched
+        lost = [r for r in lost if not r.get("rule")]      # a rule's own proposal that an edit made stale is counted and never cut; it stops nothing
         if lost:      # the retake the person confirmed is no longer there: it is shown unconfirmed when the captions open again
             edited["facts"] = dict(edited.get("facts") or {}, revision=review["revision"] + 1)
             _asked(store.write, rid, EDITED, _dump(edited))
@@ -385,7 +392,7 @@ def _base(ctx: steps.Context, state: dict) -> dict:
         if confirm:
             done = _call(ctx, "renderer:video", "base", args + [x for i in confirm for x in ("--confirm", i)])
     edl = _json(store, rid, EDL)
-    return {"kept_ranges": _num(done.get("kept_ranges")), "out_seconds": _num(done.get("out_seconds")), "retakes_confirmed": len(confirm),
+    return {"kept_ranges": _num(done.get("kept_ranges")), "out_seconds": _num(done.get("out_seconds")), "retakes_confirmed": len(confirm), "retakes_by_rule": by_rule, "retakes_unmatched": unmatched,
             "face_box": "set" if review["face_box"] else "default", "theme": {"source": record.get("source"), "reason": record.get("reason")},
             **_counts(edl)}
 

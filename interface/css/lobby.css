@@ -183,6 +183,7 @@
 button.wb-cr-word { cursor: pointer; }
 .wb-cr-word[aria-pressed="true"] { border-color: var(--pui-theme); background-color: var(--wb-tint-selected); }
 .wb-cr-left-out { text-decoration: line-through; color: var(--pui-text-muted); }
+.wb-cr-retake-words.wb-cr-cut { text-decoration: line-through; }
 .wb-cr-estimated { border-style: dashed; }
 .wb-cr-edited { border-color: var(--wb-ink-theme); }
 .wb-cr-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }

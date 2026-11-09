@@ -517,6 +517,15 @@ def test_the_storyboard_rate_equals_the_vocabulary_rate_once_the_vocabulary_has_
     assert rate == DATA["storyboard"]["words_per_second"]
 
 
+def test_two_beat_lines_that_repeat_four_words_keep_every_word_because_the_storyboard_never_cuts():
+    row = _preview.beat_row(VOCAB, {"preset": "keyword", "params": {"text": "Budget", "icon": "coin"}, "line": "name every dollar today and track it"})
+    rows = [dict(row, beat=1), dict(row, beat=2, line="name every dollar today and review it")]
+    edl, _ = lists_of(rows)
+    transcript, _, _ = _preview.synthetic_words(rows, DATA["storyboard"])
+    assert len(edl["words"]) == len(transcript["words"])                     # a rule would cut the first line; the storyboard must not
+    assert edl["proposals"] and not any(p["confirmed"] for p in edl["proposals"])
+
+
 def test_a_script_that_would_run_too_long_is_refused_with_its_own_code_before_anything_else():
     row = _preview.beat_row(VOCAB, {"preset": "keyword", "params": {"text": "Long", "icon": "coin"}, "line": " ".join(["w"] * 100)})
     rows = [dict(row, beat=k) for k in range(1, 13)]
