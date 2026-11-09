@@ -21,7 +21,7 @@ import _hf_gate as G
 import _layout
 import _media
 from _text import Refusal
-from _vocab import load_data
+from _vocab import load_data, load_vocabulary
 
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
 DATA = load_data()
@@ -163,10 +163,21 @@ def test_the_faces_of_the_real_timeline_cover_every_frame(docs):
 
 # ---------------------------------------------------------------- the rules on the boxes
 
+def check_without_the_glyph_rule(doc, timeline, ranges, data):
+    """`check_boxes` with the caption-drawn rule out of reach (no entry is long enough to be judged): the tests that follow are about the other rules
+    and draw no glyphs. The rule has its own tests, further down, with the real constant."""
+    old = G.CAPTION_DRAWN_MIN_FRAMES
+    G.CAPTION_DRAWN_MIN_FRAMES = 10 ** 9
+    try:
+        return G.check_boxes(doc, timeline, ranges, data)
+    finally:
+        G.CAPTION_DRAWN_MIN_FRAMES = old
+
+
 def checked(docs, per_frame, frames=None):
     data, edl, timeline, ranges = timeline_of(docs)
     n = frames or edl["out_frames"]
-    return G.check_boxes(boxes_doc(n, per_frame), timeline, ranges, data)
+    return check_without_the_glyph_rule(boxes_doc(n, per_frame), timeline, ranges, data)
 
 
 def first_frame_without_an_entry(docs):
@@ -181,9 +192,9 @@ def test_boxes_in_their_bands_pass_and_the_result_counts_them_and_gives_the_lowe
     caption_top = face["y"] + face["h"] + data["zones"]["gap"] + 150      # well below any zoomed face: the band's lower half
     per = {3: [box("caption", y=caption_top, h=50.0, key="a"), box("card", y=data["zones"]["card_top"], h=40.0, key="b")],
            4: [box("caption", y=caption_top + 20, h=50.0, key="a", glyph=True)]}
-    result = G.check_boxes(boxes_doc(edl["out_frames"], per), timeline, ranges, data)
+    result = check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data)
     assert result == {"frames": edl["out_frames"], "boxes": 3, "lowest_caption_bottom": round(caption_top + 70, 1)}
-    assert G.check_boxes(boxes_doc(edl["out_frames"]), timeline, ranges, data) == {"frames": edl["out_frames"], "boxes": 0, "lowest_caption_bottom": None}
+    assert check_without_the_glyph_rule(boxes_doc(edl["out_frames"]), timeline, ranges, data) == {"frames": edl["out_frames"], "boxes": 0, "lowest_caption_bottom": None}
 
 
 @pytest.mark.parametrize("zone", ["card", "caption"])
@@ -251,6 +262,95 @@ def test_the_first_violation_in_frame_order_is_the_one_raised(docs):
     low = box("caption", y=1540.0, h=40.0, key="early")
     assert code_of(checked, docs, {1: [low], late: [on_face]})[0] == "caption_below_line"
     assert code_of(checked, docs, {late: [on_face, low]}) == ("overlay_hits_face", "frame %d late" % late)
+
+
+# ---------------------------------------------------------------- a caption with words draws glyphs (C12, V3c)
+
+def glyph_in(entry, key="oh:caption", **kwargs):
+    """A caption glyph box of area inside the entry's caption band, at the frame `frame` (default: the entry's first)."""
+    return box("caption", y=kwargs.pop("y", 1450.0), key=key, glyph=kwargs.pop("glyph", True), **kwargs)
+
+
+def glyph_check(docs, drawn, minimum=None):
+    """check_boxes on the real timeline of the kit with `drawn[k]` = (frame offset in entry k, box) for the entries that draw something."""
+    data, edl, timeline, ranges = timeline_of(docs)
+    per = {}
+    for k, (offset, b) in drawn.items():
+        e = timeline["captions"][k]
+        per.setdefault(e["start_frame"] + offset, []).append(b)
+    return G.check_boxes(boxes_doc(edl["out_frames"], per), timeline, ranges, data), timeline
+
+
+def every_caption_drawn(docs, skip=(), **kwargs):
+    data, edl, timeline, ranges = timeline_of(docs)
+    return {k: (0, glyph_in(e, **kwargs)) for k, e in enumerate(timeline["captions"]) if k not in skip}
+
+
+def test_the_constant_is_six_frames_and_the_kits_captions_are_judged(docs):
+    data, edl, timeline, ranges = timeline_of(docs)
+    assert G.CAPTION_DRAWN_MIN_FRAMES == 6
+    assert timeline["captions"] and all(e["end_frame"] - e["start_frame"] >= 6 for e in timeline["captions"])
+
+
+def test_every_caption_entry_with_a_glyph_box_of_area_passes(docs):
+    result, timeline = glyph_check(docs, every_caption_drawn(docs))
+    assert result["boxes"] == len(timeline["captions"]) and result["lowest_caption_bottom"] is not None
+
+
+def test_a_caption_entry_with_only_zero_area_or_non_glyph_boxes_is_caption_not_drawn_and_names_the_entry(docs):
+    data, edl, timeline, ranges = timeline_of(docs)
+    k = 1
+    e = timeline["captions"][k]
+    span = e["end_frame"] - e["start_frame"]
+    assert span >= 6
+    for bad in (glyph_in(e, w=0.0), glyph_in(e, h=0.0), glyph_in(e, glyph=False), box("card", y=300.0, h=40.0, glyph=True)):
+        drawn = every_caption_drawn(docs, skip=(k,))
+        drawn[k] = (2, bad)
+        with pytest.raises(Refusal) as caught:
+            glyph_check(docs, drawn)
+        assert (caught.value.code, caught.value.field) == ("caption_not_drawn", "caption %d frames %d to %d" % (k, e["start_frame"], e["end_frame"] - 1))
+        assert G.FIELD_OK.fullmatch(caught.value.field)
+
+
+def test_a_glyph_box_of_area_in_one_frame_of_the_span_is_enough_and_one_outside_it_is_not(docs):
+    data, edl, timeline, ranges = timeline_of(docs)
+    k = 2
+    e = timeline["captions"][k]
+    last = e["end_frame"] - e["start_frame"] - 1
+    drawn = every_caption_drawn(docs, skip=(k,))
+    drawn[k] = (last, glyph_in(e))
+    glyph_check(docs, drawn)
+    drawn[k] = (last + 1, glyph_in(e))                       # the next frame: another entry's, or none
+    with pytest.raises(Refusal) as caught:
+        glyph_check(docs, drawn)
+    assert caught.value.code in ("caption_not_drawn", "overlay_hits_face", "caption_below_line")
+
+
+def test_the_first_entry_in_order_that_draws_nothing_is_the_one_raised(docs):
+    drawn = every_caption_drawn(docs, skip=(1, 3))
+    with pytest.raises(Refusal) as caught:
+        glyph_check(docs, drawn)
+    assert caught.value.field.startswith("caption 1 ")
+
+
+def test_an_entry_of_five_frames_is_not_judged_and_one_of_six_is():
+    face = {"x": 300, "y": 700, "w": 480, "h": 600}
+    ranges = [(0, 40, face)]
+    def timeline(span):
+        return {"captions": [{"start_frame": 10, "end_frame": 10 + span, "face": face}], "beats": []}
+    doc = boxes_doc(40)
+    assert G.check_boxes(doc, timeline(5), ranges, DATA) == {"frames": 40, "boxes": 0, "lowest_caption_bottom": None}
+    with pytest.raises(Refusal) as caught:
+        G.check_boxes(doc, timeline(6), ranges, DATA)
+    assert (caught.value.code, caught.value.field) == ("caption_not_drawn", "caption 0 frames 10 to 15")
+    doc = boxes_doc(40, {12: [box("caption", y=1450.0, glyph=True)]})
+    assert G.check_boxes(doc, timeline(6), ranges, DATA)["boxes"] == 1
+
+
+def test_a_caption_with_no_entries_judges_nothing_and_pixel_group_is_gone():
+    face = {"x": 300, "y": 700, "w": 480, "h": 600}
+    assert G.check_boxes(boxes_doc(10), {"captions": [], "beats": []}, [(0, 10, face)], DATA)["boxes"] == 0
+    assert not hasattr(G, "PIXEL_GROUP")
 
 
 # ---------------------------------------------------------------- the pixel check: its command
@@ -516,6 +616,14 @@ def gated(tmp_path_factory, docs):
     return folder, proxy, mov, edl
 
 
+def clean_doc(folder, edl) -> dict:
+    """The boxes of a clean render: one caption glyph box of area, in the caption band, on the first frame of every caption entry (the rule of V3c
+    refuses a caption that draws nothing), and nothing else."""
+    beats = json.loads((folder / "beats.json").read_text())
+    timeline = _edl.resolve_timeline(copy.deepcopy(edl), beats, load_vocabulary(str(K.VOCABULARY)), DATA)
+    return boxes_doc(edl["out_frames"], {e["start_frame"]: [box("caption", y=1450.0, h=40.0, glyph=True, key="oh:caption")] for e in timeline["captions"]}), len(timeline["captions"])
+
+
 def left_over(out: Path) -> list:
     """What a refused encode left in its output folder: nothing (the folder may not exist at all)."""
     return sorted(os.listdir(out)) if out.exists() else []
@@ -536,10 +644,11 @@ def encode_args(folder, proxy, mov, out, doc, *, boxes_sha=None, proxy_sha=None,
 @needs_ffmpeg
 def test_a_clean_composed_encode_writes_one_file_and_reports_the_gates(gated, tmp_path):
     folder, proxy, mov, edl = gated
-    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", boxes_doc(edl["out_frames"])))
+    doc, captions = clean_doc(folder, edl)
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc))
     assert rc == 0, err
     clean = D.sanitise(out, D.RESULT_SCHEMAS["encode"], "encode")
-    assert clean["gate_frames"] == edl["out_frames"] and clean["gate_boxes"] == 0 and "lowest_caption_bottom" not in clean
+    assert clean["gate_frames"] == edl["out_frames"] and clean["gate_boxes"] == captions and clean["lowest_caption_bottom"] == 1490.0
     assert clean["pixel_ranges"] == len(edl["kept"]) and clean["pixel_min_psnr_db"] >= 40.0 and clean["pixel_seconds"] >= 0
     assert sorted(os.listdir(tmp_path / "out")) == ["render-%s.mp4" % clean["sha256"][:12]]
 
@@ -612,7 +721,7 @@ def test_a_drawing_on_the_face_that_no_box_reports_stops_the_encode_and_leaves_n
     drawn = folder / "drawn.mov"
     ffmpeg("-i", mov, "-vf", "drawbox=x=%d:y=%d:w=100:h=100:color=red@1:t=fill:enable='gte(n,0)'" % (face["x"] + 40, face["y"] + 40), "-c:v", "prores_ks", "-profile:v", "3",
            "-c:a", "copy", drawn)
-    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, drawn, tmp_path / "out", boxes_doc(edl["out_frames"])))
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, drawn, tmp_path / "out", clean_doc(folder, edl)[0]))
     assert rc == 1 and out["code"] == "face_pixels_changed" and out["field"].startswith("range 0 frame ")
     assert left_over(tmp_path / "out") == []
 

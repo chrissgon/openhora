@@ -1,5 +1,7 @@
 """The HyperFrames engine in real containers (V3a-2): both images built here and recorded, no network, no mock. Gated by its own variable,
-which CI never sets before the package that builds the HyperFrames image there (V3c):
+which CI sets only in the job that builds the HyperFrames image (V3c-2). The composed render and the planted blocks of this engine are tested
+by the engine contract's one live file (`test_engine_contract_live.py`, V3c-1), for both engines; this file keeps the base-only render at
+4 and at 8 cores, which needs the machine's 8 cores:
 
     OPENHORA_STATE_DIR=<folder> WB_HYPERFRAMES_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_hf_docker_live.py
 
@@ -120,88 +122,3 @@ def test_the_same_recording_gives_one_final_sha256_at_four_and_at_eight_cpus_and
     assert shas[4] == shas[8]
     rc, out, err = ffmpeg_host("verify", "--in", next((tmp_path / "out4").glob("render-*.mp4")), "--platform-file", K.INSTAGRAM, "--edl", tmp_path / "edl.json")
     assert rc == 0 and out["ok"] is True, err[-2000:]
-
-
-@pytest.fixture
-def four_cpus(real_state):
-    done = subprocess.run(["docker", "info", "--format", "{{.NCPU}}"], capture_output=True, text=True, timeout=60)
-    if done.returncode != 0 or not done.stdout.strip().isdigit() or int(done.stdout) < 4:
-        pytest.skip("the docker daemon has fewer than 4 CPUs (%s): the runs need cores 0-3" % (done.stdout.strip() or "unknown"))
-
-
-def test_a_composed_render_gives_one_final_sha256_twice_and_at_two_and_at_four_cpus_and_leaves_nothing(images, four_cpus, tmp_path):
-    """V3b-1 and V3b-2: captions and beats drawn by the HyperFrames engine from the test blocks folder (the oh: pages through the renderat
-    runtime) and gated: the page's boxes measured in the drawing container, the face-box and 1560 rules and the pixel check in the encode
-    container. The gate's figures must be the same at 2 and at 4 cpus, and the clean render must keep the margins the calibration of the
-    decision file records (at least 33 dB, a caption bottom within 1560). The synthetic recording and the kit's fictional words; the post has a
-    keyword, a number, a list and a quote (this engine draws no cutaway and no pip)."""
-    import shutil
-    common = images[0]
-    transcript = K.build_transcript(K.SHORT_SENTENCES)
-    media = tmp_path / "media"
-    media.mkdir()
-    in_image(common, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=%.3f" % transcript["duration"],
-                      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=%.3f" % transcript["duration"],
-                      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "16",
-                      "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-                      "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "/out/in.mp4"], media)
-    recording = media / "in.mp4"
-    blocks = tmp_path / "blocks"
-    shutil.copytree(K.BLOCKS, blocks)
-    K.write_hf_compose_blocks(blocks)
-    (tmp_path / "post.md").write_text(K.HF_POST, encoding="utf-8")
-    transcript_file = K.write_json(tmp_path / "transcript.json", transcript)
-    assert host("analyse", "--in", recording, "--out", tmp_path / "analysis.json")[0] == 0
-    rc, out, err = host("base", "--transcript", transcript_file, "--analysis", tmp_path / "analysis.json", "--out", tmp_path / "edl.json")
-    assert rc == 0, err
-    rc, out, err = host("align", "--post", tmp_path / "post.md", "--transcript", transcript_file, "--checker", K.CHECKER, "--vocabulary", K.VOCABULARY,
-                        "--out", tmp_path / "beats.json")
-    assert rc == 0, err
-    env = dict(os.environ, RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(blocks))
-    pins = __import__("hashlib").sha256((blocks / "pins.json").read_bytes()).hexdigest()
-    shas, gates = [], []
-    for label, cpus, cpuset in (("a", 4, "0-3"), ("b", 4, "0-3"), ("c", 2, "0-1")):
-        rc, out, err = host("render", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--in", recording, "--out", tmp_path / ("out" + label),
-                            "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY, "--cpus", cpus, "--cpuset", cpuset, env=env)
-        assert rc == 0, err[-2000:]
-        assert out["engine"] == "hyperframes" and out["verified"] is True and out["layers"] == ["cuts", "zoom", "captions", "beats"]
-        assert out["blocks_sha256"] == pins and out["beats_drawn"] == 4 and out["captions_drawn"] > 0 and set(out["runtimes"].values()) == {"renderat"}
-        assert out["fonts_used"] == {"display": "inter-800.woff2", "mono": "jetbrains-mono-500.woff2", "text": "inter-500.woff2"}
-        shas.append(out["sha256"])
-        gates.append(out["gate"])
-        assert {"measure", "pixel"} <= set(out["stage_seconds"]) and out["gate"]["boxes"] > 0 and out["gate"]["frames"] == out["out_frames"]
-        assert leftovers() == [] and run_folders() == []
-    assert len(set(shas)) == 1, shas
-    assert gates[0] == gates[1] == gates[2], gates
-    assert gates[0]["pixel_ranges"] > 0 and gates[0]["pixel_min_psnr_db"] >= 33.0 and gates[0]["lowest_caption_bottom"] <= 1560, gates[0]
-
-
-# ---------------------------------------------------------------- planted cases: a block that breaks a rule is refused, whatever it draws with
-
-@pytest.mark.parametrize("which, code", [("demo-cover", "overlay_hits_face"), ("demo-low", "caption_below_line")])
-def test_a_planted_block_that_breaks_a_rule_is_refused_by_the_gates_and_leaves_nothing(images, four_cpus, tmp_path, which, code):
-    common = images[0]
-    transcript = K.build_transcript(K.SHORT_SENTENCES)
-    media = tmp_path / "media"
-    media.mkdir()
-    in_image(common, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=%.3f" % transcript["duration"],
-                      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=%.3f" % transcript["duration"],
-                      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "16",
-                      "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-                      "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "/out/in.mp4"], media)
-    recording = media / "in.mp4"
-    blocks = K.planted_blocks(tmp_path, which)
-    (tmp_path / "post.md").write_text(K.HF_POST, encoding="utf-8")
-    transcript_file = K.write_json(tmp_path / "transcript.json", transcript)
-    assert host("analyse", "--in", recording, "--out", tmp_path / "analysis.json")[0] == 0
-    rc, out, err = host("base", "--transcript", transcript_file, "--analysis", tmp_path / "analysis.json", "--out", tmp_path / "edl.json")
-    assert rc == 0, err
-    rc, out, err = host("align", "--post", tmp_path / "post.md", "--transcript", transcript_file, "--checker", K.CHECKER, "--vocabulary", K.VOCABULARY,
-                        "--out", tmp_path / "beats.json")
-    assert rc == 0, err
-    env = dict(os.environ, RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(blocks))
-    rc, out, err = host("render", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--in", recording, "--out", tmp_path / "out",
-                        "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY, "--cpus", 4, "--cpuset", "0-3", env=env)
-    assert rc == 1 and out["code"] == code, (out, err[-2000:])
-    assert not (tmp_path / "out").exists() or list((tmp_path / "out").iterdir()) == []
-    assert leftovers() == [] and run_folders() == []
