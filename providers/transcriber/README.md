@@ -56,7 +56,7 @@ python3 providers/transcriber/whispercpp.py transcribe --in recording.mp4 --mode
 
 ### Timestamps
 
-`--timestamps` is the way whisper.cpp times a word. The comparison between them is the short-video plan's check C3; the provider takes no side, and the transcript says which one it used (`facts.timestamps`, `facts.flags`).
+`--timestamps` is the way whisper.cpp times a word. The comparison between them is the short-video plan's check C3; the provider takes no side, and the transcript says which one it used (`facts.timestamps`, `facts.flags`). The default stays `word`: the choice is the caller's. The video flow's `media` step passes `dtw` (V3e real check: on one real recording `word` collapsed 7 runs of words to zero length, 68 of 426 words, and shifted sentence openings by up to about 4 s; `dtw` left one zero-length run, a repetition at the end of the audio). Every model of `models.json` has a `dtw_preset`; a model without one is refused (`usage`), never silently timed another way.
 
 | Mode | whisper-cli flags | What a word's times are |
 |------|-------------------|-------------------------|

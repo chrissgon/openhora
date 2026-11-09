@@ -159,7 +159,12 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
         earlier one is one phrase of bounded size that ends at a phrase boundary, and the opening is not a series (anaphora)."""
         first_pos, last_pos, later_pos = content[i][1], content[j - 1][1], content[j][1]
         a_ph, b_ph = phrase_of.get(first_pos), phrase_of.get(later_pos)
-        if a_ph is None or b_ph is None or a_ph == b_ph or phrase_of.get(last_pos) != a_ph or length < run_min:
+        # the earlier take may be cut into several phrases by pauses inside it (a word stretched over a silence, as DTW times do), but
+        # never by a sentence end or a hesitation: those make it more than one take
+        inside = range(first_pos, last_pos + 1)
+        if a_ph is None or b_ph is None or phrase_of.get(last_pos) is None or phrase_of[last_pos] == b_ph or length < run_min:
+            return False
+        if any(marks[p] in ("final", "cut") for p in inside[:-1]) or any(p in hes_words for p in inside):
             return False
         starts = lambda ph: next(p for p in phrases[ph] if p in content_set)
         if starts(b_ph) != later_pos:
@@ -167,8 +172,6 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
         if starts(a_ph) != first_pos:      # a clause: the earlier take may follow a connector word ("..., but <take>"), with no sentence end inside it
             k = first_flat[first_pos]
             if not any(k >= len(c) and tuple(fold(flat[x][0]) for x in range(k - len(c), k)) == c for c in connectors):
-                return False
-            if any(marks[p] in ("final", "cut") for p in range(first_pos, last_pos)):
                 return False
         if marks[last_pos] not in ("final", "cut") and pauses.between(words[last_pos], words[later_pos]) < cfg["phrase_pause"]:
             return False

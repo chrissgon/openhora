@@ -343,3 +343,44 @@ def test_a_conjunction_of_another_language_or_an_unknown_one_exempts_nothing():
     words = words_of("podemos ter a certeza de que ele nos ama e de que ele apenas permite o que acontece.", "xx")
     props = R.detect_retakes(words, "xx", CFG)
     assert [(p["kind"], p["default"], p["reason"]) for p in props] == [("repeat", "cut", "abandoned")]
+
+
+# ---------------------------------------------------------------- DTW-style times: no gaps inside a segment, a silence inside a stretched word
+
+DTW_LEAD = "Eu preciso entender, mas"
+DTW_EARLIER = ("Nós podemos ter a certeza de que ele nos ama e de que ele cuida de cada detalhe pequeno da nossa vida inteira, "  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+               "mesmo quando tudo parece difícil e confuso demais.")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+DTW_LATER = "Nós podemos ter a certeza de que ele nos ama e de que ele apenas permite o que aconteça para o nosso bem."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+
+
+def dtw_words(text, stretch_after=None, stretch=0.8):
+    """Words with no gap between them (a word ends where the next begins). `stretch_after` is a word's text: it is stretched over a
+    silence of `stretch` seconds, the way DTW times a word that is followed by a pause; the silence is returned with the words."""
+    words = words_of(text, "pt", gap=0.0)
+    silences = []
+    if stretch_after:
+        k = next(i for i, w in enumerate(words) if w["text"] == stretch_after)
+        silences.append((round(words[k]["start"] + 0.2, 3), round(words[k]["end"] + stretch, 3)))
+        words[k]["end"] = round(words[k]["end"] + stretch, 3)
+        for w in words[k + 1:]:
+            w["start"] = round(w["start"] + stretch, 3)
+            w["end"] = round(w["end"] + stretch, 3)
+    return words, silences
+
+
+@pytest.mark.parametrize("stretch_after", [None, "inteira,", "detalhe"], ids=["no-silence", "after-a-comma", "mid-clause"])
+def test_a_clause_redo_holds_with_dtw_times_even_when_a_silence_cuts_the_earlier_take_into_phrases(stretch_after):
+    """The real shape B on DTW times: the earlier take after "..., mas" has no gap inside it, a pause of 0.8 s lies inside one stretched word
+    (more than `phrase_pause`), it ends with a period and the later take starts at the very next word."""
+    words, silences = dtw_words(DTW_LEAD + " " + DTW_EARLIER + " " + DTW_LATER, stretch_after)
+    props = R.detect_retakes(words, "pt", CFG, silences)
+    assert [(p["kind"], p["default"], p["reason"]) for p in props] == [("repeat", "cut", "redo")]
+    gone = {i for i in range(props[0]["word_from"], props[0]["word_to"] + 1)}
+    assert " ".join(w["text"] for w in words if w["index"] not in gone) == DTW_LEAD + " " + DTW_LATER
+
+
+def test_a_silence_inside_the_earlier_take_never_makes_a_redo_of_two_sentences():
+    """A sentence end inside the earlier take still makes it two takes: kept as `far`, DTW times or not."""
+    two = "Nós podemos ter a certeza de que ele nos ama. Isso é o que eu aprendo todo dia com muita gente boa e humilde."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    words, silences = dtw_words(DTW_LEAD + " " + two + " " + DTW_LATER, "aprendo")
+    assert all(p["reason"] != "redo" for p in R.detect_retakes(words, "pt", CFG, silences))

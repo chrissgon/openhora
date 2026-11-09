@@ -163,7 +163,8 @@
   "wordless_keep": 1.5,
   "phantom_max_seconds": 0.02,
   "phantom_run_min": 3,
-  "phantom_edge_seconds": 0.05
+  "phantom_edge_seconds": 0.05,
+  "phantom_repeat_min": 5
  },
  "retakes": {
   "window_seconds": 20.0,

@@ -168,10 +168,10 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     if tr["duration"] > duration + 1.0:
         raise Refusal("transcript_longer_than_recording", "transcript")
     sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
-    # words a transcriber wrote into a silence (a run of zero-length words at one instant): never spoken there, so they are dropped
+    # a transcriber's repetition hallucination in a silence (a run of zero-length words that repeats the words just before it): never spoken, dropped
     # before anything else reads the words: no island range, no caption, no retake evidence. Their indices stay (nothing is renumbered)
     # and the runs are listed in `normalisation.phantom_words` for the review.
-    runs = find_phantoms(tr["words"], sil, cuts["phantom_max_seconds"], cuts["phantom_run_min"], cuts["phantom_edge_seconds"])
+    runs = find_phantoms(tr["words"], sil, cuts["phantom_max_seconds"], cuts["phantom_run_min"], cuts["phantom_edge_seconds"], cuts["phantom_repeat_min"])
     words, report = normalise_words(tr["words"], tr["segments"], duration, {i for run in runs for i in run})
     report["phantom_words"] = [{"from": run[0], "to": run[-1], "count": len(run)} for run in runs]
     live = [w for w in words if not w["dropped"]]

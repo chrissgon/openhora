@@ -257,10 +257,7 @@ def test_a_transcript_with_the_shapes_of_a_real_one_renders(tmp_path):
     assert K.run_verb("analyse", "--in", src, "--out", tmp_path / "analysis.json")[0] == 0
     rc, base, err = K.run_verb("base", "--transcript", tr, "--analysis", tmp_path / "analysis.json", "--out", tmp_path / "edl.json")
     assert rc == 0, err
-    # the fixture's zero-length runs sit exactly where a silence starts (the tone is only where words have a length), so the base list
-    # takes them for a transcriber's words in a silence: dropped, not spread (the 21-word repeat is dropped by the segment rule as before)
-    assert base["normalisation"]["dropped_words"] == 21 and base["normalisation"]["clamped_starts"] >= 1
-    assert [r["count"] for r in base["normalisation"]["phantom_words"]] == [3, 23]
+    assert base["normalisation"]["dropped_words"] == 21 and base["normalisation"]["spread_runs"] >= 2 and base["normalisation"]["clamped_starts"] >= 1
     assert K.run_verb("align", "--post", tmp_path / "post.md", "--transcript", tr, "--checker", K.CHECKER, "--vocabulary", K.VOCABULARY, "--out", tmp_path / "beats.json")[0] == 0
     rc, out, err = K.run_verb("render", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--in", src, "--out", tmp_path / "out",
                               "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY)

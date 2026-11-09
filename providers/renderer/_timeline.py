@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 
+from _align import norm_tokens
 from _text import Refusal, clean_text
 
 MIN_WORD_SECONDS = 0.04     # a word the transcriber gave no length gets at least this much
@@ -61,12 +63,19 @@ def check_transcript(doc, limits: dict) -> dict:
     return {"duration": float(duration), "language": language, "words": out, "segments": segments}
 
 
-def find_phantoms(words: list, silences, max_seconds: float, run_min: int, edge: float) -> list:
-    """Runs of phantom words: words a transcriber wrote into a silence. A word is in a run when its length is at most `max_seconds` (a
-    word that ends before it starts counts) and it starts inside a silence (`edge` seconds of slack at both ends, since a transcriber
-    puts them at the instant the silence ends); a run is `run_min` or more such words in a row, in index order. Returns the runs as
-    lists of word indices. `silences` is a list of (start, end) pairs or None (no audio: nothing is phantom). The words are the
-    transcript's own, before any time is made safe."""
+def _folded_tokens(text: str) -> list:
+    return ["".join(c for c in unicodedata.normalize("NFKD", tok) if not unicodedata.combining(c)) for tok in norm_tokens(text)]
+
+
+def find_phantoms(words: list, silences, max_seconds: float, run_min: int, edge: float, repeat_min: int) -> list:
+    """Runs of phantom words: a transcriber's repetition hallucination in a silence (typically at the end of a file, the last sentence
+    written again). A run is `run_min` or more words in a row, each at most `max_seconds` long (a word that ends before it starts
+    counts) and each starting inside a silence (`edge` seconds of slack at both ends); and it is phantom only when its folded text
+    repeats words said just before it: its first `repeat_min` tokens (all of them when the run has fewer) are found, in order, among
+    the tokens of the preceding words (the last twice the run's length, at least 40). Any other run of zero-length words is a
+    transcriber's collapsed timing of words that were spoken (a sentence opening squeezed into the end of a silence): it is not
+    touched here (`normalise_words` spreads it). Returns the phantom runs as lists of word indices. `silences` is a list of
+    (start, end) pairs or None (no audio: nothing is phantom). The words are the transcript's own, before any time is made safe."""
     if not silences:
         return []
     rows = sorted((float(s), float(e)) for s, e in silences)
@@ -76,16 +85,25 @@ def find_phantoms(words: list, silences, max_seconds: float, run_min: int, edge:
             return False
         return any(s - edge <= w["start"] <= e + edge for s, e in rows)
 
+    def repeats(run):
+        first = next(k for k, w in enumerate(words) if w["index"] == run[0])
+        run_tokens = [x for w in words[first:first + len(run)] for x in _folded_tokens(w["text"])]
+        before = [x for w in words[:first] for x in _folded_tokens(w["text"])]
+        need = min(repeat_min, len(run_tokens))
+        if need == 0 or len(before) < need:
+            return False
+        window = before[-max(2 * len(run_tokens), 40):]
+        head = run_tokens[:need]
+        return any(window[k:k + need] == head for k in range(len(window) - need + 1))
+
     runs, cur = [], []
-    for w in words:
-        if hit(w):
+    for w in words + [None]:
+        if w is not None and hit(w):
             cur.append(w["index"])
             continue
-        if len(cur) >= run_min:
+        if len(cur) >= run_min and repeats(cur):
             runs.append(cur)
         cur = []
-    if len(cur) >= run_min:
-        runs.append(cur)
     return runs
 
 

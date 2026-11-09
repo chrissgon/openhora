@@ -582,13 +582,17 @@ def test_a_confirmed_retake_is_a_wall_for_the_retiming_and_a_word_in_a_short_pau
     assert [w["index"] for w in unplaced] == [2] and ws[1]["start"] == 3.0
 
 
-# ---------------------------------------------------------------- phantom words: a transcriber's words inside a silence
+# ---------------------------------------------------------------- phantom words: a transcriber's repeat of a sentence, written into a silence
 
-def _phantom_spans(n, at):
-    return [("ghost%d" % k, at, at) for k in range(n)]
+SENTENCE = "we keep every small promise we make to our neighbours near and far and we mean it".split()      # 17 words
+OPENING = "the main point is that the road ahead stays open".split()
 
 
-def _phantom_base(spans, silences, duration=12.0, has_audio=True):
+def _at(texts, instant):
+    return [(w, instant, instant) for w in texts]
+
+
+def _phantom_base(spans, silences, duration=40.0, has_audio=True):
     analysis = {"facts": {"duration": duration, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": has_audio},
                 "silences": None if silences is None else [{"start": a, "end": b} for a, b in silences]}
     edl, _ = _edl.build_base(transcript_of(spans, duration), analysis, DATA, {})
@@ -600,51 +604,74 @@ def _speech(start, texts):
     return [(t, round(start + 0.4 * k, 3), round(start + 0.4 * k + 0.35, 3)) for k, t in enumerate(texts)]
 
 
-def test_a_run_of_zero_length_words_inside_a_silence_is_dropped_with_no_island_and_no_caption():
-    """Twelve zero-length words at one instant, at the end of a 4.5 s silence (the transcriber's hallucination in silence)."""
-    before = _speech(0.5, ["Good", "morning", "to", "everyone."])
-    after = _speech(7.0, ["Now", "the", "next", "part", "begins."])
-    spans = before + _phantom_spans(12, 6.9) + after
-    edl = _phantom_base(spans, [(2.4, 6.9)])
-    assert edl["normalisation"]["phantom_words"] == [{"from": 4, "to": 15, "count": 12}]
-    assert [w["index"] for w in edl["words"]] == [0, 1, 2, 3] + [16, 17, 18, 19, 20]           # indices are never renumbered
-    assert not any(w["text"].startswith("ghost") for w in edl["words"])
-    in_chunks = {i for a, b in edl["captions"]["chunks"] for i in range(a, b + 1)}
-    assert not in_chunks & set(range(4, 16))
-    for a, b in edl["kept"]:                                                                    # the kept ranges skip the silence entirely
-        assert b / FPS <= 2.4 + 0.2 or a / FPS >= 6.9 - 0.2
+def _spoken(n=0):
+    """A sentence of 17 words (0.4 s each, 0.5 to 7.3 s) and, after a long silence, a closing remark."""
+    return _speech(0.5, SENTENCE), _speech(14.0, ["Thank", "you", "all", "for", "listening."])
+
+
+def test_an_end_of_file_repeat_of_the_last_sentence_inside_a_silence_is_dropped_with_no_island_and_no_caption():
+    """The whole 17-word sentence written again as zero-length words at the end of a silence (the transcriber's hallucination)."""
+    before, after = _spoken()
+    spans = before + _at(SENTENCE, 13.9) + after
+    edl = _phantom_base(spans, [(7.6, 13.9)])
+    n = len(before)
+    assert edl["normalisation"]["phantom_words"] == [{"from": n, "to": n + 16, "count": 17}]
+    assert [w["index"] for w in edl["words"]] == list(range(n)) + list(range(n + 17, n + 22))       # indices are never renumbered
+    live = {w["index"] for w in edl["words"]}
+    assert all(a in live and b in live for a, b in edl["captions"]["chunks"])                           # no caption starts or ends on a phantom word
+    for a, b in edl["kept"]:                                                                          # the kept ranges skip the silence entirely
+        assert b / FPS <= 7.6 + 0.2 or a / FPS >= 13.9 - 0.2
     assert len(edl["kept"]) == 2
 
 
-def test_two_zero_length_words_in_a_silence_are_below_the_run_minimum_and_stay():
-    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(2, 6.9) + _speech(7.0, ["Now", "the", "next"])
-    edl = _phantom_base(spans, [(2.4, 6.9)])
+def test_a_sentence_opening_collapsed_at_the_end_of_a_silence_is_speech_with_bad_timing_and_is_kept():
+    """Zero-length words at one instant at a silence's end, which are the opening of the sentence that follows at once: spoken, not a repeat."""
+    before, _ = _spoken()
+    spans = before + _at(OPENING[:4], 13.9) + _speech(13.95, OPENING[4:])
+    edl = _phantom_base(spans, [(7.6, 13.9)])
     assert edl["normalisation"]["phantom_words"] == []
-    assert {4, 5} <= {w["index"] for w in edl["words"]}
+    n = len(before)
+    assert set(range(n, n + len(OPENING))) <= {w["index"] for w in edl["words"]}
+    assert edl["normalisation"]["spread_runs"] >= 1                                                    # handled as before: spread
 
 
-def test_twelve_zero_length_words_in_speech_with_no_silence_over_them_stay():
-    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(12, 3.0) + _speech(3.5, ["Now", "the", "next"])
-    edl = _phantom_base(spans, [(8.0, 12.0)])
+def test_a_repeat_in_speech_with_no_silence_over_it_is_kept():
+    before, after = _spoken()
+    spans = before + _at(SENTENCE, 7.4) + _speech(7.5, ["Thank", "you"])
+    edl = _phantom_base(spans, [(30.0, 40.0)])
     assert edl["normalisation"]["phantom_words"] == []
-    assert set(range(4, 16)) <= {w["index"] for w in edl["words"]}
+    n = len(before)
+    assert set(range(n, n + 17)) <= {w["index"] for w in edl["words"]}
+
+
+def test_a_three_word_run_that_repeats_the_three_words_before_it_in_a_silence_is_dropped_and_a_two_word_one_is_kept():
+    before, after = _spoken()
+    n = len(before)
+    edl = _phantom_base(before + _at(SENTENCE[-3:], 13.9) + after, [(7.6, 13.9)])
+    assert edl["normalisation"]["phantom_words"] == [{"from": n, "to": n + 2, "count": 3}]
+    edl = _phantom_base(before + _at(SENTENCE[-2:], 13.9) + after, [(7.6, 13.9)])           # below the run minimum
+    assert edl["normalisation"]["phantom_words"] == []
+    edl = _phantom_base(before + _at(["not", "said", "before"], 13.9) + after, [(7.6, 13.9)])      # a run that repeats nothing
+    assert edl["normalisation"]["phantom_words"] == []
 
 
 def test_a_recording_with_no_audio_has_no_phantom_words():
-    spans = _speech(0.5, ["Good", "morning", "to", "everyone."]) + _phantom_spans(12, 6.9) + _speech(7.0, ["Now", "the", "next"])
-    edl = _phantom_base(spans, None, has_audio=False)
+    before, after = _spoken()
+    edl = _phantom_base(before + _at(SENTENCE, 13.9) + after, None, has_audio=False)
     assert edl["normalisation"]["phantom_words"] == []
-    assert set(range(4, 16)) <= {w["index"] for w in edl["words"]}
+    assert set(range(len(before), len(before) + 17)) <= {w["index"] for w in edl["words"]}
 
 
-def test_a_word_that_is_not_zero_length_is_not_a_phantom_and_a_run_is_broken_by_it():
-    spans = _speech(0.5, ["Good", "morning"]) + _phantom_spans(2, 6.9) + [("spoken", 6.9, 7.3)] + _phantom_spans(2, 7.3) + _speech(7.5, ["Now"])
-    assert T.find_phantoms([{"index": k, "text": t, "start": a, "end": b} for k, (t, a, b) in enumerate(spans)], [(2.4, 7.4)], 0.02, 3, 0.05) == []
+def test_a_word_that_is_not_zero_length_breaks_a_run():
+    before, _ = _spoken()
+    spans = before + _at(SENTENCE[:2], 13.9) + [("spoken", 13.9, 14.3)] + _at(SENTENCE[3:6], 14.3)
+    words = [{"index": k, "text": t, "start": a, "end": b} for k, (t, a, b) in enumerate(spans)]
+    runs = T.find_phantoms(words, [(7.6, 14.4)], 0.02, 3, 0.05, 5)
+    assert runs == [] or all(len(r) == 3 for r in runs) and runs[0][0] > len(before) + 2
 
 
 def test_an_older_list_without_phantom_words_still_passes_the_check():
-    spans = _speech(0.5, ["Good", "morning", "to", "everyone."])
-    edl = _phantom_base(spans, [(3.0, 5.0)], duration=6.0)
+    edl = _phantom_base(_speech(0.5, ["Good", "morning", "to", "everyone."]), [(3.0, 5.0)], duration=6.0)
     del edl["normalisation"]["phantom_words"]
     _edl.check_edl(edl, DATA, VOCAB, {})
     edl["normalisation"]["phantom_words"] = [{"from": 3, "to": 2, "count": 1}]
