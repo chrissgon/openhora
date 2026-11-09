@@ -526,3 +526,36 @@ def test_the_post_of_the_live_test_passes_the_posts_checker_and_every_beat_is_on
     assert rc == 0, err
     beats = json.loads((tmp_path / "beats.json").read_text())
     assert [e["preset"] for e in beats["overlays"]] == ["keyword", "number", "list", "quote"] and beats["layouts"] == []
+
+
+def test_the_main_page_adds_every_used_face_through_the_fontface_api_from_the_pinned_bytes_before_the_first_tween(tmp_path, docs):
+    """V3b-4: the CSS @font-face rule of Inter 800 errored in the HyperFrames image, so every gsap block drew no glyph; a face made with `new FontFace(family,
+    bytes, {weight})` and `document.fonts.add` loaded and drew (probed in the image). One per used face, bytes equal to the pinned file's, before the first tween."""
+    import base64
+    catalogue = catalogue_of(tmp_path, mixed=True)
+    result = write(docs, catalogue, tmp_path / "p")
+    page = text_of(tmp_path / "p")
+    rows = re.findall(r'\["([^"]+)", (\d+), "([A-Za-z0-9+/=]+)"\]', page.split("var HF_FACES = [", 1)[1].split("];", 1)[0])
+    used = {(family, weight, file) for family, weight, file in C.FONT_FILES.values() if file in set(result["fonts_used"].values())}
+    by_digest = {hashlib.sha256((K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()).hexdigest(): name for name in R.FONT_FILES}
+    got = {(family, int(weight), by_digest[hashlib.sha256(base64.b64decode(blob)).hexdigest()]) for family, weight, blob in rows}
+    assert got == used and len(rows) == len(used)                    # one face per used file, the bytes of the pinned file
+    for needle in ("new FontFace(f[0], u8.buffer", "document.fonts.add(face)", "window.__hfFontsReady = Promise.all("):
+        assert needle in page, needle
+    first = page.index("var HF_FACES")
+    for needle in ("main.set(\"#hf-inst", "main.add(tl_", "main.fromTo(D_"):
+        if needle in page:
+            assert first < page.index(needle), needle
+
+
+def test_every_font_url_of_the_composed_pages_names_a_file_the_image_stages_with_its_pinned_sha256(tmp_path, docs):
+    catalogue = catalogue_of(tmp_path, mixed=False)
+    write(docs, catalogue, tmp_path / "p")
+    for name, digest in R.FONT_FILES.items():
+        assert hashlib.sha256((K.RENDERER / "hyperframes-image" / "fonts" / name).read_bytes()).hexdigest() == digest, name
+    seen = 0
+    for rel, prefix in (("index.html", "fonts/"),) + tuple(("blocks/" + n, "../fonts/") for n in sorted(os.listdir(tmp_path / "p" / "blocks"))):
+        for url in re.findall(r'url\("([^"]+)"\)', text_of(tmp_path / "p", rel)):
+            assert url.startswith(prefix) and url[len(prefix):] in R.FONT_FILES, (rel, url)
+            seen += 1
+    assert seen >= 4

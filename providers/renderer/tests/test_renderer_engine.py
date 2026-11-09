@@ -54,7 +54,7 @@ def read(path):
 
 def test_every_template_is_clean_and_pinned_and_each_forbidden_construct_is_refused():
     pins = _frames.template_pins()
-    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == set(pins)
+    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {p for p in pins if p.endswith("/renderat.html")}      # the gsap pages are pinned too (test_hf_ports.py checks them)
     for path in TEMPLATES:
         assert _lint.lint(read(path)) == [], path
         assert hashlib.sha256(open(path, "rb").read()).hexdigest() == pins[os.path.relpath(path, str(K.BLOCKS))], path

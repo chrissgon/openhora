@@ -1,0 +1,24 @@
+{
+ "schema_version": 1,
+ "name": "hf:caption-pill-karaoke",
+ "kind": "caption",
+ "preset": "caption",
+ "band": "caption",
+ "may_cross_face": false,
+ "license": [
+  "Apache-2.0"
+ ],
+ "source": "hyperframes-registry",
+ "use_when": "the spoken words in a light pill under the face, each word turning dark as it is said",
+ "params": {},
+ "samples": [
+  {}
+ ],
+ "natural_duration": null,
+ "implementations": {
+  "gsap": "gsap.html"
+ },
+ "tier": "B",
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+}

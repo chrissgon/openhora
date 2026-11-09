@@ -23,6 +23,7 @@ same bytes: sorted keys, no clock, no random. Standard library only; imports onl
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 
@@ -112,6 +113,21 @@ def font_face_css(fonts: dict, prefix: str) -> str:
             seen.add(file)
             rows.append('@font-face{font-family:"%s";font-weight:%d;font-display:block;src:url("%s%s") format("woff2");}' % (family, weight, prefix, file))
     return "\n".join(rows)
+
+
+def embedded_fonts(fonts: dict) -> dict:
+    """{file: base64} of the font files the page uses, each read from the allow-listed folder and checked against its sha256 (`font_hash`)."""
+    allow = {row["file"]: row for row in _assets.font_allowlist().values()}
+    out = {}
+    for _, _, file in sorted(fonts.values()):
+        row = allow.get(file)
+        if row is None:
+            fail("font_not_allowed", file)
+        raw = _assets.read_regular(os.path.join(_assets.fonts_dir(), file), 1 << 20, "font_unreadable", file)
+        if hashlib.sha256(raw).hexdigest() != row["sha256"]:
+            fail("font_hash", file)
+        out[file] = base64.b64encode(raw).decode("ascii")
+    return out
 
 
 def theme_pairs(edl: dict, fonts: dict) -> list:
@@ -228,6 +244,24 @@ def gsap_scripts(plan: list, catalogue: dict) -> tuple:
     return parts, suffix
 
 
+def font_faces_js(fonts: dict) -> str:
+    """The script that gives the main page its faces through the FontFace API, from the file bytes (checked against the allow list's sha256), once per face:
+    `new FontFace(family, bytes, {weight})`, `document.fonts.add`, `load()`. The page's CSS `@font-face` rule for Inter 800 came out as an error in the HyperFrames
+    image (with a path source, a data: source and a private family name alike) while a face made this way loaded and drew (V3b-4, probed inside the image), so
+    every gsap block drew no glyph. The CSS rules stay (the image's font guard reads the declared families). The promise is kept as `window.__hfFontsReady`.
+    A path source is not used: the measure step refuses a page that requests a path."""
+    data = embedded_fonts(fonts)
+    rows = ",\n  ".join("[%s, %d, %s]" % (dumps(family), weight, dumps(data[file])) for family, weight, file in sorted(set(fonts.values())))
+    return ("var HF_FACES = [\n  %s\n];\n"
+            "window.__hfFontsReady = Promise.all(HF_FACES.map(function (f) {\n"
+            "  var bin = atob(f[2]), u8 = new Uint8Array(bin.length);\n"
+            "  for (var i = 0; i < bin.length; i++) { u8[i] = bin.charCodeAt(i); }\n"
+            "  var face = new FontFace(f[0], u8.buffer, { weight: String(f[1]) });\n"
+            "  document.fonts.add(face);\n"
+            "  return face.load();\n"
+            "}));" % rows)
+
+
 def renderat_page(text: str, name: str, pairs: list, fonts: dict) -> str:
     """The block's `renderat.html` with, right after its charset line (else after `<head>`), the guard, the theme's custom properties set inline on the root element (an inline
     value beats the page's own `:root` rule) and the page's `@font-face` rules, and the `__frame` the root timeline calls."""
@@ -319,6 +353,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             seconds = num(parts["out_seconds"])
             scripts.append('var D_%d = {at: function (v) { if (v === undefined) return this._t || 0; this._t = v; drive(%s, v); }};\n'
                            'main.fromTo(D_%d, {at: 0}, {at: %s, duration: %s, ease: "none", immediateRender: true}, 0);' % (j, dumps(key), j, seconds, seconds))
+    scripts.insert(0, font_faces_js(fonts))                                       # before the first tween: every used face is requested from the first line of the script
     scripts.extend(tail)
 
     full_vars = dict(parts["vars"], inst=inst, ra=ra)

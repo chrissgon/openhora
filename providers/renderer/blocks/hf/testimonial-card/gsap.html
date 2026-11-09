@@ -1,0 +1,54 @@
+<!-- hf:testimonial-card: a card with the sentence someone said and, when given, who said it. Adapted from the HyperFrames registry component testimonial-card (file testimonial-card.html, sha256 7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510), commit b4cc674f7f312e77ded32e0b53006cc0bad6723b, Apache-2.0; changes: rewritten as one fragment of our own contract, the sentence, the author and a colour read from the payload, the star rating and the handle left out (the stars fall back to a font outside the allow list), initials of the author in the avatar, sizes by arithmetic from the band and the text length, pixel units instead of container units, theme tokens for the colours and the allow-listed fonts, no sample text. See providers/renderer/hyperframes-image/NOTICE.md. -->
+<template data-hf-block="hf:testimonial-card">
+  <style>
+    .stage, .stage *, .stage *::before, .stage *::after { box-sizing: border-box; }
+    .stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .card { display: flex; flex-direction: column; width: 930px; max-width: 930px; border-radius: 0.5em; border: 0.08em solid var(--c-chip_border);
+            background: var(--c-chip_fill); color: var(--c-text); box-shadow: 0 0.12em 0.4em rgba(0, 0, 0, 0.45); }
+    .quote { margin: 0; font-family: var(--font-display); font-weight: var(--weight-text); line-height: 1.23; letter-spacing: -0.02em; }
+    .by { display: flex; align-items: center; margin-top: 0.5em; }
+    .avatar { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 1.3em; height: 1.3em; border-radius: 50%;
+              font-family: var(--font-display); font-weight: var(--weight-display); font-size: 0.55em; line-height: 1; color: var(--c-bg); }
+    .author { margin-left: 0.55em; font-family: var(--font-display); font-weight: var(--weight-display); font-size: 0.62em; line-height: 1.1; color: var(--c-text); }
+  </style>
+  <div class="stage"><article class="card"><blockquote class="quote"></blockquote><footer class="by"><div class="avatar"></div><div class="author"></div></footer></article></div>
+  <script data-hf-build>
+    function build(root, tl, data, ctx) {
+      var FIT = 0.86, FS_MAX = 64, FS_MIN = 18, WIDTH = 930, PAD = 0.6, EM_CHAR = 0.6, LINE_H = 1.23, BY_EM = 1.3 * 0.55 + 0.5;
+      var P = data.params;
+      var card = root.querySelector(".card");
+      var quote = root.querySelector(".quote");
+      var by = root.querySelector(".by");
+      var avatar = root.querySelector(".avatar");
+      var author = root.querySelector(".author");
+      var color = P.color ? (P.color.charAt(0) === "#" ? P.color : "var(--c-" + P.color + ")") : "var(--c-accent)";
+      card.style.borderColor = color;
+      quote.textContent = P.text;
+      var named = Boolean(P.author);
+      if (named) {
+        author.textContent = P.author;
+        var initials = P.author.trim().split(/\s+/).slice(0, 2).map(function (part) { return part.charAt(0); }).join("").toUpperCase();
+        avatar.textContent = initials === "" ? "?" : initials;
+        avatar.style.background = color;
+      } else {
+        by.remove();
+      }
+      function cardHeight(size) {
+        var inner = WIDTH - 2 * PAD * size;
+        var lines = Math.max(1, Math.ceil(P.text.length * EM_CHAR * size / inner));
+        return lines * size * LINE_H + 2 * PAD * size + (named ? BY_EM * size + size * 0.2 : 0);
+      }
+      var size = FS_MAX;
+      while (cardHeight(size) > ctx.band.height * FIT && size > FS_MIN) { size = size * 0.95; }
+      card.style.fontSize = size.toFixed(1) + "px";
+      card.style.padding = (PAD * size).toFixed(1) + "px";
+      var scale = ctx.duration < 1.95 ? ctx.duration / 1.95 : 1;
+      var out = 0.45 * scale;
+      tl.fromTo(quote, { y: "18%", opacity: 0 }, { y: "0%", opacity: 1, duration: 0.7 * scale, ease: "power2.out" }, 0.12 * scale);
+      if (named) {
+        tl.fromTo([avatar, author], { y: "34%", opacity: 0 }, { y: "0%", opacity: 1, duration: 0.56 * scale, stagger: 0.06 * scale, ease: "power2.out" }, 0.82 * scale);
+      }
+      tl.fromTo(card, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(0, ctx.duration - out));
+    }
+  </script>
+</template>

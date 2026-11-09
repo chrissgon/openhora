@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "name": "hf:testimonial-card",
+ "kind": "overlay",
+ "preset": "quote",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "Apache-2.0"
+ ],
+ "source": "hyperframes-registry",
+ "use_when": "the speaker repeats a sentence someone said, in a card that names the author",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 120,
+   "required": true
+  },
+  "author": {
+   "type": "text",
+   "max": 40
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Small steps beat big plans.",
+   "author": "Aster Lane"
+  }
+ ],
+ "natural_duration": 2.0,
+ "implementations": {
+  "gsap": "gsap.html"
+ },
+ "tier": "B",
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+}

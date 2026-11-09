@@ -1,0 +1,54 @@
+<!-- hf:caption-pill-karaoke: the spoken words in a light pill under the face, each word turning dark as it is said. Adapted from the HyperFrames registry component caption-pill-karaoke (file caption-pill-karaoke.html, sha256 cdbbc72af7fbac440c0bf5750cf9e3d4ded20f26588b00ac79399342ca60b3e3), commit b4cc674f7f312e77ded32e0b53006cc0bad6723b, Apache-2.0; changes: rewritten as one fragment of our own contract, words and times read from the payload, bottom-anchored in the caption band with the pill and the type sized by arithmetic so the lowest glyph stays above the band bottom, theme tokens for the colours and the allow-listed font, the colour fade done by an opacity cross-fade, no measuring canvas, no sample text. See providers/renderer/hyperframes-image/NOTICE.md. -->
+<template data-hf-block="hf:caption-pill-karaoke">
+  <style>
+    .stage, .stage *, .stage *::before, .stage *::after { box-sizing: border-box; }
+    .stage { position: absolute; inset: 0 0 44px 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 0 60px; pointer-events: none; }
+    .pill { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; max-width: 960px; gap: 0 0.32em; padding: 0.22em 0.7em 0.26em;
+            border-radius: 0.34em; background: var(--c-text); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+            font-family: var(--font-display); font-weight: var(--weight-display); line-height: 1.25; text-transform: lowercase; }
+    .word { position: relative; display: inline-block; }
+    .off { color: var(--c-muted); }
+    .on { position: absolute; left: 0; top: 0; color: var(--c-bg); opacity: 0; white-space: nowrap; }
+  </style>
+  <div class="stage"><div class="pill"><span class="word"><span class="off"></span><span class="on"></span></span></div></div>
+  <script data-hf-build>
+    function build(root, tl, data, ctx) {
+      var FS_MAX = 80, FS_MIN = 44, LINE_H = 1.25, PILL_V = 0.48, EM_CHAR = 0.66, EM_GAP = 0.32, EM_PAD_X = 1.4, WIDTH = 960, PAD_BOTTOM = 44, RISE = 12;
+      var stage = root.querySelector(".stage");
+      var pill = root.querySelector(".pill");
+      var proto = root.querySelector(".word");
+      var made = proto.cloneNode(true);
+      proto.remove();
+      var words = data.words;
+      var chars = 0, longest = 0;
+      words.forEach(function (w) { chars += w.text.length; longest = Math.max(longest, w.text.length); });
+      var oneLine = EM_CHAR * chars + EM_GAP * Math.max(0, words.length - 1) + EM_PAD_X;
+      var lines = 1;
+      var fs = Math.min(FS_MAX, WIDTH / oneLine);
+      if (fs < FS_MIN) {
+        lines = 2;
+        fs = Math.min(FS_MAX, WIDTH / ((oneLine - EM_PAD_X) / 2 + EM_CHAR * longest + EM_PAD_X));
+      }
+      while (lines * fs * LINE_H + PILL_V * fs + PAD_BOTTOM + RISE > ctx.band.height && fs > 12) { fs = fs * 0.94; }
+      pill.style.fontSize = fs.toFixed(1) + "px";
+      stage.style.justifyContent = data.anchor === "center" ? "center" : "flex-end";
+      var fade = Math.min(0.1, ctx.duration / 4);
+      tl.fromTo(pill, { opacity: 0, y: -RISE }, { opacity: 1, y: 0, duration: fade, ease: "power2.out" }, 0);
+      tl.fromTo(pill, { opacity: 1, y: 0 }, { immediateRender: false, opacity: 0, y: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
+      words.forEach(function (w, i) {
+        var el = made.cloneNode(true);
+        var off = el.querySelector(".off");
+        var on = el.querySelector(".on");
+        off.textContent = w.text;
+        on.textContent = w.text;
+        pill.appendChild(el);
+        var begin = Math.max(0, w.start - 0.05);
+        if (i === 0) {
+          tl.set(on, { opacity: 1 }, 0);
+        } else {
+          tl.fromTo(on, { opacity: 0 }, { immediateRender: false, opacity: 1, duration: 0.1, ease: "none" }, begin);
+        }
+      });
+    }
+  </script>
+</template>

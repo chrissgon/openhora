@@ -154,18 +154,23 @@ def reference_plan(edl: dict, data: dict) -> dict:
             "anchor": _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])}
 
 
-def reference_graph(edl: dict, data: dict, source: str) -> list:
+def reference_graph(edl: dict, data: dict, source: str, only: int = None) -> list:
     """The filters that make the undrawn base from the proxy at label `source`, ending at `[cv]`: the kept ranges cut and zoomed by the one base graph,
     each zoom sampled bilinearly at exact positions (`_media.zoom_filter_linear`), as a browser scales a video layer. Earlier references and what they
     measured against a bilinear stand-in (testsrc2 detail, a 2 percent push-in, the face region, executor, host ffmpeg): `zoompan` on the proxy at a base of
     one 26 dB at the worst, `zoompan` at twice the size 29.8 at the worst and 33.2 at the median, which is also what the first live render gave (29.0 and
     33.4). An unzoomed range is the proxy as it is."""
-    return _media.base_graph(reference_plan(edl, data), source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=1, audio=False,
-                             zoom_linear=True)
+    plan, first = reference_plan(edl, data), 0
+    if only is not None:                                   # one kept range, as a stream that starts at its own first frame (the proxy is seeked there)
+        a0, b0 = plan["kept"][only]
+        plan, first = dict(plan, kept=[[0, b0 - a0]]), only
+    return _media.base_graph(plan, source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=1, audio=False, zoom_linear=True,
+                             first_index=first)
 
 
 def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list) -> list:
-    """The one ffmpeg command of the pixel check. Inputs: the intermediate (0) and the proxy (1). The proxy is cut into the kept ranges and
+    """The whole-list command of the pixel check: the reference that `pixel_argv_range` is proven equal to, frame for frame (V3b-4 measured it at 10.1 GiB on 36
+    ranges of a 129 s edit list, from the split of both streams into one branch per range), and no longer what `pixel_check` runs. Inputs: the intermediate (0) and the proxy (1). The proxy is cut into the kept ranges and
     zoomed by `_media.base_graph` (the reference, on the output timeline); the intermediate is converted to the same format; each stream is
     split once per kept range, trimmed to the range's output frames, cropped to the range's face region and compared by `psnr`, whose
     per-frame figures go to `psnr-<k>.log` in the folder the command runs in (a name with no character the filter graph treats
@@ -216,13 +221,40 @@ def read_stats(path: str, expect_frames: int) -> list:
     return values
 
 
+PIXEL_GROUP = 1                                 # kept ranges per ffmpeg command: memory stays bounded whatever the number of ranges (V3b-4: one command with a
+                                                # split of 35 branches on a long, many-cut edit list was killed for memory at 6144 MB)
+
+
+def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, k: int) -> list:
+    """The ffmpeg command of the pixel check for kept range `k` alone: the same comparison as one range of `pixel_argv`, on the frames of that range only.
+    Each input is seeked to the range's start (the intermediate to its first output frame, the proxy to the range's first source frame; both streams
+    are all-intra or decoded from the keyframe before, so the frames are the ones a full pass decodes) and read for the range's length only; the
+    reference is the one base graph on that stretch of the proxy, with the zoom of range number k; the same crop and `psnr`, the same stats file
+    `psnr-<k>.log`. Threads one, exact counts, no `-shortest`."""
+    fps, frame = edl["fps"], data["frame"]
+    first, last, box = range_faces[k]
+    a, b = edl["kept"][k]
+    w, h, x, y = crop_box(box, frame["width"], frame["height"])
+    g = reference_graph(edl, data, "[1:v:0]", only=k)
+    g.append("[0:v:0]scale=flags=%s,format=yuv420p,setsar=1[hv]" % _media.SWS)
+    g.append("[cv]trim=start_frame=0:end_frame=%d,setpts=PTS-STARTPTS,crop=%d:%d:%d:%d[rc]" % (last - first, w, h, x, y))
+    g.append("[hv]trim=start_frame=0:end_frame=%d,setpts=PTS-STARTPTS,crop=%d:%d:%d:%d[hc]" % (last - first, w, h, x, y))
+    g.append("[hc][rc]psnr=stats_file=%s[p]" % (STATS_NAME % k))
+    one = str(_media.ENCODE_INPUT_THREADS)
+    return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", one, "-filter_complex_threads", one,
+            "-threads", one, "-ss", "%.6f" % (first / float(fps)), "-t", "%.6f" % ((last - first) / float(fps)), "-i", intermediate,
+            "-threads", one, "-ss", "%.6f" % (a / float(fps)), "-t", "%.6f" % ((b - a) / float(fps)), "-i", proxy,
+            "-filter_complex", ";".join(g), "-map", "[p]", "-sws_flags", _media.SWS, "-an", "-c:v", "rawvideo", "-frames:v", str(last - first), "-f", "null", "-"]
+
+
 def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None, timeline=None) -> dict:
     """Run the pixel check in the folder `work` (the stats files are written there, and are the caller's to remove) and judge it: the
     minimum PSNR over every frame of every kept range, refused `face_pixels_changed` ("range <k> frame <f> psnr <x>") when any frame is
     under PIXEL_MIN_PSNR_DB. Returns {pixel_min_psnr_db, pixel_ranges}. `run` stands where `_media.run` stands (a test's seam; production
     leaves it out)."""
     run = run or _media.run
-    run(pixel_argv(ffmpeg, intermediate, proxy, edl, data, range_faces), PIXEL_TIMEOUT, cwd=work)
+    for k in range(len(range_faces)):
+        run(pixel_argv_range(ffmpeg, intermediate, proxy, edl, data, range_faces, k), PIXEL_TIMEOUT, cwd=work)
     lowest = None
     for k, (first, last, _box) in enumerate(range_faces):
         values = read_stats(work + "/" + (STATS_NAME % k), last - first)

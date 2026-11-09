@@ -33,7 +33,7 @@ def load(name, path):
 hf = load("hf_image_under_test", FOLDER / "hf_image.py")
 box = hf.box
 
-NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md", "compat-report.json"}   # compat-report.json: the document of the admission and dynamic runs, not part of the image
+NOT_IN_DEFINITION = {"hf_image.py", "README.md", "NOTICE.md", "compat-report.json", "LICENSE-registry-Apache-2.0.txt"}   # compat-report.json: the document of the admission and dynamic runs; the licence text of the registry: both are documents, not part of the image
 READ_BY_DOCKER_ITSELF = {"manifest.json", "Dockerfile", ".dockerignore", "pins.json"}
 OFFICIAL_CHROME = "https://storage.googleapis.com/chrome-for-testing-public/"
 BTBN = "https://github.com/BtbN/FFmpeg-Builds/releases/download/"
