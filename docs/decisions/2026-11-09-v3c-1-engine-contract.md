@@ -38,11 +38,24 @@ boxes one glyph per caption entry.
 - `ffmpeg.py` had to put `providers/` on the path before importing `_container` (the import was found failing offline).
 - M3's limit outcome (`render_timeout`, `no_space`, `intermediate_too_large`) fails the test after its row is recorded: stop rule 4 reports it; nothing is raised.
 
-**Report.** `providers/renderer/reports/engine-contract-<date>-<arch>.json` is written by the live file (`WB_ENGINE_REPORT=<new file>`) and committed unchanged by
-this package after the supervisor's Mac run. Its figures (M1 and M2 sha256 equality per engine, stage seconds, the memory figures, the outcomes) are added to this
-file's PR, not here, before the merge.
+**Report and Mac run.** `providers/renderer/reports/engine-contract-2026-11-09-arm64.json` (committed unchanged, checked by `contract_kit.check_report`) was
+written by the supervisor's run at 559bd7d (Docker Desktop, 14 CPUs, 27013 MiB; common `72b41c3cfa17`, HyperFrames `e5f2134dd1b8`, HyperFrames 0.9.19). By count:
+the functional legs (`-k "not mac_"`) 14 passed, 0 failed, 20.6 min; `test_hf_docker_live.py` 1 passed; the machine legs (`-k mac_`) 5 passed, 0 failed, 74.6
+min; no stop rule fired.
 
-**Not measured.** amd64 (until V3c-2); `docker stats` on Docker Desktop subtracts the file cache as on Linux (unverified) and a one-second sample can miss a short
-peak; the 300 s case if M3 was not run; the band's reading inside the image's own ffmpeg (the offline test uses the host's); that HyperFrames draws the proxy
-frame-exact at cuts; that the renderat pages in HyperFrames iframes report boxes for the planted `cover` and `low`. No measurement change, no skill changed, no
-lab run.
+- M1, the short case (19.5 s in, 6 kept ranges, 412 out frames): one sha256 per engine at 4 and at 8 cores (ffmpeg 14108988 bytes, HyperFrames 11263635).
+  ffmpeg 36.3 s at 4 cores, 28.5 s at 8; HyperFrames wall 125.5 s and 114.0 s.
+- M2, real size (186.5 s in, 37 ranges, 4556 out frames): one sha256 per engine at 4 and at 8 cores; the exact frame check on the 8-core output of each engine
+  checked 1962 frames (the unzoomed ranges), 0 bad. ffmpeg 154414509 bytes, 317 s at 4 cores and 221 s at 8. HyperFrames 121882799 bytes, stage seconds at 4
+  cores page 5.5, proxy 123.5, hf 434.5, encode 447.4, measure 97.9, pixel 159.7 (wall 1011 s; at 8 cores 945 s). HyperFrames drawing container: cgroup
+  `memory.peak` 6053 MiB (6045 at 8 cores; it counts page cache), sampled maximum 3404 MiB; the common containers' sampled maximum 525 MiB (ffmpeg engine 1194
+  MiB at most). Intermediate 2034054143 bytes. Gate figures: 24042 boxes, lowest caption bottom 1416.8, minimum PSNR 35.64 dB over 37 ranges.
+- M3, 297.9 s in, 63 ranges, 7125 out frames, HyperFrames at 8 cores: ok, wall 1377.5 s (under the 1800 s cap), cgroup peak 6144 MiB (the cap), sampled
+  maximum 4341 MiB (under the 5530 MiB stop line), common sampled 527 MiB, intermediate 3169315822 bytes.
+- The first finding on C9: both engines, composed, give one sha256 at 4 and at 8 cores on arm64 (not measured before for either).
+
+**Not measured.** amd64 (until V3c-2); the OOM counts (`oom_events` is null in every row: `docker events` gave no count, and the code is not changed here);
+that `docker stats` on Docker Desktop subtracts the file cache as on Linux (unverified), and a one-second sample can miss a short peak; the zoomed ranges' frames
+at real size (the exact check covers the unzoomed ones); determinism on amd64 of x264 at four threads in the compose and the proxy. The band's reading inside the
+image's own ffmpeg, the frame-exactness of HyperFrames at cuts and the planted `cover` and `low` blocks in HyperFrames iframes, listed as unverified before the
+run, were exercised by it and passed. No measurement change, no skill changed, no lab run.
