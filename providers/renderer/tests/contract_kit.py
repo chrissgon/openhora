@@ -269,6 +269,7 @@ def planted_renderat(tmp, which: str) -> Path:
     `low` puts the caption 40 px under the caption band's bottom. Used with RENDERER_TEST=1 and RENDERER_BLOCKS_DIR=<the folder>."""
     rel, old, new = PLANTS[which]
     folder = Path(tmp) / ("renderat-" + which)
+    shutil.rmtree(str(folder), ignore_errors=True)               # both engines' legs ask for the same folder in one lab
     shutil.copytree(K.BLOCKS, folder)
     K.write_hf_compose_blocks(folder)
     path = folder / rel
@@ -285,6 +286,7 @@ def planted_blank(tmp) -> Path:
     """HyperFrames only: a copy of the committed blocks plus a fictional caption block, `hf:demo-blank`, whose words are drawn at
     `font-size: 0px`, set as the engine's caption. The gates must refuse it `caption_not_drawn`."""
     folder = Path(tmp) / "blocks-blank"
+    shutil.rmtree(str(folder), ignore_errors=True)
     shutil.copytree(K.BLOCKS, folder)
     name = "hf:demo-blank"
     block = dict(K.PLANTED_BLOCK, name=name, kind="caption", preset="caption", band="caption", params={}, samples=[{}], natural_duration=None,

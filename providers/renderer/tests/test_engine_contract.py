@@ -395,3 +395,56 @@ def test_a_zoomed_range_is_skipped_only_when_asked_and_a_push_in_counts_as_zoom(
     assert only["bad"] == 0 and only["checked"] == 8
     pushed = edl_of([[0, 200]], mode="none", push_in=0.02)           # 6.7 s: a push-in from 5 s on
     assert C.unzoomed_ranges(pushed) == [] and C.unzoomed_ranges(edl_of([[0, 200]], mode="none", push_in=0)) == [0]
+
+
+# ---------------------------------------------------------------- the live file and the state folder
+
+def test_every_leg_gets_the_persons_state_folder_after_the_conftest_has_replaced_it_and_a_second_planted_call_for_the_same_folder_works(tmp_path):
+    """A conftest fixture of function scope points OPENHORA_STATE_DIR at a temporary folder before every test (the first run of step 7.8 and of this
+    file failed that way). The live file reads the person's folder at import and puts it back in an autouse function-scoped fixture; here a planted
+    conftest of that kind and a probe test run in a subprocess pytest."""
+    import sys
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "conftest.py").write_text("import pytest\n\n@pytest.fixture(autouse=True)\ndef _state(monkeypatch):\n    monkeypatch.setenv('OPENHORA_STATE_DIR', '/nonexistent-conftest-folder')\n")
+    (probe / "test_probe.py").write_text(
+        "import os\nimport test_engine_contract_live as live\nfrom test_engine_contract_live import real_state\n\n"
+        "def test_the_folder_is_the_persons(real_state):\n    assert os.environ['OPENHORA_STATE_DIR'] == live.REAL_STATE_DIR == '/the/persons/folder'\n")
+    env = {"PATH": __import__("os").environ.get("PATH", ""), "HOME": str(tmp_path), "OPENHORA_STATE_DIR": "/the/persons/folder",
+           "PYTHONPATH": "%s%s%s" % (K.HERE, __import__("os").pathsep, K.RENDERER), "PYTEST_ADDOPTS": ""}
+    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(probe), str(probe)], capture_output=True, text=True, env=env, timeout=300, cwd=str(probe))
+    assert done.returncode == 0 and "1 passed" in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+
+
+def test_the_live_file_reads_the_state_variable_at_import_only_and_every_leg_asks_for_the_lab_or_the_state_fixture():
+    import ast
+    tree = ast.parse((K.HERE / "test_engine_contract_live.py").read_text(encoding="utf-8"))
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    inside = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and node.value.id == "os":
+            owner = node
+            while owner in parents and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                owner = parents[owner]
+            if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                call = parents.get(node)
+                inside.append(isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "dict")
+    assert inside and all(inside), "inside a function the environment is only copied whole with dict(os.environ, ...)"
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    def decorators(f):
+        return ast.dump(ast.Module(body=[ast.Expr(d) for d in f.decorator_list], type_ignores=[]))
+    assert "autouse=True" in ast.unparse(funcs["real_state"].decorator_list[0]) and "scope" not in ast.unparse(funcs["real_state"].decorator_list[0])
+    for name in ("lab", "eight_cpus"):
+        assert "real_state" in [a.arg for a in funcs[name].args.args] and "scope" not in ast.unparse(funcs[name].decorator_list[0]), name
+    for name, f in funcs.items():
+        if name.startswith("test_"):
+            assert {a.arg for a in f.args.args} & {"lab", "eight_cpus"}, name
+    source = (K.HERE / "test_engine_contract_live.py").read_text(encoding="utf-8")
+    assert 'monkeypatch.setenv("OPENHORA_STATE_DIR", REAL_STATE_DIR)' in source
+
+
+def test_a_planted_folder_asked_for_twice_in_one_lab_is_made_again(tmp_path):
+    first = C.planted_renderat(tmp_path, "cover")
+    second = C.planted_renderat(tmp_path, "cover")
+    assert first == second and _blocks.load_catalogue(str(second))["engines"]["hyperframes"]["runtimes"] == ["renderat"]
+    assert C.planted_blank(tmp_path) == C.planted_blank(tmp_path)

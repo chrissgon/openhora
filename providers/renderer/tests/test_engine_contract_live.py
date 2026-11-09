@@ -130,13 +130,22 @@ def assert_clean(out_dir=None, passed=False):
 
 # ---------------------------------------------------------------- the lab: images, recordings, documents, renders
 
-@pytest.fixture(scope="module")
-def real_state():
+@pytest.fixture(autouse=True)
+def real_state(monkeypatch):
+    """A conftest fixture of function scope points OPENHORA_STATE_DIR at a temporary folder before every test, so the person's folder is put back here,
+    for every test (the variable is read at import, above, and never inside a function: inside one it would be that temporary folder). A
+    module-scoped fixture cannot do this: the lab and its host subprocesses read the state during the test, not when the lab is made."""
     if not REAL_STATE_DIR:
         pytest.fail("the builds and the tests must share one OPENHORA_STATE_DIR: set it to the same folder for the two image builds and for pytest")
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("OPENHORA_STATE_DIR", REAL_STATE_DIR)
-        yield
+    monkeypatch.setenv("OPENHORA_STATE_DIR", REAL_STATE_DIR)
+
+
+def fresh(path: Path) -> Path:
+    """An empty folder at `path`: what a failed earlier attempt left there is removed, so one failure reports itself once and does not cascade."""
+    if path.exists():
+        shutil.rmtree(str(path))
+    path.mkdir(parents=True)
+    return path
 
 
 class Render:
@@ -179,8 +188,7 @@ class Lab:
 
     def recording(self, name: str, transcript: dict) -> Path:
         def make():
-            folder = self.folder / ("media-" + name)
-            folder.mkdir()
+            folder = fresh(self.folder / ("media-" + name))
             in_image(self.common, C.source_args(transcript, "/out/in.mp4"), folder)
             assert (folder / "in.mp4").stat().st_size > 0
             return folder / "in.mp4"
@@ -188,8 +196,7 @@ class Lab:
 
     def long_recording(self) -> Path:
         def make():
-            folder = self.folder / "media-long"
-            folder.mkdir()
+            folder = fresh(self.folder / "media-long")
             in_image(self.common, C.long_recording_args("/out/long.mp4"), folder)
             return folder / "long.mp4"
         return self.cached(("recording", "long"), make)
@@ -197,8 +204,7 @@ class Lab:
     def band(self, path: Path) -> list:
         """The frame number of every frame of a video, read from its band, by one command in the common image."""
         self.counter += 1
-        folder = self.folder / ("band-%d" % self.counter)
-        folder.mkdir()
+        folder = fresh(self.folder / ("band-%d" % self.counter))
         shutil.copy(str(path), str(folder / "v.mp4"))
         in_image(self.common, C.band_read_args("/out/v.mp4", "/out/band.raw"), folder)
         return C.read_band((folder / "band.raw").read_bytes())
@@ -206,8 +212,7 @@ class Lab:
     def documents(self, name, recording: Path, transcript: dict, post: str, base_flags=()):
         """(edl file, beats file, edit list) made by the host's `analyse`, `base` and `align` on `recording`."""
         def make():
-            d = self.folder / ("docs-" + name)
-            d.mkdir()
+            d = fresh(self.folder / ("docs-" + name))
             (d / "post.md").write_text(post, encoding="utf-8")
             tfile = K.write_json(d / "transcript.json", transcript)
             assert host("ffmpeg", "analyse", "--in", recording, "--out", d / "analysis.json")[0] == 0
@@ -271,9 +276,14 @@ class Lab:
         return rec, edl, beats, doc
 
 
-@pytest.fixture(scope="module")
+LABS = []                                       # the one lab of the session: made inside the first test that needs it, with the person's state folder in place
+
+
+@pytest.fixture
 def lab(real_state, tmp_path_factory):
-    return Lab(tmp_path_factory.mktemp("engine-contract"))
+    if not LABS:
+        LABS.append(Lab(tmp_path_factory.mktemp("engine-contract")))
+    return LABS[0]
 
 
 # ---------------------------------------------------------------- F1 shape
@@ -397,8 +407,7 @@ def refused_with(lab, engine, tag, recording, edl, beats, code, **kwargs):
 def test_f7_what_the_engine_cannot_draw_and_a_recording_that_is_not_the_list_are_refused_with_the_same_codes(engine, lab):
     lab.need(engine)
     rec, edl_file, beats_file, doc = lab.short()
-    work = lab.folder / ("f7-" + engine)
-    work.mkdir()
+    work = fresh(lab.folder / ("f7-" + engine))
     beats = json.loads(Path(beats_file).read_text())
     # (a) a block that is not in the catalogue
     unknown = copy.deepcopy(beats)
@@ -445,7 +454,7 @@ def test_f8_a_caption_whose_words_draw_no_glyph_is_refused_and_the_clean_render_
 ROWS = {}                                       # case -> {"transcript", "edl", "runs": [row]}; the report is built from it at the end of the session
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def eight_cpus(real_state):
     count = docker_info("{{.NCPU}}")
     if not count.isdigit() or int(count) < 8:
