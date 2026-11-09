@@ -222,7 +222,7 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
   differ by a word or two (`near`). Hesitations, fillers and cues (a language's lists in the block `retakes` of `renderer-presets.json`) are
   skipped when comparing and go with the cut when they lie between the takes; accents are folded. Each proposal carries a `default`, `cut`
   or `keep`, and a closed `reason` (`far`, `cut_off`, `hesitation`, `continues`, `abandoned`, `pause`, `complete`, decided in that order;
-  `redo` takes the place of `far` for a whole sentence said again right after itself in other words), so the last take stays. `base --retakes auto` (the default) cuts every proposal whose default is `cut` except those named with `--keep`,
+  `redo` takes the place of `far` for a whole sentence said again right after itself in other words; its earlier take starts a phrase or follows a connector word of the language's `connector` list, as in "..., but <take>", and holds no sentence end), so the last take stays. `base --retakes auto` (the default) cuts every proposal whose default is `cut` except those named with `--keep`,
   and `--confirm <id>` cuts one more; `--retakes propose` cuts only what `--confirm` names (what the runtime uses, so every word is shown in
   the review). A complete sentence said twice with under a second between is kept. The storyboard never cuts.
 - **Beats.** `align` runs the post-writing skill's own checker (isolated, inside the container) and refuses a post it does not pass;

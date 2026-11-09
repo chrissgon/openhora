@@ -163,13 +163,16 @@ def test_the_presets_block_has_exactly_the_keys_and_clean_lists():
     for key, (lo, hi) in bounds.items():
         assert lo <= CFG[key] <= hi, key
     for language, block in CFG["words"].items():
-        assert set(block) == {"hesitation", "filler", "cue"}
+        assert set(block) == {"hesitation", "filler", "cue", "connector"}
         seen = {}
         for cls, entries in block.items():
             for entry in entries:
                 assert entry == unicodedata.normalize("NFC", entry).casefold(), (language, entry)
+                if cls == "connector":          # a connector may also be a filler ("so"): it is only looked up before a redo's earlier take
+                    continue
                 assert entry not in seen, (language, entry, seen.get(entry), cls)
                 seen[entry] = cls
+        assert block["connector"] == sorted(set(block["connector"]), key=block["connector"].index)
 
 
 def test_the_proposals_bound_is_the_one_of_the_check():
@@ -265,3 +268,41 @@ def test_a_redo_is_not_cut_when_another_sentence_lies_between_the_takes():
 def test_a_shorter_summary_said_after_a_long_sentence_is_not_a_redo():
     _, props = detect(ROWS[19][2], "pt")        # row 20: a 13-word sentence, then a four-word summary of it
     assert [(p["default"], p["reason"]) for p in props] == [("keep", "far")]
+
+
+# ---------------------------------------------------------------- the earlier take after a connector (a clause, "..., but <take>")
+
+PT_LEAD = "Nós sabemos que tudo muda com o tempo,"  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+PT_EARLIER = "nós vamos continuar juntos nesta caminhada longa e bonita cheia de desafios e alegrias na nossa vida."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+PT_LATER = "Nós vamos continuar juntos nesta jornada, porque cada passo pequeno constrói algo muito maior do que imaginamos."  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+EN_LEAD = "We all know that things change over time,"
+EN_EARLIER = "we will keep walking together on this long and lovely road full of small challenges and joys in our life."
+EN_LATER = "We will keep walking together on this winding path, because every small step builds something far bigger than we imagine."
+CROSSING = ("Nós vamos continuar juntos nesta caminhada longa e bonita. Isso é o que eu aprendo todo dia com muita gente boa e humilde. "  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+            + PT_LATER)
+
+CONNECTOR_ROWS = [
+    ("mas", "pt", PT_LEAD + " mas " + PT_EARLIER + " " + PT_LATER, [("repeat", "cut", "redo")], PT_LEAD + " mas " + PT_LATER),
+    ("mas-no-comma", "pt", PT_LEAD.rstrip(",") + " mas " + PT_EARLIER + " " + PT_LATER, [("repeat", "cut", "redo")], PT_LEAD.rstrip(",") + " mas " + PT_LATER),
+    ("but", "en", EN_LEAD + " but " + EN_EARLIER + " " + EN_LATER, [("repeat", "cut", "redo")], EN_LEAD + " but " + EN_LATER),
+    ("crosses-a-sentence-end", "pt", CROSSING, [("repeat", "keep", "far")], None),
+    ("connector-not-in-the-list", "pt", PT_LEAD + " depois " + PT_EARLIER + " " + PT_LATER, [("repeat", "keep", "far")], None),
+    ("no-connector-no-phrase-start", "en", EN_LEAD + " " + EN_EARLIER + " " + EN_LATER, [("repeat", "keep", "far")], None),
+]
+
+
+@pytest.mark.parametrize("row", CONNECTOR_ROWS, ids=[r[0] for r in CONNECTOR_ROWS])
+def test_the_earlier_take_may_follow_a_connector_but_never_cross_a_sentence_end(row):
+    _, language, text, expected, expected_kept = row
+    words, props = detect(text, language)
+    assert [(p["kind"], p["default"], p["reason"]) for p in props] == expected
+    assert kept(words, props) == (expected_kept if expected_kept is not None else " ".join(text.split()))
+
+
+def test_a_connector_is_matched_after_folding_and_a_two_word_connector_counts():
+    cfg = json.loads(json.dumps(CFG))
+    cfg["words"]["pt"]["connector"] = ["s\u00f3 que"]
+    words = words_of(PT_LEAD + " só que " + PT_EARLIER + " " + PT_LATER, "pt")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken
+    assert [(p["default"], p["reason"]) for p in R.detect_retakes(words, "pt", cfg)] == [("cut", "redo")]
+    words = words_of(PT_LEAD + " so que " + PT_EARLIER + " " + PT_LATER, "pt")
+    assert [(p["default"], p["reason"]) for p in R.detect_retakes(words, "pt", cfg)] == [("cut", "redo")]      # accents are folded on both sides

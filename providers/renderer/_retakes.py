@@ -52,14 +52,19 @@ def _nfc(text: str) -> str:
 
 
 def word_lists(cfg: dict, language) -> tuple:
-    """(single, cues): `single` maps a token to `hesitation`, `filler` or `cue`; `cues` is the list of multi-token cues (tuples),
-    the longest first. The language's lists are merged with those of "*"; an unknown language uses "*" only."""
+    """(single, cues, connectors): `single` maps a token to `hesitation`, `filler` or `cue`; `cues` is the list of multi-token cues
+    (tuples), the longest first; `connectors` is the list of connector words (tuples of folded tokens: "but", "so that") that may
+    stand before the earlier take of a redo. The language's lists are merged with those of "*"; an unknown language uses "*" only."""
     words = cfg["words"]
-    single, cues = {}, []
+    single, cues, connectors = {}, [], set()
     for lang in ("*", language):
         block = words.get(lang) if isinstance(lang, str) else None
         if not block:
             continue
+        for entry in block.get("connector", []):
+            toks = tuple(fold(t) for t in norm_tokens(_nfc(entry)))
+            if toks:
+                connectors.add(toks)
         for cls in ("hesitation", "filler", "cue"):
             for entry in block.get(cls, []):
                 toks = tuple(norm_tokens(_nfc(entry)))
@@ -68,7 +73,7 @@ def word_lists(cfg: dict, language) -> tuple:
                 elif len(toks) > 1 and cls == "cue":
                     cues.append(toks)
     cues = sorted(set(cues), key=lambda c: (-len(c), c))
-    return single, cues
+    return single, cues, sorted(connectors)
 
 
 class _Pauses:
@@ -95,7 +100,7 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
     None. Deterministic: the same input gives the same list."""
     if not words:
         return []
-    single, cues = word_lists(cfg, language if isinstance(language, str) else None)
+    single, cues, connectors = word_lists(cfg, language if isinstance(language, str) else None)
     pauses = _Pauses(silences)
     n_words = len(words)
     marks = [end_mark(w["text"]) for w in words]
@@ -103,6 +108,9 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
     for p, w in enumerate(words):
         for k, tok in enumerate(norm_tokens(w["text"])):
             flat.append((_nfc(tok), p, k == 0))
+    first_flat = {}
+    for k, t in enumerate(flat):
+        first_flat.setdefault(t[1], k)
     klass = [single.get(t[0], "content") for t in flat]
     for k in range(len(flat)):                 # a multi-token cue, the longest first
         for cue in cues:
@@ -149,8 +157,14 @@ def detect_retakes(words: list, language, cfg: dict, silences=None) -> list:
         if a_ph is None or b_ph is None or a_ph == b_ph or phrase_of.get(last_pos) != a_ph or length < run_min:
             return False
         starts = lambda ph: next(p for p in phrases[ph] if p in content_set)
-        if starts(a_ph) != first_pos or starts(b_ph) != later_pos:
+        if starts(b_ph) != later_pos:
             return False
+        if starts(a_ph) != first_pos:      # a clause: the earlier take may follow a connector word ("..., but <take>"), with no sentence end inside it
+            k = first_flat[first_pos]
+            if not any(k >= len(c) and tuple(fold(flat[x][0]) for x in range(k - len(c), k)) == c for c in connectors):
+                return False
+            if any(marks[p] in ("final", "cut") for p in range(first_pos, last_pos)):
+                return False
         if marks[last_pos] not in ("final", "cut") and pauses.between(words[last_pos], words[later_pos]) < cfg["phrase_pause"]:
             return False
         if length >= j - i or j - i - length < cfg["near_min_tokens"]:      # a short earlier phrase after the run: emphasis

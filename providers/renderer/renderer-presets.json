@@ -183,15 +183,17 @@
   "punctuation_min_share": 0.03,
   "proposals_max": 100,
   "words": {
-   "*": {"hesitation": ["hmm", "hm", "mm", "uhm"], "filler": [], "cue": []},
+   "*": {"hesitation": ["hmm", "hm", "mm", "uhm"], "filler": [], "cue": [], "connector": []},
    "pt": {
     "hesitation": ["ahn", "\u00e3h", "h\u00e3", "hum", "éé", "ééé", "aa", "aaa", "eee"],
     "filler": ["é", "né", "tipo", "ent\u00e3o", "aí", "bom", "olha", "assim", "ah", "eh", "uh"],
+    "connector": ["e", "mas", "ent\u00e3o", "porque", "por\u00e9m", "que", "s\u00f3 que"],
     "cue": ["desculpa", "desculpe", "perd\u00e3o", "pera", "peraí", "espera", "calma", "corta", "de novo", "vou de novo", "vou repetir", "deixa eu", "come\u00e7ando de novo"]
    },
    "en": {
     "hesitation": ["uh", "um", "er", "erm"],
     "filler": ["so", "well", "like", "ah"],
+    "connector": ["and", "but", "so", "because", "that"],
     "cue": ["sorry", "wait", "again", "scratch that", "start over", "let me start over", "let me try again", "cut"]
    }
   }
