@@ -325,7 +325,7 @@ def verb_proxy(args) -> dict:
 def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
     """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
     path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
-    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`."""
+    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`, `caption_not_drawn`."""
     flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
     if not any(flags):
         return None

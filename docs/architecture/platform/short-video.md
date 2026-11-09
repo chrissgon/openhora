@@ -63,6 +63,8 @@ What the three newest common modules hold: `_layout` is the arithmetic of where 
 | The image is run by the recorded id and never pulled; a missing, stale or swapped image is "not configured" and no container starts | `test_renderer_docker.py` (`test_the_image_is_never_pulled_is_run_by_its_id_and_is_labelled_for_reaping`, `test_a_missing_stale_or_swapped_image_is_not_configured_and_no_container_starts`); `test_whispercpp.py` (`test_a_run_refuses_an_image_that_was_not_built_or_was_replaced`) |
 | The image tag is the hash of the manifest's files, and a host-only edit changes nothing | `test_renderer_image.py` (`test_no_host_only_file_is_in_the_manifest_and_the_tag_does_not_change_when_ffmpeg_py_does`) |
 | The 1560 line: the caption band ends at `zones.caption_bottom` = 1560 (VD12); a caption drawn with its bottom below it fails the render as `caption_below_line` | `test_renderer_common.py` (`test_a_caption_drawn_ending_at_1560_passes_the_frame_loop`, `test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_names_the_frame_and_the_bottom`) |
+| The edit list is what is drawn: every output frame is the source frame the kept ranges name, in order, on both engines (C4, V3c) | `test_engine_contract_live.py` (F2: the recording carries its frame number as a band of cells, read back from the output) |
+| A caption with words draws glyphs: an entry of six frames or more with no glyph box of area in its span is refused `caption_not_drawn` (C12, V3c; the HyperFrames engine's gate, the ffmpeg engine's pages load their fonts before frame zero) | `test_hf_gate.py`; `test_engine_contract_live.py` (F8) |
 | The face box: a card or a caption that touches it fails the render as `overlay_hits_face`, and a face box that leaves no room for a card (80 px) or a caption (120 px) is refused at `base` | `test_renderer_engine.py` (`test_a_card_drawn_over_the_face_fails_the_frame_loop`); `test_renderer_edit.py` (`test_the_face_box_must_be_inside_the_frame_and_leave_room_for_cards_and_captions`, `test_a_drawn_box_that_touches_the_face_box_is_found`) |
 | Fonts come only from the allow-list, each checked by sha256 and by its header bytes | `test_renderer_engine.py` (`test_fonts_come_only_from_the_allow_list_and_are_hash_checked`) |
 | The browser is pinned by version, URL, size, md5 and sha256, and a build refuses what differs from the pin | `test_renderer_browser_pin.py` (`test_the_shipped_pin_names_the_version_and_both_architectures_and_the_sha256_is_not_invented`, `test_the_build_download_refuses_what_differs_from_the_pin`) |
@@ -163,3 +165,4 @@ Written on 2026-11-07 by V1a-3.
 
 Updated on 2026-11-07 by V3a-2.
 
+2026-11-09: V3c-1, the engine contract: one live test set for both engines, `caption_not_drawn`, `ffmpeg.py render --cpuset`

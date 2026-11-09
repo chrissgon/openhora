@@ -6,7 +6,9 @@ Two checks, both code, neither with a switch:
   boxes   `boxes.json` is what the page itself reported after the drawing (`hyperframes-image/hf_measure.mjs`: every box of every frame,
           the glyph rects of the text too). Each box is tested with the ffmpeg engine's own arithmetic (`_layout.face_hit`,
           `_layout.caption_hit`, `_layout.zones`) against the face of the entry that is on at that frame in the box's zone, else the face
-          of the kept range the frame is in. The refusals are the ffmpeg engine's own: `overlay_hits_face`, `caption_below_line`.
+          of the kept range the frame is in. The refusals are the ffmpeg engine's own: `overlay_hits_face`, `caption_below_line`. One more,
+          the HyperFrames engine's alone (V3c): a caption entry of at least CAPTION_DRAWN_MIN_FRAMES frames that no frame of its span draws a
+          glyph box of area for is `caption_not_drawn` (words that draw nothing, a font-size of zero or a hidden line).
   pixels  the face region of each kept range of the intermediate is compared, frame by frame, with the same region of the base the
           ffmpeg engine would draw (the proxy cut and zoomed by `_media.base_graph`), by ffmpeg's `psnr`. It sees what the boxes cannot: a
           canvas, a pseudo-element, a shadow or a filter that draws on the face with no box of its own. Under `PIXEL_MIN_PSNR_DB` in any
@@ -39,6 +41,7 @@ PSNR_CAP = 99.0                                 # two identical frames give an i
 PIXEL_TIMEOUT = 3600
 STATS_NAME = "psnr-%d.log"                      # one stats file per kept range, in the working folder (the command runs there)
 FIELD_OK = re.compile(r"[A-Za-z0-9_.\[\]:\- ]{0,80}")      # the characters a refusal field may hold (the same shape `_docker` accepts)
+CAPTION_DRAWN_MIN_FRAMES = 6                    # a caption entry shorter than this (0.2 s at 30 fps) may be all entry animation, and is not judged for glyphs
 MIN_CROP = 2                                    # pixels: the smallest face region the pixel check compares
 
 
@@ -111,6 +114,8 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dic
       a `frame`-zone box (or any zone but card and caption)     overlay_hits_face  "frame <f> <key>"
       a box (element or glyph) that touches the face            overlay_hits_face  "frame <f> <key>"
       a caption box (element or glyph) whose bottom is below the caption band's bottom   caption_below_line  "frame <f> bottom <y>"
+      a caption entry of CAPTION_DRAWN_MIN_FRAMES frames or more with no frame in its span that holds a caption-zone glyph box of width and
+      height above zero                                         caption_not_drawn  "caption <k> frames <first> to <last>"   (after the frame loop, entries in order)
 
     Returns {frames, boxes, lowest_caption_bottom (the largest bottom of a caption box, or None when no caption box was drawn)}."""
     out_frames = doc["frames"]
@@ -131,6 +136,14 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dic
                 band = bands.setdefault((face["x"], face["y"], face["w"], face["h"]), _layout.zones(data, face))
                 if _layout.caption_hit(b, band):
                     raise Refusal("caption_below_line", "frame %d bottom %g" % (f, bottom))
+    for k, e in enumerate(timeline["captions"]):
+        first, end = max(0, e["start_frame"]), min(out_frames, e["end_frame"])
+        if e["end_frame"] - e["start_frame"] < CAPTION_DRAWN_MIN_FRAMES:
+            continue
+        drawn = any(b["zone"] == "caption" and b["glyph"] is True and b["w"] > 0 and b["h"] > 0
+                    for f in range(first, end) for b in doc["per_frame"][f])
+        if not drawn:
+            raise Refusal("caption_not_drawn", "caption %d frames %d to %d" % (k, e["start_frame"], e["end_frame"] - 1))
     return {"frames": out_frames, "boxes": total, "lowest_caption_bottom": None if lowest is None else round(lowest, 1)}
 
 
@@ -219,10 +232,6 @@ def read_stats(path: str, expect_frames: int) -> list:
     if len(values) != expect_frames:
         raise Refusal("pixel_check_failed", "stats")
     return values
-
-
-PIXEL_GROUP = 1                                 # kept ranges per ffmpeg command: memory stays bounded whatever the number of ranges (V3b-4: one command with a
-                                                # split of 35 branches on a long, many-cut edit list was killed for memory at 6144 MB)
 
 
 def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, k: int) -> list:

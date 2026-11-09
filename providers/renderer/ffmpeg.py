@@ -43,7 +43,7 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   check --edl EDL --beats BEATS --vocabulary V [--platform-file F]
         Schema, bounds, text hardening, colours and fonts, credential shapes. Exit 1 and the closed code when refused.
   render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--asset SLOT=FILE]...
-         [--asset-sha256 SLOT=HEX]... [--jobs 3] [--dry-run] [--time-limit S] [--cover-out PNG --cover-offset-ms N]
+         [--asset-sha256 SLOT=HEX]... [--jobs 3] [--cpuset 0-3] [--dry-run] [--time-limit S] [--cover-out PNG --cover-offset-ms N]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten) and prints its sha256, bytes and seconds. `--out` may name a path
         ending in .mp4: its folder is used, the file name is always content-addressed. --dry-run prints the exact docker command.
   storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR [--face-box X,Y,W,H] [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
@@ -97,10 +97,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as hyperframes.py puts it on the path)
 
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _browser  # noqa: E402
+import _container as box  # noqa: E402
 import _docker as D  # noqa: E402
 import _frames  # noqa: E402
 import _media  # noqa: E402
@@ -193,6 +195,11 @@ def verb_render(args) -> dict:
     asset_hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
     if (args.cover_out is None) != (args.cover_offset_ms is None):
         raise Usage("--cover-out and --cover-offset-ms go together")
+    if args.cpuset is not None:
+        try:
+            box.check_cpuset(args.cpuset)
+        except box.ContainerError:
+            raise Refusal("bad_cpuset", "cpuset") from None
     out_dir = os.path.abspath(os.path.dirname(args.out) if args.out.endswith(".mp4") else args.out)
     data = load_data()
     try:
@@ -208,7 +215,7 @@ def verb_render(args) -> dict:
                  "--in", job.mount_recording(args.input), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
                  "--platform-file", job.stage("platform.json", args.platform_file), "--vocabulary", job.stage("vocabulary.json", args.vocabulary),
                  "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0])))), "--time-limit", str(limit)]
-        blocks_args = stage_blocks(job)
+        blocks_args = stage_blocks(job, _blocks.blocks_dir())
         inner += blocks_args
         for slot, path in sorted(asset_files.items()):
             if not SLOT_ID.fullmatch(slot):
@@ -342,6 +349,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--asset", action="append", metavar="SLOT=FILE")
     sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX")
     sp.add_argument("--jobs", type=int, default=3)
+    sp.add_argument("--cpuset", help="pin the containers to these cores, for example 0-3")
     sp.add_argument("--dry-run", action="store_true")
     sp.add_argument("--time-limit", type=int)
     sp.add_argument("--cover-out")

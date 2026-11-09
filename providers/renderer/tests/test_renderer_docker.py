@@ -513,3 +513,46 @@ def test_the_host_passes_the_retake_flags_to_the_inner_verb_and_keeps_the_propos
     assert out["proposals"][0]["default"] == "cut" and out["proposals"][0]["confirmed"] is False
     rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl2.json")
     assert rc == 0 and world.runs()[before + 1]["argv"][world.runs()[before + 1]["argv"].index("--retakes") + 1] == "auto" and out["proposals"][0]["confirmed"] is True
+
+
+# ---------------------------------------------------------------- the engine contract's host parity (V3c): a cpu set and a test blocks folder
+
+def dry_render(world, tmp_path, *more, env=None):
+    recording = tmp_path / "rec.mp4"
+    recording.write_bytes(b"0" * 16)
+    args = ["render", "--edl", K.write_json(tmp_path / "e.json", {"out_frames": 30, "fps": 30}), "--beats", K.write_json(tmp_path / "b.json", {}),
+            "--in", recording, "--out", tmp_path / "out", "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY, "--dry-run", *more]
+    return world.host(*args, env=env)
+
+
+def test_the_ffmpeg_engines_render_pins_the_container_to_a_cpu_set_as_the_other_engine_does(world, tmp_path):
+    rc, out, err = dry_render(world, tmp_path, "--cpus", "4", "--cpuset", "0-3")
+    assert rc == 0, err
+    command = out["command"]
+    assert command[command.index("--cpuset-cpus") + 1] == "0-3"
+    rc, out, err = dry_render(world, tmp_path)
+    assert rc == 0 and "--cpuset-cpus" not in out["command"]
+
+
+@pytest.mark.parametrize("bad", ["x", "3-0", "0-3;ls", "", "0,", "-1"])
+def test_a_bad_cpu_set_is_refused_bad_cpuset_before_any_container(world, tmp_path, bad):
+    rc, out, err = dry_render(world, tmp_path, "--cpuset", bad)
+    assert rc == 1 and err.startswith("refused: bad_cpuset cpuset"), err
+    assert world.runs() == []
+
+
+def test_the_ffmpeg_engine_stages_the_test_blocks_folder_only_in_test_mode(world, tmp_path):
+    import shutil
+    folder = tmp_path / "test-blocks"
+    shutil.copytree(K.BLOCKS, folder)
+    K.write_hf_compose_blocks(folder)
+    pins = __import__("contract_kit").pins_sha256(folder)
+    assert pins != K.BLOCKS_SHA256
+    flag = "--blocks-sha256"
+    rc, out, err = dry_render(world, tmp_path, env={"RENDERER_TEST": "1", "RENDERER_BLOCKS_DIR": str(folder)})
+    assert rc == 0, err
+    assert out["command"][out["command"].index(flag) + 1] == pins
+    rc, out, err = dry_render(world, tmp_path, env={"RENDERER_BLOCKS_DIR": str(folder)})                        # no RENDERER_TEST: the committed pins
+    assert rc == 0 and out["command"][out["command"].index(flag) + 1] == K.BLOCKS_SHA256
+    rc, out, err = dry_render(world, tmp_path)
+    assert rc == 0 and out["command"][out["command"].index(flag) + 1] == K.BLOCKS_SHA256

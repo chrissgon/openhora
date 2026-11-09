@@ -167,6 +167,40 @@ one, an external service) replaces this one behind the same verbs and the same e
   never rewritten, after checking the file against the platform's video spec. What an implementation owns is only how it draws.
 - Selection is `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` (or the runtime's configuration), as for every class.
 
+## The engine contract (V3c)
+
+Both engines promise the same things about a render, and one live file, `tests/test_engine_contract_live.py`, runs the same synthetic inputs
+through `ffmpeg.py` and `hyperframes.py` (the engine is a pytest parameter) with the same assertions. The code that makes the inputs, the
+report's closed schema and the memory sampler are in `tests/contract_kit.py`; the offline tests of the kit are `tests/test_engine_contract.py`.
+
+| # | Promise | Where it is made | Leg |
+|---|---|---|---|
+| C1 | `render-<sha12>.mp4`, mode 0400, never rewritten, checked in a fresh container before it is named | `_host.finish_render` | F1 |
+| C2 | the platform's video spec, bt709 tags, the length is `out_frames/fps` | `_inner.verb_verify`, `_media.check_output` | F1 |
+| C3 | audio is kept when the recording has it | `_media.compose_argv`, `_inner.verb_encode` | F1 |
+| C4 | the edit list is what is drawn: every output frame is the source frame the kept ranges name | `_media.base_graph`, `_hf_page` | F2 |
+| C5 | nothing drawn touches the face box | `_frames.draw_frames`, `_hf_gate.check_boxes`, `pixel_check` | F5 |
+| C6 | no caption ends below 1560 | the same | F6 |
+| C7 | a beat the engine cannot draw is refused before drawing | `_blocks.resolve` | F7 |
+| C8 | the recording is the one the list was made from, at most 300 s | `_output.check_recording` | F7 |
+| C9 | same input, same bytes, whatever the cores | `compose_argv`, `encode_argv`, `proxy_argv` | F3, F4, M1, M2 |
+| C10 | limits in code (memory, pids, workers, free space, 1800 s) | `hyperframes.py`, `_docker.py`, `_output.py` | M2, M3 |
+| C11 | a refusal leaves no file, no container, no run folder | `finish_render`, `Job` | every leg |
+| C12 | a caption with words draws glyphs (`caption_not_drawn`, HyperFrames) | `_hf_gate.check_boxes` | F8 |
+
+Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`) and
+on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
+M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8 cores, M3 a 298 s input on HyperFrames once) need 8 cores and run only with
+`WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the report, `reports/engine-contract-<date>-<arch>.json`,
+checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a transcript).
+
+The band: the synthetic recording carries its own frame number as 14 cells of 72 px (black or white, least significant bit on the left) at the
+top of the picture, above the cards, so F2 reads which source frame every output frame is. On the real-size legs the edit list keeps the real
+shape, zoom included, so the check there covers the ranges drawn unzoomed (the band is scaled in a zoomed range).
+
+The planted blocks (`contract_kit.planted_renderat`, `planted_blank`) live only in test temp folders and reach a render through
+`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`, which both engines now honour.
+
 ## The still frame (`still`)
 
 `still --in <recording> --at-ms <n> --out <dir>` writes one PNG of the recording at that time, framed exactly as the render frames the source
@@ -246,6 +280,8 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
 
 ## What makes a render the same bytes, and what can still differ
 
+The engine contract's legs M1 and M2 measure this on both engines, composed, at 4 and at 8 cores (`reports/`); C9 in the table above.
+
 Pinned in the compose command (`_media.compose_argv`): the encoder's threads (`-threads 4`: x264's output depends on its thread count, and
 the automatic count follows the cores the machine shows, 14 inside the container whatever the CPU quota), the filter graph's threads
 (`-filter_threads`, `-filter_complex_threads`, 4, which also fix swscale's slice count), `-sws_flags` and the flags of every explicit
@@ -267,11 +303,15 @@ and 8 against 4 took it from 366 s to 161 s, with the same bytes.
 
 ## Tests
 
+Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the ffmpeg image), `WB_HYPERFRAMES_DOCKER_TESTS=1` (both images), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
+
 `uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
 skip with a reason where those are absent; the host side runs against a fake docker that executes `_inner.py` with a local Chromium.
 `UPDATE_GOLDEN=1` rewrites `tests/golden/*.json` (the exact ffmpeg argv of a plan).
 
 ## Not verified here
+
+- The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's CI job. The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
 
 - **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a
   render of a real 192 s 4K 60 fps recording (104.7 s out, 197 s at 8 CPUs, 408 s at 4) ran there, with Chrome's sandbox off and
