@@ -347,7 +347,7 @@ def framing_filter(w: int, h: int, src_matrix: str) -> str:
             "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
 
 
-def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False) -> list:
+def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False, first_index: int = 0) -> list:
     """The filter strings of the cut and zoomed picture, with no layer and no pip: the source cut into the kept ranges, each zoomed about
     the face as the plan says, joined by `concat` into `[cv]` (and, when the plan has audio and `audio` is true, `[aout]`). The render
     (`compose_argv`) and the pixel check of the HyperFrames engine (`_hf_gate`) build the picture from this one function, so the
@@ -370,7 +370,7 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
     cat_in = []
     zoom, fade = plan["zoom"], plan["fade"]
     for k, (a, b) in enumerate(kept):
-        z0, z1 = zoom_levels(zoom, k, b - a, fps)
+        z0, z1 = zoom_levels(zoom, first_index + k, b - a, fps)       # first_index: the number of the first kept range when a plan holds a part of the list
         zf = zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h) if zoom_linear else zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
         g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
                  % (src_v[k], a, b, zf, k))

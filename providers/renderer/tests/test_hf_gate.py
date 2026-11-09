@@ -281,6 +281,66 @@ def test_the_pixel_command_pins_every_thread_ends_every_stream_and_never_uses_sh
     assert "/in/" not in graph and "[1:v:0]fps=30:start_time=0,format=yuv420p[sv]" in graph and "concat=n=2:v=1:a=0[cv]" in graph
 
 
+def test_the_pixel_check_is_one_command_per_range_with_no_split_each_input_seeked_and_bounded_and_the_frames_exact():
+    edl = small_edl(kept=((0, 20), (30, 60), (90, 100)))
+    faces = ranges_of(edl)
+    for k, (first, last, _box) in enumerate(faces):
+        argv = G.pixel_argv_range("ffmpeg", "/in/hf.mov", "/in/proxy.mp4", edl, DATA, faces, k)
+        graph = argv[argv.index("-filter_complex") + 1]
+        a, b = edl["kept"][k]
+        assert "split" not in graph and "nullsink" not in graph and "-shortest" not in argv
+        assert graph.count("psnr=") == 1 and "stats_file=psnr-%d.log" % k in graph and "concat=n=1:v=1:a=0[cv]" in graph
+        assert argv[argv.index("-filter_threads") + 1] == "1" and argv[argv.index("-filter_complex_threads") + 1] == "1"
+        inputs = [i for i, w in enumerate(argv) if w == "-i"]
+        assert len(inputs) == 2 and argv[inputs[0] + 1] == "/in/hf.mov" and argv[inputs[1] + 1] == "/in/proxy.mp4"
+        for i, (start, length) in zip(inputs, ((first, last - first), (a, b - a))):                  # -ss and -t come before -i, so each input is seeked and bounded
+            assert argv[i - 6:i - 4] == ["-threads", "1"] and argv[i - 4] == "-ss" and argv[i - 3] == "%.6f" % (start / 30.0)
+            assert argv[i - 2] == "-t" and argv[i - 1] == "%.6f" % (length / 30.0)
+        assert argv[argv.index("-frames:v") + 1] == str(last - first) and argv[argv.index("-map") + 1] == "[p]" and argv[-3:] == ["-f", "null", "-"]
+        assert "trim=start_frame=0:end_frame=%d" % (last - first) in graph and "[1:v:0]fps=30:start_time=0,format=yuv420p[sv]" in graph
+
+
+def test_the_pixel_check_runs_the_runner_once_per_range_and_reads_one_stats_file_per_range(tmp_path):
+    edl = small_edl(kept=((0, 20), (30, 60), (90, 100)))
+    calls = []
+
+    def fake_run(argv, timeout, cwd=None):
+        graph = argv[argv.index("-filter_complex") + 1]
+        k = int(graph.split("stats_file=psnr-")[1].split(".log")[0])
+        calls.append(k)
+        n = edl["kept"][k][1] - edl["kept"][k][0]
+        (Path(cwd) / ("psnr-%d.log" % k)).write_text("".join("n:%d mse_avg:1 psnr_avg:%s psnr_y:1\n" % (i + 1, 40 + k) for i in range(n)))
+        return "", ""
+
+    assert G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run=fake_run) == {"pixel_min_psnr_db": 40.0, "pixel_ranges": 3}
+    assert calls == [0, 1, 2]                                    # in order, one after another: the memory of a check is that of one range, whatever their number
+
+
+def test_a_range_made_alone_keeps_the_zoom_level_of_its_number_in_the_list():
+    zoom = {"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25}
+    edl = small_edl(kept=((0, 20), (30, 60), (90, 100)), zoom=zoom)
+    whole = G.reference_graph(edl, DATA, "[1:v:0]")
+    ax, ay = _media.anchor_point(edl["face_box"], 0.25)
+    zoomed = "perspective=x0='%.2f*(1-1/1.15000)'" % ax
+    assert zoomed in ";".join(whole) and sum(zoomed in line for line in whole) == 1                  # only range 1 of the whole list is zoomed
+    assert not any(zoomed in line for line in G.reference_graph(edl, DATA, "[1:v:0]", only=0))
+    assert any(zoomed in line for line in G.reference_graph(edl, DATA, "[1:v:0]", only=1))
+    assert not any(zoomed in line for line in G.reference_graph(edl, DATA, "[1:v:0]", only=2))
+    alone = G.reference_graph(edl, DATA, "[1:v:0]", only=1)
+    assert "trim=start_frame=0:end_frame=30" in ";".join(alone) and "concat=n=1:v=1:a=0[cv]" in alone[-1]
+
+
+def test_base_graph_with_the_default_first_index_is_the_graph_it_was_and_first_index_moves_only_the_zoom_numbers():
+    plan = {"fps": 30, "size": [1080, 1920], "src_matrix": "bt709", "kept": [[0, 10], [20, 40]], "has_audio": False, "fade": 0.01, "anchor": (540.0, 850.0),
+            "zoom": {"mode": "alternate", "factor": 1.1, "push_in": 0.0, "anchor_y": 0.25}}
+    assert _media.base_graph(plan) == _media.base_graph(plan, first_index=0)
+    shifted = _media.base_graph(plan, first_index=1)
+    plain = _media.base_graph(plan)
+    assert shifted != plain and [s for s in shifted if "trim=" not in s] == [s for s in plain if "trim=" not in s]
+    alone = _media.base_graph(dict(plan, kept=[[20, 40]]), first_index=1)
+    assert alone[1] == plain[3].replace("[s1]", "[sv]").replace("[v1]", "[v0]")                  # range 1 made alone is range 1 of the list
+
+
 def test_the_reference_is_the_proxy_cut_and_zoomed_by_the_one_base_graph_with_each_zoom_sampled_bilinearly_at_exact_positions():
     edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
     graph = ";".join(G.reference_graph(edl, DATA, "[1:v:0]"))
