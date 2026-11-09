@@ -97,11 +97,15 @@ def test_the_review_body_a_task_stores_is_the_whole_template_and_is_said_in_port
     assert phrases.heading(review["title"], PT) == "Revise as legendas"
 
 
-def test_both_review_bodies_match_the_template_the_step_builds_character_for_character():
+def test_the_review_bodies_match_the_template_the_step_builds_character_for_character_with_one_take_and_with_many():
     verdict = "\n\n" + steps.VERDICT_LINE
     for key, line in (("BODY_VIDEO_REVIEW_STILL", "A still was made for the face box."), ("BODY_VIDEO_REVIEW_NO_STILL", "No still was made for the face box.")):
-        built = "\n".join(["{words} words were transcribed.", "{beats} beats are below the match threshold.", line, "Edit the captions, then continue."]) + verdict
-        assert phrases.en(key) == built
-        body = built.format(words=7, beats=2)
-        assert phrases.body(body, PT).startswith("7 palavras foram transcritas.\n2 trechos")
-        assert phrases.body(body, None) == body
+        for cut, template, said in ((3, key, "3 tomadas repetidas serão cortadas pela regra"), (0, key, "0 tomadas repetidas serão cortadas pela regra"),  # validate: allow english-only -- the Portuguese sentence of the phrase table that the test compares
+                                    (1, key + "_ONE", "1 tomada repetida será cortada pela regra")):
+            built = "\n".join(["{words} words were transcribed.", "{beats} beats are below the match threshold.", line,
+                               "%s repeated take%s will be cut by rule; open the captions to keep one." % ("{cut}" if cut != 1 else 1, "" if cut == 1 else "s"),
+                               "Edit the captions, then continue."]) + verdict
+            assert phrases.en(template) == built
+            body = built.format(words=7, beats=2, cut=cut)
+            assert phrases.body(body, PT).startswith("7 palavras foram transcritas.\n2 trechos") and said in phrases.body(body, PT)
+            assert phrases.body(body, None) == body

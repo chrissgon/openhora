@@ -63,6 +63,7 @@ class FakeEngine:
 
     def __init__(self):
         self.calls, self.salt, self.fail, self.verify_ok = [], b"one", {}, True
+        self.proposals, self.final_proposals = [], None      # the retakes the proposal list holds, and the final list's (the same when None)
 
     def of(self, verb):
         return [c for c in self.calls if c["verb"] == verb]
@@ -101,7 +102,7 @@ class FakeEngine:
 
     def _base(self, a):
         proposal = flag(a, "--out").endswith("proposal.edl.json")
-        doc = {"proposals": [], "normalisation": {}}
+        doc = {"proposals": list(self.proposals if proposal or self.final_proposals is None else self.final_proposals), "normalisation": {}}
         if not proposal:
             doc = {**doc, "words": [{"index": i} for i in range(len(WORDS))], "out_frames": 240, "fps": 30}
         self._write(flag(a, "--out"), doc)

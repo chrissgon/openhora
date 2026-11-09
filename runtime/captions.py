@@ -108,7 +108,7 @@ def _is_int(value) -> bool:
 
 def new_review() -> dict:
     """The review state of a recording nobody has reviewed yet."""
-    return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "anchors": {}, "dropped_beats": [],
+    return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "kept_retakes": [], "anchors": {}, "dropped_beats": [],
             "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
             "theme": "identity", "animations": []}
 
@@ -121,12 +121,15 @@ def check_review(value) -> dict:
     if set(value) - set(base):
         raise CaptionError("review_unreadable", "review")
     out = dict(base, **value)
-    for item in out["confirmed_retakes"]:
-        if not (isinstance(item, dict) and set(item) - {"seconds"} == {"id", "from", "to"} and isinstance(item["id"], str)
-                and _is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]
-                and (item.get("seconds") is None or (isinstance(item["seconds"], (int, float)) and not isinstance(item["seconds"], bool)
-                                                     and 0 <= item["seconds"] < 3600))):
-            raise CaptionError("review_unreadable", "confirmed_retakes")
+    for key in ("confirmed_retakes", "kept_retakes"):      # the person's decisions on the rule's proposals: cut here, kept here
+        if not isinstance(out[key], list):
+            raise CaptionError("review_unreadable", key)
+        for item in out[key]:
+            if not (isinstance(item, dict) and set(item) - {"seconds"} == {"id", "from", "to"} and isinstance(item["id"], str)
+                    and _is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]
+                    and (item.get("seconds") is None or (isinstance(item["seconds"], (int, float)) and not isinstance(item["seconds"], bool)
+                                                         and 0 <= item["seconds"] < 3600))):
+                raise CaptionError("review_unreadable", key)
     if not isinstance(out["anchors"], dict) or not all(
             isinstance(k, str) and k.isdigit() and isinstance(v, list) and len(v) == 2 and all(_is_int(i) and i >= 0 for i in v) and v[0] <= v[1]
             for k, v in out["anchors"].items()):
@@ -364,14 +367,15 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         rid = edit.get("id")
         if not isinstance(rid, str) or rid not in proposals or type(edit.get("confirmed")) is not bool:
             raise CaptionError("unknown_retake", where)
-        kept = [r for r in review["confirmed_retakes"] if r["id"] != rid]
-        if edit["confirmed"]:
-            first, last = proposals[rid][0], proposals[rid][1]
-            entry = {"id": rid, "from": first, "to": last}
-            if len(proposals[rid]) > 2 and proposals[rid][2] is not None:
-                entry["seconds"] = proposals[rid][2]
-            kept.append(entry)
-        review["confirmed_retakes"] = sorted(kept, key=lambda r: (r["from"], r["id"]))
+        cut = [r for r in review["confirmed_retakes"] if r["id"] != rid]
+        kept = [r for r in review["kept_retakes"] if r["id"] != rid]
+        first, last = proposals[rid][0], proposals[rid][1]
+        entry = {"id": rid, "from": first, "to": last}
+        if len(proposals[rid]) > 2 and proposals[rid][2] is not None:
+            entry["seconds"] = proposals[rid][2]
+        (cut if edit["confirmed"] else kept).append(entry)       # "Keep it" is recorded too: the rule's default is not asked again
+        review["confirmed_retakes"] = sorted(cut, key=lambda r: (r["from"], r["id"]))
+        review["kept_retakes"] = sorted(kept, key=lambda r: (r["from"], r["id"]))
     elif op == "anchor":
         beat = edit.get("beat")
         if not _is_int(beat) or beat not in beats:
@@ -533,6 +537,17 @@ def retake_ranges(proposal_edl: dict) -> dict:
     return {p["id"]: (p["word_from"], p["word_to"], p.get("seconds")) for p in proposal_edl.get("proposals") or []}
 
 
+def cut_entries(review: dict, proposal_edl: dict) -> list:
+    """What is cut in the review's sense: the person's confirmed retakes, plus the proposals whose `default` is `cut` that the person
+    did not keep (those carry `rule: True`, a marker that is never stored). A list written before `default` reads as keep."""
+    decided = {r["id"] for r in review["confirmed_retakes"]} | {r["id"] for r in review["kept_retakes"]}
+    out = list(review["confirmed_retakes"])
+    for p in proposal_edl.get("proposals") or []:
+        if p.get("default") == "cut" and p["id"] not in decided:
+            out.append({"id": p["id"], "from": p["word_from"], "to": p["word_to"], "seconds": p.get("seconds"), "rule": True})
+    return out
+
+
 def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, assets: dict) -> dict:
     """The caption review as the page reads it (`captions-read`): the transcript as caption chunks, the retakes proposed
     (struck through, to confirm or reject), the words whose timing the renderer adjusted, each beat with its matched words and
@@ -574,13 +589,18 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
         run["words"].append(row["index"])
     segments = [{"index": s["index"], "source": s.get("source", "transcriber"), "dropped": s["index"] in dropped_segments,
                  "words": [w["index"] for w in words if w["segment"] == s["index"]]} for s in edited["segments"]]
-    confirmed = {r["id"] for r in review["confirmed_retakes"]}
+    by_person_cut = {r["id"] for r in review["confirmed_retakes"]}
+    by_person_kept = {r["id"] for r in review["kept_retakes"]}
+    confirmed = {p["id"] for p in proposal_edl.get("proposals") or []
+                 if p["id"] in by_person_cut or (p.get("default") == "cut" and p["id"] not in by_person_kept)} | by_person_cut
     retakes = []
     for p in proposal_edl.get("proposals") or []:
         now = span_current(words, p["word_from"], p["word_to"])
         keep = span_current(words, p["keep_from"], p["keep_from"])
         retakes.append({"id": p["id"], "kind": p["kind"], "seconds": p["seconds"], "word_from": now and now[0], "word_to": now and now[1],
-                        "keep_from": keep and keep[0], "confirmed": p["id"] in confirmed})
+                        "keep_from": keep and keep[0], "confirmed": p["id"] in confirmed, "default": p.get("default") or "keep",
+                        "reason": p.get("reason"), "decided": "person" if p["id"] in by_person_cut | by_person_kept else "rule",
+                        "start": now and words[now[0]]["start"]})
     threshold = proposal_beats.get("threshold")
     beats = []
     for item in proposal_beats.get("report") or []:

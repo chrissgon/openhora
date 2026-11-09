@@ -104,7 +104,7 @@ def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None
     if transcript["duration"] > data["limits"]["input_seconds_max"]:
         raise Refusal("script_too_long", "post")                           # a clear refusal, not the analysis check's
     edl, notes = _edl.build_base(transcript, analysis, data, allow, None, 3600.0, None, cfg["trail"], "bottom", colors, font_flags, face,
-                                 "none", None, 0.0)
+                                 "none", None, 0.0, retake_mode="propose")   # the storyboard's synthetic words are never cut
     with_preset = [r for r in rows if r["preset"]]
     results = [{"score": 1.0, "word_from": ranges[r["beat"]][0], "word_to": ranges[r["beat"]][1], "matched": True, "reordered": False}
                for r in with_preset]

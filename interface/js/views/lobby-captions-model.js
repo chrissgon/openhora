@@ -155,6 +155,29 @@ export const WHY_TEXT = Object.freeze({
   not_configured: "The video engine is not set up for this project.",
 });
 
+/** Why the rule proposed a retake, by the service's closed word (providers/renderer/_retakes.py REASONS). */
+export const RETAKE_REASONS = Object.freeze({
+  cut_off: "it was cut off",
+  hesitation: "a hesitation came before the new take",
+  continues: "said again and carried on",
+  abandoned: "an unfinished sentence",
+  pause: "said again after a pause",
+  complete: "a complete sentence said twice",
+  far: "too far apart to cut by rule",
+});
+
+/** The state of a retake row in words: the rule's or the person's, cut or kept. */
+export function retakeState(r) {
+  const who = r.decided === "person" ? "you" : "the rule";
+  return `${r.confirmed ? "cut" : "kept"} by ${who}`;
+}
+
+/** The text of the words `from` to `to` of a view's `words`, in order, as one line. */
+export function wordsText(words, from, to) {
+  if (!Array.isArray(words) || typeof from !== "number" || typeof to !== "number") return "";
+  return words.filter((w) => w && w.index >= from && w.index <= to).map((w) => w.text).join(" ");
+}
+
 /** True when the dialog may send an edit: only at the review or at the delivery card; a null mode is read-only. */
 export function canEdit(mode) {
   return mode === "review" || mode === "gate";

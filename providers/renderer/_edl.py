@@ -16,9 +16,10 @@ import _blocks
 import _media
 import _redact
 from _align import norm_tokens, token_sim
+from _retakes import KINDS as RETAKE_KINDS, REASONS as RETAKE_REASONS, detect_retakes
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
-from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, detect_retakes, kept_ranges, normalise_words, out_frames_of)
+from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, out_frames_of)
 from _vocab import HEX_COLOR, check_params, script_section, slot_params
 
 EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words
@@ -28,7 +29,9 @@ ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 MENTION = re.compile(r"(?<![\w@])@[\w.]{1,30}")
 EDL_KEYS = {"schema_version", "fps", "size", "source", "kept", "out_frames", "words", "captions", "theme", "normalisation", "face_box", "zoom",
             "proposals"}
-PROPOSAL_KEYS = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
+PROPOSAL_REQUIRED = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
+PROPOSAL_KEYS = PROPOSAL_REQUIRED | {"default", "reason"}      # `default` and `reason` are optional: a list written before them reads as `keep`
+RETAKE_MODES = ("auto", "propose")
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
 BEATS_KEYS = BEATS_REQUIRED | {"script"}          # `script` is optional: a beats file without it stays valid, schema_version 1
@@ -122,12 +125,13 @@ def parse_face_box(text: str) -> dict:
 
 def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None) -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto") -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
-    decide); the words only protect speech. Retakes are found by rule and written into the list as PROPOSALS, none applied:
-    `confirm` names the proposals the person confirmed (by id), and only those are cut. A cut of `long_cut` seconds or more
+    decide); the words only protect speech. Retakes are found by rule (`_retakes`) and written into the list as proposals, each with
+    a `default` (`cut` or `keep`) and a `reason`. `retake_mode` `auto` cuts every proposal whose default is `cut` except those named in
+    `keep`, and those named in `confirm`; `propose` cuts only `confirm`. An id in both `keep` and `confirm` is refused. A cut of `long_cut` seconds or more
     also takes the wordless sound of more than `wordless_max` seconds at its edges. `face_box` is {x, y, w, h} in
     frame pixels (the person gives it once per recording; a default is used otherwise). `zoom_mode` is `alternate` (every
     second kept range is drawn at `zoom_factor`, about a fixed point: the face's centre, `anchor_y` of the box's height down
@@ -166,14 +170,23 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     live = [w for w in words if not w["dropped"]]
     if not live:
         raise Refusal("no_words", "transcript")
-    proposals = detect_retakes(live)
-    unknown = sorted(set(confirm) - {p["id"] for p in proposals})
+    if retake_mode not in RETAKE_MODES:
+        raise Refusal("bad_choice", "retakes")
+    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
+    proposals = detect_retakes(live, tr["language"], data["retakes"], sil)
+    both = sorted(set(confirm) & set(keep))
+    if both:
+        raise Refusal("retake_conflict", both[0][:32])
+    unknown = sorted((set(confirm) | set(keep)) - {p["id"] for p in proposals})
     if unknown:
         raise Refusal("unknown_proposal", unknown[0][:32])
+    cut_ids = set(confirm)
+    if retake_mode == "auto":
+        cut_ids |= {p["id"] for p in proposals if p["default"] == "cut"} - set(keep)
     forced = []
     by_index = {w["index"]: w for w in live}
     for p in proposals:
-        if p["id"] not in confirm:
+        if p["id"] not in cut_ids:
             continue
         p["confirmed"] = True
         first, last = by_index[p["word_from"]], by_index[p["word_to"]]
@@ -194,8 +207,6 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     kept_words = [w for w in live if not w["dropped"]]
     if not kept_words:
         raise Refusal("nothing_kept", "transcript")
-    silences = analysis.get("silences")
-    sil = None if silences is None else [(s["start"], s["end"]) for s in silences]
     long_cut = cuts["long_cut"] if long_cut is None else long_cut
     wordless_max = cuts["wordless_max"] if wordless_max is None else wordless_max
     if not _num(long_cut) or not _num(wordless_max) or long_cut < 0 or wordless_max < 0:
@@ -387,8 +398,9 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
     seen = set()
     for k, p in enumerate(props):
         field = "edl.proposals[%d]" % k
-        closed(p, PROPOSAL_KEYS, field)
-        if not isinstance(p["id"], str) or not ID.fullmatch(p["id"]) or p["id"] in seen or p["kind"] not in ("repeat", "restart") \
+        closed(p, PROPOSAL_KEYS, field, PROPOSAL_REQUIRED)
+        if not isinstance(p["id"], str) or not ID.fullmatch(p["id"]) or p["id"] in seen or p["kind"] not in RETAKE_KINDS \
+                or ("default" in p and p["default"] not in ("cut", "keep")) or ("reason" in p and p["reason"] not in RETAKE_REASONS) \
                 or not all(_int(p[x]) and p[x] >= 0 for x in ("word_from", "word_to", "keep_from")) or p["word_from"] > p["word_to"] \
                 or p["keep_from"] <= p["word_to"] or not _num(p["seconds"]) or not isinstance(p["confirmed"], bool):
             raise Refusal("bad_proposals", field)

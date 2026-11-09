@@ -83,7 +83,7 @@ export function captionsRead(P, id) {
     revision: 3, words,
     chunks: VIDEO_CHUNKS.map(([a, b], chunk) => ({ chunk, words: words.slice(a, b + 1).map((w) => w.index) })),
     segments: [{ index: 0, source: "transcriber", dropped: false, words: words.map((w) => w.index) }],
-    retakes: [{ id: "r1", kind: "repeat", seconds: 1.4, word_from: 2, word_to: 3, keep_from: 4, confirmed: true }],
+    retakes: [{ id: "r1", kind: "repeat", seconds: 1.4, word_from: 2, word_to: 3, keep_from: 4, confirmed: true, default: "cut", reason: "continues", decided: "rule", start: 1.3 }],
     beats: [
       { beat: 1, preset: "keyword", score: 0.92, matched: true, anchored: false, below_threshold: false, reordered: false, fallback: null, word_from: 4, word_to: 4, dropped: false },
       { beat: 2, preset: "quote", score: 0.31, matched: false, anchored: false, below_threshold: true, reordered: false, fallback: null, word_from: null, word_to: null, dropped: false },

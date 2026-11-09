@@ -29,11 +29,13 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   analyse --in VIDEO [--out F] [--noise-db -35] [--min-silence 0.25]
         ffprobe facts, the recording's sha256 and silencedetect intervals.
   base --transcript T --analysis A --out EDL [--fps 30] [--pad-head 0.10] [--pad-tail 0.14] [--long-cut 2] [--wordless-max 0.3] [--caption-position bottom|center]
-       [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0.02] [--zoom-anchor-y 0.25] [--confirm RETAKE-ID]...
+       [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0.02] [--zoom-anchor-y 0.25] [--retakes auto|propose]
+       [--confirm RETAKE-ID]... [--keep RETAKE-ID]...
        [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
         The code-generated base edit list. Silence is the cut signal (the words only protect speech) and no range is kept shorter
         than 0.4 s; captions come in chunks of one to three words; every second range is drawn zoomed on the face box. Retakes found
-        by rule are written into the list as proposals, none applied: only the ones named with --confirm are cut.
+        by rule are written into the list as proposals, each with a default (cut or keep) and a reason; with --retakes auto (the default) the
+        ones whose default is cut are cut, except those named with --keep, and --confirm cuts one more; with --retakes propose only --confirm cuts.
   align --post FILE --transcript T --checker SCRIPT --vocabulary V --out BEATS [--threshold 0.6] [--empty-slot SLOT=keyword|none]...
         [--anchor BEAT=WORD_FROM-WORD_TO]... [--edl EDL]
         Runs the post-writing skill's own script checker (an isolated subprocess, inside the container) and refuses a post it does

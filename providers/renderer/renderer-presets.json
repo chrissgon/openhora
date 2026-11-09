@@ -162,6 +162,37 @@
   "pad_tail": 0.14,
   "wordless_keep": 1.5
  },
+ "retakes": {
+  "window_seconds": 20.0,
+  "run_min": 3,
+  "restart_min": 2,
+  "fragment_min_chars": 2,
+  "tail_propose_max": 30,
+  "tail_cut_max": 6,
+  "cut_seconds_max": 10.0,
+  "retake_pause": 1.0,
+  "phrase_pause": 0.6,
+  "near_min_tokens": 4,
+  "near_head_tokens": 2,
+  "near_ratio": 0.8,
+  "near_edits_max": 2,
+  "near_gap_max": 3.0,
+  "punctuation_min_share": 0.03,
+  "proposals_max": 100,
+  "words": {
+   "*": {"hesitation": ["hmm", "hm", "mm", "uhm"], "filler": [], "cue": []},
+   "pt": {
+    "hesitation": ["ahn", "\u00e3h", "h\u00e3", "hum", "éé", "ééé", "aa", "aaa", "eee"],
+    "filler": ["é", "né", "tipo", "ent\u00e3o", "aí", "bom", "olha", "assim", "ah", "eh", "uh"],
+    "cue": ["desculpa", "desculpe", "perd\u00e3o", "pera", "peraí", "espera", "calma", "corta", "de novo", "vou de novo", "vou repetir", "deixa eu", "come\u00e7ando de novo"]
+   },
+   "en": {
+    "hesitation": ["uh", "um", "er", "erm"],
+    "filler": ["so", "well", "like", "ah"],
+    "cue": ["sorry", "wait", "again", "scratch that", "start over", "let me start over", "let me try again", "cut"]
+   }
+  }
+ },
  "storyboard": {
   "note": "The storyboard draws each beat at `settled` seconds into it (per preset, above): the longest entrance of the template, from its easing, at the vocabulary's largest parameters and a long beat; a beat too short for that is drawn at its end less its tail less one frame. The storyboard verb (no recording, no transcript): each beat's line is split into words spoken at words_per_second (2.5, the speaking rate of P3b; a test holds the two equal once both files carry it), one beat after another with beat_gap seconds between them, and trail seconds after the last word so that no beat is cut short by the video's end. Every time here is a whole number of frames at 30 fps, so every beat starts on a frame. The page is drawn over `backdrop`; a layout's asset slot is filled with `slot_fill`. The contact sheet is a grid of tile_width x tile_height tiles in rows of `columns`, `gap` pixels apart, on `fill`.",
   "words_per_second": 2.5,

@@ -265,6 +265,51 @@ def test_the_dialog_draws_the_words_by_chunk_and_sends_exactly_one_closed_edit_p
     assert got["failedRead"] == {"text": "That task is not a video.", "buttons": ["Close"]}
 
 
+RETAKES = PRELUDE + r"""
+import * as model from "@JS@/views/lobby-captions-model.js";
+const row = (extra) => ({ id: "r1", kind: "repeat", seconds: 1.4, word_from: 2, word_to: 3, keep_from: 4, confirmed: false, default: "keep", reason: null, decided: "rule", start: 2, ...extra });
+const cases = {
+  ruleCut: row({ confirmed: true, default: "cut", reason: "hesitation" }),
+  ruleKept: row({ confirmed: false, default: "keep", reason: "far" }),
+  personCut: row({ confirmed: true, default: "keep", reason: "complete", decided: "person" }),
+  personKept: row({ confirmed: false, default: "cut", reason: "continues", decided: "person" }),
+  unknownReason: row({ confirmed: true, default: "cut", reason: "from_the_future" }),
+};
+out.rows = {};
+for (const [name, retake] of Object.entries(cases)) {
+  const r = make({ view: { ...VIEW(), retakes: [retake] } });
+  await r.review.open(900, "review"); await settle();
+  const li = item(r.el, "Retake r1");
+  const paragraphs = byClass(li, "wb-cr-line");
+  out.rows[name] = { line: textOf(paragraphs[0]), words: textOf(paragraphs[1]), wordsClass: paragraphs[1].attrs.class, button: labels(li) };
+}
+const read = make({ mode: null });
+await read.review.open(900, null); await settle();
+out.readOnly = labels(item(read.el, "Retake r1")).length;
+out.reasons = model.RETAKE_REASONS;
+out.frozen = Object.isFrozen(model.RETAKE_REASONS);
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_a_retake_row_says_who_decided_why_and_shows_its_words_struck_through_when_cut(tmp_path):
+    got = run_node(tmp_path, RETAKES)
+    rows = got["rows"]
+    assert rows["ruleCut"]["line"] == "Retake r1: repeat, 1.4 s, words 2 to 3, cut by the rule (a hesitation came before the new take)"
+    assert rows["ruleKept"]["line"] == "Retake r1: repeat, 1.4 s, words 2 to 3, kept by the rule (too far apart to cut by rule)"
+    assert rows["personCut"]["line"] == "Retake r1: repeat, 1.4 s, words 2 to 3, cut by you", "the reason is the rule's: it is not said of the person's choice"
+    assert rows["personKept"]["line"] == "Retake r1: repeat, 1.4 s, words 2 to 3, kept by you"
+    assert rows["unknownReason"]["line"] == "Retake r1: repeat, 1.4 s, words 2 to 3, cut by the rule", "a reason the page does not know is left out"
+    assert rows["ruleCut"]["words"] == "opens a" and "wb-cr-cut" in rows["ruleCut"]["wordsClass"] and "wb-cr-retake-words" in rows["ruleCut"]["wordsClass"]
+    assert "wb-cr-cut" not in rows["ruleKept"]["wordsClass"] and "wb-cr-cut" in rows["personCut"]["wordsClass"] and "wb-cr-cut" not in rows["personKept"]["wordsClass"]
+    assert rows["ruleCut"]["button"] == ["Keep it"] and rows["ruleKept"]["button"] == ["Cut it"]
+    assert got["readOnly"] == 0 and got["frozen"] is True
+    source = (INTERFACE.parent / "providers" / "renderer" / "_retakes.py").read_text(encoding="utf-8")
+    listed = re.search(r"^REASONS = \((.*?)\)$", source, re.M).group(1)
+    assert set(got["reasons"]) == set(re.findall(r'"(\w+)"', listed)), "the page's words are the service's closed list"
+
+
 ADD = PRELUDE + r"""
 const r = make();
 await r.review.open(900, "review"); await settle();
