@@ -188,8 +188,9 @@ report's closed schema and the memory sampler are in `tests/contract_kit.py`; th
 | C11 | a refusal leaves no file, no container, no run folder | `finish_render`, `Job` | every leg |
 | C12 | a caption with words draws glyphs (`caption_not_drawn`, HyperFrames) | `_hf_gate.check_boxes` | F8 |
 
-Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`) and
-on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
+Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`), in CI's
+`hyperframes` job (V3c-2: both images built on the runner, the amd64 `hyperframes.py --check`, then this file and `test_hf_docker_live.py` with
+`WB_HYPERFRAMES_DOCKER_TESTS=1`) and on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
 M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8 cores, M3 a 298 s input on HyperFrames once) need 8 cores and run only with
 `WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the report, `reports/engine-contract-<date>-<arch>.json`,
 checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a transcript).
@@ -303,6 +304,8 @@ and 8 against 4 took it from 366 s to 161 s, with the same bytes.
 
 ## Tests
 
+CI paths (V3c-2): the `renderer` job builds the common image and runs the ffmpeg parameter; the `hyperframes` job builds both images and runs both parameters. A change inside `hyperframes-image/` alone starts only the `hyperframes` job; a change to `shared/references/video-presets.json`, `shared/references/platforms/instagram.json` or `skills/mkt-social-copy/scripts/check_script.py` (read by every render) starts both.
+
 Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the ffmpeg image), `WB_HYPERFRAMES_DOCKER_TESTS=1` (both images), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
 
 `uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
@@ -311,7 +314,7 @@ skip with a reason where those are absent; the host side runs against a fake doc
 
 ## Not verified here
 
-- The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's CI job. The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
+- The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's `hyperframes` CI job (its first run is the first amd64 build of the HyperFrames image: until it has run, nothing here is verified on amd64). The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
 
 - **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a
   render of a real 192 s 4K 60 fps recording (104.7 s out, 197 s at 8 CPUs, 408 s at 4) ran there, with Chrome's sandbox off and

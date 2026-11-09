@@ -13,7 +13,7 @@
 # the main ruleset, and so is never skipped (nor is `validate`, the other one): any label reruns both. It is the aggregator of the shards
 # (`if: always()`, `needs: tests-shard`) and fails unless every shard succeeded. `always()` is the condition that never skips. The jobs
 # that need docker or Go run when the paths they depend on changed, and always in the four cases of the whole suite.
-# A DRAFT pull request runs only `validate` and `changes` (which then says nothing changed: `container`, `converter`, `renderer` and `go` skip), and
+# A DRAFT pull request runs only `validate` and `changes` (which then says nothing changed: `container`, `converter`, `renderer`, `hyperframes` and `go` skip), and
 # its `tests` FAILS on purpose with "a draft pull request runs no tests; mark it ready for review to run them" (approved by the maintainer
 # on 2026-10-27): a job skipped by its condition counts as passing, so `tests` is never skipped and is red, never a false
 # green. Marking the pull request ready (`ready_for_review`) runs everything once. GitHub refuses to merge a draft at all. A red `tests` on
@@ -179,7 +179,7 @@ jobs:
 
   # Which of the docker and Go jobs have anything to check: on a pull request into a branch other than main, those whose paths changed;
   # in the four cases of the whole suite, all of them; on a draft pull request, none. The paths are what each job's tests read: the eval container and its adapters,
-  # the converter and exporter images and the workcopy scan, the renderer and transcriber images, the WhatsApp program. This file counts for all four.
+  # the converter and exporter images and the workcopy scan, the renderer and transcriber images, the HyperFrames image, the WhatsApp program. This file counts for all four.
   changes:
     name: changes
     if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
@@ -189,6 +189,7 @@ jobs:
       container: ${{ steps.paths.outputs.container }}
       converter: ${{ steps.paths.outputs.converter }}
       renderer: ${{ steps.paths.outputs.renderer }}
+      hyperframes: ${{ steps.paths.outputs.hyperframes }}
       go: ${{ steps.paths.outputs.go }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,6 +210,7 @@ jobs:
             echo "container=false" >> "$GITHUB_OUTPUT"
             echo "converter=false" >> "$GITHUB_OUTPUT"
             echo "renderer=false" >> "$GITHUB_OUTPUT"
+            echo "hyperframes=false" >> "$GITHUB_OUTPUT"
             echo "go=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -221,14 +223,18 @@ jobs:
             changed="$(git diff --name-only "$BASE_SHA" HEAD)"
           fi
           touched() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Eq "$1"; }
-          container=false; converter=false; renderer=false; go=false
+          # touched_but PATTERN EXCLUDED: a changed file that matches PATTERN and not EXCLUDED (a change inside the HyperFrames image alone does not build the ffmpeg one)
+          touched_but() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Ev "$2" | grep -Eq "$1"; }
+          container=false; converter=false; renderer=false; hyperframes=false; go=false
           touched '^(evals/|adapters/|shared/|skills/[^/]+/evals/|providers/secrets/|scripts/stage_skills.py|scripts/ci_retry.py|runtime/workcopy.py|.github/workflows/checks.yml)' && container=true
           touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|scripts/ci_retry.py|.github/workflows/checks.yml)' && converter=true
-          touched '^(providers/renderer/|providers/transcriber/|providers/[^/]*[.]py|scripts/ci_retry.py|.github/workflows/checks.yml)' && renderer=true
+          touched_but '^(providers/renderer/|providers/transcriber/|providers/[^/]*[.]py|shared/references/video-presets.json|shared/references/platforms/instagram.json|skills/mkt-social-copy/scripts/check_script.py|scripts/ci_retry.py|.github/workflows/checks.yml)' '^providers/renderer/hyperframes-image/' && renderer=true
+          touched '^(providers/renderer/|providers/[^/]*[.]py|shared/references/video-presets.json|shared/references/platforms/instagram.json|skills/mkt-social-copy/scripts/check_script.py|scripts/ci_retry.py|.github/workflows/checks.yml)' && hyperframes=true
           touched '^(providers/messenger/whatsapp/|.github/workflows/checks.yml)' && go=true
           echo "container=$container" >> "$GITHUB_OUTPUT"
           echo "converter=$converter" >> "$GITHUB_OUTPUT"
           echo "renderer=$renderer" >> "$GITHUB_OUTPUT"
+          echo "hyperframes=$hyperframes" >> "$GITHUB_OUTPUT"
           echo "go=$go" >> "$GITHUB_OUTPUT"
 
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
@@ -412,6 +418,37 @@ jobs:
         run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64
       - name: The renderer and the transcriber images, exercised
         run: WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_renderer_docker_live.py providers/renderer/tests/test_engine_contract_live.py providers/transcriber/tests/test_transcriber_docker_live.py
+
+  # The HyperFrames engine of renderer:video (providers/renderer/hyperframes-image/): its image built from its pinned definition by the provider's own
+  # `build --confirmed` on the runner (V3c-2). The first run is the first amd64 build of that image: it downloads the amd64 static ffmpeg, the Debian and
+  # npm packages and the linux64 headless shell, each checked against the sha256 its pin file holds (a mismatch stops the build; nothing is re-pinned).
+  # The common image is built first because a HyperFrames render encodes and verifies in it. Then the amd64 `--check` (the image's selfcheck) and the
+  # gated live tests of both engines on small synthetic recordings. test_hf_tier_a_live.py is not run: it needs survey variables this job does not set.
+  hyperframes:
+    name: hyperframes
+    needs: changes
+    if: needs.changes.outputs.hyperframes == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # One named state folder for the builds and the tests, as in the renderer job (set in a step: the runner context is not allowed in a job's env).
+      - name: One named state folder for the builds and the live tests
+        run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      - name: The common renderer image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64
+      - name: The HyperFrames image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 1800 -- python3 providers/renderer/hyperframes.py build --confirmed
+      - name: The HyperFrames image, checked (its selfcheck on amd64)
+        run: python3 providers/renderer/hyperframes.py --check
+      - name: Both engines, exercised on synthetic recordings
+        run: WB_HYPERFRAMES_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py
 
   # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
   # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
