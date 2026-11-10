@@ -53,7 +53,8 @@ approves the exact recipients of each e-mail by its hash, and a cap of 20 is cod
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
 It also reads "media" (package V1b2-1; absent: the step kind's defaults): the settings of a new video, an object
-{"language", "transcriber_model", "renderer"}, each optional. "renderer" is "auto" (the class renderer:video resolves as
+{"language", "transcriber_model", "renderer", "references"}, each optional. "references" is "on" or "off" (absent is off): whether the reference videos of
+package V7b may be fetched for this project; "on" is a widening, so accept-config stops, shows its terms and needs --widen. "renderer" is "auto" (the class renderer:video resolves as
 providers/resolve.py says: a variable, then the class default, hyperframes) or an implementation shipped in providers/renderer/,
 which the runtime then names on every call. Like every key, it is changed only in the terminal and accepted with accept-config.
 
@@ -726,7 +727,8 @@ def _outbox(value, workbench: str):
     return {"provider": provider, "from": sender}
 
 
-MEDIA_KEYS = ("language", "transcriber_model", "renderer")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS)
+MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS) and the reference videos
+MEDIA_REFERENCES = ("on", "off")      # `references`: absent is off; "on" is a widening (runtime/policy_widening.py), accepted with `accept-config --widen`
 MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
 TRANSCRIBER_MODELS = ("providers", "transcriber", "models.json")
@@ -750,7 +752,7 @@ def _media(value, workbench: str):
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
-        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional")
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off)")
     out = {}
     if "language" in value:
         found = value["language"]
@@ -768,6 +770,11 @@ def _media(value, workbench: str):
         if not isinstance(found, str) or (found != "auto" and found not in shipped):
             raise ConfigError("runtime.json media.renderer must be auto or one of " + (", ".join(shipped) or "none: no renderer is shipped"))
         out["renderer"] = found
+    if "references" in value:
+        found = value["references"]
+        if found not in MEDIA_REFERENCES:
+            raise ConfigError("runtime.json media.references must be on or off (absent is off; on is accepted with accept-config --widen)")
+        out["references"] = found
     return out
 
 

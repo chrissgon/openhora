@@ -325,6 +325,10 @@ One paragraph per module, `file`: what it owns, a blank line between (SPEC-HOTSP
 
 `ops_media_remove.py`: the operation `media-remove` (terminal and page, group `media`, crosses the LAN socket): the preview without `confirm`, the removal with it, refused while a task that has not ended names the recording or while its lock is held; nothing new is stored.
 
+`references.py`: the store of the reference videos (V7b): `<data_dir>/references/<id>/` with the marker `.openhora-reference`, the closed names, 50 references and 2 GiB, `in_reference` (the media store refuses a path in it), `check_facts` (the closed shape of the facts), `platform_for` (the host of a link against the fetch files) and `purge` (30 days; a stray video after an hour).
+
+`ops_references.py`: the operations `reference-add`, `reference-video`, `reference-list`, `reference-read`, `reference-remove` (V7b, terminal only): `media.references` must be accepted as a widening; the provider `fetcher:video` fetches and measures; the video is deleted right after `measure`; `reference-read` prints the third-party text last and quoted.
+
 `media_phone_words.py`: the pure reading of a reply about captions (V1d-1): `continue`, `wrong -> right` lines, the run of words a correction names, and its mapping to the closed edits of `captions.py`. It reads no file and imports nothing of this checkout; the words of a correction are read on the operations side because a messaging module may not import it.
 
 `ops_cancel.py`: Cancelling a request while the write of an output runs (NOTION-OUT): the one function the four ways of cancelling a request call; it cancels everything that is not being written and leaves open the effect decision whose lock is held, so the write records its outcome when it ends

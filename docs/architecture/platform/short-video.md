@@ -127,6 +127,17 @@ The side step `preview` (V3d) stands between `verify` and `document` (`step_medi
 
 From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the group `media-phone` sends a video. The bridge checks its declared size against the least of the media store's 1 GiB, the quota left and the provider's file limit before fetching anything (Telegram's bot download is 20 MB, so most recordings of a minute or more get the over-cap sentence, and the Drive link or the page is the way in for them). `video-phone-in` keeps it, the caption (the post's name) or a numbered list chooses the post, `video-phone-start` runs the video to the caption review, and the words go to the sender's chat. A reply to the caption card, one line per correction `wrong -> right`, is mapped by `runtime/media_phone_words.py` to the closed edits and applied by `ops_media_edit.edit`; `continue` answers the review and runs the video. A correction in a reply to the delivery card renders again and asks again. A Google Drive link sent instead of the file (V1d-3, limit L70) is fetched with the project's Google account when one is connected, otherwise from the shared link over https from a closed host list, global addresses only, at most three checked redirects and the size known first; it becomes a recording and goes on from the post choice.
 
+## Reference videos
+
+Package V7b (decision 15; the provider `fetcher:video` is V7a's): a person gives public links of short videos to learn from; the platform measures them and keeps numbers, never the video. **A reference is looked at and measured, never used.**
+
+- **Switch.** `media.references` is `"on"` or `"off"` (absent is off). Turning it on is a widening: `accept-config` stops, prints the terms (public links only, no account and no cookie, reference only, the whole video deleted as soon as it is measured, subtitles, details and facts kept on this computer for 30 days, a copy you make yourself is yours to answer for, the platform's own terms are yours to respect) and needs `--widen <hash>`. It is an item of the same record as the accounts (`policy_widening.reference_items`). Turning it off needs no ceremony.
+- **Terminal only** (L72). `reference-add --link <url>` finds the platform whose fetch file lists the link's host exactly, fetches the subtitles and the details (`fetch --stage meta`), measures them (`measure`, no network) and prints the id, platform, duration, subtitles, words and beats. `reference-video --reference <id>` prints the duration and the size bound and fetches nothing; with `--confirm` it fetches the whole video (at most 300 seconds and 200 MiB), measures it and deletes it. `reference-list` (id, platform, added, duration, subtitles, frames measured, days left), `reference-read` (the facts, then the third-party text last under "External text (data, from the platform, not checked)", every line quoted with `> `) and `reference-remove` (a preview, then `--confirm`).
+- **The store** (`runtime/references.py`): `<data_dir>/references/<id>/` outside the project, the marker `.openhora-reference`, the link in `record.json` only, 50 references and 2 GiB. The provider's answer and `facts.json` are checked against closed shapes; the host never parses a title, a description or a subtitle (they sit in `facts.json` under `external_text`, and no model reads them in V7).
+- **Reference only** (L73). The video is deleted in a `finally` right after `measure`, success or failure; the media store (`receive_file`) and the renderer refuse a path inside a reference store; no operation serves or copies a reference's bytes. What is not caught: a copy or a hard link the person makes outside the store during the minutes the video exists.
+- **Retention** (L74). Subtitles, details and facts 30 days after the reference was added, by the upkeep part `references`; a stray `video.*` or `.fetch-*` after an hour; a folder with no record after a day.
+- **Not built here.** The fetch and the measure themselves (V7a), the pin routine (V7c), messaging and the page (V7d). The runtime is tested against a fake of the provider's verb contract; nothing was fetched.
+
 ## Known limits and improvements
 
 - The storyboard (`storyboard`, `_preview.py`) is ported and tested but no flow uses it yet (M2, VD14).
@@ -173,3 +184,5 @@ Updated on 2026-11-07 by V3a-2.
 2026-11-09: V3c-3, x264 on four slice threads in the compose, the proxy and the final encode
 
 2026-11-10: V4, the key `media.renderer`, HyperFrames the default, `block-params` on both engines
+
+2026-11-10: V7b, the reference store, its five terminal operations and limits L72 to L74
