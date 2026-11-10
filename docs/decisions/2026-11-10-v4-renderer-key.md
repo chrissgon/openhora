@@ -57,5 +57,17 @@ highlight transition flaw left for later).
 
 ### Live results
 
-The live legs (`providers/renderer/tests/test_engine_default_live.py` and the unchanged live files) are run by the supervisor on the maintainer's machine; their
-counts are recorded here after the run.
+Run by the supervisor on 2026-11-10 on the Mac (arm64, 14 docker cpus) at 8a92ea4. Every leg passed.
+
+- No image file changed: the diff of the image files is empty.
+- Both images were rebuilt from the same pins, from the layer cache, with no download: common `openhora-renderer:17ff62c5792a`, HyperFrames
+  `openhora-hyperframes:e5f2134dd1b8`.
+- `hyperframes.py --check` is ok. The selfcheck reported HyperFrames 0.9.19, telemetry off, fonts as SHA256SUMS, and the network on loopback only.
+- Existing live tests, unchanged by V4: `test_renderer_docker_live.py` 5 passed (407 s); `test_engine_contract_live.py -k "not mac_"` 14 passed (1243 s);
+  `test_hf_docker_live.py` 1 passed (236 s).
+- `test_engine_default_live.py`: 4 passed (421 s).
+  - L1: with no renderer named, the engine is hyperframes, with the same sha256 as the host's direct render.
+  - L2: naming ffmpeg renders with ffmpeg.
+  - L3: `block-params` is answered by the named engine and refused by the other.
+  - L4: a missing HyperFrames image is refused and never replaced by ffmpeg.
+- `hyperframes.py block-params --block hf:spring-pop` on the host printed `{"ok": true, "block": "hf:spring-pop", "engine": "hyperframes", "params": ["text"]}` and exited 0.
