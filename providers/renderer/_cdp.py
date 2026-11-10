@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import atexit
 import base64
+import errno
 import json
 import os
 import queue
@@ -327,11 +328,19 @@ class Chrome:
         slot = [threading.Event(), None]
         self._pending[mid] = slot
         data = json.dumps(msg).encode("utf-8") + b"\0"
-        with self._write_lock:
-            view = memoryview(data)
-            while view:
-                n = os.write(self._wfd, view)
-                view = view[n:]
+        try:
+            with self._write_lock:
+                view = memoryview(data)
+                while view:
+                    n = os.write(self._wfd, view)
+                    view = view[n:]
+        except OSError as e:
+            # The browser exited before or while we wrote (a failed exec exits 127 at once): the same fact as "pipe closed" below.
+            # Its own log, read by the caller, says why; the launcher writes it before it exits, so it is there when the pipe breaks.
+            self._pending.pop(mid, None)
+            if isinstance(e, BrokenPipeError) or e.errno in (errno.EPIPE, errno.EBADF):
+                raise CDPError("browser exited: %s" % method)
+            raise
         if not slot[0].wait(timeout):
             self._pending.pop(mid, None)
             raise CDPError("timeout: %s" % method)
