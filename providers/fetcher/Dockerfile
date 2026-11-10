@@ -53,7 +53,7 @@ COPY . /opt/fetcher/
 RUN chmod -R go-w /opt/fetcher \
     && printf '%s\n' "openhora fetcher image" > /etc/openhora-fetcher-image \
     && useradd --system --uid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin fetcher \
-    && python3 -I /opt/fetcher/_inner.py --result /opt/fetcher/versions.json selfcheck --expect-version "${TOOL_VERSION}"
+    && python3 -I /opt/fetcher/_fetcher_inner.py --result /opt/fetcher/versions.json selfcheck --expect-version "${TOOL_VERSION}"
 
 LABEL org.openhora.component="fetcher" \
       org.openhora.tool.version="${TOOL_VERSION}" \
@@ -64,4 +64,4 @@ LABEL org.openhora.component="fetcher" \
 
 USER 10001:10001
 WORKDIR /scratch
-ENTRYPOINT ["python3", "-I", "/opt/fetcher/_inner.py"]
+ENTRYPOINT ["python3", "-I", "/opt/fetcher/_fetcher_inner.py"]

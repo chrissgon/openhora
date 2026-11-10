@@ -15,14 +15,14 @@ import threading
 import pytest
 
 import fetcher_kit as K
-import _image
+import _fetcher_image
 import ytdlp
 
 SCRIPT = K.FETCHER / "_fetch_tool.py"
 
 
 def test_the_manifest_and_the_dockerignore_list_the_same_files():
-    manifest = _image.manifest(str(K.FETCHER))
+    manifest = _fetcher_image.manifest(str(K.FETCHER))
     ignore = (K.FETCHER / ".dockerignore").read_text().split("\n")
     allowed = [line[1:] for line in ignore if line.startswith("!")]
     assert ignore[0] == "*" and sorted(allowed) == sorted(manifest["files"]) and manifest["folders"] == []
@@ -33,27 +33,27 @@ def test_the_manifest_and_the_dockerignore_list_the_same_files():
 def test_the_definition_covers_the_manifests_files_and_the_effective_pin(tmp_path):
     folder = tmp_path / "f"
     shutil.copytree(K.FETCHER, folder, ignore=shutil.ignore_patterns("tests", "__pycache__"))
-    base = _image.definition_hash(str(folder))
-    assert _image.image_tag(str(folder)) == "openhora-fetcher:" + base[:12]
+    base = _fetcher_image.definition_hash(str(folder))
+    assert _fetcher_image.image_tag(str(folder)) == "openhora-fetcher:" + base[:12]
     original = (folder / "tool-pin.json").read_text()
     pin = json.loads(original)
     (folder / "tool-pin.json").write_text(json.dumps(dict(pin, version="2099.02.02")))
-    assert _image.definition_hash(str(folder)) != base
+    assert _fetcher_image.definition_hash(str(folder)) != base
     (folder / "tool-pin.json").write_text(original)
-    assert _image.definition_hash(str(folder)) == base
-    (folder / "_inner.py").write_text((folder / "_inner.py").read_text() + "\n# edit\n")
-    assert _image.definition_hash(str(folder)) != base
+    assert _fetcher_image.definition_hash(str(folder)) == base
+    (folder / "_fetcher_inner.py").write_text((folder / "_fetcher_inner.py").read_text() + "\n# edit\n")
+    assert _fetcher_image.definition_hash(str(folder)) != base
     host_only = folder / "ytdlp.py"
-    before = _image.definition_hash(str(folder))
+    before = _fetcher_image.definition_hash(str(folder))
     host_only.write_text(host_only.read_text() + "\n# edit\n")
-    assert _image.definition_hash(str(folder)) == before, "a host-only file changes no image"
+    assert _fetcher_image.definition_hash(str(folder)) == before, "a host-only file changes no image"
 
 
 def test_the_committed_pin_is_null_until_a_person_fills_it_from_the_releases_metadata():
-    pin = _image.effective_pin(str(K.FETCHER))
+    pin = _fetcher_image.effective_pin(str(K.FETCHER))
     assert pin["tool"] == "yt-dlp" and pin["asset"] == "yt-dlp" and pin["redirect_hosts"] == []
     assert all(pin[k] is None for k in ("version", "url", "size", "sha256", "published_at", "read_on", "js_runtime"))
-    assert set(_image.pin_missing(pin)) == {"version", "url", "size", "sha256", "redirect_hosts"}
+    assert set(_fetcher_image.pin_missing(pin)) == {"version", "url", "size", "sha256", "redirect_hosts"}
 
 
 def test_build_and_check_refuse_a_null_pin_before_any_docker_call(tmp_path, monkeypatch):
@@ -214,4 +214,4 @@ def test_the_dockerfile_passes_the_pin_to_the_script_and_never_uses_pip():
     assert "pip" not in re.sub(r"#.*", "", text).lower().replace("pipe", "")
     assert '"${TOOL_URL}" "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_REDIRECT_HOSTS}" /opt/fetcher/yt-dlp' in text
     assert "FROM debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587" in text and "DEBIAN_SNAPSHOT=20261006T000000Z" in text
-    assert "ffmpeg python3 ca-certificates" in text and 'ENTRYPOINT ["python3", "-I", "/opt/fetcher/_inner.py"]' in text and "USER 10001:10001" in text
+    assert "ffmpeg python3 ca-certificates" in text and 'ENTRYPOINT ["python3", "-I", "/opt/fetcher/_fetcher_inner.py"]' in text and "USER 10001:10001" in text

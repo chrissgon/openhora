@@ -14,7 +14,7 @@ shared suffix) and an encrypted inner ClientHello; the narrow suffixes of the pl
     per tunnel; the host asks it to end by creating the file `stop` in the folder of `--out`.
 
 On exit it writes `proxy.json` in that folder: counts and at most 50 host names that matched HOST_RE, never a path or a byte of content.
-It writes the file `ready` when it listens. Standard library only; run by `_inner.py proxy` inside the container.
+It writes the file `ready` when it listens. Standard library only; run by `_fetcher_inner.py proxy` inside the container.
 """
 from __future__ import annotations
 

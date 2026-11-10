@@ -28,7 +28,7 @@ docker_missing, docker_not_running, docker_not_local. `not_public` is not mapped
 failure, so until a live run gives its text the answer is fetch_failed (with the sentence that the tool may be out of date).
 
 What the person gives, and what never is: the link of a public page, nothing else. No account, no cookie, no config file, no program to
-run: the tool's argument list is built by code from a closed list of options (_inner.py) and the host mounts no home or browser folder and
+run: the tool's argument list is built by code from a closed list of options (_fetcher_inner.py) and the host mounts no home or browser folder and
 passes no environment variable. The link's host must be one of the platform's fetch file (`link.hosts`, exact names), its path must match
 `link.path_pattern`, and only the query keys of `link.keep_query` are kept. The platform's fetch file is read through a path given by flag.
 
@@ -62,7 +62,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import _container as box  # noqa: E402  (providers/_container.py: the one home of the container's lifecycle and limits)
-import _image  # noqa: E402  (providers/fetcher/_image.py: the definition of the image)
+import _fetcher_image  # noqa: E402  (providers/fetcher/_fetcher_image.py: the definition of the image)
 
 FOLDER = HERE   # the folder the image is built from; the tests point it at a copy
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
@@ -185,8 +185,8 @@ def require_docker():
 
 def require_pin():
     """The effective pin, filled. Refused before any docker call."""
-    pin = _image.effective_pin(FOLDER)
-    missing = _image.pin_missing(pin)
+    pin = _fetcher_image.effective_pin(FOLDER)
+    missing = _fetcher_image.pin_missing(pin)
     if missing:
         raise Refusal("not-configured", "pin_not_filled", "the tool's pin is not filled (%s): see providers/fetcher/README.md" % ", ".join(missing))
     return pin
@@ -214,7 +214,7 @@ def read_record():
 
 def check_image():
     """The image of this definition, ready to run: it exists, carries the hash and is the one `build` recorded."""
-    tag, wanted = _image.image_tag(FOLDER), _image.definition_hash(FOLDER)
+    tag, wanted = _fetcher_image.image_tag(FOLDER), _fetcher_image.definition_hash(FOLDER)
     image = inspect_image(tag)
     build = "python3 providers/fetcher/ytdlp.py build --confirmed"
     if image is None or image["labels"].get(box.LABEL_DEFINITION) != wanted:
@@ -233,13 +233,13 @@ def cmd_check(args):
 
 
 def cmd_pin_show(args):
-    pin = _image.effective_pin(FOLDER)
-    missing = _image.pin_missing(pin)
+    pin = _fetcher_image.effective_pin(FOLDER)
+    missing = _fetcher_image.pin_missing(pin)
     return {"ok": True, "pin": pin, "filled": not missing, "missing": missing}
 
 
 def build_argv(pin):
-    return ["build", "--tag", _image.image_tag(FOLDER), "--build-arg", "DEFINITION_HASH=%s" % _image.definition_hash(FOLDER),
+    return ["build", "--tag", _fetcher_image.image_tag(FOLDER), "--build-arg", "DEFINITION_HASH=%s" % _fetcher_image.definition_hash(FOLDER),
             "--build-arg", "TOOL_VERSION=%s" % pin["version"], "--build-arg", "TOOL_URL=%s" % pin["url"],
             "--build-arg", "TOOL_SIZE=%s" % pin["size"], "--build-arg", "TOOL_SHA256=%s" % pin["sha256"],
             "--build-arg", "TOOL_REDIRECT_HOSTS=%s" % ",".join(pin["redirect_hosts"]),
@@ -268,7 +268,7 @@ def cmd_build(args):
                                                 "--confirmed (or --dry-run to see the command). The person starts it, never a run.")
     pin = require_pin()
     argv = build_argv(pin)
-    plan = {"command": ["docker"] + argv, "image": _image.image_tag(FOLDER), "definition": _image.definition_hash(FOLDER), "tool_version": pin["version"]}
+    plan = {"command": ["docker"] + argv, "image": _fetcher_image.image_tag(FOLDER), "definition": _fetcher_image.definition_hash(FOLDER), "tool_version": pin["version"]}
     if args.dry_run:
         return dict(plan, dry_run=True)
     require_docker()

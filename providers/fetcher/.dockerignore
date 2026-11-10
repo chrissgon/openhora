@@ -5,6 +5,6 @@
 !tool-pin.json
 !facts.schema.json
 !_fetch_tool.py
-!_inner.py
+!_fetcher_inner.py
 !_proxy.py
 !_measure.py

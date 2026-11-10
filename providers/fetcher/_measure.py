@@ -1,5 +1,5 @@
 """What the fetcher measures about a reference (a video someone else made): numbers and closed words, computed by this script, never
-read or judged by a model. Run by `_inner.py measure` inside a container with no network; the folder of the reference is mounted
+read or judged by a model. Run by `_fetcher_inner.py measure` inside a container with no network; the folder of the reference is mounted
 read-only at /in. Standard library and the image's own ffmpeg only (no new tool).
 
 From the subtitles and the metadata (no frame): length, hook pacing, pauses and beats, the source's own numbers. From the frames, only

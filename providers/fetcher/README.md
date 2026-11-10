@@ -24,8 +24,8 @@ Codes. Exit 2: `link_refused`, `platform_not_ready`, `out_refused`, `bad_argumen
 One image, `openhora-fetcher` (the same Debian digest and snapshot as the transcriber's and the renderer's), with `python3`, `ffmpeg`, `ca-certificates`, the pinned tool file and these scripts. Per fetch:
 
 1. **the proxy** (`_proxy.py`, standard library): the only container with a way out, on a bridge network of its own;
-2. **the fetch** (the tool, started by `_inner.py fetch`): on an *internal* network whose only other member is the proxy;
-3. **the measure** (`_measure.py`, run by `_inner.py measure`): `--network none`.
+2. **the fetch** (the tool, started by `_fetcher_inner.py fetch`): on an *internal* network whose only other member is the proxy;
+3. **the measure** (`_measure.py`, run by `_fetcher_inner.py measure`): `--network none`.
 
 Third-party media and text are parsed only in containers 2 and 3. The host reads two small closed files (`result.json`, `proxy.json`), and `info.json` and `facts.json` through closed schemas, and moves the kept files into the reference folder with `os.link`, never replacing a name.
 
@@ -41,7 +41,7 @@ What this cannot see: an HTTP `Host` header inside the encrypted stream (frontin
 
 ## No account, no cookie
 
-A browser cookie or a session file of a site is a credential (`contracts/secrets.md`). The fetcher refuses every way to give one: the tool's argument list is built by `_inner.py` from a closed list of option names (`ALLOWED`) and values it checks, and a final check refuses any word that starts with `-` and is not in the list. A test plants each of `--cookies`, `--cookies-from-browser`, `--username`, `--password`, `--netrc`, `--video-password`, `--ap-mso`, `--config-location`, `--exec`, `--load-info-json`, `--batch-file`, `--no-check-certificates`, `--write-comments`, `--write-thumbnail`, `--remote-components`, `--plugin-dirs`, `--downloader` and `--external-downloader` and watches it refused. The host mounts no home or browser folder and passes no environment variable.
+A browser cookie or a session file of a site is a credential (`contracts/secrets.md`). The fetcher refuses every way to give one: the tool's argument list is built by `_fetcher_inner.py` from a closed list of option names (`ALLOWED`) and values it checks, and a final check refuses any word that starts with `-` and is not in the list. A test plants each of `--cookies`, `--cookies-from-browser`, `--username`, `--password`, `--netrc`, `--video-password`, `--ap-mso`, `--config-location`, `--exec`, `--load-info-json`, `--batch-file`, `--no-check-certificates`, `--write-comments`, `--write-thumbnail`, `--remote-components`, `--plugin-dirs`, `--downloader` and `--external-downloader` and watches it refused. The host mounts no home or browser folder and passes no environment variable.
 
 ## The platform's fetch file
 

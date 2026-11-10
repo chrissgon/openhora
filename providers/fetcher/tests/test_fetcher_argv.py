@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import fetcher_kit as K
-import _inner
+import _fetcher_inner
 import ytdlp
 
 FORBIDDEN = ["--cookies", "--cookies-from-browser", "--username", "--password", "--netrc", "--video-password", "--ap-mso", "--config-location", "--exec",
@@ -100,16 +100,16 @@ def run(world):
 
 @pytest.mark.parametrize("stage", ["meta", "video"])
 def test_every_word_of_the_tool_argument_list_that_starts_with_a_dash_is_allowed(stage):
-    argv = _inner.ytdlp_argv(stage, "https://www.aster.example/v/1", ["AsterVideo", "AsterLive"], PROXY, 300, 1000, ["en.*", "aster-orig"])
+    argv = _fetcher_inner.ytdlp_argv(stage, "https://www.aster.example/v/1", ["AsterVideo", "AsterLive"], PROXY, 300, 1000, ["en.*", "aster-orig"])
     dashed = [w for w in argv if w.startswith("-")]
-    assert dashed and set(dashed) <= set(_inner.ALLOWED)
+    assert dashed and set(dashed) <= set(_fetcher_inner.ALLOWED)
     assert flag_value(argv, "--use-extractors") == "AsterVideo,AsterLive" and flag_value(argv, "--proxy") == PROXY
     assert "--paths" in argv and flag_value(argv, "-o") == "/out/ref.%(ext)s" and argv[-1].startswith("https://")
 
 
 def test_the_two_stages_differ_where_the_documentation_says():
-    meta = _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
-    video = _inner.ytdlp_argv("video", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
+    meta = _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
+    video = _fetcher_inner.ytdlp_argv("video", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
     assert "--skip-download" in meta and "--write-subs" in meta and flag_value(meta, "--sub-langs") == "en.*" and flag_value(meta, "--match-filter") == "!is_live"
     assert "-S" not in meta and "--max-filesize" not in meta
     assert flag_value(video, "-S") == "res:1280" and flag_value(video, "--max-filesize") == "1000" and "--skip-download" not in video
@@ -118,34 +118,34 @@ def test_the_two_stages_differ_where_the_documentation_says():
 
 
 def test_with_no_subtitle_pattern_the_meta_stage_asks_for_no_subtitle():
-    argv = _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, [])
+    argv = _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, [])
     assert "--write-subs" not in argv and "--sub-langs" not in argv and "--write-info-json" in argv
 
 
 @pytest.mark.parametrize("option", FORBIDDEN)
 def test_a_forbidden_option_is_refused_by_the_final_check_even_when_planted(option):
-    argv = _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
-    assert option not in _inner.ALLOWED
+    argv = _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
+    assert option not in _fetcher_inner.ALLOWED
     for planted in (argv + [option], [option] + argv, argv[:-1] + [option, "x"] + argv[-1:]):
-        with pytest.raises(_inner.Refusal) as caught:
-            _inner.check_argv(planted)
+        with pytest.raises(_fetcher_inner.Refusal) as caught:
+            _fetcher_inner.check_argv(planted)
         assert caught.value.code == "option_refused"
 
 
 def test_a_value_that_would_pass_an_option_through_a_fetch_file_is_refused():
     for bad in (["--cookies"], ["a,b"], [""], ["A B"], ["A;B"]):
-        with pytest.raises(_inner.Refusal):
-            _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", bad, PROXY, 300, 1000, [])
-    with pytest.raises(_inner.Refusal):
-        _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["-live_chat"])
-    with pytest.raises(_inner.Refusal):
-        _inner.ytdlp_argv("meta", "http://www.aster.example/v/1", ["A"], PROXY, 300, 1000, [])
-    with pytest.raises(_inner.Refusal):
-        _inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], "http://example.com:8888", 300, 1000, [])
+        with pytest.raises(_fetcher_inner.Refusal):
+            _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", bad, PROXY, 300, 1000, [])
+    with pytest.raises(_fetcher_inner.Refusal):
+        _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["-live_chat"])
+    with pytest.raises(_fetcher_inner.Refusal):
+        _fetcher_inner.ytdlp_argv("meta", "http://www.aster.example/v/1", ["A"], PROXY, 300, 1000, [])
+    with pytest.raises(_fetcher_inner.Refusal):
+        _fetcher_inner.ytdlp_argv("meta", "https://www.aster.example/v/1", ["A"], "http://example.com:8888", 300, 1000, [])
 
 
 def test_the_argument_list_never_names_the_provider_a_cookie_or_an_account_in_the_source():
-    text = Path(_inner.__file__).read_text(encoding="utf-8")
+    text = Path(_fetcher_inner.__file__).read_text(encoding="utf-8")
     allowed_line = re.search(r"ALLOWED = \((.*?)\)\n", text, re.S).group(1)
     for option in FORBIDDEN:
         assert '"%s"' % option not in allowed_line

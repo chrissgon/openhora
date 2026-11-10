@@ -1,4 +1,4 @@
-"""The container's own code (`_inner.py` fetch and the host's collection of what it leaves), against a stand-in tool and the fake docker."""
+"""The container's own code (`_fetcher_inner.py` fetch and the host's collection of what it leaves), against a stand-in tool and the fake docker."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ import sys
 import pytest
 
 import fetcher_kit as K
-import _inner
+import _fetcher_inner
 import ytdlp
 
 RAW = {"id": "4242", "extractor_key": "AsterVideo", "duration": 42.5, "width": 720, "height": 1280, "fps": 30, "upload_date": "20990101",
@@ -18,8 +18,8 @@ RAW = {"id": "4242", "extractor_key": "AsterVideo", "duration": 42.5, "width": 7
 
 
 def test_the_info_file_is_cut_to_a_few_fields_and_holds_no_url_uploader_or_format_list():
-    cut = _inner.sanitise_info(RAW, "manual")
-    assert set(cut) == set(_inner.INFO_KEYS) | {"subtitles"}
+    cut = _fetcher_inner.sanitise_info(RAW, "manual")
+    assert set(cut) == set(_fetcher_inner.INFO_KEYS) | {"subtitles"}
     text = json.dumps(cut)
     for word in ("uploader", "Bram", "webpage_url", "formats", "cdn.aster"):
         assert word not in text
@@ -40,7 +40,7 @@ def test_more_than_four_subtitle_files_are_cut_to_four_and_an_oversized_one_is_r
     for name, size in names.items():
         if name != "ref.info.json":
             (tmp_path / name).write_bytes(b"x" * size)
-    assert _inner.tidy(str(tmp_path), "meta", 1 << 20) is None
+    assert _fetcher_inner.tidy(str(tmp_path), "meta", 1 << 20) is None
     left = sorted(os.listdir(tmp_path))
     subs = [n for n in left if n.startswith("subs.")]
     assert len(subs) == 4 and "subs.ja.vtt" not in left and "info.json" in left and "ref.info.json" not in left
@@ -51,24 +51,24 @@ def test_a_second_track_of_one_language_is_not_kept_and_with_no_file_the_subtitl
     (tmp_path / "ref.info.json").write_text(json.dumps(dict(RAW, subtitles={})))
     (tmp_path / "ref.en.vtt").write_bytes(b"x")
     (tmp_path / "ref.en-orig.vtt").write_bytes(b"y")
-    _inner.tidy(str(tmp_path), "meta", 1 << 20)
+    _fetcher_inner.tidy(str(tmp_path), "meta", 1 << 20)
     assert sorted(os.listdir(tmp_path)) == ["info.json", "subs.en.vtt"] and json.loads((tmp_path / "info.json").read_text())["subtitles"] == "auto"
     other = tmp_path / "b"
     other.mkdir()
     (other / "ref.info.json").write_text(json.dumps(RAW))
-    _inner.tidy(str(other), "meta", 1 << 20)
+    _fetcher_inner.tidy(str(other), "meta", 1 << 20)
     assert json.loads((other / "info.json").read_text())["subtitles"] == "none"
 
 
 def test_the_video_stage_keeps_one_video_renamed_and_removes_everything_else(tmp_path):
     folder(tmp_path, {"ref.mp4": 100, "ref.mp4.part": 5, "ref.info.json": 3, "junk.txt": 1})
-    assert _inner.tidy(str(tmp_path), "video", 1000) is None
+    assert _fetcher_inner.tidy(str(tmp_path), "video", 1000) is None
     assert sorted(os.listdir(tmp_path)) == ["video.mp4"]
 
 
 def test_a_video_over_its_cap_is_removed_and_reported_too_large(tmp_path):
     folder(tmp_path, {"ref.mp4": 2000})
-    assert _inner.tidy(str(tmp_path), "video", 1000) == "too_large" and os.listdir(tmp_path) == []
+    assert _fetcher_inner.tidy(str(tmp_path), "video", 1000) == "too_large" and os.listdir(tmp_path) == []
 
 
 def stand_in(tmp_path, body):
@@ -86,9 +86,9 @@ def test_a_fetch_that_ends_well_writes_an_ok_result_and_the_kept_files(tmp_path,
     out = tmp_path / "out"
     out.mkdir()
     monkeypatch.setenv("FAKE_OUT", str(out))
-    monkeypatch.setattr(_inner, "TOOL", stand_in(tmp_path, "import json\nopen(os.path.join(out,'ref.info.json'),'w').write(json.dumps({'id':'1','duration':3}))\n"
+    monkeypatch.setattr(_fetcher_inner, "TOOL", stand_in(tmp_path, "import json\nopen(os.path.join(out,'ref.info.json'),'w').write(json.dumps({'id':'1','duration':3}))\n"
                                                            "open(os.path.join(out,'ref.en.vtt'),'w').write('WEBVTT')\n"))
-    assert _inner.main(inner_args(str(out))) == 0
+    assert _fetcher_inner.main(inner_args(str(out))) == 0
     assert json.loads((out / "result.json").read_text()) == {"ok": True, "code": None, "exit": 0}
     assert sorted(os.listdir(out)) == ["info.json", "result.json", "subs.en.vtt"]
 
@@ -97,29 +97,29 @@ def test_a_tool_that_fails_or_writes_nothing_is_fetch_failed_and_one_that_hangs_
     out = tmp_path / "out"
     out.mkdir()
     monkeypatch.setenv("FAKE_OUT", str(out))
-    monkeypatch.setattr(_inner, "TOOL", stand_in(tmp_path, "sys.exit(1)\n"))
-    assert _inner.main(inner_args(str(out))) == 1 and json.loads((out / "result.json").read_text())["code"] == "fetch_failed"
-    monkeypatch.setattr(_inner, "TOOL", stand_in(tmp_path, "sys.exit(0)\n"))
-    assert _inner.main(inner_args(str(out))) == 1 and json.loads((out / "result.json").read_text())["code"] == "fetch_failed"
-    monkeypatch.setattr(_inner, "TOOL", stand_in(tmp_path, "import time\ntime.sleep(30)\n"))
+    monkeypatch.setattr(_fetcher_inner, "TOOL", stand_in(tmp_path, "sys.exit(1)\n"))
+    assert _fetcher_inner.main(inner_args(str(out))) == 1 and json.loads((out / "result.json").read_text())["code"] == "fetch_failed"
+    monkeypatch.setattr(_fetcher_inner, "TOOL", stand_in(tmp_path, "sys.exit(0)\n"))
+    assert _fetcher_inner.main(inner_args(str(out))) == 1 and json.loads((out / "result.json").read_text())["code"] == "fetch_failed"
+    monkeypatch.setattr(_fetcher_inner, "TOOL", stand_in(tmp_path, "import time\ntime.sleep(30)\n"))
     args = inner_args(str(out))
     args[args.index("--timeout") + 1] = "1"
-    assert _inner.main(args) == 1 and json.loads((out / "result.json").read_text())["code"] == "time_limit"
+    assert _fetcher_inner.main(args) == 1 and json.loads((out / "result.json").read_text())["code"] == "time_limit"
 
 
 def test_the_tool_is_started_with_a_checked_argument_list_only(tmp_path, monkeypatch):
     out = tmp_path / "out"
     out.mkdir()
     monkeypatch.setenv("FAKE_OUT", str(out))
-    monkeypatch.setattr(_inner, "TOOL", stand_in(tmp_path, "open(os.path.join(out,'argv.txt'),'w').write('\\n'.join(sys.argv[1:]))\nsys.exit(1)\n"))
+    monkeypatch.setattr(_fetcher_inner, "TOOL", stand_in(tmp_path, "open(os.path.join(out,'argv.txt'),'w').write('\\n'.join(sys.argv[1:]))\nsys.exit(1)\n"))
     seen = []
-    real = _inner.subprocess.run
+    real = _fetcher_inner.subprocess.run
 
     def spy(command, **kw):
         seen.append(list(command))
         return real(command, **kw)
-    monkeypatch.setattr(_inner.subprocess, "run", spy)
-    _inner.main(inner_args(str(out)))
+    monkeypatch.setattr(_fetcher_inner.subprocess, "run", spy)
+    _fetcher_inner.main(inner_args(str(out)))
     assert seen and seen[0][:2] == [sys.executable, "-I"] and "--ignore-config" in seen[0] and "--cookies" not in seen[0]
 
 

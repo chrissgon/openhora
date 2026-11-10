@@ -244,7 +244,7 @@ def manager_probe():
 
 IMAGE_FAMILIES = (("converter", "converter/container.py"), ("exporter", "exporter/container.py"), ("script", "script/container.py"),
                   ("transcriber", "transcriber/whispercpp.py"), ("renderer", "renderer/_image.py"),
-                  ("hyperframes", "renderer/hyperframes-image/hf_image.py"), ("fetcher", "fetcher/_image.py"))   # (family, module under providers/): a provider that builds an image adds itself here, with its own test
+                  ("hyperframes", "renderer/hyperframes-image/hf_image.py"), ("fetcher", "fetcher/_fetcher_image.py"))   # (family, module under providers/): a provider that builds an image adds itself here, with its own test
 
 
 def container_box():

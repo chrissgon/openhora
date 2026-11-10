@@ -15,7 +15,7 @@ for folder in (str(FETCHER), str(PROVIDERS)):
     if folder not in sys.path:
         sys.path.insert(0, folder)
 
-import _image  # noqa: E402
+import _fetcher_image  # noqa: E402
 import ytdlp  # noqa: E402
 
 REFERENCE = "0123456789abcdef"
@@ -140,7 +140,7 @@ class World:
         shutil.copytree(FETCHER, self.folder, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         if pin:
             (self.folder / "tool-pin.json").write_text(json.dumps(PIN))
-        self.cfg = {"images": {}, "inner": str(FETCHER / "_inner.py")}
+        self.cfg = {"images": {}, "inner": str(FETCHER / "_fetcher_inner.py")}
         self.cfg.update(cfg)
         self.refs = tmp / "refs"
         self.refs.mkdir(mode=0o700)
@@ -161,7 +161,7 @@ class World:
         self.save()
 
     def install_image(self, definition=None):
-        tag, h = _image.image_tag(str(self.folder)), _image.definition_hash(str(self.folder))
+        tag, h = _fetcher_image.image_tag(str(self.folder)), _fetcher_image.definition_hash(str(self.folder))
         self.cfg["images"][tag] = {"Id": "sha256:" + "cd" * 32, "Labels": {"org.openhora.definition": definition or h, "org.openhora.tool.version": PIN["version"]}}
         own = self.state / "fetcher"
         own.mkdir(mode=0o700, exist_ok=True)

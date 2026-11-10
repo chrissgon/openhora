@@ -1,4 +1,4 @@
-"""The entry of the fetcher's container: `python3 -I _inner.py [--result <file>] <verb> ...`. Four verbs, one per kind of container:
+"""The entry of the fetcher's container: `python3 -I _fetcher_inner.py [--result <file>] <verb> ...`. Four verbs, one per kind of container:
 
   fetch      run the pinned tool once, on an internal network whose only other member is the proxy; keep only what the host may
              take (`info.json` cut to a few fields, at most four subtitle files, one video) and write result.json;
@@ -237,7 +237,7 @@ def verb_selfcheck(args):
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="_inner.py")
+    p = argparse.ArgumentParser(prog="_fetcher_inner.py")
     p.add_argument("--result")
     sub = p.add_subparsers(dest="verb", required=True)
     f = sub.add_parser("fetch")

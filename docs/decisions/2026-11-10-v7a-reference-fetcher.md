@@ -28,7 +28,7 @@ a copy or a hard link, and records it as their own, is not stopped. The checks r
 - **D7. The pin** is committed with nulls (`tool-pin.json`); `build` and `--check` refuse while it is not filled. A raise is a typed terminal command each time and the
   routine only tells (V7c).
 - **D8. Cookies.** `contracts/secrets.md` gains the rule that a browser cookie or a session file is a credential; the fetcher refuses every way to give one. In code:
-  the closed argument list (`ALLOWED` in `_inner.py`, a final check refusing any other word that starts with `-`), no mount of a home or browser folder, no environment.
+  the closed argument list (`ALLOWED` in `_fetcher_inner.py`, a final check refusing any other word that starts with `-`), no mount of a home or browser folder, no environment.
 
 ### Departures from the spec text, approved by the supervisor on 2026-11-10
 
@@ -40,6 +40,10 @@ a copy or a hard link, and records it as their own, is not stopped. The checks r
 Smaller choices, each stated in the README: `fetch` also answers `platform_not_ready` when a fetch file lists no `fetch_hosts` and no `fetch_suffixes` (a proxy that lists
 nothing could only refuse, so no container is started); the `video` stage keeps no second `proxy.json` (the `meta` stage's stays; its counts are in the answer); the
 rolling-caption merge keeps the first cue's start; the hook's `question` accepts `?`, the full-width and the Arabic question mark.
+
+### Module names
+
+The fetcher's definition module and container entry are `_fetcher_image.py` and `_fetcher_inner.py`, not the spec's `_image.py` and `_inner.py`: the renderer (and the converter and script providers) already have modules of those names, and pytest imports them by bare name into one `sys.modules`, so a fetcher test that ran first in a process made the renderer's tests import the fetcher's `_image` (CI run 42816624727: `tool-pin.json` not found, `image_not_built`). The names are unique across `providers/` now.
 
 ### Our own proxy and not tinyproxy (OPEN-6, justified line by line)
 
