@@ -314,7 +314,7 @@ skip with a reason where those are absent; the host side runs against a fake doc
 
 ## Not verified here
 
-- The four-slice-thread x264 of the compose, the proxy and the final encode (V3c-3): its cost, its bytes at the same CRF and its determinism on this Mac are to be recorded in a new report under `reports/` by the supervisor (not yet written); on amd64 the CI runs decide.
+- The four-slice-thread x264 of the compose, the proxy and the final encode (V3c-3): its cost, its bytes (about +0.5 to +0.8 % against one thread at the same CRF) and its determinism on this Mac are in `reports/engine-contract-2026-11-10-arm64.json` and the decision file `docs/decisions/2026-11-09-v3c-3-x264-one-thread-compose.md`; on amd64 CI the renderer job passed 3 attempts at cf3fe3f.
 - The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's CI job. The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
 
 - **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a
