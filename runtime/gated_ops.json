@@ -57,5 +57,7 @@
  {"op": "video-phone-reply", "kind": "internal", "group": "media-phone", "why": "reads a reply to the caption review or the delivery card of a video; never served in words"},
  {"op": "video-phone-run", "kind": "internal", "group": "media-phone", "why": "runs a video again after the captions were answered from a messaging app; never served in words"},
  {"op": "video-phone-fetch", "kind": "internal", "group": "media-phone", "why": "fetches a recording from a Google Drive link a listed sender sent; never served in words"},
- {"op": "media-remove", "kind": "internal", "group": "media", "why": "removes one recording of the media store for good, at the person's confirmed request; never served in words"}
+ {"op": "media-remove", "kind": "internal", "group": "media", "why": "removes one recording of the media store for good, at the person's confirmed request; never served in words"},
+    {"op": "video-storyboard", "kind": "internal", "group": "media", "why": "the storyboard of a short-video post, drawn on demand by the page or the terminal; starts a container, no model; not served in words"},
+    {"op": "video-storyboard-file", "kind": "internal", "group": "media", "why": "one picture of a drawn storyboard, read by the page; not served in words"}
 ]}

@@ -333,15 +333,15 @@ def test_the_constants_of_the_media_routes():
     assert service.MEDIA_UPLOAD_BYTES == media.MEDIA_MAX_BYTES
     assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch")
     group = operations.GROUPS["media"]
-    assert len(group["operations"]) == 11 and group["kind"] is None
-    assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "media-remove", "video-watch"} == set(group["operations"])
+    assert len(group["operations"]) == 13 and group["kind"] is None
+    assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch"} == set(group["operations"])
     for channel, listed in operations.GRANTS.items():
         assert "media" not in listed, channel
     assert operations.PAGE_ONLY_GROUPS == ("approve-effects",) and "media" not in operations.DEFAULT_POLICY.get("messaging", ())
     assert "local network" in operations.GROUP_TEXT["media"]
     for name in operations.GROUPS["media"]["operations"]:
-        assert operations.by_name(name)["channels"] == (("page",) if name == "video-watch" else ("terminal", "page"))
-        assert bool(operations.by_name(name).get("job")) is (name in ("video-new", "video-run"))
+        assert operations.by_name(name)["channels"] == (("page",) if name in ("video-watch", "video-storyboard-file") else ("terminal", "page"))
+        assert bool(operations.by_name(name).get("job")) is (name in ("video-new", "video-run", "video-storyboard"))
 
 
 # 10. end to end, with the real operations

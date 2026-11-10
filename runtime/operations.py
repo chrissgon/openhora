@@ -1088,6 +1088,17 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "the catalogue of animations the caption review of a new video can add: each block, its parameters and their bounds, a sample, the engines that draw it, and whether this project's engine can add it now",
      "natural": {"class": "G", "since": 4, "order": 159, "privacy": "own", "cost": "none", "what": "list the animations a new video can add", "about": "List the animations a new video can add.", "slots": {}}},
+    # V5-1: the storyboard of a short-video post (VD14), drawn on demand; and one of its PNGs for the page. Class G, kind internal, like the catalogue; the page and the terminal.
+    {"name": "video-storyboard", "call": "video_storyboard",
+     "args": ({"name": "post", "kind": "str", "required": True, "label": "docs/marketing/content/<name>.md"},),
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
+     "help": "draw the storyboard of a short-video post: a still per beat of its script over a neutral placeholder and a contact sheet; advisory, the video may look different; no recording and no model",
+     "natural": {"class": "G", "since": 4, "order": 177, "privacy": "own", "cost": "none", "what": "draw the storyboard of a video post", "about": "Draw the storyboard of a video post.", "slots": {}}},
+    {"name": "video-storyboard-file", "call": "video_storyboard_file",
+     "args": ({"name": "key", "kind": "str", "required": True, "label": "storyboard key"}, {"name": "file", "kind": "str", "required": True, "label": "beat-<n>.png or sheet.png"},),
+     "channels": ("page",), "model": False, "channel_arg": True,
+     "help": "one PNG of a drawn storyboard (a beat's still or the sheet), for the page",
+     "natural": {"class": "G", "since": 4, "order": 178, "privacy": "own", "cost": "none", "what": "read one picture of a storyboard", "about": "Read one picture of a storyboard.", "slots": {}}},
     # V1c-3: watch a video before approving its delivery (L71). Class G, kind internal, page only; refused on the LAN socket.
     {"name": "video-watch", "call": "video_watch",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
@@ -1253,7 +1264,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "media-remove", "video-watch"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
     # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
     "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"), "kind": None},
 }

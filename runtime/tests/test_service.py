@@ -167,7 +167,7 @@ def wait_job(world, number):
         time.sleep(0.01)
 
 
-ID = {"p": None, "id": "7", "name": "writer"}
+ID = {"p": None, "id": "7", "name": "writer", "key": "0123456789abcdef"}
 
 
 def sample(row, route):
@@ -183,13 +183,13 @@ def sample(row, route):
 
 
 def path_of(world, route):
-    return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"])
+    return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"]).replace("{key}", ID["key"])
 
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["download"]]   # the two are tested in test_service_media.py
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
 READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda",
-            "media-list", "captions-read", "video-download", "video-still", "video-catalogue", "video-watch") + VIEW_READS
+            "media-list", "captions-read", "video-download", "video-still", "video-catalogue", "video-storyboard-file", "video-watch") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -550,7 +550,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
         {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask",
          "event-change", "event-cancel", "research", "file-ask", "mail-ask",
-         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "video-new", "video-run"}
+         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "video-new", "video-run", "video-storyboard"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):

@@ -1,0 +1,16 @@
+{
+  "package": "v5-1",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media_storyboard"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "video-storyboard",
+      "video-storyboard-file"
+    ],
+    "interpreter_coverage.INTERNAL": [
+      "video-storyboard",
+      "video-storyboard-file"
+    ]
+  }
+}

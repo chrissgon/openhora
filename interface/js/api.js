@@ -472,6 +472,16 @@ export function videoCatalogue(p, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/video-catalogue`, { signal });
 }
 
+/** POST /projects/{p}/video-storyboard (job): draws the storyboard of a post under docs/marketing/content/; the job's result is {key, sheet, beats: [{beat, preset, file, drawn_block, video_block}], engine, advisory}. */
+export function videoStoryboard(p, post, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/video-storyboard`, { body: { post }, signal });
+}
+
+/** GET /projects/{p}/video-storyboard/{key}/{file}: one picture of a drawn storyboard (`beat-<n>.png` or `sheet.png`), as a Blob (image/png). */
+export function videoStoryboardFile(p, key, file, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/video-storyboard/${enc(key)}/${enc(file)}`, { raw: true, signal });
+}
+
 /** GET /projects/{p}/videos/{id}/watch: the render the open delivery decision of the video names, as a Blob to play before the approval (this computer's own page only). */
 export function videoWatch(p, id, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/watch`, { raw: true, accept: "video/mp4", signal });
