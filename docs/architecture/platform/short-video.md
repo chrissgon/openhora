@@ -135,7 +135,7 @@ From a messaging app (V1d-1, limit L69): a listed sender whose profile holds the
 - Not verified for the HyperFrames engine (V3a-2 did not run these; each waits on the maintainer's word for a local build or for a recording): that the final sha256 is equal at 4 and at 8 cores on a real recording (S2 measured it on synthetic content at 4 and 8 cores with `-threads 1`; the encode here uses 1 thread, measured at 2 and 4 cpus on synthetic content in CI); the real ProRes rate (28 MiB/s is the format's nominal figure; S2's synthetic content gave 13.9 MB/s); the flag spellings of `hyperframes render` 0.9.19; that `TMPDIR` on the disk work folder serves HyperFrames' frames as `/scratch` did; that HyperFrames' ProRes file carries audio the encode accepts; that the common image's ffmpeg has `prores_ks` (V3a-1's CI leg checks it); that `/sys/fs/cgroup/memory.peak` exists on every daemon; and determinism on amd64.
 - `selfcheck` is the one inner verb that is not a drawing verb and still imports the drawing part (`_cdp`), because it reports the container mode.
 - The `hf:` allowlist is empty (V3b-3 admitted no registry component) and the committed `blocks/engines/hyperframes.json` runs `gsap` and `renderat`, with the five tier-B ports of V3b-4 (`blocks/hf/<name>/`) as its defaults for `caption`, `keyword`, `number` and `quote` and `oh:list` for `list`; a block whose parameters differ from its preset's cannot be named by a beat yet (OPEN-6 of the V3b0 spec).
-- The synthetic render in CI proves the container path on a generated recording; a render of a real recording on the maintainer's machine is a separate, manual step.
+- The synthetic renders in CI prove the container path of both engines on a generated recording (the `renderer` job for the ffmpeg engine, the `hyperframes` job for both, V3c-2: on amd64 the HyperFrames job's first run is the first amd64 build of its image); a render of a real recording on the maintainer's machine is a separate, manual step.
 - The HyperFrames engine has no `block-params` yet, so a project whose engine is HyperFrames (today only by `RENDERER_PROVIDER`) cannot add an animation (`block_check_unavailable`); V4 adds the verb. Picking the block of a script beat's preset (G14) and a preview of an added animation are later (V1b3 OPEN-5, OPEN-10).
 
 On a messaging app the delivery is approved from a card (decision 14): the render is its own preview when it is at most 15 MiB, and a larger render gets a copy that fits from the renderer's `preview` verb (V3d), the bridge sends it as a video before the deliver card, and the card offers its approval only after the provider confirmed it. When that copy cannot be made, the delivery is approved in the terminal or on the page. The body of the card is said in the project's language (`CARD_VIDEO_*` lines), and the title is the fixed `Deliver the video`.
@@ -166,5 +166,7 @@ Written on 2026-11-07 by V1a-3.
 Updated on 2026-11-07 by V3a-2.
 
 2026-11-09: V3c-1, the engine contract: one live test set for both engines, `caption_not_drawn`, `ffmpeg.py render --cpuset`
+
+2026-11-09: V3c-2, the `hyperframes` CI job (the HyperFrames image built on amd64, both engines' live legs) and the paths of the docker jobs
 
 2026-11-09: V3c-3, x264 on four slice threads in the compose, the proxy and the final encode
