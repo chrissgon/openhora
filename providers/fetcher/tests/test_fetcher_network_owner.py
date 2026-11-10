@@ -9,31 +9,34 @@ from pathlib import Path
 import pytest
 
 PROVIDERS = Path(__file__).resolve().parents[2]
+ROOT = PROVIDERS.parent
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "tests"}
 _spec = importlib.util.spec_from_file_location("workbench_container_for_network_owner", PROVIDERS / "_container.py")
 box = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = box
 _spec.loader.exec_module(box)
 
 
-def callers_that_pass_a_network():
+def callers_that_pass_a_network(root=ROOT):
+    """Every call of a function named `argv` with a `network` keyword, in any Python file of the repository outside a tests folder."""
     found = []
-    for path in sorted(PROVIDERS.rglob("*.py")):
-        if "tests" in path.parts or "hyperframes-image" in path.parts and False:
+    for path in sorted(root.rglob("*.py")):
+        if set(path.relative_to(root).parts) & SKIP_DIRS:
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
+        except (SyntaxError, UnicodeDecodeError):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", None)) == "argv" \
                     and any(k.arg == "network" for k in node.keywords):
-                found.append(path.relative_to(PROVIDERS).as_posix())
+                found.append(path.relative_to(root).as_posix())
     return found
 
 
-def test_only_files_under_the_fetcher_pass_network_to_argv():
+def test_only_files_under_the_fetcher_pass_network_to_argv_anywhere_in_the_repository():
     found = callers_that_pass_a_network()
-    assert found and all(name.startswith("fetcher/") for name in found), found
+    assert found and all(name.startswith("providers/fetcher/") for name in found), found
 
 
 def command(**extra):
@@ -66,3 +69,10 @@ def test_a_network_that_is_not_none_or_a_fetch_network_name_is_refused(name):
 def test_a_fetch_network_name_is_passed_through(name):
     argv = command(network=name)
     assert argv[argv.index("--network") + 1] == name
+
+
+def test_a_planted_caller_elsewhere_would_be_found(tmp_path):
+    (tmp_path / "providers").mkdir()
+    (tmp_path / "providers" / "zz_planted_caller.py").write_text("import _container as box\nbox.argv('n', 'i', [], network='openhora-fetch-in-0123456789ab')\n")
+    (tmp_path / "providers" / "other.py").write_text("import _container as box\nbox.argv('n', 'i', [])\n")
+    assert callers_that_pass_a_network(tmp_path) == ["providers/zz_planted_caller.py"]
