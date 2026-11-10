@@ -77,3 +77,25 @@ at pin time, STOP 1). The supervisor's live legs L1 to L7 (`live-steps`, not com
 
 The provider-classes table (a new class row and its verbs), the provider-verbs listing and the image-family listing of `docs/architecture/platform/*.md`; the owner table is
 not expected to change.
+
+### The pin and the JavaScript runtime (read 2026-11-10)
+
+The pin in `providers/fetcher/tool-pin.json` is filled with values read on 2026-11-10:
+
+- `version` "2026.10.26", `published_at` "2026-10-26T22:25:26Z", `size` 3073072, `url` and `sha256`: the latest release as the GitHub releases API returns it (the tag, its
+  publication time, the asset's size, its `browser_download_url` and its digest).
+- `redirect_hosts` ["release-assets.githubusercontent.com"]: a `curl -sI` on the url answers 302, and the host of its `Location` is that one.
+- `js_runtime` stays null.
+
+The README of the tool at tag 2026.10.26 (its DEPENDENCIES section) says:
+
+- (a) yt-dlp-ejs plus a JavaScript runtime are "required for full YouTube support".
+- (b) The runtimes it names are deno (recommended, and the only one enabled by default), node, bun and quickjs.
+- (c) The zipimport asset `yt-dlp` contains ISC meriyah and MIT astring code, the components yt-dlp-ejs bundles. Whether the EJS scripts themselves are inside the zipimport
+  asset is not verified.
+- (d) Without a runtime, the default YouTube clients drop `web` and `tv_samsung` and keep `visionos`. What then fails is not verified: live leg L7 decides, and adding a runtime
+  is STOP 2.
+
+certifi is not in the zipimport binary, so the image's ca-certificates package is what verifies TLS.
+
+The docker engine on the maintainer's Mac is 29.3.1 (26 or later), so the DNS concern of L3 does not apply. This was read for the live legs.
