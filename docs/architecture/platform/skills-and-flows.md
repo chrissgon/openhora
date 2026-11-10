@@ -42,6 +42,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 | `build-feature` | Build a feature, to its pull request | `spec` (`product-feature-spec`), `design` (`eng-architecture`), `tests` (`eng-unit-tests`), `implement` (`eng-implement`), `integration` (`eng-integration-tests`), `review` (`eng-code-review`), `docs` (`eng-docs`), `pull-request` (`ops-pull-request`) |
 | `code-change` | A code change, to its pull request | `implement` (`eng-implement`), `pull-request` (`ops-pull-request`) |
 | `design` | Design | `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief-city` (`design-brief`), `brief-building` (`design-brief`), `brief-floor` (`design-brief`), `brief-lobby` (`design-brief`), `brief-control-room` (`design-brief`) |
+| `fetch-tool-check` | Check whether the reference fetch tool has a newer release, and tell you | `check` (step `tool-check`) |
 | `fix-bug` | Fix a bug, to its pull request | `root-cause` (`eng-root-cause`), `tests` (`eng-unit-tests`), `implement` (`eng-implement`), `review` (`eng-code-review`), `pull-request` (`ops-pull-request`) |
 | `improve-code` | Improve existing code, to its pull request | `impact` (`eng-impact-analysis`), `options` (`eng-tradeoffs`), `refactor` (`eng-refactor`), `review` (`eng-code-review`), `pull-request` (`ops-pull-request`) |
 | `market-positioning` | Market and positioning | `market` (`biz-market-analysis`), `positioning` (`biz-icp-positioning`) |

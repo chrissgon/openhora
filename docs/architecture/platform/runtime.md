@@ -273,6 +273,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/step_publish_post.py` | The step kind `publish-post`: publish one drafted post now, as an external effect the person approves (package PUBLISH-EFFECT). |
 | `runtime/step_send_email.py` | The step kind `send-email`: send an e-mail from the project's outbox, as an external effect the person approves (package EMAIL-SEND). |
 | `runtime/step_tasks_item.py` | The step kind `tasks-item`: add a task to a list of the person's own task service, or mark one as completed, as an external effect the person approves (package CB-5). |
+| `runtime/step_tool_check.py` | The step kind `tool-check`: tell the person when the reference fetcher's tool has a newer release (package V7c, the pin routine). |
 | `runtime/step_write_back.py` | The step kind `write-back`: write a project document over a document on the platform, as an external effect the person approves (package P8, decision D17 direction 2). |
 | `runtime/steps.py` | The step engine: how a step task runs, one step after another, resumably, with stops for the person (package P5). |
 | `runtime/table_data.py` | The table a task made, read and checked as code (package NOTION-OUT): a CSV file or the first sheet of a workbook becomes the table an output step approves and a platform receives, `{"columns": [{"name", "type"}], "rows": [[value, ...]]}`, with the type of each column given or inferred by a rule, and every cap enforced. |
