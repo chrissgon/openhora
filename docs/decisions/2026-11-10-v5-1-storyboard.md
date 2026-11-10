@@ -14,9 +14,11 @@ the page and the terminal ask for one post, and a retention rule for what it dra
 - **D4. Retention by code, 30 days from the last use.** `upkeep.sweep_storyboards`, in the media part of the pass, by the folder's modification time, which each
   replay touches. The folder holds the stills of the script's own on-screen text (project data) and no recording and no transcript.
 - **D5. Both operations may cross the LAN socket (VD18).** They are not in `operations.LAN_REFUSED_OPS`: there is no recording in what they serve.
-- **D6. The draw is a job, asked with GET.** It can take minutes (the verb's timeout is 300 s), so the route answers 202 with a job as `video-new` does. The
-  route is a `GET` with `?post=`, so that `api.js` gains no `POST` function: `test_interface_msg3c.py` pins the set of `POST` functions of that file against
-  `permissions.js`, and a draw that only reads and writes its own cache needs no gate of its own. The picture route is a raw `GET`, as the still's.
+- **D6. The draw is a job, asked with POST.** It can take minutes (the verb's timeout is 300 s) and starts a container, so the route answers 202 with a job as
+  `video-new` does, and it is a `POST`, never a `GET`, because it changes state. `api.js` gains `videoStoryboard`, `permissions.js` gates it (`OPS`, `ASKED`) and
+  the page asks `can` before it draws the control. The picture route is a raw `GET`, as the still's.
+- **D7. Class G, kind internal.** Like the catalogue: not served in words. The oracle files that list every operation (`runtime/gated_ops.json` and the
+  literal lists of the tests that read it, the media group, the routes and the row counts) got the two rows added, and no assertion was loosened.
 
 ### Saving and loss (principle 13)
 

@@ -134,7 +134,7 @@ What a script's beats will look like, before a recording exists (V5-1, VD14). Th
 - **The engine.** The renderer's `storyboard` verb exists on the ffmpeg engine only, and the ffmpeg image is the one every HyperFrames project already builds, so the call is `MediaEngine(root, "ffmpeg")` whatever `media.renderer` says. It mounts no recording and no transcript (the verb takes the post, the post-writing skill's own checker and the vocabulary).
 - **What it returns.** For each beat with a preset: the still, the block that drew it (`drawn_block`, the ffmpeg engine's block for the preset) and the block the project's own engine will use (`video_block`, from the generated catalogue, `null` when that engine draws none: HyperFrames has no `cutaway` or `pip`). The page names both for a beat where they differ.
 - **The folder and the replay.** `<data_dir>/media/storyboards/<key>/`, `<key>` being the first 16 hex of the sha256 of the post's bytes, the theme's flags and `blocks/pins.json`. The same key is returned from the folder with no call (the verb gives the same bytes for the same inputs). A folder holds the stills of the script's own on-screen text and no recording, and is removed 30 days after its last use (`upkeep.sweep_storyboards`). `media.purge` never touches it: its name is not a recording's id.
-- **The route.** `GET .../video-storyboard?post=` is a job; one picture is `GET .../video-storyboard/<key>/<file>` with a name `beat-<n>.png` or `sheet.png`. Neither is in `operations.LAN_REFUSED_OPS`.
+- **The route.** `POST .../video-storyboard` with `{"post"}` is a job; one picture is `GET .../video-storyboard/<key>/<file>` with a name `beat-<n>.png` or `sheet.png`. Neither is in `operations.LAN_REFUSED_OPS`.
 
 ## Known limits and improvements
 
