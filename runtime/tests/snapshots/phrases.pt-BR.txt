@@ -149,6 +149,10 @@ ATT_WAITING_LINE: arquivo #42 Ana Lima: /add 42 ou /discard 42
 A_MESSAGING_APP: um aplicativo de mensagens
 BIDI_LEFT_OUT: Uma linha com controles de direção de texto foi retirada.
 BODY_NOT_NAMED: O agente de planejamento não indicou um fluxo nem uma skill para o pedido move the review
+BODY_VIDEO_REVIEW_NO_STILL: move, review palavras foram transcritas.\n<beats> trechos estão abaixo do limite de correspondência.\nNenhuma imagem foi feita para a caixa do rosto.\n<cut> tomadas repetidas serão cortadas pela regra; abra as legendas para manter uma.\nEdite as legendas e depois continue.\n\nResponda `continue` para seguir, ou `stop` para encerrar esta etapa. Qualquer outra resposta não é um veredito: a pergunta será feita de novo.
+BODY_VIDEO_REVIEW_NO_STILL_ONE: move, review palavras foram transcritas.\n<beats> trechos estão abaixo do limite de correspondência.\nNenhuma imagem foi feita para a caixa do rosto.\n1 tomada repetida será cortada pela regra; abra as legendas para manter uma.\nEdite as legendas e depois continue.\n\nResponda `continue` para seguir, ou `stop` para encerrar esta etapa. Qualquer outra resposta não é um veredito: a pergunta será feita de novo.
+BODY_VIDEO_REVIEW_STILL: move, review palavras foram transcritas.\n<beats> trechos estão abaixo do limite de correspondência.\nUma imagem foi feita para a caixa do rosto.\n<cut> tomadas repetidas serão cortadas pela regra; abra as legendas para manter uma.\nEdite as legendas e depois continue.\n\nResponda `continue` para seguir, ou `stop` para encerrar esta etapa. Qualquer outra resposta não é um veredito: a pergunta será feita de novo.
+BODY_VIDEO_REVIEW_STILL_ONE: move, review palavras foram transcritas.\n<beats> trechos estão abaixo do limite de correspondência.\nUma imagem foi feita para a caixa do rosto.\n1 tomada repetida será cortada pela regra; abra as legendas para manter uma.\nEdite as legendas e depois continue.\n\nResponda `continue` para seguir, ou `stop` para encerrar esta etapa. Qualquer outra resposta não é um veredito: a pergunta será feita de novo.
 CAN_CARD: Sim: um card é aprovado ou rejeitado pelos botões dele, ou respondendo “sim” ou “não” (sem ponto de interrogação) enquanto ele é a última mensagem.
 CAN_YES: Sim, consigo fazer isso por aqui: é só pedir. Nada é alterado antes da sua aprovação.
 CARD_ACCOUNT: Conta: ana@mail.example (ana@mail.example)
@@ -279,6 +283,18 @@ CARD_TODO_LIST: Lista: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Tarefa: Quarterly review
 CARD_TODO_PLAIN: Uma tarefa só com este título: sem data de vencimento e sem nota.
 CARD_TODO_TITLE: Tarefa: Quarterly review
+CARD_VIDEO_BLOCK: Bloco de animação: 42 0123456789abcdef
+CARD_VIDEO_CLOSING: Aprovar marca este arquivo exato como disponível para baixar. Nada é publicado.
+CARD_VIDEO_COVER: Capa: Ana Lima, sha256 0123456789abcdef
+CARD_VIDEO_DIGEST: Documento de entrega sha256 <digest>
+CARD_VIDEO_FILE: Vídeo: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
+CARD_VIDEO_NO_BLOCKS: sem blocos de animação
+CARD_VIDEO_NO_COVER: Capa: sem capa
+CARD_VIDEO_NO_PREVIEW: sem prévia
+CARD_VIDEO_PLATFORM: Plataforma: social-x
+CARD_VIDEO_POST: Publicação: <post>
+CARD_VIDEO_PREVIEW: prévia 0123456789abcdef, feita de <origin>
+CARD_VIDEO_VERIFIED: verificado para social-x
 CHANGED: Esta decisão mudou desde que você a viu.
 CMD_ATTACHMENTS: Arquivos esperando sua resposta: 3.
 CMD_CANCELLED: Pedido 3 cancelado.
@@ -1006,6 +1022,9 @@ TITLE_ROUTER_ASKS: O roteador pergunta
 TITLE_ROUTE_UNRECOGNISED: A rota não foi reconhecida
 TITLE_TODO_ADD: Tarefas: adicionar uma tarefa
 TITLE_TODO_DONE: Tarefas: concluir uma tarefa
+TITLE_VIDEO_DELIVER: Entregar o vídeo
+TITLE_VIDEO_MAKE: Fazer o vídeo
+TITLE_VIDEO_REVIEW: Revise as legendas
 TODO_API_OFF: Não consigo ler o Google Tasks: a API do Google Tasks não está ativada no projeto do Google Cloud que a plataforma usa.
 TODO_ASK_ACCOUNT: Qual: Google Tasks ou Microsoft To Do? Diga de novo citando o nome.
 TODO_BAD_TITLE: Não consegui usar isso como tarefa: precisa ser uma linha de no máximo 200 caracteres.
@@ -1084,6 +1103,27 @@ USAGE_DISCARD: Uso: /discard <n>
 USAGE_FORGET: Uso: /forget <n>
 USAGE_REJECT: Uso: /reject <id> [note]
 USAGE_RELEASE: Uso: /release <id>
+VID_AMBIGUOUS: "<wrong>" aparece mais de uma vez nas legendas. Acrescente uma palavra antes ou depois.
+VID_CLOUD_FAILED: Não foi possível buscar o arquivo desse link.
+VID_CLOUD_FETCHING: Buscando o arquivo no Google Drive.
+VID_CLOUD_NOT_SHARED: O link não entregou o arquivo. Compartilhe como "qualquer pessoa com o link", ou conecte a conta Google, e mande o link de novo.
+VID_CLOUD_NO_LENGTH: O Google Drive não informou o tamanho do arquivo, então ele não foi buscado. Envie pela página aberta neste computador.
+VID_CLOUD_TOO_LARGE: Esse arquivo é maior do que o armazenamento de mídia aceita (1 GiB, ou o espaço que resta).
+VID_CUT: O resto das legendas está na página.
+VID_EDITED: Alterado. As legendas agora estão assim:\n\nmove, review
+VID_EDITED_GATE: Alterado. O vídeo será renderizado de novo e enviado para uma nova aprovação.
+VID_FETCHING: Recebendo a gravação.
+VID_HOW: Responda continuar quando as legendas estiverem certas, ou corrija com uma linha por correção: errado -> certo.
+VID_NOT_FOUND: "<wrong>" não está nas legendas. Copie as palavras como estão escritas.
+VID_NOT_STARTED: O vídeo não começou. Abra a página para ver o motivo.
+VID_NO_POST: Nenhum post com roteiro está pronto para vídeo. Escreva o roteiro primeiro e depois envie a gravação de novo.
+VID_PICK_POST: Qual post você gravou? Responda com o número:\none, two, three
+VID_POST_GONE: Esse número não está na lista. Responda com um número de 1 a 3.
+VID_PREVIEW: O vídeo para aprovar (3.5 KiB). O cartão de aprovação vem em seguida.
+VID_RECEIVED: Gravação recebida (3.5 KiB).
+VID_RENDERING: Renderizando o vídeo. O cartão de aprovação chega quando estiver pronto.
+VID_REVIEW_WORDS: Estas são as legendas. Para corrigir, responda ao cartão das legendas com uma linha por correção: errado -> certo. Quando estiverem certas, responda continuar.\n\nmove, review
+VID_TOO_BIG: Este vídeo tem 3.5 KiB, e este app aceita no máximo 25 aqui. Envie pela página aberta neste computador, ou mande um link do Google Drive para ele.
 WAITS_COUNT: Aguardando você: plan.
 WD_FRI: sex
 WD_MON: seg
