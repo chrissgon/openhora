@@ -282,8 +282,10 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
 
 The engine contract's legs M1 and M2 measure this on both engines, composed, at 4 and at 8 cores (`reports/`); C9 in the table above.
 
-Pinned in the compose command (`_media.compose_argv`): the encoder's threads (`-threads 4`: x264's output depends on its thread count, and
-the automatic count follows the cores the machine shows, 14 inside the container whatever the CPU quota), the filter graph's threads
+Pinned in the compose command (`_media.compose_argv`): x264 on one thread (`-threads 1 -x264-params threads=1:lookahead_threads=1:sliced-threads=0`,
+`ENCODE_THREADS`, `X264_PARAMS`: x264's output depends on its thread count, and the automatic count follows the cores the machine shows, 14 inside
+the container whatever the CPU quota; the proxy's x264 is pinned the same way; the 15 s 4K measurement below was at four threads on arm64, and
+amd64 CI differed at four: 2026-11-08 the final encode, mid-stream, and 2026-11-09 the compose, frame 0), the filter graph's threads
 (`-filter_threads`, `-filter_complex_threads`, 4, which also fix swscale's slice count), `-sws_flags` and the flags of every explicit
 `scale` (`lanczos+accurate_rnd+bitexact`: the same arithmetic whatever SIMD the CPU has), `+bitexact` on the muxer, the video and the
 audio, and no metadata. The decoder's threads are pinned too (4) but a decoder is exact whatever the count: that pin changes speed only.
@@ -311,6 +313,7 @@ skip with a reason where those are absent; the host side runs against a fake doc
 
 ## Not verified here
 
+- The one-thread x264 of the compose and the proxy (V3c-3): its cost and its determinism on this Mac are to be recorded in a new report under `reports/` by the supervisor (not yet written); on amd64 the CI runs decide.
 - The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's CI job. The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
 
 - **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a

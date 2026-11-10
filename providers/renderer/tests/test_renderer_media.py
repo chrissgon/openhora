@@ -47,11 +47,13 @@ def test_a_resolved_plan_gives_exactly_this_argv(name, make):
 
 def test_the_encoder_thread_count_is_pinned_so_the_bytes_do_not_depend_on_the_machine():
     """x264's output depends on its thread count, and its automatic count follows the cores the machine shows: a pinned count is what
-    makes the same render the same bytes on another machine (measured: identical under a 4 and an 8 CPU limit)."""
+    makes the same render the same bytes on another machine (measured: identical under a 4 and an 8 CPU limit on arm64; one thread since amd64 differed at four, 2026-11-09)."""
     for make in (plain_plan, pip_plan):
         argv = _media.compose_argv("ffmpeg", make())
         i = argv.index("libx264")
-        assert argv[i + 1:i + 3] == ["-threads", "4"] and argv.count("-threads") == 2      # the encoder's and the decoder's
+        assert argv[i + 1:i + 3] == ["-threads", "1"] and argv.count("-threads") == 2      # the encoder's (one) and the decoder's (four)
+        assert argv[argv.index("-x264-params") + 1] == _media.X264_PARAMS == "threads=1:lookahead_threads=1:sliced-threads=0"
+        assert argv[argv.index("-threads") + 1] == "4"      # the decoder's, before -i
         assert argv[argv.index("-filter_complex_threads") + 1] == "4" and argv[argv.index("-filter_threads") + 1] == "4"
         graph = argv[argv.index("-filter_complex") + 1]
         scales = re.findall(r"scale=[^,;\[]*", graph)
@@ -102,7 +104,8 @@ def test_the_output_options_are_the_run_of_the_compose_argv_the_two_engines_shar
 
 def test_the_output_options_hold_the_pinned_encoder_and_the_bitexact_flags():
     options = _media.output_options(plain_plan())
-    assert options[options.index("-threads") + 1] == "4" and options[options.index("-crf") + 1] == "18"
+    assert options[options.index("-threads") + 1] == "1" and options[options.index("-x264-params") + 1] == _media.X264_PARAMS
+    assert options[options.index("-crf") + 1] == "18"
     assert options[options.index("-frames:v") + 1] == "231" and options[options.index("-fs") + 1] == "300000000"
     for flag in ("+bitexact",):
         assert options.count(flag) == 3
@@ -112,6 +115,8 @@ def test_the_output_options_hold_the_pinned_encoder_and_the_bitexact_flags():
 def test_the_proxy_argv_is_1080x1920_with_fixed_threads_and_bitexact_scaling():
     argv = _media.proxy_argv("ffmpeg", "/in/recording", "bt709", "/out/proxy.mp4", fps=30, has_audio=True)
     assert argv[argv.index("-threads") + 1] == "4" and argv[argv.index("-filter_threads") + 1] == "4" and argv.count("-threads") == 2
+    i = argv.index("libx264")
+    assert argv[i + 1:i + 5] == ["-threads", "1", "-x264-params", _media.X264_PARAMS]      # x264 on one thread; the decoder keeps four
     vf = argv[argv.index("-vf") + 1]
     assert vf.startswith("fps=30:start_time=0,scale=2160:3840") and "scale=1080:1920:flags=" + _media.SWS in vf and vf.endswith(_media.TAGS)
     assert all("flags=" + _media.SWS in x for x in re.findall(r"scale=[^,;\[]*", vf))
@@ -150,10 +155,10 @@ def test_the_encode_argv_names_every_count_that_could_follow_the_machine_and_end
     assert argv.index("-t") > argv.index("-frames:v")
 
 
-def test_compose_keeps_its_shortest_and_the_output_options_default_is_unchanged():
+def test_compose_keeps_its_shortest_and_the_output_options_default_is_the_one_thread_x264():
     plan = plain_plan()
     options = _media.output_options(plan)
-    assert "-shortest" in options and "-x264-params" not in options
+    assert "-shortest" in options and options[options.index("-x264-params") + 1] == _media.X264_PARAMS     # the default is x264 on one thread since V3c-3
     assert contains_run(_media.compose_argv("ffmpeg", plan), options)
 
 
