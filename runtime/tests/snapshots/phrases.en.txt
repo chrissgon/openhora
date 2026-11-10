@@ -1123,6 +1123,8 @@ VID_PREVIEW: The video to approve (3.5 KiB). Its approval card follows.
 VID_RECEIVED: Recording received (3.5 KiB).
 VID_RENDERING: Rendering the video. The approval card comes when it is ready.
 VID_REVIEW_WORDS: These are the captions. To correct them, reply to the caption card with one line per correction: wrong -> right. When they are right, reply continue.\n\nmove, review
+VID_STORYBOARD_ADVISORY: A still per beat over a placeholder. The video may look different.
+VID_STORYBOARD_NO_SCRIPT: This post has no script to draw.
 VID_TOO_BIG: This video is 3.5 KiB, and this app takes at most 25 here. Upload it on the page opened on this computer, or send a Google Drive link to it.
 WAITS_COUNT: A plan waits for you.
 WD_FRI: Fri

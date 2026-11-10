@@ -1123,6 +1123,8 @@ VID_PREVIEW: O vídeo para aprovar (3.5 KiB). O cartão de aprovação vem em se
 VID_RECEIVED: Gravação recebida (3.5 KiB).
 VID_RENDERING: Renderizando o vídeo. O cartão de aprovação chega quando estiver pronto.
 VID_REVIEW_WORDS: Estas são as legendas. Para corrigir, responda ao cartão das legendas com uma linha por correção: errado -> certo. Quando estiverem certas, responda continuar.\n\nmove, review
+VID_STORYBOARD_ADVISORY: Uma imagem por cena sobre um fundo neutro. O vídeo pode ficar diferente.
+VID_STORYBOARD_NO_SCRIPT: Este post não tem roteiro para desenhar.
 VID_TOO_BIG: Este vídeo tem 3.5 KiB, e este app aceita no máximo 25 aqui. Envie pela página aberta neste computador, ou mande um link do Google Drive para ele.
 WAITS_COUNT: Aguardando você: plan.
 WD_FRI: sex
