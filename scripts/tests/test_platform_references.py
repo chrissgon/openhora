@@ -21,7 +21,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PLATFORMS = ROOT / "shared" / "references" / "platforms"
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-DATA_FILES = sorted(PLATFORMS.glob("*.json"))
+DATA_FILES = sorted(p for p in PLATFORMS.glob("*.json") if not p.name.endswith(".fetch.json"))   # a `<platform>.fetch.json` is read by the fetcher, not staged: FETCH_FILES below
+FETCH_FILES = sorted(PLATFORMS.glob("*.fetch.json"))
 REFERENCES = sorted(p for p in PLATFORMS.glob("*.md") if p.name != "README.md")
 FIRST = "linkedin"  # the one platform built today
 
@@ -615,3 +616,28 @@ def test_the_media_signatures_match_real_files(name):
         for kind in kinds.values():
             if "webm" in (other, kind["name"]) and other != kind["name"]:
                 assert not matches(kind, sample), (other, kind["name"])
+
+
+# --- the fetch files: read by providers/fetcher/ and runtime/references.py, never staged into a skill's run -----------------------------
+
+FETCH_KEYS_EXPECTED = {"platform", "link", "fetch_hosts", "fetch_suffixes", "extractors", "subtitles", "checked"}
+
+
+@pytest.mark.parametrize("path", FETCH_FILES, ids=lambda p: p.name)
+def test_a_fetch_file_has_the_keys_of_the_readme_and_hosts_within_its_data_file(path):
+    d = json.loads(path.read_text(encoding="utf-8"))
+    stem = path.name[: -len(".fetch.json")]
+    assert NAME_RE.match(stem) and d["platform"] == stem
+    assert set(d) == FETCH_KEYS_EXPECTED
+    assert set(d["link"]) == {"hosts", "path_pattern", "keep_query"} and set(d["subtitles"]) == {"by_language", "original"}
+    assert d["link"]["hosts"] and all(re.fullmatch(r"[a-z0-9.-]+", h) for h in d["link"]["hosts"]), "hosts are exact names"
+    assert all(re.fullmatch(r"[a-z0-9.-]+", h) for h in d["fetch_hosts"])
+    assert all(s.startswith(".") for s in d["fetch_suffixes"]), "a suffix starts with a dot"
+    assert d["extractors"] is None or (isinstance(d["extractors"], list) and all(isinstance(e, str) for e in d["extractors"]))
+    assert isinstance(d["checked"], str) and d["checked"]
+    data = path.with_name(stem + ".json")
+    if data.is_file():
+        assert set(d["link"]["hosts"]) <= set(json.loads(data.read_text(encoding="utf-8"))["hosts"]), "link.hosts is copied from the data file"
+    readme = read("shared/references/platforms/README.md")
+    for key in ("link", "fetch_hosts", "fetch_suffixes", "extractors", "subtitles", "checked"):
+        assert f"`{key}`" in readme, f"the README's section on fetch files does not name `{key}`"

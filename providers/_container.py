@@ -23,8 +23,13 @@
                           out of a memory-backed folder of its own, and the host decides what to write from it;
   remove(name), stop(name)    end a container by name; never raise;
   require_local_daemon()  refuse a docker client that talks to a daemon that is not on this machine (a unix socket);
-  reap(label)             remove every container of the run label whose deadline label has passed (what a run that was
-                          killed with SIGKILL, a crash or a power cut leaves behind);
+  reap(label)             remove every container, and every network, of the run label whose deadline label has passed (what a
+                          run that was killed with SIGKILL, a crash or a power cut leaves behind);
+  create_network(...), connect_network(...), remove_network(...)
+                          the private networks of a job that needs a way out through a proxy of its own (the reference
+                          fetcher, the one user): `argv(network=...)` takes `none` or a name `openhora-fetch-(in|out)-<12 hex>`;
+  in_reference(path)      true when the real path, or a folder above it, holds the marker file of a reference store: no job
+                          takes such a path as an input (the renderer's host side asks it before it mounts or reads a file);
   old_definition_images(tool, repository, current_hash), remove_old_definition_images(tool, repository, current_hash, dry_run)
                           list, and remove by tag, the images of a provider's earlier definitions through a container tool passed
                           in (`tool(*args) -> (returncode, stdout)`, as runtime/orphans.py does): never with --force, never with
@@ -39,7 +44,7 @@ the decision to check the daemon: `run()` does not call `require_local_daemon`; 
 `evals/executor.py`, the eval container's runner, does not use this file.
 
 Errors are one class, `ContainerError(code, what)`: `code` is a closed machine word (bad_mount_path, bad_mount, docker_missing,
-docker_unusable, docker_timeout, docker_ps_failed, docker_daemon_unknown, docker_daemon_not_local, bad_label, time_limit, stopped, output_too_large); `what` names the thing, never a path's content.
+docker_unusable, docker_timeout, docker_ps_failed, docker_daemon_unknown, docker_daemon_not_local, bad_label, bad_network, network_failed, time_limit, stopped, output_too_large); `what` names the thing, never a path's content.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -50,6 +55,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -76,6 +82,9 @@ DEADLINE = re.compile(r"[0-9]{1,18}")
 LAUNCH_FAILED = (125, 126, 127)          # the docker client's own codes: the daemon refused, the command is not executable, not found
 BAD_PATH = re.compile(r"[:\x00-\x1f\x7f]")
 CONTAINER_ID = re.compile(r"[0-9a-f]{6,64}")
+NETWORK = re.compile(r"openhora-fetch-(in|out)-[0-9a-f]{12}")   # the only names `argv(network=)` and the network helpers accept
+CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+REFERENCE_MARKER = ".openhora-reference"                         # the file that makes a folder a reference store (runtime/references.py writes it)
 
 
 class ContainerError(Exception):
@@ -222,7 +231,7 @@ def deadline_label(label: str) -> str:
 def argv(name: str, image_id: str, inner_args: Iterable[str], *, label: str, deadline: int,
          mounts: Sequence[Tuple[str, str, str]], memory_mb: int, cpus, scratch_mb: int,
          pids_limit: int = PIDS_LIMIT, tmp_mb: int = TMP_SIZE_MB, platform: Optional[str] = None,
-         cpuset: Optional[str] = None, shm_mb: Optional[int] = None) -> List[str]:
+         cpuset: Optional[str] = None, shm_mb: Optional[int] = None, network: str = "none") -> List[str]:
     """The exact `docker run` command (a list; the first word is `docker`). Every limit of the container is here.
 
     `label` is the run label (`org.openhora.<job>`), set to 1, and `deadline` (an epoch, seconds) goes in the label
@@ -230,16 +239,20 @@ def argv(name: str, image_id: str, inner_args: Iterable[str], *, label: str, dea
     they are given; the host path goes through `mount_path`. The image is run by its id, which is never pulled. On Linux the
     container runs as the caller's numeric user and group (a bind mount keeps numeric owners there; elsewhere the runtime
     maps them). `cpuset` (for example "0-3") pins the container to those cores and `shm_mb` sizes /dev/shm; both are off by
-    default, and with both off the command is the one every other provider has always had."""
+    default, and with both off the command is the one every other provider has always had. `network` is `none` (the default: with it
+    the command is byte for byte what it always was) or the name of a network the caller made (NETWORK); anything else is
+    ContainerError bad_network."""
     platform = sys.platform if platform is None else platform
     check_label(label)
+    if network != "none" and not (isinstance(network, str) and NETWORK.fullmatch(network)):
+        raise ContainerError("bad_network", "network")
     if cpuset is not None:
         check_cpuset(cpuset)
     if shm_mb is not None and (isinstance(shm_mb, bool) or not isinstance(shm_mb, int) or not 1 <= shm_mb <= memory_mb):
         raise ContainerError("bad_shm", "shm")
     out = ["docker", "run", "--rm", "--init", "--pull", "never", "--name", name,
            "--label", "%s=1" % label, "--label", "%s=%d" % (deadline_label(label), deadline),
-           "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+           "--network", network, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
            "--pids-limit", str(pids_limit), "--memory", "%dm" % memory_mb, "--memory-swap", "%dm" % memory_mb,
            "--cpus", str(cpus)]
     if cpuset is not None:
@@ -415,9 +428,82 @@ def run(command: Sequence[str], name: str, timeout: float, *, stdout_cap: Option
             signal.signal(sig, handler)
 
 
+def create_network(name: str, internal: bool, label: str, deadline: int) -> None:
+    """Make a bridge network `name` (NETWORK), labelled like a run (`label`=1 and the deadline label), `--internal` when
+    `internal` (no route out of it). ContainerError bad_network for a name that is not NETWORK, network_failed when docker refuses."""
+    if not isinstance(name, str) or not NETWORK.fullmatch(name):
+        raise ContainerError("bad_network", "network")
+    command = ["network", "create", "--driver", "bridge"] + (["--internal"] if internal else [])
+    command += ["--label", "%s=1" % check_label(label), "--label", "%s=%d" % (deadline_label(label), deadline), name]
+    if docker(command).returncode != 0:
+        raise ContainerError("network_failed", "network create")
+
+
+def connect_network(name: str, container: str) -> None:
+    """Connect a running container to the network `name`. ContainerError bad_network or network_failed."""
+    if not isinstance(name, str) or not NETWORK.fullmatch(name) or not isinstance(container, str) or not CONTAINER_NAME.fullmatch(container):
+        raise ContainerError("bad_network", "network")
+    if docker(["network", "connect", name, container]).returncode != 0:
+        raise ContainerError("network_failed", "network connect")
+
+
+def remove_network(name: str) -> None:
+    """Remove a network by name. Never raises (it may be gone, or a container may still hold it)."""
+    if isinstance(name, str) and NETWORK.fullmatch(name):
+        try:
+            docker(["network", "rm", name], timeout=PROBE_TIMEOUT)
+        except ContainerError:
+            pass
+
+
+def in_reference(path: str) -> bool:
+    """True when the real path of `path` is the marker file of a reference store, or is a folder that holds it, or has a folder
+    above it that holds it (a regular file, not a link). A path that cannot be resolved is not one. The check reads names, not
+    content: a copy of a file made elsewhere is not caught (contracts/runtime.md, limit L73)."""
+    try:
+        current = os.path.realpath(path)
+    except (OSError, ValueError, TypeError):
+        return False
+    if os.path.basename(current) == REFERENCE_MARKER:
+        return True
+    while True:
+        try:
+            found = os.lstat(os.path.join(current, REFERENCE_MARKER))
+            if stat.S_ISREG(found.st_mode):
+                return True
+        except (OSError, ValueError):
+            pass
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
+def _reap_networks(label: str, now: float) -> None:
+    """Remove the networks of the run label past their deadline (after their containers). Best effort: it never raises."""
+    key = deadline_label(label)
+    try:
+        done = docker(["network", "ls", "--filter", "label=%s=1" % label, "--format", '{{.ID}} {{.Label "%s"}}' % key])
+    except ContainerError:
+        return
+    if done.returncode != 0:
+        return
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if not parts or not CONTAINER_ID.fullmatch(parts[0]):
+            continue
+        deadline = int(parts[1]) if len(parts) > 1 and DEADLINE.fullmatch(parts[1]) else 0
+        if deadline < now:
+            try:
+                docker(["network", "rm", parts[0]], timeout=PROBE_TIMEOUT)
+            except ContainerError:
+                pass
+
+
 def reap(label: str, now: Optional[float] = None) -> List[str]:
     """Remove every container (running or not) that carries the run label `label` and whose deadline label is before `now`
-    (default: the time of the call); a container with no readable deadline counts as past. Returns the ids removed.
+    (default: the time of the call); a container with no readable deadline counts as past. Then the networks of the same label
+    and a past deadline (best effort). Returns the ids of the containers removed.
     ContainerError (docker_ps_failed) when the list cannot be read."""
     now = time.time() if now is None else now
     deadline_key = deadline_label(label)    # also refuses a label that is not a plain name
@@ -432,6 +518,7 @@ def reap(label: str, now: Optional[float] = None) -> List[str]:
         deadline = int(parts[1]) if len(parts) > 1 and DEADLINE.fullmatch(parts[1]) else 0
         if deadline < now and docker(["rm", "-f", parts[0]], timeout=PROBE_TIMEOUT).returncode == 0:
             removed.append(parts[0])
+    _reap_networks(label, now)
     return removed
 
 
