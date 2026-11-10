@@ -27,7 +27,7 @@ opened through the descriptor of its folder.
 Errors are one class, `MediaError(message, code)`; `code` is one of usage, not_found, type, size, quota, busy, no_space, taken, delivered,
 unreadable, stale. A message never holds a file's content.
 
-Standard library only, plus runtime/intake.py. Runs on Python 3.9.
+Standard library only, plus runtime/intake.py and runtime/references.py (`in_reference`, for `receive_file`). Runs on Python 3.9.
 """
 from __future__ import annotations
 
@@ -47,6 +47,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import intake  # noqa: E402  (the generic streaming intake: the bounds, the type from the bytes, the lock)
+import references  # noqa: E402  (the reference store: `in_reference`, the check that a reference is never a recording)
 
 ROOT_NAME = "media"
 ID = re.compile(r"[0-9a-f]{16}")             # secrets.token_hex(8)
@@ -419,7 +420,10 @@ def receive(data_dir: str, stream, length, *, now=None) -> dict:
 
 
 def receive_file(data_dir: str, path: str, *, now=None) -> dict:
-    """Take a recording from a file on this computer: it must be a regular file, opened without following a link."""
+    """Take a recording from a file on this computer: it must be a regular file, opened without following a link, and never one inside a reference store
+    (a reference is looked at and measured, never used: limit L73; the check reads the path, so a copy the person made outside the store is not caught)."""
+    if references.in_reference(path):
+        raise MediaError("a reference is never a recording", "usage")
     try:
         fd = os.open(path, os.O_RDONLY | NOFOLLOW)
     except OSError:

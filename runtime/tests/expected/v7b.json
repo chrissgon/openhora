@@ -1,0 +1,27 @@
+{
+  "package": "v7b",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_references"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "reference-add",
+      "reference-video",
+      "reference-list",
+      "reference-read",
+      "reference-remove"
+    ],
+    "interpreter_coverage.INTERNAL": [
+      "reference-add",
+      "reference-video",
+      "reference-list",
+      "reference-read",
+      "reference-remove"
+    ],
+    "run_limits.NUMBERS": [
+      72,
+      73,
+      74
+    ]
+  }
+}
