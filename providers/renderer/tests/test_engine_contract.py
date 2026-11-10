@@ -339,9 +339,19 @@ def test_rows_built_from_what_a_render_printed_pass_the_schema_and_the_same_sha_
 def test_every_committed_report_passes_the_schema_and_its_name_says_its_date_and_architecture():
     for path in sorted(REPORTS.glob("*")) if REPORTS.is_dir() else []:
         m = C.REPORT_NAME.fullmatch(path.name)
-        assert m, "%s is not named engine-contract-<date>-<arch>.json" % path.name
+        assert m, "%s is not named engine-contract-<date>-<arch>[-r<2-9>].json" % path.name
         doc = C.check_report(json.loads(path.read_text(encoding="utf-8")))
-        assert (doc["date"], doc["arch"]) == m.groups(), path.name
+        assert (doc["date"], doc["arch"]) == m.group(1, 2), path.name
+
+
+def test_the_report_name_takes_a_rerun_suffix_and_nothing_else():
+    ok = ["engine-contract-2026-11-09-arm64.json", "engine-contract-2026-11-09-arm64-r2.json", "engine-contract-2026-11-10-amd64-r9.json"]
+    for name in ok:
+        m = C.REPORT_NAME.fullmatch(name)
+        assert m and m.group(1, 2) == (name[16:26], name[27:32]), name
+    for name in ("engine-contract-2026-11-09-arm64-r1.json", "engine-contract-2026-11-09-arm64-r10.json", "engine-contract-2026-11-09-arm64-r.json",
+                 "engine-contract-2026-11-09-arm64-x2.json", "engine-contract-2026-11-09-arm64.json.bak"):
+        assert not C.REPORT_NAME.fullmatch(name), name
 
 
 # ---------------------------------------------------------------- the live file

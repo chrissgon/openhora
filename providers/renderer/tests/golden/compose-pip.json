@@ -59,6 +59,8 @@
  "libx264",
  "-threads",
  "4",
+ "-x264-params",
+ "threads=4:lookahead_threads=1:sliced-threads=1",
  "-preset",
  "medium",
  "-crf",
