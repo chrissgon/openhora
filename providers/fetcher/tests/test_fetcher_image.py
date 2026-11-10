@@ -49,11 +49,10 @@ def test_the_definition_covers_the_manifests_files_and_the_effective_pin(tmp_pat
     assert _fetcher_image.definition_hash(str(folder)) == before, "a host-only file changes no image"
 
 
-def test_the_committed_pin_is_null_until_a_person_fills_it_from_the_releases_metadata():
+def test_the_committed_pin_is_filled_from_the_releases_metadata():
     pin = _fetcher_image.effective_pin(str(K.FETCHER))
-    assert pin["tool"] == "yt-dlp" and pin["asset"] == "yt-dlp" and pin["redirect_hosts"] == []
-    assert all(pin[k] is None for k in ("version", "url", "size", "sha256", "published_at", "read_on", "js_runtime"))
-    assert set(_fetcher_image.pin_missing(pin)) == {"version", "url", "size", "sha256", "redirect_hosts"}
+    assert pin["tool"] == "yt-dlp" and pin["asset"] == "yt-dlp" and pin["js_runtime"] is None
+    assert _fetcher_image.pin_missing(pin) == [] and re.fullmatch(r"[0-9a-f]{64}", pin["sha256"]) and pin["redirect_hosts"]
 
 
 def test_build_and_check_refuse_a_null_pin_before_any_docker_call(tmp_path, monkeypatch):

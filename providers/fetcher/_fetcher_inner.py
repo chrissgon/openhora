@@ -27,7 +27,7 @@ TOOL = os.path.join(HERE, "yt-dlp")
 VERSIONS = os.path.join(HERE, "versions.json")
 ALLOWED = ("--ignore-config", "--no-playlist", "--no-cache-dir", "--no-mtime", "--restrict-filenames", "--no-color", "--use-extractors",
            "--proxy", "--socket-timeout", "--retries", "--match-filter", "--paths", "-o", "--skip-download", "--write-info-json",
-           "--clean-info-json", "--write-subs", "--write-auto-subs", "--sub-format", "--sub-langs", "-S", "-f", "--max-filesize",
+           "--clean-info-json", "--write-subs", "--write-auto-subs", "--sub-format", "--sub-langs", "-S", "-f", "--merge-output-format", "--max-filesize",
            "--print-to-file")
 EXTRACTOR = re.compile(r"[A-Za-z0-9_]{1,40}")
 LANG_PATTERN = re.compile(r"[A-Za-z0-9_.*-]{1,40}")
@@ -81,7 +81,8 @@ def ytdlp_argv(stage, url, extractors, proxy, max_seconds, max_bytes, langs):
         if joined:
             argv += ["--write-subs", "--write-auto-subs", "--sub-format", "vtt", "--sub-langs", joined]
     else:
-        argv += ["-S", "res:1280", "-f", "bv*[filesize<?%d]/b[filesize<?%d]" % (max_bytes, max_bytes), "--max-filesize", str(max_bytes)]
+        argv += ["-S", "res:720", "-f", "bv*[filesize<?%d]+ba/b[filesize<?%d]" % (max_bytes, max_bytes), "--merge-output-format", "mp4/webm",
+                 "--max-filesize", str(max_bytes)]
     argv.append(url)
     return check_argv(argv)
 

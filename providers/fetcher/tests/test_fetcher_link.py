@@ -76,9 +76,13 @@ def test_the_committed_fetch_files_are_not_ready_so_nothing_is_fetched_before_a_
     assert files
     for path in files:
         name = path.name[: -len(".fetch.json")]
+        if json.loads(path.read_text(encoding="utf-8"))["checked"] != "not checked":   # filled from a live run and approved by a person (STOP 4)
+            assert ytdlp.load_fetch_file(str(path), name)["extractors"]
+            continue
         with pytest.raises(ytdlp.Refusal) as caught:
             ytdlp.load_fetch_file(str(path), name)
         assert caught.value.code == "platform_not_ready"
+    assert any(json.loads(p.read_text(encoding="utf-8"))["checked"] == "not checked" for p in files), "a platform still waits for its live run"
 
 
 def test_the_out_folder_must_be_a_private_folder_of_this_user_inside_a_reference_store(world, tmp_path):

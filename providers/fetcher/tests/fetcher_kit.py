@@ -140,6 +140,9 @@ class World:
         shutil.copytree(FETCHER, self.folder, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         if pin:
             (self.folder / "tool-pin.json").write_text(json.dumps(PIN))
+        else:   # the committed pin is filled since the pin commit: a test of a null pin writes the null form itself
+            null = {k: None for k in ("version", "url", "size", "sha256", "published_at", "read_on", "js_runtime")}
+            (self.folder / "tool-pin.json").write_text(json.dumps({"tool": "yt-dlp", "asset": "yt-dlp", "redirect_hosts": [], **null}))
         self.cfg = {"images": {}, "inner": str(FETCHER / "_fetcher_inner.py")}
         self.cfg.update(cfg)
         self.refs = tmp / "refs"

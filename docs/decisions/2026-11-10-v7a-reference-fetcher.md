@@ -99,3 +99,22 @@ The README of the tool at tag 2026.10.26 (its DEPENDENCIES section) says:
 certifi is not in the zipimport binary, so the image's ca-certificates package is what verifies TLS.
 
 The docker engine on the maintainer's Mac is 29.3.1 (26 or later), so the DNS concern of L3 does not apply. This was read for the live legs.
+
+### First live run (2026-11-10) and the values it set
+
+Counts and approved values only; the supervisor ran the live legs.
+
+- L2: the build passed. Python 3.11.2, ffmpeg 5.1.9; the seven filters `scdet`, `vidstabdetect`, `palettegen`, `edgedetect`, `blackdetect`, `tblend` and `signalstats` are present.
+- L3: the fence passed. An IP literal, `host.docker.internal` and a name outside the list all fail; the gateway refuses ports 443 and 53.
+- L4: an unlisted CDN host was refused, a mismatched TLS name closed the tunnel, and nothing was left behind.
+- L5: a synthetic video gave 4 scenes and 3 cuts.
+- L6 and L7: one YouTube Short was fetched end to end with no JavaScript runtime, so STOP 2 is not needed for YouTube today.
+
+Not working yet:
+
+- TikTok fails before the proxy: its extractor asks for browser impersonation, and that dependency is not in the image. A new dependency is a STOP.
+- Instagram's metadata has no duration, so the video stage would refuse with `no_duration`. This is an open design question.
+
+Values approved by the maintainer (STOP 4) and written in `shared/references/platforms/youtube.fetch.json`: link host `www.youtube.com`, path pattern `/shorts/[A-Za-z0-9_-]{11}`, no kept query key; fetch hosts `www.youtube.com` and `manifest.googlevideo.com`, suffix `.googlevideo.com`; extractor `Youtube`; no subtitle pattern (none observed); checked `2026-11-10`. No platform reference or data file is written for YouTube: a reference is never written from general knowledge, and the fetch file needs no sibling.
+
+The video format changes. In the live run the old format (`-S res:1280`, `-f bv*[filesize<?N]/b[filesize<?N]`) gave a video-only VP9 1080p file of 73 MB, so speech could not be measured. The video stage now asks for `-S res:720` and `-f bv*[filesize<?N]+ba/b[filesize<?N]` with `--merge-output-format mp4/webm` (added to `ALLOWED`): a file with an audio track, at most 720p, still one of `VIDEO_EXTENSIONS`. The image's ffmpeg does the merge. The argv test asserts the new values, a change of asserted behaviour the maintainer decided.

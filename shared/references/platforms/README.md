@@ -116,6 +116,8 @@ A platform whose public videos a person may give as references has one more file
 
 Everything but `link.hosts` is null or empty until a live run observes it and a person approves the values: the fetcher refuses a platform whose `extractors` or `link.path_pattern` is null or empty. A value is never written from general knowledge.
 
+Fetch files filled so far: `youtube.fetch.json` (Shorts links, values observed in a live run on 2026-11-10 and approved). `tiktok.fetch.json` and `instagram.fetch.json` carry only `link.hosts` and are not ready.
+
 ## What stays in a provider
 
 What belongs to one implementation and not to the medium: credentials and how long they last, how the service is called, its versions and endpoints, its errors and rate limits, how text is escaped on the way in, the ledger of what was sent. One provider may serve several platforms, and most skills that need to know a platform declare no publisher. A provider's verbs name a post and a comment by generic flags (`--post-id`, `--comment-id`, `--parent-comment-id`) whose value a caller passes as it received it; what the value looks like on a platform is in that platform's reference, section "Identifiers" (`providers/CONTRACT.md`).

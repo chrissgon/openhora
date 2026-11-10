@@ -112,8 +112,8 @@ def test_the_two_stages_differ_where_the_documentation_says():
     video = _fetcher_inner.ytdlp_argv("video", "https://www.aster.example/v/1", ["A"], PROXY, 300, 1000, ["en.*"])
     assert "--skip-download" in meta and "--write-subs" in meta and flag_value(meta, "--sub-langs") == "en.*" and flag_value(meta, "--match-filter") == "!is_live"
     assert "-S" not in meta and "--max-filesize" not in meta
-    assert flag_value(video, "-S") == "res:1280" and flag_value(video, "--max-filesize") == "1000" and "--skip-download" not in video
-    assert flag_value(video, "-f") == "bv*[filesize<?1000]/b[filesize<?1000]" and flag_value(video, "--match-filter") == "!is_live & duration <=? 300"
+    assert flag_value(video, "-S") == "res:720" and flag_value(video, "--max-filesize") == "1000" and "--skip-download" not in video
+    assert flag_value(video, "-f") == "bv*[filesize<?1000]+ba/b[filesize<?1000]" and flag_value(video, "--merge-output-format") == "mp4/webm" and flag_value(video, "--match-filter") == "!is_live & duration <=? 300"
     assert "--write-subs" not in video and "--write-info-json" not in video
 
 
