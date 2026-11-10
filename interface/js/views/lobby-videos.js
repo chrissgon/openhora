@@ -325,6 +325,7 @@ export function createVideos(env) {
   postSelect.addEventListener("change", () => {
     picked.post = postSelect.value || "";
     drawForm();
+    storyboard.update(picked.post, shown);
   });
   uploadButton.addEventListener("click", upload);
 
