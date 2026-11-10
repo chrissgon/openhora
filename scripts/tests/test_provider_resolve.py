@@ -502,12 +502,12 @@ def test_transcriber_speech_is_a_runtime_only_class_served_by_whispercpp():
         resolve.variables("transcriber")   # a class is <role>:<target>
 
 
-def test_renderer_video_is_a_runtime_only_class_whose_default_is_ffmpeg():
+def test_renderer_video_is_a_runtime_only_class_whose_default_is_hyperframes():
     assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
     assert resolve.folder("renderer:video") == "renderer" and resolve.platform_of("renderer:video") is None
     got = resolve.resolve("renderer:video", env={})
-    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"
-    assert got["path"] == str(REPO / "providers" / "renderer" / "ffmpeg.py")
+    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
+    assert got["path"] == str(REPO / "providers" / "renderer" / "hyperframes.py")
     assert "renderer:video" not in resolve.LISTED   # VD2: no skill requires it, so contracts/environment.md does not list it
     assert resolve.implementations("renderer:video", env={}) == ["ffmpeg", "hyperframes"]   # the underscore modules and hyperframes-image/ are not implementations
 

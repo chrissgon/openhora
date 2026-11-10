@@ -29,7 +29,8 @@ def video_catalogue(project, channel=None) -> dict:
     ctx = core.context(project)
     ops_media._channel(ctx, "video-catalogue", channel)
     try:
-        return media_animation.listing(ops_step_seams.MediaStore(ctx).root())
+        store = ops_step_seams.MediaStore(ctx)
+        return media_animation.listing(store.root(), store.renderer())
     except media_animation.CatalogueError as e:
         raise core.OpsError(f"the catalogue of animations cannot be read ({e.code})", 1) from None
 

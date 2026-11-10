@@ -100,7 +100,7 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
 # `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
 # `transcriber` (transcriber:speech, providers/transcriber/whispercpp.py) is a class the runtime uses, not one a skill may require (decision VD2), so contracts/environment.md does not list it.
-# `renderer` (renderer:video, providers/renderer/ffmpeg.py) is runtime-only the same way (decision VD2).
+# `renderer` (renderer:video, providers/renderer/ffmpeg.py and hyperframes.py) is runtime-only the same way (decision VD2).
 ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model", "transcriber", "renderer"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
@@ -118,9 +118,9 @@ PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
 # What "auto" means for a class that ships several implementations, when nothing chooses one (package W2): the SMTP outbox is the sender:email of a project that
 # sets none; the mailers of the person's own account (gmail.py, outlook.py) are named explicitly by the runtime, from a document that says whose account it is,
 # and are never what "auto" picks. A variable or a caller's implementation still wins.
-# Two engines will serve renderer:video (decision VD1); the default keeps ffmpeg when providers/renderer/hyperframes.py arrives, so a caller that names
-# no implementation never gets the other engine.
-CLASS_DEFAULTS = {"sender:email": "smtp", "renderer:video": "ffmpeg"}
+# Two engines serve renderer:video (decision VD1). Since V4 (docs/decisions/2026-11-10-v4-renderer-key.md) the default engine is hyperframes; a project
+# names ffmpeg with media.renderer, a person with RENDERER_PROVIDER.
+CLASS_DEFAULTS = {"sender:email": "smtp", "renderer:video": "hyperframes"}
 
 EXIT_OK, EXIT_USAGE, EXIT_UNRESOLVED = 0, 2, 3
 

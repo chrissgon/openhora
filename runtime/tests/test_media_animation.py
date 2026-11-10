@@ -164,7 +164,7 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
         doc["blocks"] += [entry("oh:bare", preset=None), entry("oh:pic", params={"asset": {"type": ["image", "clip"], "required": True}}),
                           entry("oh:only-hf", engines=("hyperframes",))]
     root = plant(tmp_path, more)
-    monkeypatch.setattr(animation, "engine_name", lambda r: "ffmpeg")
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
     shown = animation.listing(root)
     rows = {b["name"]: b for b in shown["blocks"]}
     assert [b["name"] for b in shown["blocks"]] == sorted(rows)
@@ -173,7 +173,7 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     assert rows["oh:caption"]["why"] == "kind"
     assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] == "slot" and rows["oh:only-hf"]["why"] == "engine"
     assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "oh:keyword" and (shown["animations_max"], shown["beats_max"]) == (12, 12)
-    monkeypatch.setattr(animation, "engine_name", lambda r: None)
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     none = animation.listing(root)
     whys = {b["name"]: b["why"] for b in none["blocks"]}
     assert none["presets"] == {} and none["engine"] is None
@@ -181,8 +181,22 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     assert all(whys[name] == "not_configured" for name in ("oh:keyword", "oh:list", "oh:number", "oh:quote", "oh:only-hf"))
 
 
-def test_the_engine_is_the_one_the_resolver_gives_with_no_variable_set():
-    assert animation.engine_name(str(REPO)) == "ffmpeg"
+def test_the_engine_is_the_class_default_with_no_variable_set_and_the_one_a_project_names():
+    assert animation.engine_name(str(REPO)) == "hyperframes"
+    assert animation.engine_name(str(REPO), "ffmpeg") == "ffmpeg"
+    assert animation.engine_name(str(REPO), "heygen") is None
+
+
+def test_the_listing_and_the_checker_read_the_projects_renderer_through_the_store(tmp_path, monkeypatch):
+    root = plant(tmp_path)
+    asked = []
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: asked.append(i) or "ffmpeg")
+    monkeypatch.setattr(seams.MediaStore, "renderer", lambda self: "ffmpeg")
+    monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
+    animation.listing(root, "ffmpeg")
+    use(monkeypatch, Checking())
+    animation.checker(ctx_of(tmp_path))("oh:keyword", {"text": "Every step counts"}, "edits[0]")
+    assert asked == ["ffmpeg", "ffmpeg"]
 
 
 # 5, 6 and 7. the checker
@@ -210,7 +224,7 @@ def test_every_refusal_that_needs_no_engine_starts_no_process(tmp_path, monkeypa
     root = plant(tmp_path, more)
     fake = use(monkeypatch, Checking())
     monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
-    monkeypatch.setattr(animation, "engine_name", lambda r: "ffmpeg")
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
     animate = animation.checker(ctx_of(tmp_path))
     where = "edits[0]"
     assert refusal(animate, "keyword", {}, where) == ("bad_block", "edits[0].block")
@@ -220,7 +234,7 @@ def test_every_refusal_that_needs_no_engine_starts_no_process(tmp_path, monkeypa
     assert refusal(animate, "oh:only-hf", {}, where) == ("block_not_on_engine", "edits[0].block")
     for bad in ("text", {f"p{k}": "x" for k in range(13)}, {"text": True}, {"text": {"a": 1}}, {"text": "x" * 9000}, {"Text": "x"}, {"text": float("nan")}):
         assert refusal(animate, "oh:keyword", bad, where) == ("bad_params", "edits[0].params"), bad
-    monkeypatch.setattr(animation, "engine_name", lambda r: None)
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     assert refusal(animation.checker(ctx_of(tmp_path)), "oh:keyword", {"text": "x"}, where)[0] == "not_configured"
     stale = plant(tmp_path / "stale", pins=b"{}")
     monkeypatch.setattr(seams.MediaStore, "root", lambda self: stale)
@@ -231,7 +245,7 @@ def test_every_refusal_that_needs_no_engine_starts_no_process(tmp_path, monkeypa
 @pytest.mark.parametrize("raised, expected", [
     (seams.StepServiceError("refused", "undeclared_param params.size"), ("undeclared_param", "edits[0].params.size")),
     (seams.StepServiceError("refused", "block_unknown block"), ("block_unknown", "edits[0].block")),
-    (seams.StepServiceError("refused", ""), ("block_check_unavailable", "edits[0]")),
+    (seams.StepServiceError("refused", ""), ("block_check_failed", "edits[0]")),
     (seams.StepServiceError("not_configured"), ("not_configured", "edits[0]")),
     (seams.StepServiceError("engine_failed"), ("block_check_failed", "edits[0]")),
 ])
@@ -380,7 +394,8 @@ def set_page(world, groups):
 
 def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_rest(world, monkeypatch):
     shown = ops_media_catalogue.video_catalogue(world["path"])
-    assert shown["engine"] == "ffmpeg" and {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote"}
+    assert shown["engine"] == "hyperframes"      # the class default since V4
+    assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card"}
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):
@@ -434,7 +449,7 @@ def test_the_route_is_a_read_that_crosses_the_lan_socket_as_well_as_the_loopback
 
 def test_the_terminal_calls_the_operation(world):
     shown = cli.run(["video-catalogue", "--project", world["path"]])
-    assert shown == ops_media_catalogue.video_catalogue(world["path"]) and shown["engine"] == "ffmpeg"
+    assert shown == ops_media_catalogue.video_catalogue(world["path"]) and shown["engine"] == "hyperframes"
 
 
 # 14. the modules start on their own

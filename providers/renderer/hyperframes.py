@@ -6,8 +6,8 @@
 """Renderer provider (class renderer:video), the second engine: HyperFrames (decision VD1 of `docs/decisions/2026-11-07-v0-short-video-hyperframes.md`).
 
 It renders the base page (the cuts and the zoom of the edit list) in the HyperFrames image and leaves every other stage to the common
-image (the ffmpeg engine's), with the common modules, so that the two engines' outputs pass the same checks. The class default stays
-`ffmpeg` (providers/resolve.py `CLASS_DEFAULTS`): a caller that names no implementation never gets this engine.
+image (the ffmpeg engine's), with the common modules, so that the two engines' outputs pass the same checks. This engine is the class default
+since V4 (providers/resolve.py `CLASS_DEFAULTS`); a project names the other one with `media.renderer`.
 
 A render runs five containers, each with no network (providers/_container.py):
 
@@ -45,6 +45,8 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         The compatibility run of tier A: checks the survey folder (regular files only, at most 2000 files, 20 MB, 256 KiB each), mounts it
         read-only in the HyperFrames image with no network, runs `hf_compat.py` (the planted escapes first, then the verdict of each registry
         component) and writes its report to FILE (a new file, mode 0600). Writes nothing else.
+  block-params --block NAME --params FILE --vocabulary V
+        the renderer-side checker (VD15), on the host, as `ffmpeg.py`'s, with `engine` `hyperframes`.
   analyse, base, align, check, cover, still, verify
         the common verbs, served by the same code as `ffmpeg.py` (providers/renderer/_host.py).
 
@@ -81,6 +83,7 @@ import _hf_gate  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
 from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, stage_blocks, CRASH_CODES)  # noqa: E402
+from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import load_data  # noqa: E402
 
@@ -264,6 +267,10 @@ def verb_reap(args) -> dict:
         raise D.refusal_of(err) from None
     return {"ok": True, "containers_removed": D.reap_containers(), "hf_containers_removed": hf_containers, "folders_removed": D.reap_folders(),
             "hf_folders_removed": reap_hf_folders(D.work_root())}
+
+
+def verb_block_params(args) -> dict:
+    return host_block_params(args, ENGINE)
 
 
 # ---------------------------------------------------------------- render
@@ -723,6 +730,10 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--memory-mb", type=int, default=COMPAT_MEMORY_MB)
     sp.add_argument("--dry-run", action="store_true")
     sub.add_parser("reap", help="remove containers and run folders a killed render left behind")
+    sp = sub.add_parser("block-params")
+    sp.add_argument("--block", required=True, help="a block name, oh:<name> or hf:<name>")
+    sp.add_argument("--params", required=True, help="a JSON file holding one object: the block's parameters")
+    sp.add_argument("--vocabulary", required=True, help="shared/references/video-presets.json")
     add_common_parsers(sub)
     sp = sub.add_parser("render", help="render with HyperFrames (the cuts and the zoom, plus the captions and the beats unless --base-only) and encode it "
                                        "in the common image")
@@ -742,7 +753,7 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-VERBS = {"build": verb_build, "reap": verb_reap, "render": verb_render, "compat": verb_compat, **COMMON_HANDLERS}
+VERBS = {"build": verb_build, "reap": verb_reap, "render": verb_render, "compat": verb_compat, "block-params": verb_block_params, **COMMON_HANDLERS}
 
 
 def main(argv=None) -> int:

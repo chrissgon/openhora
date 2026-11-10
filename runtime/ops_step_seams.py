@@ -657,8 +657,9 @@ def renderer(root: str):
 MEDIA_ENGINE_CLASSES = {"transcriber:speech": ("transcribe",),
                         "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "preview", "verify",
                                            "block-params")}     # block-params: the renderer's checker of a block's parameters, on the host, for "Add an animation" (V1b3, VD15)
+MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_REFERENCES = ("shared/references/video-presets.json",)      # the workbench files a media step may name for the engine
-MEDIA_SETTINGS = ("transcriber_model", "language")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)
+MEDIA_SETTINGS = ("transcriber_model", "language", "renderer")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)
 MEDIA_CHECKER_SKILL, MEDIA_CHECKER_SCRIPT = "mkt-social-copy", "check_script.py"      # the checker the renderer's `align` stages and runs in its container; named, never imported
 PLATFORM_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 PLATFORM_FILE_MAX = 1024 * 1024
@@ -787,23 +788,30 @@ class MediaStore:
         found = self._cfg.get("media")
         return found.get(name) if name in MEDIA_SETTINGS and isinstance(found, dict) else None
 
+    def renderer(self):
+        """The implementation of `renderer:video` the project's `media.renderer` names, or None when it is absent or `auto` (the resolver decides)."""
+        found = self.setting("renderer")
+        return None if found is None or found == "auto" else found
+
 
 class MediaEngine:
     """The two engines of the media step, through the resolver: the transcriber and the renderer, a closed list of verbs each, the class's default
-    implementation (no `implementation` is passed: a second engine is the resolver's configuration alone). It reads no credential and keeps no reason,
+    implementation, or, for `renderer:video`, the implementation the project's `media.renderer` names. It reads no credential and keeps no reason,
     except the closed refusal line of `block-params` (a code and a field name, never a value)."""
 
     CLASSES = MEDIA_ENGINE_CLASSES
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, renderer=None):
         self._root = root
+        self._renderer = renderer
 
     def call(self, cls: str, verb: str, args, timeout: int) -> dict:
         if cls not in self.CLASSES or verb not in self.CLASSES[cls]:
             raise StepServiceError("refused")
         resolver = project_config.resolver(self._root)
+        named = {"implementation": self._renderer} if cls == MEDIA_RENDERER_CLASS and self._renderer else {}
         try:
-            done = resolver.call(cls, verb, list(args), root=self._root, timeout=timeout, env=resolver.provider_environment(cls, None, ()))
+            done = resolver.call(cls, verb, list(args), root=self._root, timeout=timeout, env=resolver.provider_environment(cls, None, ()), **named)
         except resolver.ProviderCallError as e:
             if e.kind == "not-configured":
                 raise StepServiceError("not_configured") from None
@@ -925,7 +933,7 @@ def services(ctx: dict) -> dict:
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
             "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx), "tasks_read": TasksReader(ctx),
-            "media_store": MediaStore(ctx), "media_engine": MediaEngine(root)}
+            "media_store": MediaStore(ctx), "media_engine": MediaEngine(root, MediaStore(ctx).renderer())}
 
 
 if __name__ == "__main__":

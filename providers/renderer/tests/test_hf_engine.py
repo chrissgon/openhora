@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -702,13 +703,47 @@ def test_hyperframes_py_imports_nothing_of_the_drawing_part_of_the_ffmpeg_engine
     assert {"_docker", "_host", "_container", "_media", "_output"} <= found
 
 
-def test_the_class_default_stays_ffmpeg_and_the_two_engines_serve_the_same_common_verbs():
-    assert set(_host.COMMON_HANDLERS) <= set(H.VERBS) and {"render", "build", "reap"} <= set(H.VERBS)
+def test_the_class_default_is_hyperframes_and_the_two_engines_serve_the_same_common_verbs_and_block_params():
+    assert set(_host.COMMON_HANDLERS) <= set(H.VERBS) and {"render", "build", "reap", "block-params"} <= set(H.VERBS)
+    resolver = importlib.util.spec_from_file_location("resolve_for_hf_default", K.REPO / "providers" / "resolve.py")
+    module = importlib.util.module_from_spec(resolver)
+    resolver.loader.exec_module(module)
+    assert module.resolve("renderer:video", env={})["implementation"] == "hyperframes"
+
+
+def hf_host(world, *args):
+    done = subprocess.run([sys.executable, str(K.RENDERER / "hyperframes.py"), *map(str, args)], capture_output=True, text=True, env=world.env(), timeout=120)
+    try:
+        out = json.loads(done.stdout) if done.stdout.strip() else None
+    except ValueError:
+        out = None
+    return done.returncode, out, done.stderr
+
+
+def test_block_params_checks_an_overlay_and_an_hf_block_on_the_host_before_any_docker_call(world, tmp_path):
+    rc, out, err = hf_host(world, "block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "p.json", {"text": "Name every dollar"}),
+                           "--vocabulary", K.VOCABULARY)
+    assert rc == 0 and out["engine"] == "hyperframes" and out["block"] == "oh:keyword" and out["params"] == ["text"], err
+    rc, out, err = hf_host(world, "block-params", "--block", "hf:spring-pop", "--params", K.write_json(tmp_path / "p.json", {"text": "Every step counts"}),
+                           "--vocabulary", K.VOCABULARY)
+    assert rc == 0 and out["engine"] == "hyperframes" and out["block"] == "hf:spring-pop", err
+    assert world.calls() == [] and world.runs() == []
+
+
+def test_block_params_refuses_a_trailing_space_and_an_unknown_block_and_never_prints_a_value(world, tmp_path):
+    secret = "Aster Lane secret "
+    rc, out, err = hf_host(world, "block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "p.json", {"text": secret}),
+                           "--vocabulary", K.VOCABULARY)
+    assert rc == 1 and err.startswith("refused: text_not_clean"), err
+    assert "Aster" not in err and "Aster" not in json.dumps(out)
+    rc, out, err = hf_host(world, "block-params", "--block", "hf:nope", "--params", K.write_json(tmp_path / "q.json", {"text": "x"}), "--vocabulary", K.VOCABULARY)
+    assert rc == 1 and err.startswith("refused: block_unknown block"), err
+    assert world.calls() == [] and world.runs() == []
 
 
 # ---------------------------------------------------------------- the scripts start on their own
 
-@pytest.mark.parametrize("args", [["--help"], ["build", "--help"], ["render", "--help"]])
+@pytest.mark.parametrize("args", [["--help"], ["build", "--help"], ["render", "--help"], ["block-params", "--help"]])
 def test_hyperframes_py_starts_as_a_script_from_a_clean_environment(args):
     env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/nonexistent")}
     done = subprocess.run([sys.executable, str(K.RENDERER / "hyperframes.py"), *args], capture_output=True, text=True, env=env, timeout=120, cwd="/")

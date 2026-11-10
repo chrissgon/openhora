@@ -89,7 +89,7 @@ TIMEOUTS = {"transcribe": 1800 + 120, "analyse": 900 + 60, "retakes": 300, "alig
 SERVICE_CODES = {"not_configured": "not_configured", "engine_failed": "engine_failed", "refused": "engine_refused", "not_found": "recording_missing",
                  "stale": "recording_missing", "taken": "recording_taken", "delivered": "recording_delivered", "unreadable": "recording_unreadable"}
 REVIEW_NEXT = "Edit the captions, then continue."
-ENGINE_NEXT = {"not_configured": "set up the transcriber and the renderer (their README files give the commands, run by you), then start the task again"}
+ENGINE_NEXT = {"not_configured": "set up the transcriber and the renderer this project uses (media.renderer in docs/workbench/runtime.json: auto means hyperframes; the README files give the commands, run by you), or name the other renderer there and accept the file, then start the task again"}
 
 
 def check(args) -> dict:

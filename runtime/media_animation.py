@@ -11,9 +11,9 @@ generated catalogue (providers/renderer/blocks/catalogue.json) as data, only for
 `blocks_sha256` is not the sha256 of blocks/pins.json (the catalogue was not regenerated with the pins the render will load).
 
   read_catalogue(root)    the catalogue as data, our fields only, or a CatalogueError (`catalogue_unreadable`, `catalogue_stale`)
-  engine_name(root)       the implementation the resolver gives `renderer:video`, or None
+  engine_name(root, implementation=None)  the implementation the resolver gives `renderer:video` (the project's `media.renderer` when it names one), or None
   why_not(entry, engine)  why a block cannot be added now, or None
-  listing(root)           what the operation `video-catalogue` returns
+  listing(root, implementation=None)  what the operation `video-catalogue` returns
   checker(ctx)            the `animate(block, params, where)` callable that runtime/captions.py `apply_edits` takes
 
 Standard library only. Runs on Python 3.9.
@@ -146,11 +146,12 @@ def read_catalogue(root: str) -> dict:
     return {"blocks_sha256": digest, "engines": engines, "blocks": blocks}
 
 
-def engine_name(root: str):
-    """The implementation the resolver gives `renderer:video` with the environment MediaEngine passes, or None when none is configured."""
+def engine_name(root: str, implementation=None):
+    """The implementation the resolver gives `renderer:video` with the environment MediaEngine passes and the implementation the project's
+    `media.renderer` names (None: the resolver decides), or None when none is configured."""
     try:
         r = project_config.resolver(root)
-        return r.resolve(CLASS, root=root, env=r.provider_environment(CLASS, None, ()))["implementation"]
+        return r.resolve(CLASS, root=root, env=r.provider_environment(CLASS, None, ()), implementation=implementation)["implementation"]
     except (project_config.ConfigError, ValueError, LookupError):     # UnknownClass is a ValueError, Unresolved a LookupError
         return None
 
@@ -170,11 +171,11 @@ def why_not(entry: dict, engine):
     return None
 
 
-def listing(root: str) -> dict:
+def listing(root: str, implementation=None) -> dict:
     """What the operation `video-catalogue` returns: {"engine", "blocks_sha256", "animations_max", "beats_max", "presets", "blocks": [entry +
     "addable" and "why"] sorted by name}. CatalogueError when the catalogue cannot be read."""
     found = read_catalogue(root)
-    engine = engine_name(root)
+    engine = engine_name(root, implementation)
     rows = []
     for name in sorted(found["blocks"]):
         entry = found["blocks"][name]
@@ -187,7 +188,8 @@ def listing(root: str) -> dict:
 
 def engine_of(ctx: dict):
     """The media engine of this project (a seam: a test puts a fake in its place)."""
-    return ops_step_seams.MediaEngine(ops_step_seams.MediaStore(ctx).root())
+    store = ops_step_seams.MediaStore(ctx)
+    return ops_step_seams.MediaEngine(store.root(), store.renderer())
 
 
 _CODES = {"kind": "animation_kind", "no_preset": "block_no_preset", "slot": "slot_not_supported", "engine": "block_not_on_engine",
@@ -217,7 +219,7 @@ def _reason(e, where: str) -> "captions.CaptionError":
     if e.code == "refused":
         found = re.fullmatch(r"([a-z_]{1,40}) ([A-Za-z0-9_.:\[\]-]{1,80})", e.reason or "")
         if not found:
-            return captions.CaptionError("block_check_unavailable", where)
+            return captions.CaptionError("block_check_failed", where)
         code, field = found.group(1), found.group(2)
         return captions.CaptionError(code, f"{where}.{field}" if field.startswith("params") else f"{where}.block")
     if e.code == "not_configured":
@@ -238,7 +240,7 @@ def checker(ctx: dict):
         try:
             if "catalogue" not in state:
                 state["catalogue"] = read_catalogue(root)
-                state["engine"] = engine_name(root)
+                state["engine"] = engine_name(root, ops_step_seams.MediaStore(ctx).renderer())
         except CatalogueError as e:
             raise captions.CaptionError(e.code, f"{where}.block") from None
         entry = state["catalogue"]["blocks"].get(block)
