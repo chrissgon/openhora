@@ -383,6 +383,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `video-still` | `--task` `--out` | `video_still` |
 | `video-catalogue` | - | `video_catalogue` |
 | `media-remove` | `--media` `[--confirm]` | `media_remove` |
+| `reference-add` | `--link` | `reference_add` |
+| `reference-video` | `--reference` `[--confirm]` | `reference_video` |
+| `reference-list` | - | `reference_list` |
+| `reference-read` | `--reference` | `reference_read` |
+| `reference-remove` | `--reference` `[--confirm]` | `reference_remove` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
