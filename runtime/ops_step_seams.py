@@ -659,7 +659,7 @@ def renderer(root: str):
 
 MEDIA_ENGINE_CLASSES = {"transcriber:speech": ("transcribe",),
                         "renderer:video": ("analyse", "base", "align", "check", "render", "cover", "still", "preview", "verify",
-                                           "block-params")}     # block-params: the renderer's checker of a block's parameters, on the host, for "Add an animation" (V1b3, VD15)
+                                           "block-params", "storyboard")}     # block-params: the renderer's checker of a block's parameters, on the host, for "Add an animation" (V1b3, VD15); storyboard: a still per beat of a post's script, no recording (V5-1, VD14; runtime/ops_media_storyboard.py asks the ffmpeg engine only)
 MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_REFERENCES = ("shared/references/video-presets.json",)      # the workbench files a media step may name for the engine
 MEDIA_SETTINGS = ("transcriber_model", "language", "renderer")                # the `media` settings of a project (the defaults are the kind's: runtime/step_media.py)

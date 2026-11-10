@@ -407,13 +407,16 @@ ROUTES = (
     _route("GET", "/projects/{p}/videos/{id}/still", "video-still", bind={"task_id": "id"}, take=(), hidden=("out",), raw=True),
     # V1b3: the catalogue of animations (VD15); our data, it crosses the LAN socket too (VD18; not in operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/video-catalogue", "video-catalogue", take=()),
+    # V5-1: the storyboard of a post (VD14) and one of its PNGs; our own drawing of a script, so both may cross the LAN socket too (not in operations.LAN_REFUSED_OPS).
+    _route("POST", "/projects/{p}/video-storyboard", "video-storyboard", take=("post",)),      # a job (it can take minutes): it starts a container, so it is not a GET
+    _route("GET", "/projects/{p}/video-storyboard/{key}/{name}", "video-storyboard-file", bind={"key": "key", "file": "name"}, take=(), raw=True),
     # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
     # media-remove: one recording removed for good; only an id crosses, so it may cross the LAN socket (not in operations.LAN_REFUSED_OPS).
     _route("POST", "/projects/{p}/media/remove", "media-remove", take=("media_id", "confirm")),
     _route("GET", "/jobs/{id}", own="job"),
 )
-PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
+PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "key": "[0-9a-f]{16}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
 COMPILED = tuple((re.compile(PREFIX + re.sub(r"\{(\w+)\}", lambda m: f"(?P<{m.group(1)}>{PARTS[m.group(1)]})", r["pattern"])), r)
                  for r in ROUTES)
 

@@ -382,6 +382,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `video-download` | `--task` `--out` | `video_download` |
 | `video-still` | `--task` `--out` | `video_still` |
 | `video-catalogue` | - | `video_catalogue` |
+| `video-storyboard` | `--post` | `video_storyboard` |
 | `media-remove` | `--media` `[--confirm]` | `media_remove` |
 | `reference-add` | `--link` | `reference_add` |
 | `reference-video` | `--reference` `[--confirm]` | `reference_video` |
@@ -541,6 +542,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/videos/{id}/download` | `video-download` | `task_id` from `{id}` | none | `out` | streamed download |
 | GET | `/projects/{p}/videos/{id}/still` | `video-still` | `task_id` from `{id}` | none | `out` | answers bytes |
 | GET | `/projects/{p}/video-catalogue` | `video-catalogue` | - | none | - | - |
+| POST | `/projects/{p}/video-storyboard` | `video-storyboard` | - | `post` | - | - |
+| GET | `/projects/{p}/video-storyboard/{key}/{name}` | `video-storyboard-file` | `key` from `{key}`, `file` from `{name}` | none | - | answers bytes |
 | GET | `/projects/{p}/videos/{id}/watch` | `video-watch` | `task_id` from `{id}` | none | - | answers bytes |
 | POST | `/projects/{p}/media/remove` | `media-remove` | - | `media_id`, `confirm` | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |

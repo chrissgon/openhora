@@ -10,6 +10,7 @@ import { failureText } from "../cards/plan-rows.js";
 import { LAN_MEDIA, hostOf, onLoopback } from "../cards/deliver.js";
 import { can as pageMay } from "../permissions.js";
 import * as router from "../router.js";
+import { createStoryboard } from "./storyboard.js";
 import { LIST_MAX, STATE_TEXT, fileProblem, newestFirst, postChoices, sizeWords, stateOf } from "./lobby-video-model.js";
 
 export const HEAD = "Videos";
@@ -38,8 +39,9 @@ export function createVideos(env) {
   const noPost = h("p", { class: "wb-steps-note wb-vd-no-post", text: "No post file under docs/marketing/content/ yet.", hidden: true });
   const uploadButton = h("button", { class: "pui-btn pui-solid pui-theme wb-vd-upload", type: "button", text: "Upload and start" });
   const form = h("div", { class: "wb-vd-form" }, fileBox, postLabel, postSelect, noPost, uploadButton);
+  const storyboard = createStoryboard({ api: env.api, project: env.project, entry: env.entry });      // V5-1: the advisory drawing of the chosen post's script
   const stage = h("div", { class: "wb-vd-stage", hidden: true });   // holds the playing video outside the list, so a redraw of the list never detaches (and so never pauses) it
-  const el = h("section", { class: "wb-sec wb-vd-sec", hidden: true }, head, lead, form, list, stage, quota, note, error);
+  const el = h("section", { class: "wb-sec wb-vd-sec", hidden: true }, head, lead, form, storyboard.el, list, stage, quota, note, error);
   let media = null;         // the last answer of the media list
   let artifacts = null;     // the last answer of the artifacts list (the posts)
   let readAt = 0;
@@ -323,6 +325,7 @@ export function createVideos(env) {
   postSelect.addEventListener("change", () => {
     picked.post = postSelect.value || "";
     drawForm();
+    storyboard.update(picked.post, shown);
   });
   uploadButton.addEventListener("click", upload);
 
@@ -330,6 +333,7 @@ export function createVideos(env) {
     el.hidden = !shown || !may("media-list");
     if (el.hidden) return;
     drawForm();
+    storyboard.update(picked.post, shown);
     drawList();
   }
 
@@ -344,6 +348,7 @@ export function createVideos(env) {
       if (!shown) {
         media = null;
         stopWatching();
+        storyboard.stop();
         artifacts = null;
         clearMessages();
         if (controller) controller.abort();

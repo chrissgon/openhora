@@ -191,6 +191,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_media_phone.py` | The operations of a video that comes from a messaging app (package V1d-1, decision 14): a recording a listed sender sent, the post it is for, the words of its captions, a correction and the run that goes on. |
 | `runtime/ops_media_preview.py` | The preview of a delivery on a messaging app (package V1d-2, decision 14): the bytes of the preview a deliver card is for, checked, and nothing else. |
 | `runtime/ops_media_remove.py` | The operation `media-remove` (package media-remove): one recording removed from the media store for good, at the person's request. |
+| `runtime/ops_media_storyboard.py` | The storyboard of a short-video post (package V5-1, VD14): a still per beat of the post's ```script block and a contact sheet, drawn by the renderer's `storyboard` verb over a neutral placeholder, with no recording and no transcript. |
 | `runtime/ops_media_watch.py` | Watching a video before its delivery (package V1c-3, limit L71): the bytes of the render the open deliver decision names, checked, and nothing else. |
 | `runtime/ops_models.py` | Which model a run goes to, in the operations layer: the person's choice (a request, a task, an agent, the project's default), the proof of the skill on each model (runtime/proof.py) and the person's consent for an agent's own model (decision D38). |
 | `runtime/ops_natural.py` | The one dispatcher of the natural requests (package NR-2): it executes what a tier chose, checked exactly as the typed command is. |
@@ -790,6 +791,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `video-download` | `--task` `--out` | `video_download` |
 | `video-still` | `--task` `--out` | `video_still` |
 | `video-catalogue` | - | `video_catalogue` |
+| `video-storyboard` | `--post` | `video_storyboard` |
 | `media-remove` | `--media` `[--confirm]` | `media_remove` |
 | `reference-add` | `--link` | `reference_add` |
 | `reference-video` | `--reference` `[--confirm]` | `reference_video` |
@@ -943,6 +945,8 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `video_download` | `video-download` | terminal, page | no | save the delivered video to --out (a new file, outside the project): only the exact render the approval named, hashed again |
 | `video_still` | `video-still` | terminal, page | no | save the still of a new video (the frame of the face box) to --out (a new file, outside the project) |
 | `video_catalogue` | `video-catalogue` | terminal, page | no | the catalogue of animations the caption review of a new video can add: each block, its parameters and their bounds, a sample, the engines that draw it, and whether this project's engine can add it now |
+| `video_storyboard` | `video-storyboard` | terminal, page | no | draw the storyboard of a short-video post: a still per beat of its script over a neutral placeholder and a contact sheet; advisory, the video may look different; no recording and no model |
+| `video_storyboard_file` | `video-storyboard-file` | page | no | one PNG of a drawn storyboard (a beat's still or the sheet), for the page |
 | `video_watch` | `video-watch` | page | no | the bytes of a rendered video that waits for its delivery approval, to watch it on this computer's own page before approving; marks nothing |
 | `video_phone_in` | `video-phone-in` | messaging | no | the messaging bridge's call after it fetched a recording into an incoming folder it made: the media store bounds it (1 GiB and the quota), reads its type from its bytes (MP4 or MOV) and keeps it |
 | `video_phone_start` | `video-phone-start` | messaging | no | the messaging bridge's call: start the video of a recording a listed sender sent, for one of the posts offered to them, and run it to the caption review |
