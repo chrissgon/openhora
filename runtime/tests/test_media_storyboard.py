@@ -36,6 +36,44 @@ PNG = b"\x89PNG\r\n\x1a\n"
 DAY = 86400.0
 
 
+VALID_POST = """# Post: Aster Lane (a fictional fixture)
+
+- Owner: mkt-social-copy
+- Status: draft
+- Network: instagram
+- Format: reel
+
+## Script
+
+```script
+beat: 1
+line: Welcome to Aster Lane, where every small step counts.
+on-screen: Every step counts
+preset: keyword
+
+beat: 2
+line: This is the quiet street where it all began.
+on-screen: Where it began
+preset: cutaway
+asset: a quiet street at dusk
+```
+"""      # passes the real checker (skills/mkt-social-copy/scripts/check_script.py, as the renderer's `align` and `storyboard` call it); the kit's own post does not: it has no `- Format:` line and its script is not in the checker's syntax
+
+
+@pytest.fixture(autouse=True)
+def valid_post(world):
+    """The post of every test here is one the real checker passes, so the offline tests and the live one agree."""
+    (Path(world["path"]) / POST).write_text(VALID_POST, encoding="utf-8")
+
+
+def test_the_fixture_post_passes_the_real_checker(tmp_path):
+    post = tmp_path / "post.md"
+    post.write_text(VALID_POST, encoding="utf-8")
+    done = subprocess.run([sys.executable, "-I", "-E", "-s", str(REPO / "skills" / "mkt-social-copy" / "scripts" / "check_script.py"), "--content", str(post),
+                           "--presets", str(REPO / "shared" / "references" / "video-presets.json"), "--format", "reel"], capture_output=True, text=True, env={})
+    assert done.returncode == 0 and json.loads(done.stdout)["ok"] is True
+
+
 class Drawing(FakeEngine):
     """The media kit's fake with the `storyboard` verb: it writes a PNG stand-in per beat and the sheet into --out and reports the beats."""
 
