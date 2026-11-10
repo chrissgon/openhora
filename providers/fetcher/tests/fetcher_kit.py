@@ -25,6 +25,13 @@ FETCH_FILE = {"platform": "asterlane", "link": {"hosts": ["www.aster.example"], 
               "subtitles": {"by_language": "{lang}.*", "original": "aster-orig"}, "checked": "planted by a test"}
 PIN = {"tool": "yt-dlp", "version": "2099.01.01", "asset": "yt-dlp", "url": "https://download.example/yt-dlp", "size": 123, "sha256": "ab" * 32,
        "published_at": "2099-01-01T00:00:00Z", "redirect_hosts": ["objects.example"], "read_on": "2099-01-02", "source": "a test", "js_runtime": None}
+WHEEL_PIN = {"note": "planted by a test", "source": "a test", "read_on": "2099-01-02", "download_hosts": ["files.example"], "redirect_hosts": [],
+             "wheels": [{"name": "asterlane_kit", "version": "1.2.3", "arch": arch, "size": 1234, "sha256": "cd" * 32,
+                         "filename": "asterlane_kit-1.2.3-%s.whl" % tag, "url": "https://files.example/packages/ab/cd/asterlane_kit-1.2.3-%s.whl" % tag}
+                        for arch, tag in (("amd64", "cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64"),
+                                          ("arm64", "cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64"))]
+             + [{"name": "plain_kit", "version": "4.5", "arch": "any", "size": 99, "sha256": "ef" * 32, "filename": "plain_kit-4.5-py3-none-any.whl",
+                 "url": "https://files.example/packages/ef/01/plain_kit-4.5-py3-none-any.whl"}]}
 INFO = {"id": "4242", "extractor_key": "AsterVideo", "duration": 42.5, "width": 720, "height": 1280, "fps": 30, "upload_date": "20990101",
         "title": "Aster Lane opens the shop", "description": "Bram Hollow says hello", "view_count": 10, "like_count": 2, "comment_count": 1,
         "subtitles": "auto"}
@@ -103,7 +110,7 @@ elif cmd == "run":
             if CFG["fetch_result"] is not None:
                 json.dump(CFG["fetch_result"], open(os.path.join(dest, "result.json"), "w"))
         else:
-            json.dump({{"ok": True, "code": None, "exit": 0}}, open(os.path.join(dest, "result.json"), "w"))
+            json.dump({{"ok": True, "code": None, "exit": 0, "seconds": CFG.get("fetch_seconds")}}, open(os.path.join(dest, "result.json"), "w"))
         sys.exit(CFG.get("fetch_rc", 0))
     if verb == "measure":
         dest = mounts["/out"]
@@ -116,7 +123,7 @@ elif cmd == "run":
         if "measure_result" in CFG:
             json.dump(CFG["measure_result"], open(os.path.join(dest, "result.json"), "w"))
         else:
-            json.dump({{"ok": True, "code": None, "exit": 0}}, open(os.path.join(dest, "result.json"), "w"))
+            json.dump({{"ok": True, "code": None, "exit": 0, "seconds": None}}, open(os.path.join(dest, "result.json"), "w"))
         sys.exit(0)
     sys.exit(1)
 else:
@@ -140,6 +147,7 @@ class World:
         shutil.copytree(FETCHER, self.folder, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         if pin:
             (self.folder / "tool-pin.json").write_text(json.dumps(PIN))
+            (self.folder / "wheel-pin.json").write_text(json.dumps(WHEEL_PIN))
         else:   # the committed pin is filled since the pin commit: a test of a null pin writes the null form itself
             null = {k: None for k in ("version", "url", "size", "sha256", "published_at", "read_on", "js_runtime")}
             (self.folder / "tool-pin.json").write_text(json.dumps({"tool": "yt-dlp", "asset": "yt-dlp", "redirect_hosts": [], **null}))
@@ -187,6 +195,34 @@ class World:
         argv = ["fetch", "--url", url, "--platform", "asterlane", "--platform-file", str(self.platform_file), "--stage", stage,
                 "--out", str(out or self.ref), "--language", language] + [str(x) for x in extra]
         return run_main(argv)
+
+
+class Server:
+    """A loopback http server answering `routes` {path: (status, headers, body)}; `PORT` in a header value is replaced by its port."""
+
+    def __init__(self, routes):
+        import http.server
+        import threading
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                status, headers, body = routes[self.path]
+                self.send_response(status)
+                for k, v in headers.items():
+                    self.send_header(k, v.replace("PORT", str(outer.port)))
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.httpd.shutdown()
 
 
 def run_main(argv):

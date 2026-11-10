@@ -1,0 +1,63 @@
+{
+ "note": "Wheels unpacked into the fetcher image by _fetch_tool.py wheels, never by pip. Filled from PyPI's JSON API by a person.",
+ "source": "PyPI's JSON API, https://pypi.org/pypi/<name>/<version>/json: each file's url, size and digests.sha256; requires_dist",
+ "read_on": null,
+ "download_hosts": [],
+ "redirect_hosts": [],
+ "wheels": [
+  {
+   "name": "curl_cffi",
+   "version": null,
+   "arch": "amd64",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  },
+  {
+   "name": "curl_cffi",
+   "version": null,
+   "arch": "arm64",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  },
+  {
+   "name": "cffi",
+   "version": null,
+   "arch": "amd64",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  },
+  {
+   "name": "cffi",
+   "version": null,
+   "arch": "arm64",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  },
+  {
+   "name": "certifi",
+   "version": null,
+   "arch": "any",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  },
+  {
+   "name": "pycparser",
+   "version": null,
+   "arch": "any",
+   "filename": null,
+   "url": null,
+   "size": null,
+   "sha256": null
+  }
+ ]
+}

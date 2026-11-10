@@ -3,14 +3,12 @@ build's own download script against a loopback server. Offline."""
 from __future__ import annotations
 
 import hashlib
-import http.server
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import threading
 
 import pytest
 
@@ -47,6 +45,103 @@ def test_the_definition_covers_the_manifests_files_and_the_effective_pin(tmp_pat
     before = _fetcher_image.definition_hash(str(folder))
     host_only.write_text(host_only.read_text() + "\n# edit\n")
     assert _fetcher_image.definition_hash(str(folder)) == before, "a host-only file changes no image"
+
+
+def test_the_manifest_and_the_dockerignore_list_the_wheel_pin_and_editing_it_changes_the_hash(tmp_path):
+    assert "wheel-pin.json" in _fetcher_image.manifest(str(K.FETCHER))["files"]
+    assert "!wheel-pin.json" in (K.FETCHER / ".dockerignore").read_text().split("\n")
+    folder = tmp_path / "f"
+    shutil.copytree(K.FETCHER, folder, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    base = _fetcher_image.definition_hash(str(folder))
+    pin = json.loads((folder / "wheel-pin.json").read_text())
+    (folder / "wheel-pin.json").write_text(json.dumps(dict(pin, read_on="2099-01-01")))
+    assert _fetcher_image.definition_hash(str(folder)) != base
+
+
+def filled(edit=None):
+    pin = json.loads(json.dumps(K.WHEEL_PIN))
+    if edit:
+        edit(pin)
+    return pin
+
+
+def set_entry(index, **kw):
+    return lambda pin: pin["wheels"][index].update(kw)
+
+
+def test_the_wheel_pin_check_accepts_a_synthetic_filled_pin_and_the_real_shapes():
+    assert _fetcher_image.wheel_pin_missing(filled()) == [] and _fetcher_image.wheel_pin_problem(filled()) == ""
+    native = [("curl_cffi", "0.1.0", "cp310-abi3"), ("cffi", "2.1.1", "cp311-cp311")]
+    for name, version, tag in native:
+        def edit(pin, name=name, version=version, tag=tag):
+            pin["wheels"] = [{"name": name, "version": version, "arch": arch, "size": 5, "sha256": "ab" * 32,
+                              "filename": "%s-%s-%s-manylinux2014_%s.manylinux_2_17_%s.whl" % (name, version, tag, m, m),
+                              "url": "https://files.example/p/a/b/%s-%s-%s-manylinux2014_%s.manylinux_2_17_%s.whl" % (name, version, tag, m, m)}
+                             for arch, m in (("amd64", "x86_64"), ("arm64", "aarch64"))]
+        assert _fetcher_image.wheel_pin_problem(filled(edit)) == "", name
+
+
+@pytest.mark.parametrize("edit", [
+    set_entry(0, name="bad name"), set_entry(0, version="1"), set_entry(0, version="1.2.3.4.5"), set_entry(0, arch="riscv"),
+    set_entry(0, filename="other-1.2.3-cp310-abi3-manylinux_2_17_x86_64.whl"), set_entry(0, filename="asterlane_kit-1.2.3-cp310-abi3-manylinux_2_17_x86_64.zip"),
+    set_entry(0, filename="asterlane_kit-1.2.3-cp312-abi3-manylinux_2_17_x86_64.whl"), set_entry(0, filename="asterlane_kit-1.2.3-cp39-cp39-manylinux_2_17_x86_64.whl"),
+    set_entry(0, filename="asterlane_kit-1.2.3-cp310-abi3-manylinux_2_37_x86_64.whl"), set_entry(0, filename="asterlane_kit-1.2.3-cp310-abi3-manylinux_2_17_aarch64.whl"),
+    set_entry(0, filename="asterlane_kit-1.2.3-cp310-abi3-musllinux_1_2_x86_64.whl"), set_entry(0, filename="asterlane_kit-1.2.3-cp310-abi3-any.whl"),
+    set_entry(2, filename="plain_kit-4.5-py3-none-manylinux_2_17_x86_64.whl"),
+    set_entry(0, url="http://files.example/packages/ab/cd/asterlane_kit-1.2.3-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"),
+    set_entry(0, url="https://other.example/packages/ab/cd/asterlane_kit-1.2.3-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"),
+    set_entry(0, url="https://files.example/packages/ab/cd/elsewhere.whl"),
+    set_entry(0, size=0), set_entry(0, size=64 * 1024 * 1024 + 1), set_entry(0, size=True), set_entry(0, sha256="AB" * 32), set_entry(0, sha256="ab"),
+    lambda pin: pin.update(download_hosts=["Files.Example"]), lambda pin: pin.update(redirect_hosts=["bad host"]), lambda pin: pin.update(wheels=[]),
+    lambda pin: pin["wheels"].pop(1), lambda pin: pin["wheels"].append(dict(pin["wheels"][2])), set_entry(1, version="9.9.9"),
+    lambda pin: pin["wheels"][0].update(extra=1)])
+def test_the_wheel_pin_check_refuses_each_rule_broken_once(edit):
+    pin = filled(edit)
+    assert _fetcher_image.wheel_pin_problem(pin) != ""
+
+
+def test_a_wheel_pin_with_nulls_lists_what_is_missing():
+    pin = filled(lambda p: (p.update(read_on=None, download_hosts=[]), p["wheels"][1].update(sha256=None, size=0)))
+    assert _fetcher_image.wheel_pin_missing(pin) == ["read_on", "download_hosts", "wheels[1].size", "wheels[1].sha256"]
+    assert _fetcher_image.wheel_pin_missing(filled(lambda p: p.update(redirect_hosts=[]))) == [], "no redirect is a valid pin"
+
+
+def test_the_committed_wheel_pin_is_all_null_or_valid():
+    pin = _fetcher_image.wheel_pin(str(K.FETCHER))
+    missing = _fetcher_image.wheel_pin_missing(pin)
+    if missing:
+        assert pin["read_on"] is None and pin["download_hosts"] == []
+        assert all(w[k] is None for w in pin["wheels"] for k in ("version", "filename", "url", "size", "sha256"))
+    else:
+        assert _fetcher_image.wheel_pin_problem(pin) == "" and pin["download_hosts"] == ["files.pythonhosted.org"] and pin["redirect_hosts"] == []
+    assert {(w["name"], w["arch"]) for w in pin["wheels"]} == {("curl_cffi", "amd64"), ("curl_cffi", "arm64"), ("cffi", "amd64"), ("cffi", "arm64"),
+                                                                ("certifi", "any"), ("pycparser", "any")}
+
+
+def test_a_null_wheel_pin_refuses_before_any_docker_call_and_a_malformed_one_is_pin_refused(tmp_path, monkeypatch):
+    world = K.World(tmp_path, monkeypatch)
+    null = json.loads((K.FETCHER / "wheel-pin.json").read_text())
+    null = dict(null, wheels=[dict(w, version=None) for w in K.WHEEL_PIN["wheels"]])
+    (world.folder / "wheel-pin.json").write_text(json.dumps(null))
+    for argv in (["--check"], ["build", "--confirmed"], ["build", "--dry-run"]):
+        code, out, err = K.run_main(argv)
+        assert (code, out) == (3, {"ok": False, "code": "pin_not_filled"}) and "wheels[0].version" in err, argv
+    assert world.calls() == []
+    (world.folder / "wheel-pin.json").write_text(json.dumps(filled(set_entry(0, size=0, sha256="zz"))))
+    (world.folder / "wheel-pin.json").write_text(json.dumps(filled(set_entry(0, sha256="zz"))))
+    for argv in (["--check"], ["build", "--confirmed"], ["build", "--dry-run"]):
+        assert K.run_main(argv)[:2] == (2, {"ok": False, "code": "pin_refused"}), argv
+    assert world.calls() == []
+
+
+def test_pin_show_reports_the_wheel_pin(tmp_path, monkeypatch):
+    world = K.World(tmp_path, monkeypatch)
+    code, out, _ = K.run_main(["pin-show"])
+    assert code == 0 and out["wheels"] == {"filled": True, "missing": [], "problem": ""}
+    null = dict(K.WHEEL_PIN, read_on=None)
+    (world.folder / "wheel-pin.json").write_text(json.dumps(null))
+    code, out, _ = K.run_main(["pin-show"])
+    assert out["wheels"]["filled"] is False and out["wheels"]["missing"] == ["read_on"] and out["filled"] is True and world.calls() == []
 
 
 def test_the_committed_pin_is_filled_from_the_releases_metadata():
@@ -120,28 +215,7 @@ def test_reap_needs_the_marker_and_removes_old_run_folders_only(tmp_path, monkey
 # --- the build's download script, against a loopback server ------------------------------------------------------------------------------
 
 
-class Server:
-    def __init__(self, routes):
-        outer = self
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                status, headers, body = routes[self.path]
-                self.send_response(status)
-                for k, v in headers.items():
-                    self.send_header(k, v.replace("PORT", str(outer.port)))
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *a):
-                pass
-        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-        self.port = self.httpd.server_address[1]
-        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
-
-    def stop(self):
-        self.httpd.shutdown()
+Server = K.Server
 
 
 PAYLOAD = b"print('a pinned tool')\n" * 50
@@ -213,4 +287,7 @@ def test_the_dockerfile_passes_the_pin_to_the_script_and_never_uses_pip():
     assert "pip" not in re.sub(r"#.*", "", text).lower().replace("pipe", "")
     assert '"${TOOL_URL}" "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_REDIRECT_HOSTS}" /opt/fetcher/yt-dlp' in text
     assert "FROM debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587" in text and "DEBIAN_SNAPSHOT=20261006T000000Z" in text
+    code = re.sub(r"#.*", "", text)
+    assert code.index("_fetch_tool.py wheels /opt/fetcher/wheel-pin.json") > code.index('/opt/fetcher/yt-dlp') and code.index("wheels /opt/fetcher/wheel-pin.json") < code.index("COPY . /opt/fetcher/")
+    assert "--expect-wheels /opt/fetcher/wheel-pin.json" in text and "python3-cffi-backend" not in text and "python3-certifi" not in text
     assert "ffmpeg python3 ca-certificates" in text and 'ENTRYPOINT ["python3", "-I", "/opt/fetcher/_fetcher_inner.py"]' in text and "USER 10001:10001" in text
