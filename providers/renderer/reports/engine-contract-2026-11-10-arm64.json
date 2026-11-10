@@ -1,0 +1,300 @@
+{
+ "schema": 1,
+ "date": "2026-11-10",
+ "commit": "cf3fe3fb814609bde1204c2ea62500091e48614f",
+ "arch": "arm64",
+ "machine": {
+  "docker_cpus": 14,
+  "docker_memory_mib": 27013
+ },
+ "images": {
+  "common": "17ff62c5792a",
+  "hyperframes": "e5f2134dd1b8"
+ },
+ "hyperframes_version": "0.9.19",
+ "cases": [
+  {
+   "case": "short",
+   "input_seconds": 19.5,
+   "kept_ranges": 6,
+   "out_frames": 412,
+   "words": 32,
+   "runs": [
+    {
+     "engine": "ffmpeg",
+     "cpus": 4,
+     "cpuset": "0-3",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "080cd023e85390cd727d92d9087ab176286a3afe8900fca489035002c1b1635d",
+     "bytes": 14183852,
+     "frames_ok": null,
+     "wall_seconds": 52.2,
+     "stage_seconds": {
+      "render": 39.83
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": null,
+      "hf_sampled_max_mib": null,
+      "common_sampled_max_mib": 666,
+      "oom_events": null
+     },
+     "gate": null
+    },
+    {
+     "engine": "ffmpeg",
+     "cpus": 8,
+     "cpuset": "0-7",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "080cd023e85390cd727d92d9087ab176286a3afe8900fca489035002c1b1635d",
+     "bytes": 14183852,
+     "frames_ok": null,
+     "wall_seconds": 44.6,
+     "stage_seconds": {
+      "render": 32.73
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": null,
+      "hf_sampled_max_mib": null,
+      "common_sampled_max_mib": 730,
+      "oom_events": null
+     },
+     "gate": null
+    },
+    {
+     "engine": "hyperframes",
+     "cpus": 4,
+     "cpuset": "0-3",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "d264b6747c31d3d30e711c68ed070358c5a7d530ee69285c36ff223f0e6a34f9",
+     "bytes": 11374477,
+     "frames_ok": null,
+     "wall_seconds": 119.9,
+     "stage_seconds": {
+      "page": 5.42,
+      "proxy": 24.03,
+      "hf": 45.94,
+      "encode": 44.31,
+      "measure": 8.48,
+      "pixel": 16.12
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": 3401,
+      "hf_sampled_max_mib": 3061,
+      "common_sampled_max_mib": 436,
+      "oom_events": null
+     },
+     "gate": {
+      "frames": 412,
+      "boxes": 3987,
+      "lowest_caption_bottom": 1406.8,
+      "pixel_min_psnr_db": 35.85,
+      "pixel_ranges": 6
+     }
+    },
+    {
+     "engine": "hyperframes",
+     "cpus": 8,
+     "cpuset": "0-7",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "d264b6747c31d3d30e711c68ed070358c5a7d530ee69285c36ff223f0e6a34f9",
+     "bytes": 11374477,
+     "frames_ok": null,
+     "wall_seconds": 121.3,
+     "stage_seconds": {
+      "page": 5.62,
+      "proxy": 21.42,
+      "hf": 47.69,
+      "encode": 46.43,
+      "measure": 9.23,
+      "pixel": 17.37
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": 3401,
+      "hf_sampled_max_mib": 3083,
+      "common_sampled_max_mib": 436,
+      "oom_events": null
+     },
+     "gate": {
+      "frames": 412,
+      "boxes": 3987,
+      "lowest_caption_bottom": 1406.8,
+      "pixel_min_psnr_db": 35.85,
+      "pixel_ranges": 6
+     }
+    }
+   ],
+   "same_sha256": {
+    "ffmpeg": true,
+    "hyperframes": true
+   }
+  },
+  {
+   "case": "real",
+   "input_seconds": 186.5,
+   "kept_ranges": 37,
+   "out_frames": 4556,
+   "words": 325,
+   "runs": [
+    {
+     "engine": "ffmpeg",
+     "cpus": 4,
+     "cpuset": "0-3",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "60b2f8e4b5e70012c2add3734f0687686e8d45b5971001495719bca1b4782f1d",
+     "bytes": 155684648,
+     "frames_ok": null,
+     "wall_seconds": 363.8,
+     "stage_seconds": {
+      "render": 351.84
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": null,
+      "hf_sampled_max_mib": null,
+      "common_sampled_max_mib": 1053,
+      "oom_events": null
+     },
+     "gate": null
+    },
+    {
+     "engine": "ffmpeg",
+     "cpus": 8,
+     "cpuset": "0-7",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "60b2f8e4b5e70012c2add3734f0687686e8d45b5971001495719bca1b4782f1d",
+     "bytes": 155684648,
+     "frames_ok": true,
+     "wall_seconds": 296.3,
+     "stage_seconds": {
+      "render": 284.51
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": null,
+      "hf_sampled_max_mib": null,
+      "common_sampled_max_mib": 1111,
+      "oom_events": null
+     },
+     "gate": null
+    },
+    {
+     "engine": "hyperframes",
+     "cpus": 4,
+     "cpuset": "0-3",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "2d641a684b696278e2f84159400821e4735ac6543bd9a207241badbdba317fd4",
+     "bytes": 122585961,
+     "frames_ok": null,
+     "wall_seconds": 963.0,
+     "stage_seconds": {
+      "page": 4.68,
+      "proxy": 179.83,
+      "hf": 434.03,
+      "encode": 344.27,
+      "measure": 97.55,
+      "pixel": 156.91
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": 6055,
+      "hf_sampled_max_mib": 3322,
+      "common_sampled_max_mib": 438,
+      "oom_events": null
+     },
+     "gate": {
+      "frames": 4556,
+      "boxes": 24042,
+      "lowest_caption_bottom": 1416.8,
+      "pixel_min_psnr_db": 35.64,
+      "pixel_ranges": 37
+     }
+    },
+    {
+     "engine": "hyperframes",
+     "cpus": 8,
+     "cpuset": "0-7",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "2d641a684b696278e2f84159400821e4735ac6543bd9a207241badbdba317fd4",
+     "bytes": 122585961,
+     "frames_ok": true,
+     "wall_seconds": 924.7,
+     "stage_seconds": {
+      "page": 6.38,
+      "proxy": 193.79,
+      "hf": 386.55,
+      "encode": 337.81,
+      "measure": 112.36,
+      "pixel": 155.05
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": 6056,
+      "hf_sampled_max_mib": 3293,
+      "common_sampled_max_mib": 444,
+      "oom_events": null
+     },
+     "gate": {
+      "frames": 4556,
+      "boxes": 24042,
+      "lowest_caption_bottom": 1416.8,
+      "pixel_min_psnr_db": 35.64,
+      "pixel_ranges": 37
+     }
+    }
+   ],
+   "same_sha256": {
+    "ffmpeg": true,
+    "hyperframes": true
+   }
+  },
+  {
+   "case": "max",
+   "input_seconds": 297.9,
+   "kept_ranges": 63,
+   "out_frames": 7125,
+   "words": 522,
+   "runs": [
+    {
+     "engine": "hyperframes",
+     "cpus": 8,
+     "cpuset": "0-7",
+     "outcome": "ok",
+     "code": null,
+     "sha256": "2e99f00b52017500114c592ed14aefca42855c0a9ef1d1b000bd72edbef6992a",
+     "bytes": 192597691,
+     "frames_ok": null,
+     "wall_seconds": 1362.9,
+     "stage_seconds": {
+      "page": 5.29,
+      "proxy": 241.44,
+      "hf": 597.37,
+      "encode": 518.63,
+      "measure": 196.04,
+      "pixel": 244.31
+     },
+     "memory": {
+      "hf_cgroup_peak_mib": 6144,
+      "hf_sampled_max_mib": 4329,
+      "common_sampled_max_mib": 449,
+      "oom_events": null
+     },
+     "gate": {
+      "frames": 7125,
+      "boxes": 37511,
+      "lowest_caption_bottom": 1416.8,
+      "pixel_min_psnr_db": 35.63,
+      "pixel_ranges": 63
+     }
+    }
+   ],
+   "same_sha256": {
+    "ffmpeg": null,
+    "hyperframes": null
+   }
+  }
+ ]
+}

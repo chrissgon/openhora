@@ -274,9 +274,12 @@ def _even(x: float) -> int:
 
 PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
 SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
-THREADS = 4                                # encoder, filter graph (and with it swscale's slices); the decoder's too, which changes speed only
+THREADS = 4                                # the decoders and filter graphs of the compose, the proxy and the contact sheet (with swscale's slices); no encoder reads it
 ENCODE_INPUT_THREADS = 1                   # the encode's decoder and filter graph: one thread, so no worker can race another at the end of the stream (CI: 7 of 8 encodes matched, the tail frame of one differed)
-ENCODE_THREADS = 1                         # the final encode's x264 threads: one, so its output does not depend on the machine (amd64 CI: 1 of 8 encodes differed at four threads, mid-stream; costs about 2x: 85 s against 179 s for 114 s of 1080x1920 at --cpus 4)
+ENCODE_THREADS = 1                         # the preview's x264 threads: one (its argv is pinned on one thread, decoder and filter graph too)
+X264_THREADS = 4                           # x264's threads in the compose, the proxy and the final encode: four SLICE threads (sliced-threads=1), not frame threads: frame threads differed on amd64 CI (2026-11-08 final encode, 1 of 8, mid-stream; 2026-11-09 compose, frame 0), because a frame thread reads state another frame thread is still writing; the slices of one frame are encoded in parallel with no such state (one thread was the first fix and cost about 2x on the proxy)
+X264_PARAMS = "threads=%d:lookahead_threads=1:sliced-threads=1" % X264_THREADS
+PREVIEW_X264_PARAMS = "threads=%d:lookahead_threads=1:sliced-threads=0" % ENCODE_THREADS
 BASE = 2                   # the picture is cut at twice the output size, so a zoom never upscales (and a slow zoom does not jitter)
 
 
@@ -460,9 +463,9 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     return argv + [plan["out_name"]]
 
 
-def output_options(plan: dict, threads: int = THREADS, *, shortest: bool = True, x264_params: str = "") -> list:
+def output_options(plan: dict, threads: int = X264_THREADS, *, shortest: bool = True, x264_params: str = X264_PARAMS) -> list:
     """The output side of the final H.264 encode, shared by both engines (the ffmpeg engine's compose and the HyperFrames engine's
-    encode stage): AAC when the plan has audio, then x264 with a fixed thread count (`-threads`, and `x264_params` when given), every
+    encode stage): AAC when the plan has audio, then x264 on four slice threads (X264_THREADS, X264_PARAMS: sliced threads, not frame threads), every
     scale bit-exact (`-sws_flags`), the bitexact flags, no metadata and chapters, the rate, the frame count and the byte cap.
     x264's output depends on its thread count and the automatic count follows the cores the machine shows, so the same render would
     otherwise differ in bytes from one CPU limit or machine to another. What this function does NOT pin is the input side: the
@@ -487,14 +490,15 @@ def output_options(plan: dict, threads: int = THREADS, *, shortest: bool = True,
 
 
 def proxy_argv(ffmpeg: str, src: str, src_matrix: str, out: str, *, fps: int, has_audio: bool) -> list:
-    """The proxy of a recording for the HyperFrames engine: 1080x1920 at the edit list's fps, x264 CRF PROXY_CRF with fixed threads
+    """The proxy of a recording for the HyperFrames engine: 1080x1920 at the edit list's fps, x264 (four slice threads) CRF PROXY_CRF with fixed threads
     and bit-exact scaling, the audio as the final encode writes it. The whole timeline is kept (no cut), so a time of the edit list is
     the same time in the proxy. At most PROXY_MAX_BYTES."""
     # framing_filter cuts at BASE times the output size (for the zoom); the proxy is the plain scale down to the output, as an unzoomed range is
     vf = "fps=%s:start_time=0,%s,format=yuv420p,scale=1080:1920:flags=%s,%s" % (fps, framing_filter(1080, 1920, src_matrix), SWS, TAGS)
     argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-threads", str(THREADS), "-filter_threads", str(THREADS),
             *RECORDING_IN, "-i", src, "-map", "0:v:0", "-vf", vf, "-sws_flags", SWS,
-            "-c:v", "libx264", "-threads", str(THREADS), "-preset", "medium", "-crf", str(PROXY_CRF), "-pix_fmt", "yuv420p"]
+            "-c:v", "libx264", "-threads", str(X264_THREADS), "-x264-params", X264_PARAMS,
+            "-preset", "medium", "-crf", str(PROXY_CRF), "-pix_fmt", "yuv420p"]
     if has_audio:
         argv += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
     else:
@@ -506,13 +510,13 @@ def proxy_argv(ffmpeg: str, src: str, src_matrix: str, out: str, *, fps: int, ha
 def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
     """The final H.264 encode of the HyperFrames engine: the ProRes intermediate (video, and its audio when it has one) written with
     the same output options as the ffmpeg engine's render. Nothing automatic is left that can follow the machine: the decoder's
-    threads and the filter graph's (with swscale's slices), both one, x264's threads (one: ENCODE_THREADS), its lookahead threads and sliced threads are all named, and
+    threads and the filter graph's (with swscale's slices), both one, x264's threads (four slice threads: X264_THREADS, X264_PARAMS), its lookahead threads and sliced threads are all named, and
     both streams end exactly (`-frames:v` and `-t` from the frame count), with no `-shortest`, so the end of the streams is not a
     race between the muxer's inputs. `plan` carries fps, out_frames and max_bytes (and has_audio, true by default)."""
-    n, one = ENCODE_THREADS, ENCODE_INPUT_THREADS
+    n, one = X264_THREADS, ENCODE_INPUT_THREADS
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(one), "-filter_complex_threads", str(one),
             "-threads", str(one), "-i", intermediate, "-map", "0:v:0", "-map", "0:a:0?",
-            *output_options(plan, n, shortest=False, x264_params="threads=%d:lookahead_threads=1:sliced-threads=0" % n),
+            *output_options(plan, n, shortest=False, x264_params=X264_PARAMS),
             "-t", "%.6f" % (plan["out_frames"] / float(plan["fps"])), out]
 
 
@@ -543,7 +547,7 @@ def preview_argv(ffmpeg: str, src: str, out: str, spec: dict, *, video_kbps: int
     else:
         argv += ["-an"]
     argv += ["-sn", "-dn", "-vf", vf, "-sws_flags", SWS, "-c:v", "libx264", "-threads", str(ENCODE_THREADS),
-             "-x264-params", "threads=%d:lookahead_threads=1:sliced-threads=0" % ENCODE_THREADS,
+             "-x264-params", PREVIEW_X264_PARAMS,
              "-preset", spec["preset"], "-crf", str(spec["crf"]), "-maxrate", rate, "-bufsize", rate, "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
              "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",

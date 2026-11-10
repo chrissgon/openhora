@@ -20,14 +20,14 @@ packages from `snapshot.debian.org` (dated `20261006T000000Z`); the amd64 static
 sha256 `39dcb8c4...278786`); the npm packages of the lockfile from `registry.npmjs.org`; the registry's `LICENSE` from `raw.githubusercontent.com` at the pinned
 commit. A sha256 mismatch stops the build; nothing is re-pinned. The pull request stays a draft (a draft runs no docker job) until the maintainer says yes.
 
-**First amd64 build (to be filled by the supervisor after the first run; nothing below was measured by the executor).**
+**First amd64 build (run 42721633048, ubuntu-24.04 amd64, at head 36073413).**
 
-- Image tags (common, HyperFrames): PLACEHOLDER
-- amd64 ffmpeg archive: size, sha256 match: PLACEHOLDER
-- `hyperframes.py --check` (selfcheck): PLACEHOLDER
-- F-legs on amd64, per engine: PLACEHOLDER
-- Job minutes: PLACEHOLDER
-- The maintainer's word for the downloads, quoted: PLACEHOLDER
+- The `hyperframes` job was green.
+- The common image built in 66 s and the HyperFrames image in 45 s, both through `ci_retry`.
+- `hyperframes.py --check` (the selfcheck) was ok.
+- The HyperFrames legs took 14.7 minutes.
+- In the same run the `renderer` job failed F3[ffmpeg]: nondeterminism at 4 frame threads, found here and fixed by V3c-3 (`2026-11-09-v3c-3-x264-one-thread-compose.md`).
+- The run after the merge of V3c-3 into this branch is the first of the `hyperframes` job with sliced threads: its result is (see the PR's checks).
 
 **Cost (principle 13).** Saved: the HyperFrames image is built and its legs run in CI, so the amd64 items V3a-image left open can close; a change inside its folder
 stops building the ffmpeg image. Given up: up to 90 CI minutes of a docker job per change to the renderer paths, and a docker job on a change of the three shared
