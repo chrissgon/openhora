@@ -557,6 +557,46 @@ def test_a_browser_that_cannot_be_executed_says_so_in_one_line(tmp_path):
     assert "exec failed: ENOENT" in reason, reason
 
 
+def test_a_browser_that_exited_before_the_first_write_says_so_in_one_line(tmp_path, monkeypatch):
+    # The race made certain: the child has exited (exec failed, 127) and been reaped before start() writes its first command,
+    # so the write meets a closed pipe, whichever way the scheduler would have gone.
+    real_popen = _cdp.subprocess.Popen
+
+    def popen_then_wait(*a, **k):
+        proc = real_popen(*a, **k)
+        assert proc.wait(timeout=20) == 127
+        return proc
+
+    monkeypatch.setattr(_cdp.subprocess, "Popen", popen_then_wait)
+    c = _cdp.Chrome(str(tmp_path / "no-such-browser"), {}, str(tmp_path / "w"), time_limit=20)
+    with pytest.raises(_cdp.CDPError) as raised:
+        c.start()
+    c.close()
+    assert "browser exited" in str(raised.value) and not c._pending
+    reason = _frames.browser_reason(raised.value, c.log_path)
+    assert "exec failed: ENOENT" in reason and "\n" not in reason, reason
+
+
+def test_a_broken_pipe_on_write_is_a_cdp_error_and_other_errors_are_not_hidden(tmp_path, monkeypatch):
+    c = _cdp.Chrome("unused", {}, str(tmp_path / "w"))
+    c._wfd = -1
+
+    def broken(fd, data):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(_cdp.os, "write", broken)
+    with pytest.raises(_cdp.CDPError, match="browser exited"):
+        c.send("Browser.getVersion")
+    assert not c._pending
+
+    def denied(fd, data):
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(_cdp.os, "write", denied)
+    with pytest.raises(PermissionError):
+        c.send("Browser.getVersion")
+
+
 def test_a_browser_that_does_not_start_leaves_a_short_redacted_reason(tmp_path):
     token = "ghp_" + "a1" * 18
     fake = tmp_path / "fake-browser"

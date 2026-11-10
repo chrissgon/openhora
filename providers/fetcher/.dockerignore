@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!.dockerignore
+!image-manifest.json
+!tool-pin.json
+!facts.schema.json
+!_fetch_tool.py
+!_fetcher_inner.py
+!_proxy.py
+!_measure.py

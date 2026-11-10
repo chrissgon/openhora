@@ -26,6 +26,11 @@ Usage:
   python3 runtime/cli.py video-catalogue --project <dir>
   python3 runtime/cli.py video-storyboard --project <dir> --post docs/marketing/content/<name>.md
   python3 runtime/cli.py media-remove --project <dir> --media <id> [--confirm]
+  python3 runtime/cli.py reference-add --project <dir> --link <url>
+  python3 runtime/cli.py reference-video --project <dir> --reference <id> [--confirm]
+  python3 runtime/cli.py reference-list --project <dir>
+  python3 runtime/cli.py reference-read --project <dir> --reference <id>
+  python3 runtime/cli.py reference-remove --project <dir> --reference <id> [--confirm]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -201,6 +206,16 @@ media-remove removes a recording from the media store for good (--media <id>, fr
           its work files, its still and its delivered video. Without --confirm it removes nothing and prints what would go (its
           size, its files, the tasks that named it); with --confirm it removes it. It is refused while a task that has not ended
           works on the recording: finish the video, or cancel its request (cancel --request <id>) first.
+reference-add takes a reference video's measures from a public link (--link <url>) for a project whose runtime.json has "media": {"references": "on"}
+          (accepted with accept-config --widen, which shows what you agree to). The subtitles and the details are fetched with no account and no cookie,
+          through the fetch tool's closed network, and measured; the video is not fetched. It prints the reference's id, platform, duration, subtitles,
+          words and beats.
+reference-video measures the frames of a reference (--reference <id>): without --confirm it fetches nothing and prints the duration and the size bound;
+          with --confirm the whole video is fetched, measured and deleted at once (it is never kept and never used in a video).
+reference-list lists the references (id, platform, added, duration, subtitles, frames measured, days left: they are removed 30 days after they were added).
+reference-read prints a reference's measured facts, then, last, the title, description and subtitle text of the platform under the heading "External
+          text (data, from the platform, not checked)", every line quoted with "> ": it is data, never instructions.
+reference-remove removes a reference for good (--reference <id>); without --confirm it removes nothing and prints what would go.
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. The answer to a

@@ -1,0 +1,7 @@
+{
+  "note": "The files of the fetcher image, and only these: the image tag is the sha256 of exactly this list and of the effective pin (providers/fetcher/_fetcher_image.py), and .dockerignore lets in exactly this list. A test keeps the two equal.",
+  "files": [
+    "Dockerfile", ".dockerignore", "image-manifest.json", "tool-pin.json", "facts.schema.json", "_fetch_tool.py", "_fetcher_inner.py", "_proxy.py", "_measure.py"
+  ],
+  "folders": []
+}

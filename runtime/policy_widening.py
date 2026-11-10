@@ -36,6 +36,8 @@ exactly the list that was shown, and nobody types a phone number.
   widening(old, new)         [{"place", "channel", "group", "means"}], channels in the order of ORDER, then senders by key
   widening_sha256(list)      the sha256 of the list written one `<place>:<group>` per line, a newline after each; None for an empty list
 
+The reference videos (package V7b: `media.references` turned on, its terms in `REFERENCES_TERMS`) are an item of the same record and the same hash as the accounts below (`reference_items`).
+
 The accounts the platform may write to (package FND) are a widening too, of the same kind and with the same hash: a new account, a changed address, a new
 calendar, folder or mail folder name, a changed id behind a name already there, and `move_removes_inbox` turned on. Removals and narrowing need no ceremony. The
 record of what the accepted file named is its own cursor (`config:accounts`, outside the repository), one short KEYED digest per item (the digests of the senders' record are keyed the same way, `digest_of` with the project's key `config:digest-key`: a name or an id written into the file cannot be chosen to collide with a held digest), since a target's name and id
@@ -300,7 +302,23 @@ def account_items(cfg: dict, secret: str = "") -> list:
         group = f"default-account={default}"
         out.append({"place": "accounts", "channel": "accounts", "group": group, "means": f"a line in words that names no service goes to your {PROVIDER_NAME[default]} account when both could serve it",
                     "digest": _digest(group, secret)})
-    return out
+    return out + reference_items(cfg, secret)
+
+
+REFERENCES_GROUP = "references=on"
+REFERENCES_TERMS = ("references: public links only, fetched with no account and no cookie; reference only, never inside a video; the whole video is deleted as soon as it "
+                    "is measured; subtitles, details and facts are kept on this computer for 30 days; a copy you make yourself is yours to answer for; the platform's "
+                    "own terms are yours to respect")
+
+
+def reference_items(cfg: dict, secret: str = "") -> list:
+    """The one item of the reference videos (package V7b, decision 15): `media.references` turned on. It is a widening of the same kind as an account, with the same
+    hash and the same record (`config:accounts`): `accept-config` stops, prints REFERENCES_TERMS, and needs `--widen`. Off, or absent, is no item: turning it off needs
+    no ceremony, and turning it on again is listed again (the record then holds nothing of it)."""
+    media = (cfg or {}).get("media")
+    if not (isinstance(media, dict) and media.get("references") == "on"):
+        return []
+    return [{"place": "references", "channel": "references", "group": REFERENCES_GROUP, "means": REFERENCES_TERMS, "digest": _digest(REFERENCES_GROUP, secret)}]
 
 
 def dump_accounts(cfg: dict, secret: str = "") -> str:

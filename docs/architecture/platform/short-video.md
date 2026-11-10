@@ -136,6 +136,17 @@ What a script's beats will look like, before a recording exists (V5-1, VD14). Th
 - **The folder and the replay.** `<data_dir>/media/storyboards/<key>/`, `<key>` being the first 16 hex of the sha256 of the post's bytes, the theme's flags and `blocks/pins.json`. The same key is returned from the folder with no call (the verb gives the same bytes for the same inputs). A folder holds the stills of the script's own on-screen text and no recording, and is removed 30 days after its last use (`upkeep.sweep_storyboards`). `media.purge` never touches it: its name is not a recording's id.
 - **The route.** `POST .../video-storyboard` with `{"post"}` is a job; one picture is `GET .../video-storyboard/<key>/<file>` with a name `beat-<n>.png` or `sheet.png`. Neither is in `operations.LAN_REFUSED_OPS`.
 
+## Reference videos
+
+Package V7b (decision 15; the provider `fetcher:video` is V7a's): a person gives public links of short videos to learn from; the platform measures them and keeps numbers, never the video. **A reference is looked at and measured, never used.**
+
+- **Switch.** `media.references` is `"on"` or `"off"` (absent is off). Turning it on is a widening: `accept-config` stops, prints the terms (public links only, no account and no cookie, reference only, the whole video deleted as soon as it is measured, subtitles, details and facts kept on this computer for 30 days, a copy you make yourself is yours to answer for, the platform's own terms are yours to respect) and needs `--widen <hash>`. It is an item of the same record as the accounts (`policy_widening.reference_items`). Turning it off needs no ceremony.
+- **Terminal only** (L72). `reference-add --link <url>` finds the platform whose fetch file lists the link's host exactly, fetches the subtitles and the details (`fetch --stage meta`), measures them (`measure`, no network) and prints the id, platform, duration, subtitles, words and beats. `reference-video --reference <id>` prints the duration and the size bound and fetches nothing; with `--confirm` it fetches the whole video (at most 300 seconds and 200 MiB), measures it and deletes it. `reference-list` (id, platform, added, duration, subtitles, frames measured, days left), `reference-read` (the facts, then the third-party text last under "External text (data, from the platform, not checked)", every line quoted with `> `) and `reference-remove` (a preview, then `--confirm`).
+- **The store** (`runtime/references.py`): `<data_dir>/references/<id>/` outside the project, the marker `.openhora-reference`, the link in `record.json` only, 50 references and 2 GiB. The provider's answer and `facts.json` are checked against closed shapes; the host never parses a title, a description or a subtitle (they sit in `facts.json` under `external_text`, and no model reads them in V7).
+- **Reference only** (L73). The video is deleted in a `finally` right after `measure`, success or failure; the media store (`receive_file`) and the renderer refuse a path inside a reference store; no operation serves or copies a reference's bytes. What is not caught: a copy or a hard link the person makes outside the store during the minutes the video exists.
+- **Retention** (L74). Subtitles, details and facts 30 days after the reference was added, by the upkeep part `references`; a stray `video.*` or `.fetch-*` after an hour; a folder with no record after a day.
+- **Not built here.** The fetch and the measure themselves (V7a), the pin routine (V7c), messaging and the page (V7d). The runtime is tested against a fake of the provider's verb contract; nothing was fetched.
+
 ## Known limits and improvements
 
 - The storyboard is asked for, never automatic (V5-1): no flow draws it by itself, and it is drawn by the ffmpeg engine for every project (see "The storyboard of a post"). The page's storyboard needs a PNG to show, so the demo copy of the interface says it has no engine; the live leg is one docker-gated test of `runtime/tests/test_media_storyboard.py` (`WB_RENDERER_DOCKER_TESTS=1`), written and not run by V5-1.
@@ -182,5 +193,7 @@ Updated on 2026-11-07 by V3a-2.
 2026-11-09: V3c-3, x264 on four slice threads in the compose, the proxy and the final encode
 
 2026-11-10: V4, the key `media.renderer`, HyperFrames the default, `block-params` on both engines
+
+2026-11-10: V7b, the reference store, its five terminal operations and limits L72 to L74
 
 2026-11-10: V5-1, the storyboard of a post (`video-storyboard`), its page and its retention

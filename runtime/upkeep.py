@@ -33,8 +33,12 @@ What it does, once an hour at most (UPKEEP_EVERY_SECONDS; `<data_dir>/upkeep.jso
   3b. The media store (decision 12). `<data_dir>/media/<id>/` holds a recording a `media` task works on: the recording and its transcript are
      removed 7 days after the delivery, the render 30 days after it, an undelivered recording 30 days after it was last touched, and a folder
      with no record or an upload's temporary file after a day (`media.purge`, which holds the store's upload lock without waiting). A recording whose
-     task's lock is held by a live process is kept. 3c. A storyboard folder `<data_dir>/media/storyboards/<key>/` (V5-1: the stills of a post's script, no
-     recording and no transcript) is removed 30 days after its last use (its modification time, touched by each replay), in the same part.
+     task's lock is held by a live process is kept.
+  3c. The reference store (decision 15). `<data_dir>/references/<id>/` holds a reference video's details, subtitles and measured facts: removed 30 days after the
+     reference was added; a `video.*` file or a `.fetch-*` folder older than an hour (a crash between a fetch and the video's deletion) and a folder with no record
+     after a day go too (`references.purge`).
+  3d. A storyboard folder `<data_dir>/media/storyboards/<key>/` (V5-1: the stills of a post's script, no
+     recording and no transcript) is removed 30 days after its last use (its modification time, touched by each replay), in the same part as 3b.
   4. Orphan containers, by runtime/orphans.py, in its conservative mode only: a run container that has ended, a key proxy whose run
      container is gone, a network nothing of its run is on, past 30 minutes. A running run container is never removed by a pass; the
      explicit command `python3 runtime/upkeep.py containers --include-running` is the one way, for a stuck one older than 6 hours.
@@ -65,6 +69,7 @@ import attachments  # noqa: E402  (the same folder: the hold of the files a mess
 import lab  # noqa: E402  (the same folder: the lab facade's container tool)
 import media  # noqa: E402  (the same folder: the store of the recordings and its retention)
 import orphans  # noqa: E402  (the same folder: the sweep of orphan containers)
+import references  # noqa: E402  (the same folder: the store of the reference videos and its retention)
 import sources  # noqa: E402  (the same folder: the sources folder, its lease and its lock)
 
 UPKEEP_EVERY_SECONDS = 3600
@@ -444,6 +449,15 @@ def sweep_storyboards(data_dir: str, *, now: float) -> list:
     return removed
 
 
+# --- 3c. the reference store (decision 15, limits L73 and L74) -----------------------------------------------------------------
+
+
+def sweep_references(ctx: dict, *, now: float) -> dict:
+    """The retention of the reference store (runtime/references.py `purge`): a reference 30 days after it was added, a `video.*` or a `.fetch-*` folder older than an
+    hour, a folder with no record after a day."""
+    return references.purge(ctx["cfg"]["data_dir"], now=now)
+
+
 # --- 4. the whole pass -------------------------------------------------------------------------------------------------------
 
 
@@ -475,7 +489,7 @@ def containers_enabled() -> bool:
 
 def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> dict:
     """One pass of upkeep for the project of `ctx`. Returns {"skipped": why} when it is too soon or another process is at it, else
-    {"runs", "versions", "attachments", "media", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
+    {"runs", "versions", "attachments", "media", "references", "containers", "at"}; a part that failed reports {"problem"}. It raises nothing (a pass that fails is tried again
     at the next hour). `tool` is the container tool (None: docker, if there is one and the sweep is enabled)."""
     cfg = ctx["cfg"]
     now = time.time() if now is None else now
@@ -496,6 +510,7 @@ def run(ctx: dict, *, now=None, force: bool = False, tool=None, clock=None) -> d
                           ("versions", lambda: sweep_versions(ctx, kept=cfg.get("source_versions_kept", 5), clock=clock)),
                           ("attachments", lambda: sweep_attachments(ctx, now=now)),
                           ("media", lambda: sweep_media(ctx, now=now)),
+                          ("references", lambda: sweep_references(ctx, now=now)),
                           ("containers", lambda: _containers(cfg, now, tool))):
             try:
                 summary[key] = part()
