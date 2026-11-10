@@ -40,6 +40,13 @@ class Usage(Exception):
     pass
 
 
+def refuse_reference(path, what: str) -> None:
+    """A file or folder of a reference store (a path under the marker `.openhora-reference`) is looked at and measured, never used:
+    no job reads it, stages it or mounts it (contracts/runtime.md, limit L73). Raises Refusal("reference_refused") before anything is read."""
+    if D.box.in_reference(str(path)):
+        raise Refusal("reference_refused", what)
+
+
 def emit(obj) -> None:
     json.dump(obj, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
@@ -79,6 +86,7 @@ class Job:
 
     def stage(self, name: str, path: str, limit: int = MAX_SMALL_FILE) -> str:
         """Copy a file into the job's read-only folder; returns its path inside the container."""
+        refuse_reference(path, os.path.basename(name)[:40])
         if name in self.staged or not re.fullmatch(r"[A-Za-z0-9_.\-/]{1,80}", name) or ".." in name:
             raise Refusal("bad_staged_name", name[:40])
         data = _assets.read_regular(path, limit, "input_unreadable", os.path.basename(name)[:40])
@@ -92,6 +100,7 @@ class Job:
 
     def mount_recording(self, path: str) -> str:
         """The recording is mounted read-only where it is: a real file (not a link), under the size cap."""
+        refuse_reference(path, "recording")
         try:
             found = os.lstat(path)
         except OSError:
@@ -105,6 +114,7 @@ class Job:
     def add_mount(self, host: str, inside: str, mode: str) -> str:
         """An extra mount for the container: `host` is an existing folder that is not a link, `mode` is "ro" or "rw". Returns the
         path inside. A path under a fixed mount point is refused when the command is built."""
+        refuse_reference(host, inside)
         if mode not in ("ro", "rw") or not os.path.isdir(host) or os.path.islink(host):
             raise Refusal("bad_mount", inside)
         self.extra_mounts.append((host, inside, mode))

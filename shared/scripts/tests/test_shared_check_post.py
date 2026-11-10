@@ -259,6 +259,6 @@ def test_a_bad_platform_file_is_a_usage_error(project, tmp_path):
 
 
 def test_the_real_data_files_load():
-    for data in sorted((SOURCES.parent / "references/platforms").glob("*.json")):
+    for data in sorted(p for p in (SOURCES.parent / "references/platforms").glob("*.json") if not p.name.endswith(".fetch.json")):
         limits = check_post.load_limits(str(data))
         assert limits["unit"] in ("characters", "utf-16")

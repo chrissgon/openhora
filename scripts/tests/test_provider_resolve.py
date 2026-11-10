@@ -512,6 +512,16 @@ def test_renderer_video_is_a_runtime_only_class_whose_default_is_hyperframes():
     assert resolve.implementations("renderer:video", env={}) == ["ffmpeg", "hyperframes"]   # the underscore modules and hyperframes-image/ are not implementations
 
 
+def test_fetcher_video_is_a_runtime_only_class_served_by_ytdlp():
+    assert resolve.variables("fetcher:video") == ["FETCHER_VIDEO_PROVIDER", "FETCHER_PROVIDER"]
+    assert resolve.folder("fetcher:video") == "fetcher" and resolve.platform_of("fetcher:video") is None
+    got = resolve.resolve("fetcher:video", env={})
+    assert got["implementation"] == "ytdlp" and got["source"] == "only-implementation"
+    assert got["path"] == str(REPO / "providers" / "fetcher" / "ytdlp.py")
+    assert "fetcher:video" not in resolve.LISTED   # no skill requires it, so contracts/environment.md does not list it
+    assert resolve.implementations("fetcher:video", env={}) == ["ytdlp"]   # the underscore modules and tests/ are not implementations
+
+
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
 
 LONG_LIVED = '''# /// script

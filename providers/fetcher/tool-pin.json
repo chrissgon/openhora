@@ -1,0 +1,13 @@
+{
+ "tool": "yt-dlp",
+ "version": null,
+ "asset": "yt-dlp",
+ "url": null,
+ "size": null,
+ "sha256": null,
+ "published_at": null,
+ "redirect_hosts": [],
+ "read_on": null,
+ "source": "the release's asset metadata (digest and size) from the GitHub releases API",
+ "js_runtime": null
+}
