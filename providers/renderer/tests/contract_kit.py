@@ -438,7 +438,7 @@ DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 CPUSET = re.compile(r"[0-9]+-[0-9]+")
 CODE = re.compile(r"[a-z_]{1,40}")
 VERSION = re.compile(r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")
-REPORT_NAME = re.compile(r"engine-contract-([0-9]{4}-[0-9]{2}-[0-9]{2})-(arm64|amd64)\.json")
+REPORT_NAME = re.compile(r"engine-contract-([0-9]{4}-[0-9]{2}-[0-9]{2})-(arm64|amd64)(?:-r[2-9])?\.json")
 
 
 class ReportError(ValueError):
