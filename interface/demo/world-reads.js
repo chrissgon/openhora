@@ -116,6 +116,11 @@ export function videoStill() {
   throw notInDemo("A video's still");
 }
 
+/** The storyboard of a post (V5-1): drawn by the renderer in a container, which the demo has none of, so it says so. */
+export function videoStoryboard() {
+  throw notInDemo("Drawing a storyboard");
+}
+
 /** The delivered video: bytes, which the demo does not serve. */
 export function videoDownload() {
   throw notInDemo("A delivered video");

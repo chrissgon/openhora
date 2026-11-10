@@ -62,5 +62,7 @@
  {"op": "reference-video", "kind": "internal", "group": null, "why": "fetches, measures and deletes the whole video of a reference after the person confirmed its size and length; never served in words"},
  {"op": "reference-list", "kind": "internal", "group": null, "why": "lists the reference videos with their ages; read in the terminal, not served in words"},
  {"op": "reference-read", "kind": "internal", "group": null, "why": "prints a reference's measured facts and its third-party text as data; read in the terminal, not served in words"},
- {"op": "reference-remove", "kind": "internal", "group": null, "why": "removes one reference video's files for good, at the person's confirmed request; never served in words"}
+ {"op": "reference-remove", "kind": "internal", "group": null, "why": "removes one reference video's files for good, at the person's confirmed request; never served in words"},
+ {"op": "video-storyboard", "kind": "internal", "group": "media", "why": "the storyboard of a short-video post, drawn on demand by the page or the terminal; starts a container, no model; not served in words"},
+ {"op": "video-storyboard-file", "kind": "internal", "group": "media", "why": "one picture of a drawn storyboard, read by the page; not served in words"}
 ]}

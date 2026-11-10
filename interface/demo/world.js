@@ -118,6 +118,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
           case "attachments": return get(reads.attachments());
           case "media": return get(reads.mediaList(P));
           case "video-catalogue": return get(reads.videoCatalogue());
+          case "video-storyboard": reads.videoStoryboard();
           default: break;
         }
       }
@@ -128,6 +129,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
         if (parts[2] === "still") reads.videoStill();
         if (parts[2] === "download") reads.videoDownload();
       }
+      if (parts[0] === "video-storyboard" && parts.length === 3) reads.videoStoryboard();
       if (parts[0] === "artifact" && parts[1] === "raw") reads.artifactRaw();
       throw notFound("no such route, project or file");
     }

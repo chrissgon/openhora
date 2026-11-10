@@ -242,9 +242,12 @@ out.uploadOff = labelled(section.el, "Upload and start").disabled;
 // Start with no post chosen: nothing is sent
 click(labelled(itemOf(section, "b5000000aaaaaaaa"), "Start")); await settle();
 out.noPost = { note: textOf(byClass(section.el, "wb-vd-note")[0]), sent: count("videoNew") };
+const drawButton = () => labelled(section.el, "Draw the storyboard");
+out.draw = { before: drawButton().disabled === true };      // V5-1: the storyboard's button needs a chosen post
 // choose the post, then Start the failed one
 const select = tag(section.el, "select")[0];
 select.value = "docs/marketing/content/launch-day.md"; fire(select, "change");
+out.draw.after = drawButton().disabled === true;      // enabled right after the post is chosen, with no other redraw in between
 click(labelled(itemOf(section, "c6000000aaaaaaaa"), "Start")); await settle();
 out.start = { calls: calls.filter((c) => ["videoNew", "pollJob"].includes(c[0])), note: textOf(byClass(section.el, "wb-vd-note")[0]), refreshed, lists: count("mediaList") };
 // Run the ready one
@@ -332,6 +335,7 @@ def test_the_section_lists_newest_first_offers_each_state_its_action_and_says_ea
     assert got["form"] == {"options": ["Choose a post", "docs/marketing/content/launch-day.md"], "file": 1, "upload": True, "reads": [1, 1]}
     assert got["uploadOff"] is True
     assert got["noPost"] == {"note": "Choose a post in the form above first.", "sent": 0}
+    assert got["draw"] == {"before": True, "after": False}, "the storyboard's button is off with no post and on right after one is chosen"
     assert got["start"]["calls"] == [["videoNew", "p", "c6000000aaaaaaaa", "docs/marketing/content/launch-day.md"], ["pollJob", 11]]
     assert got["start"]["note"] == "The captions are ready to check." and got["start"]["refreshed"] == 1 and got["start"]["lists"] == 2
     assert got["run"] == {"calls": [["videoRun", "p", 4], ["pollJob", 12]], "note": "The captions are ready to check."}

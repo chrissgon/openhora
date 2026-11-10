@@ -37,6 +37,8 @@ What it does, once an hour at most (UPKEEP_EVERY_SECONDS; `<data_dir>/upkeep.jso
   3c. The reference store (decision 15). `<data_dir>/references/<id>/` holds a reference video's details, subtitles and measured facts: removed 30 days after the
      reference was added; a `video.*` file or a `.fetch-*` folder older than an hour (a crash between a fetch and the video's deletion) and a folder with no record
      after a day go too (`references.purge`).
+  3d. A storyboard folder `<data_dir>/media/storyboards/<key>/` (V5-1: the stills of a post's script, no
+     recording and no transcript) is removed 30 days after its last use (its modification time, touched by each replay), in the same part as 3b.
   4. Orphan containers, by runtime/orphans.py, in its conservative mode only: a run container that has ended, a key proxy whose run
      container is gone, a network nothing of its run is on, past 30 minutes. A running run container is never removed by a pass; the
      explicit command `python3 runtime/upkeep.py containers --include-running` is the one way, for a stuck one older than 6 hours.
@@ -77,6 +79,8 @@ RUNS_DIR, CONTAINED_DIR, CHILDREN_DIR = "task-runs", "contained-runs", "children
 FINISHED = ("done", "cancelled")           # the states of a task that cannot run again: a version it received may go
 CONTAINERS_ENV = "OPENHORA_UPKEEP_CONTAINERS"   # `off`: the sweep of orphan containers is skipped
 DAY = 86400.0
+STORYBOARD_FOLDERS, STORYBOARD_DAYS = ("media", "storyboards"), 30       # a drawn storyboard (V5-1) is kept 30 days from its last use
+STORYBOARD_KEY = re.compile(r"[0-9a-f]{16}")
 
 
 # --- descriptors: nothing is followed, nothing is removed that is not what was looked at ----------------------------------------
@@ -416,7 +420,33 @@ def _sweep_attachment_folder(data_fd: int, name: str, keep: set, now: float, dry
 def sweep_media(ctx: dict, *, now: float) -> dict:
     """The retention of the media store (decision 12, runtime/media.py): purge what is due, never a recording whose task is running."""
     data_dir = ctx["cfg"]["data_dir"]
-    return media.purge(data_dir, now=now, busy=lambda task_id: task_lock_held(data_dir, task_id))
+    done = media.purge(data_dir, now=now, busy=lambda task_id: task_lock_held(data_dir, task_id))
+    done["removed"] = list(done["removed"]) + sweep_storyboards(data_dir, now=now)
+    return done
+
+
+def sweep_storyboards(data_dir: str, *, now: float) -> list:
+    """The storyboard folders (runtime/ops_media_storyboard.py, V5-1) older than STORYBOARD_DAYS by their modification time, which each replay touches:
+    removed whole, by code, through descriptors that follow no link. A folder holds the stills of a post's script and no recording or transcript. A
+    name that is not 16 lower-case hex characters is left alone. Returns [{"storyboard": key, "what": "all"}]."""
+    removed = []
+    try:
+        base_fd = os.open(os.path.join(data_dir, *STORYBOARD_FOLDERS), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return removed
+    try:
+        for name in sorted(os.listdir(base_fd)):
+            if not STORYBOARD_KEY.fullmatch(name):
+                continue
+            try:
+                info = os.stat(name, dir_fd=base_fd, follow_symlinks=False)
+            except OSError:
+                continue
+            if stat.S_ISDIR(info.st_mode) and now - info.st_mtime >= STORYBOARD_DAYS * DAY and remove_in(base_fd, name):
+                removed.append({"storyboard": name, "what": "all"})
+    finally:
+        os.close(base_fd)
+    return removed
 
 
 # --- 3c. the reference store (decision 15, limits L73 and L74) -----------------------------------------------------------------
