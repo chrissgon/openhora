@@ -66,7 +66,22 @@ enforced by the host; and V7b deletes the video right after `measure` (limit L73
 
 Recorded below by counts and short digests (the first and last six hex of each sha256); the full values are in `providers/fetcher/wheel-pin.json`.
 
-STOP A is recorded in the commit that fills the pin.
+Read on 2026-11-10 from PyPI's JSON API (no download, no executable). The tool's tag 2026.10.26 accepts `curl-cffi>=0.5.10,!=0.6.*,!=0.7.*,!=0.8.*,!=0.9.*,<0.18`
+and its own release pins are certifi 2026.10.23, cffi 2.1.1, curl-cffi 0.17.0, pycparser 3.11, which the pin adopts (D2). Every version is at least 14 days old
+on the read date (`curl_cffi` 15). The maintainer approved the four packages ("Sim, aprovo os 4", answering "Aprova os 4 pacotes fixados do V7e, em vez de 1?").
+
+| package | version | arch | licence | size | sha256 (first 6 ... last 6) |
+|---|---|---|---|---|---|
+| curl_cffi | 0.17.0 | amd64 | MIT | 14053278 | af0782 ... 9f4e24 |
+| curl_cffi | 0.17.0 | arm64 | MIT | 13438302 | aa91d2 ... 39506e |
+| cffi | 2.1.1 | amd64 | MIT-0 | 217807 | 34e261 ... 364632 |
+| cffi | 2.1.1 | arm64 | MIT-0 | 218716 | 3311ed ... f95813 |
+| certifi | 2026.10.23 | any | MPL-2.0 | 135082 | e9b54d ... 2f61d1 |
+| pycparser | 3.11 | any | BSD-3-Clause | 51178 | 51d5a8 ... 29cd80 |
+
+Hosts: `download_hosts` is `files.pythonhosted.org`; `redirect_hosts` is empty (headers only, on the `curl_cffi` arm64 wheel: HTTP 200, no `Location`; the
+other five are assumed to answer the same, which the build shows). The `cffi` wheels are cp311 because bookworm's python is 3.11. The amd64 digests are
+checked only by an amd64 build (not in this package).
 
 ### Verified offline
 
