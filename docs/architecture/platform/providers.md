@@ -84,7 +84,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `transcriber:speech` | `transcriber/` | `whispercpp.py` | `--check`, `models`, `build`, `reap`, `transcribe` |
 | `renderer:video` | `renderer/` | `ffmpeg.py` | `--check`, `build`, `pin-browser`, `reap`, `pin-blocks`, `block-params`, `render`, `storyboard` |
 | `renderer:video` | `renderer/` | `hyperframes.py` | `--check`, `build`, `reap`, `render`, `compat`, `block-params` |
-| `fetcher:video` | `fetcher/` | `ytdlp.py` | `--check`, `pin-show`, `build`, `reap`, `fetch`, `measure` |
+| `fetcher:video` | `fetcher/` | `ytdlp.py` | `--check`, `pin-show`, `pin-latest`, `pin-raise`, `build`, `reap`, `fetch`, `measure` |
 <!-- /generated -->
 
 Generated: the classes are the rows of the "Verbs per class" table of `providers/CONTRACT.md`, the folder is `providers/resolve.py`'s, and the verbs are read from each file's text (its `VERBS`, the choices of its `verb` argument, a `--check` flag), never by running it. Not generated: `sqlite.py`, `launchd.py`, `systemd.py` and both `local.py` are standard library only and run on Python 3.9, the two `notion.py`, `gdrive.py` and `calendar/google.py` run with `uv run`; `auth.py`, `gdrive_auth.py`, `gdrive_picker.py`, `calendar/google_auth.py` and `notion_blocks.py` are helpers; the store's task tables have no verb and are reached through its functions; `run` of the scheduler is internal; `integration:design-tool` is a class of the environment contract with no row in the verbs table.

@@ -13,6 +13,11 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt; a refus
   build (--confirmed | --dry-run)     build the image (the one step that uses the network, at the person's word: Debian packages and the
                                       pinned tool file). Records the image id in <state>/fetcher/image.json.
   pin-show                            the effective pin and what is missing from it. Fetches nothing.
+  pin-latest                          one https GET of the tool's latest release metadata (one host, global addresses, no redirect, 1 MiB,
+                                      30 s); prints {current, latest, newer, published_at, size, sha256}. No download, writes nothing.
+  pin-raise --version V --confirmed   writes <state>/fetcher/pin.json (the person's own raise, 0600) from the release metadata of V; refused
+                                      when V is not newer than the committed pin, the asset differs or the digest is absent. The next
+                                      `build --confirmed` is the download. Typed by the person, never by a routine.
   reap --root DIR                     remove the containers and networks past their deadline and the `.fetch-*` folders older than the
                                       longest timeout in the reference folders of DIR (which must hold the marker `.openhora-reference`).
   fetch --url U --platform P --platform-file F --stage meta|video --out DIR --language L [--max-seconds N] [--max-bytes N] [--timeout N]
@@ -22,7 +27,7 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt; a refus
   measure --in DIR --out FACTS --reference ID --platform P [--timeout N]
                                       the facts of a reference (providers/fetcher/_measure.py), in a container with no network.
 
-Closed refusal codes. Exit 2: link_refused, platform_not_ready, out_refused, bad_arguments. Exit 1: too_long, no_duration, too_large,
+Closed refusal codes. Exit 2: link_refused, platform_not_ready, out_refused, bad_arguments, pin_refused. Exit 1: release_refused, too_long, no_duration, too_large,
 network, fetch_failed, time_limit, measure_failed, facts_invalid, build_failed. Exit 3 (not configured): pin_not_filled, image_not_built,
 docker_missing, docker_not_running, docker_not_local. `not_public` is not mapped: the tool's exit code does not tell a sign-in from another
 failure, so until a live run gives its text the answer is fetch_failed (with the sentence that the tool may be out of date).
@@ -39,17 +44,21 @@ reads two small closed files (result.json, proxy.json) and `info.json` and `fact
 with os.link into the reference folder.
 
 State, under the state folder (OPENHORA_STATE_DIR, else an absolute XDG_STATE_HOME + /openhora, else ~/.local/state/openhora):
-fetcher/image.json (what `build` recorded).
+fetcher/image.json (what `build` recorded), fetcher/pin.json (the person's own raise, when there is one).
 Exit codes (providers/CONTRACT.md): 0 ok; 1 failed; 2 usage; 3 not configured.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
+import ssl
 import stat
 import subprocess
 import sys
@@ -69,7 +78,7 @@ EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 KINDS = {"failed": EXIT_FAILED, "usage": EXIT_USAGE, "not-configured": EXIT_NOT_CONFIGURED}
 
 # The verbs, in the order the command line lists them (scripts/architecture_tables.py reads this line as text).
-VERBS = ("pin-show", "build", "reap", "fetch", "measure")
+VERBS = ("pin-show", "pin-latest", "pin-raise", "build", "reap", "fetch", "measure")
 PROVIDER_NAME = "yt-dlp"
 STATE_ENV, STATE_FOLDER, BUILD_RECORD = "OPENHORA_STATE_DIR", "fetcher", "image.json"
 LABEL_RUN = "org.openhora.fetcher"
@@ -235,7 +244,109 @@ def cmd_check(args):
 def cmd_pin_show(args):
     pin = _fetcher_image.effective_pin(FOLDER)
     missing = _fetcher_image.pin_missing(pin)
-    return {"ok": True, "pin": pin, "filled": not missing, "missing": missing}
+    return {"ok": True, "pin": pin, "filled": not missing, "missing": missing,
+            "source": "committed" if pin == _fetcher_image.committed_pin(FOLDER) else "local-raise"}
+
+
+# --- the pin routine: the release's metadata, never the download ---------------------------------------------------------------------------
+
+RELEASE_HOST = "api.github.com"
+RELEASE_REPO = "/repos/yt-dlp/yt-dlp/releases"
+RELEASE_MAX_BYTES, RELEASE_TIMEOUT = MIB, 30
+RELEASE_VERSION = re.compile(r"[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{1,8})?")
+DIGEST = re.compile(r"sha256:([0-9a-f]{64})")
+
+
+def release_open(host, path, timeout):
+    """The one network call of the pin routine: an https GET of `path` on `host` at a global address, no header but the minimum, no
+    redirect followed. Returns (status, body reader). A test replaces this function; nothing else here opens a socket."""
+    addresses = sorted({found[4][0] for found in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)})
+    if not addresses or not all(ipaddress.ip_address(a).is_global and not ipaddress.ip_address(a).is_multicast for a in addresses):
+        raise OSError("not a global address")
+    address = addresses[0]
+
+    class Pinned(http.client.HTTPSConnection):
+        def connect(self):
+            raw = socket.create_connection((address, 443), timeout=timeout)
+            self.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+
+    connection = Pinned(host, 443, timeout=timeout)
+    connection.request("GET", path, headers={"Accept": "application/vnd.github+json", "User-Agent": "openhora-pin-check", "Connection": "close"})
+    answer = connection.getresponse()
+    return answer.status, answer
+
+
+def release_metadata(path):
+    """The release JSON at `path` of the release host: status 200 only (a redirect is refused, not followed), at most 1 MiB, an object."""
+    try:
+        status, body = release_open(RELEASE_HOST, path, RELEASE_TIMEOUT)
+        if status != 200:
+            raise Refusal("failed", "release_refused", "the release host answered %s (a redirect is never followed)" % status)
+        data = body.read(RELEASE_MAX_BYTES + 1)
+    except Refusal:
+        raise
+    except (OSError, ValueError, http.client.HTTPException):
+        raise Refusal("failed", "release_refused", "the release metadata could not be read") from None
+    if len(data) > RELEASE_MAX_BYTES:
+        raise Refusal("failed", "release_refused", "the release metadata is larger than 1 MiB")
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except ValueError:
+        raise Refusal("failed", "release_refused", "the release metadata is not JSON") from None
+    if not isinstance(value, dict):
+        raise Refusal("failed", "release_refused", "the release metadata is not an object")
+    return value
+
+
+def release_pin(release, committed):
+    """What the release says of the tool's asset: {version, published_at, size, sha256 (or None), url}. Refuses a tag that is not a version, a
+    missing asset and an address that is not the committed pin's own, with the version replaced."""
+    tag = release.get("tag_name")
+    if not isinstance(tag, str) or not RELEASE_VERSION.fullmatch(tag):
+        raise Refusal("failed", "release_refused", "the release has no version tag of the expected form")
+    assets = [a for a in release.get("assets") or [] if isinstance(a, dict) and a.get("name") == committed.get("asset")]
+    if len(assets) != 1:
+        raise Refusal("usage", "pin_refused", "the release has not exactly one asset named %s" % committed.get("asset"))
+    asset = assets[0]
+    wanted = _fetcher_image.expected_url(committed, tag)
+    if wanted is None or asset.get("browser_download_url") != wanted:
+        raise Refusal("usage", "pin_refused", "the asset's address is not the committed pin's, with this version")
+    size = asset.get("size")
+    digest = asset.get("digest")
+    found = DIGEST.fullmatch(digest) if isinstance(digest, str) else None
+    published = release.get("published_at")
+    return {"version": tag, "published_at": published if isinstance(published, str) and len(published) <= 40 else None,
+            "size": size if isinstance(size, int) and not isinstance(size, bool) else None, "sha256": found.group(1) if found else None, "url": wanted}
+
+
+def cmd_pin_latest(args):
+    committed = _fetcher_image.committed_pin(FOLDER)
+    current = _fetcher_image.effective_pin(FOLDER)
+    found = release_pin(release_metadata(RELEASE_REPO + "/latest"), committed)
+    return {"ok": True, "current": current.get("version"), "latest": found["version"], "newer": _fetcher_image.is_newer(found["version"], current.get("version")),
+            "published_at": found["published_at"], "size": found["size"], "sha256": found["sha256"]}
+
+
+def cmd_pin_raise(args):
+    if not args.confirmed:
+        raise Refusal("usage", "bad_arguments", "pin-raise changes what the next build downloads: it needs --confirmed, typed by the person, never by a run.")
+    if not RELEASE_VERSION.fullmatch(args.version or ""):
+        raise Refusal("usage", "bad_arguments", "--version is a release tag such as 2026.10.26")
+    committed = _fetcher_image.committed_pin(FOLDER)
+    if not _fetcher_image.is_newer(args.version, committed.get("version")):
+        raise Refusal("usage", "pin_refused", "%s is not newer than the committed pin %s" % (args.version, committed.get("version")))
+    found = release_pin(release_metadata("%s/tags/%s" % (RELEASE_REPO, args.version)), committed)
+    if found["version"] != args.version:
+        raise Refusal("usage", "pin_refused", "the release answered is not the one asked for")
+    if found["sha256"] is None:
+        raise Refusal("usage", "pin_refused", "the release's asset carries no digest: nothing to pin it by")
+    raised = dict(committed, version=found["version"], url=found["url"], size=found["size"], sha256=found["sha256"], published_at=found["published_at"],
+                  read_on=time.strftime("%Y-%m-%d", time.gmtime()), source="the person's own raise, from the release's asset metadata (pin-raise)")
+    problem = _fetcher_image.raise_problem(committed, raised)
+    if problem:
+        raise Refusal("usage", "pin_refused", problem)
+    write_private_json(os.path.join(own_dir(), _fetcher_image.LOCAL_PIN), raised)
+    return {"ok": True, "raised": found["version"], "previous": committed["version"], "next": "python3 providers/fetcher/ytdlp.py build --confirmed"}
 
 
 def build_argv(pin):
@@ -848,6 +959,10 @@ def build_parser():
     p.add_argument("--check", action="store_true", help="ready or not (exit 0, or 3 with the reason on stderr)")
     sub = p.add_subparsers(dest="verb")
     sub.add_parser("pin-show", help="the effective pin and what is missing from it")
+    sub.add_parser("pin-latest", help="the latest release's metadata (no download, writes nothing)")
+    pr = sub.add_parser("pin-raise", help="raise the pin to a release (needs --confirmed)")
+    pr.add_argument("--version", required=True)
+    pr.add_argument("--confirmed", action="store_true")
     b = sub.add_parser("build", help="build the image (needs --confirmed)")
     b.add_argument("--confirmed", action="store_true")
     b.add_argument("--dry-run", action="store_true")
@@ -880,7 +995,7 @@ def main(argv=None):
         if args.check:
             result = cmd_check(args)
         else:
-            result = {"pin-show": cmd_pin_show, "build": cmd_build, "reap": cmd_reap, "fetch": cmd_fetch, "measure": cmd_measure}[args.verb](args)
+            result = {"pin-show": cmd_pin_show, "pin-latest": cmd_pin_latest, "pin-raise": cmd_pin_raise, "build": cmd_build, "reap": cmd_reap, "fetch": cmd_fetch, "measure": cmd_measure}[args.verb](args)
     except Refusal as e:
         say("error: %s" % e.reason)
         print(json.dumps({"ok": False, "code": e.code}))

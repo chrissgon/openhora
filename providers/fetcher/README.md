@@ -12,12 +12,14 @@ JSON on stdout, diagnostics on stderr. Exit 0 ok, 1 failed, 2 usage, 3 not confi
 |------|------|
 | `--check` | a local docker, the pin filled, the image built from this definition and recorded (exit 0 or 3) |
 | `build (--confirmed \| --dry-run)` | builds the image; the one step that downloads (Debian packages, the pinned tool file). The person starts it |
-| `pin-show` | the pin and what is missing from it; fetches nothing |
+| `pin-show` | the pin in force (the person's own raise when valid, else the committed one) and what is missing from it; fetches nothing |
+| `pin-latest` | one https read of the tool's latest release metadata; prints the current and latest versions, whether the latest is newer, its date, size and sha256. Downloads nothing, writes nothing |
+| `pin-raise --version V --confirmed` | writes the person's own pin (`<state>/fetcher/pin.json`, 0600) from the release metadata of `V`. The person types it |
 | `reap --root DIR` | removes containers and networks past their deadline and old `.fetch-*` folders of a reference store |
 | `fetch --url U --platform P --platform-file F --stage meta\|video --out DIR --language L [--max-seconds N] [--max-bytes N] [--timeout N]` | `meta`: details and subtitles; `video`: the file, only after a person confirmed the length and size `meta` read |
 | `measure --in DIR --out FACTS --reference ID --platform P [--timeout N]` | the facts of a reference, in a container with no network |
 
-Codes. Exit 2: `link_refused`, `platform_not_ready`, `out_refused`, `bad_arguments`. Exit 1: `too_long`, `no_duration`, `too_large`, `network` (hosts were refused and no file came), `fetch_failed`, `time_limit`, `measure_failed`, `facts_invalid`, `build_failed`. Exit 3: `pin_not_filled`, `image_not_built`, `docker_missing`, `docker_not_running`, `docker_not_local`. `not_public` is not mapped: the tool's exit code does not tell a sign-in from another failure, and its message is not parsed until a live run gives its text, so it is `fetch_failed`, whose sentence says the tool may be out of date.
+Codes. Exit 2: `link_refused`, `platform_not_ready`, `out_refused`, `bad_arguments`, `pin_refused`. Exit 1: `release_refused`, `too_long`, `no_duration`, `too_large`, `network` (hosts were refused and no file came), `fetch_failed`, `time_limit`, `measure_failed`, `facts_invalid`, `build_failed`. Exit 3: `pin_not_filled`, `image_not_built`, `docker_missing`, `docker_not_running`, `docker_not_local`. `not_public` is not mapped: the tool's exit code does not tell a sign-in from another failure, and its message is not parsed until a live run gives its text, so it is `fetch_failed`, whose sentence says the tool may be out of date.
 
 ## The three containers
 
@@ -76,7 +78,19 @@ python3 providers/fetcher/ytdlp.py build --confirmed     # downloads; run by the
 python3 providers/fetcher/ytdlp.py --check
 ```
 
-State: `<state>/fetcher/image.json` (what `build` recorded). The image tag is the sha256 of the files `image-manifest.json` lists and of the effective pin; `.dockerignore` lets in exactly that list, and a test keeps the two equal.
+### Raising the pin (the routine)
+
+A newer release is found with `pin-latest` and taken in with two commands the person types, each time:
+
+```
+python3 providers/fetcher/ytdlp.py pin-latest
+python3 providers/fetcher/ytdlp.py pin-raise --version <latest> --confirmed     # records the person's own pin; no download
+python3 providers/fetcher/ytdlp.py build --confirmed                            # the download: Debian packages and the new tool file
+```
+
+`pin-latest` makes one https GET to the releases API's host: that host only, at global addresses only, a redirect is refused, at most 1 MiB, 30 seconds, no token, no cookie. `pin-raise` reads the release of the version asked for and writes `<state>/fetcher/pin.json` (0600, a folder of this user) only when all of these hold: the version is newer than the committed pin, the release has exactly one asset with the committed asset's name, its address is the committed one with the version replaced, and it carries a sha256 digest. `tool` and `redirect_hosts` are the committed pin's own: a raise never widens where a download may redirect. The committed `tool-pin.json` is never written by a verb. The pin in force is the local raise when it is valid (a regular file of this user, closed to others, small, passing the same checks), else the committed pin; a raise that is not valid is ignored, and the definition hash covers the pin in force, so the next `build --confirmed` builds a new image tag. A newer release is also looked for weekly when the person created a routine over `flows/fetch-tool-check.json` (`routine-create`): the step (`runtime/step_tool_check.py`) only opens a question that names both versions and the two commands above. It never downloads, writes a pin or builds. Why a typed yes each time: the tool is a large third-party program that runs with network and parses hostile pages, so an unattended raise would trust a release nobody looked at; the cost is that a stale tool fails fetches until the person raises it, and the `fetch_failed` sentence says so.
+
+State: `<state>/fetcher/image.json` (what `build` recorded), `<state>/fetcher/pin.json` (the person's raise, when there is one). The image tag is the sha256 of the files `image-manifest.json` lists and of the effective pin; `.dockerignore` lets in exactly that list, and a test keeps the two equal.
 
 ## Not verified
 

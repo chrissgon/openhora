@@ -54,6 +54,9 @@ module builds those services, once, for the process that runs the task (runtime/
   media_store      MediaStore (package V1b1): the recordings of runtime/media.py by closed names (`raw`, `path`, `read`, `write`, `remove`, `bind`, ...), the platform's data file and the
                    few workbench files the engine may be handed; it holds no delivery writer (that is runtime/effect_deliver.py's alone)
   media_engine     MediaEngine (package V1b1): `call(class, verb, args, timeout)` of the transcriber and the renderer, a closed list of verbs each, through the resolver's class default
+  tool_check       ToolCheck (package V7c): `latest()`, the reference fetcher's `pin-latest` (class fetcher:video): one read of the tool's latest release metadata,
+                   through the resolver with the minimum environment. It takes no verb and no argument, so it cannot start `pin-raise`, `build`, `fetch` or
+                   `measure`; the one verb is a literal of this module, and it downloads nothing and writes no pin
 
 So the write to a platform has no function in a step kind's reach: the only code that makes it is runtime/effect_write.py `execute`,
 called from runtime/ops_step_effects.py `approve`. What Python cannot do is stop a module from importing another: that a step kind does
@@ -927,13 +930,44 @@ class AccountTargets:
         return ident
 
 
+# --- package V7c: the check of the reference fetcher's tool ----------------------------------------------------------------------------------------
+
+TOOL_CHECK_CLASS = "fetcher:video"
+TOOL_CHECK_VERB = "pin-latest"       # the one verb this service starts: a literal, never an argument
+TOOL_CHECK_TIMEOUT = 60
+TOOL_CHECK_KEYS = ("ok", "current", "latest", "newer", "published_at", "size", "sha256")
+
+
+class ToolCheck:
+    """The reference fetcher's `pin-latest`, for the routine that tells the person a newer release exists. It has one method, which takes nothing:
+    the verb is TOOL_CHECK_VERB and the arguments are empty, so no caller can reach `pin-raise` (which writes a pin), `build` (which downloads) or any
+    verb that fetches. The provider starts with the minimum environment of its class. The answer is closed to the keys of TOOL_CHECK_KEYS."""
+
+    def __init__(self, root: str):
+        self._root = root
+
+    def latest(self) -> dict:
+        resolver = project_config.resolver(self._root)
+        try:
+            done = resolver.call(TOOL_CHECK_CLASS, TOOL_CHECK_VERB, [], root=self._root, timeout=TOOL_CHECK_TIMEOUT,
+                                 env=resolver.provider_environment(TOOL_CHECK_CLASS, None, ()))
+        except (resolver.UnknownClass, resolver.Unresolved):
+            raise StepServiceError("not_configured") from None
+        except resolver.ProviderCallError as e:
+            raise StepServiceError("not_configured" if e.kind == "not-configured" else "check_failed") from None
+        if not isinstance(done, dict):
+            raise StepServiceError("check_failed")
+        return {k: done.get(k) for k in TOOL_CHECK_KEYS}
+
+
 def services(ctx: dict) -> dict:
     """The services of the Context for the task a process runs: `ctx` is the operations layer's context (ops_core.context)."""
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
             "outbox": OutboxReader(cfg, root), "publisher": PublisherReader(cfg, root), "render": renderer(root), "calendar_read": CalendarReader(ctx),
             "files_read": FilesReader(cfg, root), "file_grant": FileGrant(cfg), "held_files": HeldFiles(cfg), "file_source": FileSources(cfg), "accounts": AccountTargets(cfg), "account_mail": AccountMailReader(ctx), "mailbox_read": MailboxReader(ctx), "tasks_read": TasksReader(ctx),
-            "media_store": MediaStore(ctx), "media_engine": MediaEngine(root, MediaStore(ctx).renderer())}
+            "media_store": MediaStore(ctx), "media_engine": MediaEngine(root, MediaStore(ctx).renderer()),
+            "tool_check": ToolCheck(root)}
 
 
 if __name__ == "__main__":
