@@ -382,6 +382,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `video-download` | `--task` `--out` | `video_download` |
 | `video-still` | `--task` `--out` | `video_still` |
 | `video-catalogue` | - | `video_catalogue` |
+| `media-remove` | `--media` `[--confirm]` | `media_remove` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -535,6 +536,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/videos/{id}/download` | `video-download` | `task_id` from `{id}` | none | `out` | streamed download |
 | GET | `/projects/{p}/videos/{id}/still` | `video-still` | `task_id` from `{id}` | none | `out` | answers bytes |
 | GET | `/projects/{p}/video-catalogue` | `video-catalogue` | - | none | - | - |
+| GET | `/projects/{p}/videos/{id}/watch` | `video-watch` | `task_id` from `{id}` | none | - | answers bytes |
+| POST | `/projects/{p}/media/remove` | `media-remove` | - | `media_id`, `confirm` | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
 
