@@ -99,7 +99,7 @@ def test_a_remote_daemon_and_a_stopped_one_are_not_configured(tmp_path, monkeypa
 
 def test_the_verbs_line_names_the_verbs_and_the_pin_show_verb_fetches_nothing(tmp_path, monkeypatch):
     world = K.World(tmp_path, monkeypatch, pin=False)
-    assert ytdlp.VERBS == ("pin-show", "build", "reap", "fetch", "measure")
+    assert ytdlp.VERBS == ("pin-show", "pin-latest", "pin-raise", "build", "reap", "fetch", "measure")
     code, out, _ = K.run_main(["pin-show"])
     assert code == 0 and out["filled"] is False and "sha256" in out["missing"] and world.calls() == []
 

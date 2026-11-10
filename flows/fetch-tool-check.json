@@ -1,0 +1,16 @@
+{
+  "flow": "fetch-tool-check",
+  "title": "Check whether the reference fetch tool has a newer release, and tell you",
+  "params": {},
+  "tasks": [
+    {
+      "key": "check",
+      "step": "tool-check",
+      "args": {},
+      "title": "Check the fetch tool's release",
+      "text": "Read the tool's latest release metadata and, when it is newer than the pin in force, ask you a question that names both versions and the two commands you type. Nothing is downloaded, pinned or built.",
+      "depends_on": [],
+      "milestone": true
+    }
+  ]
+}

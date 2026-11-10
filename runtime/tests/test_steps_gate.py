@@ -191,6 +191,7 @@ ALLOWED = {
     "step_calendar_event.py": {"calendar_document", "steps"},
     "step_files.py": {"files_document", "phrases", "steps", "workcopy"},      # W4a: the pure document of a file write, the sentences, the engine; the writers are in effect_files.py alone
     "step_mailbox.py": {"mail_address", "mailbox_document", "send_document", "steps"},
+    "step_tool_check.py": {"steps"},      # V7c: the check of the fetch tool's release, through the `tool_check` service alone
     "step_tasks_item.py": {"steps", "tasks_document"},      # CB-5: the pure document of a task change and the engine; the writers are in effect_tasks.py alone
 }
 
