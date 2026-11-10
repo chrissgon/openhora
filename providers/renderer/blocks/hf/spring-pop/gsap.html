@@ -1,0 +1,48 @@
+<!-- hf:spring-pop: one badge with a short phrase pops in, passes slightly beyond full size and settles. Adapted from the HyperFrames registry component spring-pop (file spring-pop.html, sha256 542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d), commit b4cc674f7f312e77ded32e0b53006cc0bad6723b, Apache-2.0; changes: rewritten as one fragment of our own contract, the phrase, an icon of the closed list and a colour read from the payload (our eight icons are in the markup and the others removed), sizes by arithmetic from the band and the text length, pixel units instead of container units, a short fade at the end, theme tokens for the colours and the allow-listed font, no sample text. See providers/renderer/hyperframes-image/NOTICE.md. -->
+<template data-hf-block="hf:spring-pop">
+  <style>
+    .stage, .stage *, .stage *::before, .stage *::after { box-sizing: border-box; }
+    .stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .badge { display: flex; flex-direction: row; align-items: center; gap: 0.3em; padding: 0.35em 0.6em 0.38em; border-radius: 0.36em; border: 0.07em solid var(--mark);
+             background: var(--c-chip_fill); color: var(--c-text); box-shadow: 0 0.12em 0 rgba(0, 0, 0, 0.35); transform-origin: 50% 50%; }
+    .dot { flex: 0 0 auto; width: 0.38em; height: 0.38em; border-radius: 50%; background: var(--mark); }
+    .ic { flex: 0 0 auto; width: 0.9em; height: 0.9em; fill: var(--mark); stroke: var(--mark); stroke-linecap: round; stroke-linejoin: round; }
+    .label { font-family: var(--font-display); font-weight: var(--weight-display); line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
+  </style>
+  <div class="stage"><div class="badge"><span class="dot"></span>
+    <svg class="ic" data-icon="check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke-width="3"/></svg>
+    <svg class="ic" data-icon="star" viewBox="0 0 24 24"><polygon points="12,2 15,9 22,9.5 16.5,14.5 18.5,22 12,18 5.5,22 7.5,14.5 2,9.5 9,9" stroke="none"/></svg>
+    <svg class="ic" data-icon="bolt" viewBox="0 0 24 24"><polygon points="13,2 4,14 11,14 10,22 20,9 13,9" stroke="none"/></svg>
+    <svg class="ic" data-icon="arrow-up" viewBox="0 0 24 24"><path d="M12 20V5M5 12l7-7 7 7" fill="none" stroke-width="3"/></svg>
+    <svg class="ic" data-icon="heart" viewBox="0 0 24 24"><path d="M12 21s-8-5.2-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.8-8 11-8 11z" stroke="none"/></svg>
+    <svg class="ic" data-icon="flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5" fill="none" stroke-width="3"/></svg>
+    <svg class="ic" data-icon="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke-width="3"/><path d="M12 7v5l3 2" fill="none" stroke-width="3"/></svg>
+    <svg class="ic" data-icon="coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke-width="3"/><path d="M12 7v10M9.5 9.5c0-1.2 1.2-2 2.5-2s2.5.8 2.5 2-1.2 1.7-2.5 2-2.5.8-2.5 2 1.2 2 2.5 2 2.5-.8 2.5-2" fill="none" stroke-width="2"/></svg>
+    <span class="label"></span></div></div>
+  <script data-hf-build>
+    function build(root, tl, data, ctx) {
+      var FIT = 0.84, FS_MAX = 96, FS_MIN = 26, EM_CHAR = 0.62, EM_PAD = 1.2, EM_MARK = 1.2, WIDTH = 880, HEIGHT_EM = 1.1 + 0.73, IN_BASE = 0.6, FROM_SCALE = 0.9, OVERSHOOT = 1.7;
+      var P = data.params;
+      var badge = root.querySelector(".badge");
+      var dot = root.querySelector(".dot");
+      var label = root.querySelector(".label");
+      var color = P.color ? (P.color.charAt(0) === "#" ? P.color : "var(--c-" + P.color + ")") : "var(--c-accent)";
+      badge.style.setProperty("--mark", color);
+      label.textContent = P.text;
+      var icons = root.querySelectorAll(".ic");
+      var shown = false;
+      icons.forEach(function (el) {
+        if (P.icon && el.getAttribute("data-icon") === P.icon) { shown = true; } else { el.remove(); }
+      });
+      if (shown) { dot.remove(); }
+      var size = Math.min(FS_MAX, WIDTH / (EM_CHAR * P.text.length + EM_PAD + EM_MARK));
+      while (HEIGHT_EM * size > ctx.band.height * FIT && size > FS_MIN) { size = size * 0.94; }
+      badge.style.fontSize = size.toFixed(1) + "px";
+      var intro = Math.min(IN_BASE, ctx.duration);
+      var out = Math.min(0.15, ctx.duration / 4);
+      tl.fromTo(badge, { scale: FROM_SCALE }, { scale: 1, duration: intro, ease: "back.out(" + OVERSHOOT + ")" }, 0);
+      tl.fromTo(badge, { opacity: 0 }, { opacity: 1, duration: Math.min(0.3, intro), ease: "power2.out" }, 0);
+      tl.fromTo(badge, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(intro, ctx.duration - out));
+    }
+  </script>
+</template>

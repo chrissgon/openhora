@@ -1,0 +1,55 @@
+{
+ "note": "Every download of the HyperFrames engine's image, pinned (package V3a-image). The values are those the S2 spike measured on 2026-11-07; `sha256_source` says where each sha256 comes from. `hf_image.py build` passes the values of the docker daemon's architecture to the Dockerfile as build arguments and refuses while a sha256 of that architecture is null. This file is in the definition, so a change to it changes the image's tag.",
+ "base": {
+  "reference": "node:22.23.4-bookworm-slim",
+  "index_digest": "sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d"
+ },
+ "debian_snapshot": "20261006T000000Z",
+ "npm": {
+  "hyperframes": "0.9.19",
+  "gsap": "3.14.2",
+  "lockfile_packages": 127
+ },
+ "browser": {
+  "product": "chrome-headless-shell",
+  "version": "155.0.8059.39",
+  "note": "Chrome for Testing publishes a size and an md5 for each archive (the official bucket's object metadata, read on 2026-10-13) and no sha256: the sha256 is computed once from a download whose size and md5 match (README.md, 'Pinning the browser for amd64'). The same pin as the ffmpeg engine's providers/renderer/browser-pin.json, kept here as a copy so that each image hashes only its own files; providers/renderer/tests/test_hf_image.py compares the two when both are in the checkout.",
+  "platforms": {
+   "arm64": {
+    "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux-arm64/chrome-headless-shell-linux-arm64.zip",
+    "size": 124553121,
+    "md5": "1b40e7a8dfd195ccc27a9608d516ff75",
+    "sha256": "9fb86f7c0b2734c5febc0bbb4e85f37da43553f3f8a7970949828c5713e87e94",
+    "binary": "chrome-headless-shell-linux-arm64/chrome-headless-shell",
+    "sha256_source": "the ffmpeg engine's pin (feature/short-video), computed from a download whose size and md5 matched; the S2 build's download of 2026-11-07 matched it"
+   },
+   "amd64": {
+    "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux64/chrome-headless-shell-linux64.zip",
+    "size": 124203329,
+    "md5": "042794dd01c0d40a7388ef8701caba43",
+    "sha256": "39dcb8c46550632a3d911850ab3b8af840b4e3f6d8622faa2018eb8756278786",
+    "binary": "chrome-headless-shell-linux64/chrome-headless-shell",
+    "sha256_source": "computed on 2026-11-07 from a download whose size and md5 matched Chrome for Testing's published values"
+   }
+  }
+ },
+ "ffmpeg": {
+  "product": "ffmpeg static build, gpl variant (github.com/BtbN/FFmpeg-Builds)",
+  "release": "autobuild-2026-02-28-12-59",
+  "version": "n8.0.1-66-g27b8d1a017",
+  "platforms": {
+   "arm64": {
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-02-28-12-59/ffmpeg-n8.0.1-66-g27b8d1a017-linuxarm64-gpl-8.0.tar.xz",
+    "size": 121067028,
+    "sha256": "d72cc324cb65dd92a9ffe699cc95ccbacfef4def8d3ad9fe2b5164a6a71b9595",
+    "sha256_source": "the value HyperFrames 0.9.19 pins in its own render image (packages/cli/src/docker/Dockerfile.render at tag v0.9.19); the S2 build's download of 2026-11-07 matched it"
+   },
+   "amd64": {
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-02-28-12-59/ffmpeg-n8.0.1-66-g27b8d1a017-linux64-gpl-8.0.tar.xz",
+    "size": null,
+    "sha256": "26d2ecd0cefba99f9d1ea92252a3a4f743a58df4c1c3cf9f8bbaaa40b1fca5b0",
+    "sha256_source": "the value HyperFrames 0.9.19 pins in its own render image (packages/cli/src/docker/Dockerfile.render at tag v0.9.19); not downloaded here: the first amd64 build checks it and stops on a mismatch"
+   }
+  }
+ }
+}

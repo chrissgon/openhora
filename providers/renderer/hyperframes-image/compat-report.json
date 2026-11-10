@@ -1,0 +1,2515 @@
+{
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "components": [
+  {
+   "bytes": 24333,
+   "dynamic": null,
+   "files": {},
+   "name": "agent-cursor",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 8755,
+   "dynamic": "fit",
+   "files": {
+    "animated-bar-chart.html": "ceae5ee442ace07edfc115ed509982805c311e0c57a07517d3c95e1d60c898f2",
+    "registry-item.json": "8803c6702b9718c3ceec3b02ef63cb9df5cd49e05d3b9d3abaf025507bbbdd86"
+   },
+   "name": "animated-bar-chart",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 8638,
+   "dynamic": null,
+   "files": {},
+   "name": "arc-motion-path",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 31959,
+   "dynamic": null,
+   "files": {},
+   "name": "ascii-render-pass",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 17840,
+   "dynamic": null,
+   "files": {},
+   "name": "ascii-trail-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 11880,
+   "dynamic": null,
+   "files": {},
+   "name": "aurora-drift",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 22939,
+   "dynamic": null,
+   "files": {},
+   "name": "avatar-cloud",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 13242,
+   "dynamic": null,
+   "files": {},
+   "name": "avatar-group-hover",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15611,
+   "dynamic": null,
+   "files": {},
+   "name": "badge-pop",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16936,
+   "dynamic": null,
+   "files": {},
+   "name": "beat-accent",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 11953,
+   "dynamic": null,
+   "files": {},
+   "name": "beat-pulse-background",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17126,
+   "dynamic": null,
+   "files": {},
+   "name": "beat-timeline",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 28423,
+   "dynamic": null,
+   "files": {},
+   "name": "before-after-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 33257,
+   "dynamic": null,
+   "files": {},
+   "name": "blur-in",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 13847,
+   "dynamic": null,
+   "files": {},
+   "name": "blur-out-up",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14115,
+   "dynamic": null,
+   "files": {},
+   "name": "bottom-up-letters",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 34980,
+   "dynamic": null,
+   "files": {},
+   "name": "browser-device-stage",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 5949,
+   "dynamic": null,
+   "files": {},
+   "name": "camera-rig-depth-stack",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:timers"
+  },
+  {
+   "bytes": 25156,
+   "dynamic": null,
+   "files": {},
+   "name": "camera-scan-gate",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 62882,
+   "dynamic": null,
+   "files": {},
+   "name": "camera-shake",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 6317,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-blend-difference",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 34745,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-camera-follow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 15097,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-clip-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 24969,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-editorial-emphasis",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 28963,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-emoji-pop",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 22427,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-glitch-rgb",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 16123,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-gradient-fill",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 17332,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-highlight",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 13524,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-kinetic-slam",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 17982,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-matrix-decode",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 32582,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-neon-accent",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 15554,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-neon-glow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 23350,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-parallax-layers",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 20296,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-particle-burst",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 26907,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-pill-karaoke",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 15891,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-texture",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 27118,
+   "dynamic": null,
+   "files": {},
+   "name": "caption-weight-shift",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 19186,
+   "dynamic": null,
+   "files": {},
+   "name": "card-resize",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 23296,
+   "dynamic": null,
+   "files": {},
+   "name": "caret-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 16554,
+   "dynamic": null,
+   "files": {},
+   "name": "char-slam-explode",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 39644,
+   "dynamic": null,
+   "files": {},
+   "name": "chart-story",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 26841,
+   "dynamic": null,
+   "files": {},
+   "name": "chat-message",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 51659,
+   "dynamic": null,
+   "files": {},
+   "name": "chat-thread",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 20743,
+   "dynamic": null,
+   "files": {},
+   "name": "chromatic-aberration-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 34494,
+   "dynamic": null,
+   "files": {},
+   "name": "code-terminal-run",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 30472,
+   "dynamic": null,
+   "files": {},
+   "name": "colorama-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 21892,
+   "dynamic": null,
+   "files": {},
+   "name": "comparison-split",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 13286,
+   "dynamic": "fit",
+   "files": {
+    "confetti.html": "e1aab1fba4eac8fcbed7367d94a262c41b08dc26cd723a3a0cde51158f7c864f",
+    "registry-item.json": "4fb01c97f8f7fd9e367d4ef282609a35a4e4d04845f0a88d09b42c792cadf585"
+   },
+   "name": "confetti",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 13244,
+   "dynamic": "fit",
+   "files": {
+    "conic-progress-ring.html": "a01beeb774006a3317d123983b85586adb3bc81b94e435e3f65116ba9dabb93a",
+    "registry-item.json": "f8729ed27cdcc11fb20395a39c8410b559a1e122f3f5666a145d4b5800a2744d"
+   },
+   "name": "conic-progress-ring",
+   "natural_duration": 4.0,
+   "params": {
+    "label": {
+     "max": 60,
+     "type": "text"
+    },
+    "progress": {
+     "max": 100,
+     "min": 0,
+     "type": "number"
+    },
+    "thickness": {
+     "max": 30,
+     "min": 4,
+     "type": "number"
+    }
+   },
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 25797,
+   "dynamic": null,
+   "files": {},
+   "name": "constellation-hub",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 20117,
+   "dynamic": null,
+   "files": {},
+   "name": "count-up",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17716,
+   "dynamic": null,
+   "files": {},
+   "name": "cta-close",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 13510,
+   "dynamic": null,
+   "files": {},
+   "name": "cta-lockup",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 26876,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-annotate",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 26645,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-context-menu",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 19932,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-drag-drop",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 32896,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-glyph-trail",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 45923,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-marquee-select",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 19957,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-text-select",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 32451,
+   "dynamic": null,
+   "files": {},
+   "name": "cursor-zoom-follow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 19519,
+   "dynamic": null,
+   "files": {},
+   "name": "curtain-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 28239,
+   "dynamic": null,
+   "files": {},
+   "name": "cut-the-curve",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 27712,
+   "dynamic": null,
+   "files": {},
+   "name": "dart-cursor",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 12893,
+   "dynamic": "refuse:not_repeatable",
+   "files": {
+    "decline-chart.html": "71d0d57b641581667f93cda95fa7abe19d9103443381b630dc5aece03441bb67",
+    "registry-item.json": "5ece7708aa2e9eaf46c4e69d3ee00d848734737659cd036ff94371ce6594a0c5"
+   },
+   "name": "decline-chart",
+   "natural_duration": 4.0,
+   "params": {
+    "end_value": {
+     "max": 100,
+     "min": 0,
+     "type": "number"
+    },
+    "label": {
+     "max": 60,
+     "type": "text"
+    },
+    "start_value": {
+     "max": 100,
+     "min": 0,
+     "type": "number"
+    }
+   },
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 24514,
+   "dynamic": null,
+   "files": {},
+   "name": "device-frame-stage",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 17754,
+   "dynamic": null,
+   "files": {},
+   "name": "directional-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 10450,
+   "dynamic": null,
+   "files": {},
+   "name": "drift-hold",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 12861,
+   "dynamic": null,
+   "files": {},
+   "name": "dynamic-grid",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 71960,
+   "dynamic": null,
+   "files": {},
+   "name": "echo-smear",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 22781,
+   "dynamic": null,
+   "files": {},
+   "name": "echo-trail",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 49317,
+   "dynamic": null,
+   "files": {},
+   "name": "extended-keyframe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 31961,
+   "dynamic": null,
+   "files": {},
+   "name": "facet-morph",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14263,
+   "dynamic": null,
+   "files": {},
+   "name": "fade-through",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 71576,
+   "dynamic": null,
+   "files": {},
+   "name": "filmed-screen",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 12115,
+   "dynamic": null,
+   "files": {},
+   "name": "focus-blur-resolve",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15046,
+   "dynamic": null,
+   "files": {},
+   "name": "focus-rack",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15238,
+   "dynamic": null,
+   "files": {},
+   "name": "focus-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 18133,
+   "dynamic": null,
+   "files": {},
+   "name": "gesture-tap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 11267,
+   "dynamic": null,
+   "files": {},
+   "name": "gloss-sweep",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 38723,
+   "dynamic": null,
+   "files": {},
+   "name": "grade-split-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 9684,
+   "dynamic": null,
+   "files": {},
+   "name": "grain-field",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 6436,
+   "dynamic": null,
+   "files": {},
+   "name": "grain-overlay",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 31904,
+   "dynamic": null,
+   "files": {},
+   "name": "grid-card-assemble",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 7290,
+   "dynamic": null,
+   "files": {},
+   "name": "grid-pixelate-wipe",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:nondeterministic"
+  },
+  {
+   "bytes": 28373,
+   "dynamic": null,
+   "files": {},
+   "name": "halftone-dissolve",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 12940,
+   "dynamic": null,
+   "files": {},
+   "name": "headline-slam",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 59087,
+   "dynamic": null,
+   "files": {},
+   "name": "hw-arrow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 43675,
+   "dynamic": null,
+   "files": {},
+   "name": "hw-boil",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 52946,
+   "dynamic": null,
+   "files": {},
+   "name": "hw-box-label",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 55938,
+   "dynamic": null,
+   "files": {},
+   "name": "hw-callout-circle",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 17668,
+   "dynamic": null,
+   "files": {},
+   "name": "hw-underline",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 13898,
+   "dynamic": null,
+   "files": {},
+   "name": "icon-morph-beat",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15285,
+   "dynamic": null,
+   "files": {},
+   "name": "icon-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 29317,
+   "dynamic": null,
+   "files": {},
+   "name": "ink-bleed-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 12061,
+   "dynamic": null,
+   "files": {},
+   "name": "inline-highlight",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:caption_tier_b_only"
+  },
+  {
+   "bytes": 14944,
+   "dynamic": null,
+   "files": {},
+   "name": "input-feedback",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 29624,
+   "dynamic": null,
+   "files": {},
+   "name": "iris-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 9474,
+   "dynamic": null,
+   "files": {},
+   "name": "keyframe-scrub-stack",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:timers"
+  },
+  {
+   "bytes": 15560,
+   "dynamic": null,
+   "files": {},
+   "name": "kinetic-center-build",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 24773,
+   "dynamic": null,
+   "files": {},
+   "name": "kinetic-type-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 29041,
+   "dynamic": null,
+   "files": {},
+   "name": "light-sweep-pass",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 13465,
+   "dynamic": null,
+   "files": {},
+   "name": "line-by-line-slide",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 21321,
+   "dynamic": null,
+   "files": {},
+   "name": "line-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16662,
+   "dynamic": null,
+   "files": {},
+   "name": "locked-nucleus-orbit",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 23582,
+   "dynamic": null,
+   "files": {},
+   "name": "logo-brand-close",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 9565,
+   "dynamic": null,
+   "files": {},
+   "name": "logo-sting",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15706,
+   "dynamic": null,
+   "files": {},
+   "name": "logo-wall",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 21553,
+   "dynamic": null,
+   "files": {},
+   "name": "magnetic-cursor",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 27511,
+   "dynamic": null,
+   "files": {},
+   "name": "marker-checklist-card",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 23226,
+   "dynamic": null,
+   "files": {},
+   "name": "marker-highlight",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14738,
+   "dynamic": null,
+   "files": {},
+   "name": "match-cut",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14512,
+   "dynamic": null,
+   "files": {},
+   "name": "matrix-decode",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16159,
+   "dynamic": null,
+   "files": {},
+   "name": "menu-morph",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 9867,
+   "dynamic": "fit",
+   "files": {
+    "mesh-gradient-bg.html": "fa2734a794ff802b4fa8390a075f26fb93e584b5640abd2d526aaa10429fae1e",
+    "registry-item.json": "9220eea7030edbf94518d68f276d95eace22e926c90d7c32453f5e8b27025938"
+   },
+   "name": "mesh-gradient-bg",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 25749,
+   "dynamic": null,
+   "files": {},
+   "name": "micro-transitions",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 7485,
+   "dynamic": null,
+   "files": {},
+   "name": "mk-emphasis-type",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 10583,
+   "dynamic": null,
+   "files": {},
+   "name": "mk-usage-arc",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 29892,
+   "dynamic": null,
+   "files": {},
+   "name": "modal-morph",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 24481,
+   "dynamic": null,
+   "files": {},
+   "name": "morph-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15185,
+   "dynamic": null,
+   "files": {},
+   "name": "morph-text",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 72244,
+   "dynamic": null,
+   "files": {},
+   "name": "motion-blur",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 26690,
+   "dynamic": null,
+   "files": {},
+   "name": "multi-device-splay",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 22498,
+   "dynamic": null,
+   "files": {},
+   "name": "multiplayer-cursors",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 29114,
+   "dynamic": null,
+   "files": {},
+   "name": "native-notification-pop",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 27788,
+   "dynamic": null,
+   "files": {},
+   "name": "notes-typing",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 22992,
+   "dynamic": null,
+   "files": {},
+   "name": "notification-pileup",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 26653,
+   "dynamic": null,
+   "files": {},
+   "name": "notification-stack",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14416,
+   "dynamic": null,
+   "files": {},
+   "name": "number-pop-in",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15873,
+   "dynamic": null,
+   "files": {},
+   "name": "number-wheel",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15742,
+   "dynamic": null,
+   "files": {},
+   "name": "offset-path-traveler",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 7437,
+   "dynamic": null,
+   "files": {},
+   "name": "onboarding-stepper-flow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:media"
+  },
+  {
+   "bytes": 33331,
+   "dynamic": null,
+   "files": {},
+   "name": "ordered-dither-pass",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 11657,
+   "dynamic": null,
+   "files": {},
+   "name": "outline-draw",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 30595,
+   "dynamic": null,
+   "files": {},
+   "name": "oversized-cursor",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 20374,
+   "dynamic": null,
+   "files": {},
+   "name": "overwhelm-surround",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 14331,
+   "dynamic": null,
+   "files": {},
+   "name": "page-slide",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17405,
+   "dynamic": null,
+   "files": {},
+   "name": "pan-stations",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 14210,
+   "dynamic": null,
+   "files": {},
+   "name": "panel-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 25133,
+   "dynamic": null,
+   "files": {},
+   "name": "paper-collage-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 18006,
+   "dynamic": null,
+   "files": {},
+   "name": "parallax-device-dive",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14062,
+   "dynamic": null,
+   "files": {},
+   "name": "parallax-unzoom",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 13970,
+   "dynamic": null,
+   "files": {},
+   "name": "parallax-zoom",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 26095,
+   "dynamic": null,
+   "files": {},
+   "name": "particle-image-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 27475,
+   "dynamic": null,
+   "files": {},
+   "name": "particle-text-dissolve",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 16365,
+   "dynamic": null,
+   "files": {},
+   "name": "pendulum-swing",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15412,
+   "dynamic": null,
+   "files": {},
+   "name": "per-word-crossfade",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 21322,
+   "dynamic": null,
+   "files": {},
+   "name": "per-word-rise",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15666,
+   "dynamic": null,
+   "files": {},
+   "name": "perspective-marquee",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 12521,
+   "dynamic": null,
+   "files": {},
+   "name": "physical-exit",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 28482,
+   "dynamic": null,
+   "files": {},
+   "name": "press-ripple",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15973,
+   "dynamic": null,
+   "files": {},
+   "name": "pull-back-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 30187,
+   "dynamic": null,
+   "files": {},
+   "name": "pull-to-refresh",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 9690,
+   "dynamic": null,
+   "files": {},
+   "name": "push-in",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 28493,
+   "dynamic": null,
+   "files": {},
+   "name": "radial-surround",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 13038,
+   "dynamic": null,
+   "files": {},
+   "name": "rgb-glitch-text",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15524,
+   "dynamic": null,
+   "files": {},
+   "name": "rubber-band-bumper",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 10490,
+   "dynamic": null,
+   "files": {},
+   "name": "scan-band",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 19115,
+   "dynamic": null,
+   "files": {},
+   "name": "scramble-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 32515,
+   "dynamic": null,
+   "files": {},
+   "name": "screen-flow-carousel",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 40129,
+   "dynamic": null,
+   "files": {},
+   "name": "scroll-camera-story",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 23187,
+   "dynamic": null,
+   "files": {},
+   "name": "scroll-feed",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 31171,
+   "dynamic": null,
+   "files": {},
+   "name": "segmentation-flood",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 33936,
+   "dynamic": null,
+   "files": {},
+   "name": "separator",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 7117,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "4a679d64c256d4c1eca7edad249b0728fa05aa20da9d03bd4405f6f1c0d1fbb8",
+    "settings-toggle-flow.html": "f027fcc6cb55156dd2835c84a5c5615272c7653842a7f0fc5185b9ae85baa178"
+   },
+   "name": "settings-toggle-flow",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 12828,
+   "dynamic": null,
+   "files": {},
+   "name": "shared-axis-y",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17703,
+   "dynamic": null,
+   "files": {},
+   "name": "shared-axis-z",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 30214,
+   "dynamic": null,
+   "files": {},
+   "name": "sheet-spring-up",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 7255,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "e064e27a69b1622c925c706f868e0134478ae4e411376425142c118d0492a130",
+    "shimmer-sweep.html": "0358db4e2ec9137c65771e17139741a13e2c12a37be5688fc6cfede9a718d8d6"
+   },
+   "name": "shimmer-sweep",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 82151,
+   "dynamic": null,
+   "files": {},
+   "name": "shutter-slam",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 6628,
+   "dynamic": null,
+   "files": {},
+   "name": "signup-flow",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:media"
+  },
+  {
+   "bytes": 13352,
+   "dynamic": null,
+   "files": {},
+   "name": "skeleton-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 23198,
+   "dynamic": null,
+   "files": {},
+   "name": "slit-scan-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 16042,
+   "dynamic": null,
+   "files": {},
+   "name": "slot-machine-roll",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 23116,
+   "dynamic": null,
+   "files": {},
+   "name": "social-proof-card",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 31772,
+   "dynamic": null,
+   "files": {},
+   "name": "soft-blob-touch",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 11717,
+   "dynamic": null,
+   "files": {},
+   "name": "soft-blur-in",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 33225,
+   "dynamic": null,
+   "files": {},
+   "name": "split-tilt-cards",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 9929,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "27640efc7c618043c3b6764efe02a7cb19ca84d9c3310cf59dafa101b5886472",
+    "spotlight-card.html": "6dc7a87c4e033e8794252aaa117c587230f3d2077c79b1b9a9d85a042f53555e"
+   },
+   "name": "spotlight-card",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 11884,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "341481f852f055f8cb4100270c66bce9d3ab92a16451e72e6117ba547a341e92",
+    "spring-pop.html": "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"
+   },
+   "name": "spring-pop",
+   "natural_duration": 2.0,
+   "params": {
+    "from_scale": {
+     "max": 0.97,
+     "min": 0.8,
+     "type": "number"
+    },
+    "overshoot": {
+     "max": 2,
+     "min": 1.1,
+     "type": "number"
+    },
+    "text": {
+     "max": 60,
+     "type": "text"
+    }
+   },
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 34792,
+   "dynamic": null,
+   "files": {},
+   "name": "spring-stack-shuffle",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 15320,
+   "dynamic": null,
+   "files": {},
+   "name": "stagger-cascade",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 9175,
+   "dynamic": null,
+   "files": {},
+   "name": "stagger-lattice",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:timers"
+  },
+  {
+   "bytes": 15145,
+   "dynamic": null,
+   "files": {},
+   "name": "staggered-fade-up",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16101,
+   "dynamic": null,
+   "files": {},
+   "name": "star-rating-fill",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 25948,
+   "dynamic": null,
+   "files": {},
+   "name": "state-chip-rail",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 20042,
+   "dynamic": null,
+   "files": {},
+   "name": "sticky-mock-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 40921,
+   "dynamic": null,
+   "files": {},
+   "name": "stitched-text-draw",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 25885,
+   "dynamic": null,
+   "files": {},
+   "name": "stop-motion-cadence",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16409,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "7048265f56b0660f4b81052f5feeb2714822281eb00f65d77850004433702b77",
+    "store-badge-lockup.html": "82f0f1eb2652f474648d4918dceca03f52ff073a8aa594a24c894ed9c949f367"
+   },
+   "name": "store-badge-lockup",
+   "natural_duration": 4.0,
+   "params": {
+    "headline": {
+     "max": 60,
+     "type": "text"
+    },
+    "show_apple": {
+     "default": "yes",
+     "type": "choice",
+     "values": [
+      "yes",
+      "no"
+     ]
+    },
+    "show_google": {
+     "default": "yes",
+     "type": "choice",
+     "values": [
+      "yes",
+      "no"
+     ]
+    }
+   },
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 28554,
+   "dynamic": null,
+   "files": {},
+   "name": "streaming-text",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 14376,
+   "dynamic": null,
+   "files": {},
+   "name": "strikethrough-replace",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17705,
+   "dynamic": null,
+   "files": {},
+   "name": "success-check",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 6788,
+   "dynamic": null,
+   "files": {},
+   "name": "svg-line-draw-loader",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:timers"
+  },
+  {
+   "bytes": 16519,
+   "dynamic": null,
+   "files": {},
+   "name": "svg-mask-reveal",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 16257,
+   "dynamic": null,
+   "files": {},
+   "name": "svg-stroke-trace",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16541,
+   "dynamic": null,
+   "files": {},
+   "name": "swipe-rail",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 19263,
+   "dynamic": null,
+   "files": {},
+   "name": "tabs-slide-indicator",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 31166,
+   "dynamic": null,
+   "files": {},
+   "name": "telemetry-hud",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 8182,
+   "dynamic": null,
+   "files": {},
+   "name": "terminal-simulator",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:fonts"
+  },
+  {
+   "bytes": 17735,
+   "dynamic": "refuse:font_not_allowed",
+   "files": {
+    "registry-item.json": "6d185115a09a32ef9de499733633939bea84bce1ef7fa49fa9b191aac34cead7",
+    "testimonial-card.html": "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"
+   },
+   "name": "testimonial-card",
+   "natural_duration": 4.0,
+   "params": {
+    "author": {
+     "max": 60,
+     "type": "text"
+    },
+    "handle": {
+     "max": 60,
+     "type": "text"
+    },
+    "quote": {
+     "max": 60,
+     "type": "text"
+    },
+    "rating": {
+     "max": 5,
+     "min": 0,
+     "type": "number"
+    }
+   },
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 31429,
+   "dynamic": null,
+   "files": {},
+   "name": "testimonial-proof-card",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 20689,
+   "dynamic": null,
+   "files": {},
+   "name": "text-match-cut",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 11028,
+   "dynamic": null,
+   "files": {},
+   "name": "text-shimmer",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15065,
+   "dynamic": null,
+   "files": {},
+   "name": "text-stagger",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 15281,
+   "dynamic": null,
+   "files": {},
+   "name": "text-state-swap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 39196,
+   "dynamic": null,
+   "files": {},
+   "name": "texture-mask-text",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:bundled_media"
+  },
+  {
+   "bytes": 8821,
+   "dynamic": null,
+   "files": {},
+   "name": "three-orbiting-cards",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 15364,
+   "dynamic": null,
+   "files": {},
+   "name": "ticker-takeover",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 16569,
+   "dynamic": null,
+   "files": {},
+   "name": "tilt-card",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 10152,
+   "dynamic": null,
+   "files": {},
+   "name": "titlecard-calm",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:gsap_api"
+  },
+  {
+   "bytes": 21470,
+   "dynamic": null,
+   "files": {},
+   "name": "titlecard-lockup",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 23688,
+   "dynamic": null,
+   "files": {},
+   "name": "toggle-flip",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 12650,
+   "dynamic": null,
+   "files": {},
+   "name": "top-down-letters",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 29434,
+   "dynamic": null,
+   "files": {},
+   "name": "torn-paper-rip",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 27977,
+   "dynamic": null,
+   "files": {},
+   "name": "touch-indicator",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 18211,
+   "dynamic": null,
+   "files": {},
+   "name": "tracing-beam",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 12838,
+   "dynamic": null,
+   "files": {},
+   "name": "tracking-in",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 17170,
+   "dynamic": null,
+   "files": {},
+   "name": "trust-strip",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 17044,
+   "dynamic": null,
+   "files": {},
+   "name": "type-match-cut",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 25918,
+   "dynamic": null,
+   "files": {},
+   "name": "typed-prompt",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 12787,
+   "dynamic": null,
+   "files": {},
+   "name": "typewriter",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 32521,
+   "dynamic": null,
+   "files": {},
+   "name": "typing-indicator",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 33677,
+   "dynamic": null,
+   "files": {},
+   "name": "ui-focus-zoom",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 11893,
+   "dynamic": null,
+   "files": {},
+   "name": "variable-axis-type",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:network"
+  },
+  {
+   "bytes": 22529,
+   "dynamic": null,
+   "files": {},
+   "name": "variable-font-flex",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:escapes_scope"
+  },
+  {
+   "bytes": 34223,
+   "dynamic": null,
+   "files": {},
+   "name": "vector-editor-rig",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 21607,
+   "dynamic": null,
+   "files": {},
+   "name": "velocity-throw-snap",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 10328,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "f3b57510f11983f0aa28453ef17a559941e686e0c947438843c5622305c2fe0f",
+    "vignette.html": "b825476ca7bb89c0afbd6f1157b9813ac6a1ac82e9aa13a7cecd7ae305ebb2d5"
+   },
+   "name": "vignette",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 29346,
+   "dynamic": null,
+   "files": {},
+   "name": "vox-annotate",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 28805,
+   "dynamic": null,
+   "files": {},
+   "name": "whip-pan-cut",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 33193,
+   "dynamic": null,
+   "files": {},
+   "name": "whiteboard-ink",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 19204,
+   "dynamic": null,
+   "files": {},
+   "name": "wordmark-tiles",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  },
+  {
+   "bytes": 7636,
+   "dynamic": "fit",
+   "files": {
+    "registry-item.json": "9fbb2c253c797aac81fd6e26fbdc0e7d9645b338abddf9eeba322b59c0eb7498",
+    "x-follow-card.html": "e84944fc9cfffde1be52c3610e014d424386d47425702f364d24bf673efdffd7"
+   },
+   "name": "x-follow-card",
+   "natural_duration": 2.5,
+   "params": {},
+   "preset": null,
+   "verdict": "admit-candidate"
+  },
+  {
+   "bytes": 13474,
+   "dynamic": null,
+   "files": {},
+   "name": "yt-camera-move",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 11949,
+   "dynamic": null,
+   "files": {},
+   "name": "yt-circle-pointer",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 11349,
+   "dynamic": null,
+   "files": {},
+   "name": "yt-feather-highlight",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 9330,
+   "dynamic": null,
+   "files": {},
+   "name": "yt-screen-warp",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:writes_window"
+  },
+  {
+   "bytes": 19853,
+   "dynamic": null,
+   "files": {},
+   "name": "zoom-through-transition",
+   "natural_duration": null,
+   "params": {},
+   "preset": null,
+   "verdict": "refuse:dynamic_code"
+  }
+ ],
+ "licence_sha256": "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8",
+ "planted": {
+  "guarded": 16,
+  "refused": 67,
+  "total": 67
+ },
+ "schema": 1
+}

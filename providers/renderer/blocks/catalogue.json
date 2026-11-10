@@ -1,0 +1,497 @@
+{
+ "blocks": [
+  {
+   "band": "caption",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "caption",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:caption-highlight",
+   "namespace": "hf",
+   "natural_duration": null,
+   "params": {},
+   "preset": "caption",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {}
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the spoken words under the face, one to three at a time, with a colour sweep behind the word being said"
+  },
+  {
+   "band": "caption",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "caption",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:caption-pill-karaoke",
+   "namespace": "hf",
+   "natural_duration": null,
+   "params": {},
+   "preset": "caption",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {}
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the spoken words in a light pill under the face, each word turning dark as it is said"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:count-up",
+   "namespace": "hf",
+   "natural_duration": 2.2,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "label": {
+     "max": 40,
+     "required": true,
+     "type": "text"
+    },
+    "value": {
+     "max": 10,
+     "pattern": "[0-9][0-9.,]*",
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "number",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "label": "visits in the first week",
+     "value": "2.480"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the line turns on one figure that should count up to its value, with a label under it"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:spring-pop",
+   "namespace": "hf",
+   "natural_duration": 1.0,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "icon": {
+     "type": "icon"
+    },
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "icon": "coin",
+     "text": "Name every dollar"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "one short phrase the speaker wants to pop onto the screen, with a mark beside it"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:testimonial-card",
+   "namespace": "hf",
+   "natural_duration": 2.0,
+   "params": {
+    "author": {
+     "max": 40,
+     "type": "text"
+    },
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 120,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "quote",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "author": "Aster Lane",
+     "text": "Small steps beat big plans."
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "the speaker repeats a sentence someone said, in a card that names the author"
+  },
+  {
+   "band": "caption",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "caption",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:caption",
+   "namespace": "oh",
+   "natural_duration": null,
+   "params": {},
+   "preset": "caption",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {}
+   ],
+   "source": "openhora",
+   "use_when": "always on: the spoken words, one to three at a time, in the band under the face"
+  },
+  {
+   "band": "frame",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:cutaway",
+   "namespace": "oh",
+   "natural_duration": 1.5,
+   "params": {
+    "asset": {
+     "required": true,
+     "type": [
+      "image",
+      "clip"
+     ]
+    },
+    "fit": {
+     "default": "cover",
+     "type": "choice",
+     "values": [
+      "cover",
+      "contain"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    }
+   },
+   "preset": "cutaway",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "asset": "slot-1",
+     "fit": "cover",
+     "label": "The view from the top"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the picture should show what is spoken about instead of the speaker"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:keyword",
+   "namespace": "oh",
+   "natural_duration": 1.0,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "icon": {
+     "type": "icon"
+    },
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "icon": "coin",
+     "text": "Name every dollar"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "one short phrase the speaker says should stand out on screen"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:list",
+   "namespace": "oh",
+   "natural_duration": 2.5,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "icon": {
+     "type": "icon"
+    },
+    "items": {
+     "max": 30,
+     "max_items": 4,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "list",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "items": "Review | Adjust | Celebrate"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the speaker names two to four steps or items in a row"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:number",
+   "namespace": "oh",
+   "natural_duration": 2.2,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "label": {
+     "max": 40,
+     "required": true,
+     "type": "text"
+    },
+    "value": {
+     "max": 10,
+     "pattern": "[0-9][0-9.,]*",
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "number",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "label": "euros saved in one month",
+     "value": "1.234,56"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the line turns on one figure and what it measures"
+  },
+  {
+   "band": "frame",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:pip",
+   "namespace": "oh",
+   "natural_duration": 1.5,
+   "params": {
+    "asset": {
+     "required": true,
+     "type": [
+      "image",
+      "clip"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    },
+    "position": {
+     "default": "top",
+     "type": "choice",
+     "values": [
+      "top",
+      "bottom"
+     ]
+    }
+   },
+   "preset": "pip",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "asset": "slot-1",
+     "label": "Behind the scenes",
+     "position": "top"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "a picture or a clip supports the line while the speaker stays on screen"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:quote",
+   "namespace": "oh",
+   "natural_duration": 2.0,
+   "params": {
+    "author": {
+     "max": 40,
+     "type": "text"
+    },
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 120,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "quote",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "author": "A wise friend",
+     "text": "Small steps beat big plans."
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the speaker repeats a sentence someone said"
+  }
+ ],
+ "blocks_sha256": "6d45b316c8eed9b345d3d06b99d528d4c36320a30dd2ae056e3d49ca62a7e9d6",
+ "engines": {
+  "ffmpeg": {
+   "presets": {
+    "caption": "oh:caption",
+    "cutaway": "oh:cutaway",
+    "keyword": "oh:keyword",
+    "list": "oh:list",
+    "number": "oh:number",
+    "pip": "oh:pip",
+    "quote": "oh:quote"
+   },
+   "runtimes": [
+    "renderat"
+   ]
+  },
+  "hyperframes": {
+   "presets": {
+    "caption": "hf:caption-highlight",
+    "keyword": "hf:spring-pop",
+    "list": "oh:list",
+    "number": "hf:count-up",
+    "quote": "hf:testimonial-card"
+   },
+   "runtimes": [
+    "gsap",
+    "renderat"
+   ]
+  }
+ },
+ "note": "Generated by `python3 providers/renderer/ffmpeg.py pin-blocks --confirmed` from the oh: manifests (blocks/oh/*/block.json), the hf: blocks (blocks/hf/) and the committed hf: allowlist, never from an image and never by hand (decision VD13). A test holds it equal to what the generator writes. Our fields only: no registry text.",
+ "schema_version": 1
+}

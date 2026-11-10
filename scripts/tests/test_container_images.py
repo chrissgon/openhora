@@ -249,10 +249,10 @@ def test_the_images_row_leaves_the_exit_code_of_the_doctor_alone(monkeypatch, ca
 
 def test_the_families_are_the_providers_that_build_an_image_here_with_their_current_definition():
     families = doctor.image_families()
-    assert [f["family"] for f in families] == ["converter", "exporter", "script"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
+    assert [f["family"] for f in families] == ["converter", "exporter", "script", "transcriber", "renderer", "hyperframes"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
     for family in families:
         assert family["tag"] == f"{family['repository']}:{family['hash'][:12]}" and len(family["hash"]) == 64
-    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter", "openhora-script"}
+    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter", "openhora-script", "openhora-transcriber", "openhora-renderer", "openhora-hyperframes"}
 
 
 def test_the_script_image_is_a_family_and_its_dependency_images_are_never_taken_for_an_earlier_definition_of_it():

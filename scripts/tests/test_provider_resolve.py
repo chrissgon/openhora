@@ -491,6 +491,27 @@ def test_whatsapp_twilio_is_a_third_whatsapp_platform_and_the_shared_module_is_n
     assert "whatsapp_meta" not in resolve.implementations("messenger:<platform>", env={})
 
 
+def test_transcriber_speech_is_a_runtime_only_class_served_by_whispercpp():
+    assert resolve.variables("transcriber:speech") == ["TRANSCRIBER_SPEECH_PROVIDER", "TRANSCRIBER_PROVIDER"]
+    assert resolve.folder("transcriber:speech") == "transcriber" and resolve.platform_of("transcriber:speech") is None
+    got = resolve.resolve("transcriber:speech", env={})
+    assert got["implementation"] == "whispercpp" and got["path"] == str(REPO / "providers" / "transcriber" / "whispercpp.py")
+    assert "transcriber:speech" not in resolve.LISTED   # VD2: no skill requires it, so contracts/environment.md does not list it
+    assert resolve.implementations("transcriber:speech", env={}) == ["whispercpp"]
+    with pytest.raises(resolve.UnknownClass):
+        resolve.variables("transcriber")   # a class is <role>:<target>
+
+
+def test_renderer_video_is_a_runtime_only_class_whose_default_is_hyperframes():
+    assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
+    assert resolve.folder("renderer:video") == "renderer" and resolve.platform_of("renderer:video") is None
+    got = resolve.resolve("renderer:video", env={})
+    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
+    assert got["path"] == str(REPO / "providers" / "renderer" / "hyperframes.py")
+    assert "renderer:video" not in resolve.LISTED   # VD2: no skill requires it, so contracts/environment.md does not list it
+    assert resolve.implementations("renderer:video", env={}) == ["ffmpeg", "hyperframes"]   # the underscore modules and hyperframes-image/ are not implementations
+
+
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
 
 LONG_LIVED = '''# /// script

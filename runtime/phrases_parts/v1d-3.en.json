@@ -1,0 +1,7 @@
+{"package": "v1d-3", "table": {
+  "VID_CLOUD_FETCHING": "Fetching the file from Google Drive.",
+  "VID_CLOUD_NOT_SHARED": "The link did not give the file. Share it as \"anyone with the link\", or connect the Google account, then send the link again.",
+  "VID_CLOUD_TOO_LARGE": "That file is larger than the media store takes (1 GiB, or the space left).",
+  "VID_CLOUD_NO_LENGTH": "Google Drive did not say the file's size, so it was not fetched. Upload it on the page opened on this computer.",
+  "VID_CLOUD_FAILED": "The file could not be fetched from that link."
+}}

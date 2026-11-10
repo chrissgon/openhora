@@ -61,6 +61,66 @@ export function attachments() {
     limits: { file_cap: 26214400, day_files: 20, day_bytes: 104857600, held_max: 10, per_message: 5, held_days: 7 } };
 }
 
+// The new videos (package V1c-1): the demo holds one fictional delivered video of `northwind-shop`, read-only, with no open decision about it. Like `instructions()` and
+// `attachments()`, the answers are written here with the operations' own keys (runtime/tests/test_interface_videos.py compares them with the real operations').
+const VIDEO = { media: "a1b2c3d4e5f60718", task: 900 };
+const VIDEO_WORDS = "Aster Lane opens a shop in Northwind this spring, come see us".split(" ");
+const VIDEO_CHUNKS = [[0, 3], [4, 8], [9, 11]];
+
+/** The recordings as `media-list` answers: one delivered video in `northwind-shop`, none elsewhere. */
+export function mediaList(P) {
+  const recordings = P.name === "northwind-shop" ? [{ media: VIDEO.media, created_at: "2026-10-01T09:00:00Z", updated_at: "2026-10-01T09:20:00Z", size: 48234567, type: "video/mp4",
+    raw_kept: true, task: VIDEO.task, task_state: "done", delivered_at: "2026-10-01T09:30:00Z" }] : [];
+  return { recordings, used_bytes: recordings.length ? 48234567 : 0, quota_bytes: 8589934592 };
+}
+
+/** The caption review of the demo's video as `captions-read` answers: the keys of `captions.view`, at every depth, with a small fictional transcript. */
+export function captionsRead(P, id) {
+  if (P.name !== "northwind-shop" || id !== VIDEO.task) throw notFound("no such route, project or file");
+  const words = VIDEO_WORDS.map((text, i) => ({ index: i, text, start: Math.round((0.5 + i * 0.4) * 1000) / 1000, end: Math.round((0.8 + i * 0.4) * 1000) / 1000, segment: 0, estimated: false, edited: false,
+    origin: [i, i], timing_adjusted: false, chunk: VIDEO_CHUNKS.findIndex(([a, b]) => i >= a && i <= b), left_out: null }));
+  const view = {
+    revision: 3, words,
+    chunks: VIDEO_CHUNKS.map(([a, b], chunk) => ({ chunk, words: words.slice(a, b + 1).map((w) => w.index) })),
+    segments: [{ index: 0, source: "transcriber", dropped: false, words: words.map((w) => w.index) }],
+    retakes: [{ id: "r1", kind: "repeat", seconds: 1.4, word_from: 2, word_to: 3, keep_from: 4, confirmed: true, default: "cut", reason: "continues", decided: "rule", start: 1.3 }],
+    beats: [
+      { beat: 1, preset: "keyword", score: 0.92, matched: true, anchored: false, below_threshold: false, reordered: false, fallback: null, word_from: 4, word_to: 4, dropped: false },
+      { beat: 2, preset: "quote", score: 0.31, matched: false, anchored: false, below_threshold: true, reordered: false, fallback: null, word_from: null, word_to: null, dropped: false },
+    ],
+    slots: [], unplaced: [], threshold: 0.5, face_box: null, cover_offset_ms: 0, theme: "identity",
+    animations: [{ id: "a1", block: "oh:keyword", preset: "keyword", params: { text: "Northwind" }, word_from: 6, word_to: 6, lost: false, overlaps_beat: false }],
+    counts: { words: words.length, edited: 0, estimated: 0, timing_adjusted: 0, unplaced: 0, retakes: 1, confirmed: 1, beats: 2, below_threshold: 1, animations: 1 },
+  };
+  return { task: VIDEO.task, media: VIDEO.media, mode: null, still: null, view };
+}
+
+/** The catalogue of animation blocks as `video-catalogue` answers: three entries with the real entries' keys, one of them not addable. */
+export function videoCatalogue() {
+  const engines = ["ffmpeg", "hyperframes"];
+  const entry = (name, kind, use, params, sample, why) => ({ name, namespace: "oh", kind, preset: name.slice(3), band: kind === "layout" ? "frame" : "card", may_cross_face: kind === "layout", license: ["MIT"], source: "openhora",
+    use_when: use, params, samples: [sample], natural_duration: 1.5, runtimes: ["renderat"], engines, addable: why === null, why });
+  return {
+    engine: "ffmpeg", blocks_sha256: "0123456789abcdef".repeat(4), animations_max: 12, beats_max: 12,
+    presets: { keyword: "oh:keyword", quote: "oh:quote", cutaway: "oh:cutaway" },
+    blocks: [
+      entry("oh:cutaway", "layout", "the picture should show what is spoken about instead of the speaker", { asset: { required: true, type: ["image", "clip"] }, label: { max: 40, type: "text" } }, { asset: "slot-1", label: "The view from the top" }, "slot"),
+      entry("oh:keyword", "overlay", "one short phrase the speaker says should stand out on screen", { text: { max: 24, required: true, type: "text" }, icon: { type: "icon" } }, { icon: "coin", text: "Name every dollar" }, null),
+      entry("oh:quote", "overlay", "the speaker repeats a sentence someone said", { text: { max: 120, required: true, type: "text" }, author: { max: 40, type: "text" } }, { author: "A wise friend", text: "Small steps beat big plans." }, null),
+    ],
+  };
+}
+
+/** The still of a recording: bytes, which the demo does not serve. */
+export function videoStill() {
+  throw notInDemo("A video's still");
+}
+
+/** The delivered video: bytes, which the demo does not serve. */
+export function videoDownload() {
+  throw notInDemo("A delivered video");
+}
+
 export function status(P) {
   return fill(F.status, {
     config: { file: "runtime.json", sha256: P.configSha },

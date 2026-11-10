@@ -1,0 +1,45 @@
+{
+ "schema_version": 1,
+ "name": "oh:pip",
+ "kind": "layout",
+ "preset": "pip",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "a picture or a clip supports the line while the speaker stays on screen",
+ "params": {
+  "asset": {
+   "type": [
+    "image",
+    "clip"
+   ],
+   "required": true
+  },
+  "position": {
+   "type": "choice",
+   "values": [
+    "top",
+    "bottom"
+   ],
+   "default": "top"
+  },
+  "label": {
+   "type": "text",
+   "max": 40
+  }
+ },
+ "samples": [
+  {
+   "asset": "slot-1",
+   "position": "top",
+   "label": "Behind the scenes"
+  }
+ ],
+ "natural_duration": 1.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

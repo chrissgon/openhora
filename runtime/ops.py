@@ -1510,6 +1510,13 @@ from ops_card_revise import card_replaced, card_revise, card_revise_check  # noq
 from ops_mailbox import mail_archive, mail_draft, mail_mark, mail_move, mail_trash  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
+from ops_media import captions_edit, captions_read, media_in, media_list, video_download, video_new, video_run, video_still  # noqa: E402,F401  (V1b2: the media operations)
+from ops_media_preview import video_preview  # noqa: E402,F401  (V1d-2: the preview of a delivery for a messaging app; a helper, not an operation)
+from ops_media_catalogue import video_catalogue  # noqa: E402,F401  (V1b3: the catalogue of animations)
+from ops_media_watch import video_watch  # noqa: E402,F401  (V1c-3: watching a video before its delivery)
+from ops_media_phone import video_phone_in, video_phone_posts, video_phone_reply, video_phone_run, video_phone_start  # noqa: E402,F401  (V1d-1: a video from a messaging app)
+from ops_media_cloud import video_phone_fetch  # noqa: E402,F401  (V1d-3: a recording from a Drive link)
+from ops_media_remove import media_remove  # noqa: E402,F401  (media-remove: one recording removed for good)
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402

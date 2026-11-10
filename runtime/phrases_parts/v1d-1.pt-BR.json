@@ -1,0 +1,17 @@
+{"package": "v1d-1", "table": {
+  "VID_TOO_BIG": "Este vídeo tem {size}, e este app aceita no máximo {cap} aqui. Envie pela página aberta neste computador, ou mande um link do Google Drive para ele.",
+  "VID_NO_POST": "Nenhum post com roteiro está pronto para vídeo. Escreva o roteiro primeiro e depois envie a gravação de novo.",
+  "VID_FETCHING": "Recebendo a gravação.",
+  "VID_RECEIVED": "Gravação recebida ({size}).",
+  "VID_PICK_POST": "Qual post você gravou? Responda com o número:\n{list}",
+  "VID_POST_GONE": "Esse número não está na lista. Responda com um número de 1 a {n}.",
+  "VID_NOT_STARTED": "O vídeo não começou. Abra a página para ver o motivo.",
+  "VID_REVIEW_WORDS": "Estas são as legendas. Para corrigir, responda ao cartão das legendas com uma linha por correção: errado -> certo. Quando estiverem certas, responda continuar.\n\n{words}",
+  "VID_CUT": "O resto das legendas está na página.",
+  "VID_EDITED": "Alterado. As legendas agora estão assim:\n\n{words}",
+  "VID_EDITED_GATE": "Alterado. O vídeo será renderizado de novo e enviado para uma nova aprovação.",
+  "VID_NOT_FOUND": "\"{wrong}\" não está nas legendas. Copie as palavras como estão escritas.",
+  "VID_AMBIGUOUS": "\"{wrong}\" aparece mais de uma vez nas legendas. Acrescente uma palavra antes ou depois.",
+  "VID_HOW": "Responda continuar quando as legendas estiverem certas, ou corrija com uma linha por correção: errado -> certo.",
+  "VID_RENDERING": "Renderizando o vídeo. O cartão de aprovação chega quando estiver pronto."
+}, "same_as_english": []}

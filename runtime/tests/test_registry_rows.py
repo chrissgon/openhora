@@ -152,10 +152,10 @@ def test_the_views_equal_the_literals_they_replace():
     assert hashes_of(*natural.views(1)) == pinned_views()
     assert (natural.CLASSES, natural.NATURAL) == natural.views(4), "the module's own pair is the views of the catalog version"
     assert [op for op in natural.CLASSES if op in natural.NATURAL] == list(natural.NATURAL), "the classes are in the order of the table"      # CB-3: a row of a later catalog version has a class and no row of the table
-    assert len(natural.views(1)[1]) == 99 and len(natural.views(2)[1]) == 104 and len(natural.views(3)[1]) == 105 and len(natural.NATURAL) == 106 and len(natural.CLASSES) == len(operations.OPERATIONS) >= 106
-    assert set(natural.NATURAL) - set(natural.views(1)[1]) == {"mail-read", "todo-list", "todo-add", "todo-done", "file-ask", "mail-ask", "agenda"}, "the rows a line reaches since the flips"
+    assert len(natural.views(1)[1]) == 99 and len(natural.views(2)[1]) == 104 and len(natural.views(3)[1]) == 105 and len(natural.NATURAL) == 122 and len(natural.CLASSES) == len(operations.OPERATIONS) >= 122
+    assert set(natural.NATURAL) - set(natural.views(1)[1]) == {"mail-read", "todo-list", "todo-add", "todo-done", "file-ask", "mail-ask", "agenda", "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch", "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove"}, "the rows a line reaches since the flips"
     assert set(natural.views(3)[1]) - set(natural.views(2)[1]) == {"mail-ask"}, "the flip of MAIL-SUMMARY-FLIP serves one row"
-    assert set(natural.views(4)[1]) - set(natural.views(3)[1]) == {"agenda"}, "the flip of P5 serves one row"
+    assert set(natural.views(4)[1]) - set(natural.views(3)[1]) == {"agenda", "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch", "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove"}, "the flip of P5 serves one row, V1b2-1 adds its eight rows of version 4, V1b3 one, V1d-1 four, V1d-3 one and media-remove one"
 
 
 def test_vacuity_a_changed_class_a_changed_order_or_a_new_v1_slot_moves_the_pinned_hashes(monkeypatch):
@@ -525,7 +525,7 @@ def test_the_command_line_helps_and_lists():
     listed = subprocess.run([sys.executable, str(RUNTIME / "registry.py"), "--list"], capture_output=True, text=True, timeout=60)
     assert listed.returncode == 0
     lines = listed.stdout.splitlines()
-    assert len(lines) == 106 and lines[0].split("\t")[:2] == ["status", "R"] and all(len(line.split("\t")) == 6 for line in lines)
+    assert len(lines) == 122 and lines[0].split("\t")[:2] == ["status", "R"] and all(len(line.split("\t")) == 6 for line in lines)
     plain = subprocess.run([sys.executable, str(RUNTIME / "registry.py")], capture_output=True, text=True, timeout=60)
     assert plain.returncode == 0 and "usage" in plain.stdout.lower()
 

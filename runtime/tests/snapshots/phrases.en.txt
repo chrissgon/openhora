@@ -149,6 +149,10 @@ ATT_WAITING_LINE: file #42 Ana Lima: /add 42 or /discard 42
 A_MESSAGING_APP: a messaging app
 BIDI_LEFT_OUT: A line with text-direction controls was left out.
 BODY_NOT_NAMED: The planning agent did not name a flow or a skill for request move the review
+BODY_VIDEO_REVIEW_NO_STILL: move, review words were transcribed.\n<beats> beats are below the match threshold.\nNo still was made for the face box.\n<cut> repeated takes will be cut by rule; open the captions to keep one.\nEdit the captions, then continue.\n\nAnswer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again.
+BODY_VIDEO_REVIEW_NO_STILL_ONE: move, review words were transcribed.\n<beats> beats are below the match threshold.\nNo still was made for the face box.\n1 repeated take will be cut by rule; open the captions to keep one.\nEdit the captions, then continue.\n\nAnswer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again.
+BODY_VIDEO_REVIEW_STILL: move, review words were transcribed.\n<beats> beats are below the match threshold.\nA still was made for the face box.\n<cut> repeated takes will be cut by rule; open the captions to keep one.\nEdit the captions, then continue.\n\nAnswer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again.
+BODY_VIDEO_REVIEW_STILL_ONE: move, review words were transcribed.\n<beats> beats are below the match threshold.\nA still was made for the face box.\n1 repeated take will be cut by rule; open the captions to keep one.\nEdit the captions, then continue.\n\nAnswer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again.
 CAN_CARD: Yes: a card is approved or rejected with its own buttons, or by replying “yes” or “no” (with no question mark) while it is the last message.
 CAN_YES: Yes, I can do that from here: just ask. Nothing is changed before you approve it.
 CARD_ACCOUNT: Account: ana@mail.example (ana@mail.example)
@@ -279,6 +283,18 @@ CARD_TODO_LIST: List: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Task: Quarterly review
 CARD_TODO_PLAIN: A task with this title only: no due date and no note.
 CARD_TODO_TITLE: Task: Quarterly review
+CARD_VIDEO_BLOCK: Animation block: 42 0123456789abcdef
+CARD_VIDEO_CLOSING: Approving marks this exact file downloadable. Nothing is published.
+CARD_VIDEO_COVER: Cover: Ana Lima, sha256 0123456789abcdef
+CARD_VIDEO_DIGEST: Delivery document sha256 <digest>
+CARD_VIDEO_FILE: Video: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
+CARD_VIDEO_NO_BLOCKS: no animation blocks
+CARD_VIDEO_NO_COVER: Cover: no cover
+CARD_VIDEO_NO_PREVIEW: no preview
+CARD_VIDEO_PLATFORM: Platform: social-x
+CARD_VIDEO_POST: Post: <post>
+CARD_VIDEO_PREVIEW: preview 0123456789abcdef, made from <origin>
+CARD_VIDEO_VERIFIED: verified for social-x
 CHANGED: This decision changed since you saw it.
 CMD_ATTACHMENTS: Files waiting for your answer: 3.
 CMD_CANCELLED: Request 3 cancelled.
@@ -1006,6 +1022,9 @@ TITLE_ROUTER_ASKS: The router asks
 TITLE_ROUTE_UNRECOGNISED: The route was not recognised
 TITLE_TODO_ADD: Tasks: add a task
 TITLE_TODO_DONE: Tasks: complete a task
+TITLE_VIDEO_DELIVER: Deliver the video
+TITLE_VIDEO_MAKE: Make the video
+TITLE_VIDEO_REVIEW: Check the captions
 TODO_API_OFF: I cannot read Google Tasks: the Google Tasks API is not enabled in the Google Cloud project the platform uses.
 TODO_ASK_ACCOUNT: Which one: Google Tasks or Microsoft To Do? Say it again naming it.
 TODO_BAD_TITLE: I could not use that as a task: it must be one line of at most 200 characters.
@@ -1084,6 +1103,27 @@ USAGE_DISCARD: Usage: /discard <n>
 USAGE_FORGET: Usage: /forget <n>
 USAGE_REJECT: Usage: /reject <id> [note]
 USAGE_RELEASE: Usage: /release <id>
+VID_AMBIGUOUS: "<wrong>" is in the captions more than once. Add a word before or after it.
+VID_CLOUD_FAILED: The file could not be fetched from that link.
+VID_CLOUD_FETCHING: Fetching the file from Google Drive.
+VID_CLOUD_NOT_SHARED: The link did not give the file. Share it as "anyone with the link", or connect the Google account, then send the link again.
+VID_CLOUD_NO_LENGTH: Google Drive did not say the file's size, so it was not fetched. Upload it on the page opened on this computer.
+VID_CLOUD_TOO_LARGE: That file is larger than the media store takes (1 GiB, or the space left).
+VID_CUT: The rest of the captions is on the page.
+VID_EDITED: Changed. The captions now read:\n\nmove, review
+VID_EDITED_GATE: Changed. The video will be rendered again and sent for a new approval.
+VID_FETCHING: Receiving the recording.
+VID_HOW: Reply continue when the captions are right, or correct them with one line per correction: wrong -> right.
+VID_NOT_FOUND: "<wrong>" is not in the captions. Copy the words as they are written.
+VID_NOT_STARTED: The video did not start. Open the page to see why.
+VID_NO_POST: No post with a script is ready for a video. Write the script first, then send the recording again.
+VID_PICK_POST: Which post did you record? Reply with its number:\none, two, three
+VID_POST_GONE: That number is not on the list. Reply with a number from 1 to 3.
+VID_PREVIEW: The video to approve (3.5 KiB). Its approval card follows.
+VID_RECEIVED: Recording received (3.5 KiB).
+VID_RENDERING: Rendering the video. The approval card comes when it is ready.
+VID_REVIEW_WORDS: These are the captions. To correct them, reply to the caption card with one line per correction: wrong -> right. When they are right, reply continue.\n\nmove, review
+VID_TOO_BIG: This video is 3.5 KiB, and this app takes at most 25 here. Upload it on the page opened on this computer, or send a Google Drive link to it.
 WAITS_COUNT: A plan waits for you.
 WD_FRI: Fri
 WD_MON: Mon

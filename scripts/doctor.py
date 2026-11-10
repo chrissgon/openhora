@@ -242,7 +242,9 @@ def manager_probe():
     return _load("workbench_secret_resolver_manager_probe", path).probe_manager()
 
 
-IMAGE_FAMILIES = ("converter", "exporter", "script")   # providers/<name>/container.py; a provider that builds an image adds its name here, with its own test
+IMAGE_FAMILIES = (("converter", "converter/container.py"), ("exporter", "exporter/container.py"), ("script", "script/container.py"),
+                  ("transcriber", "transcriber/whispercpp.py"), ("renderer", "renderer/_image.py"),
+                  ("hyperframes", "renderer/hyperframes-image/hf_image.py"))   # (family, module under providers/): a provider that builds an image adds itself here, with its own test
 
 
 def container_box():
@@ -252,10 +254,10 @@ def container_box():
 
 def image_families(providers=PROVIDERS):
     """[{"family", "repository", "hash", "tag"}] of the providers that build an image and are in this checkout: the repository and the
-    current definition's hash and tag, read from the provider's container.py (IMAGE_REPOSITORY, definition_hash(), image_tag())."""
+    current definition's hash and tag, read from the provider's module named in IMAGE_FAMILIES (IMAGE_REPOSITORY, definition_hash(), image_tag())."""
     out = []
-    for name in IMAGE_FAMILIES:
-        path = os.path.join(providers, name, "container.py")
+    for name, module_path in IMAGE_FAMILIES:
+        path = os.path.join(providers, module_path)
         if not os.path.isfile(path):
             continue
         module = _load(f"workbench_doctor_family_{name}", path)

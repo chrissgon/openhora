@@ -424,7 +424,8 @@ def help_in_words(bridge, turn) -> bool:
 
 def attachment_line(bridge, turn) -> bool:
     # "descarta", "adiciona ao projeto": a line about the file just sent (ATT-3)
-    return turn.kind in ("text", "natural") and bool(bridge.attach.line(turn.project, turn.chat, turn.intent.get("text") or ""))
+    text = turn.intent.get("text") or ""
+    return turn.kind in ("text", "natural") and bool(bridge.video.line(turn.project, turn.chat, text) or bridge.attach.line(turn.project, turn.chat, text))
 
 
 # --- the stage `bridge`: one row for each kind of line ----------------------------------------------------------------------------------------------------
@@ -432,6 +433,9 @@ def attachment_line(bridge, turn) -> bool:
 
 def attachment_arrived(bridge, turn) -> bool:
     if turn.kind == "attachment":
+        if bridge.video.claims(turn.project, turn.chat, turn.intent):      # V1d-1: a video from a sender whose profile holds `media-phone`
+            bridge.video.arrived(turn.project, turn.chat, turn.intent)
+            return True
         bridge.attach.arrived(turn.project, turn.chat, turn.intent)
         return True
     return False
@@ -529,11 +533,13 @@ def reply(bridge, turn) -> bool:
     if turn.kind != "reply":
         return False
     card = turn.record(turn.intent["reply_to"])
+    target = next((p for p in bridge.projects if p["id"] == card["project"]), turn.project) if card and card["kind"] in ("question", "effect") else None
+    if target is not None and not bridge.listed_in(target, turn.sender):
+        bridge.log(bridge.DROPPED)
+        return True
+    if target is not None and bridge.video.replied(target, turn.chat, card, turn.intent["text"]):      # V1d-1: the captions of a video (the review card and the delivery card)
+        return True
     if card and card["kind"] == "question":
-        target = next((p for p in bridge.projects if p["id"] == card["project"]), turn.project)
-        if not bridge.listed_in(target, turn.sender):
-            bridge.log(bridge.DROPPED)
-            return True
         bridge.act(target, turn.chat, "answer", card["pending_id"], card=card, text=turn.intent["text"])
     else:
         bridge.say(turn.project, turn.chat, turn.intent["text"])

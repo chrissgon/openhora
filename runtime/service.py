@@ -103,7 +103,9 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      need none and hold no data. One more path needs none, GET /token-file, outside /api/: see "Before the token".
   5. Only GET and POST (OPTIONS and every other method: 405 "method", and no Access-Control-* header is ever sent). A
      POST needs Content-Type application/json and a Content-Length of at most 1 MiB (the file route: 34 MiB, the base64
-     of a 25 MiB file), else 415 "content_type", 411 "length" or 413 "too_large". Its body is one JSON object whose keys
+     of a 25 MiB file), else 415 "content_type", 411 "length" or 413 "too_large". One route is not JSON: the media upload,
+     POST /projects/<id>/media, takes a Content-Type of video/mp4, video/quicktime or application/octet-stream and a
+     Content-Length of at most 1 GiB, and its body is read as a stream into the media store, never whole. Its body is one JSON object whose keys
      are the arguments of the operation's row in the table (runtime/operations.py), by name; an unknown key, a repeated
      key, a wrong type or a missing required one is 400 "usage". No query string is read except a route's own.
   6. An unknown path is 404 "not_found", a known path with another method 405 "method", an unknown project id 404.
@@ -117,12 +119,22 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      with `queues` (say, route): it starts anyway, and the operation itself queues its call while a run holds the
      project. Jobs live in memory; the records are in the store.
   9. Every response: Cache-Control no-store and X-Content-Type-Options nosniff; a page also a Content-Security-Policy of
-     "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
+     "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
  10. A static path is served only when its real path is inside the interface folder, with a known extension, no
      dotfile and no listing. /favicon.ico (which browsers ask for by default) is answered with /favicon.svg.
  11. The log line is the method, the path (never the query), the status and the duration. Never a header, a body or the
      token.
  12. Text a model or a stranger wrote leaves as a JSON string; the page shows it as text, never as markup.
+
+Recorded media (package V1b2-2, limit L68). The upload of a recording (POST /projects/<id>/media), the still of a recording and the download of a
+delivered video (GET /projects/<id>/videos/<task>/still and .../download) are refused on the LAN socket of --lan with 409 and
+operations.LAN_REFUSED_MEDIA, before one byte of the request's body is read and before any file is opened (operations.LAN_REFUSED_OPS; the
+operations layer sees the channel page for both sockets). A refusal sent before the body was read leaves the client's bytes unread, and the response
+closes the connection, as every response does. The download is an attachment named video-<12 hex>.mp4, sent in chunks from the open file the
+operation hashed again. The captions, the list and the starts are text and ids under the token and may cross the LAN socket.
+The catalogue of animations (GET /projects/<id>/video-catalogue, package V1b3) is our data and crosses the LAN socket as well.
+The removal of a recording (POST /projects/<id>/media/remove, with {"media_id", "confirm"}) carries only an id and crosses the LAN socket as
+well; without `confirm` it removes nothing.
 
 Before the token. The page cannot tell the person where the token file is until it holds the token, so the service answers
 one unauthenticated read, GET /token-file (outside /api/, under rules 2, 3, 5 and 9: no CORS header, Cache-Control no-store,
@@ -172,6 +184,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
+import io
 import http.server
 import ipaddress
 import json
@@ -216,6 +229,10 @@ MIN_NOTICE_EVERY = 5
 PREFIX = "/api/v1"
 JSON_LIMIT = 1024 * 1024                  # bytes of a request body
 FILE_LIMIT = 34 * 1024 * 1024             # the file route: the base64 of 25 MiB is about 33.4 MiB
+MEDIA_UPLOAD_BYTES = 1 << 30              # the media upload: = runtime/media.py MEDIA_MAX_BYTES (a test compares; the service imports no module but ops)
+STREAM_TYPES = ("video/mp4", "video/quicktime", "application/octet-stream")   # the media upload's Content-Type; every other POST stays JSON
+DOWNLOAD_NAME = re.compile(r"video-[0-9a-f]{12}\.mp4")   # the one name a delivered video is sent under
+CHUNK = 1024 * 1024
 UPLOAD_BYTES = 25 * 1024 * 1024           # what a hand-over takes (runtime/drop.py checks it again)
 UPLOAD_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")  # a plain file name (runtime/drop.py NAME, checked again there)
 UPLOADS = "uploads"                       # <data_dir>/uploads/<random>/<name>, removed after the hand-over
@@ -228,8 +245,9 @@ ONCE = ("host", "origin", "authorization", "content-type", "content-length", "tr
 # Three directives. `default-src 'self'` and `frame-ancestors 'none'` are the rule since the first page. `img-src 'self'
 # blob:` is there for one reason: the raw bytes of an image sit behind the bearer header, so the page fetches them itself
 # and shows them from a `blob:` URL it built; `blob:` can only name bytes the page made, nothing from another origin.
-# Never `data:`, and no other directive is widened.
-CSP = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+# `media-src 'self' blob:` is there for the same reason (V1c-3, L71): a video waiting for its approval is fetched with the bearer header and played from a
+# `blob:` URL the page built. Never `data:`, and no other directive is widened.
+CSP = "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'"
 # What a static file is served as. An extension not here is not served (the rule fails closed).
 TYPES = {
     ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -280,10 +298,11 @@ class Usage(Exception):
 
 
 def _route(method, pattern, op=None, *, bind=None, take=None, hidden=(), own=None, upload=False, query_max=None,
-           raw=False):
+           raw=False, stream=False, download=False):
     return {"method": method, "pattern": pattern, "op": op, "bind": dict(bind or {}), "take": take,
-            "hidden": tuple(hidden), "own": own, "upload": upload, "limit": FILE_LIMIT if upload else JSON_LIMIT,
-            "query_max": query_max, "raw": raw}
+            "hidden": tuple(hidden), "own": own, "upload": upload,
+            "limit": MEDIA_UPLOAD_BYTES if stream else FILE_LIMIT if upload else JSON_LIMIT,
+            "query_max": query_max, "raw": raw, "stream": stream, "download": download}
 
 
 ROUTES = (
@@ -377,6 +396,21 @@ ROUTES = (
     _route("POST", "/projects/{p}/mail/mark", "mail-mark"),
     _route("POST", "/projects/{p}/mail/trash", "mail-trash"),
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
+    # V1b2: a new video. The recording, its still and the delivered video cross the loopback socket only (operations.LAN_REFUSED_OPS, limit L68).
+    _route("GET", "/projects/{p}/media", "media-list", take=()),
+    _route("POST", "/projects/{p}/media", "media-in", take=(), hidden=("path",), stream=True),
+    _route("POST", "/projects/{p}/videos", "video-new", take=("media_id", "post")),
+    _route("POST", "/projects/{p}/videos/{id}/run", "video-run", bind={"task_id": "id"}, take=()),
+    _route("GET", "/projects/{p}/videos/{id}/captions", "captions-read", bind={"task_id": "id"}, take=()),
+    _route("POST", "/projects/{p}/videos/{id}/captions", "captions-edit", bind={"task_id": "id"}, take=("revision", "edits")),
+    _route("GET", "/projects/{p}/videos/{id}/download", "video-download", bind={"task_id": "id"}, take=(), hidden=("out",), download=True),
+    _route("GET", "/projects/{p}/videos/{id}/still", "video-still", bind={"task_id": "id"}, take=(), hidden=("out",), raw=True),
+    # V1b3: the catalogue of animations (VD15); our data, it crosses the LAN socket too (VD18; not in operations.LAN_REFUSED_OPS).
+    _route("GET", "/projects/{p}/video-catalogue", "video-catalogue", take=()),
+    # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
+    _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
+    # media-remove: one recording removed for good; only an id crosses, so it may cross the LAN socket (not in operations.LAN_REFUSED_OPS).
+    _route("POST", "/projects/{p}/media/remove", "media-remove", take=("media_id", "confirm")),
     _route("GET", "/jobs/{id}", own="job"),
 )
 PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
@@ -481,14 +515,15 @@ def check_request(method: str, path: str, headers: dict, port: int, token: str, 
     if method not in ("GET", "POST"):
         return 405, "method"
     if method == "POST":
-        if str(h.get("content-type", "")).partition(";")[0].strip().lower() != "application/json":
+        found = match("POST", bare)
+        wanted = STREAM_TYPES if found and found[0]["stream"] else ("application/json",)
+        if str(h.get("content-type", "")).partition(";")[0].strip().lower() not in wanted:
             return 415, "content_type"
         length = h.get("content-length")
         if length is None:
             return 411, "length"
         if not (length.isascii() and length.isdigit()):
             return 400, "usage"
-        found = match("POST", bare)
         if int(length) > (found[0]["limit"] if found else JSON_LIMIT):
             return 413, "too_large"
     return None
@@ -517,6 +552,30 @@ def _ops_error(error) -> tuple:
     status, word = status_of(error)
     return _error(status, word, str(error) if word != "internal" else None,
                   getattr(error, "next", None) if word != "internal" else None)
+
+
+class Streamed:
+    """An answer body read from an open binary file in chunks, `size` bytes in all; `close()` closes the file. The handler sends it and
+    closes it whatever happens; a test reads it with b"".join(answer) and closes it."""
+
+    def __init__(self, file, size: int):
+        self.file = file
+        self.size = int(size)
+
+    def __iter__(self):
+        left = self.size
+        while left > 0:
+            chunk = self.file.read(min(CHUNK, left))
+            if not chunk:
+                return
+            left -= len(chunk)
+            yield chunk
+
+    def close(self) -> None:
+        try:
+            self.file.close()
+        except Exception:  # noqa: BLE001  (closing never hides the answer)
+            pass
 
 
 def _no_duplicates(pairs):
@@ -727,7 +786,7 @@ def _upload(service: Service, project: dict, row: dict, route: dict, params: dic
     return _json(200, result)
 
 
-def _policy_refusal(service: Service, project: dict, row: dict, route: dict, params: dict, given: dict, from_query: bool) -> None:
+def _policy_refusal(service: Service, project: dict, row: dict, route: dict, params: dict, given: dict, from_query: bool, lan: bool = False) -> None:
     """The page's channel policy (decisions M-8, M-13), checked for a route before anything runs: before the bytes of an
     upload are written and before a job exists, so a refused route takes no model slot. The configuration is asked
     first (`config` never refuses): one that is not accepted is left to the operation, which answers 412 as it does today;
@@ -735,7 +794,18 @@ def _policy_refusal(service: Service, project: dict, row: dict, route: dict, par
     For approve the decision's kind is read here (`pending`), and with task keys the group `go-ahead` is needed too.
     Raises the operations layer's OpsError (code 1, so 409 "refused") with the sentence of operations.not_enabled.
     The check is also made inside the operations (ops_waits.only_on_plans, ops_config.set_mode), which stay the authority.
-    The policy governs a person's requests, not the dispatch loop the service runs on its own timer."""
+    The policy governs a person's requests, not the dispatch loop the service runs on its own timer.
+    First of all, whatever the configuration says: an approval of an effect word of `operations.LAN_REFUSED_EFFECTS` that arrived on the LAN socket (`lan`) is refused
+    with `operations.LAN_REFUSED` (decision 14 keeps VD18's rule), because the operations layer sees the channel `page` for both sockets and cannot tell them apart.
+    Before even that, a media route of `operations.LAN_REFUSED_OPS` (the upload, the still, the download) that arrived on the LAN socket is refused with
+    `operations.LAN_REFUSED_MEDIA` (VD18, limit L68); the callers reach this before they read a body or open a file."""
+    if lan and row["name"] in service.ops.operations.LAN_REFUSED_OPS:
+        raise service.ops.OpsError(service.ops.operations.LAN_REFUSED_MEDIA, 1)
+    if lan and row["name"] == "approve":
+        args = arguments(row, route, params, given, from_query)
+        decision = service.ops.pending(project["path"], pending_id=args["pending_id"])
+        if decision.get("kind") == "effect" and decision.get("effect_word") in service.ops.operations.LAN_REFUSED_EFFECTS:
+            raise service.ops.OpsError(service.ops.operations.LAN_REFUSED, 1)
     operations = service.ops.operations
     if operations.is_read(row["name"]):
         return
@@ -786,7 +856,7 @@ def _shown_commands(service: Service, project: dict, result: dict) -> dict:
     return {**result, "commands": keep}
 
 
-def _operation(service: Service, route: dict, params: dict, query: str, body: bytes) -> tuple:
+def _operation(service: Service, route: dict, params: dict, query: str, body: bytes, lan: bool = False) -> tuple:
     project = service.by_id.get(params.get("p"))
     if project is None:
         return _error(404, "not_found", "no such project")
@@ -801,7 +871,7 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
         for key, value in given.items():
             if len(str(value).encode("utf-8")) > route["query_max"]:
                 raise Usage(f"the query value {key!r} is longer than {route['query_max']} bytes")
-    _policy_refusal(service, project, row, route, params, given, from_query)
+    _policy_refusal(service, project, row, route, params, given, from_query, lan=lan)
     if route["upload"]:
         return _upload(service, project, row, route, params, given)
     args = arguments(row, route, params, given, from_query)
@@ -812,6 +882,15 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
         found = call()
         return 200, {**_headers(found["media_type"]), "Content-Security-Policy": CSP, "Referrer-Policy": "no-referrer",
                      "Content-Disposition": "inline"}, found["data"]
+    if route["download"]:  # a delivered video: the operation hands the open file; it is sent in chunks as an attachment
+        found = call()
+        if not DOWNLOAD_NAME.fullmatch(str(found.get("name") or "")):
+            found["stream"].close()
+            return _error(500, "internal")
+        disposition = 'attachment; filename="' + found["name"] + '"'
+        headers = {**_headers("video/mp4"), "Content-Security-Policy": CSP, "Referrer-Policy": "no-referrer",
+                   "Content-Disposition": disposition}
+        return 200, headers, Streamed(found["stream"], found["size"])
     if row.get("job"):
         try:
             return _json(202, service.start_job(project["id"], row["name"], call, queues=bool(row.get("queues")))[2])
@@ -875,7 +954,7 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     """The whole of one request without a socket: (status, headers, body bytes). The rules 2 to 5 (check_request), then
     the route, the project, the arguments, the one operation. A request that passes check_request and names no route is
     404 or 405; an operation's refusal is its documented status. `lan` is true when the request arrived on the LAN
-    socket of --lan (the handler decides it from the address the connection was reached on); only GET /token-file reads it."""
+    socket of --lan (the handler decides it from the address the connection was reached on); GET /token-file reads it, and so does the refusal of an approval (`operations.LAN_REFUSED_EFFECTS`)."""
     refused = check_request(method, path, headers, service.port, service.token, service.lan_ip, lan if service.lan_ip else None)
     if refused:
         return _error(*refused)
@@ -892,6 +971,8 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     route, params = found
     if len(body) > route["limit"]:
         return _error(413, "too_large")
+    if route["stream"]:  # the media upload: the same path a socket takes, on the bytes given
+        return handle_stream(service, method, path, headers, io.BytesIO(body), len(body), lan=lan)
     try:
         if route["own"] == "projects":
             if query:
@@ -907,7 +988,42 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
             if query:
                 raise Usage("this route takes no query")
             return _job_get(service, params)
-        return _operation(service, route, params, query, body)
+        return _operation(service, route, params, query, body, lan=lan)
+    except Usage as e:
+        return _error(400, "usage", str(e))
+    except service.ops.OpsError as e:
+        return _ops_error(e)
+    except Exception:  # whatever else: the traceback stays on stderr, the body names nothing
+        service.log("internal error:\n" + traceback.format_exc())
+        return _error(500, "internal")
+
+
+def handle_stream(service: Service, method: str, path: str, headers: dict, stream, length: int, lan: bool = False) -> tuple:
+    """The media upload without reading its body first: rules 2 to 5 (check_request), the route, the project, the page's policy and the LAN refusal of
+    limit L68 (`_policy_refusal`), all before one byte of `stream` is read; then the operation reads exactly `length` bytes from `stream` into the
+    media store (runtime/media.py receive), never the whole body into memory. Returns (status, headers, body bytes), as handle. A refusal sent before
+    the body was read leaves the client's bytes unread: the response closes the connection, as every response does."""
+    refused = check_request(method, path, headers, service.port, service.token, service.lan_ip, lan if service.lan_ip else None)
+    if refused:
+        return _error(*refused)
+    bare, _, query = path.partition("?")
+    found = match(method, bare) if _is_api(bare) else None
+    if found is None or not found[0]["stream"]:
+        return _error(404, "not_found")
+    route, params = found
+    try:
+        if query:
+            raise Usage("this route takes no query")
+        project = service.by_id.get(params.get("p"))
+        if project is None:
+            return _error(404, "not_found", "no such project")
+        row = service.ops.operations.by_name(route["op"])
+        if "page" not in row["channels"]:
+            return _error(404, "not_found")
+        if not isinstance(length, int) or length < 1:
+            raise Usage("an upload needs its bytes")
+        _policy_refusal(service, project, row, route, params, {}, False, lan=lan)
+        return _json(200, service.ops.media_in(project["path"], stream=stream, length=length, channel="page"))
     except Usage as e:
         return _error(400, "usage", str(e))
     except service.ops.OpsError as e:
@@ -964,15 +1080,24 @@ def make_handler(service: Service):
             self._send(*_error(status, word))
 
         def _send(self, status, headers, payload):
-            self.send_response(status)
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(payload)
-            self.close_connection = True
+            streamed = isinstance(payload, Streamed)
+            try:
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(payload.size if streamed else len(payload)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    if streamed:
+                        for chunk in payload:
+                            self.wfile.write(chunk)
+                    else:
+                        self.wfile.write(payload)
+            finally:
+                if streamed:
+                    payload.close()
+                self.close_connection = True
 
         def _serve(self):
             started = time.monotonic()
@@ -986,6 +1111,9 @@ def make_handler(service: Service):
                                         lan if service.lan_ip else None)
                 if refused:
                     answer = _error(*refused)
+                elif method == "POST" and (streamed := match("POST", path.partition("?")[0])) and streamed[0]["stream"]:
+                    # the media upload: the body is not read here; handle_stream reads it from the socket after every refusal
+                    answer = handle_stream(service, method, path, headers, self.rfile, int(headers["content-length"]), lan=lan)
                 else:
                     length = int(headers["content-length"]) if method == "POST" else 0
                     try:

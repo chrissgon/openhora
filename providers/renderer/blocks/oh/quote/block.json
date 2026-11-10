@@ -1,0 +1,37 @@
+{
+ "schema_version": 1,
+ "name": "oh:quote",
+ "kind": "overlay",
+ "preset": "quote",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the speaker repeats a sentence someone said",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 120,
+   "required": true
+  },
+  "author": {
+   "type": "text",
+   "max": 40
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Small steps beat big plans.",
+   "author": "A wise friend"
+  }
+ ],
+ "natural_duration": 2.0,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

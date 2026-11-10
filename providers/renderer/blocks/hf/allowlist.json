@@ -1,0 +1,6 @@
+{
+ "schema_version": 1,
+ "note": "The hf: blocks admitted from the HyperFrames registry: written by V3b's compatibility run and reviewed in its pull request with the run's report and contact sheets (section 3 of docs/decisions/2026-11-07-v0-short-video-hyperframes.md). Empty until V3b.",
+ "registry_commit": null,
+ "blocks": []
+}

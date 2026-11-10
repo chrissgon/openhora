@@ -1041,6 +1041,92 @@ OPERATIONS = (
                  "what": "a card that moves messages to the trash (the messages are named by their words in target: a sender or a subject, with the day in day; messages only when the line writes their numbers)",
                  "about": "Choose this to open a card that moves messages to the trash: target holds their words (a sender or subject) and day the day; messages only when the line writes their numbers. service only when the line says Gmail or Outlook.",
                  "slots": {"messages": {"kind": "ints", "param": "messages", "since": 1}, "target": {"kind": "span", "param": "target", "since": 1}, "day": {"kind": "span", "param": "day", "since": 1}, "service": {"kind": "word", "param": "account", "since": 4}}}},
+    # V1b2: a new video. Class G, kind internal (runtime/gated_ops.json): never served in words in M1; the page reaches them from V1b2-2.
+    {"name": "media-in", "call": "media_in",
+     "args": ({"name": "path", "kind": "str", "required": True},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "add a recording (an MP4 or MOV of at most 1 GiB) to the project's media store, outside the project: --path names the file on this computer; prints its id, which video-new takes",
+     "natural": {"class": "G", "since": 4, "order": 151, "privacy": "own", "cost": "none", "what": "add a recording to the media store", "about": "Add a recording to the media store.", "slots": {}}},
+    {"name": "media-list", "call": "media_list",
+     "args": (),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "the recordings of the media store, oldest first: id, size, the task working on it and its state, and when it was delivered",
+     "natural": {"class": "G", "since": 4, "order": 152, "privacy": "own", "cost": "none", "what": "list the recordings of the media store", "about": "List the recordings of the media store.", "slots": {}}},
+    {"name": "video-new", "call": "video_new",
+     "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "post", "kind": "str", "required": True},),
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
+     "help": "start a new video: --media the recording's id (media-in), --post the post whose script was recorded (docs/marketing/content/<name>.md, with its - Network: line); it runs until the caption review",
+     "natural": {"class": "G", "since": 4, "order": 153, "privacy": "own", "cost": "none", "what": "start a new video from a recording", "about": "Start a new video from a recording.", "slots": {}}},
+    {"name": "video-run", "call": "video_run",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
+     "help": "run a new video that is ready: after you answered the caption review (answer <id> continue), after an edit at the delivery approval, or after a retry; it runs until the next stop",
+     "natural": {"class": "G", "since": 4, "order": 154, "privacy": "own", "cost": "none", "what": "run a new video that is ready", "about": "Run a new video that is ready.", "slots": {}}},
+    {"name": "captions-read", "call": "captions_read",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "the captions of a new video as the review shows them: words, chunks, proposed retakes, beats, and the revision an edit must name",
+     "natural": {"class": "G", "since": 4, "order": 155, "privacy": "own", "cost": "none", "what": "read the captions of a new video", "about": "Read the captions of a new video.", "slots": {}}},
+    {"name": "captions-edit", "call": "captions_edit",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "revision", "kind": "int", "required": True}, {"name": "edits", "kind": "str"}, {"name": "edits_file", "kind": "file", "flag": "edits-file"},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "edit the captions of a new video at the caption review or at the delivery approval: --revision the revision you read, and the edits as a JSON list (--edits or --edits-file); at the approval the video is rendered again for a new approval",
+     "natural": {"class": "G", "since": 4, "order": 156, "privacy": "own", "cost": "none", "what": "edit the captions of a new video", "about": "Edit the captions of a new video.", "slots": {}}},
+    {"name": "video-download", "call": "video_download",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "out", "kind": "str", "required": True},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "save the delivered video to --out (a new file, outside the project): only the exact render the approval named, hashed again",
+     "natural": {"class": "G", "since": 4, "order": 157, "privacy": "own", "cost": "none", "what": "save a delivered video to a file", "about": "Save a delivered video to a file.", "slots": {}}},
+    {"name": "video-still", "call": "video_still",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "out", "kind": "str", "required": True},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "save the still of a new video (the frame of the face box) to --out (a new file, outside the project)",
+     "natural": {"class": "G", "since": 4, "order": 158, "privacy": "own", "cost": "none", "what": "save the still of a new video to a file", "about": "Save the still of a new video to a file.", "slots": {}}},
+    # V1b3: "Add an animation" (VD15). Class G, kind internal: never served in words in M1.
+    {"name": "video-catalogue", "call": "video_catalogue",
+     "args": (),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "the catalogue of animations the caption review of a new video can add: each block, its parameters and their bounds, a sample, the engines that draw it, and whether this project's engine can add it now",
+     "natural": {"class": "G", "since": 4, "order": 159, "privacy": "own", "cost": "none", "what": "list the animations a new video can add", "about": "List the animations a new video can add.", "slots": {}}},
+    # V1c-3: watch a video before approving its delivery (L71). Class G, kind internal, page only; refused on the LAN socket.
+    {"name": "video-watch", "call": "video_watch",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("page",), "model": False, "channel_arg": True,
+     "help": "the bytes of a rendered video that waits for its delivery approval, to watch it on this computer's own page before approving; marks nothing",
+     "natural": {"class": "G", "since": 4, "order": 160, "privacy": "own", "cost": "none", "what": "watch a video before approving its delivery", "about": "Watch a video before approving its delivery.", "slots": {}}},
+    # V1d-1: a video from a messaging app (decision 14). Class G, kind internal: the bridge's own calls, never served in words.
+    {"name": "video-phone-in", "call": "video_phone_in",
+     "args": ({"name": "incoming", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "required": True, "flag": "messenger-platform"}, {"name": "ref", "kind": "str", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call after it fetched a recording into an incoming folder it made: the media store bounds it (1 GiB and the quota), reads its type from its bytes (MP4 or MOV) and keeps it",
+     "natural": {"class": "G", "since": 4, "order": 171, "privacy": "own", "cost": "none", "what": "the bridge's call for a recording that arrived", "about": "The bridge's call for a recording that arrived.", "slots": {}}},
+    {"name": "video-phone-start", "call": "video_phone_start",
+     "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "post", "kind": "str", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call: start the video of a recording a listed sender sent, for one of the posts offered to them, and run it to the caption review",
+     "natural": {"class": "G", "since": 4, "order": 172, "privacy": "own", "cost": "none", "what": "start the video of a recording sent from a messaging app", "about": "Start the video of a recording sent from a messaging app.", "slots": {}}},
+    {"name": "video-phone-reply", "call": "video_phone_reply",
+     "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "text", "kind": "text", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call for a reply to the caption review or to the delivery card of a video: continue, or corrections written wrong -> right",
+     "natural": {"class": "G", "since": 4, "order": 173, "privacy": "own", "cost": "none", "what": "read a reply to the captions of a video", "about": "Read a reply to the captions of a video.", "slots": {}}},
+    {"name": "video-phone-run", "call": "video_phone_run",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call: run a video again after the caption review was answered or the captions were corrected at the delivery approval",
+     "natural": {"class": "G", "since": 4, "order": 174, "privacy": "own", "cost": "none", "what": "run the video again after the captions were answered", "about": "Run the video again after the captions were answered.", "slots": {}}},
+    # V1d-3: a recording from a Google Drive link (decision 14). Class G, kind internal: the bridge's own call, never served in words.
+    {"name": "video-phone-fetch", "call": "video_phone_fetch",
+     "args": ({"name": "text", "kind": "text", "required": True},),
+     "channels": ("messaging",), "model": False, "channel_arg": True,
+     "help": "the messaging bridge's call for a Google Drive link a listed sender sent: the file is fetched with the project's Google account when one is connected, otherwise from the shared link over https from the closed host list, bounded by 1 GiB and the quota, and kept as a recording",
+     "natural": {"class": "G", "since": 4, "order": 175, "privacy": "own", "cost": "none", "what": "fetch a recording from a Google Drive link sent from a messaging app", "about": "Fetch a recording from a Google Drive link sent from a messaging app.", "slots": {}}},
+    # media-remove: one recording removed from the media store for good. Class G, kind internal: never served in words.
+    {"name": "media-remove", "call": "media_remove",
+     "args": ({"name": "media_id", "kind": "str", "required": True, "flag": "media"}, {"name": "confirm", "kind": "flag"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "remove a recording from the media store for good, with its transcript, its work files, its still and its delivered video: --media the recording's id (media-list); without --confirm it removes nothing and says what would go; refused while a task that has not ended works on it (finish the video or cancel its request first)",
+     "natural": {"class": "G", "since": 4, "order": 176, "privacy": "own", "cost": "none", "what": "remove a recording from the media store", "about": "Remove a recording from the media store.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1134,6 +1220,7 @@ GROUPS = {
     "tasks-read": {"operations": ("todo-list",), "kind": None},
     "tasks-write": {"operations": ("todo-add", "todo-done"), "kind": None},
     "approve-effect-tasks": {"operations": ("approve",), "kind": "effect:tasks"},      # a change to the person's own task list (effect_tasks.py APPROVAL_GROUP)
+    "approve-effect-deliver": {"operations": ("approve",), "kind": "effect:deliver"},      # the delivery of a rendered video (effect_deliver.py APPROVAL_GROUP)
     # S1: the plain lines no list takes go to the interpreter's model service (runtime/ops_interpret.py). A capability added to `say` that never grants it (KIND_ONLY): a profile lists
     # `talk` too. In no default policy: a messaging sender gets it only from a profile or channel entry accepted with --widen (which prints the route's retention beside it).
     "interpret": {"operations": ("say",), "kind": "interpret"},
@@ -1166,6 +1253,9 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "media-remove", "video-watch"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
+    "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"), "kind": None},
 }
 # S41-11 (A11-2): the operations that end or restart what runs, derived from their groups: a plain line of a sender whom the interpreter reads is decided first, and one of these gets the typed
 # command as a hint when no model decision could be made (runtime/ops_turn.py, the row `route-pass`). `stop-runs` is a G operation of the terminal and is in none of the three groups.
@@ -1187,9 +1277,13 @@ KIND_ONLY = ("ask-mail", "interpret", "send-files", "confirm-reads-off", "interp
 # A group that holds all of another's operations: whoever has it has that one too, so the list of what a file adds never lists the second when it lists
 # the first (a test ties each pair to GROUPS).
 IMPLIED = {"read": ("read-limited",),
-           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks")}
+           "approve-effects": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks", "approve-effect-deliver")}
 SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy mapping (never in runtime.json), {"<platform>:<sender id>": [groups]} of each listed sender whose entry names a profile
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
+LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
+LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py)
+LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
@@ -1210,10 +1304,10 @@ BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel") 
 # app each listed sender may have their own, which REPLACES the channel's groups for that sender (SENDERS_KEY in the loaded policy mapping;
 # effective_groups(channel, cfg, sender)). Nothing but accept-config in the terminal changes a profile, and nothing a sender sends names one.
 ACCOUNT_APPROVAL_WORDS = ("calendar", "mailbox", "files", "tasks", "send-own")   # the approval words of a write to the person's own accounts: a card of one that cannot be read as a card is not shown to a reader of no mail
-EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox", "tasks")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
+EFFECT_APPROVAL_WORDS = ("create", "write", "send", "send-own", "publish", "calendar", "files", "mailbox", "tasks", "deliver")   # the words of an effect that an approval path opens (a test ties each to its module and its group `approve-effect-<word>`)
 GRANTS = {
     "messaging": ("approve-effect-create", "approve-effect-write", "approve-effect-send", "approve-effect-send-own", "approve-effect-publish", "approve-networked-plans",
-                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks"),
+                  "add-sources-direct", "approve-effect-calendar", "approve-effect-files", "approve-effect-mailbox", "approve-effect-tasks", "approve-effect-deliver"),
     "mcp": ("approve-plans", "approve-acceptances", "reject-cancel", "retry"),
 }
 GRANT_TEXT = {
@@ -1226,6 +1320,7 @@ GRANT_TEXT = {
     "messaging:approve-effect-files": "a messaging app may approve a new file or a new revision in your own Drive or OneDrive, from a card that carries the whole text, with its hash; a file you sent from the phone is saved on a card that names it, its size and its hash, and only the sender who sent it approves it",
     "messaging:approve-effect-mailbox": "a messaging app may approve a change to your own mailbox (a draft, archive, a move to a folder, read state, the trash), from a card that lists every message or shows the draft whole, with its hash; the card shows the subjects, senders, addresses and text only to a sender who may read your mail (ask-mail), so for any other sender it approves nothing",
     "messaging:approve-effect-tasks": "a messaging app may approve a task added to, or completed in, your own task list (Google Tasks or Microsoft To Do), from a card that carries the whole task, with its hash; the card of a completion shows the task's title only to a sender who holds `tasks-read`",
+    "messaging:approve-effect-deliver": "a messaging app may approve the delivery of a rendered video, only from a card that came to that chat with the whole preview of that exact render, with its hash; the recording and the preview pass through the messaging provider's servers, and what the provider keeps is outside this platform; until this channel can send a preview, this grant approves nothing",
     "messaging:approve-networked-plans": "a messaging app may approve a plan that holds a script which reaches the network, with the plan's hash",
     "messaging:add-sources-direct": "a file a listed sender sends becomes a new source of the project without a confirmation (a file for a source that already exists still waits for a card)",
     "mcp:approve-plans": "a connected AI client may approve a plan, with its hash: a model then authorises runs on its own request chain",
@@ -1252,6 +1347,7 @@ GROUP_TEXT = {
     "approve-effect-files": "approves a new file or a new revision in your own Drive or OneDrive, with its hash",
     "approve-effect-mailbox": "approves a change to the person's own mailbox (a draft, archive, a move to a folder, read state, the trash), with its hash",
     "approve-effect-tasks": "approves a task added to, or completed in, the person's own task list, with its hash",
+    "approve-effect-deliver": "approves the delivery of a rendered video (marks that exact file downloadable), with its hash",
     "approve-networked-plans": "approves a plan that holds a script which reaches the network, with the plan's hash",
     "ask": "asks a question answered by a model from the full text of the project's sources; the answer and its quotes are sent to this channel (on a messaging app they pass the platform's servers)",
     "ask-mail": "asks about the mail and calendar sources from a messaging app and has them read for questions that name no source: their text goes to a model and the answer passes the platform (adds to `ask`, never grants it)",
@@ -1288,6 +1384,8 @@ GROUP_TEXT = {
     "ask-files": "answers a question about one file of your configured Drive or OneDrive folders: its text goes to a model service in an isolated run that cannot act; only the answer and its quotes come back here (adds to read-files)",
     "research": "answers general questions (weather, prices, news, facts) from a web search: the question is sent to a web search service and to the model that runs the research, and the answer comes back to this chat",
     "interpret-fallback": "when the interpreter's usual model service cannot read a plain line, sends that line to a second model service of another company (adds to interpret, never grants it)",
+    "media": "adds, lists and removes recordings, starts and runs new videos, edits their captions and animations, shows a video before its delivery and saves it; a recording, its still and the video never cross the local network",
+    "media-phone": "takes a recording a listed sender sends here (within its file limit) or links on Google Drive, starts its video for a post they choose, sends the captions and reads corrections; all pass through the app's servers",
 }
 NEVER_GRANTED = ("chat", "terminal")   # channels with no entry in GRANTS; and no group of an effect, a networked plan, consent, set-mode or routine-approve is ever in GRANTS["mcp"] (a test reads this)
 

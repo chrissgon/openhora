@@ -52,6 +52,11 @@ and which the provider of this machine must hold the account of (one outbox acco
 approves the exact recipients of each e-mail by its hash, and a cap of 20 is code. Like every key, it is changed only in the terminal and
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
+It also reads "media" (package V1b2-1; absent: the step kind's defaults): the settings of a new video, an object
+{"language", "transcriber_model", "renderer"}, each optional. "renderer" is "auto" (the class renderer:video resolves as
+providers/resolve.py says: a variable, then the class default, hyperframes) or an implementation shipped in providers/renderer/,
+which the runtime then names on every call. Like every key, it is changed only in the terminal and accepted with accept-config.
+
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
 "calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id or /path | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
@@ -144,7 +149,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research", "file_ask")
+                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research", "file_ask", "media")
 # The top-level keys runtime/handlers/social.py, social_vote.py and social_vote_job.py read from the same file
 # (the social agent, which the first runtime was ported to).
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -245,6 +250,7 @@ def load(project: str) -> dict:
     out["sweep_orphan_containers"] = sweep
     out["language"] = _language(raw.get("language"))
     out["outbox"] = _outbox(raw.get("outbox"), out["workbench"])
+    out["media"] = _media(raw.get("media"), out["workbench"])
     out["accounts"], out["google_folders"] = with_google_ids(_accounts(raw.get("accounts")), resolved_google_paths(out["data_dir"]))
     return out
 
@@ -718,6 +724,51 @@ def _outbox(value, workbench: str):
     except mail_address.AddressError as e:
         raise ConfigError(f"runtime.json outbox.from: {e.reason}") from None
     return {"provider": provider, "from": sender}
+
+
+MEDIA_KEYS = ("language", "transcriber_model", "renderer")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS)
+MEDIA_RENDERER_CLASS = "renderer:video"
+MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
+TRANSCRIBER_MODELS = ("providers", "transcriber", "models.json")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def _transcriber_models(workbench: str) -> list:
+    """The names of the transcriber's models that are pinned (a sha256 of 64 hex characters) in providers/transcriber/models.json of the workbench,
+    read as data; [] when the file cannot be read."""
+    try:
+        with open(os.path.join(workbench, *TRANSCRIBER_MODELS), encoding="utf-8") as f:
+            listed = json.load(f)["models"]
+        return [m["name"] for m in listed if isinstance(m, dict) and isinstance(m.get("name"), str)
+                and isinstance(m.get("sha256"), str) and SHA256_HEX.fullmatch(m["sha256"])]
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return []
+
+
+def _media(value, workbench: str):
+    """The key "media", checked; None when absent. Both settings are optional; the defaults are the step kind's (runtime/step_media.py)."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional")
+    out = {}
+    if "language" in value:
+        found = value["language"]
+        if not isinstance(found, str) or not MEDIA_LANGUAGE.fullmatch(found):
+            raise ConfigError("runtime.json media.language must be a language code of two or three lowercase letters (pt, en, es) or auto")
+        out["language"] = found
+    if "transcriber_model" in value:
+        found, models = value["transcriber_model"], _transcriber_models(workbench)
+        if not isinstance(found, str) or found not in models:
+            raise ConfigError("runtime.json media.transcriber_model must be one of " + ", ".join(models) if models
+                              else "runtime.json media.transcriber_model must be a pinned model of providers/transcriber/models.json: none is listed")
+        out["transcriber_model"] = found
+    if "renderer" in value:
+        found, shipped = value["renderer"], _implementations(workbench, MEDIA_RENDERER_CLASS)
+        if not isinstance(found, str) or (found != "auto" and found not in shipped):
+            raise ConfigError("runtime.json media.renderer must be auto or one of " + (", ".join(shipped) or "none: no renderer is shipped"))
+        out["renderer"] = found
+    return out
 
 
 ACCOUNT_PROVIDERS = ("google", "microsoft")

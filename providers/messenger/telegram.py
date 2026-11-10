@@ -46,10 +46,10 @@ call made on purpose.
 
 Sending a file (S18). The neutral message may carry `"file": {"name", "kind": "photo" | "document", "path"}`: the bridge wrote the bytes to one temporary file
 of its own at `path` (mode 0600, in a folder it removes when the send ends) and this verb reads it, checks it, and sends it after the message as a reply to it: sendPhoto
-(multipart field `photo`) or sendDocument (field `document`). It is read here with O_NOFOLLOW from a regular file, at most `max_send_bytes` (20 MiB, a literal: below the 50 MB the Bot API
+(multipart field `photo`), sendVideo (field `video`, `supports_streaming` true) or sendDocument (field `document`). It is read here with O_NOFOLLOW from a regular file, at most `max_send_bytes` (20 MiB, a literal: below the 50 MB the Bot API
 documents for sendDocument, and the most this runtime reads) or, for a photo, `max_photo_bytes` (10 MiB, the documented sendPhoto limit); a photo must be a png or a jpeg
 by its first bytes (`photo_types`), else it is a document; the type must be one of `send_types`. A file that Telegram refuses after the message went out is reported like a document's: the message id
-is printed with `"document_failed": true` and a warning on stderr that holds no name, no path and no token. The file's bytes are in no log, no output and no error. These limits were written
+is printed with `"document_failed": true` and a warning on stderr that holds no name, no path and no token. The file's bytes are in no log, no output and no error. A `video` is an MP4 (bytes 4 to 8 are `ftyp`), at most `max_video_bytes` (20 MiB) and one of `video_types` (V1d-2; the preview of a delivery). These limits were written
 from the documented behaviour of the Bot API and NOT re-read when S18 was built (it had no network); the maintainer's live test confirms them.
 
 Attachments (ATT-2). A message with a document, photo, voice note, video, audio or sticker becomes an update whose
@@ -105,6 +105,7 @@ CAPABILITIES = {"max_text": 4096, "buttons": True, "max_buttons": 6, "max_button
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True,
                 "attachments": True, "max_attachment_bytes": 20971520, "typing": True,
                 "send_files": True, "max_send_bytes": 20971520, "max_photo_bytes": 10485760, "photo_types": ["png", "jpeg"],
+                "max_video_bytes": 20971520, "video_types": ["mp4"],
                 "send_types": ["pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text", "png", "jpeg", "webp", "gif"]}   # 20 MiB: the Bot API serves a download of at most 20 MB (getFile answers "file is too big" above it); a literal, because the architecture tables read it
 MAX_ATTACHMENT_BYTES = CAPABILITIES["max_attachment_bytes"]
 CALLBACK_DATA_BYTES = 64
@@ -425,9 +426,9 @@ def check_message(message) -> dict:
     if file is not None:
         if document is not None:
             raise ProviderError("a message carries a document or a file, not both", EXIT_USAGE)
-        if not isinstance(file, dict) or not isinstance(file.get("name"), str) or not file["name"] or file.get("kind") not in ("photo", "document") \
+        if not isinstance(file, dict) or not isinstance(file.get("name"), str) or not file["name"] or file.get("kind") not in ("photo", "document", "video") \
                 or not isinstance(file.get("path"), str) or not os.path.isabs(file["path"]):
-            raise ProviderError("a file is {\"name\": text, \"kind\": \"photo\" or \"document\", \"path\": the absolute path of the file to send}", EXIT_USAGE)
+            raise ProviderError("a file is {\"name\": text, \"kind\": \"photo\", \"document\" or \"video\", \"path\": the absolute path of the file to send}", EXIT_USAGE)
     return message
 
 
@@ -444,6 +445,8 @@ def sniff_type(head: bytes):
         return "gif"
     if head[:5] == b"%PDF-":
         return "pdf"
+    if head[4:8] == b"ftyp":
+        return "mp4"
     if head[:4] == b"PK\x03\x04":
         return "ooxml"
     if b"\x00" not in head:
@@ -460,7 +463,7 @@ def read_file(file: dict) -> tuple:
     """(field, name, bytes, content type) of the file to send, read from `file["path"]`: opened without following a link, a regular file, within the limit of its kind. A usage
     error (exit 2) when it cannot be sent, with a sentence that holds no name and no path."""
     kind = file["kind"]
-    limit = CAPABILITIES["max_photo_bytes"] if kind == "photo" else CAPABILITIES["max_send_bytes"]
+    limit = CAPABILITIES["max_photo_bytes"] if kind == "photo" else CAPABILITIES["max_video_bytes"] if kind == "video" else CAPABILITIES["max_send_bytes"]
     try:
         fd = os.open(file["path"], os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
     except OSError:
@@ -476,6 +479,10 @@ def read_file(file: dict) -> tuple:
     if len(data) > limit:
         raise ProviderError(f"the file to send is over the {limit} bytes Telegram takes as a {kind} here", EXIT_USAGE)
     found = sniff_type(data[:4096])
+    if kind == "video":
+        if found not in CAPABILITIES["video_types"]:
+            raise ProviderError("this kind of file is not sent as a video here", EXIT_USAGE)
+        return kind, file["name"], data, "video/mp4"
     if found not in CAPABILITIES["send_types"] or (kind == "photo" and found not in CAPABILITIES["photo_types"]):
         raise ProviderError(f"this kind of file is not sent as a {kind} here", EXIT_USAGE)
     content_type = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif", "pdf": "application/pdf", "html": "text/html", "text": "text/plain", "csv": "text/csv"}.get(found, "application/octet-stream")
@@ -739,9 +746,13 @@ def send(chat: str, message: dict, token: str, base: str) -> dict:
             return {"message_id": str(sent["message_id"]), "document_failed": True}
     if to_send is not None:
         kind, name, data, content_type = to_send
-        body, form = multipart_file({"chat_id": chat, "reply_to_message_id": sent["message_id"]}, kind, name, data, content_type)
+        form_fields = {"chat_id": chat, "reply_to_message_id": sent["message_id"]}
+        if kind == "video":
+            form_fields["supports_streaming"] = "true"
+        body, form = multipart_file(form_fields, kind, name, data, content_type)
+        method = {"photo": "sendPhoto", "video": "sendVideo"}.get(kind, "sendDocument")
         try:
-            call("sendPhoto" if kind == "photo" else "sendDocument", {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=form)
+            call(method, {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=form)
         except ProviderError as e:  # the message went out: its id is still printed, and the bridge says the file did not arrive; the warning names no file
             print(f"warning: the message was sent and its file was not ({redact(e, token)})", file=sys.stderr)
             return {"message_id": str(sent["message_id"]), "document_failed": True}

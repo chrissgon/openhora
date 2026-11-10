@@ -55,6 +55,7 @@ def clock(world, monkeypatch):
 
 
 AT = (REAL + datetime.timedelta(hours=1)).strftime("%H:%M")
+OTHER_AT = (REAL + datetime.timedelta(hours=3)).strftime("%H:%M")      # never AT: a change to it is always a change, at any hour the test runs (a fixed "23:59" equalled AT at 22:59)
 SLOT = (REAL + datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
 
 
@@ -99,7 +100,7 @@ def test_a_routine_is_a_draft_that_fires_nothing_until_the_hash_of_its_exact_con
         ops.routine_approve(world["path"], made["id"], "0" * 64)
     approved = ops.routine_approve(world["path"], made["id"], made["sha256"])
     assert approved["state"] == "active" and approved["approved_sha256"] == made["sha256"] and approved["current"] is True
-    changed = ops.routine_change(world["path"], made["id"], at="23:59")
+    changed = ops.routine_change(world["path"], made["id"], at=OTHER_AT)
     assert changed["state"] == "draft" and changed["approved_sha256"] is None, "a change clears the approval"
     assert changed["sha256"] != made["sha256"]
 
@@ -616,7 +617,7 @@ def test_a_pause_or_a_change_between_the_read_of_a_routine_and_its_fire_wins(wor
     requests = [t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] is None]
     assert requests == []
     ops.routine_resume(world["path"], made["id"])
-    ops.routine_change(world["path"], made["id"], at="23:59")                           # a change: a draft, approval cleared
+    ops.routine_change(world["path"], made["id"], at=OTHER_AT)                           # a change: a draft, approval cleared
     again = ops_routines.fire(ctx, stale, SLOT, clock.to(minutes=62))
     assert again["status"] == "inactive" and fires(world, made["id"]) == []
     # approved again with another content: the stale hash does not fire

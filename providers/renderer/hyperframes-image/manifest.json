@@ -1,0 +1,25 @@
+{
+ "note": "The files of the image definition of the HyperFrames engine (package V3a-image). The image's tag is openhora-hyperframes:<the first 12 characters of the sha256 of these files, by name and content, in sorted order>, so a file not listed here never changes the image or its tag and a listed one always does (review finding F11). Not listed, on purpose: hf_image.py (the build driver, outside the definition like the converter's container.py), README.md and NOTICE.md (documents). A file added to this folder is listed here or added to that sentence and to NOT_IN_DEFINITION of providers/renderer/tests/test_hf_image.py, or that test fails.",
+ "files": [
+  ".dockerignore",
+  "Dockerfile",
+  "_fetch_browser.py",
+  "fetch_ffmpeg.py",
+  "hf_compat.py",
+  "hf_render.py",
+  "hf_wrap.py",
+  "fetch_registry.py",
+  "registry.sha256",
+  "hf_measure.mjs",
+  "fonts/Inter-OFL.txt",
+  "fonts/JetBrainsMono-OFL.txt",
+  "fonts/SHA256SUMS",
+  "fonts/inter-500.woff2",
+  "fonts/inter-800.woff2",
+  "fonts/jetbrains-mono-500.woff2",
+  "manifest.json",
+  "package-lock.json",
+  "package.json",
+  "pins.json"
+ ]
+}

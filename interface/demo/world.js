@@ -116,11 +116,18 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
           case "commands": return get(clone(F.commands));
           case "instructions": return get(reads.instructions());
           case "attachments": return get(reads.attachments());
+          case "media": return get(reads.mediaList(P));
+          case "video-catalogue": return get(reads.videoCatalogue());
           default: break;
         }
       }
       if (parts[0] === "pending" && parts.length === 2) return get(reads.pendingItem(P, idOf(parts[1])));
       if (parts[0] === "tasks" && parts.length === 2) return get(reads.task(P, idOf(parts[1])));
+      if (parts[0] === "videos" && parts.length === 3) {
+        if (parts[2] === "captions") return get(reads.captionsRead(P, idOf(parts[1])));
+        if (parts[2] === "still") reads.videoStill();
+        if (parts[2] === "download") reads.videoDownload();
+      }
       if (parts[0] === "artifact" && parts[1] === "raw") reads.artifactRaw();
       throw notFound("no such route, project or file");
     }
@@ -155,6 +162,8 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
     if (key === "POST conversation") return job(P, "say", async () => writes.say(ctx, P, body));
     if (parts[0] === "instructions") throw notInDemo("Writing the project's instructions");
     if (parts[0] === "attachments") throw notInDemo("Adding or discarding a file sent from a messaging app");
+    if (key === "POST media") throw notInDemo("Uploading a recording");
+    if (parts[0] === "videos") throw notInDemo("Starting, running or editing a video");
     if (key === "POST sync") throw notInDemo("Syncing with the platform");
     if (key === "POST dispatch") throw notInDemo("Running the next task");
     throw notFound("no such route, project or file");

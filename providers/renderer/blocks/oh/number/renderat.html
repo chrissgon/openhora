@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="number">
+<meta name="pv-params" content="value,label,color">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
+#card { display:flex; flex-direction:row; align-items:center; gap:0.3em; padding:0.2em 0.5em 0.24em; border-radius:0.34em; border:0.06em solid var(--c-accent);
+        background:var(--c-chip_fill); color:var(--c-text); box-shadow:0 0.1em 0 rgba(0,0,0,.35); text-align:left; transform-origin:50% 50%; }
+#fig { font-family:var(--font-display); font-weight:var(--weight-display); letter-spacing:-0.03em; line-height:1; white-space:nowrap; }
+#lab { font-family:var(--font-text); font-weight:var(--weight-text); font-size:0.34em; line-height:1.12; color:var(--c-muted); max-width:5.2em; white-space:normal; }
+</style>
+</head>
+<body>
+<div id="pos"><div id="card"></div></div>
+<script>
+'use strict';
+// A card is drawn inside the band the face box leaves above it (data.zones.card = [top, bottom]): the largest type whose card fits the
+// band's height and the frame's width, so a short band gives small type and never a card over the face. The card pops in (ease-out-back)
+// and shrinks out. The driver measures every element marked data-zone and fails the render when one touches the face box.
+// Pure function of (t, data): every style it relies on is set here, so a frame never depends on the one before.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+const FIT = 0.86;      // the share of the band a card fills at rest: the pop's overshoot (about 8 percent) then stays inside the band
+function band(data) {
+  const z = data.zones.card;
+  const pos = document.getElementById('pos');
+  pos.style.top = z[0] + 'px';
+  pos.style.height = (z[1] - z[0]) + 'px';
+  return z[1] - z[0];
+}
+// The figure is written as the post gives it ("340", "1.234", "3,5", "1.234,56"). The last separator followed by one or two digits is the
+// decimal mark; every other separator is a thousands mark. The count-up keeps that shape and the final frame shows the written value exactly.
+function parseFigure(s) {
+  const m = /^(\d[\d.,]*)([.,])(\d{1,2})$/.exec(s);
+  const dec = m ? m[2] : '';
+  const intPart = m ? m[1] : s;
+  const thousands = (intPart.match(/[.,]/) || [''])[0];
+  const digits = intPart.replace(/[.,]/g, '');
+  return { target: Number(digits + (m ? '.' + m[3] : '')), decimals: m ? m[3].length : 0, dec: dec, thousands: thousands };
+}
+function formatFigure(v, f) {
+  const parts = v.toFixed(f.decimals).split('.');
+  const grouped = f.thousands ? parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, f.thousands) : parts[0];
+  return grouped + (parts[1] ? f.dec + parts[1] : '');
+}
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const bandH = band(data);
+  const card = document.getElementById('card');
+  card.replaceChildren();
+  card.dataset.zone = 'card';
+  card.style.transform = 'none';
+  const color = col(P.color || 'accent');
+  card.style.borderColor = color;
+  const countFor = Math.min(1.4, data.duration * 0.6);
+  const f = parseFigure(P.value);
+  const progress = clamp((t - 0.1) / countFor);
+  const fig = document.createElement('div');
+  fig.id = 'fig';
+  fig.textContent = progress >= 1 ? P.value : formatFigure(f.target * easeOutCubic(progress), f);
+  fig.style.color = color;
+  card.appendChild(fig);
+  if (P.label) {
+    const lab = document.createElement('div');
+    lab.id = 'lab';
+    lab.textContent = P.label;
+    card.appendChild(lab);
+  }
+  let fs = Math.min(150, bandH * 0.6);
+  card.style.fontSize = fs + 'px';
+  while ((card.offsetWidth > 930 || card.offsetHeight > bandH * FIT) && fs > 30) { fs = fs * 0.94; card.style.fontSize = fs.toFixed(1) + 'px'; }
+  const tout = clamp((data.duration - t) / 0.3);
+  const shrink = 0.88 + 0.12 * (1 - easeInCubic(1 - tout));
+  card.style.opacity = Math.min(clamp(t / 0.12), tout).toFixed(3);
+  card.style.transform = 'scale(' + ((0.5 + 0.5 * easeOutBack(clamp(t / 0.4), 1.7)) * shrink).toFixed(4) + ')';
+};
+</script>
+</body>
+</html>

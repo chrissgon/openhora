@@ -26,7 +26,7 @@ RUNTIME_FILES = sorted(p for p in ["runtime/" + x.name for x in (REPO / "runtime
                        if p not in EXCLUDED)      # HOT-1: derived, so a new module is covered without anyone listing it
 OTHERS = [      # the entries outside runtime/ and runtime/handlers/, literal
     "scripts/redact.py",
-    "providers/resolve.py", "providers/store/sqlite.py",
+    "providers/resolve.py", "providers/store/sqlite.py", "providers/transcriber/whispercpp.py", "providers/renderer/ffmpeg.py", "providers/renderer/hyperframes.py",
     "providers/scheduler/launchd.py", "providers/scheduler/systemd.py",
     "skills/mkt-engage/scripts/policy_gate.py", "skills/mkt-engage/scripts/parse_notification.py",
     "skills/mkt-vote-round/scripts/vote_state.py", "skills/mkt-vote-round/scripts/vote_update.py",
