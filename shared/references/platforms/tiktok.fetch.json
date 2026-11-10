@@ -1,0 +1,9 @@
+{
+ "platform": "tiktok",
+ "link": {"hosts": ["www.tiktok.com"], "path_pattern": null, "keep_query": []},
+ "fetch_hosts": [],
+ "fetch_suffixes": [],
+ "extractors": null,
+ "subtitles": {"by_language": null, "original": null},
+ "checked": "not checked"
+}

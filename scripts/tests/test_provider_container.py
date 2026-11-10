@@ -176,8 +176,10 @@ def test_no_user_flag_off_linux_and_the_image_and_args_come_last(monkeypatch):
 
 
 def test_the_image_is_never_pulled_and_the_network_is_off_whatever_the_caller_passes(monkeypatch):
-    with pytest.raises(TypeError):
-        box.argv("n", "i", [], label="l", deadline=1, mounts=[], memory_mb=1, cpus=1, scratch_mb=1, network="host")
+    for bad in ("host", "bridge", "", "openhora-fetch-in-" + "a" * 11, "openhora-fetch-in-" + "a" * 12 + "-x"):
+        with pytest.raises(box.ContainerError) as caught:
+            box.argv("n", "i", [], label="l", deadline=1, mounts=[], memory_mb=1, cpus=1, scratch_mb=1, network=bad)
+        assert caught.value.code == "bad_network", bad
     with pytest.raises(TypeError):
         box.argv("n", "i", [], label="l", deadline=1, mounts=[], memory_mb=1, cpus=1, scratch_mb=1, pull="always")
 

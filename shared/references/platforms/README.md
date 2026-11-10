@@ -100,6 +100,24 @@ Rules:
 - A limit is written once. The first data file holds every limit the runtime and the skills' scripts held as constants when it was written, so that moving a script to the file changes no value.
 - Changing a value here changes what the skills that read the file do: it is a change of their context, and their lab evidence made with the old file becomes inherited (the reliability model, "What a change costs").
 
+## Fetch files
+
+A platform whose public videos a person may give as references has one more file beside its reference, `<platform>.fetch.json`. It is read by the reference fetcher (`providers/fetcher/`) and by the runtime's reference store, through a path given by flag, and by no skill. It is never staged into a skill's run and never part of a skill's context hash, so editing one changes no skill's evidence (principle 12). A platform may have a fetch file with no reference or data file of its own: it adds nothing a skill sees.
+
+| Key | Value |
+|-----|-------|
+| `platform` | the platform's name, equal to the file's name before `.fetch.json` |
+| `link` | `hosts` (the exact host names a link may have, compared whole after lowercasing, copied from the data file's `hosts` when there is one), `path_pattern` (a regular expression the whole path of a link must match), `keep_query` (the only query keys kept; the rest is cut) |
+| `fetch_hosts` | the exact host names the fetcher's proxy may reach for this platform |
+| `fetch_suffixes` | the host suffixes it may reach, each starting with a dot: the one key compared by suffix, as narrow as the observed names allow |
+| `extractors` | the extractor names the tool may use for this platform |
+| `subtitles` | `by_language` (a pattern where `{lang}` is replaced by the project's language) and `original` (the pattern of the platform's original track); both null means metadata and no subtitles |
+| `checked` | where the values came from and when, or `not checked` |
+
+Everything but `link.hosts` is null or empty until a live run observes it and a person approves the values: the fetcher refuses a platform whose `extractors` or `link.path_pattern` is null or empty. A value is never written from general knowledge.
+
+Fetch files filled so far: `youtube.fetch.json` (Shorts links, values observed in a live run on 2026-11-10 and approved). `tiktok.fetch.json` and `instagram.fetch.json` carry only `link.hosts` and are not ready.
+
 ## What stays in a provider
 
 What belongs to one implementation and not to the medium: credentials and how long they last, how the service is called, its versions and endpoints, its errors and rate limits, how text is escaped on the way in, the ledger of what was sent. One provider may serve several platforms, and most skills that need to know a platform declare no publisher. A provider's verbs name a post and a comment by generic flags (`--post-id`, `--comment-id`, `--parent-comment-id`) whose value a caller passes as it received it; what the value looks like on a platform is in that platform's reference, section "Identifiers" (`providers/CONTRACT.md`).

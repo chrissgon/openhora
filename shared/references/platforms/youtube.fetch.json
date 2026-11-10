@@ -1,0 +1,9 @@
+{
+ "platform": "youtube",
+ "link": {"hosts": ["www.youtube.com"], "path_pattern": "/shorts/[A-Za-z0-9_-]{11}", "keep_query": []},
+ "fetch_hosts": ["www.youtube.com", "manifest.googlevideo.com"],
+ "fetch_suffixes": [".googlevideo.com"],
+ "extractors": ["Youtube"],
+ "subtitles": {"by_language": null, "original": null},
+ "checked": "2026-11-10"
+}
