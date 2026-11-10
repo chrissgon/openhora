@@ -17,13 +17,13 @@ resolve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resolve)
 
 
-def test_renderer_video_is_a_runtime_only_class_with_two_implementations_ffmpeg_by_default_and_underscore_helpers_are_not_implementations():
+def test_renderer_video_is_a_runtime_only_class_with_two_implementations_hyperframes_by_default_and_underscore_helpers_are_not_implementations():
     assert resolve.folder("renderer:video") == "renderer"
     assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
     assert resolve.split_class("renderer:video") == ("renderer", "video")
     assert resolve.implementations("renderer:video") == ["ffmpeg", "hyperframes"]
     got = resolve.resolve("renderer:video", env={})
-    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default" and got["path"].endswith("providers/renderer/ffmpeg.py")
+    assert got["implementation"] == "hyperframes" and got["source"] == "class-default" and got["path"].endswith("providers/renderer/hyperframes.py")
     assert resolve.platform_of("renderer:video") is None                    # a fixed target, not a class with a parameter
     assert "renderer:video" not in resolve.LISTED                           # no skill may require it ...
     assert "renderer:video" not in (REPO / "contracts" / "environment.md").read_text()      # ... so it is not in the environment contract
@@ -37,10 +37,14 @@ def test_a_workbench_with_the_providers_helpers_still_has_one_candidate(tmp_path
         (folder / name).write_text("")
     (folder / "Dockerfile").write_text("")
     assert resolve.implementations("renderer:video", root=tmp_path, env={}) == ["ffmpeg"]
-    assert resolve.resolve("renderer:video", root=tmp_path, env={})["implementation"] == "ffmpeg"
-    (folder / "remotion.py").write_text("")                                 # a second implementation behind the same class: the class default keeps ffmpeg (VD1)
     got = resolve.resolve("renderer:video", root=tmp_path, env={})
-    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"
+    assert got["implementation"] == "ffmpeg" and got["source"] == "only-implementation"      # one candidate and the class default is not shipped
+    (folder / "hyperframes.py").write_text("")                              # the second engine: the class default is hyperframes since V4
+    got = resolve.resolve("renderer:video", root=tmp_path, env={})
+    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
+    (folder / "remotion.py").write_text("")                                 # a third implementation: the class default stays hyperframes
+    got = resolve.resolve("renderer:video", root=tmp_path, env={})
+    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
     assert resolve.resolve("renderer:video", root=tmp_path, env={"RENDERER_VIDEO_PROVIDER": "remotion"})["implementation"] == "remotion"
     assert resolve.resolve("renderer:video", root=tmp_path, env={"RENDERER_PROVIDER": "remotion"})["implementation"] == "remotion"
 
@@ -59,6 +63,12 @@ def test_the_contract_has_the_class_row_and_the_verbs_row():
         assert verb in row, verb
     for key in ("`path`", "`sha256`", "`browser_sandbox`", "`replayed`", "`slots`", "`unmatched`"):
         assert key in row, key
+
+
+def test_every_implementation_of_the_class_answers_block_params():
+    for name in resolve.implementations("renderer:video"):
+        text = (K.RENDERER / (name + ".py")).read_text(encoding="utf-8")
+        assert '"block-params": verb_block_params' in text, name
 
 
 def test_the_provider_imports_nothing_outside_its_own_folder_and_the_standard_library():

@@ -52,6 +52,11 @@ and which the provider of this machine must hold the account of (one outbox acco
 approves the exact recipients of each e-mail by its hash, and a cap of 20 is code. Like every key, it is changed only in the terminal and
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
+It also reads "media" (package V1b2-1; absent: the step kind's defaults): the settings of a new video, an object
+{"language", "transcriber_model", "renderer"}, each optional. "renderer" is "auto" (the class renderer:video resolves as
+providers/resolve.py says: a variable, then the class default, hyperframes) or an implementation shipped in providers/renderer/,
+which the runtime then names on every call. Like every key, it is changed only in the terminal and accepted with accept-config.
+
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
 "calendars": {"<name>": "<calendar id>"}, "folders": {"<name>": "<Drive folder id or /path | OneDrive folder id or /path>"}, "mail_folders": {"<name>":
@@ -721,7 +726,8 @@ def _outbox(value, workbench: str):
     return {"provider": provider, "from": sender}
 
 
-MEDIA_KEYS = ("language", "transcriber_model")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS); V4 adds `renderer`
+MEDIA_KEYS = ("language", "transcriber_model", "renderer")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS)
+MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
 TRANSCRIBER_MODELS = ("providers", "transcriber", "models.json")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
@@ -744,7 +750,7 @@ def _media(value, workbench: str):
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
-        raise ConfigError("runtime.json media must be an object with the keys language and transcriber_model, each optional")
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional")
     out = {}
     if "language" in value:
         found = value["language"]
@@ -757,6 +763,11 @@ def _media(value, workbench: str):
             raise ConfigError("runtime.json media.transcriber_model must be one of " + ", ".join(models) if models
                               else "runtime.json media.transcriber_model must be a pinned model of providers/transcriber/models.json: none is listed")
         out["transcriber_model"] = found
+    if "renderer" in value:
+        found, shipped = value["renderer"], _implementations(workbench, MEDIA_RENDERER_CLASS)
+        if not isinstance(found, str) or (found != "auto" and found not in shipped):
+            raise ConfigError("runtime.json media.renderer must be auto or one of " + (", ".join(shipped) or "none: no renderer is shipped"))
+        out["renderer"] = found
     return out
 
 

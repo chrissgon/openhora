@@ -170,6 +170,17 @@ def test_an_engine_that_is_not_configured_fails_the_step_not_configured_and_a_re
         ctx["store"].step_task_move(ctx["conn"], task, state="failed", note="x", by="code")      # free the recording for the next try
 
 
+def test_an_engine_that_is_not_configured_says_in_its_next_sentence_how_to_set_up_or_name_the_other_renderer():
+    class Missing(Exception):
+        code = "not_configured"
+
+    def call():
+        raise Missing()
+    with pytest.raises(steps.StepFailure) as caught:
+        step_media._asked(call)
+    assert caught.value.code == "not_configured" and "media.renderer" in caught.value.next and "hyperframes" in caught.value.next
+
+
 def test_a_verify_result_that_is_not_ok_fails_the_verify_step_and_nothing_is_written_for_the_gate(world):
     world["engine"].verify_ok = False
     task = to_review(world)

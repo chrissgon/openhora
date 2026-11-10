@@ -48,7 +48,7 @@ def engine(monkeypatch, resolver):
     return seams.MediaEngine("/root")
 
 
-def test_the_engine_reaches_only_the_closed_verbs_of_the_two_classes_and_passes_no_implementation(monkeypatch):
+def test_the_engine_reaches_only_the_closed_verbs_of_the_two_classes_and_passes_no_implementation_unless_the_project_names_a_renderer(monkeypatch):
     resolver = Resolver()
     eng = engine(monkeypatch, resolver)
     assert seams.MediaEngine.CLASSES == {"transcriber:speech": ("transcribe",),
@@ -62,6 +62,16 @@ def test_the_engine_reaches_only_the_closed_verbs_of_the_two_classes_and_passes_
             eng.call(cls, verb, [], 1)
         assert refused.value.code == "refused"
     assert len(resolver.calls) == 1
+
+
+def test_a_named_renderer_is_the_implementation_of_the_renderer_class_alone(monkeypatch):
+    resolver = Resolver()
+    monkeypatch.setattr(project_config, "resolver", lambda root: resolver)
+    eng = seams.MediaEngine("/root", "ffmpeg")
+    eng.call("renderer:video", "check", [], 1)
+    eng.call("transcriber:speech", "transcribe", [], 1)
+    assert resolver.calls[0][3]["implementation"] == "ffmpeg"
+    assert "implementation" not in resolver.calls[1][3]
 
 
 @pytest.mark.parametrize("error, code", [(Gone("not-configured"), "not_configured"), (Gone("usage", 2), "refused"), (Gone("failed", 1), "refused"),

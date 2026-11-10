@@ -24,6 +24,9 @@ def set_media(world, value, models=MODELS):
     root = Path(json.loads((Path(world["path"]) / "docs/workbench/runtime.json").read_text())["workbench"])
     (root / "providers" / "transcriber").mkdir(parents=True, exist_ok=True)
     (root / "providers" / "transcriber" / "models.json").write_text(json.dumps(models), encoding="utf-8")
+    (root / "providers" / "renderer").mkdir(parents=True, exist_ok=True)
+    for name in ("ffmpeg.py", "hyperframes.py"):
+        (root / "providers" / "renderer" / name).write_text("", encoding="utf-8")
     path = Path(world["path"]) / "docs/workbench/runtime.json"
     raw = json.loads(path.read_text())
     raw["media"] = value
@@ -62,8 +65,12 @@ def test_a_project_with_no_media_key_gets_the_step_kinds_defaults(world):
 
 
 @pytest.mark.parametrize("value, sentence", [
-    ([], "must be an object with the keys language and transcriber_model"),
-    ({"renderer": "x"}, "must be an object with the keys language and transcriber_model"),
+    ([], "must be an object with the keys language, transcriber_model and renderer"),
+    ({"engine": "x"}, "must be an object with the keys language, transcriber_model and renderer"),
+    ({"renderer": "heygen"}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
+    ({"renderer": 5}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
+    ({"renderer": ""}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
+    ({"renderer": None}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
     ({"language": "pt-BR"}, "media.language must be a language code"),
     ({"language": "PT"}, "media.language must be a language code"),
     ({"language": ""}, "media.language must be a language code"),
@@ -100,3 +107,16 @@ def test_a_model_that_is_not_pinned_is_refused_and_an_empty_list_says_so(world):
     with pytest.raises(project_config.ConfigError) as caught:
         project_config.load(world["path"])
     assert "none is listed" in str(caught.value)
+
+
+@pytest.mark.parametrize("name", ["auto", "ffmpeg", "hyperframes"])
+def test_the_renderer_key_loads_auto_and_each_shipped_implementation(world, name):
+    set_media(world, {"renderer": name})
+    assert project_config.load(world["path"])["media"] == {"renderer": name}
+
+
+def test_the_store_names_the_renderer_unless_it_is_absent_or_auto(world):
+    for value, expected in (({}, None), ({"renderer": "auto"}, None), ({"renderer": "ffmpeg"}, "ffmpeg"), ({"renderer": "hyperframes"}, "hyperframes")):
+        set_media(world, value)
+        accept(world)
+        assert ops_step_seams.MediaStore(ops_core.context(world["path"])).renderer() == expected

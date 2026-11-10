@@ -107,7 +107,7 @@ After a reviewed change of a block: `python3 providers/renderer/ffmpeg.py pin-bl
 
 ## The HyperFrames engine's composed page (V3b-1)
 
-`hyperframes.py render` without `--base-only` draws the captions and the beats. The page stage (`hf-page` with `--blocks` and `--blocks-sha256`)
+`hyperframes.py render` without `--base-only` draws the captions and the beats. `hyperframes.py` answers `block-params` like `ffmpeg.py` (the same host function, with `engine` `hyperframes`). The page stage (`hf-page` with `--blocks` and `--blocks-sha256`)
 runs in the common image: `_hf_compose.py` writes one root composition, `index.html` (structure and numbers only), `vars.json` (every text) and
 `blocks/<ns>-<name>.html` for the `renderat` blocks. A block is drawn with its `gsap.html` when the engine runs `gsap` (the fragment of
 `_gsap_lint.py`, inlined once per entry in an instance clipped to its band and scoped with `@scope`) and with its `renderat.html` otherwise (one
@@ -165,7 +165,8 @@ one, an external service) replaces this one behind the same verbs and the same e
   `schema_version` 1. The vocabulary file is read at version 1 or 2, never 3.
 - `render` takes both, the recording, the platform file and the person's asset files by slot, and writes `render-<sha12>.mp4`, 0400,
   never rewritten, after checking the file against the platform's video spec. What an implementation owns is only how it draws.
-- Selection is `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` (or the runtime's configuration), as for every class.
+- Selection: a project's `media.renderer` (`auto`, absent, or a name), then `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` for `auto`, then the class default,
+  `hyperframes` since V4.
 
 ## The engine contract (V3c)
 
@@ -187,6 +188,8 @@ report's closed schema and the memory sampler are in `tests/contract_kit.py`; th
 | C10 | limits in code (memory, pids, workers, free space, 1800 s) | `hyperframes.py`, `_docker.py`, `_output.py` | M2, M3 |
 | C11 | a refusal leaves no file, no container, no run folder | `finish_render`, `Job` | every leg |
 | C12 | a caption with words draws glyphs (`caption_not_drawn`, HyperFrames) | `_hf_gate.check_boxes` | F8 |
+
+Both engines also answer `block-params` (the host-side checker of an added animation, from the same function of `_host.py`; `test_renderer_contract.py` keeps that true for every implementation of the class).
 
 Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`), in CI's
 `hyperframes` job (V3c-2: both images built on the runner, the amd64 `hyperframes.py --check`, then this file and `test_hf_docker_live.py` with
