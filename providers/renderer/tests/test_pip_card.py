@@ -27,6 +27,7 @@ DATA = load_data()
 needs_all = pytest.mark.skipif(not (K.HAVE_FFMPEG and K.BROWSER), reason="ffmpeg, ffprobe and a headless Chromium are needed")
 needs_browser = pytest.mark.skipif(not K.BROWSER, reason=K.SKIP_BROWSER)
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
+needs_all_ffmpeg = needs_ffmpeg
 Z = DATA["zones"]
 GAP = Z["gap"]
 
@@ -121,7 +122,8 @@ ROW = {"asset": "assets/s1.png", "kind": "png", "start_frame": 30, "end_frame": 
 def test_the_card_is_the_asset_scaled_to_its_box_with_rounded_corners_over_the_speaker_who_stays_full_frame():
     argv = _media.compose_argv("ffmpeg", plan_with([ROW]))
     graph = argv[argv.index("-filter_complex") + 1]
-    assert "scale=950:534:flags=" in graph and "alphamerge" in graph and "overlay=65:718:format=gbrp:enable='between(n,30,89)'" in graph
+    assert "scale=950:534:flags=" in graph and "alphamerge" in graph and "overlay=65:718:format=gbrp[ob0]" in graph and "enable=" not in graph and "if(between(N,30,89)" in " ".join(argv)
+    assert "loop=loop=-1:size=1" in graph and "trim=end_frame=120" in graph      # the card is a stream the length of the output, paired with the base by timestamp
     assert "split" not in graph and "crop=" not in graph.split("[cv]")[1]          # no speaker bubble: the base picture is the cut recording itself
     lav = argv[argv.index("lavfi") + 2]
     assert lav.startswith("color=c=black:s=950x534:") and "geq=lum=" in lav
@@ -354,6 +356,14 @@ def card_pattern(video):
     return "".join("1" if (raw[i] > 150 and raw[i + 1] < 80) else "0" for i in range(0, len(raw), 3))
 
 
+def make_phone_like_source(path):
+    """About 60 frames a second at irregular times, a 1/600 time base, with audio, as a phone writes a recording."""
+    subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=60:d=14", "-f", "lavfi", "-i", "sine=f=300:d=14", "-vf",
+                    "select='gt(random(1),0.02)',setpts='N/(60*TB)+0.006*sin(N*1.3)/TB'", "-fps_mode", "vfr", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "medium",
+                    "-bf", "3", "-c:a", "aac", "-video_track_timescale", "600", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+                    "-movflags", "+faststart", str(path)], check=True)
+
+
 def make_irregular_source(path):
     """A 1080x1920 clip whose frames come at irregular times (a phone's variable frame rate): about 30 frames a second, jittered."""
     subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=60:d=5", "-vf",
@@ -382,3 +392,60 @@ def test_the_card_is_on_exactly_from_the_first_frame_of_the_beat_to_its_last_wha
     assert len(pattern) == total
     assert [pattern[f] for f in (start - 1, start, start + 1, end - 1, end)] == ["0", "1", "1", "1", "0"], pattern
     assert pattern == "0" * start + "1" * (end - start) + "0" * (total - end)
+
+
+LAYER_RGB = (0, 255, 0)
+
+
+@needs_all_ffmpeg
+@pytest.mark.parametrize("start, end", [(6, 64), (7, 40), (100, 180)])
+def test_the_card_is_on_the_same_frames_as_a_page_layer_and_the_beats_range_on_a_phone_like_source(tmp_path, start, end):
+    """A source of about 60 variable frames a second (time base 1/600) cut from frame 55 of the 30 fps grid, written at 30 fps: in one render the
+    card (the ffmpeg pip) and a layer frame (a flat block drawn on frames start..end-1, as a page layer is) are on the same frames, and those are
+    exactly start..end-1."""
+    src = tmp_path / "phone.mp4"
+    make_phone_like_source(src)
+    asset = tmp_path / "a.png"
+    asset.write_bytes(flat_png(1200, 675, CARD_RGB))
+    kept = [[55, 119], [138, 296]]
+    total = sum(b - a for a, b in kept)
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    blank = _render.blank_png(1080, 1920)
+    marked = rgba_block(1080, 1920, 20, 20, 120, 120, LAYER_RGB)
+    for f in range(total):
+        (frames / ("beat_%06d.png" % f)).write_bytes(marked if start <= f < end else blank)
+    plan = plan_with([dict(ROW, asset=str(asset), start_frame=start, end_frame=end)])
+    plan.update(src=str(src), layers=["beat"], kept=kept, out_frames=total, has_audio=False, src_matrix="bt709", frames_dir=str(frames))
+    argv = _media.compose_argv(K.FFMPEG, plan)
+    out = tmp_path / "out.mp4"
+    argv[-1] = str(out)
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-600:]
+    card = card_pattern(out)
+    layer = pixel_pattern(out, 60, 60, lambda p: p[1] > 200 and p[0] < 80 and p[2] < 80)
+    expected = "0" * start + "1" * (end - start) + "0" * (total - end)
+    assert len(card) == total and layer == expected, layer
+    assert card == layer == expected, card
+
+
+def pixel_pattern(video, x, y, test):
+    raw = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", str(video), "-vf", "format=rgb24,crop=1:1:%d:%d" % (x, y), "-f", "rawvideo", "-"],
+                         capture_output=True, check=True).stdout
+    return "".join("1" if test(raw[i:i + 3]) else "0" for i in range(0, len(raw), 3))
+
+
+def rgba_block(w, h, x, y, bw, bh, rgb):
+    rows = []
+    for j in range(h):
+        row = bytearray(w * 4)
+        if y <= j < y + bh:
+            for i in range(x, x + bw):
+                row[i * 4:i * 4 + 4] = bytes(rgb) + b"\xff"
+        rows.append(b"\x00" + bytes(row))
+    raw = b"".join(rows)
+
+    def chunk(tag, body):
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))

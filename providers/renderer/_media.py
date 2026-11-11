@@ -488,10 +488,11 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
             inputs += asset_input(p["kind"], p["asset"])
         pip_in.append(nxt)
         nxt += 1
-        r = p["radius"]
-        # the card's corners: a rounded rectangle the size of the box, one pixel of soft edge, as a gray mask
-        inputs += ["-f", "lavfi", "-i", ("color=c=black:s=%dx%d:r=%s,geq=lum='clip((%d-hypot(max(abs(X+0.5-W/2)-(W/2-%d),0),max(abs(Y+0.5-H/2)-(H/2-%d),0)))*255,0,255)'"
-                                          ":cb=128:cr=128,format=gray") % (p["w"], p["h"], fps, r, r, r)]
+        r, lo, hi = p["radius"], p["start_frame"], p["end_frame"] - 1
+        # the card's corners: a rounded rectangle the size of the box, one pixel of soft edge, as a gray mask; it is nothing outside the beat's
+        # frames (`N` is the frame's number from 0, on this source's own regular clock), so the mask runs the whole length of the output
+        inputs += ["-f", "lavfi", "-i", ("color=c=black:s=%dx%d:r=%s,geq=lum='if(between(N,%d,%d),clip((%d-hypot(max(abs(X+0.5-W/2)-(W/2-%d),0),max(abs(Y+0.5-H/2)-(H/2-%d),0)))*255,0,255),0)'"
+                                          ":cb=128:cr=128,format=gray") % (p["w"], p["h"], fps, lo, hi, r, r, r)]
         mask_in.append(nxt)
         nxt += 1
 
@@ -503,14 +504,20 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
         for i, p in enumerate(pips):
-            # by frame number, never by time: `t` is a float (a frame number times 1/30 can fall just under the bound it should meet, and `between` is
-            # inclusive), and the frame number is the output frame's own index, the one the beat's frames are written under. end_frame is exclusive.
-            en = "enable='between(n,%d,%d)'" % (p["start_frame"], p["end_frame"] - 1)
-            lead = "fps=%s,setpts=PTS-STARTPTS+%.4f/TB," % (fps, p["start_frame"] / fps) if p["kind"] == "clip" else ""      # a clip starts with the beat
-            g.append("[%d:v]%sscale=%d:%d:flags=%s,format=gbrp[ca%d]" % (pip_in[i], lead, p["w"], p["h"], SWS, i))
-            g.append("[%d:v]format=gray[cm%d]" % (mask_in[i], i))
+            # The card is a stream the whole length of the output, like the beat and caption frames, and the overlay pairs it with the base by
+            # timestamp exactly as it pairs them: transparent (the mask is 0) before and after the beat, the card on frames start_frame..end_frame-1.
+            # An `enable` expression on `n` or a float `t` is evaluated by the overlay's own bookkeeping, which can sit a frame off; a sparse stream
+            # that exists only during the beat is dropped a frame early when the base's timestamps jitter. This one has no edge to be off by.
+            total, first = plan["out_frames"], p["start_frame"]
+            if p["kind"] == "clip":      # a clip plays from the beat's first frame (its first frame is held before, its last after)
+                g.append("[%d:v]fps=%s,tpad=start=%d:start_mode=clone:stop=-1:stop_mode=clone,trim=end_frame=%d,setpts=N/(%s*TB),scale=%d:%d:flags=%s,format=gbrp[ca%d]"
+                         % (pip_in[i], fps, first, total, fps, p["w"], p["h"], SWS, i))
+            else:
+                g.append("[%d:v]scale=%d:%d:flags=%s,format=gbrp,loop=loop=-1:size=1:start=0,fps=%s,trim=end_frame=%d,setpts=N/(%s*TB)[ca%d]"
+                         % (pip_in[i], p["w"], p["h"], SWS, fps, total, fps, i))
+            g.append("[%d:v]format=gray,trim=end_frame=%d,setpts=N/(%s*TB)[cm%d]" % (mask_in[i], total, fps, i))
             g.append("[ca%d][cm%d]alphamerge[card%d]" % (i, i, i))
-            g.append("[%s][card%d]overlay=%d:%d:format=gbrp:%s[ob%d]" % (cur, i, p["x"], p["y"], en, i))
+            g.append("[%s][card%d]overlay=%d:%d:format=gbrp[ob%d]" % (cur, i, p["x"], p["y"], i))
             cur = "ob%d" % i
         for layer in ("beat", "caption"):
             if layer in idx:
