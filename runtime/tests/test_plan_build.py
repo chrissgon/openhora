@@ -15,7 +15,7 @@ flow_files = st.load("flow_files")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 ROOT = str(st.REPO)
-BUSINESS = ["biz-icp-positioning", "biz-market-analysis"]
+BUSINESS = ["biz-business-model", "biz-gtm", "biz-icp-positioning", "biz-market-analysis"]
 REQUEST = {"id": 4, "title": "Which market first", "text": "Tell me which market to go after first."}
 LIMITS = {"max_running": 3, "timeout_seconds": 1800, "retries": 2}
 
