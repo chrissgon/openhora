@@ -60,7 +60,7 @@
             "guard"
           ]
         },
-        "Every question carries a recommended answer",
+        "Every question carries a recommended answer for each of its parts; where no value can be recommended without the user's facts (hours, costs), the part says `unknown` and what settles it, which counts as a recommended answer",
         {
           "text": "No docs/business/pricing.md and no docs/business/business-model.md is written",
           "tags": [
@@ -95,7 +95,7 @@
             "guard"
           ]
         },
-        "Every question in the reply carries a recommended answer"
+        "Every numbered question in the reply carries a recommended answer, and the reply asks no question outside its numbered list"
       ],
       "grader_files": [
         "docs/workbench/state.md",

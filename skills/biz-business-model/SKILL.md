@@ -66,6 +66,7 @@ Nothing was written yet: <what is undecided or in conflict, in one line>.
 
 1. <question> Recommended: <an answer to every part of the question, one per part when it has several, not a list of options; `unknown: <what settles it>` is a valid answer>, because <the reason, from an input>.
 2. <question> Recommended: <answer>, because <reason>.
+<The numbered questions are the only questions of the reply: add no closing question after them, and no question outside the list.>
 ```
 
 ## Procedure
