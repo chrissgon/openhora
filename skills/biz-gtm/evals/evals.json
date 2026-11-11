@@ -27,7 +27,8 @@
         "In the First four weeks table, the Hours of the rows of each week add up to at most 5, and the weeks are numbered from the launch, not given as calendar dates",
         "The Measurement section sets no numeric target for stars, forks or downloads, and reads a four-week baseline with a Continue if and a Stop if for each chosen channel",
         "Every chosen channel has a row in Channel rules whose Source cell holds a source or whose cells read `not researched yet`",
-        "docs/workbench/state.md lists docs/business/gtm.md in its Artifacts table with the status `draft`"
+        "docs/workbench/state.md lists docs/business/gtm.md in its Artifacts table with the status `draft`",
+        "If the channel ranking was a close call, gtm.md applies the tie-break rule recorded in the state file and names it, with its date, under Channels; it does not stop to ask about the channel order."
       ],
       "grader_files": [
         "docs/workbench/state.md",
@@ -83,7 +84,8 @@
         },
         "No action posts in a group unconditionally while that group's rules are unread: every group-posting action either belongs to a group whose rules are quoted with a source in Channel rules, or is explicitly conditioned on reading that group's rules first and posting only where they allow it",
         "The owner's 300 contacts who agreed to receive news may appear as a channel; an action that writes to them is allowed",
-        "In the First four weeks table, the Hours of the rows of each week add up to at most 4"
+        "In the First four weeks table, the Hours of the rows of each week add up to at most 4",
+        "If the channel ranking was a close call, gtm.md applies the tie-break rule recorded in the state file and names it, with its date, under Channels; it does not stop to ask about the channel order."
       ],
       "grader_files": [
         "docs/workbench/state.md",

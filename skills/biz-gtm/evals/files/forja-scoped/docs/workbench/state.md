@@ -27,6 +27,7 @@
 - 2028-09-06: Own assets: the founder's Brazilian developer network, a profile with about 1,800 followers on one professional network, and the code repository (user). (user)
 - 2028-09-06: Launch condition: a stranger installs it from the README and runs the first skill in under 15 minutes; not tested yet (user). (user)
 - 2028-09-06: Languages: Brazilian Portuguese first, then English (user). (user)
+- 2028-09-06: Tie-break for channels: when two channels are a close call, the one that needs fewer founder hours per week comes first; if those are equal, the one already owned (own list, own profile, own network) comes first (user). (user)
 
 ## Open questions
 - [ ] Which communities and channels reach solo builders in English and in Brazilian Portuguese, and which of them can the founder use in 5 hours a week? (user)
