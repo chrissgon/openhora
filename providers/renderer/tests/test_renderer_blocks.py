@@ -22,7 +22,7 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 BLOCKS = str(K.BLOCKS)
 
-OLD_PINS = {"caption": "12073fd5e467fc9439ee7f45dbb6e5c6e1466d13a5f697d5986e40f47da592aa", "cutaway": "e93e356119decf19925c0dd6c006db7c6db1094007352a069ab6c27cf840b97e",
+OLD_PINS = {"caption": "12073fd5e467fc9439ee7f45dbb6e5c6e1466d13a5f697d5986e40f47da592aa", "cutaway": "92de00c439f65fbf6d67be6110c5be7dee4443e86f293769d78b2690c0682ec5",
             "keyword": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4", "list": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
             "number": "7c8f593524d000e21bf23d1a90236b7dd396f849cced19e45d19740147a32e0f", "pip": "efa437aae6e25cc2376bdf795b9abf68a777cb7b9bda2598d3ae11ad17234226",
             "quote": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa"}

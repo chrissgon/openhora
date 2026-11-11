@@ -111,7 +111,11 @@
    "settled": 0.65,
    "page_images": true,
    "looks": {
-    "transition": "slide"
+    "transition": "cut",
+    "glass_blur_px": 48,
+    "glass_tint_alpha": 0.45,
+    "glass_ratio_max": 0.8,
+    "glass_radius_px": 24
    }
   },
   "pip": {
