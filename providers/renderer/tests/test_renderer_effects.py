@@ -604,3 +604,38 @@ def test_the_configuration_cannot_raise_the_alphas_past_the_specs_values():
     timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "dip", 9, 9), effect("e3", "tint", 14, 15)]), wide)
     by = {g["kind"]: g for g in timeline["grades"]}
     assert by["flash"]["alphas"] == [0.85, 0.85, 0.0, 0.5] and set(by["dip"]["alphas"]) == {0.85} and by["tint"]["alpha"] == 0.18
+
+
+def reference_alphas(graph: list, firsts: dict) -> dict:
+    """{output frame: (colour, alpha)} that the drawboxes of a reference graph lay over the picture, read from the filter text."""
+    found = {}
+    for k, line in enumerate([x for x in graph if "trim=start_frame" in x]):
+        for color, alpha, n in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@([0-9.]+):enable='eq\(n,(\d+)\)'", line):
+            found[firsts[k] + int(n)] = (color, float(alpha))
+        for color, alpha, a, b in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@([0-9.]+):enable='between\(n,(\d+),(\d+)\)'", line):
+            for n in range(int(a), int(b) + 1):
+                found[firsts[k] + n] = (color, float(alpha))
+    return found
+
+
+@needs_node
+def test_the_pages_alpha_of_each_grade_frame_is_the_references_drawbox_alpha_for_a_flash_a_dip_and_a_tint():
+    """Frame by frame: the opacity and colour the page's drive code sets at output frame n equal the alpha and colour of the drawbox the reference draws at n."""
+    edl = synthetic_edl()
+    beats = beats_of(effects=[effect("e1", "flash", 12, 12), effect("e2", "dip", 18, 18), effect("e3", "tint", 22, 23)])
+    table = _edl.range_effects(edl, resolve(edl, beats))
+    variables = _hf_page.build_parts(edl, fps=FPS, effects=table)["vars"]
+    firsts = {k: f for k, (f, _) in enumerate(_edl.range_table(edl))}
+    want = reference_alphas(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table), firsts)
+    assert want == reference_alphas(_media.base_graph(dict(PLAN, effects=table)), firsts)
+    assert len([n for n, (c, a) in want.items() if c == "FFFFFF"]) == 4 and len([n for n, (c, a) in want.items() if c == "000000"]) == 6
+    seen = drive(variables, list(range(edl["out_frames"])))
+    for n in range(edl["out_frames"]):
+        style = seen[n].get("fx", {}).get("style", {})
+        opacity = float(style.get("opacity", 0))
+        if n in want:
+            color, alpha = want[n]
+            page_color = style["backgroundColor"].lstrip("#").upper()
+            assert page_color == color and opacity == pytest.approx(alpha, abs=5e-4), n
+        else:
+            assert opacity == 0, n
