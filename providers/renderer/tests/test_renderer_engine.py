@@ -300,7 +300,8 @@ def zones_data(face):
 
 FACES = [{"x": 240, "y": 620, "w": 600, "h": 560}, {"x": 150, "y": 800, "w": 780, "h": 520}, {"x": 300, "y": 540, "w": 480, "h": 600}]
 BEATS = {"keyword": {"text": "Name every dollar", "icon": "coin"}, "list": {"items": "Review | Adjust | Celebrate | Repeat every single week"},
-         "number": {"value": "1.234,56", "label": "euros saved in one month, every month"}, "quote": {"text": "Small steps beat big plans, every single time you try.", "author": "A wise friend"}}
+         "number": {"value": "1.234,56", "label": "euros saved in one month, every month"}, "quote": {"text": "Small steps beat big plans, every single time you try.", "author": "A wise friend"},
+         "mark": {"text": "Name every dollar", "mark": "circle"}, "sticker": {"glyph": "bulb", "side": "right"}, "nametag": {"name": "Aster Lane", "role": "Founder, Quill & Moss"}}
 
 
 @needs_browser

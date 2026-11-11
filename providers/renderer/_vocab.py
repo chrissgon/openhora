@@ -47,9 +47,7 @@ def load_vocabulary(path: str) -> dict:
         for key in ("icons", "palette", "limits"):
             assert key in vocab
         for name, preset in vocab["presets"].items():
-            assert preset["main"] in preset["params"] and preset["kind"] in ("overlay", "layout"), name
-            for spec in preset["params"].values():
-                assert "type" in spec
+            _check_preset(name, preset)
         if vocab["version"] >= 2:
             script = vocab["script"]
             assert all(isinstance(script[k], list) for k in ("roles", "emphasis"))
@@ -59,7 +57,37 @@ def load_vocabulary(path: str) -> dict:
             vocab.pop("script", None)
     except (AssertionError, KeyError, TypeError):
         raise Refusal("not_a_vocabulary", os.path.basename(path)) from None
+    _merge_review_presets(vocab)
     return vocab
+
+
+def _check_preset(name: str, preset: dict) -> None:
+    assert preset["main"] in preset["params"] and preset["kind"] in ("overlay", "layout"), name
+    for spec in preset["params"].values():
+        assert "type" in spec
+
+
+def _merge_review_presets(vocab: dict) -> None:
+    """Add the renderer's review-only presets (section `review_presets` of renderer-presets.json) to the vocabulary's own, each marked
+    `review_only`. The script never names one (`_align.read_script` refuses it); the person adds them at review. A name the
+    vocabulary already holds as its own (not marked review-only) is refused, so a script preset can never be shadowed."""
+    review = load_data().get("review_presets", {})
+    try:
+        assert isinstance(review, dict)
+        for name, preset in review.items():
+            _check_preset(name, preset)
+    except (AssertionError, KeyError, TypeError):
+        raise Refusal("not_a_vocabulary", "review_presets") from None
+    for name, preset in review.items():
+        if name in vocab["presets"] and not vocab["presets"][name].get("review_only"):       # a vocabulary already merged (written back out) holds them marked
+            raise Refusal("vocabulary_clash", name)
+        vocab["presets"][name] = dict(preset, review_only=True)
+
+
+def review_only(vocab: dict, preset) -> bool:
+    """True when `preset` is one of the renderer's review-only presets (a script may not name it)."""
+    found = vocab["presets"].get(preset) if isinstance(preset, str) else None
+    return bool(found and found.get("review_only"))
 
 
 def script_section(vocab: dict):

@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="mark">
+<meta name="pv-params" content="text,mark,color">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
+#wrap { position:relative; box-sizing:border-box; flex:0 0 auto; transform-origin:50% 50%; }
+#txt { display:block; font-family:var(--font-display); font-weight:var(--weight-display); color:var(--c-text); text-align:center;
+       line-height:1.1; letter-spacing:-0.02em; white-space:nowrap; text-shadow:0 0.04em 0.1em rgba(0,0,0,.5); transform-origin:50% 50%; }
+.ln { display:block; }
+#mk { position:absolute; overflow:visible; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="pos"><div id="wrap"><div id="txt"></div><svg id="mk" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<script>
+'use strict';
+// A short phrase, large and centred in the band the face box leaves above it (data.zones.card = [top, bottom]), with a hand-drawn mark: an
+// underline, a circle or an arrow. The text pops in (ease-out-back); the mark is one stroke that draws itself from 0.25 s on. Every offset of
+// the strokes is a fixed number, so the drawing is the same at every render. The element marked data-zone is the text plus the room the
+// mark needs, so the driver's face-box check sees the stroke too. Pure function of (t, data): every style it relies on is set here.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+const NS = 'http://www.w3.org/2000/svg';
+const FIT = 0.84, FS_MAX = 140, FS_MIN = 26, EM_CHAR = 0.62, EM_PAD = 1.2, EM_MARK = 1.2, LINE_EM = 1.1, MARK_EM = 0.73;
+const GROUP_FIT = 0.86;   // the share of the band the text and its mark fill at rest: the pop's overshoot (about 8 percent) then stays inside the band
+const GROW = 0.08;        // the circle's radius grows by this much over its turn, so the end of the stroke does not lie on its start
+function band(data) {
+  const z = data.zones.card;
+  const pos = document.getElementById('pos');
+  pos.style.top = z[0] + 'px';
+  pos.style.height = (z[1] - z[0]) + 'px';
+  return z[1] - z[0];
+}
+function fit(text, bandHeight, width) {
+  let lines = [text];
+  if (text.length > 12) {
+    let best = -1;
+    for (let i = 1; i < text.length - 1; i++) {
+      if (text.charAt(i) === ' ' && (best < 0 || Math.abs(i - text.length / 2) < Math.abs(best - text.length / 2))) best = i;
+    }
+    if (best > 0) lines = [text.slice(0, best), text.slice(best + 1)];
+  }
+  let longest = 0;
+  lines.forEach(function (l) { longest = Math.max(longest, l.length); });
+  let size = Math.min(FS_MAX, width / (EM_CHAR * longest + EM_PAD + EM_MARK));
+  while ((LINE_EM * lines.length + MARK_EM) * size > bandHeight * FIT && size > FS_MIN) size = size * 0.94;
+  return { size: size, lines: lines };
+}
+function circleRadii(w, h) { return { rx: 0.62 * w + 28, ry: 0.6 * h + 28 }; }
+// the room the mark takes around the text box (left, right, top, bottom, in px, stroke included)
+function extent(mark, w, h) {
+  if (mark === 'underline') return { l: 0, r: 0, t: 0, b: 30 };
+  if (mark === 'arrow') return { l: 130, r: 0, t: 0, b: 95 };
+  if (mark === 'circle') {
+    const q = circleRadii(w, h);
+    return { l: Math.ceil(q.rx * (1 + GROW) - w / 2) + 6, r: Math.ceil(q.rx * (1 + GROW) - w / 2) + 6,
+             t: Math.ceil(q.ry * (1 + GROW) - h / 2) + 6, b: Math.ceil(q.ry * (1 + GROW) - h / 2) + 6 };
+  }
+  return { l: 0, r: 0, t: 0, b: 0 };
+}
+function num(v) { return v.toFixed(1); }
+// four cubic curves around the box, from 200 degrees through 290, 20, 110 to 220: a turn and a bit more
+function circlePath(w, h) {
+  const q = circleRadii(w, h);
+  const cx = w / 2, cy = h / 2;
+  const marks = [200, 290, 380, 470, 580];
+  const pt = function (deg, i) { const a = deg * Math.PI / 180; const m = 1 + GROW * i / 4; return [cx + q.rx * m * Math.cos(a), cy + q.ry * m * Math.sin(a), a, m]; };
+  let d = '';
+  for (let i = 0; i < 4; i++) {
+    const p0 = pt(marks[i], i), p3 = pt(marks[i + 1], i + 1);
+    const k = 4 / 3 * Math.tan((marks[i + 1] - marks[i]) * Math.PI / 180 / 4);
+    if (i === 0) d += 'M ' + num(p0[0]) + ' ' + num(p0[1]);
+    const c1 = [p0[0] - k * q.rx * p0[3] * Math.sin(p0[2]), p0[1] + k * q.ry * p0[3] * Math.cos(p0[2])];
+    const c2 = [p3[0] + k * q.rx * p3[3] * Math.sin(p3[2]), p3[1] - k * q.ry * p3[3] * Math.cos(p3[2])];
+    d += ' C ' + num(c1[0]) + ' ' + num(c1[1]) + ', ' + num(c2[0]) + ' ' + num(c2[1]) + ', ' + num(p3[0]) + ' ' + num(p3[1]);
+  }
+  return d;
+}
+function markPath(mark, w, h) {
+  if (mark === 'underline') return 'M 0 ' + (h + 14) + ' C ' + num(0.3 * w) + ' ' + (h + 4) + ', ' + num(0.7 * w) + ' ' + (h + 24) + ', ' + w + ' ' + (h + 12);
+  if (mark === 'circle') return circlePath(w, h);
+  if (mark === 'arrow') {
+    return 'M -120 ' + (h + 90) + ' Q -110 ' + num(h / 2 - 10) + ', -16 ' + num(h / 2) +
+           ' M -36 ' + num(h / 2 - 18) + ' L -16 ' + num(h / 2) + ' L -38 ' + num(h / 2 + 14);
+  }
+  return '';
+}
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const bandH = band(data);
+  const wrap = document.getElementById('wrap');
+  const txt = document.getElementById('txt');
+  const svg = document.getElementById('mk');
+  const mark = P.mark || 'underline';
+  const color = col(P.color || 'accent');
+  wrap.dataset.zone = 'card';
+  wrap.style.transform = 'none';
+  wrap.style.padding = '0';
+  txt.style.transform = 'none';
+  txt.replaceChildren();
+  svg.replaceChildren();
+  const shape = fit(P.text, bandH, mark === 'arrow' ? 950 - 130 : (mark === 'circle' ? 950 - 68 : 950));
+  shape.lines.forEach(function (line) {
+    const el = document.createElement('span');
+    el.className = 'ln';
+    el.textContent = line;
+    txt.appendChild(el);
+  });
+  let fs = shape.size;
+  txt.style.fontSize = fs.toFixed(1) + 'px';
+  let w = 0, h = 0, room = extent(mark, 0, 0);
+  for (let guard = 0; guard < 60; guard++) {
+    const r = txt.getBoundingClientRect();
+    w = Math.round(r.width);
+    h = Math.round(r.height);
+    room = extent(mark, w, h);
+    if ((h + room.t + room.b > bandH * GROUP_FIT || w + room.l + room.r > 950) && fs > FS_MIN) { fs = fs * 0.94; txt.style.fontSize = fs.toFixed(1) + 'px'; } else break;
+  }
+  wrap.style.padding = room.t + 'px ' + room.r + 'px ' + room.b + 'px ' + room.l + 'px';
+  const tin = clamp(t / 0.25);
+  txt.style.transform = 'scale(' + (0.5 + 0.5 * easeOutBack(tin, 2.0)).toFixed(4) + ')';
+  if (mark !== 'none') {
+    const p = easeOutCubic(clamp((t - 0.25) / 0.5));
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.style.left = room.l + 'px';
+    svg.style.top = room.t + 'px';
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', markPath(mark, w, h));
+    path.setAttribute('pathLength', '1');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', '10');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('stroke-dasharray', '1');
+    path.setAttribute('stroke-dashoffset', (1 - p).toFixed(4));
+    path.setAttribute('opacity', p > 0 ? '1' : '0');
+    svg.appendChild(path);
+  }
+  const tout = clamp((data.duration - t) / 0.22);
+  const shrink = 0.86 + 0.14 * (1 - easeInCubic(1 - tout));
+  wrap.style.transform = 'scale(' + shrink.toFixed(4) + ')';
+  wrap.style.opacity = Math.min(clamp(t / 0.1), tout).toFixed(3);
+};
+</script>
+</body>
+</html>

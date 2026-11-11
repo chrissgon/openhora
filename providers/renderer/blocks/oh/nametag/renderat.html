@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="nametag">
+<meta name="pv-params" content="name,role,color">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#plate { position:absolute; left:60px; display:flex; flex-direction:column; align-items:flex-start; padding:14px 28px 16px; border-radius:14px;
+         box-shadow:0 6px 0 rgba(0,0,0,.35); box-sizing:border-box; }
+#nm { font-family:var(--font-display); font-weight:var(--weight-display); color:var(--c-bg); line-height:1.1; letter-spacing:-0.01em; white-space:nowrap; }
+#rl { font-family:var(--font-text); font-weight:var(--weight-text); color:var(--c-bg); line-height:1.15; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div id="plate"><div id="nm"></div><div id="rl"></div></div>
+<script>
+'use strict';
+// A lower third at the bottom left of the band the face box leaves above it (data.zones.card = [top, bottom]): the name, and under it the
+// role. It slides in from the left and fades in, and leaves over the last 0.25 s of data.duration. Name and role are one line each, shrunk
+// until they fit 900 px and the band. The driver measures the element marked data-zone and fails the render when it touches the face box.
+// Pure function of (t, data): every style it relies on is set here, so a frame never depends on the one before.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+const NAME_PX = 52, ROLE_PX = 34, MAX_TEXT = 900, FIT = 0.9, MIN_PX = 18, BOTTOM_GAP = 24;
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const z = data.zones.card;
+  const bandH = z[1] - z[0];
+  const plate = document.getElementById('plate');
+  const nm = document.getElementById('nm');
+  const rl = document.getElementById('rl');
+  plate.dataset.zone = 'card';
+  plate.style.transform = 'none';
+  plate.style.background = col(P.color || 'accent');
+  nm.textContent = P.name;
+  rl.textContent = P.role || '';
+  rl.style.display = P.role ? 'block' : 'none';
+  let k = 1;
+  for (let guard = 0; guard < 60; guard++) {
+    nm.style.fontSize = (NAME_PX * k).toFixed(1) + 'px';
+    rl.style.fontSize = (ROLE_PX * k).toFixed(1) + 'px';
+    const tooWide = nm.offsetWidth > MAX_TEXT || (P.role && rl.offsetWidth > MAX_TEXT);
+    if ((tooWide || plate.offsetHeight > bandH * FIT) && NAME_PX * k > MIN_PX) k = k * 0.94; else break;
+  }
+  plate.style.top = (z[1] - BOTTOM_GAP - plate.offsetHeight) + 'px';
+  const tin = easeOutCubic(clamp(t / 0.3));
+  const tout = clamp((data.duration - t) / 0.25);
+  plate.style.transform = 'translateX(' + (-40 * (1 - tin)).toFixed(2) + 'px)';
+  plate.style.opacity = Math.min(tin, tout).toFixed(3);
+};
+</script>
+</body>
+</html>

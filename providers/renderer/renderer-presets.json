@@ -120,6 +120,113 @@
    "tail": 0.2,
    "settled": 0.5,
    "looks": {}
+  },
+  "mark": {
+   "anchor": "match_text",
+   "min_duration": 1.2,
+   "max_duration": 2.4,
+   "tail": 0.3,
+   "settled": 0.4,
+   "looks": {}
+  },
+  "sticker": {
+   "anchor": "match_text",
+   "min_duration": 0.8,
+   "max_duration": 1.8,
+   "tail": 0.3,
+   "settled": 0.4,
+   "looks": {}
+  },
+  "nametag": {
+   "anchor": "match_text",
+   "min_duration": 2.5,
+   "max_duration": 4.0,
+   "tail": 0.3,
+   "settled": 0.4,
+   "looks": {}
+  }
+ },
+ "review_presets": {
+  "mark": {
+   "kind": "overlay",
+   "summary": "a short phrase drawn large with a hand-drawn underline, circle or arrow",
+   "main": "text",
+   "params": {
+    "text": {
+     "type": "text",
+     "max": 24,
+     "required": true
+    },
+    "mark": {
+     "type": "choice",
+     "values": [
+      "underline",
+      "circle",
+      "arrow",
+      "none"
+     ],
+     "default": "underline"
+    },
+    "color": {
+     "type": "color"
+    }
+   }
+  },
+  "sticker": {
+   "kind": "overlay",
+   "summary": "a drawn symbol pops beside the speaker's point",
+   "main": "glyph",
+   "params": {
+    "glyph": {
+     "type": "choice",
+     "values": [
+      "check",
+      "star",
+      "bolt",
+      "arrow-up",
+      "heart",
+      "flag",
+      "clock",
+      "coin",
+      "bulb",
+      "question",
+      "exclaim",
+      "eye"
+     ],
+     "required": true
+    },
+    "side": {
+     "type": "choice",
+     "values": [
+      "left",
+      "center",
+      "right"
+     ],
+     "default": "right"
+    },
+    "color": {
+     "type": "color"
+    }
+   }
+  },
+  "nametag": {
+   "kind": "overlay",
+   "summary": "the speaker's name and role slide in",
+   "main": "name",
+   "params": {
+    "name": {
+     "type": "text",
+     "max": 32,
+     "required": true
+    },
+    "role": {
+     "type": "text",
+     "max": 40
+    },
+    "color": {
+     "type": "color"
+    }
+   }
   }
  },
  "zones": {
