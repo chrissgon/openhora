@@ -61,3 +61,30 @@ of `runtime/` as ordinary English: "open web", "web search"), and `test_adding_a
 Everything about a real library or web server: Openverse's access, limits, field and parameter names and upstream hosts; whether real servers' redirects, lengths and types behave as the fake network's
 do (K1). The sniff reads the first 16 bytes only: a file that begins as a PNG and carries other content is kept as a PNG, which is why nothing here decodes it and the renderer decodes it only in a
 container with no network. The residual risk of the `unverified` tier is the one the maintainer accepted with decisions 7 and 8: a web file may be someone's property, and the copyright warning and the per-asset approval of V9b-3 are the guard, not code.
+
+### Openverse values approved (2026-11-11)
+
+The supervisor asked the maintainer: "Aprova os valores do Openverse como recomendei, e a busca de teste K1?" He answered: "Aprovo os dois". validate: allow english-only -- a quotation of the maintainer's own words
+
+This answers STOP 1 and the first part of STOP 4 for Openverse. The upstream file hosts are not approved yet; they come after K1.
+
+Facts read on 2026-11-11 from the public schema (https://api.openverse.org/v1/schema/, version 50135c9), the terms of service (https://docs.openverse.org/terms_of_service.html, effective 2022-05-05) and the rate-limit headers:
+
+- Anonymous limits: `anon_burst` 20 a minute, `anon_sustained` 200 a day; thumbnails have their own bucket, `anon_thumbnail`, 1000 a day. `page_size` defaults to 20 and more than 20 is throttled for anonymous callers.
+- The `license` filter takes `by`, `by-nc`, `by-nc-nd`, `by-nc-sa`, `by-nd`, `by-sa`, `cc0`, `nc-sampling+`, `pdm`, `sampling+`. Results carry `license`, `license_version`, `url`, `thumbnail`, `foreign_landing_url`, `creator`, `title`, `source`, `attribution` and `mature`.
+- `mature` defaults to false and `filter_dead` to true; `source` is a comma-separated list of the `source_name`s of `/v1/images/stats/`.
+- Endpoints: `/v1/images/` (search), `/v1/images/{identifier}/` (detail), `/v1/images/{identifier}/thumb/` (thumbnail, served by api.openverse.org itself).
+- Terms of service: no scraping; adhere to all rate limits; no several machines to get around them; proper attribution to CC-licensed works; an app built with the API must prominently say it was made using Openverse but is not endorsed or certified by Openverse; Openverse does not verify licensing status; it may charge fees for commercial or heavy use.
+
+Values committed in `providers/stock/sources/openverse.json` (their own commit, as for V7e):
+
+- `licences`: `cc0 1.0` to `cc0-1.0`, `pdm 1.0` to `pdm-1.0`, `by 4.0` to `cc-by-4.0`, `by 3.0` to `cc-by-3.0`; `licence` stays null (per-item tier).
+- `licence_url` the terms of service URL; `terms_read_on` `2026-11-11`; `cache_seconds` 86400.
+- `api`: host `api.openverse.org`, search `/v1/images/`, item `/v1/images/{item}/`, no clip endpoints.
+- `media_hosts` `["api.openverse.org"]` (the preview host), `redirect_hosts` `[]`; `path_patterns.preview` `^/v1/images/[0-9a-f-]{36}/thumb/$`; `image` and `clip` stay null until K1.
+- `rendition`: preview `thumbnail`, image `url`, clip null. `openverse.py` reads the answer's fields directly, so the class's own check (a name of 1 to 40 characters) is all that reads these.
+- `credit_line`: `{title} by {author}, {licence}, via Openverse`. The class documents no placeholder vocabulary for it; the names are the ones given in the approval.
+
+Code: the search sends `license=cc0,pdm,by`, `source=flickr,wikimedia,stocksnap,rawpixel,nasa,met` (constant `UPSTREAM_SOURCES`, since the class's `SOURCE_KEYS` is strict; `inaturalist` is out on purpose, mostly species photos), `page_size` at most 20 and `mature=false`. `license_type` is gone. The table stays the rule; the filter is a first pass.
+
+The source stays `source_not_ready` (field `path_patterns.image`) until K1 fills the file hosts and the image pattern.

@@ -3,12 +3,12 @@
 
 This file only says how to call Openverse and how to read its answer; the verbs, the caps, the licence rule, the cache and the refusals are the class's
 (providers/stock/_stock.py). Every host, path, pattern, licence URL, licence table and credit line comes from providers/stock/sources/openverse.json, which is
-committed with nulls and filled by the maintainer's approval; every verb refuses (exit 3, `source_not_ready`) until it is filled.
+filled by the maintainer's approval (values read 2026-11-11; the image path pattern and file hosts wait for K1); every verb refuses (exit 3, `source_not_ready`) until it is filled.
 
 The tier is `per-item`: each item states its own licence and version, and the source file's `licences` table maps `"<licence> <version>"` (lower case, one space; a
 licence with no version is its name alone, which no table maps) to one of our accepted ids. An item whose pair is not in the table is dropped, so CC BY-SA, NC, ND and
 a CC BY with no version never pass. An item with a credit licence and no author is dropped by the class. An item whose preview or file host is not in the source
-file's `media_hosts` is dropped. The search asks for licences that allow commercial use and modification, as a first filter only: the table is the rule.
+file's `media_hosts` is dropped. The search asks for the licences cc0, pdm and by and for six upstream sources, as a first filter only: the table is the rule.
 
   --check --source-file F --today D            the source file ready (no key: Openverse is read anonymously, `secret_in` is `none`)
   search --source-file F --today D --kind image --query Q [--count N] --out DIR
@@ -30,7 +30,12 @@ SERVES = "stock:media"
 SOURCE = "openverse"
 VERBS = ("search", "fetch")
 SECRET = ""      # the one secret this implementation reads is none: the class compares a source file's secret with this, so a file that names one is refused (`secret`)
-LICENCE_TYPE = "commercial,modification"     # the library's own filter: licences that allow commercial use and changes
+# The upstream sources the search asks for, a first pass only (maintainer-approved 2026-11-11). It is a constant of this implementation because the source file's keys are
+# the class's strict SOURCE_KEYS (providers/stock/_stock.py) and have no field for it. The licence table of the source file stays the rule. `inaturalist` is left out on
+# purpose: mostly species photos, noise for cutaways.
+UPSTREAM_SOURCES = ("flickr", "wikimedia", "stocksnap", "rawpixel", "nasa", "met")
+LICENCES_ASKED = "cc0,pdm,by"                # the library's own licence filter, a first pass: the table decides
+MAX_PAGE_SIZE = 20                           # anonymous callers are throttled above 20 results per page
 
 
 def _id(value):
@@ -59,8 +64,9 @@ def auth(src, key):
 
 
 def search_request(src, kind, query, per_page):
-    """(path, parameters) of one search: licences that allow commercial use and modification, `per_page` results."""
-    return src["api"]["search_" + kind], {"q": query, "license_type": LICENCE_TYPE, "page_size": str(per_page)}
+    """(path, parameters) of one search: the licence filter, the upstream sources, no mature content, and `per_page` results (at most MAX_PAGE_SIZE)."""
+    return src["api"]["search_" + kind], {"q": query, "license": LICENCES_ASKED, "source": ",".join(UPSTREAM_SOURCES),
+                                          "page_size": str(min(per_page, MAX_PAGE_SIZE)), "mature": "false"}
 
 
 def item_request(src, kind, item):

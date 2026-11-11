@@ -64,24 +64,36 @@ def test_the_implementation_declares_the_class_and_its_verbs():
     assert openverse.SECRET == ""                       # no key exists, so none is named: a source file that names one is refused (below)
 
 
-def test_the_committed_source_file_is_all_nulls_and_refuses_every_verb(tmp_path, monkeypatch):
+def test_the_committed_source_file_holds_the_approved_values_and_waits_for_the_live_leg(tmp_path, monkeypatch):
     committed = json.loads(COMMITTED.read_text(encoding="utf-8"))
     assert list(committed) == list(_stock.SOURCE_KEYS)
     assert (committed["source"], committed["licence_tier"], committed["secret_in"], committed["kinds"]) == ("openverse", "per-item", "none", ["image"])
-    for key in ("licence", "licences", "licence_url", "terms_read_on", "secret", "credit_line"):
-        assert committed[key] is None, key
-    assert set(committed["api"].values()) == {None} and committed["media_hosts"] == [] and committed["redirect_hosts"] == []
-    assert set(committed["path_patterns"].values()) == {None} and set(committed["rendition"].values()) == {None}
+    assert committed["licence"] is None and committed["secret"] is None
+    assert committed["licences"] == {"cc0 1.0": "cc0-1.0", "pdm 1.0": "pdm-1.0", "by 4.0": "cc-by-4.0", "by 3.0": "cc-by-3.0"}
+    assert committed["licence_url"] == "https://docs.openverse.org/terms_of_service.html" and committed["terms_read_on"] == "2026-11-11"
+    assert committed["api"] == {"host": "api.openverse.org", "search_image": "/v1/images/", "search_clip": None, "item_image": "/v1/images/{item}/", "item_clip": None}
+    assert committed["media_hosts"] == ["api.openverse.org"] and committed["redirect_hosts"] == []      # the upstream file hosts come after K1
+    assert committed["path_patterns"]["image"] is None and committed["path_patterns"]["clip"] is None      # after K1
+    assert committed["rendition"] == {"preview": "thumbnail", "image": "url", "clip": None}
+    assert committed["cache_seconds"] == 86400 and committed["credit_line"] == "{title} by {author}, {licence}, via Openverse"
     with pytest.raises(_stock.Refusal) as stop:
         _stock.read_source(str(COMMITTED), kit.TODAY, "openverse", None)
-    assert stop.value.code == "source_not_ready" and stop.value.exit_code == 3 and "licences" in stop.value.fields and "api.host" in stop.value.fields
+    assert stop.value.code == "source_not_ready" and stop.value.exit_code == 3 and stop.value.fields == ["path_patterns.image"]   # only the image pattern is missing
     r = make(tmp_path, monkeypatch)
     monkeypatch.setitem(_stock.SEAMS, "sources", None)               # the real rule: providers/stock/sources/openverse.json
     for verb in (("--check",), ("search", "--kind", "image", "--query", "old harbour", "--out", r.out),
                  ("fetch", "--kind", "image", "--item", uid(1), "--max-bytes", "99", "--out", r.out)):
         code, got = r.run(*verb, source_file=str(COMMITTED))
-        assert code == 3 and got["code"] == "source_not_ready"
+        assert code == 3 and got["code"] == "source_not_ready" and got["fields"] == ["path_patterns.image"]
     assert r.net.count() == 0
+
+
+def test_the_committed_licence_table_maps_the_four_keys_and_drops_the_rest():
+    table = json.loads(COMMITTED.read_text(encoding="utf-8"))["licences"]
+    for licence, version, expected in (("cc0", "1.0", "cc0-1.0"), ("pdm", "1.0", "pdm-1.0"), ("by", "4.0", "cc-by-4.0"), ("by", "3.0", "cc-by-3.0")):
+        assert _stock.map_licence(table, openverse.licence_key({"license": licence, "license_version": version})) == expected
+    for licence, version in (("by-sa", "4.0"), ("by-nc", "4.0"), ("by-nd", "4.0"), ("by", None), ("by", "2.0")):
+        assert _stock.map_licence(table, openverse.licence_key({"license": licence, "license_version": version})) is None
 
 
 def test_check_needs_no_key(tmp_path, monkeypatch):
@@ -124,12 +136,21 @@ def test_a_source_file_whose_table_maps_to_a_refused_licence_is_refused_at_load(
         assert r.net.count() == 0
 
 
-def test_the_search_asks_for_commercial_use_with_modification_and_sends_the_words(tmp_path, monkeypatch):
+def test_the_search_asks_for_the_licences_the_sources_and_no_mature_content(tmp_path, monkeypatch):
     r = serve(make(tmp_path, monkeypatch), [item(1)])
     code, got = r.search("image", "quiet harbour", 2)
     assert code == 0
     query = urllib.parse.parse_qs(urllib.parse.urlsplit("https://x" + r.net.api_requests()[0]["target"]).query)
-    assert query["license_type"] == ["commercial,modification"] and query["q"] == ["quiet harbour"] and query["page_size"] == ["6"]
+    assert query["license"] == ["cc0,pdm,by"] and query["q"] == ["quiet harbour"] and query["mature"] == ["false"]
+    assert query["source"] == ["flickr,wikimedia,stocksnap,rawpixel,nasa,met"] and "inaturalist" not in query["source"][0]
+    assert "license_type" not in query and int(query["page_size"][0]) <= 20 and query["page_size"] == ["6"]
+
+
+def test_the_search_never_asks_for_more_than_twenty_a_page():
+    src = json.loads(COMMITTED.read_text(encoding="utf-8"))
+    assert openverse.UPSTREAM_SOURCES == ("flickr", "wikimedia", "stocksnap", "rawpixel", "nasa", "met") and not hasattr(openverse, "LICENCE_TYPE")
+    assert openverse.search_request(src, "image", "x", 50)[1]["page_size"] == "20"
+    assert openverse.search_request(src, "image", "x", 9)[1]["page_size"] == "9"
 
 
 # --- hosts -----------------------------------------------------------------------------------------------------------------------------

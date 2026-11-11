@@ -111,12 +111,23 @@ Select the implementation with `STOCK_MEDIA_PROVIDER`, then `STOCK_PROVIDER`; th
 | `openverse` | `per-item` | none | image | each item's own licence and version, mapped through the file's `licences` table; any pair not in the table is dropped |
 | `web` | `unverified` | none | image, clip | no search here: the search is a model's; this file only fetches a URL it wrote (below) |
 
-`openverse.json` is committed with nulls (`licence_tier` `per-item`, `secret_in` `none` and `kinds` `["image"]` are its fixed fields). The `licences` table maps
+`openverse.json` holds the values the maintainer approved on 2026-11-11 (`licence_tier` `per-item`, `secret_in` `none` and `kinds` `["image"]` are its fixed fields). The `licences` table has four keys: `cc0 1.0`, `pdm 1.0`, `by 4.0` and `by 3.0`. The `licences` table maps
 `"<licence> <version>"` (the item's `license` in lower case, a space, its `license_version`) to one of our ids; an item with no version is keyed by its name alone,
 which no table maps, so a `by` with no version, `by-sa`, `by-nc` and `by-nd` never pass. The class refuses a table that maps to an id outside `LICENCES_ACCEPTED`.
 An item whose preview or file host is not in `media_hosts` is dropped (`host`). The implementation names no secret (`SECRET = ""`): a source file that names one is
-refused (`source_not_ready`, `secret`), so no key is read, sent or kept. The search asks the library for licences that allow commercial use and modification
-(`license_type`), as a first filter only: the table is the rule.
+refused (`source_not_ready`, `secret`), so no key is read, sent or kept. The search asks the library for `license=cc0,pdm,by`, `mature=false`, `page_size` at most 20 and the upstream sources in `UPSTREAM_SOURCES` of `openverse.py`
+(`flickr`, `wikimedia`, `stocksnap`, `rawpixel`, `nasa`, `met`), as a first filter only: the table is the rule. The source list is a constant of the implementation because
+the source file's keys are the class's strict `SOURCE_KEYS`. `inaturalist` is left out on purpose: it is mostly species photos, noise for cutaways.
+
+What was read on 2026-11-11 (the public schema, version 50135c9, the terms of service effective 2022-05-05 and the rate-limit headers):
+
+- **Anonymous limits:** `anon_burst` 20 a minute and `anon_sustained` 200 a day; thumbnails have their own bucket, `anon_thumbnail`, 1000 a day. More than 20 results a page is
+  throttled for anonymous callers.
+- **Duties of the terms of service:** no scraping; adhere to all rate limits; no use of several machines to get around them; proper attribution of CC-licensed works; an app built on
+  the API must prominently say it was made using Openverse but is not endorsed or certified by Openverse (the runtime page of V9b-3a shows this notice); Openverse does not
+  verify the licensing status of its items; it reserves the right to charge fees for commercial or heavy use.
+- **Hosts:** the preview is served by `api.openverse.org` itself (`/v1/images/{identifier}/thumb/`), so `media_hosts` is `["api.openverse.org"]` for now. The upstream hosts of the
+  full files, `redirect_hosts` and the `image` path pattern are filled after the live leg (K1), so the source stays `source_not_ready` (`path_patterns.image`) until then.
 
 ## The open web (`web.py`)
 
@@ -154,8 +165,7 @@ risk is carried by the copyright warning and the per-asset approval of V9b-3). `
 
 ## What is not verified
 
-That a library's answers and files keep the fields and hosts its documentation names (the first live run, K1, reads them); Openverse's anonymous access, its limits,
-its parameter and field names (`license_type`, `page_size`, `results`, `license`, `license_version`, `creator`, `url`, `thumbnail`, `foreign_landing_url`) and which
-upstream hosts its files come from (K1, STOP 1 and STOP 4); whether a real web server's redirects, lengths and types behave as the fake network's do (K1); which rendition of a
+That a library's answers and files keep the fields and hosts its documentation names (the first live run, K1, reads them); that Openverse's anonymous limits and its answers hold today (they were read from the schema, not run), and which
+upstream hosts its files come from (K1, STOP 4); whether a real web server's redirects, lengths and types behave as the fake network's do (K1); which rendition of a
 photo or a clip covers 1080 x 1920; whether a redirect of a media host goes to a listed host; whether downloads count against a library's limits; the
 Python 3.9 run (the test suite parses every file as 3.9 and the code uses nothing newer, but no 3.9 interpreter was available to run it).
