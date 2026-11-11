@@ -73,14 +73,59 @@ def check_target(out_dir: str, background: str) -> None:
         raise Refusal("page_dir_not_empty", "out")
 
 
-def build_parts(edl: dict, *, fps: int) -> dict:
+FX_CSS = "#fx { position: absolute; inset: 0; z-index: 0; opacity: 0; pointer-events: none; background-color: #000000; }\n"
+FX_LAYER = '\n<div id="fx"></div>'
+# The punches and the grades of V9a-3, drawn from the frame index (`n = Math.round(t * fps)`) of rows the edit list's timeline made (`_edl.range_effects`):
+# the same rows `_media.base_graph` draws and the face check's reference holds. A punched range has no GSAP zoom tween: one drive tween over the range
+# sets its scale from the same piecewise rule as the zoom filter (the range's own level, a constant level on each punch). The grades are one `#fx` layer
+# above the video wrappers and below every overlay (flash, dip, tint: its colour and opacity per frame) and, for mono, `filter: grayscale(1)` on the
+# range's wrapper on its frames (the CSS matrix the ffmpeg engine's `colorchannelmixer` copies). Every style is set from the frame index: no clock.
+FX_JS = """var PZ = V.punched || [];
+PZ.forEach(function (pz) {
+  var el = document.getElementById("zw" + pz[0]);
+  var PD = {at: function (v) {
+    if (v === undefined) return this._t || 0;
+    this._t = v;
+    var n = Math.min(pz[5] - 1, Math.round(v * V.fps));
+    var z = pz[3] + (pz[4] - pz[3]) * n / Math.max(1, pz[5] - 1);
+    pz[6].forEach(function (r) { if (n >= r[0] && n < r[1]) z = r[2]; });
+    el.style.transform = "scale(" + z.toFixed(5) + ")";
+  }};
+  main.fromTo(PD, {at: 0}, {at: pz[2], duration: pz[2], ease: "none", immediateRender: true}, pz[1]);
+});
+var GR = V.grades || [];
+if (GR.length) {
+  var fxEl = document.getElementById("fx");
+  var GD = {at: function (v) {
+    if (v === undefined) return this._t || 0;
+    this._t = v;
+    var n = Math.round(v * V.fps), op = 0, col = "#000000", mono = {};
+    GR.forEach(function (g) {
+      if (n < g[1] || n >= g[2]) return;
+      if (g[0] === "mono") { mono[g[5]] = true; return; }
+      col = g[0] === "flash" ? "#ffffff" : (g[0] === "dip" ? "#000000" : g[4]);
+      op = g[0] === "tint" ? g[6] : g[3][n - g[1]];
+    });
+    fxEl.style.backgroundColor = col;
+    fxEl.style.opacity = String(op);
+    GR.forEach(function (g) { if (g[0] === "mono") document.getElementById("zw" + g[5]).style.filter = mono[g[5]] ? "grayscale(1)" : "none"; });
+  }};
+  main.fromTo(GD, {at: 0}, {at: V.duration, duration: V.duration, ease: "none", immediateRender: true}, 0);
+}
+"""
+
+
+def build_parts(edl: dict, *, fps: int, effects=None) -> dict:
     """What the cuts and the zoom are made of: the markup of the kept ranges (one zoom wrapper and one `<video>` each), the zooms, the
-    numbers the page keeps as defaults, and the length. The same edit list gives the same parts."""
+    numbers the page keeps as defaults, and the length. The same edit list gives the same parts. `effects` (the table of `_edl.range_effects`)
+    adds the punches and the grades: a punched range leaves `zooms` for `punched`, and `grades` lists every grade; with none, the parts are what they
+    always were (no new key, no new text)."""
     data = load_data()
+    effects = effects or {}
     anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
     has_audio = bool(edl["source"]["has_audio"])
     out_seconds = edl["out_frames"] / float(fps)
-    clips, zooms, pos = [], [], 0
+    clips, zooms, punched, grades, pos = [], [], [], [], 0
     for k, (a, b) in enumerate(edl["kept"]):
         z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, fps)
         start, dur = pos / float(fps), (b - a) / float(fps)
@@ -90,17 +135,31 @@ def build_parts(edl: dict, *, fps: int) -> dict:
         clips.append('<div class="zw" id="zw%d"><video id="v%d" src="%s" playsinline data-has-audio="%s" data-start="%s" data-duration="%s" '
                      'data-media-start="%s" data-track-index="%d" data-automation=\'%s\'></video></div>'
                      % (k, k, PROXY_SRC, "true" if has_audio else "false", num(start), num(dur), num(a / float(fps)), k, dumps(lanes)))
-        if abs(z0 - 1.0) > 1e-9 or abs(z1 - 1.0) > 1e-9:
+        fx = effects.get(k) or {}
+        if fx.get("punches"):
+            punched.append([k, start, dur, z0, z1, b - a, [list(row) for row in fx["punches"]]])
+        elif abs(z0 - 1.0) > 1e-9 or abs(z1 - 1.0) > 1e-9:
             zooms.append([k, start, dur, z0, z1])
+        for g in fx.get("grades") or []:
+            grades.append([g["kind"], pos + g["a"], pos + g["b"], g["alphas"], g["color"], k, g["alpha"]])
         pos += b - a
-    return {"clips": clips, "zooms": zooms, "anchor": anchor, "out_seconds": out_seconds, "vars": {"duration": out_seconds, "fps": fps, "zooms": zooms}}
+    parts = {"clips": clips, "zooms": zooms, "anchor": anchor, "out_seconds": out_seconds, "vars": {"duration": out_seconds, "fps": fps, "zooms": zooms}}
+    if punched or grades:
+        parts["fx_tail"] = FX_JS
+        if punched:
+            parts["vars"]["punched"] = punched
+        if grades:
+            parts["vars"]["grades"] = grades
+            parts["fx_css"], parts["fx_layer"] = FX_CSS, FX_LAYER
+    return parts
 
 
 def render_page(parts: dict, *, width: int, height: int, fps: int, background: str, css: str = "", layers: str = "", tail: str = "") -> str:
     """The page's text. `css` goes at the end of the page's style, `layers` after the kept ranges inside the root composition, `tail` in the
     script after the zooms and before the timeline is registered; all three empty is the base page, byte for byte."""
     return PAGE % {"w": width, "h": height, "dur": num(parts["out_seconds"]), "fps": fps, "bg": background, "clips": "\n".join(parts["clips"]),
-                   "origin": "%.2fpx %.2fpx" % parts["anchor"], "defaults": dumps(parts["vars"]), "css": css, "layers": layers, "tail": tail}
+                   "origin": "%.2fpx %.2fpx" % parts["anchor"], "defaults": dumps(parts["vars"]), "css": parts.get("fx_css", "") + css,
+                   "layers": parts.get("fx_layer", "") + layers, "tail": parts.get("fx_tail", "") + tail}
 
 
 def write_files(out_dir: str, files: dict) -> None:

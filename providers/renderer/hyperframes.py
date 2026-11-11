@@ -555,6 +555,8 @@ def verb_render(args) -> dict:
             if any(key not in page for key in COMPOSED_FIELDS + ("layers",)):
                 raise Refusal("container_result_invalid", "hf-page")
             result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
+            if page.get("effects_dropped") is not None:        # optional: the effects the renderer left out (V9a-3); a page result without it stays valid
+                result["effects_dropped"] = page["effects_dropped"]
             seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")
             if drawn.get("measure_ready_ms") is not None:
                 result["measure_ready_ms"] = drawn["measure_ready_ms"]          # how long the page took to be ready, to size the wait from a measurement

@@ -193,12 +193,40 @@ def verb_align(args) -> dict:
     beats = _align.build_beats(with_preset, results, vocab, args.threshold, empty)
     beats["report"] = sorted(beats["report"] + [{"beat": r["beat"], "preset": None} for r in rows if not r["preset"]],
                              key=lambda x: x["beat"])
+    punches, missed = punch_rows(rows, with_preset, results, live, args.threshold)
+    if punches:
+        beats["punches"] = punches        # only when the script has a matched punch: a post without one gives the file it always gave
+    if missed:
+        beats["unmatched"] = sorted(set(beats["unmatched"]) | set(missed))
     _align.annotate(beats, rows, header)
     write_json(args.out, beats)
-    return {"ok": True, "out": os.path.abspath(args.out), "beats": len(rows), "overlays": len(beats["overlays"]),
+    done = {"ok": True, "out": os.path.abspath(args.out), "beats": len(rows), "overlays": len(beats["overlays"]),
             "layouts": len(beats["layouts"]), "unmatched": beats["unmatched"], "slots": [s["slot"] for s in beats["slots"]],
             "fallbacks": beats["fallbacks"], "scores": {str(r["beat"]): r["score"] for r in beats["report"] if "score" in r},
             "reordered": [r["beat"] for r in beats["report"] if r.get("reordered")]}
+    if punches or missed:
+        done["punches"] = len(punches)
+    return done
+
+
+def punch_rows(rows: list, with_preset: list, results: list, live: list, threshold: float) -> tuple:
+    """(punches, missed): the script's punches (a beat whose `emphasis` is `punch`) as beats.json rows {beat, word_from, word_to, score}, and the
+    numbers of the punch beats with no preset that matched no words. A punch beat with a preset reuses the alignment of that beat (an anchor included);
+    one with no preset is aligned by `_align.align_beats` with the same threshold, apart from the beats that have a preset, so no preset beat's
+    result moves. A punch beat with a preset that did not match is already in the beats' own `unmatched`."""
+    bare = [r for r in rows if r["emphasis"] == "punch" and not r["preset"]]
+    found = dict(zip((id(r) for r in bare), _align.align_beats(live, bare, threshold))) if bare else {}
+    found.update({id(r): res for r, res in zip(with_preset, results) if r["emphasis"] == "punch"})
+    punches, missed = [], []
+    for r in rows:
+        res = found.get(id(r))
+        if res is None:
+            continue
+        if res["matched"]:
+            punches.append({"beat": r["beat"], "word_from": res["word_from"], "word_to": res["word_to"], "score": res["score"]})
+        elif not r["preset"]:
+            missed.append(r["beat"])
+    return punches, missed
 
 
 def verb_check_documents(args) -> dict:

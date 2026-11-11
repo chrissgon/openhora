@@ -559,3 +559,22 @@ def test_every_font_url_of_the_composed_pages_names_a_file_the_image_stages_with
             assert url.startswith(prefix) and url[len(prefix):] in R.FONT_FILES, (rel, url)
             seen += 1
     assert seen >= 4
+
+
+def test_effects_reach_the_composed_page_below_every_overlay_and_a_page_without_them_has_none_of_it(tmp_path, docs):
+    """V9a-3: a punch and a grade of beats.json are numbers in `vars.json` and one `#fx` layer in the page, above the video wrappers and below the
+    blocks' layers; the same documents with no effect write a page with none of it (the other tests of this file hold its bytes)."""
+    catalogue = catalogue_of(tmp_path, mixed=True)
+    data, edl, beats, vocab = copy.deepcopy(docs)
+    live = [w["index"] for w in edl["words"]]
+    beats["punches"] = [{"beat": 1, "word_from": live[3], "word_to": live[4], "score": 1.0}]
+    beats["effects"] = [{"id": "e1", "kind": "flash", "word_from": live[8], "word_to": live[8]}, {"id": "e2", "kind": "mono", "word_from": live[12], "word_to": live[13]}]
+    write(docs, catalogue, tmp_path / "plain")
+    with_effects = write(docs, catalogue, tmp_path / "fx", beats=beats)
+    variables, page = json.loads(text_of(tmp_path / "fx", "vars.json")), text_of(tmp_path / "fx")
+    assert variables["punched"] and [g[0] for g in variables["grades"]] == ["flash", "mono"]
+    assert page.count('<div id="fx"></div>') == 1 and "#fx {" in page and "var PZ" in page
+    assert page.index('<div id="fx"></div>') < page.index('class="hf-ra"') and page.index('<div id="fx"></div>') > page.index('id="zw0"')
+    plain_page = text_of(tmp_path / "plain")
+    assert 'id="fx"' not in plain_page and "var PZ" not in plain_page and "punched" not in text_of(tmp_path / "plain", "vars.json")
+    assert with_effects["page_sha256"] != hashlib.sha256(plain_page.encode()).hexdigest()
