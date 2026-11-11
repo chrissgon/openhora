@@ -58,7 +58,7 @@ def test_a_landscape_card_is_centred_inside_the_safe_width_and_starts_below_the_
 def test_a_card_at_the_bottom_ends_at_the_caption_line():
     card = _layout.pip_card(DATA, UPPER_FACE, "bottom", 1200, 675)
     assert card["y"] + card["h"] == Z["caption_bottom"]
-    assert card["y"] >= UPPER_FACE["y"] + UPPER_FACE["h"] + GAP + GAP + Z["caption_min_height"]
+    assert card["y"] >= UPPER_FACE["y"] + UPPER_FACE["h"] + GAP
 
 
 def test_a_vertical_image_is_capped_in_height_and_its_width_follows_the_aspect():
@@ -66,12 +66,15 @@ def test_a_vertical_image_is_capped_in_height_and_its_width_follows_the_aspect()
     assert card["h"] == 640 and abs(card["w"] - 384) <= 1 and card["x"] == (1080 - card["w"]) // 2
 
 
-def test_the_card_shrinks_to_the_room_and_a_face_too_low_leaves_none():
-    face = {"x": 240, "y": 300, "w": 600, "h": 640}          # room = 1560 - 958 - 18 - 120 = 464
-    card = _layout.pip_card(DATA, face, "top", 1200, 675)
-    assert card["h"] <= 464 and card["y"] + card["h"] + GAP + Z["caption_min_height"] <= Z["caption_bottom"]
-    assert _layout.pip_card(DATA, DATA["face_box_default"], "top", 1200, 675) is None           # 224 px free, under card_min_height
-    assert _layout.pip_card(DATA, DATA["face_box_default"], "top", 1200, 675, strict=False)["h"] == 224
+LOW_FACE = {"x": 240, "y": 628, "w": 600, "h": 560}          # the face box's bottom is at 1188, as on a real close-up
+
+
+def test_the_card_takes_the_whole_room_down_to_the_caption_line_and_a_face_too_low_leaves_none():
+    card = _layout.pip_card(DATA, LOW_FACE, "top", 1200, 675)
+    assert card["y"] == 1188 + GAP and card["h"] == Z["caption_bottom"] - (1188 + GAP) and abs(card["w"] / card["h"] - 1200 / 675) < 0.01
+    assert card["h"] > 300 and card["x"] >= 65          # drawn, not dropped
+    assert _layout.pip_card(DATA, {"x": 240, "y": 800, "w": 600, "h": 540}, "top", 1200, 675) is None           # 1560 - 1358 = 202 px, under card_min_height
+    assert _layout.pip_card(DATA, {"x": 240, "y": 800, "w": 600, "h": 540}, "top", 1200, 675, strict=False)["h"] == 202
 
 
 def timeline_of(face, position="top", chunk_face=None, start=30, end=90):
@@ -83,26 +86,23 @@ def timeline_of(face, position="top", chunk_face=None, start=30, end=90):
 ASSETS = {"s1": {"kind": "png", "width": 1200, "height": 675}}
 
 
-def test_a_caption_during_a_top_pip_gets_the_band_below_the_card_and_one_outside_it_keeps_its_own():
-    tl = timeline_of(UPPER_FACE)
-    assert _layout.pip_cards(DATA, tl, ASSETS) == []
-    card = tl["beats"][0]["card"]
-    assert "band" not in tl["captions"][0]
-    assert tl["captions"][1]["band"] == [card["y"] + card["h"] + GAP, Z["caption_bottom"]]
-    assert _layout.entry_zones(DATA, tl["captions"][1])["caption"] == tl["captions"][1]["band"]
-
-
-def test_a_caption_during_a_bottom_pip_lies_between_the_face_and_the_card():
-    tl = timeline_of(UPPER_FACE, "bottom")
-    _layout.pip_cards(DATA, tl, ASSETS)
-    card = tl["beats"][0]["card"]
-    assert tl["captions"][1]["band"] == [UPPER_FACE["y"] + UPPER_FACE["h"] + GAP, card["y"] - GAP]
+def test_a_caption_during_a_pip_gets_the_lower_part_of_the_card_and_one_outside_it_keeps_its_own():
+    for position in ("top", "bottom"):
+        tl = timeline_of(UPPER_FACE, position)
+        assert _layout.pip_cards(DATA, tl, ASSETS) == []
+        card = tl["beats"][0]["card"]
+        assert "band" not in tl["captions"][0]
+        assert tl["captions"][1]["band"] == [card["y"] + card["h"] - Z["caption_min_height"], card["y"] + card["h"]]
+        assert _layout.entry_zones(DATA, tl["captions"][1])["caption"] == tl["captions"][1]["band"]
+        assert tl["captions"][1]["band"][0] >= card["y"] and tl["captions"][1]["band"][0] > UPPER_FACE["y"] + UPPER_FACE["h"]
 
 
 def test_a_pip_with_no_room_is_dropped_with_its_reason_and_its_id_stays_in_the_list_of_ids():
-    tl = timeline_of(DATA["face_box_default"])
+    tl = timeline_of({"x": 240, "y": 800, "w": 600, "h": 540})
     assert _layout.pip_cards(DATA, tl, ASSETS) == [{"id": "b1", "reason": "pip_no_room"}]
     assert tl["beats"] == [] and tl["dropped"] == ["b1"] and not any("band" in c for c in tl["captions"])
+    low = timeline_of(LOW_FACE)
+    assert _layout.pip_cards(DATA, low, ASSETS) == [] and low["beats"][0]["card"]["h"] > 300 and low["dropped"] == []
 
 
 # ---------------------------------------------------------------- the command
@@ -121,7 +121,7 @@ ROW = {"asset": "assets/s1.png", "kind": "png", "start_frame": 30, "end_frame": 
 def test_the_card_is_the_asset_scaled_to_its_box_with_rounded_corners_over_the_speaker_who_stays_full_frame():
     argv = _media.compose_argv("ffmpeg", plan_with([ROW]))
     graph = argv[argv.index("-filter_complex") + 1]
-    assert "scale=950:534:flags=" in graph and "alphamerge" in graph and "overlay=65:718:format=gbrp:enable='between(t,1.0000,3.0000)'" in graph
+    assert "scale=950:534:flags=" in graph and "alphamerge" in graph and "overlay=65:718:format=gbrp:enable='between(n,30,89)'" in graph
     assert "split" not in graph and "crop=" not in graph.split("[cv]")[1]          # no speaker bubble: the base picture is the cut recording itself
     lav = argv[argv.index("lavfi") + 2]
     assert lav.startswith("color=c=black:s=950x534:") and "geq=lum=" in lav
@@ -273,17 +273,30 @@ def test_the_card_is_below_the_face_centred_in_the_aspect_of_the_image_and_the_b
 
 
 @needs_all
-def test_no_caption_pixel_is_inside_the_card_while_the_beat_lasts(world):
+def test_the_caption_is_drawn_over_the_lower_part_of_the_card_and_never_above_it(world):
     e, out = world["pip"], world["out"]["pip"]
     card = e["card"]
+    least = Z["caption_min_height"]
     caps = [c for c in world["timeline"]["captions"] if "band" in c]
     assert caps, "a caption overlaps the pip"
+    seen = 0
     for c in caps:
         a, b = max(c["start_frame"], e["start_frame"]), min(c["end_frame"], e["end_frame"])
         for f in {a, (a + b) // 2, b - 1}:
-            for fx in (0.15, 0.5, 0.85):
-                for fy in (0.2, 0.5, 0.9):
-                    assert is_card_pixel(pixel(out["path"], f, int(card["x"] + card["w"] * fx), int(card["y"] + card["h"] * fy))), (f, fx, fy)
+            rows = card_rows(out["path"], f, card)
+            band_top = card["h"] - least
+            above = [r for r in range(4, band_top) if any(not is_card_pixel(px) for px in rows[r][card["w"] // 2:-40])]      # the right half: the label chip sits at the left corner; the first rows are the card's edge, blurred by the codec
+            assert above == [], (f, above[:3])                       # no caption pixel above the card's lower band
+            seen += sum(1 for r in range(band_top, card["h"]) if any(not is_card_pixel(px) for px in rows[r][40:-40]))
+    assert seen > 0                                                 # the words are there, over the card's lower part
+
+
+def card_rows(video, frame, card):
+    raw = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", str(video), "-vf",
+                          "select=eq(n\\,%d),format=rgb24,crop=%d:%d:%d:%d" % (frame, card["w"], card["h"], card["x"], card["y"]), "-frames:v", "1", "-f", "rawvideo", "-"],
+                         capture_output=True, check=True).stdout
+    px = [tuple(raw[i:i + 3]) for i in range(0, len(raw), 3)]
+    return [px[r * card["w"]:(r + 1) * card["w"]] for r in range(card["h"])]
 
 
 @needs_all
@@ -309,7 +322,7 @@ def test_a_pip_with_no_room_is_reported_with_its_reason_and_the_render_still_suc
     files = world["files"]
     low = dict(files, edl=tmp_path / "low-edl.json")
     Path(low["edl"]).write_text(Path(files["edl"]).read_text())
-    edit_json(low["edl"], lambda d: d.update(face_box=dict(DATA["face_box_default"])))
+    edit_json(low["edl"], lambda d: d.update(face_box={"x": 240, "y": 800, "w": 600, "h": 560}))
     result = render_it(low, tmp_path / "low")
     assert result["beats_dropped"] == ["b4"] and result["beats_dropped_reasons"] == [{"id": "b4", "reason": "pip_no_room"}]
     assert all(b["preset"] != "pip" for b in result["beats_drawn"])
@@ -330,3 +343,42 @@ def test_the_card_stays_below_the_face_as_a_punch_grows_it():
 def _edl_span(edl, punches):
     import _edl
     return _edl.span_face(edl, DATA, 30, 90, punches)
+
+
+# ---------------------------------------------------------------- the beat's frames are exact, whatever the source's timestamps
+
+def card_pattern(video):
+    """'1' for each output frame whose pixel at the card's centre is the card's colour, '0' otherwise."""
+    raw = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", str(video), "-vf", "format=rgb24,crop=1:1:540:985", "-f", "rawvideo", "-"],
+                         capture_output=True, check=True).stdout
+    return "".join("1" if (raw[i] > 150 and raw[i + 1] < 80) else "0" for i in range(0, len(raw), 3))
+
+
+def make_irregular_source(path):
+    """A 1080x1920 clip whose frames come at irregular times (a phone's variable frame rate): about 30 frames a second, jittered."""
+    subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=60:d=5", "-vf",
+                    "select='not(mod(n,2))+gt(random(1),0.8)',setpts='N/(30*TB)+0.012*sin(N*1.7)/TB'", "-fps_mode", "vfr", "-pix_fmt", "yuv420p",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-video_track_timescale", "90000", str(path)], check=True)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kept, start, end", [([[0, 100]], 6, 64), ([[20, 120]], 6, 64), ([[0, 3], [10, 100]], 6, 64), ([[0, 100]], 12, 66), ([[0, 100]], 30, 90)])
+def test_the_card_is_on_exactly_from_the_first_frame_of_the_beat_to_its_last_whatever_the_source_timestamps(tmp_path, kept, start, end):
+    """A float `t` compared with `start/fps` fell on the wrong side of the boundary (for 6/30 the product of a frame number and 1/30 is
+    just under 0.2): the card was missing on its first frame. It is enabled by frame number now, which is the output frame's own index."""
+    src = tmp_path / "vfr.mp4"
+    make_irregular_source(src)
+    asset = tmp_path / "a.png"
+    asset.write_bytes(flat_png(1200, 675, CARD_RGB))
+    total = sum(b - a for a, b in kept)
+    plan = plan_with([dict(ROW, asset=str(asset), start_frame=start, end_frame=end)])
+    plan.update(src=str(src), layers=[], kept=kept, out_frames=total)
+    argv = _media.compose_argv(K.FFMPEG, plan)
+    out = tmp_path / "out.mp4"
+    argv[-1] = str(out)
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-600:]
+    pattern = card_pattern(out)
+    assert len(pattern) == total
+    assert [pattern[f] for f in (start - 1, start, start + 1, end - 1, end)] == ["0", "1", "1", "1", "0"], pattern
+    assert pattern == "0" * start + "1" * (end - start) + "0" * (total - end)

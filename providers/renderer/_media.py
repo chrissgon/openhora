@@ -503,7 +503,9 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
         for i, p in enumerate(pips):
-            en = "enable='between(t,%.4f,%.4f)'" % (p["start_frame"] / fps, p["end_frame"] / fps)
+            # by frame number, never by time: `t` is a float (a frame number times 1/30 can fall just under the bound it should meet, and `between` is
+            # inclusive), and the frame number is the output frame's own index, the one the beat's frames are written under. end_frame is exclusive.
+            en = "enable='between(n,%d,%d)'" % (p["start_frame"], p["end_frame"] - 1)
             lead = "fps=%s,setpts=PTS-STARTPTS+%.4f/TB," % (fps, p["start_frame"] / fps) if p["kind"] == "clip" else ""      # a clip starts with the beat
             g.append("[%d:v]%sscale=%d:%d:flags=%s,format=gbrp[ca%d]" % (pip_in[i], lead, p["w"], p["h"], SWS, i))
             g.append("[%d:v]format=gray[cm%d]" % (mask_in[i], i))

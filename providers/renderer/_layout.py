@@ -23,13 +23,14 @@ def entry_zones(data: dict, entry: dict) -> dict:
 def pip_card(data: dict, face: dict, position: str, asset_w: int, asset_h: int, strict: bool = True):
     """The box {x, y, w, h} of a pip's card, or None when no card fits (the beat is then dropped: `pip_no_room`).
 
-    The asset goes whole into the box (contain): at most the safe width wide and `pip.card_max_height` high, and not higher than the room
-    left between the face box and the caption line once the captions have their minimum band. With `position` top the card's top is the
-    face box's bottom plus `gap`; with bottom the card's bottom is `caption_bottom`. It is centred. Under `pip.card_min_height` of room
-    there is no card (unless `strict` is false, the storyboard's way: the card is then as high as the room allows, at least 1 px)."""
+    The asset goes whole into the box (contain): at most the safe width wide and as high as the room allows, at most `pip.card_max_height`.
+    The room runs from the face box's bottom plus `gap` down to `caption_bottom`; no caption band is kept under the card, the captions are
+    drawn over its lower part (`pip_cards`). With `position` top the card's top is the face box's bottom plus `gap`; with bottom the card's
+    bottom is `caption_bottom`. It is centred. Under `pip.card_min_height` of room there is no card (unless `strict` is false, the storyboard's
+    way: the card is then as high as the room allows, at least 1 px)."""
     z, f, p = data["zones"], data["frame"], data["pip"]
     below = face["y"] + face["h"] + z["gap"]
-    room = z["caption_bottom"] - below - z["gap"] - z["caption_min_height"]
+    room = z["caption_bottom"] - below
     cap = min(p["card_max_height"], room)
     if asset_w < 1 or asset_h < 1 or (strict and cap < p["card_min_height"]):
         return None
@@ -44,9 +45,10 @@ def pip_card(data: dict, face: dict, position: str, asset_w: int, asset_h: int, 
 def pip_cards(data: dict, timeline: dict, assets: dict, drop: bool = True) -> list:
     """Settle every pip of the timeline, in place: each gets `entry["card"]`, or is taken out of `timeline["beats"]` when no card fits (its
     id goes to `timeline["dropped"]` and a {id, reason: pip_no_room} row to `timeline["dropped_reasons"]`). Each caption chunk that shares
-    frames with a pip gets `chunk["band"]`, the band the card leaves: below it for a card at the top, between the face and it for a card
-    at the bottom. `drop` false (the storyboard, which draws no captions) keeps every pip, with the card the room allows. Returns the rows of `dropped_reasons`."""
-    gap = data["zones"]["gap"]
+    frames with a pip gets `chunk["band"]`, the card's lower `caption_min_height` pixels: its words are drawn over the bottom of the card and
+    never above its top; the band is inside the card, which is below the face. `drop` false (the storyboard, which draws no captions) keeps
+    every pip, with the card the room allows. Returns the rows of `dropped_reasons`."""
+    least = data["zones"]["caption_min_height"]
     kept, rows = [], timeline.setdefault("dropped_reasons", [])
     for e in timeline["beats"]:
         if e["preset"] == "pip":
@@ -61,17 +63,13 @@ def pip_cards(data: dict, timeline: dict, assets: dict, drop: bool = True) -> li
     timeline["beats"][:] = kept
     for c in timeline["captions"]:
         c.pop("band", None)
-        top, bottom = c["face"]["y"] + c["face"]["h"] + gap, data["zones"]["caption_bottom"]
-        hit = False
+        top, bottom = None, None
         for e in kept:
             if e["preset"] == "pip" and e["start_frame"] < c["end_frame"] and c["start_frame"] < e["end_frame"]:
-                hit = True
                 card = e["card"]
-                if e["params"].get("position", "top") == "bottom":
-                    bottom = min(bottom, card["y"] - gap)
-                else:
-                    top = max(top, card["y"] + card["h"] + gap)
-        if hit:
+                lo, hi = max(card["y"], card["y"] + card["h"] - least), card["y"] + card["h"]
+                top, bottom = (lo, hi) if top is None else (max(top, lo), min(bottom, hi))
+        if top is not None:
             c["band"] = [top, bottom]
     return rows
 
