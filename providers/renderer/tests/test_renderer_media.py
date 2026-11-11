@@ -303,4 +303,4 @@ def test_a_plan_with_effects_changes_only_the_graph_of_the_ranges_it_names():
     before, after = plain[plain.index("-filter_complex") + 1].split(";"), drawn[drawn.index("-filter_complex") + 1].split(";")
     changed = [k for k, (a, b) in enumerate(zip(before, after)) if a != b]
     assert len(before) == len(after) and len(changed) == 1 and "[v1]" in after[changed[0]]
-    assert "if(between(on,10,39),1.20000,1.10000)'" in after[changed[0]] and "drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0xFFFFFF@0.850:enable='eq(n,3)'" in after[changed[0]]
+    assert "if(between(on,10,39),1.20000,1.10000)'" in after[changed[0]] and "lutyuv=y='val*(1-0.850)+235.00*0.850'" in after[changed[0]] and "enable='eq(n,3)'" in after[changed[0]]

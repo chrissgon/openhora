@@ -372,19 +372,37 @@ TO_RGB = "scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=g
 FROM_RGB = "scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p" % SWS    # explicit bt709 conversions, as the compose's own RGB stage
 
 
+def yuv_limited_bt709(color: str) -> tuple:
+    """(Y, U, V) of an `#rrggbb` colour as bt709 limited-range 8-bit values: the colour the pictures of the render are written in."""
+    r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return 16 + 219 * y, 128 + 224 * (b - y) / 1.8556, 128 + 224 * (r - y) / 1.5748
+
+
+def blend_filter(color: str, alpha: float, enable: str) -> str:
+    """One colour laid over the whole picture at `alpha` on the frames `enable` names, as the exact blend in each plane of yuv420p: every plane goes to
+    plane * (1 - alpha) + colour's plane * alpha. A colour is an affine function of RGB, so this is the browser's RGB alpha blend. `drawbox` is not used: on
+    yuv420p it takes the chroma of a saturated picture towards grey about twice as far as the blend asks (measured on SMPTE bars, 2026-11-11: at alpha .35 a
+    bar's U moved from 147 to 130 where the blend gives 141), which the face check read as a changed face."""
+    yy, uu, vv = yuv_limited_bt709(color)
+    return ("lutyuv=y='val*(1-%.3f)+%.2f*%.3f':u='val*(1-%.3f)+%.2f*%.3f':v='val*(1-%.3f)+%.2f*%.3f':enable='%s'"
+            % (alpha, yy, alpha, alpha, uu, alpha, alpha, vv, alpha, enable))
+
+
 def grade_filters(grades: list) -> list:
     """The filters of the grades of one kept range, in the range's own frame index `n` (a to b, b excluded), as a list of strings (empty for none):
-    a flash or a dip is one `drawbox` over the whole frame per frame of its ramp (white or black at the ramp's alpha), a tint one `drawbox` in the
-    accent colour over its span, mono the CSS grayscale matrix over its span (`colorchannelmixer`, between two bt709 conversions, FIRST, and only in
-    a range that has a mono row: the page's mono is a filter on the video below the `#fx` colour layer, so a tint or a flash over a grey frame stays coloured). Only the frames of a grade are touched (the conversions around mono run on every frame of that range)."""
+    a flash or a dip is one blend (`blend_filter`) of white or black per frame of its ramp, a tint one blend of the accent colour over its span, mono
+    the CSS grayscale matrix over its span (`colorchannelmixer`, between two bt709 conversions, FIRST, and only in a range that has a mono row: the page's
+    mono is a filter on the video below the `#fx` colour layer, so a tint or a flash over a grey frame stays coloured). Only the frames of a grade are
+    touched (the conversions around mono run on every frame of that range)."""
     out, mono = [], []
     for g in grades:
         if g["kind"] in ("flash", "dip"):
-            color = "0xFFFFFF" if g["kind"] == "flash" else "0x000000"
+            color = "#FFFFFF" if g["kind"] == "flash" else "#000000"
             for i, alpha in enumerate(g["alphas"]):
-                out.append("drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=%s@%.3f:enable='eq(n,%d)'" % (color, alpha, g["a"] + i))
+                out.append(blend_filter(color, alpha, "eq(n,%d)" % (g["a"] + i)))
         elif g["kind"] == "tint":
-            out.append("drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0x%s@%.3f:enable='between(n,%d,%d)'" % (g["color"].lstrip("#").upper(), g["alpha"], g["a"], g["b"] - 1))
+            out.append(blend_filter(g["color"], g["alpha"], "between(n,%d,%d)" % (g["a"], g["b"] - 1)))
         elif g["kind"] == "mono":
             mono.append("colorchannelmixer=%s:enable='between(n,%d,%d)'" % (MONO_MATRIX, g["a"], g["b"] - 1))
     return ([TO_RGB] + mono + [FROM_RGB] if mono else []) + out

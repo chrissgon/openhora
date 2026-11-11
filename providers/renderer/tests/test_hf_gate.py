@@ -435,7 +435,7 @@ def test_the_pixel_check_gives_the_reference_the_punches_and_the_grades_of_the_t
         return "", ""
 
     assert G.pixel_check("ffmpeg", "a", "b", edl, DATA, faces, str(tmp_path), run=fake_run, timeline=timeline)["pixel_ranges"] == 3
-    assert "color=0xFFFFFF@0.800:enable='eq(n,3)'" in seen[0][0] and "between(on" not in seen[0][0]
+    assert "lutyuv=y='val*(1-0.800)+235.00*0.800'" in seen[0][0] and "enable='eq(n,3)'" in seen[0][0] and "between(on" not in seen[0][0]
     assert "1/(if(between(on-1,5,19),1.20000," in seen[1][0]            # in the range's own frame index: output frames 25 to 39 of a range that starts at 20
     plain = G.punched_faces(faces, {"punches": []})
     wide = G.punched_faces(faces, timeline)

@@ -263,7 +263,7 @@ def test_switches_are_whole_frames():
     table = _edl.range_effects(edl, timeline)
     graph = "\n".join(_media.base_graph(dict(PLAN, effects=table)))
     for ramp in range(4):
-        assert re.search(r"drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0xFFFFFF@[0-9.]+:enable='eq\(n,%d\)'" % (flash["start_frame"] - 150 + ramp), graph)
+        assert re.search(r"lutyuv=y='val\*\(1-[0-9.]+\)\+235\.00\*[0-9.]+':u='[^']*':v='[^']*':enable='eq\(n,%d\)'" % (flash["start_frame"] - 150 + ramp), graph)
     for number in re.findall(r"between\(n,(\d+),(\d+)\)|eq\(n,(\d+)\)|between\(on,(\d+),(\d+)\)", graph):
         assert all(x == "" or x.isdigit() for x in number)
 
@@ -273,12 +273,12 @@ def test_a_grade_in_the_graph_is_in_its_ranges_own_frame_index_and_after_the_zoo
     timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 12, 12), effect("e2", "mono", 20, 20), effect("e3", "tint", 2, 2)]))
     graph = _media.base_graph(dict(PLAN, effects=_edl.range_effects(edl, timeline)))
     ranges = [line for line in graph if "trim=start_frame" in line]
-    assert "drawbox" in ranges[0] and "0xFFC93C@0.180" in ranges[0] and "colorchannelmixer" not in ranges[0]
-    assert "drawbox" in ranges[1] and "color=0xFFFFFF@0.850:enable='eq(n,33)'" in ranges[1]
-    assert "colorchannelmixer" in ranges[2] and "drawbox" not in ranges[2] and ranges[2].index(_media.TO_RGB) < ranges[2].index("colorchannelmixer") < ranges[2].index(_media.FROM_RGB)
+    assert "lutyuv" in ranges[0] and "*0.180" in ranges[0] and "colorchannelmixer" not in ranges[0]
+    assert "lutyuv=y='val*(1-0.850)+235.00*0.850'" in ranges[1] and "enable='eq(n,33)'" in ranges[1]
+    assert "colorchannelmixer" in ranges[2] and "lutyuv" not in ranges[2] and ranges[2].index(_media.TO_RGB) < ranges[2].index("colorchannelmixer") < ranges[2].index(_media.FROM_RGB)
     for k, line in enumerate(ranges):
-        if "drawbox" in line or "colorchannelmixer" in line:
-            assert line.index("drawbox" if "drawbox" in line else "colorchannelmixer") > line.index("setsar=1")      # a grade comes after the zoom
+        if "lutyuv" in line or "colorchannelmixer" in line:
+            assert line.index("lutyuv" if "lutyuv" in line else "colorchannelmixer") > line.index("setsar=1")      # a grade comes after the zoom
         assert line.endswith("format=yuv420p[v%d]" % k)
 
 
@@ -349,7 +349,7 @@ def test_the_page_and_the_reference_use_the_same_rows():
     grades = parts["vars"]["grades"]
     assert [g[0] for g in grades] == ["flash", "mono", "tint"]
     assert grades[0][1:3] == [timeline["grades"][0]["start_frame"], timeline["grades"][0]["end_frame"]]
-    for kind in ("0xFFFFFF@0.850", "colorchannelmixer", "0xFFC93C@0.180"):
+    for kind in ("val*(1-0.850)+235.00*0.850", "colorchannelmixer", "*0.180"):
         assert kind in ref and kind in comp
     one = _hf_gate.reference_graph(edl, DATA, "[1:v:0]", only=1, effects=table)           # one range alone: the same rows by the range's number
     assert any("between(on-1,%d,%d)" % (a, b - 1) in line for line in one for a, b, _ in table[1]["punches"])
@@ -542,7 +542,7 @@ def test_mono_under_a_tint_leaves_the_tint_coloured_as_the_page_does():
     rows = {"first": 0, "frames": 60, "punches": [], "grades": [{"kind": "mono", "a": 16, "b": 32, "alphas": None, "alpha": None, "color": None},
                                                                  {"kind": "tint", "a": 24, "b": 40, "alphas": None, "alpha": 0.18, "color": "#FFC93C"}]}
     line = [f for f in _media.grade_filters(rows["grades"])]
-    assert line.index(_media.TO_RGB) < line.index(next(x for x in line if x.startswith("colorchannelmixer"))) < line.index(_media.FROM_RGB) < line.index(next(x for x in line if x.startswith("drawbox")))
+    assert line.index(_media.TO_RGB) < line.index(next(x for x in line if x.startswith("colorchannelmixer"))) < line.index(_media.FROM_RGB) < line.index(next(x for x in line if x.startswith("lutyuv")))
     frames = ffmpeg_frames("format=yuv420p," + ",".join(line))[:60]
 
     def spread(n):
@@ -553,6 +553,9 @@ def test_mono_under_a_tint_leaves_the_tint_coloured_as_the_page_does():
     assert all(spread(n) > 8 for n in range(32, 40)) and spread(10) > 20
 
 
+LUT = r"""lutyuv=y='val\*\(1-([0-9.]+)\)\+([0-9.]+)\*[0-9.]+':u='[^']*':v='[^']*':enable='(?:eq\(n,(\d+)\)|between\(n,(\d+),(\d+)\))\'"""
+
+
 def parse_reference(graph: list, first_global: dict) -> list:
     """The grades a reference graph draws, as [kind, from, to] in OUTPUT frames, read from its filter text (flash and dip by their colour)."""
     found = []
@@ -560,12 +563,13 @@ def parse_reference(graph: list, first_global: dict) -> list:
     for k, line in enumerate(ranges):
         base = first_global[k]
         eq = {}
-        for color, n in re.findall(r"drawbox=[^,;]*color=0x(FFFFFF|000000)@[0-9.]+:enable='eq\(n,(\d+)\)'", line):
-            eq.setdefault("flash" if color == "FFFFFF" else "dip", []).append(base + int(n))
+        for alpha, yc, n, lo, hi in re.findall(LUT, line):
+            if n:
+                eq.setdefault("flash" if float(yc) > 200 else "dip", []).append(base + int(n))
+            else:
+                found.append(["tint", base + int(lo), base + int(hi) + 1])
         for kind, frames in eq.items():
             found.append([kind, min(frames), max(frames) + 1])
-        for color, a, b in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@[0-9.]+:enable='between\(n,(\d+),(\d+)\)'", line):
-            found.append(["tint", base + int(a), base + int(b) + 1])
         for a, b in re.findall(r"colorchannelmixer=[^,;]*:enable='between\(n,(\d+),(\d+)\)'", line):
             found.append(["mono", base + int(a), base + int(b) + 1])
     return sorted(found)
@@ -607,20 +611,20 @@ def test_the_configuration_cannot_raise_the_alphas_past_the_specs_values():
 
 
 def reference_alphas(graph: list, firsts: dict) -> dict:
-    """{output frame: (colour, alpha)} that the drawboxes of a reference graph lay over the picture, read from the filter text."""
+    """{output frame: (colour, alpha)} that the blends of a reference graph lay over the picture, read from the filter text."""
     found = {}
     for k, line in enumerate([x for x in graph if "trim=start_frame" in x]):
-        for color, alpha, n in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@([0-9.]+):enable='eq\(n,(\d+)\)'", line):
-            found[firsts[k] + int(n)] = (color, float(alpha))
-        for color, alpha, a, b in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@([0-9.]+):enable='between\(n,(\d+),(\d+)\)'", line):
-            for n in range(int(a), int(b) + 1):
-                found[firsts[k] + n] = (color, float(alpha))
+        for alpha, yc, n, lo, hi in re.findall(LUT, line):
+            color = "FFFFFF" if abs(float(yc) - 235) < 1 else "000000" if abs(float(yc) - 16) < 1 else "TINT"
+            frames = [int(n)] if n else range(int(lo), int(hi) + 1)
+            for m in frames:
+                found[firsts[k] + m] = (color, float(alpha))
     return found
 
 
 @needs_node
 def test_the_pages_alpha_of_each_grade_frame_is_the_references_drawbox_alpha_for_a_flash_a_dip_and_a_tint():
-    """Frame by frame: the opacity and colour the page's drive code sets at output frame n equal the alpha and colour of the drawbox the reference draws at n."""
+    """Frame by frame: the opacity and colour the page's drive code sets at output frame n equal the alpha and colour of the blend the reference draws at n."""
     edl = synthetic_edl()
     beats = beats_of(effects=[effect("e1", "flash", 12, 12), effect("e2", "dip", 18, 18), effect("e3", "tint", 22, 23)])
     table = _edl.range_effects(edl, resolve(edl, beats))
@@ -628,7 +632,7 @@ def test_the_pages_alpha_of_each_grade_frame_is_the_references_drawbox_alpha_for
     firsts = {k: f for k, (f, _) in enumerate(_edl.range_table(edl))}
     want = reference_alphas(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table), firsts)
     assert want == reference_alphas(_media.base_graph(dict(PLAN, effects=table)), firsts)
-    assert len([n for n, (c, a) in want.items() if c == "FFFFFF"]) == 4 and len([n for n, (c, a) in want.items() if c == "000000"]) == 6
+    assert len([n for n, (c, a) in want.items() if c == "FFFFFF"]) == 4 and len([n for n, (c, a) in want.items() if c == "000000"]) == 6 and any(c == "TINT" for c, a in want.values())
     seen = drive(variables, list(range(edl["out_frames"])))
     for n in range(edl["out_frames"]):
         style = seen[n].get("fx", {}).get("style", {})
@@ -636,6 +640,47 @@ def test_the_pages_alpha_of_each_grade_frame_is_the_references_drawbox_alpha_for
         if n in want:
             color, alpha = want[n]
             page_color = style["backgroundColor"].lstrip("#").upper()
-            assert page_color == color and opacity == pytest.approx(alpha, abs=5e-4), n
+            assert page_color == (color if color != "TINT" else "FFC93C") and opacity == pytest.approx(alpha, abs=5e-4), n
         else:
             assert opacity == 0, n
+
+
+@needs_media
+@pytest.mark.parametrize("alpha", [0.85, 0.35, 0.1])
+@pytest.mark.parametrize("kind", ["flash", "dip"])
+def test_a_flash_and_a_dip_are_the_rgb_alpha_blend_on_saturated_bars(kind, alpha):
+    """On SMPTE bars (saturated chroma) the graph's blend equals the ideal, an sRGB alpha blend of white or black done in RGB: every plane within 4 levels inside a bar (the ideal's own RGB rounding and clipping; drawbox is off by 10 to 40).
+    `drawbox` on yuv420p moves a bar's chroma about twice as far towards grey (U 147 to 130 where the blend gives 141 at alpha .35) and failed this."""
+    w, h = 320, 64
+    src = ("smptehdbars=size=%dx%d:rate=30:duration=0.2,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv" % (w, h))
+    color = "ffffff" if kind == "flash" else "000000"
+
+    def run(vf):
+        done = subprocess.run([K.FFMPEG, "-v", "error", "-nostdin", "-f", "lavfi", "-i", src, "-vf", vf, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"],
+                              capture_output=True, timeout=120)
+        assert done.returncode == 0, done.stderr.decode()[-300:]
+        return done.stdout
+
+    got = run(",".join(_media.grade_filters([{"kind": kind, "a": 0, "b": 1, "alphas": [alpha], "alpha": None, "color": None}])))
+    flags = "accurate_rnd+full_chroma_int"
+    want = run("scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp,drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0x%s@%.3f,"
+               "scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p" % (flags, color, alpha, flags))
+    assert len(got) == len(want) == w * h * 3 // 2
+    plain = run("null")
+    trip = run("scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp,scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p" % (flags, flags))
+    planes = ((0, w, h), (w * h, w // 2, h // 2), (w * h + w * h // 4, w // 2, h // 2))
+    checked = 0
+    for start, pw, ph in planes:
+        for y in range(ph):
+            for x in range(3, pw - 3):
+                row = plain[start + y * pw + x - 3:start + y * pw + x + 4]
+                if len(set(row)) == 1 and abs(trip[start + y * pw + x] - plain[start + y * pw + x]) <= 1:      # inside a bar, and a colour RGB holds (the ideal clips what it cannot): the ideal's own chroma upsampling blurs only the pixels at a bar's edge
+                    checked += 1
+                    assert abs(got[start + y * pw + x] - want[start + y * pw + x]) <= 4, (start, x, y)
+    assert checked > w * h // 2
+
+
+def test_the_blend_of_a_colour_is_the_affine_blend_of_its_bt709_limited_planes():
+    assert [round(v) for v in _media.yuv_limited_bt709("#FFFFFF")] == [235, 128, 128] and [round(v) for v in _media.yuv_limited_bt709("#000000")] == [16, 128, 128]
+    text = _media.blend_filter("#FFFFFF", 0.35, "eq(n,4)")
+    assert text == "lutyuv=y='val*(1-0.350)+235.00*0.350':u='val*(1-0.350)+128.00*0.350':v='val*(1-0.350)+128.00*0.350':enable='eq(n,4)'"
