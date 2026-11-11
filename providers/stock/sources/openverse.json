@@ -1,0 +1,18 @@
+{
+  "source": "openverse",
+  "licence_tier": "per-item",
+  "licence": null,
+  "licences": null,
+  "licence_url": null,
+  "terms_read_on": null,
+  "secret": null,
+  "secret_in": "none",
+  "api": {"host": null, "search_image": null, "search_clip": null, "item_image": null, "item_clip": null},
+  "media_hosts": [],
+  "redirect_hosts": [],
+  "path_patterns": {"preview": null, "image": null, "clip": null},
+  "rendition": {"preview": null, "image": null, "clip": null},
+  "cache_seconds": 0,
+  "credit_line": null,
+  "kinds": ["image"]
+}

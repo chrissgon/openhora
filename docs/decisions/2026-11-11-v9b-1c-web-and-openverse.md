@@ -1,0 +1,63 @@
+## 2026-11-11: the open-web source `web` and Openverse (V9b-1c; no measurement change, no skill changed, no lab run)
+
+Part V9b-1c of the video plan's package V9b (cutaway media found by the agent). It adds two implementations of the class `stock:media` to `providers/stock/`: `openverse.py`
+(keyless, per-item licences) and `web.py` (the file at a URL a model's web search wrote, tier `unverified`), with their source files, `_net.fetch_open` and tests. Nothing was
+run against a real library or a real web page: every test is offline, with a fake network, generated media and `.example` hosts. `sources/openverse.json` is committed with
+nulls and `sources/web.json` is the five fixed fields of the spec; the supervisor hands the values over at STOP 1 and STOP 4.
+
+### What the maintainer decided (2026-11-11, relayed by the supervisor; quoted as written)
+
+- Decision 7: "Para falar a verdade eu nao acho que acaba sendo muito util cobrar do usuario contas nessas plataformas para ter acessos ao videos e imagens. Vamos fazer buscando pelo google mesmo, e alertamos do possivel problema com direitos autorais. Vamos deixar essas opcoes de pixabay caso ele queira ou já tenha criado uma conta nessas plataformas mais recomendadas" validate: allow english-only -- a quotation of the maintainer's own words
+- Decision 8, after being told that Openverse needs no account and could be on by default and asked whether the search is done with the agent's own search tool: "Sim, assim" validate: allow english-only -- a quotation of the maintainer's own words
+
+Meaning: the default sources need no account (a web search done by the agent, in the `unverified` tier, and Openverse, keyless, in the `per-item` tier); Pixabay and Pexels are optional.
+
+### The facts found that day (relayed, not read here)
+
+- Pexels shows "New API key issuance is currently paused and cannot be requested." (the maintainer's screenshot).
+- Pexels' terms, section 8, forbid "Data mining, extraction, scraping and the use of programs or robots for automatic data collection".
+- Pixabay's documentation says "Systematic mass downloads are not allowed".
+- Google's Custom Search JSON API is closed to new customers and is discontinued on 2027-01-01 (the source is Google's overview page as third parties cite it).
+- Scraping a search engine is out: it breaks the engine's terms and is blocked by captchas, which are never bypassed.
+
+### Decisions
+
+- **D1. `web.py` is the one place a URL a model wrote is opened** (spec D8, limit L79 once V9b-3b writes it). It never searches; the page URL of a candidate is never fetched. The
+  checks live in `_net.fetch_open`, beside `download`, which is unchanged for the licensed sources: https on 443 only, a public host name (no IP literal, no trailing dot), every
+  resolved address global and the connection opened to the one checked, per hop, at most two redirects each checked again, no cookie, `Authorization` or `Referer`, a size cap
+  before and while the body is read, the type read from the first 16 bytes (PNG, JPEG, MP4, WebM) before any byte is written, the file 0600 in `<task>/stock/quarantine` under its hash.
+  The person's refused and allowed host lists are arguments, empty by default. Nothing is decoded; no HTML is kept.
+- **D2. Nothing prints a URL beyond its host.** Diagnostics hold a code and a validated host name; a usage error is a fixed text (argparse would echo the argument, and an argument can be a URL);
+  an unforeseen exception is a fixed refusal. A test plants a token in a path, a query and a `Location` and scans every output and every file name.
+- **D3. The quarantine folder is a rule of the fetch, not of its caller.** `check_quarantine` requires a folder `check_out` accepts, named `quarantine`, inside a folder named `stock`; a folder
+  anywhere else, with another mode or inside a reference store is `out_refused` before any lookup.
+- **D4. The `unverified` tier stays refused without `--allow-unverified`**, for `web.py` too (`licence_refused`, no request), though the spec's flag list for `preview` and `fetch` does not name it:
+  the rule of `_stock.py` ("refused unless the caller says the project turned it on") holds for every source of that tier. V9b-3b passes the flag only when the project's `web` switch is on.
+- **D5. `read_source` accepts an open-web source file** (the spec allowed this edit of `_stock.py`): exactly the keys `source`, `licence_tier`, `secret_in`, `kinds`, `terms_read_on`, with the tier
+  `unverified`, `secret_in` `none`, valid kinds and `terms_read_on` null (a date would claim a reading that never happened; the 365-day rule does not apply). The answer carries every other key empty.
+- **D6. Openverse** is tier `per-item`, `secret_in` `none`, kinds `image`. Each item's own licence and version are keyed `"<licence> <version>"` (lower case) into the source file's `licences`
+  table; an item whose pair is not in the table is dropped, so CC BY-SA, NC, ND and a CC BY with no version never pass, and the class refuses a table that maps to an id outside the
+  accepted tuple. An item with a credit licence and no author is dropped by the class, and one whose preview or file host is not in `media_hosts` is dropped (`host`). `SECRET` is the empty
+  string, so a source file that names a secret is refused and no key is read, sent or kept.
+- **D7. Licence policy unchanged.** No licence id is added; `LICENCES_ACCEPTED` and `LICENCES_CREDIT` are as in V9b-1.
+
+### Deviations from the spec text, stated
+
+- The search of Openverse sends `license_type=commercial,modification`, `q` and `page_size`. It does **not** send a filter "only for the upstream sources whose hosts are in `media_hosts`": the
+  library's `source` parameter names providers, not hosts, and the source file has no field for them. The host rule is applied to each item instead (`host`), which gives the same guarantee for
+  what reaches a render. The parameter and field names are from the library's public documentation as known to the author, not read this session: K1 verifies them.
+- `web.py` and the other sources take `--source-file` and `--today` before the verb, like the class; the spec's flag list for `preview` and `fetch` omits them.
+- `fetch_open` returns `redirects` as well as the five fields the verb prints, and `web.py` writes `web: ok host=<host> redirects=<n>` on stderr for success, so K1 can record the redirects without
+  the URL being printed.
+
+### What the tests could not leave as they were
+
+Three tests of V9b-1's `tests/test_stock_registration.py` fail with the new sources, which this part's row does not let it edit (stop rule 2 of the spec): `test_every_implementation_declares_the_class_and_its_verbs_as_text`
+(it requires `VERBS == ("search", "fetch")`, and `web.py` has `("preview", "fetch")`), `test_no_source_name_appears_in_the_runtime_or_the_renderer` (it searches for the word `web`, which occurs in 100 files
+of `runtime/` as ordinary English: "open web", "web search"), and `test_adding_a_source_is_two_files_and_no_other_change` (its expected list is `["aster", "pexels"]`). The supervisor decides how they change.
+
+### What is not verified, and the residual risk
+
+Everything about a real library or web server: Openverse's access, limits, field and parameter names and upstream hosts; whether real servers' redirects, lengths and types behave as the fake network's
+do (K1). The sniff reads the first 16 bytes only: a file that begins as a PNG and carries other content is kept as a PNG, which is why nothing here decodes it and the renderer decodes it only in a
+container with no network. The residual risk of the `unverified` tier is the one the maintainer accepted with decisions 7 and 8: a web file may be someone's property, and the copyright warning and the per-asset approval of V9b-3 are the guard, not code.

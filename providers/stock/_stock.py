@@ -75,6 +75,7 @@ EXIT = {"source_not_ready": 3, "terms_stale": 3, "no_key": 3, "query_refused": 2
 
 SOURCE_KEYS = ("source", "licence_tier", "licence", "licences", "licence_url", "terms_read_on", "secret", "secret_in", "api", "media_hosts",
                "redirect_hosts", "path_patterns", "rendition", "cache_seconds", "credit_line", "kinds")
+OPEN_KEYS = ("source", "licence_tier", "secret_in", "kinds", "terms_read_on")      # the whole source file of an open-web source (sources/web.json)
 API_KEYS = ("host", "search_image", "search_clip", "item_image", "item_clip")
 KIND_KEYS = ("preview", "image", "clip")
 API_PATH = re.compile(r"/[A-Za-z0-9/_.{}-]{0,99}")
@@ -121,6 +122,8 @@ def read_source(path, today, implementation=None, secret_name=None) -> dict:
         raise Refusal("source_not_ready", "the source file cannot be read", ["file"]) from None
     if not isinstance(data, dict):
         raise Refusal("source_not_ready", "the source file is not an object", ["file"])
+    if set(data) == set(OPEN_KEYS):
+        return _read_open(data, implementation)
     odd = sorted(set(data) ^ set(SOURCE_KEYS))
     if odd:
         raise Refusal("source_not_ready", "the source file has unknown or missing keys", odd)
@@ -131,6 +134,28 @@ def read_source(path, today, implementation=None, secret_name=None) -> dict:
     _check_terms(data, today)
     patterns = {k: re.compile(data["path_patterns"][k]) for k in KIND_KEYS if data["path_patterns"].get(k)}
     return dict(data, _patterns=patterns)
+
+
+def _read_open(data, implementation) -> dict:
+    """The source file of an open-web source (V9b-1c): exactly the five OPEN_KEYS, no API, no host list, no pattern, no key and no terms date (the open web has
+    no terms to read; the risk is carried by the warning and the per-asset approval). It must say `unverified`, `none` and valid kinds, and `terms_read_on`
+    stays null: a date would claim a reading that never happened. The answer has every key of SOURCE_KEYS, empty."""
+    problems = []
+    if not (isinstance(data["source"], str) and NAME.fullmatch(data["source"])) or (implementation and data["source"] != implementation):
+        problems.append("source")
+    if data["licence_tier"] != "unverified":
+        problems.append("licence_tier")
+    if data["secret_in"] != "none":
+        problems.append("secret_in")
+    kinds = data["kinds"]
+    if not (isinstance(kinds, list) and kinds and len(set(kinds)) == len(kinds) and all(k in KINDS for k in kinds)):
+        problems.append("kinds")
+    if data["terms_read_on"] is not None:
+        problems.append("terms_read_on")
+    if problems:
+        raise Refusal("source_not_ready", "the source file is not filled: " + ", ".join(problems), problems)
+    return dict(data, licence=None, licences=None, licence_url=None, secret=None, api={}, media_hosts=[], redirect_hosts=[], path_patterns={},
+                rendition={}, cache_seconds=0, credit_line=None, _patterns={})
 
 
 def _missing(d, implementation, secret_name=None) -> list:

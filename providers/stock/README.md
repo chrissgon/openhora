@@ -2,15 +2,18 @@
 
 Libraries of pictures and clips whose licence allows reuse in a published video, searched by words through their API. A runtime-only class, like
 `renderer:video` and `fetcher:video`: no skill requires it and `contracts/environment.md` does not list it. One implementation per library
-(`providers/stock/<name>.py`), each with its source data file (`providers/stock/sources/<name>.json`). Package V9b-1 builds the class and Pexels;
-Pixabay and Openverse are V9b-1b. Nothing here has run against a real library yet: the tests use a fake network, generated media and a fake key.
+(`providers/stock/<name>.py`), each with its source data file (`providers/stock/sources/<name>.json`). Package V9b-1 builds the class and Pexels; package V9b-1c
+adds Openverse and the open-web source `web`; Pixabay is V9b-1b, later. Nothing here has run against a real library or a real web page yet: the tests use a fake
+network, generated media and a fake key.
 
 ```
 providers/stock/
   _stock.py           the class: licence tuple, source file checks, caps, query rule, answer cache, secret lookup, candidate schema, the verbs
   _net.py             the closed-host fetch: host list, global addresses, the address checked is the address connected, one redirect to a listed host
   pexels.py           how to call Pexels and read its answer (SERVES = "stock:media")
-  sources/pexels.json the source data, committed with nulls: every value is filled by the maintainer's approval
+  openverse.py        how to call Openverse (keyless, per-item licences) and read its answer
+  web.py              the open-web source: fetch the file at a URL a model wrote, through `_net.fetch_open`, into quarantine (the one place such a URL is opened)
+  sources/<name>.json the source data, committed with nulls: every value is filled by the maintainer's approval (web.json is five fixed fields)
   tests/              offline tests (a fake opener, `.example` hosts)
 ```
 
@@ -56,8 +59,8 @@ outside it is refused at load (`licence_refused`). A source file declares a `lic
 
 - `library`: one licence for every item, named in the file;
 - `per-item`: each item states its own; the implementation maps it through the file's `licences` table and drops an item it cannot map;
-- `unverified`: no licence the code can read. A seam only: no such source is built, the provider refuses it without `--allow-unverified`, and the
-  runtime (V9b-3) admits one only with the project's own switch and a separate approval of each asset.
+- `unverified`: no licence the code can read. `web` is the one source of this tier: the provider refuses it without `--allow-unverified`, and the runtime
+  (V9b-3) passes that only with the project's own switch and admits an asset only with a separate approval of that asset, bound to its bytes.
 
 ## The source file
 
@@ -96,12 +99,63 @@ written with an answer that holds the key.
    to a new name in a temporary checkout to prove it.
 
 Two exceptions are not files-only additions: a source whose licence id is not in `LICENCES_ACCEPTED` is a **licence policy change** (both tuples, a
-decision file, the maintainer's word), and a source of the `unverified` tier is its own package with its own terms.
+decision file, the maintainer's word), and a source of the `unverified` tier is its own package with its own terms (`web`, V9b-1c).
 
 Select the implementation with `STOCK_MEDIA_PROVIDER`, then `STOCK_PROVIDER`; the runtime names each source a project turned on.
 
+## The sources
+
+| Source | Tier | Key | Kinds | Notes |
+|---|---|---|---|---|
+| `pexels` | `library` (`pexels-license`) | `STOCK_PEXELS_API_KEY` | image, clip | optional; stays off while the library issues no keys |
+| `openverse` | `per-item` | none | image | each item's own licence and version, mapped through the file's `licences` table; any pair not in the table is dropped |
+| `web` | `unverified` | none | image, clip | no search here: the search is a model's; this file only fetches a URL it wrote (below) |
+
+`openverse.json` is committed with nulls (`licence_tier` `per-item`, `secret_in` `none` and `kinds` `["image"]` are its fixed fields). The `licences` table maps
+`"<licence> <version>"` (the item's `license` in lower case, a space, its `license_version`) to one of our ids; an item with no version is keyed by its name alone,
+which no table maps, so a `by` with no version, `by-sa`, `by-nc` and `by-nd` never pass. The class refuses a table that maps to an id outside `LICENCES_ACCEPTED`.
+An item whose preview or file host is not in `media_hosts` is dropped (`host`). The implementation names no secret (`SECRET = ""`): a source file that names one is
+refused (`source_not_ready`, `secret`), so no key is read, sent or kept. The search asks the library for licences that allow commercial use and modification
+(`license_type`), as a first filter only: the table is the rule.
+
+## The open web (`web.py`)
+
+`web.py` is the one place in the workbench where **a URL written by a model is opened**. The provider never searches: the search is the contained web-search run of
+V9b-3b, which returns URLs and text; the page URL of a candidate is never fetched, it is kept as text. Every other provider takes an item id and reads the file's
+URL from its library's own answer.
+
+```
+web.py --source-file F --today D preview|fetch --kind image|clip --url U --out DIR --max-bytes B [--refuse-host H]... [--allow-host H]... --allow-unverified
+```
+
+Answers `{"ok", "file", "bytes", "sha256", "type", "host"}` (`file` is a name inside `DIR`; the URL is never printed). `preview` is always an image (PNG or JPEG, 4 MiB,
+30 s: the thumbnail of a clip is an image; a clip with no thumbnail has no preview). `fetch` is the file: an image (16 MiB, 60 s) or a clip (MP4 or WebM, 120 MiB,
+180 s). `--max-bytes` only lowers a cap. The checks live in `_net.fetch_open` and each has a test (`tests/test_stock_web.py`):
+
+1. **The URL**: a text of at most 2048 printable ASCII characters (no space, no backslash), `https`, no user info, no port or 443, a host that is a name (no IP
+   literal, no trailing dot), not under a refused host (`--refuse-host`, the name and its sub-domains), under an allowed host when `--allow-host` is given. The two lists
+   are the person's, empty by default; a refused host wins over an allowed one.
+2. **Every resolved address is global** (private, reserved, loopback, link-local, multicast, `::/96`, NAT64, 6to4 and IPv4-mapped private are refused), and the
+   connection opens the address checked, hop by hop.
+3. **At most two redirects**, each `Location` joined and checked by 1 and 2 again; a redirect to `http`, a port, user info, a literal or a refused host is `redirect_refused`.
+4. **Headers sent**: `Host`, a fixed `User-Agent`, `Accept: image/png, image/jpeg, video/mp4, video/webm` and `Accept-Encoding: identity`. Never a cookie,
+   `Authorization` or `Referer`; a `Set-Cookie` is never read.
+5. **Only a 200.** A `Content-Length` over the cap is `too_large` before a byte is read; the body is counted while it is read, and a server that sends no length is read up
+   to the cap and refused one byte over.
+6. **The type is read from the first 16 bytes** (PNG, JPEG, MP4 `ftyp` at offset 4, WebM) before a byte is written, whatever `Content-Type` said. HTML, WebP, GIF, SVG and
+   anything else is `type_refused` and nothing is kept. Nothing is decoded here.
+7. **The file** is written 0600 under a temporary name in `DIR`, then renamed `q-<first 12 hex of the sha256>.<png|jpg|mp4|webm>`; any failure removes it. `DIR` must be a
+   real folder of this user, mode 0700, named `quarantine` inside a folder named `stock` (`<data dir>/media/<task>/stock/quarantine`), and not inside a reference store.
+8. **Diagnostics** print the code and the host that was reached (a validated host name), never a URL, a path or a query; a usage error prints a fixed text. The
+   `unverified` tier is refused without `--allow-unverified` (`licence_refused`, no request): the runtime passes it only when the project's own switch is on.
+
+The source file `sources/web.json` holds five fixed fields and nothing a maintainer fills (no host, no pattern, no terms date: the open web has no terms to read, and its
+risk is carried by the copyright warning and the per-asset approval of V9b-3). `read_source` accepts exactly these five keys as an open-web source.
+
 ## What is not verified
 
-That a library's answers and files keep the fields and hosts its documentation names (the first live run, K1, reads them); which rendition of a
+That a library's answers and files keep the fields and hosts its documentation names (the first live run, K1, reads them); Openverse's anonymous access, its limits,
+its parameter and field names (`license_type`, `page_size`, `results`, `license`, `license_version`, `creator`, `url`, `thumbnail`, `foreign_landing_url`) and which
+upstream hosts its files come from (K1, STOP 1 and STOP 4); whether a real web server's redirects, lengths and types behave as the fake network's do (K1); which rendition of a
 photo or a clip covers 1080 x 1920; whether a redirect of a media host goes to a listed host; whether downloads count against a library's limits; the
 Python 3.9 run (the test suite parses every file as 3.9 and the code uses nothing newer, but no 3.9 interpreter was available to run it).
