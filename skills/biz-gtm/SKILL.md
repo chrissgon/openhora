@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Go-to-market
@@ -80,7 +80,7 @@ Progress:
 - [ ] Step 1: Read `docs/workbench/state.md`, the project language (the artifact language), `docs/business/icp.md`, `docs/business/positioning.md`, `docs/business/business-model.md`, `docs/business/pricing.md`, `docs/business/market.md` and matching research briefs. No `icp.md`: Stop rule 1. If `docs/business/gtm.md` exists, this run updates it and keeps its measurement results.
 - [ ] Step 2: Scope. Check each item against the state file's Decisions; any item with no decision: Stop rule 2.
   1. The goal and its horizon: first N paying customers, N active users, a launch adoption signal, or "no numeric target yet: measure a baseline for <n> weeks after launch". Recommend the goal the state file records; when there is none, the baseline window of four weeks.
-  2. Hours per week for go-to-market, and who does them. Recommend the business shape's hours minus delivery.
+  2. Hours per week for go-to-market, and who does them. Recommend the business shape's hours minus delivery. When the state file records no business shape, recommend a starting figure of 5 hours per week, labelled as a starting point the user can change.
   3. Paid budget per month. Recommend 0 until a channel shows a signal.
   4. The owner's own assets: audience sizes, network, accounts, past customers who agreed to be contacted, partners. Recommend what icp.md records under founder access.
   5. The launch condition: what must be true before launch (a stranger can sign up or install and reach the first result alone; the price is published; support answers), and a date only if the user has one. Recommend a condition, not a date, when the product is not usable yet.
@@ -103,7 +103,7 @@ Progress:
   Paste the table as printed, and record the command under Method with a label: `M1: rank.py with the scores of the Channels table on standard input`. If it printed `"close_call": true`: Stop rule 3, and record the answer as a dated decision.
 - [ ] Step 6: Choose the top channel, and a second only if both fit the weekly hours of item 2 together. Write the launch readiness list from item 5 of the scope: each condition checkable; `Done` is `yes` only when the state file or the user says so, else `no` or `unknown`. Write the first four weeks: one row per action with week, channel, hours and output; weeks count from the launch (`Week 1` is the launch week), never calendar dates; the hours of all rows of one week add up to at most the hours per week of item 2. Put the heaviest effort in the launch week.
 - [ ] Step 7: Measurement. For each chosen channel write the metric that follows from the goal, the baseline window, the week to read it, `Continue if` and `Stop if`, now, before any result. With no numeric target, the rule reads the baseline (for example: continue the channel that brought the most of the metric in the window). Never invent a target the user did not set.
-- [ ] Step 8: Write `docs/business/gtm.md` from the template. A tactic of Stop rule 4 that the request asked for goes under Left out. List under Next skills the skills that exist (copy, posts, publishing), each with what it takes from this plan.
+- [ ] Step 8: Write `docs/business/gtm.md` from the template. Only a stop rule stops a run: weak or missing sources are not a reason to withhold the file. They are scored as step 5 says (1 with no source, `not researched yet`), the file is written with them, and the reply's Open line names what research is missing. A tactic of Stop rule 4 that the request asked for goes under Left out. List under Next skills the skills that exist (copy, posts, publishing), each with what it takes from this plan.
 - [ ] Step 9: Register `docs/business/gtm.md` in the state file's Artifacts table (`biz-gtm`, `draft`, date): the row says `draft` while the artifact's own header says `hypothesis`. Add an open question per unknown that blocks the launch.
 - [ ] Step 10: Check the artifact, one command at a time:
   ```bash
