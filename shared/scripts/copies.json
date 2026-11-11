@@ -43,6 +43,10 @@
     {
      "path": "skills/biz-market-analysis/scripts/rank.py",
      "adopted": true
+    },
+    {
+     "path": "skills/biz-gtm/scripts/rank.py",
+     "adopted": true
     }
    ]
   },
@@ -55,6 +59,14 @@
     },
     {
      "path": "skills/biz-market-analysis/scripts/check_refs.py",
+     "adopted": true
+    },
+    {
+     "path": "skills/biz-business-model/scripts/check_refs.py",
+     "adopted": true
+    },
+    {
+     "path": "skills/biz-gtm/scripts/check_refs.py",
      "adopted": true
     }
    ]
