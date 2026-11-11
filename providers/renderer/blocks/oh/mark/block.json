@@ -1,0 +1,52 @@
+{
+ "schema_version": 1,
+ "name": "oh:mark",
+ "kind": "overlay",
+ "preset": "mark",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle or arrow",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 24,
+   "required": true
+  },
+  "mark": {
+   "type": "choice",
+   "values": [
+    "underline",
+    "circle",
+    "arrow",
+    "none"
+   ],
+   "default": "underline"
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Name every dollar",
+   "mark": "underline"
+  },
+  {
+   "text": "The only rule",
+   "mark": "circle",
+   "color": "accent"
+  },
+  {
+   "text": "Start here",
+   "mark": "arrow"
+  }
+ ],
+ "natural_duration": 1.2,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

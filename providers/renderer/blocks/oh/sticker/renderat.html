@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="sticker">
+<meta name="pv-params" content="glyph,side,color">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#st { position:absolute; overflow:visible; pointer-events:none; transform-origin:50% 50%; filter:drop-shadow(0 6px 0 rgba(0,0,0,.35)); }
+</style>
+</head>
+<body>
+<svg id="st" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+'use strict';
+// One drawn symbol pops in beside the speaker's point, inside the band the face box leaves above it (data.zones.card = [top, bottom]). The
+// twelve glyphs are paths written here: no font and no image is loaded. The side sets its centre (150, 540 or 930 px) and its fixed tilt.
+// The symbol is at most 220 px and never taller than the band allows, so the pop's overshoot stays inside it. The driver measures the
+// element marked data-zone and fails the render when it touches the face box. Pure function of (t, data): every style is set here.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+const SIZE = 220;
+const BAND_SHARE = 0.7;   // the share of the band the symbol fills at rest: the overshoot (about 10 percent) and the tilt then stay inside the band
+const SIDES = { left: { x: 150, tilt: -8 }, center: { x: 540, tilt: 0 }, right: { x: 930, tilt: 8 } };
+const ICONS = {
+  'check': [['path', { d: 'M4 12.5l5 5L20 6.5', fill: 'none', 'stroke-width': 3 }]],
+  'star': [['polygon', { points: '12,2 15,9 22,9.5 16.5,14.5 18.5,22 12,18 5.5,22 7.5,14.5 2,9.5 9,9', stroke: 'none' }]],
+  'bolt': [['polygon', { points: '13,2 4,14 11,14 10,22 20,9 13,9', stroke: 'none' }]],
+  'arrow-up': [['path', { d: 'M12 20V5M5 12l7-7 7 7', fill: 'none', 'stroke-width': 3 }]],
+  'heart': [['path', { d: 'M12 21s-8-5.2-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.8-8 11-8 11z', stroke: 'none' }]],
+  'flag': [['path', { d: 'M5 21V4M5 4h12l-2 4 2 4H5', fill: 'none', 'stroke-width': 3 }]],
+  'clock': [['circle', { cx: 12, cy: 12, r: 9, fill: 'none', 'stroke-width': 3 }], ['path', { d: 'M12 7v5l3 2', fill: 'none', 'stroke-width': 3 }]],
+  'coin': [['circle', { cx: 12, cy: 12, r: 9, fill: 'none', 'stroke-width': 3 }], ['path', { d: 'M12 7v10M9.5 9.5c0-1.2 1.2-2 2.5-2s2.5.8 2.5 2-1.2 1.7-2.5 2-2.5.8-2.5 2 1.2 2 2.5 2 2.5-.8 2.5-2', fill: 'none', 'stroke-width': 2 }]],
+  'bulb': [['path', { d: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z', fill: 'none', 'stroke-width': 2.5 }]],
+  'question': [['path', { d: 'M9 9a3 3 0 1 1 4.5 2.6c-.9.5-1.5 1.2-1.5 2.4', fill: 'none', 'stroke-width': 3 }], ['circle', { cx: 12, cy: 19, r: 1.6, stroke: 'none' }]],
+  'exclaim': [['path', { d: 'M12 4v10', fill: 'none', 'stroke-width': 3 }], ['circle', { cx: 12, cy: 19, r: 1.6, stroke: 'none' }]],
+  'eye': [['path', { d: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z', fill: 'none', 'stroke-width': 2.5 }], ['circle', { cx: 12, cy: 12, r: 3, stroke: 'none' }]]
+};
+function icon(svg, name, color) {
+  const NS = 'http://www.w3.org/2000/svg';
+  svg.replaceChildren();
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.style.fill = color;
+  svg.style.stroke = color;
+  ICONS[name].forEach(function (part) {
+    const el = document.createElementNS(NS, part[0]);
+    Object.keys(part[1]).forEach(function (k) { el.setAttribute(k, part[1][k]); });
+    svg.appendChild(el);
+  });
+}
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const z = data.zones.card;
+  const bandH = z[1] - z[0];
+  const svg = document.getElementById('st');
+  const side = SIDES[P.side || 'right'];
+  const size = Math.min(SIZE, bandH * BAND_SHARE);
+  icon(svg, P.glyph, col(P.color || 'accent'));
+  svg.dataset.zone = 'card';
+  svg.setAttribute('width', size.toFixed(1));
+  svg.setAttribute('height', size.toFixed(1));
+  svg.style.left = (side.x - size / 2).toFixed(1) + 'px';
+  svg.style.top = (z[0] + (bandH - size) / 2).toFixed(1) + 'px';
+  const tout = clamp((data.duration - t) / 0.2);
+  const pop = 0.4 + 0.6 * easeOutBack(clamp(t / 0.3), 1.7);
+  const shrink = 0.86 + 0.14 * (1 - easeInCubic(1 - tout));
+  svg.style.transform = 'rotate(' + side.tilt + 'deg) scale(' + (pop * shrink).toFixed(4) + ')';
+  svg.style.opacity = Math.min(clamp(t / 0.08), tout).toFixed(3);
+};
+</script>
+</body>
+</html>

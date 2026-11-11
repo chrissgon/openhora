@@ -34,7 +34,8 @@ PORTS = {
     "testimonial-card": ("quote", "testimonial-card", "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"),
     "spring-pop": ("keyword", "spring-pop", "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"),
 }
-DEFAULTS = {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "list": "oh:list", "number": "hf:count-up", "quote": "hf:testimonial-card"}
+DEFAULTS = {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
+            "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]
 MAKER = "hey" + "gen"            # the registry's maker may be named in NOTICE.md and the licence file only (V0 section 8): this test never spells it out
 
@@ -254,7 +255,8 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
         _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")
     assert caught.value.code == "block_not_on_engine" and caught.value.field == "oh:" + preset
     assert catalogue["engines"]["ffmpeg"]["presets"] == {"caption": "oh:caption", "cutaway": "oh:cutaway", "keyword": "oh:keyword", "list": "oh:list",
-                                                         "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote"}
+                                                         "mark": "oh:mark", "nametag": "oh:nametag", "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote",
+                                                         "sticker": "oh:sticker"}
 
 
 def test_the_registry_licence_text_is_the_file_with_the_pinned_hash_and_travels_beside_the_notice():

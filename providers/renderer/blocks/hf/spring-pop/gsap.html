@@ -7,7 +7,8 @@
              background: var(--c-chip_fill); color: var(--c-text); box-shadow: 0 0.12em 0 rgba(0, 0, 0, 0.35); transform-origin: 50% 50%; }
     .dot { flex: 0 0 auto; width: 0.38em; height: 0.38em; border-radius: 50%; background: var(--mark); }
     .ic { flex: 0 0 auto; width: 0.9em; height: 0.9em; fill: var(--mark); stroke: var(--mark); stroke-linecap: round; stroke-linejoin: round; }
-    .label { font-family: var(--font-display); font-weight: var(--weight-display); line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; }
+    .label { font-family: var(--font-display); font-weight: var(--weight-display); line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; text-align: center; }
+    .ln { display: block; }
   </style>
   <div class="stage"><div class="badge"><span class="dot"></span>
     <svg class="ic" data-icon="check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke-width="3"/></svg>
@@ -18,26 +19,56 @@
     <svg class="ic" data-icon="flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2 4 2 4H5" fill="none" stroke-width="3"/></svg>
     <svg class="ic" data-icon="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke-width="3"/><path d="M12 7v5l3 2" fill="none" stroke-width="3"/></svg>
     <svg class="ic" data-icon="coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke-width="3"/><path d="M12 7v10M9.5 9.5c0-1.2 1.2-2 2.5-2s2.5.8 2.5 2-1.2 1.7-2.5 2-2.5.8-2.5 2 1.2 2 2.5 2 2.5-.8 2.5-2" fill="none" stroke-width="2"/></svg>
-    <span class="label"></span></div></div>
+    <span class="label"><span class="ln"></span></span></div></div>
   <script data-hf-build>
+    function fit(text, bandHeight) {
+      var FIT = 0.84, FS_MAX = 150, FS_MIN = 26, EM_CHAR = 0.62, EM_PAD = 1.2, EM_MARK = 1.2, WIDTH = 950, LINE_EM = 1.1, MARK_EM = 0.73;
+      var lines = [text];
+      if (text.length > 12) {
+        var best = -1;
+        for (var i = 1; i < text.length - 1; i++) {
+          if (text.charAt(i) === " " && (best < 0 || Math.abs(i - text.length / 2) < Math.abs(best - text.length / 2))) { best = i; }
+        }
+        if (best > 0) { lines = [text.slice(0, best), text.slice(best + 1)]; }
+      }
+      var longest = 0;
+      lines.forEach(function (l) { longest = Math.max(longest, l.length); });
+      var size = Math.min(FS_MAX, WIDTH / (EM_CHAR * longest + EM_PAD + EM_MARK));
+      while ((LINE_EM * lines.length + MARK_EM) * size > bandHeight * FIT && size > FS_MIN) { size = size * 0.94; }
+      return { size: size, lines: lines };
+    }
     function build(root, tl, data, ctx) {
-      var FIT = 0.84, FS_MAX = 96, FS_MIN = 26, EM_CHAR = 0.62, EM_PAD = 1.2, EM_MARK = 1.2, WIDTH = 880, HEIGHT_EM = 1.1 + 0.73, IN_BASE = 0.6, FROM_SCALE = 0.9, OVERSHOOT = 1.7;
+      var IN_BASE = 0.6, FROM_SCALE = 0.9, OVERSHOOT = 1.7;
       var P = data.params;
+      var stage = root.querySelector(".stage");
+      stage.style.position = "absolute";
+      stage.style.left = "0";
+      stage.style.top = "0";
+      stage.style.width = "100%";
+      stage.style.height = "100%";
+      stage.style.display = "flex";
+      stage.style.alignItems = "center";
+      stage.style.justifyContent = "center";
       var badge = root.querySelector(".badge");
       var dot = root.querySelector(".dot");
       var label = root.querySelector(".label");
+      var proto = root.querySelector(".ln");
       var color = P.color ? (P.color.charAt(0) === "#" ? P.color : "var(--c-" + P.color + ")") : "var(--c-accent)";
       badge.style.setProperty("--mark", color);
-      label.textContent = P.text;
+      var shape = fit(P.text, ctx.band.height);
+      shape.lines.forEach(function (text) {
+        var el = proto.cloneNode(true);
+        el.textContent = text;
+        label.appendChild(el);
+      });
+      proto.remove();
       var icons = root.querySelectorAll(".ic");
       var shown = false;
       icons.forEach(function (el) {
         if (P.icon && el.getAttribute("data-icon") === P.icon) { shown = true; } else { el.remove(); }
       });
       if (shown) { dot.remove(); }
-      var size = Math.min(FS_MAX, WIDTH / (EM_CHAR * P.text.length + EM_PAD + EM_MARK));
-      while (HEIGHT_EM * size > ctx.band.height * FIT && size > FS_MIN) { size = size * 0.94; }
-      badge.style.fontSize = size.toFixed(1) + "px";
+      badge.style.fontSize = shape.size.toFixed(1) + "px";
       var intro = Math.min(IN_BASE, ctx.duration);
       var out = Math.min(0.15, ctx.duration / 4);
       tl.fromTo(badge, { scale: FROM_SCALE }, { scale: 1, duration: intro, ease: "back.out(" + OVERSHOOT + ")" }, 0);
