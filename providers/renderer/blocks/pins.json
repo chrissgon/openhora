@@ -1,16 +1,16 @@
 {
  "files": {
-  "engines/ffmpeg.json": "324d13c23080bbf43a3d7f5ebd1c86c68719214402685625e2075739a8c2a3c2",
-  "engines/hyperframes.json": "b18746bc5942f555ce4d6a664069e85ebcdd89084a3f0db6da6f0accc2ae8b5e",
+  "engines/ffmpeg.json": "a83388f81c427d8f5f791e0dbbd3ab31f0284a40c44f89e14711786f5603468d",
+  "engines/hyperframes.json": "997554ec6f03cb4b1f800b209ced5647df8eaf5dd3d2033e957e1e6395619499",
   "hf/allowlist.json": "56acdd6ec44a46343c10108b58617ffeff9508f929d8956b08c974688180cddb",
   "hf/caption-highlight/block.json": "e28d935799256cb288903bcfd6215d0258ae80202271d313fbf18449e01e2429",
-  "hf/caption-highlight/gsap.html": "1615642f6b246134a7113e37b3c27ef05b1f589155d442ae743927abffc445c9",
+  "hf/caption-highlight/gsap.html": "fd9dfebd2fabc90823dab9a6f6966f2ec5f4122fc8d0bae99fcb40837cbc7337",
   "hf/caption-pill-karaoke/block.json": "5b2c091a08faa75d700547cc3468b1bcab3abf826d63e8b66af4ad9aa14cc55d",
   "hf/caption-pill-karaoke/gsap.html": "88462bd3d19722d4183476b52a515e7d8dee4965c22e31f9ae29a12499dc9b6b",
   "hf/count-up/block.json": "6c311de1d48a811c8bf30ad6ecb14a68c5987e254612e8c15d78ea7f3a7d963c",
   "hf/count-up/gsap.html": "31777c847368ba8d7bdfc53ee3980eb48e77e55ea777ad77cce37691bed71095",
   "hf/spring-pop/block.json": "c22e551043d6716c7ede865cfb4740d8a7ff56fc6a245e51612db986c157137c",
-  "hf/spring-pop/gsap.html": "7a09bb5053807a4b7483abf234fa2043a382765a207b21c937cb415290ca9452",
+  "hf/spring-pop/gsap.html": "c688880fd45bc3378e4a458f5424966605e36db9c7b238f09c2db8919dc90a41",
   "hf/testimonial-card/block.json": "83bd8e1f8733216c39ad77a40af8e84ff530b1fd30a7a3e709707c4d0d823b21",
   "hf/testimonial-card/gsap.html": "32092023693a13d655ead198bb4287ac3d919aa7b15a62174ec791aebaba676d",
   "oh/caption/block.json": "bb4a69ebaddc1900d459a2bda958bd35671d6bafb831bca0f357c4ca3ee1e32a",
@@ -21,12 +21,18 @@
   "oh/keyword/renderat.html": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4",
   "oh/list/block.json": "2447a050518f76d7ec3eed40a560d6cd3d0f448b4a11f8d4dc3482b3903dc1c4",
   "oh/list/renderat.html": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
+  "oh/mark/block.json": "e9a0bdb4550ae174b8709ed5e384d5cc459e39faaa0491b40d17adf2293767b7",
+  "oh/mark/renderat.html": "9d0a4d30e59e4a25ca072ae76b17e2613682c944c3005b2447c07807d3a213ce",
+  "oh/nametag/block.json": "95a735a81a2834d9d2a02332ba0d5f57512ecd25d2effaf91aca9c98fbc42838",
+  "oh/nametag/renderat.html": "ab021ed330961cc8dd1d05a70fd7e1c589a346d2203f1c1da2e1a0af8325b9ad",
   "oh/number/block.json": "65d29fb110c90ef3a5a82bdfe1f93e0993dacf73651860a014c4148a87739782",
   "oh/number/renderat.html": "7c8f593524d000e21bf23d1a90236b7dd396f849cced19e45d19740147a32e0f",
   "oh/pip/block.json": "5b169563140fd67b82599263acd7c5f00f01df86add299424407876091d6d0de",
   "oh/pip/renderat.html": "4163ba3f8d7f9ddb1fd89d5904bb406f33367c176b964b7d64c838e337244f34",
   "oh/quote/block.json": "1aeb4601de515fb552bd28829c71714821377cbfa978557eeb4fe509a4172de5",
-  "oh/quote/renderat.html": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa"
+  "oh/quote/renderat.html": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa",
+  "oh/sticker/block.json": "a5f41bb46f69b6c4a6122e2d954ba82f25542804b0ad546d3d3906f55c81cc74",
+  "oh/sticker/renderat.html": "513d24c88ba3069bd058b11c761af7ba128eee814ecbb058421b1e15fb2026da"
  },
  "note": "sha256 of every block file, every engines file and the hf: allowlist. A file whose hash differs is refused, and a render records the sha256 of this file as blocks_sha256. Rewritten by `ffmpeg.py pin-blocks --confirmed` after a reviewed change, together with catalogue.json."
 }

@@ -339,6 +339,106 @@
     "MIT"
    ],
    "may_cross_face": false,
+   "name": "oh:mark",
+   "namespace": "oh",
+   "natural_duration": 1.2,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "mark": {
+     "default": "underline",
+     "type": "choice",
+     "values": [
+      "underline",
+      "circle",
+      "arrow",
+      "none"
+     ]
+    },
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "mark",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "mark": "underline",
+     "text": "Name every dollar"
+    },
+    {
+     "color": "accent",
+     "mark": "circle",
+     "text": "The only rule"
+    },
+    {
+     "mark": "arrow",
+     "text": "Start here"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle or arrow"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:nametag",
+   "namespace": "oh",
+   "natural_duration": 2.5,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "name": {
+     "max": 32,
+     "required": true,
+     "type": "text"
+    },
+    "role": {
+     "max": 40,
+     "type": "text"
+    }
+   },
+   "preset": "nametag",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "name": "Aster Lane",
+     "role": "Founder, Quill & Moss"
+    },
+    {
+     "name": "Bram Hollow"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the speaker's name and role slide in once, as a lower third"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
    "name": "oh:number",
    "namespace": "oh",
    "natural_duration": 2.2,
@@ -460,9 +560,73 @@
    ],
    "source": "openhora",
    "use_when": "the speaker repeats a sentence someone said"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:sticker",
+   "namespace": "oh",
+   "natural_duration": 0.8,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "glyph": {
+     "required": true,
+     "type": "choice",
+     "values": [
+      "check",
+      "star",
+      "bolt",
+      "arrow-up",
+      "heart",
+      "flag",
+      "clock",
+      "coin",
+      "bulb",
+      "question",
+      "exclaim",
+      "eye"
+     ]
+    },
+    "side": {
+     "default": "right",
+     "type": "choice",
+     "values": [
+      "left",
+      "center",
+      "right"
+     ]
+    }
+   },
+   "preset": "sticker",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "glyph": "bulb",
+     "side": "right"
+    },
+    {
+     "color": "accent",
+     "glyph": "question",
+     "side": "left"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "6d45b316c8eed9b345d3d06b99d528d4c36320a30dd2ae056e3d49ca62a7e9d6",
+ "blocks_sha256": "9329d95e3c216874a92e9fd02f160fa233bf9af22542767a4797a4e5489669dd",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -470,9 +634,12 @@
     "cutaway": "oh:cutaway",
     "keyword": "oh:keyword",
     "list": "oh:list",
+    "mark": "oh:mark",
+    "nametag": "oh:nametag",
     "number": "oh:number",
     "pip": "oh:pip",
-    "quote": "oh:quote"
+    "quote": "oh:quote",
+    "sticker": "oh:sticker"
    },
    "runtimes": [
     "renderat"
@@ -483,8 +650,11 @@
     "caption": "hf:caption-highlight",
     "keyword": "hf:spring-pop",
     "list": "oh:list",
+    "mark": "oh:mark",
+    "nametag": "oh:nametag",
     "number": "hf:count-up",
-    "quote": "hf:testimonial-card"
+    "quote": "hf:testimonial-card",
+    "sticker": "oh:sticker"
    },
    "runtimes": [
     "gsap",
