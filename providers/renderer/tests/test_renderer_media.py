@@ -292,3 +292,15 @@ def test_a_command_past_its_time_limit_is_killed_with_its_group(tmp_path):
         time.sleep(0.05)
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def test_a_plan_with_effects_changes_only_the_graph_of_the_ranges_it_names():
+    """V9a-3: the punches and the grades of a range are in its own filter line and nowhere else; the rest of the command is the plain command's."""
+    plain = _media.compose_argv("ffmpeg", plain_plan())
+    effects = {1: {"first": 69, "frames": 105, "punches": [(10, 40, 1.2)], "grades": [{"kind": "flash", "a": 3, "b": 5, "alphas": [0.85, 0.6], "alpha": None, "color": None}]}}
+    drawn = _media.compose_argv("ffmpeg", dict(plain_plan(), effects=effects))
+    assert [a for k, a in enumerate(plain) if k != plain.index("-filter_complex") + 1] == [a for k, a in enumerate(drawn) if k != drawn.index("-filter_complex") + 1]
+    before, after = plain[plain.index("-filter_complex") + 1].split(";"), drawn[drawn.index("-filter_complex") + 1].split(";")
+    changed = [k for k, (a, b) in enumerate(zip(before, after)) if a != b]
+    assert len(before) == len(after) and len(changed) == 1 and "[v1]" in after[changed[0]]
+    assert "if(between(on,10,39),1.20000,1.10000)'" in after[changed[0]] and "drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0xFFFFFF@0.850:enable='eq(n,3)'" in after[changed[0]]

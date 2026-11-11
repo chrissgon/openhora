@@ -31,6 +31,11 @@ The person changes WORDS, never times. An edit is a closed object, `edits()` bel
 (the renderer's own checker, runtime/media_animation.py); `{"op": "animation", "id": "a2", "remove": true}` removes one. The step kind
 appends them to beats.json after alignment; the post file is never changed.
 
+`effect` adds a review effect (V9a-3) over a word range: `punch` (a step in the zoom), or a grade, `flash`, `dip`, `mono` or `tint`, which changes
+the colour of the picture for a few frames or seconds. Their times are the renderer's (frame-exact, in `_edl.resolve_timeline`); the person gives
+words only. `{"op": "effect", "id": "e2", "remove": true}` removes one; `{"op": "effect", "id": "p3", "remove": true}` drops the script's punch of
+beat 3 (kept in `dropped_punches`, so a later alignment does not bring it back). The step kind writes them into beats.json after alignment.
+
 Captions are written AS SPOKEN (a speaker's contractions and slang stay as said): nothing here normalises a spelling. The one change a text goes
 through is the renderer's own hardening (NFC, none of the characters of the categories Cc, Cf, Zl, Zp, Cs, Co, Cn, at most
 40 characters, no space inside a word).
@@ -75,12 +80,19 @@ OPS = {
     "cover": {"offset_ms"},
     "theme": {"choice"},
     "animation": {"id", "block", "params", "word_from", "word_to", "remove"},
+    "effect": {"id", "kind", "word_from", "word_to", "remove"},
 }
 WORD_OPS = ("edit", "delete", "merge", "split")
 SLOT_CHOICES = ("keyword", "none")
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
 ANIMATIONS_MAX = 12            # the animations one review may add
 BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
+EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")      # = providers/renderer/_edl.py EFFECT_KINDS (a test compares)
+GRADE_KINDS = ("flash", "dip", "mono", "tint")
+EFFECTS_MAX = 6                # the review effects one review may add (= _edl.py EFFECTS_MAX; the script's own punches are counted apart)
+FLASHES_MAX = 2                # flashes and dips together (= _edl.py FLASHES_MAX)
+EFFECT_ID = re.compile(r"e[1-6]")
+PUNCH_ID = re.compile(r"p([1-9][0-9]?)")      # the id of the script's punch of beat N
 ANIMATION_ID = re.compile(r"a([1-9]|1[0-2])")
 ANIMATION_BEAT_BASE = 1000     # an added animation's `beat` in beats.json is 1000 + its number: never a script beat's number
 BLOCK_NAME = re.compile(r"(oh|hf):[a-z][a-z0-9-]{0,39}")      # = providers/renderer/_blocks.py NAME (a test reads that file as text and compares)
@@ -110,7 +122,7 @@ def new_review() -> dict:
     """The review state of a recording nobody has reviewed yet."""
     return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "kept_retakes": [], "anchors": {}, "dropped_beats": [],
             "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
-            "theme": "identity", "animations": []}
+            "theme": "identity", "animations": [], "effects": [], "dropped_punches": []}
 
 
 def check_review(value) -> dict:
@@ -145,7 +157,26 @@ def check_review(value) -> dict:
     if out["theme"] not in THEME_CHOICES:
         raise CaptionError("review_unreadable", "theme")
     _check_animations(out["animations"])
+    _check_effects(out["effects"], out["dropped_punches"])
     return out
+
+
+def _check_effects(items, dropped) -> None:
+    """The stored effects and the script punches the person dropped, closed, or CaptionError("review_unreadable", "effects")."""
+    bad = CaptionError("review_unreadable", "effects")
+    if not isinstance(items, list) or len(items) > EFFECTS_MAX or not isinstance(dropped, list) or len(dropped) > BEATS_MAX:
+        raise bad
+    seen = set()
+    for item in items:
+        if not (isinstance(item, dict) and set(item) == {"id", "kind", "from", "to"}):
+            raise bad
+        if not (isinstance(item["id"], str) and EFFECT_ID.fullmatch(item["id"])) or item["id"] in seen or item["kind"] not in EFFECT_KINDS:
+            raise bad
+        seen.add(item["id"])
+        if not (_is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]):
+            raise bad
+    if not all(_is_int(beat) and 0 < beat <= BEATS_MAX for beat in dropped) or len(set(dropped)) != len(dropped):
+        raise bad
 
 
 def _check_animations(items) -> None:
@@ -286,7 +317,7 @@ def _index(value, n: int, where: str, field: str = "index") -> int:
     return value
 
 
-def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None) -> tuple:
+def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None, punches=None) -> tuple:
     """(edited transcript, review, counts) after `edits`, or a CaptionError with nothing changed (both inputs are copied).
 
     edited      the current transcript.edited.json
@@ -300,6 +331,8 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
     animate     the check of an added animation: `animate(block, params, where)` returns {"block", "preset", "params"} (the
                 parameters as the renderer's checker accepted them) or raises a CaptionError; None refuses every `animation`
                 edit (`animation_unavailable`)
+    punches     the beat numbers the script asked a punch for (an `effect` edit that drops `p<beat>` names one of these); None accepts any beat
+                number from 1 to BEATS_MAX (the step ignores a drop that names no punch)
     counts      {"edited", "split", "merged", "deleted"}: how many words each kind of edit touched; never a text."""
     limits = dict({"word_chars_max": WORD_CHARS_MAX, "words_max": WORDS_MAX}, **(limits or {}))
     review = check_review(review)
@@ -320,7 +353,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
             decisions.append((op, edit, where))
     out_review = copy.deepcopy(review)
     for op, edit, where in decisions:
-        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate)
+        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches)
     out, counts = _rebuild(edited, actions, limits)
     out_review["revision"] += 1
     out["facts"] = dict(out.get("facts") or {}, edited=True, revision=out_review["revision"])
@@ -362,7 +395,7 @@ def _plan_word_edit(op: str, edit: dict, where: str, n: int, words: list, chars:
         actions[i] = ("split", [harden_word(p, f"{where}.parts", chars) for p in parts], None)
 
 
-def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None) -> None:
+def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None, punches=None) -> None:
     if op == "retake":
         rid = edit.get("id")
         if not isinstance(rid, str) or rid not in proposals or type(edit.get("confirmed")) is not bool:
@@ -425,6 +458,48 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         review["theme"] = edit["choice"]
     elif op == "animation":
         _decide_animation(edit, where, words, review, beats, animate)
+    elif op == "effect":
+        _decide_effect(edit, where, words, review, punches)
+
+
+def _decide_effect(edit: dict, where: str, words: list, review: dict, punches) -> None:
+    if "id" in edit or "remove" in edit:
+        if set(edit) != {"op", "id", "remove"} or edit["remove"] is not True or not isinstance(edit["id"], str):
+            raise CaptionError("bad_edit", where)
+        rid = edit["id"]
+        script = PUNCH_ID.fullmatch(rid)
+        if script:      # the script's punch of that beat: dropped, and kept dropped
+            beat = int(script.group(1))
+            if beat > BEATS_MAX or (punches is not None and beat not in punches):
+                raise CaptionError("unknown_effect", f"{where}.id")
+            review["dropped_punches"] = sorted(set(review["dropped_punches"]) | {beat})
+            return
+        if not any(e["id"] == rid for e in review["effects"]):
+            raise CaptionError("unknown_effect", f"{where}.id")
+        review["effects"] = [e for e in review["effects"] if e["id"] != rid]
+        return
+    if set(edit) != {"op", "kind", "word_from", "word_to"}:
+        raise CaptionError("bad_edit", where)
+    if edit["kind"] not in EFFECT_KINDS:
+        raise CaptionError("unknown_effect", f"{where}.kind")
+    n = len(words)
+    first, last = edit["word_from"], edit["word_to"]
+    if not (_is_int(first) and _is_int(last) and 0 <= first <= last < n):
+        raise CaptionError("effect_words", where)
+    stored = review["effects"]
+    if len(stored) >= EFFECTS_MAX:
+        raise CaptionError("too_many_effects", where)
+    o_from, o_to = origin_span(words, first, last)
+    if edit["kind"] in GRADE_KINDS:
+        grades = [e for e in stored if e["kind"] in GRADE_KINDS]
+        if any(o_from <= g["to"] and g["from"] <= o_to for g in grades):
+            raise CaptionError("effect_overlap", where)
+        if edit["kind"] in ("flash", "dip") and sum(1 for g in grades if g["kind"] in ("flash", "dip")) >= FLASHES_MAX:
+            raise CaptionError("too_many_flashes", where)
+    used = {e["id"] for e in stored}
+    number = next(k for k in range(1, EFFECTS_MAX + 1) if f"e{k}" not in used)
+    stored.append({"id": f"e{number}", "kind": edit["kind"], "from": o_from, "to": o_to})
+    stored.sort(key=lambda e: (e["from"], int(e["id"][1:])))
 
 
 def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, animate) -> None:
@@ -627,6 +702,16 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
             and b["word_from"] <= now[1] and b["word_to"] >= now[0] for b in beats)
         animations.append({"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
                            "word_from": now and now[0], "word_to": now and now[1], "lost": now is None, "overlaps_beat": meets})
+    effects = []
+    for item in review["effects"]:
+        now = span_current(words, item["from"], item["to"])
+        effects.append({"id": item["id"], "kind": item["kind"], "word_from": now and now[0], "word_to": now and now[1], "lost": now is None})
+    dropped_punches = set(review["dropped_punches"])
+    punches = []
+    for item in proposal_beats.get("punches") or []:      # the script's punches (beats.json `punches` of the proposal), in the edited numbering
+        now = span_current(words, item["word_from"], item["word_to"])
+        punches.append({"id": f"p{item['beat']}", "beat": item["beat"], "word_from": now and now[0], "word_to": now and now[1],
+                        "dropped": item["beat"] in dropped_punches})
     slot_rows = [{"slot": s["slot"], "beat": s["beat"], "param": s["param"], "type": s["type"], "description": s["description"],
                   "file": assets.get(s["slot"]), "choice": review["empty_slots"].get(s["slot"])}
                  for s in proposal_beats.get("slots") or []]
@@ -635,11 +720,12 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
             "beats": beats, "slots": slot_rows, "unplaced": unplaced_rows, "threshold": threshold, "face_box": review["face_box"],
             "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"], "animations": animations,
+            "effects": effects, "punches": punches,
             "counts": {"words": len(words), "edited": sum(1 for w in shown if w["edited"]), "estimated": sum(1 for w in shown if w["estimated"]),
                        "timing_adjusted": sum(1 for w in shown if w["timing_adjusted"]), "unplaced": len(unplaced_rows),
                        "retakes": len(retakes), "confirmed": len(confirmed), "beats": len(beats),
                        "below_threshold": sum(1 for b in beats if b["below_threshold"]),
-                       "animations": len(review["animations"])}}
+                       "animations": len(review["animations"]), "effects": len(review["effects"])}}
 
 
 # --- what the later steps are given -------------------------------------------------------------------------------------------
@@ -727,4 +813,21 @@ def animations_current(review: dict, edited: dict, live: set) -> tuple:
         else:
             lost.append(item["id"])
     out.sort(key=lambda a: (a["word_from"], int(a["id"][1:])))
+    return out, lost
+
+
+def effects_current(review: dict, edited: dict, live: set) -> tuple:
+    """([{"id", "kind", "word_from", "word_to"}] in the edited numbering, lost ids): each review effect moved to the edited words that stand for its
+    origin range and shrunk to the words that are live in the final edit list, as an animation is (`animations_current`); one left with no live word is
+    lost. Sorted by word_from, then by number. These are the rows of beats.json `effects`."""
+    words = edited["words"]
+    out, lost = [], []
+    for item in review["effects"]:
+        now = span_current(words, item["from"], item["to"])
+        inside = [i for i in range(now[0], now[1] + 1) if i in live] if now else []
+        if inside:
+            out.append({"id": item["id"], "kind": item["kind"], "word_from": inside[0], "word_to": inside[-1]})
+        else:
+            lost.append(item["id"])
+    out.sort(key=lambda e: (e["word_from"], int(e["id"][1:])))
     return out, lost

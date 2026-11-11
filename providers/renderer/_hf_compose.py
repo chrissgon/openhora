@@ -288,7 +288,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     fonts = map_fonts(edl)
     pairs = theme_pairs(edl, fonts)
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
-    parts = _hf_page.build_parts(edl, fps=fps)
+    parts = _hf_page.build_parts(edl, fps=fps, effects=_edl.range_effects(edl, _edl.resolve_timeline(edl, beats, vocab, data)))
 
     css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']

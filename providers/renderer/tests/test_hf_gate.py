@@ -416,6 +416,33 @@ def test_the_pixel_check_runs_the_runner_once_per_range_and_reads_one_stats_file
     assert calls == [0, 1, 2]                                    # in order, one after another: the memory of a check is that of one range, whatever their number
 
 
+def test_the_pixel_check_gives_the_reference_the_punches_and_the_grades_of_the_timeline_and_crops_the_union_of_the_faces(tmp_path):
+    edl = small_edl(kept=((0, 20), (30, 60), (90, 100)))
+    faces = ranges_of(edl)
+    anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
+    punched = _media.zoomed_box(edl["face_box"], 1.2, 1.2, anchor, 1080, 1920)
+    timeline = {"captions": [], "beats": [],
+                "punches": [{"id": "p1", "start_frame": 25, "end_frame": 40, "range": 1, "zoom": 1.2, "face": punched}],
+                "grades": [{"id": "e1", "kind": "flash", "start_frame": 3, "end_frame": 5, "range": 0, "alphas": [0.8, 0.4]}]}
+    seen = {}
+
+    def fake_run(argv, timeout, cwd=None):
+        graph = argv[argv.index("-filter_complex") + 1]
+        k = int(graph.split("stats_file=psnr-")[1].split(".log")[0])
+        seen[k] = (graph, [w for w in argv if w.startswith("crop") or "crop=" in w])
+        n = edl["kept"][k][1] - edl["kept"][k][0]
+        (Path(cwd) / ("psnr-%d.log" % k)).write_text("".join("n:%d mse_avg:1 psnr_avg:40 psnr_y:1\n" % (i + 1) for i in range(n)))
+        return "", ""
+
+    assert G.pixel_check("ffmpeg", "a", "b", edl, DATA, faces, str(tmp_path), run=fake_run, timeline=timeline)["pixel_ranges"] == 3
+    assert "color=0xFFFFFF@0.800:enable='eq(n,3)'" in seen[0][0] and "between(on" not in seen[0][0]
+    assert "1/(if(between(on,5,19),1.20000," in seen[1][0]            # in the range's own frame index: output frames 25 to 39 of a range that starts at 20
+    plain = G.punched_faces(faces, {"punches": []})
+    wide = G.punched_faces(faces, timeline)
+    assert plain is faces and wide[1][2]["h"] >= faces[1][2]["h"] and wide[1][2]["w"] >= faces[1][2]["w"] and wide[0][2] == faces[0][2] and wide[2][2] == faces[2][2]
+    assert wide[1][2] == _edl.union([faces[1][2], punched])
+
+
 def test_a_range_made_alone_keeps_the_zoom_level_of_its_number_in_the_list():
     zoom = {"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25}
     edl = small_edl(kept=((0, 20), (30, 60), (90, 100)), zoom=zoom)

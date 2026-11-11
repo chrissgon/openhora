@@ -409,6 +409,9 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     placed, gone = captions.animations_current(review, edited, live)
     if gone:
         raise steps.StepFailure("animation_lost", gone[0], "", "open the caption review again and place the animation again, or remove it")
+    effects, vanished = captions.effects_current(review, edited, live)
+    if vanished:
+        raise steps.StepFailure("effect_lost", vanished[0], "", "open the caption review again and place the effect again, or remove it")
     args = _beat_args(ctx, _asked(store.path, rid, EDITED), _asked(store.path, rid, BEATS, False)) + ["--edl", _asked(store.path, rid, EDL)]
     for slot in proposal.get("slots") or []:      # no asset slots in this package: an empty slot is the person's choice, else none
         args += ["--empty-slot", f"{slot['slot']}={review['empty_slots'].get(slot['slot'], 'none')}"]
@@ -425,11 +428,21 @@ def _align(ctx: steps.Context, state: dict) -> dict:
         for a in placed:
             added.append({"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
                           "block": a["block"], "word_from": a["word_from"], "word_to": a["word_to"], "score": 1.0})
-    if dropped or placed:
+    skipped = set(review["dropped_punches"])      # the script's punches the person dropped stay dropped, whatever the alignment finds
+    kept_punches = [p for p in beats.get("punches") or [] if p.get("beat") not in skipped]
+    changed = len(kept_punches) != len(beats.get("punches") or [])
+    if changed:
+        if kept_punches:
+            beats["punches"] = kept_punches
+        else:
+            beats.pop("punches", None)
+    if effects:
+        beats["effects"] = effects
+    if dropped or placed or changed or effects:
         _asked(store.write, rid, BEATS, _dump(beats))
     return {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
             "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
-            "animations": len(placed)}
+            "animations": len(placed), "punches": len(beats.get("punches") or []), "effects": len(effects)}
 
 
 def _check(ctx: steps.Context, state: dict) -> dict:

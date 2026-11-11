@@ -330,3 +330,12 @@ def test_a_lost_confirmation_of_the_person_still_stops_with_retake_lost(world):
     out = run_task(world, task)
     assert out["ok"] is False and out["failed"] == "base" and out["code"] == "retake_lost"
     assert json.loads(work_file(world, "review.json").read_text())["confirmed_retakes"] == []
+
+
+def test_the_align_result_counts_the_punches_and_the_effects(world):
+    task = to_review(world)
+    [item] = open_items(world, task)
+    ops.answer(world["path"], item["id"], "continue")
+    run_task(world, task)
+    got = result_of(world, task, "align")
+    assert got["punches"] == 0 and got["effects"] == 0

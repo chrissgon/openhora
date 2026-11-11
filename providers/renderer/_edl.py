@@ -34,7 +34,19 @@ PROPOSAL_KEYS = PROPOSAL_REQUIRED | {"default", "reason"}      # `default` and `
 RETAKE_MODES = ("auto", "propose")
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
-BEATS_KEYS = BEATS_REQUIRED | {"script"}          # `script` is optional: a beats file without it stays valid, schema_version 1
+BEATS_KEYS = BEATS_REQUIRED | {"script", "punches", "effects"}      # `script`, `punches` and `effects` are optional: a beats file without them stays valid, schema_version 1
+PUNCH_KEYS = {"beat", "word_from", "word_to", "score"}               # a script punch: the beat's number and the words it was aligned to
+EFFECT_KEYS = {"id", "kind", "word_from", "word_to"}                 # a review effect (V9a-3)
+EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")
+GRADE_KINDS = ("flash", "dip", "mono", "tint")                       # the effects that change the colour of the base picture
+OVERLAY_GRADES = ("flash", "dip", "tint")                            # the grades drawn as one colour laid over the picture (the page's `#fx`); mono is a filter
+EFFECT_ID = re.compile(r"e[1-6]")
+EFFECTS_MAX = 6                 # review effects in one beats.json (the script's punches are counted apart: the skill's checker spaces them)
+FLASH_FRAMES_MAX = 4            # the hard bounds of a grade (D9, principle 13): a configuration file never widens them
+DIP_FRAMES_MAX = 6
+FLASHES_MAX = 2                 # flashes and dips together in one video
+GRADE_SECONDS_MAX = 4.0         # mono and tint
+PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is not drawn
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
@@ -107,10 +119,12 @@ def range_faces(edl: dict, data: dict) -> list:
     return rows
 
 
-def span_face(edl: dict, data: dict, start_frame: int, end_frame: int) -> dict:
+def span_face(edl: dict, data: dict, start_frame: int, end_frame: int, punches=()) -> dict:
     """The face box over a span of output frames: the union of its boxes in the kept ranges the span touches, so that a card or a
-    caption that lives through a zoom change stays clear of the face in every range."""
+    caption that lives through a zoom change stays clear of the face in every range. `punches` (the rows `resolve_effects` made, each with
+    its `face`) that the span touches add the face as the punch draws it."""
     boxes = [box for a, b, box in range_faces(edl, data) if a < end_frame and start_frame < b]
+    boxes += [p["face"] for p in punches if p["start_frame"] < end_frame and start_frame < p["end_frame"]]
     return union(boxes or [edl["face_box"]])
 
 
@@ -512,8 +526,59 @@ def check_beats(beats, edl, vocab: dict) -> dict:
             check_role_emphasis(item, vocab, "beats.report[%d]" % k)
     if "script" in beats:
         texts.extend(check_script_object(beats["script"], vocab))
+    check_punches(beats.get("punches", []), index_set, vocab)
+    check_effects(beats.get("effects", []), index_set)
     scan_texts(texts)
     return {"texts": texts, "mentions": mentions_of(texts)}
+
+
+def _word_span(e: dict, index_set: set, field: str) -> None:
+    if not _int(e["word_from"]) or not _int(e["word_to"]) or e["word_from"] > e["word_to"] \
+            or e["word_from"] not in index_set or e["word_to"] not in index_set:
+        raise Refusal("bad_word_range", field)
+
+
+def check_punches(punches, index_set: set, vocab: dict) -> None:
+    """The script's punches in beats.json: closed rows of a beat number, a word range of the edit list and a score, one per beat."""
+    if not isinstance(punches, list):
+        raise Refusal("not_list", "beats.punches")
+    if len(punches) > vocab["limits"]["beats_max"]:
+        raise Refusal("too_many_punches", "beats.punches")
+    seen = set()
+    for k, p in enumerate(punches):
+        field = "beats.punches[%d]" % k
+        closed(p, PUNCH_KEYS, field)
+        if not _int(p["beat"]) or p["beat"] < 1 or p["beat"] in seen:
+            raise Refusal("bad_beat", field)
+        seen.add(p["beat"])
+        _word_span(p, index_set, field)
+        if not _num(p["score"]) or not 0 <= p["score"] <= 1:
+            raise Refusal("bad_score", field)
+
+
+def check_effects(effects, index_set: set) -> None:
+    """The review effects in beats.json: at most EFFECTS_MAX, each a closed row of an id (`e1` to `e6`, once), a kind and a word range;
+    two grades never share a word (`effect_overlap`), and at most FLASHES_MAX flashes and dips together (`too_many_flashes`)."""
+    if not isinstance(effects, list):
+        raise Refusal("not_list", "beats.effects")
+    if len(effects) > EFFECTS_MAX:
+        raise Refusal("too_many_effects", "beats.effects")
+    seen, grades = set(), []
+    for k, e in enumerate(effects):
+        field = "beats.effects[%d]" % k
+        closed(e, EFFECT_KEYS, field)
+        if not isinstance(e["id"], str) or not EFFECT_ID.fullmatch(e["id"]) or e["id"] in seen:
+            raise Refusal("bad_id", field)
+        seen.add(e["id"])
+        if e["kind"] not in EFFECT_KINDS:
+            raise Refusal("bad_effect", field)
+        _word_span(e, index_set, field)
+        if e["kind"] in GRADE_KINDS:
+            if any(e["word_from"] <= g["word_to"] and g["word_from"] <= e["word_to"] for g in grades):
+                raise Refusal("effect_overlap", field)
+            grades.append(e)
+    if sum(1 for g in grades if g["kind"] in ("flash", "dip")) > FLASHES_MAX:
+        raise Refusal("too_many_flashes", "beats.effects")
 
 
 # ---------------------------------------------------------------- the timeline
@@ -531,8 +596,138 @@ def match_text_word(words: list, w_from: int, w_to: int, text: str):
     return None
 
 
+def range_table(edl: dict) -> list:
+    """[(first output frame, last output frame + 1)] of each kept range."""
+    table, pos = [], 0
+    for a, b in edl["kept"]:
+        table.append((pos, pos + b - a))
+        pos += b - a
+    return table
+
+
+def _range_of(table: list, frame: int) -> int:
+    for k, (first, last) in enumerate(table):
+        if first <= frame < last:
+            return k
+    return len(table) - 1
+
+
+def _frame_at(seconds: float, fps: int, n: int) -> int:
+    """The frame a time falls on: whole frames, inside the video."""
+    return min(max(0, int(round(seconds * fps))), n - 1)
+
+
+def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
+    """(rows, dropped): the script's punches and the review's punch effects as frame spans of the OUTPUT timeline, each inside one kept range.
+
+    A punch spans its words, stretched to `punch.min_seconds` and cut at `punch.max_seconds` and at its range's end. Two punches in one range never
+    overlap: the later one starts where the earlier one ends. One left under PUNCH_SHORT_SECONDS is dropped (`punch_short`). Its zoom is the range's
+    own level at the punch's first frame times `punch.factor`, held for the span and capped at `zoom.factor_max`; one that would not zoom in past
+    the range's own level is dropped (`punch_capped`). A row: {id, start_frame, end_frame, range, zoom, face}, `face` the face box as the punch draws it."""
+    fps, n = edl["fps"], edl["out_frames"]
+    cfg, zoom_cfg = data["punch"], data["zoom"]
+    by_index = {w["index"]: w for w in edl["words"]}
+    table = range_table(edl)
+    items = [("p%d" % p["beat"], p["word_from"], p["word_to"]) for p in beats.get("punches") or []]
+    items += [(e["id"], e["word_from"], e["word_to"]) for e in beats.get("effects") or [] if e["kind"] == "punch"]
+    spans = []
+    for pid, w_from, w_to in items:
+        sf = _frame_at(by_index[w_from]["start"], fps, n)
+        k = _range_of(table, sf)
+        ef = max(int(round(by_index[w_to]["end"] * fps)), sf + int(round(cfg["min_seconds"] * fps)))
+        ef = min(ef, sf + int(round(cfg["max_seconds"] * fps)), table[k][1])
+        spans.append({"id": pid, "start_frame": sf, "end_frame": ef, "range": k})
+    spans.sort(key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
+    rows, dropped, floor = [], [], {}
+    anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
+    w, h = data["frame"]["width"], data["frame"]["height"]
+    for r in spans:
+        k = r["range"]
+        first, last = table[k]
+        r["start_frame"] = max(r["start_frame"], floor.get(k, first))
+        if (r["end_frame"] - r["start_frame"]) / float(fps) < PUNCH_SHORT_SECONDS - 1e-9:
+            dropped.append({"id": r["id"], "reason": "punch_short"})
+            continue
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, last - first, fps)
+        base = z0 + (z1 - z0) * (r["start_frame"] - first) / float(max(1, last - first - 1))
+        zp = round(min(zoom_cfg["factor_max"], base * cfg["factor"]), 5)
+        if zp <= base + 1e-9:
+            dropped.append({"id": r["id"], "reason": "punch_capped"})
+            continue
+        floor[k] = r["end_frame"]
+        rows.append(dict(r, zoom=zp, face=_media.zoomed_box(edl["face_box"], zp, zp, anchor, w, h)))
+    return rows, dropped
+
+
+def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
+    """(rows, dropped): the review's flash, dip, mono and tint effects as frame spans of the OUTPUT timeline, each inside one kept range.
+
+    A flash or a dip starts at the first frame of its first word and lasts one frame per alpha of `effects.flash_alphas` / `dip_alphas` (at most
+    FLASH_FRAMES_MAX and DIP_FRAMES_MAX), cut at its range's end. Mono and tint span their words, clipped to `grade_min_seconds` to `grade_max_seconds`
+    (never past GRADE_SECONDS_MAX) and cut at the range's end. A flash, dip or tint that starts inside the one before it is dropped (`grade_overlap`):
+    they share one colour layer. A row: {id, kind, start_frame, end_frame, range, alphas (flash, dip) or alpha (tint), color (tint)}."""
+    fps, n = edl["fps"], edl["out_frames"]
+    cfg = data["effects"]
+    by_index = {w["index"]: w for w in edl["words"]}
+    table = range_table(edl)
+    rows, dropped = [], []
+    for e in beats.get("effects") or []:
+        kind = e["kind"]
+        if kind not in GRADE_KINDS:
+            continue
+        sf = _frame_at(by_index[e["word_from"]]["start"], fps, n)
+        k = _range_of(table, sf)
+        row = {"id": e["id"], "kind": kind, "start_frame": sf, "range": k}
+        if kind in ("flash", "dip"):
+            alphas = list(cfg[kind + "_alphas"])[:FLASH_FRAMES_MAX if kind == "flash" else DIP_FRAMES_MAX]
+            row["end_frame"] = min(sf + len(alphas), table[k][1])
+            row["alphas"] = alphas[:row["end_frame"] - sf]
+        else:
+            low = int(round(cfg["grade_min_seconds"] * fps))
+            high = int(round(min(cfg["grade_max_seconds"], GRADE_SECONDS_MAX) * fps))
+            length = min(max(int(round(by_index[e["word_to"]]["end"] * fps)) - sf, low), high)
+            row["end_frame"] = min(sf + length, table[k][1])
+            if kind == "tint":
+                row["alpha"] = cfg["tint_alpha"]
+                row["color"] = edl["theme"]["colors"]["accent"]
+        if row["end_frame"] <= row["start_frame"]:
+            dropped.append({"id": e["id"], "reason": "grade_short"})
+            continue
+        rows.append(row)
+    rows.sort(key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
+    kept, until = [], 0
+    for r in rows:
+        if r["kind"] in OVERLAY_GRADES:
+            if r["start_frame"] < until:
+                dropped.append({"id": r["id"], "reason": "grade_overlap"})
+                continue
+            until = r["end_frame"]
+        kept.append(r)
+    return kept, dropped
+
+
+def range_effects(edl: dict, timeline: dict) -> dict:
+    """{k: {first, frames, punches: [(a, b, zoom)], grades: [{kind, a, b, alphas, alpha, color}]}} for each kept range number k that a punch or a grade
+    touches, in the RANGE's own frame index (a to b, b excluded). The ffmpeg engine's graph, the HyperFrames page and the face check's reference
+    all draw from this one table, so the three hold the same rows. {} when the timeline has no punch and no grade."""
+    table, out = range_table(edl), {}
+
+    def slot(k):
+        first, last = table[k]
+        return out.setdefault(k, {"first": first, "frames": last - first, "punches": [], "grades": []})
+
+    for p in timeline.get("punches") or []:
+        first = table[p["range"]][0]
+        slot(p["range"])["punches"].append((p["start_frame"] - first, p["end_frame"] - first, p["zoom"]))
+    for g in timeline.get("grades") or []:
+        first = table[g["range"]][0]
+        slot(g["range"])["grades"].append({"kind": g["kind"], "a": g["start_frame"] - first, "b": g["end_frame"] - first, "alphas": g.get("alphas"),
+                                           "alpha": g.get("alpha"), "color": g.get("color")})
+    return out
+
+
 def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
-    """Frame ranges on the output timeline: {captions, beats, report}.
+    """Frame ranges on the output timeline: {captions, beats, dropped, punches, grades, effects_dropped}.
 
     A beat starts at its first word and ends `tail` after its last, within the preset's minimum and maximum duration
     and the video's end (a keyword starts at the word that matches its text, when one does). A beat whose words are
@@ -563,8 +758,10 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
             cur["clipped"] = True
     dropped = [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
     entries = [e for e in entries if e["id"] not in dropped]
+    punches, punches_dropped = resolve_punches(edl, beats, data)
+    grades, grades_dropped = resolve_grades(edl, beats, data)
     for e in entries:
-        e["face"] = span_face(edl, data, e["start_frame"], e["end_frame"])
+        e["face"] = span_face(edl, data, e["start_frame"], e["end_frame"], punches)
     cap = data["caption"]
     times = []
     for k, (a, b) in enumerate(edl["captions"]["chunks"]):
@@ -580,5 +777,6 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         ef = min(max(sf + 1, int(round(e * fps))), n)
         if ef <= sf:
             continue
-        captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef)})
-    return {"captions": captions, "beats": entries, "dropped": dropped}
+        captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
+    return {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades,
+            "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}

@@ -676,3 +676,17 @@ def test_an_older_list_without_phantom_words_still_passes_the_check():
     _edl.check_edl(edl, DATA, VOCAB, {})
     edl["normalisation"]["phantom_words"] = [{"from": 3, "to": 2, "count": 1}]
     assert refused(_edl.check_edl, edl, DATA, VOCAB, {}).code == "bad_normalisation"
+
+
+def test_the_timeline_has_the_effect_keys_empty_when_the_beats_have_none_and_the_beats_are_the_same_either_way():
+    edl = small_edl()
+    beat = entry("b1", "keyword", {"text": "Name every dollar"}, 5, 12)
+    plain = _edl.resolve_timeline(edl, beats_of(beat), VOCAB, DATA)
+    assert plain["punches"] == [] and plain["grades"] == [] and plain["effects_dropped"] == []
+    asked = beats_of(beat)
+    asked["punches"] = [{"beat": 2, "word_from": 5, "word_to": 6, "score": 1.0}]
+    asked["effects"] = [{"id": "e1", "kind": "tint", "word_from": 9, "word_to": 10}]
+    drawn = _edl.resolve_timeline(edl, asked, VOCAB, DATA)
+    assert [p["id"] for p in drawn["punches"]] == ["p2"] and [g["id"] for g in drawn["grades"]] == ["e1"]
+    assert [(e["start_frame"], e["end_frame"]) for e in drawn["beats"]] == [(e["start_frame"], e["end_frame"]) for e in plain["beats"]]      # an effect moves no beat
+    assert [(c["start_frame"], c["end_frame"]) for c in drawn["captions"]] == [(c["start_frame"], c["end_frame"]) for c in plain["captions"]]

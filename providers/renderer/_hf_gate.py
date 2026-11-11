@@ -98,6 +98,9 @@ def faces_by_frame(timeline: dict, range_faces: list, out_frames: int) -> dict:
     for first, last, box in range_faces:
         base.extend([box] * max(0, last - first))
     base.extend([range_faces[-1][2]] * max(0, out_frames - len(base)))
+    for p in timeline.get("punches") or []:                                       # a punched frame is drawn at the punch's zoom: its face is the punched box
+        for f in range(max(0, p["start_frame"]), min(out_frames, p["end_frame"])):
+            base[f] = p["face"]
     out = {}
     for zone, entries in (("caption", timeline["captions"]), ("card", timeline["beats"])):
         faces = list(base[:out_frames])
@@ -160,20 +163,38 @@ def crop_box(box: dict, width: int, height: int) -> tuple:
     return w, h, x0, y0
 
 
-def reference_plan(edl: dict, data: dict) -> dict:
-    """The plan `_media.base_graph` reads for the reference: the edit list's cuts and zoom, no audio, no recording framing."""
+def reference_plan(edl: dict, data: dict, effects=None) -> dict:
+    """The plan `_media.base_graph` reads for the reference: the edit list's cuts and zoom, no audio, no recording framing. `effects` (the table of
+    `_edl.range_effects`) puts the punches and the grades in the reference too (D9, STOP C: the reference holds the same colour effect the page draws,
+    bounded in code, so the check still catches anything drawn on the face that is not the grade)."""
     frame = data["frame"]
-    return {"fps": edl["fps"], "size": [frame["width"], frame["height"]], "kept": edl["kept"], "zoom": edl["zoom"], "fade": 0.0, "has_audio": False,
+    plan = {"fps": edl["fps"], "size": [frame["width"], frame["height"]], "kept": edl["kept"], "zoom": edl["zoom"], "fade": 0.0, "has_audio": False,
             "anchor": _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])}
+    if effects:
+        plan["effects"] = effects
+    return plan
 
 
-def reference_graph(edl: dict, data: dict, source: str, only: int = None) -> list:
+def punched_faces(range_faces: list, timeline) -> list:
+    """`range_faces` with each range's box widened to the union of the boxes of the punches in it: the face region the pixel check crops for a range
+    covers the face at every zoom the range is drawn at."""
+    punches = (timeline or {}).get("punches") or []
+    if not punches:
+        return range_faces
+    out = []
+    for k, (first, last, box) in enumerate(range_faces):
+        boxes = [p["face"] for p in punches if p["range"] == k]
+        out.append((first, last, _edl.union([box] + boxes) if boxes else box))
+    return out
+
+
+def reference_graph(edl: dict, data: dict, source: str, only: int = None, effects=None) -> list:
     """The filters that make the undrawn base from the proxy at label `source`, ending at `[cv]`: the kept ranges cut and zoomed by the one base graph,
     each zoom sampled bilinearly at exact positions (`_media.zoom_filter_linear`), as a browser scales a video layer. Earlier references and what they
     measured against a bilinear stand-in (testsrc2 detail, a 2 percent push-in, the face region, executor, host ffmpeg): `zoompan` on the proxy at a base of
     one 26 dB at the worst, `zoompan` at twice the size 29.8 at the worst and 33.2 at the median, which is also what the first live render gave (29.0 and
     33.4). An unzoomed range is the proxy as it is."""
-    plan, first = reference_plan(edl, data), 0
+    plan, first = reference_plan(edl, data, effects), 0
     if only is not None:                                   # one kept range, as a stream that starts at its own first frame (the proxy is seeked there)
         a0, b0 = plan["kept"][only]
         plan, first = dict(plan, kept=[[0, b0 - a0]]), only
@@ -181,7 +202,7 @@ def reference_graph(edl: dict, data: dict, source: str, only: int = None) -> lis
                              first_index=first)
 
 
-def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list) -> list:
+def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, effects=None) -> list:
     """The whole-list command of the pixel check: the reference that `pixel_argv_range` is proven equal to, frame for frame (V3b-4 measured it at 10.1 GiB on 36
     ranges of a 129 s edit list, from the split of both streams into one branch per range), and no longer what `pixel_check` runs. Inputs: the intermediate (0) and the proxy (1). The proxy is cut into the kept ranges and
     zoomed by `_media.base_graph` (the reference, on the output timeline); the intermediate is converted to the same format; each stream is
@@ -193,7 +214,7 @@ def pixel_argv(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict
     fps, out_frames, frame = edl["fps"], edl["out_frames"], data["frame"]
     width, height = frame["width"], frame["height"]
     n = len(range_faces)
-    g = reference_graph(edl, data, "[1:v:0]")
+    g = reference_graph(edl, data, "[1:v:0]", effects=effects)
     g.append("[0:v:0]scale=flags=%s,format=yuv420p,setsar=1[hv]" % _media.SWS)
     if n == 1:
         ref, hf = ["[cv]"], ["[hv]"]
@@ -234,17 +255,17 @@ def read_stats(path: str, expect_frames: int) -> list:
     return values
 
 
-def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, k: int) -> list:
+def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, k: int, effects=None) -> list:
     """The ffmpeg command of the pixel check for kept range `k` alone: the same comparison as one range of `pixel_argv`, on the frames of that range only.
     Each input is seeked to the range's start (the intermediate to its first output frame, the proxy to the range's first source frame; both streams
     are all-intra or decoded from the keyframe before, so the frames are the ones a full pass decodes) and read for the range's length only; the
     reference is the one base graph on that stretch of the proxy, with the zoom of range number k; the same crop and `psnr`, the same stats file
-    `psnr-<k>.log`. Threads one, exact counts, no `-shortest`."""
+    `psnr-<k>.log`. Threads one, exact counts, no `-shortest`. `effects` as in `reference_plan`."""
     fps, frame = edl["fps"], data["frame"]
     first, last, box = range_faces[k]
     a, b = edl["kept"][k]
     w, h, x, y = crop_box(box, frame["width"], frame["height"])
-    g = reference_graph(edl, data, "[1:v:0]", only=k)
+    g = reference_graph(edl, data, "[1:v:0]", only=k, effects=effects)
     g.append("[0:v:0]scale=flags=%s,format=yuv420p,setsar=1[hv]" % _media.SWS)
     g.append("[cv]trim=start_frame=0:end_frame=%d,setpts=PTS-STARTPTS,crop=%d:%d:%d:%d[rc]" % (last - first, w, h, x, y))
     g.append("[hv]trim=start_frame=0:end_frame=%d,setpts=PTS-STARTPTS,crop=%d:%d:%d:%d[hc]" % (last - first, w, h, x, y))
@@ -262,8 +283,10 @@ def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dic
     under PIXEL_MIN_PSNR_DB. Returns {pixel_min_psnr_db, pixel_ranges}. `run` stands where `_media.run` stands (a test's seam; production
     leaves it out)."""
     run = run or _media.run
+    effects = _edl.range_effects(edl, timeline) if timeline else None     # the reference holds the punches and the grades the page draws
+    range_faces = punched_faces(range_faces, timeline)                     # and the crop covers the face at every punched zoom
     for k in range(len(range_faces)):
-        run(pixel_argv_range(ffmpeg, intermediate, proxy, edl, data, range_faces, k), PIXEL_TIMEOUT, cwd=work)
+        run(pixel_argv_range(ffmpeg, intermediate, proxy, edl, data, range_faces, k, effects), PIXEL_TIMEOUT, cwd=work)
     lowest = None
     for k, (first, last, _box) in enumerate(range_faces):
         values = read_stats(work + "/" + (STATS_NAME % k), last - first)
@@ -298,6 +321,7 @@ def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, 
     if timeline:
         at = first + worst
         entries = [("caption", e) for e in timeline.get("captions", [])] + [(str(e["preset"]), e) for e in timeline.get("beats", [])]
+        entries += [("punch", e) for e in timeline.get("punches", [])] + [(str(e["kind"]), e) for e in timeline.get("grades", [])]
         on = [(name, e["start_frame"], e["end_frame"]) for name, e in entries if e["start_frame"] <= at < e["end_frame"]]
         rows.append(("drawn_at_worst", ("drawn " + " ".join(sorted({name for name, _, _ in on}))) if on else "drawn none"))
         rows += [("entry", "%s %d to %d" % (name, lo, hi)) for name, lo, hi in on[:3]]
