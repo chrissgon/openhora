@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="pv-preset" content="cutaway">
 <meta name="pv-params" content="asset,fit,label">
-<meta name="pv-looks" content="transition">
+<meta name="pv-looks" content="transition,glass_blur_px,glass_tint_alpha,glass_ratio_max,glass_radius_px">
 <style>
 :root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
         --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
@@ -23,13 +23,103 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
 
+// The most frequent colour of the picture: 32 x 32 samples, each channel cut to 16 steps, near-white and near-black samples skipped.
+// Returns "rgb(r, g, b)" at the middle of the winning step, or null when nothing is left. The first bucket to reach a count wins a tie.
+function predominant(img) {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 32;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = true;
+  g.drawImage(img, 0, 0, 32, 32);
+  const px = g.getImageData(0, 0, 32, 32).data;
+  const counts = new Array(4096).fill(0);
+  let best = -1, bestN = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i], gr = px[i + 1], b = px[i + 2];
+    if (px[i + 3] < 128) continue;
+    const hi = Math.max(r, gr, b), lo = Math.min(r, gr, b);
+    if (lo >= 235 || hi <= 24) continue;
+    const key = ((r >> 4) << 8) | ((gr >> 4) << 4) | (b >> 4);
+    counts[key] += 1;
+    if (counts[key] > bestN) { bestN = counts[key]; best = key; }
+  }
+  if (best < 0) return null;
+  return 'rgb(' + (((best >> 8) << 4) + 8) + ', ' + ((((best >> 4) & 15) << 4) + 8) + ', ' + (((best & 15) << 4) + 8) + ')';
+}
+window.__predominant = predominant;
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+const FRAME_W = 1080, FRAME_H = 1920, SAFE = 65, MAX_FG_H = 1700;
+
+// The glass layout: the picture blurred and tinted over the whole frame, the picture whole, rounded and shadowed, in the middle.
+function drawGlass(img, L) {
+  const blur = Number(L.glass_blur_px), alpha = Number(L.glass_tint_alpha), radius = Number(L.glass_radius_px);
+  const canvas = document.createElement('canvas');
+  canvas.id = 'glass';
+  canvas.width = FRAME_W; canvas.height = FRAME_H;
+  const g = canvas.getContext('2d');
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const bs = Math.max((FRAME_W + 4 * blur) / w, (FRAME_H + 4 * blur) / h);   // cover, with room for the blur at every edge
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--c-bg').trim() || '#000000';
+  g.fillRect(0, 0, FRAME_W, FRAME_H);
+  g.filter = 'blur(' + blur + 'px)';
+  g.drawImage(img, (FRAME_W - w * bs) / 2, (FRAME_H - h * bs) / 2, w * bs, h * bs);
+  g.filter = 'none';
+  g.fillStyle = predominant(img) || getComputedStyle(document.documentElement).getPropertyValue('--c-bg').trim() || '#000000';
+  g.globalAlpha = alpha;
+  g.fillRect(0, 0, FRAME_W, FRAME_H);
+  g.globalAlpha = 1;
+  const fs = Math.min((FRAME_W - 2 * SAFE) / w, MAX_FG_H / h);
+  const fw = Math.round(w * fs), fh = Math.round(h * fs);
+  const fx = Math.round((FRAME_W - fw) / 2), fy = Math.round((FRAME_H - fh) / 2);
+  g.save();
+  g.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  g.shadowBlur = 48;
+  g.shadowOffsetY = 12;
+  g.fillStyle = '#000000';
+  roundRect(g, fx, fy, fw, fh, radius);
+  g.fill();
+  g.restore();
+  g.save();
+  roundRect(g, fx, fy, fw, fh, radius);
+  g.clip();
+  g.drawImage(img, fx, fy, fw, fh);
+  g.restore();
+  return { canvas: canvas, box: { x: fx, y: fy, w: fw, h: fh } };
+}
+
 window.renderAt = function (t, data) {
   const P = data.params;
   const L = data.look;
   const stage = document.getElementById('stage');
   const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
-  stage.replaceChildren(img);
-  img.style.objectFit = P.fit || 'cover';
+  const fit = P.fit || 'cover';
+  const ratioMax = L.glass_ratio_max === undefined ? 0.8 : Number(L.glass_ratio_max);
+  const ratio = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
+  const glass = ratio > 0 && !(fit === 'cover' && ratio <= ratioMax) && L.glass_blur_px !== undefined;
+  let layer = img;
+  if (glass) {
+    const drawn = drawGlass(img, L);
+    layer = drawn.canvas;
+    window.__box = drawn.box;
+    layer.style.cssText = 'position:absolute;left:0;top:0;width:1080px;height:1920px;';
+  } else {
+    window.__box = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
+    img.style.objectFit = fit;
+  }
+  stage.replaceChildren(layer);
+  // transition "cut": on screen from the first frame to the last, no offset, opacity 1, scale 1. "slide" and "zoom" are values a theme may pick.
   let x = 0, scale = 1, opacity = 1;
   if (L.transition === 'slide') {
     x = Math.round((1 - easeOutCubic(clamp(t / 0.3))) * 1080) - Math.round((1 - easeOutCubic(clamp((data.duration - t) / 0.25))) * 1080);
@@ -37,13 +127,13 @@ window.renderAt = function (t, data) {
     scale = 1 + 0.12 * clamp(t / data.duration);
     opacity = Math.min(clamp(t / 0.15), clamp((data.duration - t) / 0.15));
   }
-  img.style.transform = 'translateX(' + x + 'px) scale(' + scale.toFixed(4) + ')';
-  img.style.opacity = opacity.toFixed(3);
+  layer.style.transform = 'translateX(' + x + 'px) scale(' + scale.toFixed(4) + ')';
+  layer.style.opacity = opacity.toFixed(3);
   if (P.label) {
     const chip = document.createElement('div');
     chip.id = 'chip';
     chip.textContent = P.label;
-    chip.style.opacity = easeOutCubic(clamp((t - 0.35) / 0.25)).toFixed(3);
+    chip.style.opacity = L.transition === 'cut' ? '1.000' : easeOutCubic(clamp((t - 0.35) / 0.25)).toFixed(3);
     stage.appendChild(chip);
   }
 };

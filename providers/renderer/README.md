@@ -342,8 +342,10 @@ skip with a reason where those are absent; the host side runs against a fake doc
 - The quality of the presets beyond that one recording (condition C2), and the push-in's jitter.
 - **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
   and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
-- Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. Transitions other than the
-  cutaway's slide are not offered. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).
+- Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
+  `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has
+  `fit: contain` is drawn whole, centred, inside the safe margins, over a blurred, tinted copy of itself (`glass_blur_px`, `glass_tint_alpha`,
+  `glass_radius_px` of `presets.cutaway.looks`); a clip asset is as before. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).
 
 ## Limits that match the plan
 

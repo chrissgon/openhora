@@ -264,7 +264,8 @@ def test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_n
 # Computed on the untouched code (7e23eac) for the kit's fictional post: the sha256 of the three functions' source and of the data they gave
 # every caption chunk and beat of its timeline. The move is byte for byte, so both are unchanged and the ffmpeg engine's frames cannot differ.
 PAYLOAD_SOURCE_SHA256 = "dd5673930a1e9b7928382ce7ce347579e91827f5286ca9b6bbfbe57259adaf81"
-PAYLOAD_ROWS_SHA256 = "5305315267830c6a0db50f81d827d01041071bbb4b964c2b2afc023eec8cab90"
+# V9d: the rows changed once, on purpose: the cutaway's look is now a hard cut with the glass values (the source hash above is unchanged).
+PAYLOAD_ROWS_SHA256 = "d2f94bdff003a52e0cb565e200af5bf70ab00af3214a51904aa374ebd84cde93"
 
 
 def test_the_payload_functions_moved_byte_for_byte_and_the_frames_module_still_exports_them():
