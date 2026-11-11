@@ -29,8 +29,8 @@ def plain_plan():
 def pip_plan():
     p = plain_plan()
     p.update(has_audio=False, src_matrix="auto", layers=["caption"], zoom={"mode": "alternate", "factor": 1.25, "push_in": 0.03, "anchor_y": 0.25},
-             pips=[{"asset": "assets/beat8.png", "kind": "png", "start_frame": 60, "end_frame": 120, "x": 350, "y": 285},
-                   {"asset": "assets/beat9.jpg", "kind": "jpg", "start_frame": 150, "end_frame": 200, "x": 350, "y": 868}])
+             pips=[{"asset": "assets/beat8.png", "kind": "png", "start_frame": 60, "end_frame": 120, "x": 65, "y": 718, "w": 950, "h": 534, "radius": 24},
+                   {"asset": "assets/beat9.jpg", "kind": "jpg", "start_frame": 150, "end_frame": 200, "x": 340, "y": 920, "w": 400, "h": 640, "radius": 24}])
     return p
 
 

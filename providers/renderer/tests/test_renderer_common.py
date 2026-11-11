@@ -263,8 +263,8 @@ def test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_n
 
 # Computed on the untouched code (7e23eac) for the kit's fictional post: the sha256 of the three functions' source and of the data they gave
 # every caption chunk and beat of its timeline. The move is byte for byte, so both are unchanged and the ffmpeg engine's frames cannot differ.
-PAYLOAD_SOURCE_SHA256 = "dd5673930a1e9b7928382ce7ce347579e91827f5286ca9b6bbfbe57259adaf81"
-PAYLOAD_ROWS_SHA256 = "5305315267830c6a0db50f81d827d01041071bbb4b964c2b2afc023eec8cab90"
+PAYLOAD_SOURCE_SHA256 = "184af004b9b7d336241bd55cda6425b4355004a83146ae4316141420c9dcbe76"
+PAYLOAD_ROWS_SHA256 = "fb2dbbbd4563c78c5046c67d08ebe194d1d8321a0ce515b18ca9b98507c3691b"
 
 
 def test_the_payload_functions_moved_byte_for_byte_and_the_frames_module_still_exports_them():
@@ -284,6 +284,8 @@ def test_the_payload_of_every_caption_and_beat_of_the_fictional_post_is_what_it_
     assert rc == 0, err
     beats = json.loads((tmp_path / "all-beats.json").read_text())             # with the cutaway and the pip, as when the golden was computed
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    slots = {e["params"]["asset"]: {"kind": "png", "width": 1080, "height": 1920} for e in timeline["beats"] if e["preset"] == "pip"}
+    _layout.pip_cards(data, timeline, slots, drop=False)           # V9e: the pip's card box is settled before its payload (kept here: this fixture's default face box leaves no room)
     by_index = {x["index"]: x for x in edl["words"]}
     rows = [_payload.caption_data(data, edl, c, by_index, edl["fps"]) for c in timeline["captions"]]
     rows += [_payload.beat_data(data, e, edl["fps"], edl) for e in timeline["beats"]]

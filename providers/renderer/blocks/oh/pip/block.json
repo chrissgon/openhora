@@ -4,12 +4,12 @@
  "kind": "layout",
  "preset": "pip",
  "band": "frame",
- "may_cross_face": true,
+ "may_cross_face": false,
  "license": [
   "MIT"
  ],
  "source": "openhora",
- "use_when": "a picture or a clip supports the line while the speaker stays on screen",
+ "use_when": "a picture or a clip supports the line while the speaker stays on screen, in a card below the face",
  "params": {
   "asset": {
    "type": [

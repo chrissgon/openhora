@@ -105,16 +105,13 @@ def frame_jobs(timeline: dict, out_frames: int) -> tuple:
 
 BACKDROP_JS = r"""
 window.__backdrop = (geom, fill, bubble) => {
-  // the storyboard's stand-ins under the pip's ring: the asset's slot as a flat full-frame colour and the speaker's bubble as a disc
-  let a = document.getElementById('__pipfill'), b = document.getElementById('__pipbubble');
+  // the storyboard's stand-in under the pip's page: the asset's slot as a flat-colour card at the computed box
+  let a = document.getElementById('__pipfill');
   if (!a) {
     a = document.createElement('div'); a.id = '__pipfill';
-    b = document.createElement('div'); b.id = '__pipbubble';
-    document.body.insertBefore(b, document.body.firstChild);
     document.body.insertBefore(a, document.body.firstChild);
   }
-  a.style.cssText = 'position:absolute;left:0;top:0;width:1080px;height:1920px;background:' + fill;
-  b.style.cssText = 'position:absolute;border-radius:50%;left:' + geom.x + 'px;top:' + geom.y + 'px;width:' + geom.size + 'px;height:' + geom.size + 'px;background:' + bubble;
+  a.style.cssText = 'position:absolute;border-radius:' + geom.radius + 'px;left:' + geom.x + 'px;top:' + geom.y + 'px;width:' + geom.w + 'px;height:' + geom.h + 'px;background:' + fill;
   return true;
 };
 """
@@ -126,7 +123,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
 
     `only` (the storyboard's one use): a set of (track, frame) pairs; just those frames of the jobs are drawn and nothing else is
     written (no blank frame, no filler). `backdrop` (the same): {color, slot_fill}, the opaque colour the page is drawn over, so the
-    PNG is a picture to look at; a pip beat also gets its asset slot and the speaker's bubble as flat stand-ins. With both left out the
+    PNG is a picture to look at; a pip beat also gets its asset slot as a flat-colour card. With both left out the
     loop is the render's, unchanged.
 
     A page is opened once per block per worker, with the theme's colours and fonts set through CSSOM and every font
@@ -136,6 +133,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     fps = edl["fps"]
     w, h = edl["size"]
     by_index = {x["index"]: x for x in edl["words"]}
+    if any(e["preset"] == "pip" and "card" not in e for e in timeline["beats"]):      # the render settled them in `compose_plan`; the storyboard's call has not
+        _layout.pip_cards(data, timeline, assets, drop=backdrop is None)
     tracks, jobs = frame_jobs(timeline, edl["out_frames"])
     if only is not None and not check_all:
         jobs = [j for j in jobs if (j[1], j[0]) in only]
@@ -194,14 +193,14 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     hit = face_hit(result["boxes"], entry["face"])
                     if hit:
                         raise Refusal("overlay_hits_face", hit)
-                    band = _layout.zones(data, entry["face"])
+                    band = _layout.entry_zones(data, entry)
                     for box in result["boxes"]:
                         if box["zone"] == "caption" and box["w"] > 0 and box["h"] > 0 and caption_hit(box, band):
                             raise Refusal("caption_below_line", "frame %d bottom %g" % (f, box["y"] + box["h"]))
                     if only is not None and (track, f) not in only:
                         continue                                           # checked, not drawn
                     if backdrop and preset == "pip":
-                        page.evaluate("window.__backdrop(%s, %s, %s)" % (json.dumps(payload["geom"]), json.dumps(backdrop["slot_fill"]), json.dumps(backdrop["color"])))
+                        page.evaluate("window.__backdrop(%s, %s, %s)" % (json.dumps(dict(payload["geom"], radius=payload["look"]["radius_px"])), json.dumps(backdrop["slot_fill"]), json.dumps(backdrop["color"])))
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))
                     prev = last.get(key)
                     if prev and prev[0] == k and prev[1] == sig:
