@@ -28,7 +28,7 @@
 - 2028-09-06: Launch condition: a stranger installs it from the README and runs the first skill in under 15 minutes; not tested yet (user). (user)
 - 2028-09-06: Languages: Brazilian Portuguese first, then English (user). (user)
 - 2028-09-06: Markets: Brazil first, then English-speaking markets, in the order of the languages (user). (user)
-- 2028-09-06: Tie-break for channels: when two channels are a close call, the one that needs fewer founder hours per week comes first; if those are equal, the one already owned (own list, own profile, own network) comes first (user). (user)
+- 2028-09-06: Tie-break for channels: when two channels are a close call, the one that needs fewer founder hours per week comes first; if those are equal, the one already owned (own list, own profile, own network) comes first; if still equal, the channel listed first under the founder's own assets comes first (user). (user)
 
 ## Open questions
 - [ ] Which communities and channels reach solo builders in English and in Brazilian Portuguese, and which of them can the founder use in 5 hours a week? (user)
