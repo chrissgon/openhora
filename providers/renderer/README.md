@@ -105,6 +105,13 @@ names it (`blocks_sha256`) with the sha256 of each drawn block (`blocks`). The i
 After a reviewed change of a block: `python3 providers/renderer/ffmpeg.py pin-blocks --confirmed` (pins and catalogue). Tests:
 `tests/test_renderer_blocks.py`.
 
+Three presets are review-only (V9a-1): `mark` (a short phrase with a hand-drawn underline, circle or arrow), `sticker` (one of twelve drawn glyphs) and
+`nametag` (a lower third). They are declared in the `review_presets` section of `renderer-presets.json`, beside the timings in `presets`;
+`_vocab.load_vocabulary` merges them into the vocabulary it returns with `review_only: true` (a name the vocabulary already holds as its own is refused
+`vocabulary_clash`), and `_align.read_script` refuses a script row that names one (`preset_review_only`): the person adds them at review, and the script's
+checker never sees them. Each is an `oh:` block (`blocks/oh/mark`, `sticker`, `nametag`: a `block.json` and a `renderat.html`, card band, never across the
+face) named by both engine files. Tests: `tests/test_renderer_review_presets.py`.
+
 ## The HyperFrames engine's composed page (V3b-1)
 
 `hyperframes.py render` without `--base-only` draws the captions and the beats. `hyperframes.py` answers `block-params` like `ffmpeg.py` (the same host function, with `engine` `hyperframes`). The page stage (`hf-page` with `--blocks` and `--blocks-sha256`)
@@ -150,6 +157,11 @@ glyph stays above the band's bottom (1560 on the presets); the registry's slam s
 and `oh:list` for `caption`, `keyword`, `number`, `quote` and `list`; any `oh:` block stays selectable by name, and the engine draws no `cutaway` and no
 `pip`. The licence text of the registry (`hyperframes-image/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
 (`hyperframes-image/NOTICE.md`) travel in the image folder, because nothing but pinned files may live under `blocks/`. Tests: `tests/test_hf_ports.py`.
+
+Two of the ports were fixed in V9a-1. `hf:spring-pop` sets its stage's layout inline and sizes its type with a pure function `fit(text, bandHeight)` (up to 150
+px on 950 px, two lines for a text longer than 12 characters, split at the space nearest the middle), so the card draws centred and large. `hf:caption-highlight`
+gets each word's lit span from a pure function `spans(words)` (monotone starts, an end never later than the next start), so one word is lit at a time and a
+word of no length never lights. Tests: `tests/test_hf_fixes.py`. Their rows of `hyperframes-image/NOTICE.md` are the maintainer's to approve (STOP E).
 
 ## Contract: replacing this implementation (lego)
 

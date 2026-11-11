@@ -26,7 +26,7 @@ import tempfile
 import unicodedata
 
 from _text import Refusal, clean_text
-from _vocab import check_params, script_section, slot_params, slot_types
+from _vocab import check_params, review_only, script_section, slot_params, slot_types
 
 FENCE = re.compile(r"^```([\w-]*)\s*$")
 KEY_LINE = re.compile(r"^([a-z][a-z0-9_-]{0,31}):(?: (.*))?$")
@@ -151,6 +151,8 @@ def read_script(text: str, vocab: dict) -> tuple:
         if name:
             if name not in vocab["presets"]:
                 raise Refusal("unknown_preset", "beat%d" % b["beat"])
+            if review_only(vocab, name):
+                raise Refusal("preset_review_only", "beat%d" % b["beat"])
             spec = vocab["presets"][name]
             for key, value in f.items():
                 if key in BEAT_KEYS and key != "on-screen":

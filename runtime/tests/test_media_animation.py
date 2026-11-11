@@ -395,7 +395,8 @@ def set_page(world, groups):
 def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_rest(world, monkeypatch):
     shown = ops_media_catalogue.video_catalogue(world["path"])
     assert shown["engine"] == "hyperframes"      # the class default since V4
-    assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card"}
+    assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card",
+                                                                        "oh:mark", "oh:sticker", "oh:nametag"}      # the three review-only blocks of V9a-1 are addable at review
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):

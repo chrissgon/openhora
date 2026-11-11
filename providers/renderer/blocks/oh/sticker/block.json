@@ -1,0 +1,60 @@
+{
+ "schema_version": 1,
+ "name": "oh:sticker",
+ "kind": "overlay",
+ "preset": "sticker",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "a drawn symbol pops beside the speaker's point",
+ "params": {
+  "glyph": {
+   "type": "choice",
+   "values": [
+    "check",
+    "star",
+    "bolt",
+    "arrow-up",
+    "heart",
+    "flag",
+    "clock",
+    "coin",
+    "bulb",
+    "question",
+    "exclaim",
+    "eye"
+   ],
+   "required": true
+  },
+  "side": {
+   "type": "choice",
+   "values": [
+    "left",
+    "center",
+    "right"
+   ],
+   "default": "right"
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "glyph": "bulb",
+   "side": "right"
+  },
+  {
+   "glyph": "question",
+   "side": "left",
+   "color": "accent"
+  }
+ ],
+ "natural_duration": 0.8,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

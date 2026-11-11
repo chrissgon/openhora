@@ -3,5 +3,5 @@
  "engine": "ffmpeg",
  "note": "The ffmpeg engine draws with headless Chrome and pure renderAt(t, data) pages. It runs the renderat runtime only, so it draws every block that has a renderat implementation and refuses the others. presets names the block that draws each preset by default; a beat may name another block of the same preset.",
  "runtimes": ["renderat"],
- "presets": {"caption": "oh:caption", "cutaway": "oh:cutaway", "keyword": "oh:keyword", "list": "oh:list", "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote"}
+ "presets": {"caption": "oh:caption", "cutaway": "oh:cutaway", "keyword": "oh:keyword", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote", "sticker": "oh:sticker"}
 }
