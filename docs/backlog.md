@@ -149,6 +149,23 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - From: the maintainer's word on 2026-10-12 (note option B as a future adjustment), after the review of the parallel runs; the release keeps the conservative wildcard (option A).
   - Needs: a rule that gives each placeholder its value before a run (for example `<task>` from the task's key), and the skills writing their files under that value, so the runtime knows the files before the run starts.
   - Done when: two tasks of one floor whose skills write `docs/engineering/plans/<task>.md` run at the same time on different files, shown by a test of `runtime/parallel.py` and one real run; no task ever overwrites another's file.
+- [ ] **R23. The interface as a virtual office: Habblaud as inspiration, and possibly as the agents' interface.** Habblaud (https://habblaud.com/en, read 2026-11-11) shows coding agents as avatars in a pixel-art building, with:
+  - one room per project, holding the agents working on it, each with what it is doing now ("Editando app.json", "Lendo api.ts");
+  - a side list of projects with their agents, the account each uses and a task count;
+  - each account's 5-hour and weekly usage meters;
+  - a live activity feed;
+  - a "waiting on you" counter, with approvals from the phone.
+
+  It is local (Docker or npm, served at `localhost:4747`), works with two AI coding tools through install commands, and its page footer says MIT. The page gives no repository link (a template placeholder) and documents no API for feeding it agents from another system.
+  - From: the maintainer's word on 2026-11-11: "Ele organiza os agentes de uma maneira que achei mais intuitiva. Talvez até pensar em adotar essa plataforma como UI dos nossos agentes se possível". It echoes the maintainer's earlier wish for the interface as a scene where projects are places and agents are people in them.
+  - What to take, at least: the project room as the unit of the screen; what each agent is doing now, in a few words; the account's usage beside the agents that spend it; and "waiting on you" as the first number on the screen.
+  - Decision: adopt Habblaud as the agents' interface (principle 14, adopt before building), or take only its ideas into `interface/`. It can be adopted only if all of these hold:
+    - the repository and its MIT licence are confirmed;
+    - it can be fed from openhora's own events (runs, reviews, approvals) through an adapter, never by the core naming it;
+    - approvals in it keep the hard limits: exact content and a hash, approved where the runtime approves today;
+    - it loads nothing from another host, as `interface/` requires.
+  - Needs: the repository found and read; a spike that feeds it one real run of the task runtime through an adapter.
+  - Done when: the decision is recorded in `docs/decisions/`, and either an adapter shows openhora's agents in it, or `interface/` has the ideas chosen from it.
 - [ ] **INSTRUCTIONS. The field evidence of a use with standing instructions.** The file `docs/workbench/instructions.md` and limit L40 are built (pull request #430). Open: the field evidence of a use (`scripts/evidence.py`) does not record whether the project's instructions were present, so a use with instructions cannot be told from one without; add a closed-form field (present or absent, never the text) when field evidence next changes.
   - Done when: a recorded use says whether the project's instructions were present.
 
