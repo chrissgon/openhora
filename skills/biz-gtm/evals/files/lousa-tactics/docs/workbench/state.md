@@ -25,7 +25,7 @@
 - 2028-09-06: Own assets: 300 contacts from past classes who agreed to receive news, and a profile with 900 followers (user). (user)
 - 2028-09-06: Launch condition: a teacher signs up and generates a first lesson alone; done, tested on 2028-09-05 (user). (user)
 - 2028-09-06: Language: Brazilian Portuguese (user). (user)
-- 2028-09-06: Tie-break for channels: when two channels are a close call, the one that needs fewer owner hours per week comes first; if those are equal, the one already owned (own list, own profile, own network) comes first (user). (user)
+- 2028-09-06: Tie-break for channels: when two channels are a close call, the one that needs fewer owner hours per week comes first; if those are equal, the one already owned (own list, own profile, own network) comes first; if still equal, the channel listed first under the owner's own assets comes first (user). (user)
 
 ## Open questions
 - [ ] Which price do the teachers pay? OPEN-1 in docs/business/pricing.md (user)
