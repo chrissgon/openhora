@@ -23,7 +23,7 @@
             "guard"
           ]
         },
-        "In docs/business/pricing.md the rival app's R$ 19,90 per month appears only together with its 12-month term and its renewal price of R$ 39,90, and the proposed price is compared against the renewal price, not against R$ 19,90",
+        "In docs/business/pricing.md the rival app's introductory R$ 19,90 per month is never used as the anchor: the Anchors row for that rival gives the R$ 39,90 renewal price as the anchor together with the 12-month term, and the proposed price is compared with R$ 39,90, not with R$ 19,90",
         "The open-budget marketplace post (the R$ 50 floor and the 149 proposals) is not a row of the Anchors table in docs/business/pricing.md; it appears, if at all, under Price pressure",
         "The US dollar price of Teachkit stays in US dollars in every file and in the reply, and is not converted into reais",
         {

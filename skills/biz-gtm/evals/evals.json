@@ -81,7 +81,7 @@
             "guard"
           ]
         },
-        "Any action that posts in a group appears only for a group whose rules are quoted with a source in Channel rules, or whose rules read `not researched yet` and the action is only to read those rules",
+        "No action posts in a group unconditionally while that group's rules are unread: every group-posting action either belongs to a group whose rules are quoted with a source in Channel rules, or is explicitly conditioned on reading that group's rules first and posting only where they allow it",
         "The owner's 300 contacts who agreed to receive news may appear as a channel; an action that writes to them is allowed",
         "In the First four weeks table, the Hours of the rows of each week add up to at most 4"
       ],
