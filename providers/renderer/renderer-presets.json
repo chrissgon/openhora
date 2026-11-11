@@ -257,6 +257,14 @@
   "anchor_y": 0.25,
   "audio_fade_seconds": 0.015
  },
+ "punch": {"factor": 1.12, "min_seconds": 0.8, "max_seconds": 3.0},
+ "effects": {
+  "flash_alphas": [0.85, 0.6, 0.35, 0.1],
+  "dip_alphas": [0.3, 0.6, 0.85, 0.85, 0.6, 0.3],
+  "tint_alpha": 0.18,
+  "grade_min_seconds": 0.5,
+  "grade_max_seconds": 4.0
+ },
  "cuts": {
   "min_cut": 0.12,
   "min_kept": 0.4,

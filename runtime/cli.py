@@ -191,7 +191,9 @@ captions-read prints the captions of a new video (--task <id>) as the review sho
 captions-edit edits the captions of a new video (--task <id>) at the caption review or at the delivery approval: --revision is the
           revision you read, and the edits are a JSON list of the closed edit objects (--edits <json> or --edits-file <path>, one of
           them). At the approval the decision is answered by code and the video is rendered again, for a new approval, when you
-          start it with video-run.
+          start it with video-run. An effect over words is `{"op": "effect", "kind": "flash", "word_from": <i>, "word_to": <j>}` (kinds punch,
+          flash, dip, mono, tint; at most 6, and no two colour effects over the same words), removed with `{"op": "effect", "id": "e1", "remove": true}`;
+          `{"op": "effect", "id": "p3", "remove": true}` drops the script's punch of beat 3.
 video-download saves the delivered video (--task <id>) to --out, a new file outside the project: only the exact render the approval
           named, hashed again as it is copied.
 video-still saves the still of a new video (--task <id>), the frame of the face box, to --out, a new file outside the project.

@@ -571,3 +571,12 @@ def test_the_demos_retake_row_has_every_key_of_the_views_retake_row():
     demo = (Path(__file__).resolve().parents[2] / "interface" / "demo" / "world-reads.js").read_text(encoding="utf-8")
     row = re.search(r"retakes: \[\{(.*?)\}\],", demo).group(1)
     assert keys == set(re.findall(r"(\w+):", row))
+
+
+def test_a_new_review_has_the_two_effect_keys_and_an_old_one_reads_with_them_empty():
+    review = cap.new_review()
+    assert review["effects"] == [] and review["dropped_punches"] == []
+    old = {k: v for k, v in review.items() if k not in ("effects", "dropped_punches")}
+    assert cap.check_review(old) == review
+    shown = cap.view(*fresh(), {}, {}, {})
+    assert shown["effects"] == [] and shown["punches"] == [] and shown["counts"]["effects"] == 0

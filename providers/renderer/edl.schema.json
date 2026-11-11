@@ -420,6 +420,37 @@
               "description": "The header's `loop` (yes is true): the last line joins the first."
             }
           }
+        },
+        "punches": {
+          "type": "array",
+          "description": "The script's punches (a beat whose `emphasis` is `punch`) that `align` matched to words, one row per beat, with or without a preset. Optional; at most the vocabulary's `limits.beats_max`. The renderer draws each as a step in the zoom over its words (`punch` of renderer-presets.json).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["beat", "word_from", "word_to", "score"],
+            "properties": {
+              "beat": {"type": "integer", "minimum": 1},
+              "word_from": {"type": "integer"},
+              "word_to": {"type": "integer"},
+              "score": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "effects": {
+          "type": "array",
+          "description": "The review effects the person added over word ranges: a punch, or a grade that changes the colour of the picture (flash, dip, mono, tint). Optional; at most 6, no two grades over the same words, at most two flashes and dips together. Times are the renderer's: whole frames, in `resolve_timeline`.",
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "word_from", "word_to"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^e[1-6]$"},
+              "kind": {"enum": ["punch", "flash", "dip", "mono", "tint"]},
+              "word_from": {"type": "integer"},
+              "word_to": {"type": "integer"}
+            }
+          }
         }
       }
     },

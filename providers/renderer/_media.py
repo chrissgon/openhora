@@ -308,26 +308,43 @@ def zoomed_box(face: dict, z0: float, z1: float, anchor: tuple, w: int, h: int) 
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
-def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, fps, base: int = BASE) -> str:
+def punch_expression(punches, base_z: str, frame: str = "on") -> str:
+    """The zoom as a function of the range's frame index `on`: `base_z` outside the punches, a punch's level inside it. `punches` is [(a, b, level)]
+    in the range's own frame index, b excluded (so the last frame is b - 1), earliest first and never overlapping. No punch gives `base_z` itself.
+    `frame` is the expression that is the 0-based frame index in the filter that reads it (`on` in zoompan; `on-1` in perspective: see `zoom_filter_linear`)."""
+    out = base_z
+    for a, b, level in reversed(list(punches or [])):
+        out = "if(between(%s,%d,%d),%.5f,%s)" % (frame, a, b - 1, level, out)
+    return out
+
+
+def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, fps, base: int = BASE, punches=()) -> str:
     """The filter from the picture cut at `base` (BASE by default) times the output size to the output for one kept range: a plain scale
     at 100%, else a zoompan about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it.
-    The pixel check of the HyperFrames engine gives `base` 1: it zooms the 1080x1920 proxy, not a picture cut at twice the size."""
-    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+    The pixel check of the HyperFrames engine gives `base` 1: it zooms the 1080x1920 proxy, not a picture cut at twice the size.
+    `punches` ([(a, b, level)], see `punch_expression`) steps the zoom to a constant level on those frames and back; with none, the text is what it
+    always was."""
+    if not punches and abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
         return "scale=%d:%d:flags=%s" % (w, h, SWS)
     ax, ay = anchor[0] * base, anchor[1] * base
     z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "%.5f+%.6f*on" % (z0, (z1 - z0) / max(1, frames - 1))
+    z = punch_expression(punches, z)
     return "zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps)
 
 
-def zoom_filter_linear(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int) -> str:
+def zoom_filter_linear(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, punches=()) -> str:
     """The same zoom as `zoom_filter` about the same fixed point, sampled bilinearly at exact fractional positions: `perspective` with linear
     interpolation maps the window of the picture (its size divided by the zoom, its corner at the anchor's fixed point) onto the whole frame, per frame
     (`on` counts the range's frames). It is what a browser does to a scaled video layer, which is why the pixel check's reference uses it; the ffmpeg
-    engine's own render keeps `zoom_filter`. Both zooms are the same arithmetic about the same point."""
-    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+    engine's own render keeps `zoom_filter`. Both zooms are the same arithmetic about the same point. `punches` as in `zoom_filter`."""
+    if not punches and abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
         return "scale=%d:%d:flags=%s" % (w, h, SWS)
     ax, ay = anchor
     z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "(%.5f+%.6f*on)" % (z0, (z1 - z0) / max(1, frames - 1))
+    if punches:
+        # perspective counts `on` from 1 (frame i reads on = i + 1; vf_perspective adds one), zoompan from 0: a punch row is in 0-based frames, so it
+        # reads `on-1` here, or the reference would switch one frame before the page and the encoder (found live 2026-11-10: psnr 20.9 at frames 51 and 66)
+        z = "(%s)" % punch_expression(punches, z, "on-1")
     x0, y0 = "%.2f*(1-1/%s)" % (ax, z), "%.2f*(1-1/%s)" % (ay, z)
     wz, hz = "%d/%s" % (w, z), "%d/%s" % (h, z)
     return ("perspective=x0='%s':y0='%s':x1='%s+%s':y1='%s':x2='%s':y2='%s+%s':x3='%s+%s':y3='%s+%s':interpolation=linear:eval=frame:sense=source"
@@ -348,6 +365,47 @@ def framing_filter(w: int, h: int, src_matrix: str) -> str:
     text, so a pixel of the still is the pixel of the render's unzoomed picture."""
     return ("scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=%s,"
             "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
+
+
+MONO_MATRIX = "rr=.2126:rg=.7152:rb=.0722:gr=.2126:gg=.7152:gb=.0722:br=.2126:bg=.7152:bb=.0722"     # the CSS `grayscale(1)` matrix: one formula in both engines
+TO_RGB = "scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp" % SWS            # colorchannelmixer reads RGB: the picture goes through
+FROM_RGB = "scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p" % SWS    # explicit bt709 conversions, as the compose's own RGB stage
+
+
+def yuv_limited_bt709(color: str) -> tuple:
+    """(Y, U, V) of an `#rrggbb` colour as bt709 limited-range 8-bit values: the colour the pictures of the render are written in."""
+    r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return 16 + 219 * y, 128 + 224 * (b - y) / 1.8556, 128 + 224 * (r - y) / 1.5748
+
+
+def blend_filter(color: str, alpha: float, enable: str) -> str:
+    """One colour laid over the whole picture at `alpha` on the frames `enable` names, as the exact blend in each plane of yuv420p: every plane goes to
+    plane * (1 - alpha) + colour's plane * alpha. A colour is an affine function of RGB, so this is the browser's RGB alpha blend. `drawbox` is not used: on
+    yuv420p it takes the chroma of a saturated picture towards grey about twice as far as the blend asks (measured on SMPTE bars, 2026-11-11: at alpha .35 a
+    bar's U moved from 147 to 130 where the blend gives 141), which the face check read as a changed face."""
+    yy, uu, vv = yuv_limited_bt709(color)
+    return ("lutyuv=y='val*(1-%.3f)+%.2f*%.3f':u='val*(1-%.3f)+%.2f*%.3f':v='val*(1-%.3f)+%.2f*%.3f':enable='%s'"
+            % (alpha, yy, alpha, alpha, uu, alpha, alpha, vv, alpha, enable))
+
+
+def grade_filters(grades: list) -> list:
+    """The filters of the grades of one kept range, in the range's own frame index `n` (a to b, b excluded), as a list of strings (empty for none):
+    a flash or a dip is one blend (`blend_filter`) of white or black per frame of its ramp, a tint one blend of the accent colour over its span, mono
+    the CSS grayscale matrix over its span (`colorchannelmixer`, between two bt709 conversions, FIRST, and only in a range that has a mono row: the page's
+    mono is a filter on the video below the `#fx` colour layer, so a tint or a flash over a grey frame stays coloured). Only the frames of a grade are
+    touched (the conversions around mono run on every frame of that range)."""
+    out, mono = [], []
+    for g in grades:
+        if g["kind"] in ("flash", "dip"):
+            color = "#FFFFFF" if g["kind"] == "flash" else "#000000"
+            for i, alpha in enumerate(g["alphas"]):
+                out.append(blend_filter(color, alpha, "eq(n,%d)" % (g["a"] + i)))
+        elif g["kind"] == "tint":
+            out.append(blend_filter(g["color"], g["alpha"], "between(n,%d,%d)" % (g["a"], g["b"] - 1)))
+        elif g["kind"] == "mono":
+            mono.append("colorchannelmixer=%s:enable='between(n,%d,%d)'" % (MONO_MATRIX, g["a"], g["b"] - 1))
+    return ([TO_RGB] + mono + [FROM_RGB] if mono else []) + out
 
 
 def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False, first_index: int = 0) -> list:
@@ -372,11 +430,18 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
         src_v = ["[sv]"]
     cat_in = []
     zoom, fade = plan["zoom"], plan["fade"]
+    effects = plan.get("effects") or {}
     for k, (a, b) in enumerate(kept):
         z0, z1 = zoom_levels(zoom, first_index + k, b - a, fps)       # first_index: the number of the first kept range when a plan holds a part of the list
-        zf = zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h) if zoom_linear else zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base)
-        g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
-                 % (src_v[k], a, b, zf, k))
+        fx = effects.get(first_index + k) or {}                      # the punches and grades of this range (`_edl.range_effects`), in its own frame index
+        punches = fx.get("punches") or ()
+        zf = (zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h, punches) if zoom_linear
+              else zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps, base, punches))
+        grades = "".join("%s," % f for f in grade_filters(fx.get("grades") or []))
+        if grades:      # a grade comes after the zoom, before the format the range is joined in
+            g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,%sformat=yuv420p[v%d]" % (src_v[k], a, b, zf, grades, k))
+        else:
+            g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]" % (src_v[k], a, b, zf, k))
         cat_in.append("[v%d]" % k)
         if has_audio:
             # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and

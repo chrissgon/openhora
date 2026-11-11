@@ -217,6 +217,18 @@ shape, zoom included, so the check there covers the ranges drawn unzoomed (the b
 The planted blocks (`contract_kit.planted_renderat`, `planted_blank`) live only in test temp folders and reach a render through
 `RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`, which both engines now honour.
 
+### Punches and grades (V9a-3)
+
+The script's `emphasis: punch` (beats.json `punches`, written by `align` for a beat with or without a preset) and the review's effects (beats.json
+`effects`: `punch`, `flash`, `dip`, `mono`, `tint`) change the base picture, never a zone. `_edl.resolve_timeline` turns them into whole-frame rows
+(`punches`, `grades`, `effects_dropped`), `_edl.range_effects` into one table by kept range in the range's own frame index, and three drawings read that
+table: `_media.base_graph` (the ffmpeg engine: a step in the `zoompan`/`perspective` expression, an exact per-plane blend (`lutyuv`, `_media.blend_filter`) for flash, dip and tint, `colorchannelmixer`
+with the CSS `grayscale(1)` matrix for mono), `_hf_page.build_parts` (the HyperFrames page: one drive tween per punched range, one `#fx` layer under every
+overlay, `filter: grayscale(1)` on the range's wrapper) and `_hf_gate.reference_graph` (the face check's reference holds the same punches and grades, so
+the pixel check still catches anything else drawn on the face; the crop of a punched range is the union of its faces). The bounds are in code
+(`_edl.EFFECTS_MAX`, `FLASH_FRAMES_MAX`, `DIP_FRAMES_MAX`, `FLASHES_MAX`, `GRADE_SECONDS_MAX`) and `renderer-presets.json` (`punch`, `effects`) cannot widen
+them. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph and of the page).
+
 ## The still frame (`still`)
 
 `still --in <recording> --at-ms <n> --out <dir>` writes one PNG of the recording at that time, framed exactly as the render frames the source
