@@ -31,8 +31,8 @@ All six come from splitting two earlier prompts of more than 500 lines each, whi
 | biz-validate-idea | docs/business/idea-validation.md | — | rewrite (backlog NS14) | 2 |
 | biz-market-analysis | docs/business/market.md | idea-validation (optional), research briefs | built; grounded in earlier content and in a real market research; requires `search:web`; scripts rank.py, capacity.py, check_refs.py, lint_market.py | 2 |
 | biz-icp-positioning | docs/business/icp.md, docs/business/positioning.md | market | built; grounded in earlier content and in a real segment research; requires `search:web`; scripts rank.py, check_refs.py, lint_icp.py | 2 |
-| biz-business-model | docs/business/business-model.md, docs/business/pricing.md | icp, positioning | rewrite (backlog, group A) | 2 |
-| biz-gtm | docs/business/gtm.md | icp, positioning, business-model | rewrite (backlog, group A) | 2 |
+| biz-business-model | docs/business/business-model.md, docs/business/pricing.md | icp, positioning | built; grounded in two real cases (a language-materials app and a solo open-source workbench's monetization); requires `search:web`; scripts unit_economics.py, lint_model.py, check_refs.py | 2 |
+| biz-gtm | docs/business/gtm.md | icp, positioning, business-model | built; grounded in two real cases (a language-materials app and a solo open-source workbench's monetization); requires `search:web`; scripts rank.py, check_refs.py, lint_gtm.py | 2 |
 | biz-business-plan | docs/business/business-plan.md | all of the above | rewrite (backlog, group A) | 2 |
 
 ## Product (`product-`)
@@ -542,3 +542,5 @@ The content engine and the 24-hour agent (2026-09-29; backlog PB4 and PB5 (close
 Built against a real company's research (2026-09-28/29):
 - [x] biz-market-analysis (wave 2; 8 eval iterations. What moved the floor model from 0.475 to 0.917 was scripts, not wording: `check_refs.py` for citations, `lint_market.py` for prices under Implications, price cells, citation form and uncited figures, `rank.py` refusing free-text sources. Wording alone left the same mistakes in place from iteration 2 to 6. Remaining misses: summaries labelled as quotes, uncited figures in the Comparison reading.)
 - [x] biz-icp-positioning (wave 2; passes at eval iteration 1: strong claude-code Opus 0.933 with vs 0.700 without, floor DeepSeek V3.2 0.85; built with `lint_icp.py`, `check_refs.py` and `rank.py` from the start, after what biz-market-analysis taught. 0.3 adds a `Recommended:` line under every scope question and sourced alternatives, the two iteration-1 misses, not rerun. The positioning step has not met a real case yet.)
+- [x] biz-business-model (wave 2; built with `unit_economics.py`, `lint_model.py` and `check_refs.py` from the start, after what biz-icp-positioning taught. First full test pending.)
+- [x] biz-gtm (wave 2; built with `rank.py`, `check_refs.py` and `lint_gtm.py` from the start. First full test pending.)

@@ -22,6 +22,8 @@
     "agents-dir": 7
   },
   "web_cases": {
+    "biz-business-model": [1],
+    "biz-gtm": [1, 3],
     "biz-icp-positioning": [1, 3],
     "biz-market-analysis": [1, 3],
     "brand-identity": [3],
