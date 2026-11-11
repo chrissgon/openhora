@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "name": "oh:nametag",
+ "kind": "overlay",
+ "preset": "nametag",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the speaker's name and role slide in once, as a lower third",
+ "params": {
+  "name": {
+   "type": "text",
+   "max": 32,
+   "required": true
+  },
+  "role": {
+   "type": "text",
+   "max": 40
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "name": "Aster Lane",
+   "role": "Founder, Quill & Moss"
+  },
+  {
+   "name": "Bram Hollow"
+  }
+ ],
+ "natural_duration": 2.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

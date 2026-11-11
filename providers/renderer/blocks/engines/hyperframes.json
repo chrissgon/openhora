@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "engine": "hyperframes",
- "note": "The HyperFrames engine draws our own gsap blocks (the hf: ports and any block with a gsap page) and the oh: pages through the renderat runtime (one iframe per block, driven per seek; the one-file measurement of V3b-1 showed the same frames as the ffmpeg engine within 40.33 dB mean and 37.4 dB minimum). presets names the block that draws each preset by default: the reviewed ports for the caption, the keyword, the number and the quote, and oh:list, which has no port. A beat may name another block of the same preset, an oh: block included. It draws no cutaway and no pip.",
+ "note": "The HyperFrames engine draws our own gsap blocks (the hf: ports and any block with a gsap page) and the oh: pages through the renderat runtime (one iframe per block, driven per seek; the one-file measurement of V3b-1 showed the same frames as the ffmpeg engine within 40.33 dB mean and 37.4 dB minimum). presets names the block that draws each preset by default: the reviewed ports for the caption, the keyword, the number and the quote, and oh:list, which has no port. A beat may name another block of the same preset, an oh: block included. It draws no cutaway and no pip. The review-only presets mark, nametag and sticker are drawn by their oh: pages.",
  "runtimes": ["gsap", "renderat"],
- "presets": {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "list": "oh:list", "number": "hf:count-up", "quote": "hf:testimonial-card"}
+ "presets": {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up", "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 }

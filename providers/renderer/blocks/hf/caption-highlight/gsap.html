@@ -11,6 +11,15 @@
   </style>
   <div class="stage"><div class="line"><span class="word"><span class="bg"></span><span class="txt"></span></span></div></div>
   <script data-hf-build>
+    function spans(words) {
+      var s = [], out = [];
+      for (var i = 0; i < words.length; i++) { s.push(Math.max(i ? s[i - 1] : 0, words[i].start)); }
+      for (var j = 0; j < words.length; j++) {
+        var own = Math.max(s[j] + 0.1, words[j].end);
+        out.push([s[j], j + 1 < words.length ? Math.min(s[j + 1], own) : own]);
+      }
+      return out;
+    }
     function build(root, tl, data, ctx) {
       var FS_MAX = 88, FS_MIN = 40, LINE_BLOCK = 1.39, EM_CHAR = 0.74, EM_PAD = 0.32, EM_GAP = 0.12, WIDTH = 960, PAD_BOTTOM = 44;
       var stage = root.querySelector(".stage");
@@ -34,18 +43,20 @@
       var fade = Math.min(0.12, ctx.duration / 4);
       tl.fromTo(line, { opacity: 0 }, { opacity: 1, duration: fade, ease: "power2.out" }, 0);
       tl.fromTo(line, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: fade, ease: "power2.in" }, Math.max(0, ctx.duration - fade));
-      words.forEach(function (w) {
+      var timing = spans(words);
+      words.forEach(function (w, i) {
         var el = made.cloneNode(true);
         var bg = el.querySelector(".bg");
         var txt = el.querySelector(".txt");
         txt.textContent = w.text;
         line.appendChild(el);
-        var begin = Math.max(0, w.start);
-        var finish = Math.max(begin + 0.1, w.end);
-        tl.fromTo(bg, { opacity: 0, scaleX: 0 }, { immediateRender: false, opacity: 1, scaleX: 1, duration: 0.15, ease: "power2.out" }, begin);
+        var begin = timing[i][0], finish = timing[i][1], len = finish - begin;
+        if (len < 0.02) { return; }
+        var din = Math.min(0.15, len / 2), dout = Math.min(0.1, len / 2);
+        tl.fromTo(bg, { opacity: 0, scaleX: 0 }, { immediateRender: false, opacity: 1, scaleX: 1, duration: din, ease: "power2.out" }, begin);
         tl.set(txt, { color: "var(--c-bg)" }, begin);
-        tl.fromTo(bg, { opacity: 1, scaleX: 1 }, { immediateRender: false, opacity: 0, scaleX: 1.02, duration: 0.1, ease: "power2.in" }, finish);
-        tl.set(bg, { scaleX: 0 }, finish + 0.1);
+        tl.fromTo(bg, { opacity: 1, scaleX: 1 }, { immediateRender: false, opacity: 0, scaleX: 1.02, duration: dout, ease: "power2.in" }, finish - dout);
+        tl.set(bg, { scaleX: 0 }, finish);
         tl.set(txt, { color: "var(--c-text)" }, finish);
       });
     }
