@@ -136,7 +136,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
-               "beats_dropped": timeline["dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
+               "beats_dropped": timeline["dropped"], "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"], "ffmpeg_argv": argv, "estimated_bytes": estimate}
     if dry_run:
         return summary

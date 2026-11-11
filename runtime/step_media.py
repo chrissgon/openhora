@@ -487,7 +487,25 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     record = {"name": name, "sha256": digest, "size": size, "duration_ms": max(1, int(round(seconds * 1000))), "blocks": _blocks_of(done),
               "blocks_sha256": blocks_sha if isinstance(blocks_sha, str) and SHA256.fullmatch(blocks_sha) else None}
     _asked(store.write, rid, RENDER_JSON, _dump(record))
-    return {"sha256": digest, "size": size}
+    result = {"sha256": digest, "size": size}
+    left_out = _effects_dropped(done)
+    if left_out:      # an effect the renderer did not draw (too short, capped, overlapping): the person is told, the render is not refused
+        result["effects_dropped"] = left_out
+    return result
+
+
+EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")
+EFFECT_REASONS = ("punch_short", "punch_capped", "grade_short", "grade_overlap")
+
+
+def _effects_dropped(done: dict) -> list:
+    """The render's `effects_dropped` as closed rows {id, reason} (an id of the shape `p3` or `e2`, a reason of the renderer's closed list); anything else is left out."""
+    rows = done.get("effects_dropped")
+    found = []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and isinstance(row.get("id"), str) and EFFECT_ID_OUT.fullmatch(row["id"]) and row.get("reason") in EFFECT_REASONS:
+            found.append({"id": row["id"], "reason": row["reason"]})
+    return found[:12]
 
 
 def _cover(ctx: steps.Context, state: dict) -> dict:

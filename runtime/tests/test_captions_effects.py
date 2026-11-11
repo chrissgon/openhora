@@ -211,3 +211,24 @@ def test_an_effect_with_no_live_word_stops_the_align_step_with_effect_lost(world
     ops.answer(world["path"], item["id"], "continue")
     out = run_task(world, task)
     assert out["ok"] is False and "effect_lost" in json.dumps(out)
+
+
+# ---------------------------------------------------------------- review of PR 807
+
+def test_a_merge_that_would_bring_two_grades_into_one_word_is_refused_and_changes_nothing():
+    edited, review = fresh()
+    _, two, _ = apply(edited, review, [effect("mono", 2, 2), effect("tint", 3, 3)])
+    err = refusal(edited, two, [{"op": "merge", "from": 2, "to": 3}])
+    assert (err.code, err.field) == ("effect_overlap", "edits")
+    _, fine, _ = apply(edited, two, [{"op": "merge", "from": 0, "to": 1}])               # a merge elsewhere is fine
+    assert [e["kind"] for e in fine["effects"]] == ["mono", "tint"]
+    _, punches, _ = apply(edited, review, [effect("punch", 2, 2), effect("mono", 3, 3)])      # a punch may share a word with a grade
+    _, merged, _ = apply(edited, punches, [{"op": "merge", "from": 2, "to": 3}])
+    assert len(merged["effects"]) == 2
+
+
+def test_the_runtime_reads_the_renders_dropped_effects_as_closed_rows():
+    got = step_media._effects_dropped({"effects_dropped": [{"id": "e1", "reason": "punch_short"}, {"id": "p2", "reason": "grade_overlap"}, {"id": "x1", "reason": "punch_short"},
+                                                          {"id": "e3", "reason": "because"}, "e4", {"id": "e5"}]})
+    assert got == [{"id": "e1", "reason": "punch_short"}, {"id": "p2", "reason": "grade_overlap"}]
+    assert step_media._effects_dropped({}) == [] and step_media._effects_dropped({"effects_dropped": "x"}) == []

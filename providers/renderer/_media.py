@@ -308,12 +308,13 @@ def zoomed_box(face: dict, z0: float, z1: float, anchor: tuple, w: int, h: int) 
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
-def punch_expression(punches, base_z: str) -> str:
+def punch_expression(punches, base_z: str, frame: str = "on") -> str:
     """The zoom as a function of the range's frame index `on`: `base_z` outside the punches, a punch's level inside it. `punches` is [(a, b, level)]
-    in the range's own frame index, b excluded (so the last frame is b - 1), earliest first and never overlapping. No punch gives `base_z` itself."""
+    in the range's own frame index, b excluded (so the last frame is b - 1), earliest first and never overlapping. No punch gives `base_z` itself.
+    `frame` is the expression that is the 0-based frame index in the filter that reads it (`on` in zoompan; `on-1` in perspective: see `zoom_filter_linear`)."""
     out = base_z
     for a, b, level in reversed(list(punches or [])):
-        out = "if(between(on,%d,%d),%.5f,%s)" % (a, b - 1, level, out)
+        out = "if(between(%s,%d,%d),%.5f,%s)" % (frame, a, b - 1, level, out)
     return out
 
 
@@ -341,7 +342,9 @@ def zoom_filter_linear(z0: float, z1: float, frames: int, anchor: tuple, w: int,
     ax, ay = anchor
     z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "(%.5f+%.6f*on)" % (z0, (z1 - z0) / max(1, frames - 1))
     if punches:
-        z = "(%s)" % punch_expression(punches, z)
+        # perspective counts `on` from 1 (frame i reads on = i + 1; vf_perspective adds one), zoompan from 0: a punch row is in 0-based frames, so it
+        # reads `on-1` here, or the reference would switch one frame before the page and the encoder (found live 2026-11-10: psnr 20.9 at frames 51 and 66)
+        z = "(%s)" % punch_expression(punches, z, "on-1")
     x0, y0 = "%.2f*(1-1/%s)" % (ax, z), "%.2f*(1-1/%s)" % (ay, z)
     wz, hz = "%d/%s" % (w, z), "%d/%s" % (h, z)
     return ("perspective=x0='%s':y0='%s':x1='%s+%s':y1='%s':x2='%s':y2='%s+%s':x3='%s+%s':y3='%s+%s':interpolation=linear:eval=frame:sense=source"
@@ -372,8 +375,8 @@ FROM_RGB = "scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,forma
 def grade_filters(grades: list) -> list:
     """The filters of the grades of one kept range, in the range's own frame index `n` (a to b, b excluded), as a list of strings (empty for none):
     a flash or a dip is one `drawbox` over the whole frame per frame of its ramp (white or black at the ramp's alpha), a tint one `drawbox` in the
-    accent colour over its span, mono the CSS grayscale matrix over its span (`colorchannelmixer`, between two bt709 conversions, last, and only in
-    a range that has a mono row). Only the frames of a grade are touched (the conversions around mono run on every frame of that range)."""
+    accent colour over its span, mono the CSS grayscale matrix over its span (`colorchannelmixer`, between two bt709 conversions, FIRST, and only in
+    a range that has a mono row: the page's mono is a filter on the video below the `#fx` colour layer, so a tint or a flash over a grey frame stays coloured). Only the frames of a grade are touched (the conversions around mono run on every frame of that range)."""
     out, mono = [], []
     for g in grades:
         if g["kind"] in ("flash", "dip"):
@@ -384,7 +387,7 @@ def grade_filters(grades: list) -> list:
             out.append("drawbox=x=0:y=0:w=iw:h=ih:t=fill:color=0x%s@%.3f:enable='between(n,%d,%d)'" % (g["color"].lstrip("#").upper(), g["alpha"], g["a"], g["b"] - 1))
         elif g["kind"] == "mono":
             mono.append("colorchannelmixer=%s:enable='between(n,%d,%d)'" % (MONO_MATRIX, g["a"], g["b"] - 1))
-    return out + ([TO_RGB] + mono + [FROM_RGB] if mono else [])
+    return ([TO_RGB] + mono + [FROM_RGB] if mono else []) + out
 
 
 def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False, first_index: int = 0) -> list:

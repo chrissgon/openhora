@@ -46,6 +46,8 @@ FLASH_FRAMES_MAX = 4            # the hard bounds of a grade (D9, principle 13):
 DIP_FRAMES_MAX = 6
 FLASHES_MAX = 2                 # flashes and dips together in one video
 GRADE_SECONDS_MAX = 4.0         # mono and tint
+FLASH_ALPHA_MAX = 0.85          # the strongest frame of a flash or a dip, and the tint's alpha: the spec's own values, which the configuration may lower and never raise
+TINT_ALPHA_MAX = 0.18
 PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is not drawn
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
@@ -679,7 +681,7 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
         k = _range_of(table, sf)
         row = {"id": e["id"], "kind": kind, "start_frame": sf, "range": k}
         if kind in ("flash", "dip"):
-            alphas = list(cfg[kind + "_alphas"])[:FLASH_FRAMES_MAX if kind == "flash" else DIP_FRAMES_MAX]
+            alphas = [min(FLASH_ALPHA_MAX, max(0.0, float(a))) for a in cfg[kind + "_alphas"]][:FLASH_FRAMES_MAX if kind == "flash" else DIP_FRAMES_MAX]
             row["end_frame"] = min(sf + len(alphas), table[k][1])
             row["alphas"] = alphas[:row["end_frame"] - sf]
         else:
@@ -688,7 +690,7 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
             length = min(max(int(round(by_index[e["word_to"]]["end"] * fps)) - sf, low), high)
             row["end_frame"] = min(sf + length, table[k][1])
             if kind == "tint":
-                row["alpha"] = cfg["tint_alpha"]
+                row["alpha"] = min(TINT_ALPHA_MAX, max(0.0, float(cfg["tint_alpha"])))
                 row["color"] = edl["theme"]["colors"]["accent"]
         if row["end_frame"] <= row["start_frame"]:
             dropped.append({"id": e["id"], "reason": "grade_short"})

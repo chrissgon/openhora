@@ -136,7 +136,7 @@ def test_a_punch_is_constant_and_capped():
     assert "if(between(on,%d,%d),%.5f,1.10000+0.000148*on)" % (a, b - 1, zp) in text and text.startswith("zoompan=z='if(between")
     assert zp == row["zoom"]                      # one level over the whole span: the expression holds one number
     linear = _media.zoom_filter_linear(1.1, 1.122, 150, ANCHOR, 1080, 1920, [(a, b, zp)])
-    assert "1/(if(between(on,%d,%d),%.5f,(1.10000+0.000148*on)))" % (a, b - 1, zp) in linear
+    assert "1/(if(between(on-1,%d,%d),%.5f,(1.10000+0.000148*on)))" % (a, b - 1, zp) in linear      # perspective counts `on` from 1
     plain = _media.zoom_filter(1.0, 1.0, 150, ANCHOR, 1080, 1920, 30, 2, [(5, 40, 1.12)])        # an unzoomed range with a punch needs a zoompan, not a scale
     assert plain.startswith("zoompan=z='if(between(on,5,39),1.12000,1.00000)'")
 
@@ -345,18 +345,18 @@ def test_the_page_and_the_reference_use_the_same_rows():
     for k, fx in table.items():
         for a, b, zp in fx["punches"]:
             assert [a, b, zp] in punched[k][6]
-            assert "between(on,%d,%d),%.5f" % (a, b - 1, zp) in ref and "between(on,%d,%d),%.5f" % (a, b - 1, zp) in comp
+            assert "between(on-1,%d,%d),%.5f" % (a, b - 1, zp) in ref and "between(on,%d,%d),%.5f" % (a, b - 1, zp) in comp      # the reference's filter counts from 1
     grades = parts["vars"]["grades"]
     assert [g[0] for g in grades] == ["flash", "mono", "tint"]
     assert grades[0][1:3] == [timeline["grades"][0]["start_frame"], timeline["grades"][0]["end_frame"]]
     for kind in ("0xFFFFFF@0.850", "colorchannelmixer", "0xFFC93C@0.180"):
         assert kind in ref and kind in comp
     one = _hf_gate.reference_graph(edl, DATA, "[1:v:0]", only=1, effects=table)           # one range alone: the same rows by the range's number
-    assert any("between(on,%d,%d)" % (a, b - 1) in line for line in one for a, b, _ in table[1]["punches"])
+    assert any("between(on-1,%d,%d)" % (a, b - 1) in line for line in one for a, b, _ in table[1]["punches"])
     nothing = _hf_gate.reference_graph(edl, DATA, "[1:v:0]", only=1)
     assert not any("between(on" in line for line in nothing)
     pixel = _hf_gate.pixel_argv_range("ffmpeg", "i.mov", "p.mp4", edl, DATA, _edl.range_faces(edl, DATA), 1, table)
-    assert "between(on" in pixel[pixel.index("-filter_complex") + 1]
+    assert "between(on-1" in pixel[pixel.index("-filter_complex") + 1]
 
 
 def test_the_page_draws_punches_from_the_frame_index_and_keeps_the_base_zoom_for_the_other_ranges():
@@ -499,3 +499,108 @@ def test_the_graph_runs_on_a_synthetic_picture_and_the_mono_frames_have_no_colou
     assert max(chroma_spread(24 + n) for n in (0, 3, 20)) > 20                  # the frames next to them keep their colour
     plain = sizes["plain-zoompan"]
     assert frames[0:size] == plain[0:size] and frames[10 * size:11 * size] != plain[10 * size:11 * size]       # frame 0 is untouched; a punched frame is not
+
+
+# ---------------------------------------------------------------- review of PR 807: the frames both drawings switch on
+
+def frames_of(raw: bytes, w: int, h: int) -> list:
+    size = w * h * 3 // 2
+    return [raw[i * size:(i + 1) * size] for i in range(len(raw) // size)]
+
+
+def ffmpeg_frames(vf: str, w=270, h=480, seconds=2) -> list:
+    done = subprocess.run([K.FFMPEG, "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=size=%dx%d:rate=30:duration=%d" % (w, h, seconds), "-vf", vf,
+                           "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"], capture_output=True, timeout=300)
+    assert done.returncode == 0, done.stderr.decode()[-300:]
+    return frames_of(done.stdout, w, h)
+
+
+@needs_media
+@pytest.mark.parametrize("where", ["start", "middle", "end"])
+@pytest.mark.parametrize("linear", [True, False])
+def test_both_drawings_of_a_punch_switch_on_the_frames_the_page_switches_on(where, linear):
+    """The page punches frames a <= n < b (the rows' own rule). The ffmpeg filters must change exactly those frames: `perspective` counts `on` from 1 and
+    `zoompan` from 0, and a punch drawn one frame early by the reference made the face check fail at the span's first and last frame (live, 2026-11-10)."""
+    frames = 60
+    a, b = {"start": (0, 9), "middle": (20, 29), "end": (51, 60)}[where]
+    anchor = (135.0, 190.0)
+    plain = ffmpeg_frames("format=yuv420p")[:frames]
+    if linear:
+        vf = _media.zoom_filter_linear(1.0, 1.0, frames, anchor, 270, 480, [(a, b, 1.3)])
+    else:
+        vf = _media.zoom_filter(1.0, 1.0, frames, anchor, 270, 480, 30, 1, [(a, b, 1.3)])
+    punched = ffmpeg_frames("format=yuv420p," + vf)[:frames]
+    changed = [n for n in range(frames) if punched[n] != plain[n]]
+    assert changed == list(range(a, b))
+
+
+@needs_media
+def test_mono_under_a_tint_leaves_the_tint_coloured_as_the_page_does():
+    """The page's mono is a filter on the video and its tint a layer above it, so a tinted frame that is also grey keeps the tint's colour; the graph
+    must grey the picture first and tint after (it greyed the tint before the review)."""
+    w, h = 270, 480
+    rows = {"first": 0, "frames": 60, "punches": [], "grades": [{"kind": "mono", "a": 16, "b": 32, "alphas": None, "alpha": None, "color": None},
+                                                                 {"kind": "tint", "a": 24, "b": 40, "alphas": None, "alpha": 0.18, "color": "#FFC93C"}]}
+    line = [f for f in _media.grade_filters(rows["grades"])]
+    assert line.index(_media.TO_RGB) < line.index(next(x for x in line if x.startswith("colorchannelmixer"))) < line.index(_media.FROM_RGB) < line.index(next(x for x in line if x.startswith("drawbox")))
+    frames = ffmpeg_frames("format=yuv420p," + ",".join(line))[:60]
+
+    def spread(n):
+        return max(abs(v - 128) for v in frames[n][w * h:])
+
+    assert all(spread(n) <= 3 for n in range(16, 24))             # grey only
+    assert all(spread(n) > 8 for n in range(24, 32))             # grey and tinted: the tint is coloured
+    assert all(spread(n) > 8 for n in range(32, 40)) and spread(10) > 20
+
+
+def parse_reference(graph: list, first_global: dict) -> list:
+    """The grades a reference graph draws, as [kind, from, to] in OUTPUT frames, read from its filter text (flash and dip by their colour)."""
+    found = []
+    ranges = [line for line in graph if "trim=start_frame" in line]
+    for k, line in enumerate(ranges):
+        base = first_global[k]
+        eq = {}
+        for color, n in re.findall(r"drawbox=[^,;]*color=0x(FFFFFF|000000)@[0-9.]+:enable='eq\(n,(\d+)\)'", line):
+            eq.setdefault("flash" if color == "FFFFFF" else "dip", []).append(base + int(n))
+        for kind, frames in eq.items():
+            found.append([kind, min(frames), max(frames) + 1])
+        for color, a, b in re.findall(r"drawbox=[^,;]*color=0x([0-9A-F]{6})@[0-9.]+:enable='between\(n,(\d+),(\d+)\)'", line):
+            found.append(["tint", base + int(a), base + int(b) + 1])
+        for a, b in re.findall(r"colorchannelmixer=[^,;]*:enable='between\(n,(\d+),(\d+)\)'", line):
+            found.append(["mono", base + int(a), base + int(b) + 1])
+    return sorted(found)
+
+
+def test_the_references_grade_frames_are_the_pages_grade_rows_with_mono_and_tint_adjacent():
+    edl = synthetic_edl()
+    beats = beats_of(effects=[effect("e1", "flash", 3, 3), effect("e2", "mono", 12, 13), effect("e3", "tint", 14, 15), effect("e4", "dip", 22, 22)])
+    timeline = resolve(edl, beats)
+    table = _edl.range_effects(edl, timeline)
+    page = sorted([g[0], g[1], g[2]] for g in _hf_page.build_parts(edl, fps=FPS, effects=table)["vars"]["grades"])
+    firsts = {k: f for k, (f, _) in enumerate(_edl.range_table(edl))}
+    reference = parse_reference(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table), firsts)
+    compose = parse_reference(_media.base_graph(dict(PLAN, effects=table)), firsts)
+    assert page == reference == compose
+    mono = [g for g in page if g[0] == "mono"][0]
+    tint = [g for g in page if g[0] == "tint"][0]
+    assert 0 <= tint[1] - mono[2] <= 15            # the two are neighbours in the fixture
+
+
+def test_a_punch_the_renderer_leaves_out_is_reported_and_reaches_the_page_result_and_the_runtime(tmp_path):
+    import _docker
+    edl = synthetic_edl()
+    beats = beats_of([punch(1, 2, 8)], [effect("e1", "punch", 4, 4)])
+    timeline = resolve(edl, beats)
+    assert timeline["effects_dropped"] == [{"id": "e1", "reason": "punch_short"}]
+    clean = _docker.sanitise({"ok": True, "page_sha256": "a" * 64, "vars_sha256": "b" * 64, "clips": 1, "zooms": 0, "duration": 1.0, "fps": 30, "layers": ["cuts"],
+                              "effects_dropped": timeline["effects_dropped"]}, _docker.RESULT_SCHEMAS["hf-page"], "hf-page")
+    assert clean["effects_dropped"] == [{"id": "e1", "reason": "punch_short"}]
+
+
+def test_the_configuration_cannot_raise_the_alphas_past_the_specs_values():
+    edl = synthetic_edl()
+    wide = copy.deepcopy(DATA)
+    wide["effects"].update(flash_alphas=[1.0, 7, -2, 0.5], dip_alphas=[1.0] * 6, tint_alpha=0.9)
+    timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "dip", 9, 9), effect("e3", "tint", 14, 15)]), wide)
+    by = {g["kind"]: g for g in timeline["grades"]}
+    assert by["flash"]["alphas"] == [0.85, 0.85, 0.0, 0.5] and set(by["dip"]["alphas"]) == {0.85} and by["tint"]["alpha"] == 0.18

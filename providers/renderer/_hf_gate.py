@@ -315,6 +315,9 @@ def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, 
             spans.append((first + start, first + i - 1))
             start = None
     shown = " ".join("%d-%d" % span for span in spans[:4]) + (" more" if len(spans) > 4 else "")
+    punch = [p["zoom"] for p in (timeline or {}).get("punches", []) if p["start_frame"] <= first + worst < p["end_frame"]]
+    if punch:      # the zoom of the worst frame is the punch's, not the range's own
+        z0 = z1 = punch[0]
     rows = [("range_frames", "first %d last %d" % (first, last - 1)), ("worst_offset", "offset %d of %d" % (worst, len(values))),
             ("frames_under", "under %d of %d" % (sum(1 for v in values if v < PIXEL_MIN_PSNR_DB), len(values))), ("under_at", "under_at " + shown),
             ("median", "median %.1f" % median), ("zoom", "zoom %.4f to %.4f" % (z0, z1))]

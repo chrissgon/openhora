@@ -355,6 +355,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
     for op, edit, where in decisions:
         _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches)
     out, counts = _rebuild(edited, actions, limits)
+    _check_grades_apart(out["words"], out_review)
     out_review["revision"] += 1
     out["facts"] = dict(out.get("facts") or {}, edited=True, revision=out_review["revision"])
     return out, out_review, counts
@@ -460,6 +461,20 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         _decide_animation(edit, where, words, review, beats, animate)
     elif op == "effect":
         _decide_effect(edit, where, words, review, punches)
+
+
+def _check_grades_apart(words: list, review: dict) -> None:
+    """A merge can bring the words of two grades into one word, and the renderer refuses two grades over the same word (`effect_overlap`): the edit that
+    would do it is refused here, with nothing changed, so the review never holds what the render would refuse."""
+    spans = []
+    for item in review["effects"]:
+        if item["kind"] in GRADE_KINDS:
+            now = span_current(words, item["from"], item["to"])
+            if now is not None:
+                spans.append(now)
+    for k, a in enumerate(spans):
+        if any(a[0] <= b[1] and b[0] <= a[1] for b in spans[k + 1:]):
+            raise CaptionError("effect_overlap", "edits")
 
 
 def _decide_effect(edit: dict, where: str, words: list, review: dict, punches) -> None:
