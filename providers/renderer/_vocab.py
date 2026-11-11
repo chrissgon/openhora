@@ -70,7 +70,7 @@ def _check_preset(name: str, preset: dict) -> None:
 def _merge_review_presets(vocab: dict) -> None:
     """Add the renderer's review-only presets (section `review_presets` of renderer-presets.json) to the vocabulary's own, each marked
     `review_only`. The script never names one (`_align.read_script` refuses it); the person adds them at review. A name the
-    vocabulary already holds as its own (not marked review-only) is refused, so a script preset can never be shadowed."""
+    vocabulary already holds is refused unless that entry equals the merged one exactly, so a script preset can never be shadowed."""
     review = load_data().get("review_presets", {})
     try:
         assert isinstance(review, dict)
@@ -79,9 +79,10 @@ def _merge_review_presets(vocab: dict) -> None:
     except (AssertionError, KeyError, TypeError):
         raise Refusal("not_a_vocabulary", "review_presets") from None
     for name, preset in review.items():
-        if name in vocab["presets"] and not vocab["presets"][name].get("review_only"):       # a vocabulary already merged (written back out) holds them marked
+        merged = dict(preset, review_only=True)
+        if name in vocab["presets"] and vocab["presets"][name] != merged:       # only a vocabulary already merged (written back out) may hold one, and then exactly equal
             raise Refusal("vocabulary_clash", name)
-        vocab["presets"][name] = dict(preset, review_only=True)
+        vocab["presets"][name] = merged
 
 
 def review_only(vocab: dict, preset) -> bool:

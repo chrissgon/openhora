@@ -96,13 +96,34 @@ function markPath(mark, w, h) {
   }
   return '';
 }
+// Writes `lines` into the text element, shrinks the type from `size` toward `floor` until the text and the room of `mark` fit the band and the
+// 950 px width, and returns {mark, w, h, room} (the measured text box and the room around it), or null when they do not fit at the floor.
+function place(txt, lines, mark, size, floor, bandH) {
+  txt.replaceChildren();
+  lines.forEach(function (line) {
+    const el = document.createElement('span');
+    el.className = 'ln';
+    el.textContent = line;
+    txt.appendChild(el);
+  });
+  let fs = size;
+  for (let guard = 0; guard < 80; guard++) {
+    txt.style.fontSize = fs.toFixed(1) + 'px';
+    const r = txt.getBoundingClientRect();
+    const w = Math.round(r.width), h = Math.round(r.height);
+    const room = extent(mark, w, h);
+    if (h + room.t + room.b <= bandH * GROUP_FIT && w + room.l + room.r <= 950) return { mark: mark, w: w, h: h, room: room };
+    if (fs <= floor) return null;
+    fs = Math.max(floor, fs * 0.94);
+  }
+  return null;
+}
 window.renderAt = function (t, data) {
   const P = data.params;
   const bandH = band(data);
   const wrap = document.getElementById('wrap');
   const txt = document.getElementById('txt');
   const svg = document.getElementById('mk');
-  const mark = P.mark || 'underline';
   const color = col(P.color || 'accent');
   wrap.dataset.zone = 'card';
   wrap.style.transform = 'none';
@@ -110,23 +131,18 @@ window.renderAt = function (t, data) {
   txt.style.transform = 'none';
   txt.replaceChildren();
   svg.replaceChildren();
-  const shape = fit(P.text, bandH, mark === 'arrow' ? 950 - 130 : (mark === 'circle' ? 950 - 68 : 950));
-  shape.lines.forEach(function (line) {
-    const el = document.createElement('span');
-    el.className = 'ln';
-    el.textContent = line;
-    txt.appendChild(el);
-  });
-  let fs = shape.size;
-  txt.style.fontSize = fs.toFixed(1) + 'px';
-  let w = 0, h = 0, room = extent(mark, 0, 0);
-  for (let guard = 0; guard < 60; guard++) {
-    const r = txt.getBoundingClientRect();
-    w = Math.round(r.width);
-    h = Math.round(r.height);
-    room = extent(mark, w, h);
-    if ((h + room.t + room.b > bandH * GROUP_FIT || w + room.l + room.r > 950) && fs > FS_MIN) { fs = fs * 0.94; txt.style.fontSize = fs.toFixed(1) + 'px'; } else break;
-  }
+  const asked = P.mark || 'underline';
+  const widthOf = function (m) { return m === 'arrow' ? 950 - 130 : (m === 'circle' ? 950 - 68 : 950); };
+  const first = fit(P.text, bandH, widthOf(asked));
+  // what is tried, in order, until text and mark fit the band: the asked mark on the lines fit() chose (down to the type floor), the same
+  // mark on one line, the smallest mark (an underline) on one line down to a smaller floor; none fits: the render is refused, never drawn across the band
+  const tries = [[first.lines, asked, first.size, FS_MIN]];
+  if (first.lines.length > 1) tries.push([[P.text], asked, first.size, FS_MIN]);
+  if (asked === 'circle' || asked === 'arrow') tries.push([[P.text], 'underline', Math.min(first.size, FS_MAX), 12]);
+  let got = null;
+  for (let k = 0; k < tries.length && !got; k++) got = place(txt, tries[k][0], tries[k][1], tries[k][2], tries[k][3], bandH);
+  if (!got) throw new Error('mark_does_not_fit');
+  const mark = got.mark, w = got.w, h = got.h, room = got.room;
   wrap.style.padding = room.t + 'px ' + room.r + 'px ' + room.b + 'px ' + room.l + 'px';
   const tin = clamp(t / 0.25);
   txt.style.transform = 'scale(' + (0.5 + 0.5 * easeOutBack(tin, 2.0)).toFixed(4) + ')';

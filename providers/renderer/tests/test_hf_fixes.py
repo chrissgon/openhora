@@ -10,6 +10,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -79,6 +80,8 @@ def test_fit_never_exceeds_the_band(tmp_path):
         lines, size = shape["lines"], shape["size"]
         assert " ".join(lines) == text and 1 <= len(lines) <= 2 and size <= 150, (text, band)
         assert (1.1 * len(lines) + 0.73) * size <= band * 0.84 + 1e-9 or size <= 26, (text, band, size)      # it fits, or it is at the floor
+        longest = max(len(line) for line in lines)
+        assert size * (0.62 * longest + 1.2 + 1.2) <= 950 + 1e-6, (text, band, size)                           # and it fits the 950 px width, floor or not
 
 
 def test_the_stage_layout_is_set_inline():
@@ -214,17 +217,8 @@ def test_the_gate_constants_are_unchanged():
 
 
 def test_the_hyperframes_image_files_are_unchanged():
-    """V9a draws on the HyperFrames image as it is: none of the files its manifest lists differs from origin/main (the image tag is
-    their hash, and the supervisor rebuilds only the common image). Skips where git or origin/main is not there."""
-    git = shutil.which("git")
-    folder = K.RENDERER / "hyperframes-image"
-    if not git:
-        pytest.skip("git is not installed")
-    probe = subprocess.run([git, "-C", str(K.REPO), "rev-parse", "--verify", "--quiet", "origin/main"], capture_output=True, text=True)
-    if probe.returncode != 0:
-        pytest.skip("origin/main is not known to this checkout")
-    files = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))["files"]
-    paths = [str((folder / name).relative_to(K.REPO)) for name in files]
-    done = subprocess.run([git, "-C", str(K.REPO), "diff", "--name-only", "origin/main", "--"] + paths, capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr[:300]
-    assert done.stdout.split() == [], done.stdout
+    """V9a draws on the HyperFrames image as it is: the tag, the hash of the files its manifest lists, is the one the folder gave at 7ba825b.
+    A package that changes the image updates this pin (and says so in its decision file)."""
+    sys.path.insert(0, str(K.RENDERER / "hyperframes-image"))
+    import hf_image
+    assert hf_image.image_tag(str(K.RENDERER / "hyperframes-image")) == "openhora-hyperframes:e5f2134dd1b8"

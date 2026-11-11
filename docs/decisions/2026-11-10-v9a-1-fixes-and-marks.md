@@ -32,11 +32,13 @@ A change of any gate number or zone: none moved (`test_the_gate_constants_are_un
 
 - The build script of `hf:spring-pop` makes each text line by cloning a prototype `span` of its own markup, not with `document.createElement`: the
   gsap lint refuses every `document.` access in a build script (`page_reach`), so the spec's call could not be written.
-- A vocabulary that already holds a review-only preset of the same name (a merged vocabulary written back to a file) is read again without a clash; a name
-  that the vocabulary holds as its own preset (not marked) is still refused `vocabulary_clash`.
+- A vocabulary that already holds a preset of a review preset's name is read again without a clash only when that entry equals the merged entry exactly
+  (a merged vocabulary written back to a file); any other entry of that name, marked or not, is refused `vocabulary_clash`.
 - `oh:mark` takes `WIDTH = 950 - 68` for a circle as well as `950 - 130` for an arrow, and shrinks the text until the text, its mark's room and the pop's
-  overshoot fit 86 percent of the band; the zone element it marks is the text plus that room, so the face check sees the stroke. `oh:sticker` is 220 px or
-  70 percent of the band, whichever is less. `oh:nametag` shrinks until the plate also fits the band.
+  overshoot fit 86 percent of the band; when it cannot at the type floor it tries one line, then an underline on one line at a smaller floor, and if even that
+  does not fit it throws `mark_does_not_fit` (the render is refused, never drawn across the band). The zone element it marks is the text plus that room, so the
+  face check sees the stroke. `oh:sticker` is 220 px or 70 percent of the band, whichever is less. `oh:nametag` shrinks until the plate fits the band less a
+  gap (24 px, at most a tenth of a short band) and its top is never above the band's top.
 - `blocks/oh/nametag` and `blocks/oh/sticker` and `blocks/oh/mark` hold samples with fictional names only.
 
 **Verified offline.** The pure functions of both ports (`fit`, `spans`, and the whole highlight `build` against a stub of the elements it touches) run in
@@ -45,3 +47,8 @@ the clash, the script refusal, the skill checker's refusal and both engine files
 unchanged. **Not verified:** how any of it looks (the C10 contact sheets, STOP D), why the keyword drew at the top left (live leg L2), determinism of the
 renders at 4 and 2 cores (live leg L1), the pages in a real browser (the browser tests of `test_renderer_engine.py` now include the three presets and
 skip where no Chromium is installed). The NOTICE rows of the two changed ports wait for the maintainer's word (STOP E).
+
+**Review notes.** The one-line edit of `runtime/tests/test_media_animation.py` (the set of addable blocks) was outside the V9a-1 row (stop rule 3 of the
+spec); the supervisor accepted it after review because the change is the intended one. `hf:spring-pop` keeps a 950 px width, which leaves text heavy in
+wide capitals (W, M) at risk of the instance's overflow clip: to be checked at C10 with a capitals sample. The HyperFrames image is guarded by its tag
+(`openhora-hyperframes:e5f2134dd1b8`, the value at 7ba825b) in `test_hf_fixes.py`; a package that changes the image updates that pin.

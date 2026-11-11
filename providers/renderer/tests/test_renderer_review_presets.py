@@ -177,7 +177,7 @@ def test_the_mark_page_sizes_its_text_by_the_keyword_rule(tmp_path):
     assert out[0]["lines"] == ["Name every", "dollar"] and round(out[0]["size"], 1) == 110.5
     assert out[1]["lines"] == ["Save money"] and round(out[1]["size"], 1) == 110.5
     assert out[2]["size"] == 140                                              # FS_MAX of the mark page
-    assert out[3]["size"] < out[0]["size"] or out[3]["size"] == out[0]["size"] == 950 / 8.6 and round(out[3]["size"], 1) <= 110.5
+    assert round(out[3]["size"], 1) == round(820 / 8.6, 1) == 95.3          # the arrow's 130 px come off the width, so the same text is smaller
 
 
 @needs_node
@@ -199,7 +199,114 @@ console.log(JSON.stringify(out));
     assert out["circle"][2]["l"] == out["circle"][2]["r"] and out["circle"][2]["t"] == out["circle"][2]["b"] > 28
 
 
-# ---------------------------------------------------------------- the other two pages keep to their bands
+# ---------------------------------------------------------------- the pages keep to their bands (renderAt run in node on a small stand-in for the DOM)
+
+DOM_STUB = r"""
+global.window = {};
+const els = {};
+function mk(id) {
+  const o = {id: id, style: {}, dataset: {}, attrs: {}, children: [], _t: ''};
+  o.setAttribute = function (k, v) { o.attrs[k] = v; };
+  o.replaceChildren = function () { o.children = []; };
+  o.appendChild = function (c) { o.children.push(c); return c; };
+  Object.defineProperty(o, 'textContent', {get() { return o._t; }, set(v) { o._t = v; }});
+  return o;
+}
+function get(id) { return els[id] || (els[id] = mk(id)); }
+global.document = {getElementById: get, createElement: function () { return mk('span'); }, createElementNS: function () { return mk('ns'); }};
+const px = function (v) { return parseFloat(v); };
+const lines = function (o) { return o.children.map(function (c) { return c.textContent; }); };
+"""
+
+BANDS = (80, 100, 120, 152, 198, 320, 492)
+
+
+def run_page(tmp_path, name: str, setup: str, cases):
+    program = DOM_STUB + page_script(name) + "\nconst input = JSON.parse(process.argv[2]);\n" + setup
+    return run_node(program, tmp_path, cases)
+
+
+@needs_node
+def test_the_sticker_stays_inside_the_band_at_every_band_height_and_side(tmp_path):
+    setup = """
+console.log(JSON.stringify(input.map(function (c) {
+  const data = {params: {glyph: 'bulb', side: c[1]}, zones: {card: [110, 110 + c[0]]}, duration: 2};
+  const out = [];
+  [0, 0.05, 0.2, 0.3, 1, 1.9].forEach(function (t) {
+    window.renderAt(t, data);
+    const s = get('st');
+    out.push({size: px(s.attrs.width), top: px(s.style.top), left: px(s.style.left), scale: px(/scale\\(([0-9.]+)\\)/.exec(s.style.transform)[1])});
+  });
+  return out;
+})));
+"""
+    cases = [[b, side] for b in BANDS for side in ("left", "center", "right")]
+    for (band, side), frames in zip(cases, run_page(tmp_path, "sticker", setup, cases)):
+        for f in frames:
+            assert f["size"] <= 220 + 1e-6 and f["top"] >= 110 - 1e-6 and f["top"] + f["size"] <= 110 + band + 1e-6, (band, side, f)      # at rest and at the tilt's box
+            assert f["size"] * f["scale"] * 1.14 <= band + 1e-6 or f["scale"] <= 1.0, (band, side, f)      # a square tilted 8 degrees is 1.14 times its side: the pop's overshoot stays in the band
+
+
+@needs_node
+def test_the_nametag_stays_inside_the_band_at_every_band_height(tmp_path):
+    setup = """
+console.log(JSON.stringify(input.map(function (c) {
+  const data = {params: c[1] ? {name: c[2], role: c[1]} : {name: c[2]}, zones: {card: [110, 110 + c[0]]}, duration: 3};
+  window.renderAt(1.5, data);
+  const p = get('plate');
+  return {top: px(p.style.top), height: p.offsetHeight, nm: get('nm').offsetWidth, rl: get('rl').offsetWidth};
+})));
+"""
+    stand_in = """
+['plate', 'nm', 'rl'].forEach(get);
+const wide = function (o) { return o._t.length * 0.62 * px(o.style.fontSize || '0'); };
+Object.defineProperty(get('nm'), 'offsetWidth', {get() { return wide(get('nm')); }});
+Object.defineProperty(get('rl'), 'offsetWidth', {get() { return wide(get('rl')); }});
+Object.defineProperty(get('plate'), 'offsetHeight', {get() { return 30 + px(get('nm').style.fontSize) * 1.1 + (get('rl').style.display === 'none' ? 0 : px(get('rl').style.fontSize) * 1.15); }});
+"""
+    cases = [[b, role, name] for b in BANDS for role in ("", "Founder, Quill & Moss") for name in ("Aster Lane", "A very long name indeed, Bram Hollow-Quill")]
+    for (band, role, name), got in zip(cases, run_page(tmp_path, "nametag", stand_in + setup, cases)):
+        assert got["top"] >= 110 - 1e-6 and got["top"] + got["height"] <= 110 + band + 1e-6, (band, role, name, got)
+        assert got["nm"] <= 900 + 1e-6 and got["rl"] <= 900 + 1e-6, (band, role, name, got)
+
+
+@needs_node
+def test_the_mark_keeps_text_and_room_inside_the_band_or_refuses(tmp_path):
+    setup = """
+console.log(JSON.stringify(input.map(function (c) {
+  const data = {params: {text: c[1], mark: c[2]}, zones: {card: [110, 110 + c[0]]}, duration: 2};
+  try { window.renderAt(1.0, data); } catch (e) { return {error: String(e.message)}; }
+  const w = get('wrap'), t = get('txt');
+  const pad = w.style.padding.split(' ').map(px);
+  const size = px(t.style.fontSize);
+  const ls = lines(t);
+  return {pad: pad, size: size, lines: ls, width: Math.max.apply(null, ls.map(function (l) { return l.length; })) * 0.62 * size, height: ls.length * 1.1 * size};
+})));
+"""
+    stand_in = """
+const t = get('txt');
+t.getBoundingClientRect = function () {
+  const fs = px(t.style.fontSize);
+  const ls = lines(t);
+  return {width: Math.max.apply(null, ls.map(function (l) { return l.length; })) * 0.62 * fs, height: ls.length * 1.1 * fs};
+};
+"""
+    cases = [[b, text, mark] for b in BANDS for text in ("Go", "Name every dollar", "Review every single week") for mark in ("underline", "circle", "arrow", "none")]
+    for (band, text, mark), got in zip(cases, run_page(tmp_path, "mark", stand_in + setup, cases)):
+        if "error" in got:
+            assert got["error"] == "mark_does_not_fit", (band, text, mark, got)      # a refusal with a clear code, never a drawing across the band
+            continue
+        top, right, bottom, left = got["pad"]
+        assert got["height"] + top + bottom <= band * 0.86 + 1e-6, (band, text, mark, got)
+        assert got["width"] + left + right <= 950 + 1e-6, (band, text, mark, got)
+    assert refused_never(run_page, tmp_path, stand_in + setup, cases)
+
+
+def refused_never(run, tmp_path, program_setup, cases) -> bool:
+    """No band from the Add-an-animation minimum (80 px) up is refused for any of the texts: the fallbacks always find a fit there."""
+    got = run(tmp_path, "mark", program_setup, cases)
+    return not any("error" in g for g in got)
+
 
 def test_the_sticker_and_nametag_pages_state_their_numbers():
     sticker, nametag = page_script("sticker"), page_script("nametag")
@@ -208,3 +315,18 @@ def test_the_sticker_and_nametag_pages_state_their_numbers():
     assert "NAME_PX = 52, ROLE_PX = 34, MAX_TEXT = 900" in nametag and "BOTTOM_GAP = 24" in nametag and "left:60px" in page_of("nametag")
     assert "clamp(t / 0.3)" in nametag and "clamp((data.duration - t) / 0.25)" in nametag and "-40 *" in nametag
     assert "var(--c-bg)" in page_of("nametag") and "font-weight:var(--weight-display)" in page_of("nametag")
+
+
+def test_a_review_entry_already_in_the_vocabulary_must_equal_the_merged_one(tmp_path):
+    merged = json.loads(json.dumps(VOCAB))
+    path = tmp_path / "v.json"
+    path.write_text(json.dumps(merged), encoding="utf-8")
+    assert load_vocabulary(str(path))["presets"]["mark"] == VOCAB["presets"]["mark"]            # equal: read again
+    changed = json.loads(json.dumps(VOCAB))
+    changed["presets"]["mark"]["summary"] = "something else"
+    path.write_text(json.dumps(changed), encoding="utf-8")
+    assert refused(load_vocabulary, str(path)).code == "vocabulary_clash"                       # marked review_only but not equal
+    unmarked = json.loads(json.dumps(VOCAB))
+    del unmarked["presets"]["sticker"]["review_only"]
+    path.write_text(json.dumps(unmarked), encoding="utf-8")
+    assert refused(load_vocabulary, str(path)).code == "vocabulary_clash"                       # the vocabulary's own preset of that name
