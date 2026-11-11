@@ -24,6 +24,7 @@ import zlib
 import _blocks
 import _edl
 import _frames
+import _layout
 import _media
 from _output import (check_documents, check_recording, make_cover, make_still, png_size, read_platform, time_limit_for,  # noqa: F401  (moved: the render and its callers still find them here)
                      write_once)
@@ -67,13 +68,15 @@ def font_urls_of(data, edl, font_serve) -> dict:
 
 
 def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames") -> dict:
+    _layout.pip_cards(data, timeline, assets)      # a pip with no room is taken out of the timeline here, before any frame is drawn
     pips = []
     for e in timeline["beats"]:
         if e["preset"] == "pip":
             slot = e["params"]["asset"]
-            geom = _frames.pip_geometry(data, e["params"].get("position", "top"))
+            card = _frames.pip_geometry(data, e)
             pips.append({"asset": "assets/%s.%s" % (slot, assets[slot]["kind"]), "kind": assets[slot]["kind"],
-                         "start_frame": e["start_frame"], "end_frame": e["end_frame"], "x": geom["x"], "y": geom["y"]})
+                         "start_frame": e["start_frame"], "end_frame": e["end_frame"], "x": card["x"], "y": card["y"], "w": card["w"], "h": card["h"],
+                         "radius": data["presets"]["pip"]["looks"]["radius_px"]})
     layers = []
     if timeline["beats"]:
         layers.append("beat")
@@ -83,7 +86,7 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
     plan = {"zoom": edl["zoom"], "face": {"cx": face["x"] + face["w"] // 2, "cy": face["y"] + face["h"] // 2, "w": face["w"], "h": face["h"]},
             "anchor": _media.anchor_point(face, edl["zoom"]["anchor_y"]),
             "fade": data["zoom"]["audio_fade_seconds"], "src": src, "fps": edl["fps"], "size": edl["size"], "has_audio": edl["source"]["has_audio"], "src_matrix": edl["source"]["color_matrix"],
-            "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips, "pip_size": data["pip"]["size"],
+            "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips,
             "out_frames": edl["out_frames"], "max_bytes": _media.byte_limit(platform), "out_name": "out.mp4"}
     effects = _edl.range_effects(edl, timeline)      # the punches and grades, by kept range (V9a-3): the plan of a render with none has no such key
     if effects:
@@ -136,7 +139,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
-               "beats_dropped": timeline["dropped"], "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
+               "beats_dropped": timeline["dropped"], **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"], "ffmpeg_argv": argv, "estimated_bytes": estimate}
     if dry_run:
         return summary

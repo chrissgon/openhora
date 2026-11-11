@@ -486,3 +486,8 @@ Not listed: the degraded-mode cases proposed for `design-execute`, `design-syste
   - What: "Ana Lima" does not fit the word slot `to` (the checker refuses it, `E_SPAN`), so the slot is left out and the question has no name; the prompt's slot-kind paragraph already says so.
   - Trigger: a real line gives the recipient as two words and the question loses the name.
   - Done when: the slot is a span, or code reads the name from the line, and the case is tested.
+- **V9E-SPLIT-SCREEN. A split-screen preset (the image on the top half, the speaker on the bottom half).**
+  - From: `docs/decisions/2026-11-11-v9e-pip-card.md`.
+  - What: the labelled reference videos hold 17 split-screen events in 9 videos, against 15 image-card events in 4 videos for the pip; the pip's card (V9e) does not cover it. The maintainer approved it as the next candidate on 2026-11-11.
+  - Trigger: the maintainer asks for the next layout preset after the pip's card.
+  - Done when: a preset (a vocabulary change, so a decision of its own) draws the asset in the top half and the speaker in the bottom half, with its tests and the HyperFrames engine's answer.

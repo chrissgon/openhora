@@ -15,7 +15,8 @@
   }
  },
  "pip": {
-  "size": 380
+  "card_max_height": 640,
+  "card_min_height": 240
  },
  "theme": {
   "colors": {
@@ -119,7 +120,10 @@
    "max_duration": null,
    "tail": 0.2,
    "settled": 0.5,
-   "looks": {}
+   "looks": {
+    "radius_px": 24,
+    "shadow": "0 14px 40px rgba(0,0,0,0.55)"
+   }
   },
   "mark": {
    "anchor": "match_text",

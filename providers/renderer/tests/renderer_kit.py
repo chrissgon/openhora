@@ -467,7 +467,10 @@ def run_verb(*args, env=None, timeout=900):
     return done.returncode, out, done.stderr
 
 
-def pipeline(tmp, transcript=None, post_text=POST, jobs=2, extra_render=()):
+PIP_FACE_BOX = "240,300,600,480"      # a face high enough for the pip's card to fit below it (V9e: the default box leaves 224 px, under the card's minimum)
+
+
+def pipeline(tmp, transcript=None, post_text=POST, jobs=2, extra_render=(), face_box=PIP_FACE_BOX):
     """analyse, base, align, render a fictional recording end to end; returns the files and the render summary."""
     tmp = Path(tmp)
     tr = transcript or build_transcript()
@@ -480,7 +483,8 @@ def pipeline(tmp, transcript=None, post_text=POST, jobs=2, extra_render=()):
     files = {"src": src, "asset": asset, "post": post, "transcript": write_json(tmp / "transcript.json", tr)}
     rc, out, err = run_verb("analyse", "--in", src, "--out", tmp / "analysis.json")
     assert rc == 0, err
-    rc, out, err = run_verb("base", "--transcript", files["transcript"], "--analysis", tmp / "analysis.json", "--out", tmp / "edl.json")
+    rc, out, err = run_verb("base", "--transcript", files["transcript"], "--analysis", tmp / "analysis.json", "--out", tmp / "edl.json",
+                            *(["--face-box", face_box] if face_box else []))
     assert rc == 0, err
     rc, out, err = run_verb("align", "--post", post, "--transcript", files["transcript"], "--checker", CHECKER, "--vocabulary", VOCABULARY,
                             "--out", tmp / "beats.json")

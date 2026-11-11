@@ -481,7 +481,7 @@
    "license": [
     "MIT"
    ],
-   "may_cross_face": true,
+   "may_cross_face": false,
    "name": "oh:pip",
    "namespace": "oh",
    "natural_duration": 1.5,
@@ -518,7 +518,7 @@
     }
    ],
    "source": "openhora",
-   "use_when": "a picture or a clip supports the line while the speaker stays on screen"
+   "use_when": "a picture or a clip supports the line while the speaker stays on screen, in a card below the face"
   },
   {
    "band": "card",
@@ -626,7 +626,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "d01e6477e5bdfe065d1375f2843023e66c7960259cf0efb714dc580cc04d319e",
+ "blocks_sha256": "5ce2dd1a2cef653f5e71d50017c9296b35841dc0fabea248fe12230013e13d14",
  "engines": {
   "ffmpeg": {
    "presets": {
