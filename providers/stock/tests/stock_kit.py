@@ -253,3 +253,19 @@ def query_impl():
     impl.auth = lambda src, key: ({}, {"key": key})
     impl.__doc__ = "a synthetic source that takes its key in the query string"
     return impl
+
+
+class FakeContext:
+    """A stand-in for ssl.SSLContext with the attributes http.client reads (verify_mode, check_hostname, post_handshake_auth) and a wrap_socket
+    that records the host name it was given; `fail` makes the handshake raise, `result` is what wrap_socket returns."""
+
+    def __init__(self, result=None, fail=False):
+        import ssl
+        self.verify_mode, self.check_hostname, self.post_handshake_auth = ssl.CERT_REQUIRED, True, None
+        self.result, self.fail, self.hostname = result, fail, None
+
+    def wrap_socket(self, sock, server_hostname=None):
+        self.hostname = server_hostname
+        if self.fail:
+            raise OSError("handshake")
+        return sock if self.result is None else self.result

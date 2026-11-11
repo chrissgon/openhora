@@ -1,10 +1,11 @@
-"""Every test of this suite reaches no network but loopback (providers/loopback_only.py); the stock provider's own sockets are replaced by seams."""
+"""Every test of this suite reaches no network but loopback: the guard of providers/loopback_only.py."""
 import importlib.util
 from pathlib import Path
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location("providers_loopback_only", Path(__file__).resolve().parents[2] / "loopback_only.py")
+_spec = importlib.util.spec_from_file_location("providers_loopback_only",
+                                               Path(__file__).resolve().parents[2] / "loopback_only.py")
 loopback_only = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(loopback_only)
 

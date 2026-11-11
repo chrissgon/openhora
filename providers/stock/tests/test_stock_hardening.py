@@ -244,15 +244,12 @@ def test_the_real_connection_path_opens_the_checked_address_and_reads_no_proxy_v
 
     sock = Sock()
 
-    class Ctx:
-        def wrap_socket(self, s, server_hostname=None):
-            seen["hostname"] = server_hostname
-            return sock
+    ctx = kit.FakeContext(result=sock)
 
-    monkeypatch.setattr(ssl, "create_default_context", lambda *a, **k: Ctx())
+    monkeypatch.setattr(ssl, "create_default_context", lambda *a, **k: ctx)
     monkeypatch.setattr(socket, "create_connection", lambda address, timeout=None: seen.setdefault("address", address) and None or object())
     monkeypatch.setitem(_net.SEAMS, "resolve", kit.FakeNet().resolve)
     monkeypatch.setitem(_net.SEAMS, "opener", None)
     got = _net.get_json("https://%s/v1/x?q=1" % API, {"Authorization": kit.KEY}, 1000, allowed_hosts=[API])
-    assert got == {"a": 1} and seen["address"] == (kit.PUBLIC, 443) and seen["hostname"] == API
+    assert got == {"a": 1} and seen["address"] == (kit.PUBLIC, 443) and ctx.hostname == API
     assert sock.sent.startswith(b"GET /v1/x?q=1 HTTP/1.1\r\n") and b"proxy" not in sock.sent.lower()

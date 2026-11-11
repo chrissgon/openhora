@@ -86,13 +86,16 @@ def _embedded_v4(ip):
 
 
 def _global(ip) -> bool:
-    if ip.version == 6 and (ip in V4_COMPATIBLE or ip in NAT64_LOCAL):
-        return False
-    if ip.is_reserved:
+    """Whether an address may be connected to. The same answer on every Python: ::/96, every NAT64 prefix and the reserved ranges are refused outright
+    (the `is_reserved` property of a mapped address differs between versions, so it is read on the IPv4 address inside), and an IPv4 address carried by a
+    mapped or 6to4 address must itself be global."""
+    if ip.version == 6 and (ip in V4_COMPATIBLE or ip in NAT64 or ip in NAT64_LOCAL):
         return False
     inner = _embedded_v4(ip)
     if inner is not None:
         ip = inner
+    if ip.is_reserved:
+        return False
     return bool(ip.is_global) and not ip.is_multicast
 
 

@@ -81,27 +81,19 @@ def test_one_private_address_among_several_refuses_the_host_and_an_empty_answer_
 def test_the_connection_opens_the_address_that_was_checked_and_names_the_host(monkeypatch):
     seen = {}
 
-    class Ctx:
-        def wrap_socket(self, sock, server_hostname=None):
-            seen["hostname"] = server_hostname
-            return sock
-
     class Sock:
         def close(self):
             seen["closed"] = True
 
     monkeypatch.setattr(socket, "create_connection", lambda address, timeout=None: seen.update(address=address) or Sock())
-    conn = _net._Pinned(IMG, "93.184.216.34", 5, context=Ctx())
+    ctx = kit.FakeContext()
+    conn = _net._Pinned(IMG, "93.184.216.34", 5, context=ctx)
     conn.connect()
-    assert seen["address"] == ("93.184.216.34", 443) and seen["hostname"] == IMG and conn.sock is not None
+    assert seen["address"] == ("93.184.216.34", 443) and ctx.hostname == IMG and conn.sock is not None
 
 
 def test_a_failed_handshake_closes_the_socket(monkeypatch):
     seen = {}
-
-    class Ctx:
-        def wrap_socket(self, sock, server_hostname=None):
-            raise OSError("handshake")
 
     class Sock:
         def close(self):
@@ -109,7 +101,7 @@ def test_a_failed_handshake_closes_the_socket(monkeypatch):
 
     monkeypatch.setattr(socket, "create_connection", lambda address, timeout=None: Sock())
     with pytest.raises(OSError):
-        _net._Pinned(IMG, "93.184.216.34", 5, context=Ctx()).connect()
+        _net._Pinned(IMG, "93.184.216.34", 5, context=kit.FakeContext(fail=True)).connect()
     assert seen["closed"]
 
 
