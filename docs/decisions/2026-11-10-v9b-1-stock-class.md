@@ -40,6 +40,19 @@ in the accepted tuple; the URL of every file comes from that library's own API a
 - **D9. Caps** are named constants in `_stock.py` with tests: query 1 to 6 words of ASCII letters; a search 15 s and 1 MiB; one full image 16 MiB and 60 s; one full clip
   120 MiB and 180 s; floors of 1080 x 1350 for an image and 2 s to 60 s for a clip, the clip rendition being the smallest of at least 1080 px on its short side.
 
+- **D10. Review fixes (independent security review, same day).** The source file must be the implementation's own (`providers/stock/sources/<SOURCE>.json`, real
+  paths compared, a seam for tests) and the secret it names must equal the implementation's `SECRET` constant (`STOCK_PEXELS_API_KEY`): a caller's file cannot point a key at
+  another host or another credential. Every number read from an answer is finite (NaN and infinity in the JSON are a bad answer, output is written with `allow_nan=False`);
+  a JSON answer nests at most 32 deep and is read within one deadline; any unexpected exception ends in a fixed refusal code with no exception text; IPv4-compatible IPv6
+  (`::/96`), local-use NAT64, NAT64 and every reserved address are refused; `fetch` refuses an answer whose id is not the item asked and applies the floors of a search;
+  an item with no positive integer id is dropped; `cache_put` and `cache_get` share one cap (2 MiB of what is written).
+- **Residual risk until V9b-3 (stated).** The provider-side `--allow-unverified` flag alone opens the `unverified` tier: nothing in this package can tell who passed it.
+  The per-asset approval and the project's own switch are V9b-3's; no `unverified` source exists, so the flag opens nothing today, and V9b-3 must pass the flag only
+  when both hold.
+- **File names V9b-3 must match.** A clip's files carry a `-clip` suffix (`prev-<source>-<item>-clip.<ext>`, `full-<source>-<item>-clip.mp4`); an image's do not. The runtime
+  should read the `preview` and `file` names the answers give, not rebuild them.
+- `_net.get_json` has no `secret_in_url` argument any more (it was unused): a URL that holds a key is never put in an error whatever the caller says.
+
 ### Alternatives rejected
 
 - The V7 proxy and fetch containers (one more image, and the key inside a container). A library behind `fetcher:video` (a different job: a pinned third-party tool).

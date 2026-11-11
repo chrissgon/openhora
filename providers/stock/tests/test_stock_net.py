@@ -54,14 +54,14 @@ def test_only_https_on_443_without_user_info_is_opened(url, monkeypatch):
 
 
 @pytest.mark.parametrize("address", ["10.1.2.3", "172.16.0.9", "192.168.1.1", "127.0.0.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1",
-                                     "::1", "fe80::1", "fc00::1", "::ffff:10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a00:1", "2002:c0a8:101::1",
+                                     "::1", "fe80::1", "fc00::1", "::ffff:10.0.0.1", "::ffff:127.0.0.1", "64:ff9b::808:808", "64:ff9b::7f00:1", "::7f00:1", "::a9fe:a9fe", "::808:808", "64:ff9b:1::a00:1", "64:ff9b:1::808:808", "100::1", "2001:db8::1", "64:ff9b::a00:1", "2002:c0a8:101::1",
                                      "2002:7f00:1::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "198.51.100.7", "not an address"])
 def test_a_host_that_resolves_to_a_non_global_address_is_refused(address):
     resolve = lambda host, port, type=None: [(2, 1, 6, "", (address, port))]
     raises("address_refused", _net.check_address, IMG, resolve)
 
 
-@pytest.mark.parametrize("address", ["93.184.216.34", "8.8.8.8", "2606:4700::1111", "64:ff9b::808:808", "::ffff:8.8.8.8"])
+@pytest.mark.parametrize("address", ["93.184.216.34", "8.8.8.8", "2606:4700::1111", "::ffff:8.8.8.8"])
 def test_a_global_address_is_accepted(address):
     resolve = lambda host, port, type=None: [(2, 1, 6, "", (address, port))]
     assert _net.check_address(IMG, resolve) == address
@@ -282,7 +282,7 @@ def test_an_existing_file_is_replaced_whole(net, tmp_path):
 
 def test_an_error_never_holds_a_url_an_address_or_a_key(net, tmp_path):
     net.add(API, "/v1/search", Response(500, b"", {}))
-    err = raises("status", _net.get_json, "https://%s/v1/search?key=%s" % (API, kit.KEY), {}, 1000, True, allowed_hosts=HOSTS)
+    err = raises("status", _net.get_json, "https://%s/v1/search?key=%s" % (API, kit.KEY), {}, 1000, allowed_hosts=HOSTS)
     assert kit.KEY not in str(err) and API not in str(err) and kit.PUBLIC not in repr(err)
 
 

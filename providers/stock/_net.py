@@ -38,6 +38,9 @@ SIGNATURES = {"image/png": lambda b: b.startswith(b"\x89PNG\r\n\x1a\n"), "image/
               "video/mp4": lambda b: len(b) >= 12 and b[4:8] == b"ftyp"}      # a check of the first bytes against the declared type; nothing is decoded
 EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "video/mp4": "mp4"}
 NAT64 = ipaddress.ip_network("64:ff9b::/96")
+NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")      # local-use NAT64 (RFC 8215): never a public host
+V4_COMPATIBLE = ipaddress.ip_network("::/96")              # IPv4-compatible IPv6 (deprecated): its low 32 bits are an IPv4 address
+MAX_DEPTH = 32                                              # nesting of a JSON answer
 MARKER = ".openhora-reference"      # a reference store's marker file; a test reads runtime/references.py as text and compares
 
 # The seams a test replaces: the name lookup, the connection opener and the clock.
@@ -83,6 +86,10 @@ def _embedded_v4(ip):
 
 
 def _global(ip) -> bool:
+    if ip.version == 6 and (ip in V4_COMPATIBLE or ip in NAT64_LOCAL):
+        return False
+    if ip.is_reserved:
+        return False
     inner = _embedded_v4(ip)
     if inner is not None:
         ip = inner
@@ -186,11 +193,32 @@ def _left(deadline, clock) -> float:
     return left
 
 
-def get_json(url: str, headers: dict, cap: int, secret_in_url: bool = False, *, allowed_hosts, timeout: float = 15.0, resolve=None,
-             opener=None) -> object:
+def _constant(name):
+    raise ValueError("non-finite number")
+
+
+_TOKENS = re.compile(rb'"(?:[^"\\]|\\.)*"|[\[{]|[\]}]', re.S)
+
+
+def _deep(body: bytes) -> bool:
+    """True when the JSON text nests deeper than MAX_DEPTH (a scan of the brackets outside strings; nothing is parsed)."""
+    depth = 0
+    for token in _TOKENS.finditer(body):
+        first = token.group(0)[:1]
+        if first in b"[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return True
+        elif first in b"]}":
+            depth -= 1
+    return False
+
+
+def get_json(url: str, headers: dict, cap: int, *, allowed_hosts, timeout: float = 15.0, resolve=None, opener=None) -> object:
     """The JSON answer of one API call: https, a host of `allowed_hosts`, no redirect (the request may carry a credential), the answer at most
-    `cap` bytes (read up to cap + 1, no `Content-Length` needed). 429 is rate_limited, any other status but 200 is `status`. `secret_in_url` says the
-    URL holds a key: nothing about it is ever put in an error. Returns the parsed JSON."""
+    `cap` bytes (read up to cap + 1, no `Content-Length` needed) within one deadline of `timeout` seconds across every read. 429 is rate_limited, any
+    other status but 200 is `status`; an answer that nests deeper than MAX_DEPTH, holds NaN or infinity, or is not JSON is `status`. Nothing about the
+    URL, which may hold a key, is ever put in an error. Returns the parsed JSON."""
     clock = SEAMS["clock"]
     deadline = clock() + timeout
     host, target, _ = split_url(url, allowed_hosts)
@@ -206,16 +234,25 @@ def get_json(url: str, headers: dict, cap: int, secret_in_url: bool = False, *, 
         size = (response.getheader("Content-Length") or "").strip()
         if size.isascii() and size.isdigit() and int(size) > cap:
             raise NetError("too_large")
-        try:
-            body = response.read(cap + 1)
-        except (OSError, ssl.SSLError, http.client.HTTPException):
-            raise NetError("network") from None
-        if len(body) > cap:
+        blocks, total = [], 0
+        while total <= cap:
+            _left(deadline, clock)
+            try:
+                block = response.read(min(CHUNK, cap + 1 - total))
+            except (OSError, ssl.SSLError, http.client.HTTPException):
+                raise NetError("network") from None
+            if not block:
+                break
+            blocks.append(block)
+            total += len(block)
+        if total > cap:
             raise NetError("too_large")
-        _left(deadline, clock)
+        body = b"".join(blocks)
+        if _deep(body):
+            raise NetError("status")
         try:
-            return json.loads(body.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+            return json.loads(body.decode("utf-8"), parse_constant=_constant)
+        except (ValueError, UnicodeDecodeError, RecursionError):
             raise NetError("status") from None
     finally:
         _close(conn)
@@ -244,7 +281,11 @@ def download(url: str, cap: int, dest: str, types, *, allowed_hosts, redirect_ho
                 if redirects >= MAX_REDIRECTS or not location:
                     raise NetError("redirect_refused")
                 redirects += 1
-                host, target, _ = split_url(urllib.parse.urljoin("https://%s%s" % (host, target), location), redirect_hosts, "redirect_refused")
+                try:
+                    joined = urllib.parse.urljoin("https://%s%s" % (host, target), location)
+                except ValueError:
+                    raise NetError("redirect_refused") from None
+                host, target, _ = split_url(joined, redirect_hosts, "redirect_refused")
                 continue
             return _save(conn, response, cap, dest, folder, types, deadline, clock)
         finally:
@@ -293,7 +334,10 @@ def _save(conn, response, cap, dest, folder, types, deadline, clock) -> dict:
             raise NetError("network")
         if not SIGNATURES[kind](head):
             raise NetError("type_refused")
-        os.replace(temp, final)
+        try:
+            os.replace(temp, final)
+        except OSError:
+            raise NetError("out_refused") from None
     except BaseException:
         try:
             os.unlink(temp)

@@ -46,7 +46,7 @@ def source(**over):
     """A filled synthetic source file (a `library` source on `.example` hosts); `over` replaces top-level keys, a dict value merges one level."""
     data = {
         "source": "pexels", "licence_tier": "library", "licence": "pexels-license", "licences": None,
-        "licence_url": "https://licence.stock.example/terms", "terms_read_on": TODAY, "secret": "STOCK_FAKE_API_KEY", "secret_in": "header",
+        "licence_url": "https://licence.stock.example/terms", "terms_read_on": TODAY, "secret": "STOCK_PEXELS_API_KEY", "secret_in": "header",
         "api": {"host": API, "search_image": "/v1/search", "search_clip": "/v1/videos/search", "item_image": "/v1/photos/{item}",
                 "item_clip": "/v1/videos/videos/{item}"},
         "media_hosts": [IMG, VID], "redirect_hosts": [CDN],
@@ -169,7 +169,7 @@ class FakeResolver:
     """A stand-in for providers/secrets/resolver.py: `resolve(name)` gives (value, where) or None; a name not in `known` is not registered."""
 
     def __init__(self, values=None, known=None):
-        self.values, self.known, self.asked = values if values is not None else {"STOCK_FAKE_API_KEY": KEY}, known, []
+        self.values, self.known, self.asked = values if values is not None else {"STOCK_PEXELS_API_KEY": KEY}, known, []
 
     def resolve(self, name, **_):
         self.asked.append(name)
@@ -198,7 +198,8 @@ class Run:
         monkeypatch.setitem(_stock.SEAMS, "resolver", self.resolver)
         self.state = str(self.tmp / "state")
         self.environ = {"OPENHORA_STATE_DIR": self.state, "HTTPS_PROXY": "http://proxy.example:3128", "https_proxy": "http://proxy.example:3128"}
-        self.source_file = write_source(self.tmp, data)
+        self.source_file = write_source(self.tmp, data, self.impl.SOURCE + ".json")
+        monkeypatch.setitem(_stock.SEAMS, "sources", str(self.tmp))
         self.out = out_dir(self.tmp)
         self.clock = [1_000_000.0]
         monkeypatch.setitem(_stock.SEAMS, "now", lambda: self.clock[0])
@@ -206,6 +207,7 @@ class Run:
     def run(self, *argv, today=TODAY, source_file=None):
         out, err = self.io.StringIO(), self.io.StringIO()
         flags = ["--source-file", source_file or self.source_file, "--today", today]
+        _stock.SEAMS["sources"] = os.path.dirname(source_file or self.source_file)        # the folder a source file must be in (monkeypatch restores the first value)
         code = _stock.run(self.impl, flags + list(argv), self.environ, out, err)
         text = out.getvalue()
         self.stdout, self.stderr = text, err.getvalue()
@@ -246,7 +248,7 @@ def query_impl():
     import types
     import pexels
     impl = types.ModuleType("querylib")
-    for name in ("SERVES", "SOURCE", "IMAGE_MIN", "search_request", "item_request", "read_search", "read_item"):
+    for name in ("SERVES", "SOURCE", "SECRET", "IMAGE_MIN", "search_request", "item_request", "read_search", "read_item"):
         setattr(impl, name, getattr(pexels, name))
     impl.auth = lambda src, key: ({}, {"key": key})
     impl.__doc__ = "a synthetic source that takes its key in the query string"

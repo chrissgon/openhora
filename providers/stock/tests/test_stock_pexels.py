@@ -215,27 +215,29 @@ def test_the_query_the_count_the_kind_and_the_folder_are_checked_before_any_requ
     os.chmod(loose, 0o755)
     code, got = r.run("search", "--kind", "image", "--query", "old barn", "--out", str(loose))
     assert code == 2 and got["code"] == "out_refused"
-    code, got = r.run("search", "--kind", "clip", "--query", "old barn", "--out", r.out, source_file=kit.write_source(tmp_path, source(kinds=["image"]), "image.json"))
+    (tmp_path / "alt").mkdir()
+    alt = kit.write_source(tmp_path / "alt", source(kinds=["image"]), "pexels.json")
+    code, got = r.run("search", "--kind", "clip", "--query", "old barn", "--out", r.out, source_file=alt)
     assert code == 2 and got["code"] == "query_refused"
     assert r.net.count() == 0
 
 
 def test_no_key_is_exit_3_and_no_request(tmp_path, monkeypatch):
-    for resolver in (kit.FakeResolver({}), kit.FakeResolver(known=[]), kit.FakeResolver({"STOCK_FAKE_API_KEY": "has a space"}),
-                     kit.FakeResolver({"STOCK_FAKE_API_KEY": "line\nbreak"})):
+    for resolver in (kit.FakeResolver({}), kit.FakeResolver(known=[]), kit.FakeResolver({"STOCK_PEXELS_API_KEY": "has a space"}),
+                     kit.FakeResolver({"STOCK_PEXELS_API_KEY": "line\nbreak"})):
         folder = tmp_path / ("r%d" % id(resolver))
         folder.mkdir()
         r = Run(folder, monkeypatch, resolver=resolver)
         r.serve_search_image([photo(1)])
         code, got = r.search()
         assert code == 3 and got["code"] == "no_key" and r.net.count() == 0
-        assert "STOCK_FAKE_API_KEY" in r.stderr or "has a space" not in r.stderr
+        assert "STOCK_PEXELS_API_KEY" in r.stderr or "has a space" not in r.stderr
 
 
 def test_check_says_where_the_key_was_found_and_never_the_value(tmp_path, monkeypatch):
     r = Run(tmp_path, monkeypatch)
     code, got = r.run("--check")
-    assert code == 0 and got == {"ok": True, "source": "pexels", "kinds": ["image", "clip"], "licence_tier": "library", "secret": "environment (STOCK_FAKE_API_KEY)"}
+    assert code == 0 and got == {"ok": True, "source": "pexels", "kinds": ["image", "clip"], "licence_tier": "library", "secret": "environment (STOCK_PEXELS_API_KEY)"}
     assert kit.KEY not in r.stdout + r.stderr and r.net.count() == 0
     (tmp_path / "s").mkdir()
     stale = Run(tmp_path / "s", monkeypatch, source(terms_read_on="2025-01-01"))

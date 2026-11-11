@@ -61,6 +61,9 @@ outside it is refused at load (`licence_refused`). A source file declares a `lic
 
 ## The source file
 
+The source file must be the implementation's own, `providers/stock/sources/<SOURCE>.json` (real paths compared), and the secret it names must be the one the
+implementation's `SECRET` constant gives: a file anywhere else, or one that names another credential, is refused (`source_not_ready`, `source_file` or `secret`).
+
 Committed with nulls (`sources/pexels.json`), filled by the maintainer's approval (hosts, paths, patterns, licence URL, the date the terms were read,
 the secret's name and where it travels, the cache time). Every verb but `--help` refuses (exit 3, `source_not_ready`, naming the fields) while a field its
 tier and `kinds` need is null or empty, and refuses with `terms_stale` once `terms_read_on` is more than 365 days before `--today` (`date +%F`).
@@ -86,7 +89,7 @@ written with an answer that holds the key.
 ## How to add a source
 
 1. `providers/stock/<name>.py` with the lines `SERVES = "stock:media"`, `SOURCE = "<name>"` and `VERBS = ("search", "fetch")`, and `auth`,
-   `search_request`, `item_request`, `read_search`, `read_item` (copy `pexels.py`: it is the whole of how to call one API and read its answer).
+   `search_request`, `item_request`, `read_search`, `read_item` (copy `pexels.py`: it is the whole of how to call one API and read its answer; set `SECRET` to the one key it reads).
 2. `providers/stock/sources/<name>.json`, committed with nulls; the values come from the maintainer's approval of the library's terms.
 3. If the library needs a key, its `REGISTRY` entry in `providers/secrets/resolver.py` and its row of `contracts/secrets.md`, in the same change.
 4. No skill, runtime or renderer file changes: the runtime lists sources from `providers/resolve.py` and the source files. A test copies `pexels.py`

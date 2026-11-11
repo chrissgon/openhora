@@ -21,6 +21,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
@@ -62,6 +63,7 @@ CAPS = {
 FLOOR = {"image": (1080, 1350), "clip_short_side": 1080, "clip_min_seconds": 2, "clip_max_seconds": 60}
 TERMS_MAX_DAYS = 365
 CACHE_MAX_SECONDS = 7 * 86400
+CACHE_MAX_BYTES = 2 * MIB      # what cache_put writes and cache_get reads: one number
 TYPES = {"image": ("image/jpeg", "image/png"), "clip": ("video/mp4",)}
 PREVIEW_TYPES = ("image/jpeg", "image/png")
 DEFAULT_JOBS = 3
@@ -81,7 +83,7 @@ MAX_SOURCE_BYTES = 64 * 1024
 MAX_PATTERN = 200
 
 # The seams a test replaces: the clock of the cache and the loader of the secret resolver.
-SEAMS = {"now": time.time, "resolver": None}
+SEAMS = {"now": time.time, "resolver": None, "sources": None}      # "sources": the folder a source file must be in (default: sources/ next to this file)
 
 
 class Refusal(Exception):
@@ -106,7 +108,7 @@ def _empty(value) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
 
-def read_source(path, today, implementation=None) -> dict:
+def read_source(path, today, implementation=None, secret_name=None) -> dict:
     """The checked source file at `path`, as a dict with the compiled patterns under `_patterns`. Refusals, in this order: `source_not_ready`
     (exit 3, naming the fields that are null or empty for its tier and kinds, or wrongly shaped), `licence_refused` (a `library` licence or a value
     of `licences` outside LICENCES_ACCEPTED), `terms_stale` (`terms_read_on` more than 365 days before `today`)."""
@@ -122,7 +124,7 @@ def read_source(path, today, implementation=None) -> dict:
     odd = sorted(set(data) ^ set(SOURCE_KEYS))
     if odd:
         raise Refusal("source_not_ready", "the source file has unknown or missing keys", odd)
-    problems = _missing(data, implementation)
+    problems = _missing(data, implementation, secret_name)
     if problems:
         raise Refusal("source_not_ready", "the source file is not filled: " + ", ".join(problems), problems)
     _check_licences(data)
@@ -131,7 +133,7 @@ def read_source(path, today, implementation=None) -> dict:
     return dict(data, _patterns=patterns)
 
 
-def _missing(d, implementation) -> list:
+def _missing(d, implementation, secret_name=None) -> list:
     out = []
     tier, kinds = d["licence_tier"], d["kinds"]
     if not (isinstance(d["source"], str) and NAME.fullmatch(d["source"])) or (implementation and d["source"] != implementation):
@@ -160,8 +162,8 @@ def _missing(d, implementation) -> list:
     elif d["secret_in"] == "none":
         if d["secret"] is not None:
             out.append("secret")
-    elif not (isinstance(d["secret"], str) and SECRET_NAME.fullmatch(d["secret"])):
-        out.append("secret")
+    elif not (isinstance(d["secret"], str) and SECRET_NAME.fullmatch(d["secret"])) or (secret_name is not None and d["secret"] != secret_name):
+        out.append("secret")      # the implementation names its own secret: a file cannot point a provider at another credential
     api = d["api"]
     if not isinstance(api, dict) or set(api) != set(API_KEYS):
         out.append("api")
@@ -234,6 +236,15 @@ def _check_terms(d, today):
         raise Refusal("terms_stale", "the terms were read more than %d days ago: they are read again before use" % TERMS_MAX_DAYS)
 
 
+def pin_source(path, impl):
+    """The source file must be the implementation's own, sources/<SOURCE>.json next to this folder's files (real paths compared): a caller's file could
+    name other hosts and another secret. source_not_ready, naming `source_file`, otherwise."""
+    folder = SEAMS["sources"] or str(HERE / "sources")
+    want = os.path.realpath(os.path.join(folder, impl.SOURCE + ".json"))
+    if not isinstance(path, str) or os.path.realpath(path) != want:
+        raise Refusal("source_not_ready", "the source file is not providers/stock/sources/%s.json" % impl.SOURCE, ["source_file"])
+
+
 def map_licence(table, own) -> "str | None":
     """A `per-item` implementation's helper: our licence id for an item's own licence string (its key of the source file's `licences`), or None."""
     return table.get(own) if isinstance(own, str) and isinstance(table, dict) else None
@@ -298,7 +309,7 @@ def candidate(raw, src, kind, impl, allow_unverified):
             return None, "too_small"
         seconds = None
     else:
-        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not math.isfinite(seconds):
             return None, "too_small"
         if seconds > FLOOR["clip_max_seconds"]:
             return None, "too_long"
@@ -349,13 +360,16 @@ def cache_get(source, key, seconds, environ=None, now=None):
     path = os.path.join(_cache_dir(source, environ), key + ".json")
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(fd, "r", encoding="utf-8") as handle:
-            data = json.loads(handle.read(_net.CHUNK * 20))
+        with os.fdopen(fd, "rb") as handle:
+            raw = handle.read(CACHE_MAX_BYTES + 1)
+        if len(raw) > CACHE_MAX_BYTES:
+            return None
+        data = json.loads(raw.decode("utf-8"), parse_constant=_net._constant)
         at = data["at"]
         if isinstance(at, bool) or not isinstance(at, (int, float)) or not 0 <= now - at < seconds:
             return None
         return data["answer"]
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
 
 
@@ -363,16 +377,20 @@ def cache_put(source, key, answer, seconds, secret=None, environ=None, now=None)
     """Keep an answer for `seconds` (0600 in a 0700 folder, atomically). Nothing is written when `seconds` is 0, or when the text holds the key."""
     if not seconds:
         return False
-    text = json.dumps({"at": SEAMS["now"]() if now is None else now, "answer": answer}, sort_keys=True)
-    if secret and secret in text:
+    try:
+        text = json.dumps({"at": SEAMS["now"]() if now is None else now, "answer": answer}, sort_keys=True, ensure_ascii=False, allow_nan=False)
+        data = text.encode("utf-8")
+    except (ValueError, TypeError, RecursionError):
+        return False
+    if (secret and secret in text) or len(data) > CACHE_MAX_BYTES:
         return False
     folder = _cache_dir(source, environ)
     try:
         _private_dirs(folder)
         temp = os.path.join(folder, ".tmp-%s" % hashlib.sha256(os.urandom(16)).hexdigest()[:12])
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
         os.replace(temp, os.path.join(folder, key + ".json"))
     except OSError:
         return False
@@ -417,6 +435,8 @@ def find_secret(src):
         found = resolver.resolve(name)
     except KeyError:
         raise Refusal("no_key", "%s is not registered in the secret resolver" % name) from None
+    except Exception:         # a locked store, an unsafe folder: the resolver's text is never kept
+        raise Refusal("no_key", "the secret resolver could not answer for %s" % name) from None
     if not found or not found[0]:
         raise Refusal("no_key", "no key: set %s (contracts/secrets.md)" % name)
     value = found[0]
@@ -447,7 +467,7 @@ def _api(impl, src, path, params, cache_parts, environ):
     if secret and (bool(headers) == in_url or bool(extra) != in_url):
         raise Refusal("source_not_ready", "the source file says the key goes in the %s and the implementation puts it elsewhere" % src["secret_in"], ["secret_in"])
     url = _url(src, path, dict(params, **extra))
-    answer = _net.get_json(url, headers, CAPS["search_bytes"], in_url, allowed_hosts=[src["api"]["host"]], timeout=CAPS["search_seconds"])
+    answer = _net.get_json(url, headers, CAPS["search_bytes"], allowed_hosts=[src["api"]["host"]], timeout=CAPS["search_seconds"])
     cache_put(impl.SOURCE, key, answer, seconds, secret or None, environ)
     return answer, 1, False
 
@@ -463,13 +483,13 @@ def _name(prefix, source, item, kind):
 
 
 def do_check(args, impl, environ):
-    src = read_source(args.source_file, args.today, impl.SOURCE)
+    src = read_source(args.source_file, args.today, impl.SOURCE, getattr(impl, "SECRET", None))
     _, where = find_secret(src)
     return {"ok": True, "source": impl.SOURCE, "kinds": src["kinds"], "licence_tier": src["licence_tier"], "secret": where or "none"}
 
 
 def do_search(args, impl, environ):
-    src = read_source(args.source_file, args.today, impl.SOURCE)
+    src = read_source(args.source_file, args.today, impl.SOURCE, getattr(impl, "SECRET", None))
     kind = args.kind
     if kind not in src["kinds"]:
         raise Refusal("query_refused", "this source does not serve that kind")
@@ -528,7 +548,7 @@ def _preview(src, cand, out, written):
 
 
 def do_fetch(args, impl, environ):
-    src = read_source(args.source_file, args.today, impl.SOURCE)
+    src = read_source(args.source_file, args.today, impl.SOURCE, getattr(impl, "SECRET", None))
     kind = args.kind
     if kind not in src["kinds"]:
         raise Refusal("query_refused", "this source does not serve that kind")
@@ -543,24 +563,18 @@ def do_fetch(args, impl, environ):
     raw = impl.read_item(src, kind, answer)
     if not isinstance(raw, dict):
         raise Refusal("status", "the library's answer holds no such item")
-    raw = dict(raw, item=args.item)
-    tier = src["licence_tier"]
-    licence = src["licence"] if tier == "library" else (UNVERIFIED if tier == "unverified" else raw.get("licence"))
-    author = clean_text(raw.get("author"), CAPS["text"])
-    if not admit_licence(tier, licence, author, allow):
-        raise Refusal("licence_refused", "the item's licence is not accepted")
-    url = raw.get("file_url")
-    if not url:
-        raise Refusal("status", "the library's answer names no file for this kind")
+    if raw.get("item") != args.item:
+        raise Refusal("status", "the library's answer is for another item")
+    found, why = candidate(raw, src, kind, impl, allow)
+    if found is None:
+        raise Refusal({"licence": "licence_refused", "host": "host_refused"}.get(why, "status"), "the item fails the %s check" % why)
     cap = min(args.max_bytes, CAPS[kind + "_bytes"])
     dest = os.path.join(out, _name("full", src["source"], args.item, kind))
-    got = _net.download(url, cap, dest, TYPES[kind], allowed_hosts=src["media_hosts"], redirect_hosts=src["redirect_hosts"],
+    got = _net.download(raw["file_url"], cap, dest, TYPES[kind], allowed_hosts=src["media_hosts"], redirect_hosts=src["redirect_hosts"],
                         path_pattern=src["_patterns"][kind], timeout=CAPS[kind + "_seconds"])
-    seconds = raw.get("seconds")
     return {"ok": True, "source": impl.SOURCE, "item": args.item, "kind": kind, "file": os.path.basename(got["file"]), "bytes": got["bytes"],
-            "sha256": got["sha256"], "licence": licence, "author": author, "title": clean_text(raw.get("title"), CAPS["text"]),
-            "page": clean_page(raw.get("page")), "seconds": round(float(seconds), 3) if kind == "clip" and isinstance(seconds, (int, float)) else None,
-            "requests": requests}
+            "sha256": got["sha256"], "licence": found["licence"], "author": found["author"], "title": found["title"], "page": found["page"],
+            "seconds": found["seconds"], "requests": requests}
 
 
 def parser(impl) -> argparse.ArgumentParser:
@@ -596,16 +610,34 @@ def run(impl, argv=None, environ=None, out=None, err=None) -> int:
     if bool(args.check) == bool(args.verb) or not args.source_file or not args.today:
         err.write("usage: --check, or search, or fetch, with --source-file and --today\n")
         return 2
+    args_ok = _pin(args, impl)
     verb = do_check if args.check else (do_search if args.verb == "search" else do_fetch)
     try:
+        if args_ok is not None:
+            raise args_ok
         answer = verb(args, impl, environ)
+        text = json.dumps(answer, sort_keys=True, allow_nan=False)
     except Refusal as stop:
-        out.write(json.dumps({"ok": False, "code": stop.code, "fields": stop.fields}, sort_keys=True) + "\n")
-        err.write("%s: %s\n" % (impl.SOURCE, stop.reason))
-        return stop.exit_code
+        return _refuse(out, err, impl, stop.code, stop.reason, stop.fields, stop.exit_code)
     except _net.NetError as stop:
-        out.write(json.dumps({"ok": False, "code": stop.code, "fields": []}, sort_keys=True) + "\n")
-        err.write("%s: %s\n" % (impl.SOURCE, stop.code))
-        return EXIT.get(stop.code, 1)
-    out.write(json.dumps(answer, sort_keys=True) + "\n")
+        return _refuse(out, err, impl, stop.code, stop.code, [], EXIT.get(stop.code, 1))
+    except (RecursionError, ValueError, TypeError, KeyError, AttributeError, IndexError):      # a shape of the answer nobody foresaw: a bad answer, no text kept
+        return _refuse(out, err, impl, "status", "the library's answer could not be read", [], 1)
+    except Exception:          # anything else (a disk, a resolver): a fixed refusal, never the exception's text, which could hold a URL or a key
+        return _refuse(out, err, impl, "network", "the verb failed", [], 1)
+    out.write(text + "\n")
     return 0
+
+
+def _pin(args, impl):
+    try:
+        pin_source(args.source_file, impl)
+    except Refusal as stop:
+        return stop
+    return None
+
+
+def _refuse(out, err, impl, code, reason, fields, exit_code) -> int:
+    out.write(json.dumps({"ok": False, "code": code, "fields": fields}, sort_keys=True) + "\n")
+    err.write("%s: %s\n" % (impl.SOURCE, reason))
+    return exit_code

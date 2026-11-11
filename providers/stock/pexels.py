@@ -29,12 +29,18 @@ import _stock  # noqa: E402
 
 SERVES = "stock:media"
 SOURCE = "pexels"
+SECRET = "STOCK_PEXELS_API_KEY"      # the one secret this implementation reads; a source file that names another is refused (V9b STOP 2 registers it)
 VERBS = ("search", "fetch")
 IMAGE_MIN = _stock.FLOOR["image"]      # 1080 x 1350, portrait
 
 
 def _int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _id(value):
+    """The item id as text, or None (the item is then dropped) when the answer holds no integer id."""
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
 def auth(src, key):
@@ -55,7 +61,7 @@ def item_request(src, kind, item):
 def _photo(src, photo):
     sizes = photo.get("src") if isinstance(photo.get("src"), dict) else {}
     preview, full = sizes.get(src["rendition"]["preview"]), sizes.get(src["rendition"]["image"])
-    return {"item": str(_int(photo.get("id"))), "width": _int(photo.get("width")), "height": _int(photo.get("height")), "seconds": None,
+    return {"item": _id(photo.get("id")), "width": _int(photo.get("width")), "height": _int(photo.get("height")), "seconds": None,
             "author": photo.get("photographer"), "title": "", "page": photo.get("url"), "preview_url": preview, "file_url": full}
 
 
@@ -66,7 +72,7 @@ def _clip(src, video):
              and isinstance(f.get("link"), str)]
     best = min(files, key=lambda f: (f["width"] * f["height"], f["link"])) if files else None
     user = video.get("user") if isinstance(video.get("user"), dict) else {}
-    return {"item": str(_int(video.get("id"))), "width": best["width"] if best else _int(video.get("width")),
+    return {"item": _id(video.get("id")), "width": best["width"] if best else _int(video.get("width")),
             "height": best["height"] if best else _int(video.get("height")), "seconds": video.get("duration"), "author": user.get("name"),
             "title": "", "page": video.get("url"), "preview_url": video.get("image"), "file_url": best["link"] if best else None}
 
