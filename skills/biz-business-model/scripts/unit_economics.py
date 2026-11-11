@@ -17,6 +17,18 @@ Input, JSON (on standard input, or a file with --input):
    "hours_per_week": {"value": 10, "source": "state file"},
    "goal": {"kind": "customers", "value": 10, "source": "state file"}}
 
+  Optional, free users (a free plan that costs money to serve), key "free_users":
+   "free_users": {"per_payer": {"value": 5, "source": "assumed"},
+                  "cost": {"value": 0.8, "source": "M2"},
+                  "mode": "monthly",
+                  "margin_floor_percent": {"value": 60, "source": "user"}}
+    per_payer: free users each paying unit carries. cost: what one free user costs. mode: "monthly"
+    (cost per free user per month, the default) or "once-per-account" (a one-time cost per free user, for
+    example a single trial run). margin_floor_percent is optional (the owner's floor for the contribution
+    margin). The same inputs can come from flags: --free-users-per-payer N, --free-user-cost X,
+    --free-cost-mode monthly|once-per-account, --margin-floor-percent P (source "user"; a flag does not
+    override a key already in the JSON).
+
   billing: "recurring" (units are active customers per month; amounts are per unit per month) or
     "one-off" (units are sales per month; amounts are per sale).
   source: a source number ("7", "2b"), a command label ("M2"), "user", "state file", "proposed"
@@ -30,7 +42,15 @@ contribution_margin_percent, cost_floor_price, contribution_before_tax_per_unit 
 minus variable cost, so a price can be judged while the tax is unknown), cost_floor_before_tax,
 units_to_cover_fixed, units_for_goal, revenue_at_goal,
 contribution_at_goal, profit_at_goal, hours_available_per_month, hours_at_goal_per_month,
-onboarding_hours_total (recurring only), capacity_ceiling_units, goal_within_capacity. A result that
+onboarding_hours_total (recurring only), capacity_ceiling_units, goal_within_capacity. With free_users:
+free_cost_per_unit (per_payer times cost; monthly mode), contribution_with_free_per_unit and
+margin_with_free_percent (monthly mode: contribution minus the free users' cost; once-per-account mode:
+the first month, which carries the one-time cost), free_users_to_zero (how many free users one payer
+covers until the contribution reaches zero; for once-per-account it is measured against one month of
+contribution), free_users_within_margin_floor (the same while the margin stays at or above the floor;
+needs margin_floor_percent), payback_months (once-per-account only: months of contribution that repay
+the one-time cost of the free users), free_cost_once_per_unit (once-per-account only). A free-user cost
+of zero prints "no limit". A result that
 needs an input whose source is unknown is the string "unknown", and "missing" lists the unknown inputs
 it needed; zero is never substituted for an unknown.
 
@@ -139,6 +159,27 @@ def read_input(data):
             scalars[key] = (None, "unknown")
         else:
             scalars[key] = read_item(key, data[key], findings)
+    free_raw = data.get("free_users")
+    free = None
+    if free_raw is not None:
+        if not isinstance(free_raw, dict):
+            findings.append({"field": "free_users", "problem": "must be an object"})
+        else:
+            mode = free_raw.get("mode", "monthly")
+            if mode not in ("monthly", "once-per-account"):
+                findings.append({"field": "free_users.mode", "problem": 'must be "monthly" or "once-per-account"'})
+            free = {"mode": mode}
+            for key in ("per_payer", "cost"):
+                if key not in free_raw:
+                    findings.append({"field": f"free_users.{key}", "problem": "missing; give a value with a source"})
+                    free[key] = (None, "unknown")
+                else:
+                    free[key] = read_item(f"free_users.{key}", free_raw[key], findings)
+            if "margin_floor_percent" in free_raw:
+                v = read_item("free_users.margin_floor_percent", free_raw["margin_floor_percent"], findings)
+                if v[0] is not None and v[0] >= 100:
+                    findings.append({"field": "free_users.margin_floor_percent", "problem": "must be under 100"})
+                free["margin_floor_percent"] = v
     goal_raw = data.get("goal")
     goal = (None, "unknown")
     kind = None
@@ -166,7 +207,21 @@ def read_input(data):
                                "source": scalars["hours_per_new_unit"][1]},
         "hours_per_week": {"value": scalars["hours_per_week"][0], "source": scalars["hours_per_week"][1]},
         "goal": {"kind": kind, "value": goal[0], "source": goal[1]},
+        "free_users": None if free is None else {
+            "mode": free["mode"],
+            "per_payer": {"value": free["per_payer"][0], "source": free["per_payer"][1]},
+            "cost": {"value": free["cost"][0], "source": free["cost"][1]},
+            "margin_floor_percent": ({"value": free["margin_floor_percent"][0],
+                                      "source": free["margin_floor_percent"][1]}
+                                     if "margin_floor_percent" in free else None)},
     }, []
+
+
+def free_items(inp):
+    free = inp.get("free_users")
+    if not free:
+        return []
+    return [(k, free[k]) for k in ("per_payer", "cost", "margin_floor_percent") if free.get(k)]
 
 
 def unknown_fields(inp):
@@ -177,6 +232,7 @@ def unknown_fields(inp):
     for key in ("tax_percent", "hours_per_unit", "hours_per_new_unit", "hours_per_week", "goal"):
         if inp[key]["value"] is None:
             out.append(key)
+    out += [f"free_users.{k}" for k, v in free_items(inp) if v["value"] is None]
     return out
 
 
@@ -187,6 +243,7 @@ def assumed_fields(inp):
     for key in ("tax_percent", "hours_per_unit", "hours_per_new_unit", "hours_per_week", "goal"):
         if inp[key]["source"] == "assumed":
             out.append(key)
+    out += [f"free_users.{k}" for k, v in free_items(inp) if v["source"] == "assumed"]
     return out
 
 
@@ -269,6 +326,50 @@ def compute(inp):
         put("capacity_ceiling_units", ["hours_per_week"] + per_unit_needs, ceiling)
         put("goal_within_capacity", ["goal", "hours_per_week"] + per_unit_needs,
             lambda: round(n * per_unit_hours(), 9) <= round(hpw * MONTH_WEEKS, 9))
+        free = inp.get("free_users")
+        if free:
+            once = free["mode"] == "once-per-account"
+            floor = free["margin_floor_percent"]
+            fpp, fcost = free["per_payer"]["value"], free["cost"]["value"]
+            base = contrib_needs
+
+            def contribution():
+                return p - p * pct / 100.0 - var_total
+
+            def free_total():
+                return fpp * fcost
+            both = ["free_users.per_payer", "free_users.cost"]
+            if once:
+                put("free_cost_once_per_unit", both, lambda: round(free_total(), 2))
+            else:
+                put("free_cost_per_unit", both, lambda: round(free_total(), 2))
+            put("contribution_with_free_per_unit", base + both,
+                lambda: round(contribution() - free_total(), 2))
+            put("margin_with_free_percent", base + both,
+                lambda: round((contribution() - free_total()) / p * 100.0, 1))
+
+            def to_zero():
+                if fcost <= 0:
+                    return "no limit"
+                return max(0, int(math.floor(round(contribution() / fcost, 9))))
+            put("free_users_to_zero", base + ["free_users.cost"], to_zero)
+            if floor is not None:
+                def within_floor():
+                    if fcost <= 0:
+                        return "no limit"
+                    room = contribution() - floor["value"] / 100.0 * p
+                    return max(0, int(math.floor(round(room / fcost, 9))))
+                put("free_users_within_margin_floor", base + ["free_users.cost", "free_users.margin_floor_percent"],
+                    within_floor)
+            if once:
+                def payback():
+                    c = contribution()
+                    if free_total() <= 0:
+                        return 0
+                    if c <= 1e-9:
+                        return "never"
+                    return ceil_int(free_total() / c)
+                put("payback_months", base + both, payback)
         res["missing"] = missing
         results.append(res)
     return results
@@ -317,6 +418,28 @@ def table(inp, results, label):
     if recurring:
         rows.append(("Onboarding hours in total (one time)", [str(r["onboarding_hours_total"]) for r in results],
                      f"{label}; inputs: {inp['hours_per_new_unit']['source']}"))
+    free = inp.get("free_users")
+    if free:
+        fl = f"{label}; inputs: " + ", ".join(sorted({v['source'] for _, v in free_items(inp)}))
+        once = free["mode"] == "once-per-account"
+        rows.append(("Free users per paying unit", [str(free["per_payer"]["value"] if free["per_payer"]["value"]
+                                                       is not None else "unknown")] * len(results), fl))
+        rows.append(("Cost of the free users " + ("(once per account)" if once else "per unit per month"),
+                     [money(r["free_cost_once_per_unit" if once else "free_cost_per_unit"], cur) for r in results],
+                     label))
+        rows.append(("Contribution per unit with free users" + (" (first month)" if once else ""),
+                     [money(r["contribution_with_free_per_unit"], cur) for r in results], label))
+        rows.append(("Contribution margin with free users", [r["margin_with_free_percent"] if isinstance(
+            r["margin_with_free_percent"], str) else f"{r['margin_with_free_percent']:.1f}%" for r in results],
+            label))
+        rows.append(("Free users one payer covers until contribution is zero",
+                     [str(r["free_users_to_zero"]) for r in results], label))
+        if free["margin_floor_percent"] is not None:
+            rows.append(("Free users one payer covers within the margin floor",
+                         [str(r["free_users_within_margin_floor"]) for r in results], label))
+        if once:
+            rows.append(("Months of contribution that repay the free users' one-time cost",
+                         [str(r["payback_months"]) for r in results], label))
     rows.append(("Capacity ceiling (units per month)", [str(r["capacity_ceiling_units"]) for r in results], label))
     rows.append(("Goal within capacity", [("yes" if r["goal_within_capacity"] is True else
                                            "no" if r["goal_within_capacity"] is False else "unknown")
@@ -334,6 +457,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", metavar="PATH", help="read the JSON from this file instead of standard input")
     ap.add_argument("--label", default="M1", help="the command label shown in the From column (default M1)")
+    ap.add_argument("--free-users-per-payer", type=float, metavar="N",
+                    help="free users each paying unit carries (source user)")
+    ap.add_argument("--free-user-cost", type=float, metavar="X", help="cost of one free user (source user)")
+    ap.add_argument("--free-cost-mode", choices=("monthly", "once-per-account"),
+                    help="the free user's cost is monthly (default) or once per account")
+    ap.add_argument("--margin-floor-percent", type=float, metavar="P",
+                    help="the owner's floor for the contribution margin with free users (source user)")
     args = ap.parse_args()
     if not SOURCE_NUMBER.match(args.label) or not args.label.startswith("M"):
         usage_error(f"--label must look like M1, M2; got {args.label!r}")
@@ -344,6 +474,15 @@ def main():
         usage_error(f"cannot read {args.input}: {exc}")
     except json.JSONDecodeError as exc:
         usage_error(f"the input is not valid JSON: {exc}")
+    if isinstance(data, dict) and "free_users" not in data and (
+            args.free_users_per_payer is not None or args.free_user_cost is not None):
+        data["free_users"] = {"mode": args.free_cost_mode or "monthly"}
+        if args.free_users_per_payer is not None:
+            data["free_users"]["per_payer"] = {"value": args.free_users_per_payer, "source": "user"}
+        if args.free_user_cost is not None:
+            data["free_users"]["cost"] = {"value": args.free_user_cost, "source": "user"}
+        if args.margin_floor_percent is not None:
+            data["free_users"]["margin_floor_percent"] = {"value": args.margin_floor_percent, "source": "user"}
     inp, findings = read_input(data)
     if findings:
         for f in findings:

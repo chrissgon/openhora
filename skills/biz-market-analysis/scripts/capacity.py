@@ -4,8 +4,9 @@
 Usage:
   python3 capacity.py --hours-per-week 15 --hours-per-job 40 [--utilization 0.7]
 
-Utilization is the share of the hours that goes to billable delivery (the rest is sales,
-admin and support); default 1.0. A month is 52/12 weeks. Prints JSON to stdout with the inputs,
+Utilization is the share of the weekly hours that goes to the work counted in --hours-per-job
+(the rest is admin, support and anything no job counts). Sales hours are not taken out here when
+they are already inside --hours-per-job; take them out here only when they are not. Default 1.0. A month is 52/12 weeks. Prints JSON to stdout with the inputs,
 the billable hours per month and the jobs per month (one decimal). Exit 2 on a bad argument.
 """
 import argparse

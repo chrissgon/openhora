@@ -222,3 +222,52 @@ def test_input_file_works_and_help_exits_zero(tmp_path):
     assert r.returncode == 0 and json.loads(r.stdout)["ok"] is True
     h = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60)
     assert h.returncode == 0 and "unit economics" in h.stdout.lower()
+
+
+FREE = {"per_payer": {"value": 5, "source": "assumed"}, "cost": {"value": 2.0, "source": "M2"},
+        "margin_floor_percent": {"value": 50, "source": "user"}}
+
+
+def test_free_users_monthly_by_hand():
+    data = copy.deepcopy(RECURRING)
+    data["free_users"] = copy.deepcopy(FREE)
+    first = ok(data)["results"][0]
+    # contribution 30.00; 5 free users at 2.00 = 10.00 -> 20.00, margin 50.0%
+    assert first["free_cost_per_unit"] == 10.0
+    assert first["contribution_with_free_per_unit"] == 20.0
+    assert first["margin_with_free_percent"] == 50.0
+    assert first["free_users_to_zero"] == 15  # 30 / 2
+    assert first["free_users_within_margin_floor"] == 5  # (30 - 20) / 2
+    assert "payback_months" not in first
+    out = ok(data)
+    assert "Free users one payer covers until contribution is zero" in out["table"]
+    assert "free_users.per_payer" in out["assumed"]
+
+
+def test_free_users_once_per_account_payback():
+    data = copy.deepcopy(RECURRING)
+    data["free_users"] = dict(copy.deepcopy(FREE), mode="once-per-account")
+    first = ok(data)["results"][0]
+    assert first["free_cost_once_per_unit"] == 10.0
+    assert first["contribution_with_free_per_unit"] == 20.0
+    assert first["payback_months"] == 1  # ceil(10 / 30)
+    assert "free_cost_per_unit" not in first
+
+
+def test_free_users_unknown_cost_prints_unknown_and_zero_cost_has_no_limit():
+    data = copy.deepcopy(RECURRING)
+    data["free_users"] = {"per_payer": {"value": 5, "source": "user"}, "cost": {"value": None, "source": "unknown"}}
+    first = ok(data)["results"][0]
+    assert first["free_users_to_zero"] == "unknown"
+    assert first["missing"]["free_users_to_zero"] == ["free_users.cost"]
+    data["free_users"]["cost"] = {"value": 0, "source": "user"}
+    assert ok(data)["results"][0]["free_users_to_zero"] == "no limit"
+
+
+def test_free_users_from_flags_and_bad_mode():
+    r = run(RECURRING, "--free-users-per-payer", "5", "--free-user-cost", "2", "--margin-floor-percent", "50")
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["results"][0]["free_users_within_margin_floor"] == 5
+    data = copy.deepcopy(RECURRING)
+    data["free_users"] = dict(copy.deepcopy(FREE), mode="weekly")
+    assert run(data).returncode == 1
