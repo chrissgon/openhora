@@ -3,7 +3,7 @@
 - Owner: biz-icp-positioning
 - Language: en
 - Status: hypothesis
-- Date: 2027-12-04
+- Date: 2028-09-04
 - Offer: Forja, an open-source, self-hosted AI workbench; size band: one person; founder access: a direct network of Brazilian developers
 
 ## Comparison
@@ -21,7 +21,7 @@
 - Today they use: their own scripts and the free tier of hosted tools [1]
 - Decider: the builder themselves, self-serve [1]
 - Triggers: the start of a new project [1]
-- Where to find them: a Brazilian developer meetup directory [2]; the founder's own network and followers (state file, 2027-12-06)
+- Where to find them: a Brazilian developer meetup directory [2]; the founder's own network and followers (state file, 2028-09-06)
 - Rules that shape the offer: none found
 
 ## Validation plan
@@ -38,8 +38,8 @@
 - none
 
 ## Sources
-[1] Solo builder survey, Devnotes. Published 2027-03-01. Accessed 2027-12-04. https://devnotes.example/solo-survey. Tier 2. estimate. Quote: "Solo builders spend their first week on set-up."
-[2] Brazilian developer meetups, Devmap. Published undated. Accessed 2027-12-04. https://devmap.example/brazil. Tier 3. fact. Quote: "Meetups in 40 Brazilian cities."
+[1] Solo builder survey, Devnotes. Published 2027-12-01. Accessed 2028-09-04. https://devnotes.example/solo-survey. Tier 2. estimate. Quote: "Solo builders spend their first week on set-up."
+[2] Brazilian developer meetups, Devmap. Published undated. Accessed 2028-09-04. https://devmap.example/brazil. Tier 3. fact. Quote: "Meetups in 40 Brazilian cities."
 
 ## Method
 - Queries: solo builders pain; developer meetups Brazil

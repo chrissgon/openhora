@@ -3,7 +3,7 @@
 - Project: Lousa
 - Current flow: none
 - Current phase: none
-- Updated: 2027-12-06
+- Updated: 2028-09-06
 
 ## Autonomy
 
@@ -16,7 +16,7 @@
 
 ## Decisions
 
-- 2027-12-06: Goal: the first 10 paying teachers within three months (user). (user)
+- 2028-09-06: Goal: the first 10 paying teachers within three months (user). (user)
 
 ## Open questions
 
