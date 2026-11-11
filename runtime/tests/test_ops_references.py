@@ -252,16 +252,54 @@ def test_a_video_over_the_bound_is_refused_and_deleted(refs, monkeypatch):
     assert "(too_large)" in why and not references.has_video(refs["data"], rid)
 
 
-def test_a_long_video_and_an_unknown_duration_are_refused_before_any_fetch(refs):
+def test_a_long_stated_length_is_refused_before_any_fetch(refs):
     long_one = made(refs, duration=301.0)
+    before = len(refs["fake"].calls)
     assert "(too_long)" in str(refused(ops_references.reference_video, refs["path"], long_one, confirm=True))
+    assert len(refs["fake"].calls) == before
     edge = made(refs, duration=300.0)
     assert ops_references.reference_video(refs["path"], edge)["confirmed"] is False
-    nothing = made(refs, duration=42.0)
-    references.update(refs["data"], nothing, lambda r: r.update(duration=None))
+    assert "platform gave no length" not in ops_references.reference_video(refs["path"], edge)["warning"]
+
+
+def null_duration(refs):
+    rid = made(refs, duration=42.0)
+    references.update(refs["data"], rid, lambda r: r.update(duration=None))
+    return rid
+
+
+def test_an_unknown_length_previews_with_null_and_says_how_it_is_bounded_then_fetches_on_confirm(refs):
+    rid = null_duration(refs)
     before = len(refs["fake"].calls)
-    assert "(no_duration)" in str(refused(ops_references.reference_video, refs["path"], nothing, confirm=True))
-    assert len(refs["fake"].calls) == before
+    got = ops_references.reference_video(refs["path"], rid)
+    assert got["duration"] is None and got["confirmed"] is False and len(refs["fake"].calls) == before
+    assert ("the platform gave no length for this video, so the fetch is bounded by the size bound and its time limit; the length is measured from the "
+            "file after the download, and a video over 300 seconds is deleted and refused") in got["warning"]
+    assert set(got) == {"reference", "confirmed", "duration", "seconds_max", "max_bytes", "warning"}
+    done = ops_references.reference_video(refs["path"], rid, confirm=True)
+    assert done["video_deleted"] is True and len(refs["fake"].calls) > before
+
+
+def test_the_length_the_provider_measured_is_written_into_the_record(refs):
+    rid = null_duration(refs)
+    refs["fake"].answer_edit = lambda done: {**done, "duration": 42} if done["stage"] == "video" else done
+    ops_references.reference_video(refs["path"], rid, confirm=True)
+    assert references.load(refs["data"], rid)["duration"] == 42
+
+
+def test_a_measured_length_over_the_bound_is_refused_and_no_video_is_kept(refs):
+    rid = null_duration(refs)
+    refs["fake"].answer_edit = lambda done: {**done, "duration": 301} if done["stage"] == "video" else done
+    assert "(too_long)" in str(refused(ops_references.reference_video, refs["path"], rid, confirm=True))
+    assert not references.has_video(refs["data"], rid) and references.load(refs["data"], rid)["duration"] is None
+
+
+def test_a_provider_that_found_no_length_at_all_is_a_refusal_and_nothing_is_kept(refs):
+    rid = null_duration(refs)
+    refs["fake"].fail["fetch"] = ops_references.Refused("no_duration")
+    why = str(refused(ops_references.reference_video, refs["path"], rid, confirm=True))
+    assert "(no_duration)" in why and not references.has_video(refs["data"], rid)
+    assert ops_references.REFUSALS["no_duration"] in why and "nothing was kept" in why
 
 
 def test_the_size_bound_is_the_least_of_the_file_cap_and_the_free_bytes(refs, monkeypatch):

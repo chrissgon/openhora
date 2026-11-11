@@ -173,6 +173,31 @@ def test_the_sni_is_compared_after_lowercasing():
     assert _proxy.parse_sni(client_hello(None)) is None and _proxy.parse_sni(b"\x16\x03\x01\x00\x01\x01") is None and _proxy.parse_sni(b"") is None
 
 
+def browser_hello(name):
+    """A ClientHello shaped like a browser's: GREASE cipher and extension values, a 1,216-byte key share, an ECH GREASE extension (0xfe0d), the name after them."""
+    def ext(kind, body):
+        return struct.pack(">HH", kind, len(body)) + body
+    raw = name.encode()
+    entry = b"\x00" + struct.pack(">H", len(raw)) + raw
+    extensions = (ext(0x0a0a, b"\x00") + ext(0xfe0d, b"\x00\x01" + b"\x42" * 250) + ext(0x0033, struct.pack(">H", 1220) + b"\x11\xec" + struct.pack(">H", 1216) + b"\x07" * 1216)
+                  + ext(0x0000, struct.pack(">H", len(entry)) + entry) + ext(0x1a1a, b"") + ext(0x002b, b"\x04\x03\x04\x03\x03"))
+    ciphers = b"\x0a\x0a\x13\x01\x13\x02\x13\x03\xc0\x2b"
+    hello = (b"\x03\x03" + b"\x22" * 32 + b"\x20" + b"\x33" * 32 + struct.pack(">H", len(ciphers)) + ciphers + b"\x01\x00"
+             + struct.pack(">H", len(extensions)) + extensions)
+    handshake = b"\x01" + struct.pack(">I", len(hello))[1:] + hello
+    return b"\x16\x03\x01" + struct.pack(">H", len(handshake)) + handshake
+
+
+def test_a_browser_like_client_hello_still_carries_the_name_and_the_tunnel_opens(run):
+    hello = browser_hello("cdn.aster-lane.example")
+    assert 1500 < len(hello) < 16 * 1024 and _proxy.parse_sni(hello) == "cdn.aster-lane.example"
+    proxy, thread, out = run(hosts=("cdn.aster-lane.example",), suffixes=())
+    answer, echoed = ask(proxy, connect("cdn.aster-lane.example"), hello)
+    assert answer.startswith(b"HTTP/1.1 200") and echoed == hello
+    r = report(out, thread)
+    assert r["allowed"] == 1 and r["sni_refused"] == 0
+
+
 def test_the_byte_cap_cuts_a_tunnel_and_ends_the_run(run):
     proxy, thread, out = run(max_bytes=3000)
     s = socket.create_connection(("127.0.0.1", proxy.port), 5)

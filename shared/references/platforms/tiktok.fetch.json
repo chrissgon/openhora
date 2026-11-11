@@ -1,9 +1,9 @@
 {
  "platform": "tiktok",
- "link": {"hosts": ["www.tiktok.com"], "path_pattern": null, "keep_query": []},
- "fetch_hosts": [],
- "fetch_suffixes": [],
- "extractors": null,
+ "link": {"hosts": ["www.tiktok.com"], "path_pattern": "/@[A-Za-z0-9_.]{2,24}/video/[0-9]{19}", "keep_query": []},
+ "fetch_hosts": ["www.tiktok.com"],
+ "fetch_suffixes": [".tiktok.com", ".tiktokcdn.com"],
+ "extractors": ["TikTok"],
  "subtitles": {"by_language": null, "original": null},
- "checked": "not checked"
+ "checked": "2026-11-10"
 }

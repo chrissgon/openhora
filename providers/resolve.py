@@ -102,7 +102,8 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
 # `transcriber` (transcriber:speech, providers/transcriber/whispercpp.py) is a class the runtime uses, not one a skill may require (decision VD2), so contracts/environment.md does not list it.
 # `renderer` (renderer:video, providers/renderer/ffmpeg.py and hyperframes.py) is runtime-only the same way (decision VD2).
 # `fetcher` (fetcher:video, providers/fetcher/ytdlp.py) is runtime-only the same way: the reference fetcher, called by the terminal operations of the reference store alone.
-ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model", "transcriber", "renderer", "fetcher"}
+# `stock` (stock:media, providers/stock/<name>.py, one file and one providers/stock/sources/<name>.json per library) is runtime-only the same way: licensed pictures and clips searched by words, called by the media operations of the runtime alone (V9b).
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model", "transcriber", "renderer", "fetcher", "stock"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),

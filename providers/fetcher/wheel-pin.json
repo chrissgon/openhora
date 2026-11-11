@@ -1,0 +1,65 @@
+{
+ "note": "Wheels unpacked into the fetcher image by _fetch_tool.py wheels, never by pip. Filled from PyPI's JSON API by a person.",
+ "source": "PyPI's JSON API, https://pypi.org/pypi/<name>/<version>/json: each file's url, size and digests.sha256; requires_dist",
+ "read_on": "2026-11-10",
+ "download_hosts": [
+  "files.pythonhosted.org"
+ ],
+ "redirect_hosts": [],
+ "wheels": [
+  {
+   "name": "curl_cffi",
+   "version": "0.17.0",
+   "arch": "amd64",
+   "filename": "curl_cffi-0.17.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "url": "https://files.pythonhosted.org/packages/e5/ef/7bb612007cf254ad6406e9563201baf87f57686308353b0fefde4b356212/curl_cffi-0.17.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "size": 14053278,
+   "sha256": "af0782d5e340b65fd76701630f0284a8f8243d77df5f2637efd09a4b009f4e24"
+  },
+  {
+   "name": "curl_cffi",
+   "version": "0.17.0",
+   "arch": "arm64",
+   "filename": "curl_cffi-0.17.0-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+   "url": "https://files.pythonhosted.org/packages/e6/6f/063eb68f3353bde506f4ca01005b24a07f59103bc8640889ea1954af9302/curl_cffi-0.17.0-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+   "size": 13438302,
+   "sha256": "aa91d26234516ddb9eb97310d5fe1705aa6f677f101d57ffdb76d5f75439506e"
+  },
+  {
+   "name": "cffi",
+   "version": "2.1.1",
+   "arch": "amd64",
+   "filename": "cffi-2.1.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "url": "https://files.pythonhosted.org/packages/f7/a4/4399daaf8f7dfee9d7c3327fdb0426ee041cc63edc358b93911ceb2bfc7a/cffi-2.1.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "size": 217807,
+   "sha256": "34e261f78cb6ceaaa36f42f2613f4380d94d9c759a9c73c769ee6e0247364632"
+  },
+  {
+   "name": "cffi",
+   "version": "2.1.1",
+   "arch": "arm64",
+   "filename": "cffi-2.1.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+   "url": "https://files.pythonhosted.org/packages/ad/66/c19feabb28485b6e0bbaaafa90837a1ef5d302e90f2178bd33f17a49879b/cffi-2.1.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+   "size": 218716,
+   "sha256": "3311ed60d36f83378794e1009ac6258bafbf81f7888b4caa7b35a521e3f95813"
+  },
+  {
+   "name": "certifi",
+   "version": "2026.10.23",
+   "arch": "any",
+   "filename": "certifi-2026.10.23-py3-none-any.whl",
+   "url": "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl",
+   "size": 135082,
+   "sha256": "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1"
+  },
+  {
+   "name": "pycparser",
+   "version": "3.11",
+   "arch": "any",
+   "filename": "pycparser-3.11-py3-none-any.whl",
+   "url": "https://files.pythonhosted.org/packages/90/11/0e6f11117525ff0eec40ebac3d313376f102df93ca44ad9e893ee85e4f89/pycparser-3.11-py3-none-any.whl",
+   "size": 51178,
+   "sha256": "51d5a8ba2be0bbe440b99d2112604c95bbbc3c2748a64260186c541e1729cd80"
+  }
+ ]
+}

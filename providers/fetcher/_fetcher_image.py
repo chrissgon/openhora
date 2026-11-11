@@ -18,6 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 IMAGE_REPOSITORY = "openhora-fetcher"
 MANIFEST = "image-manifest.json"
 PIN_FILE = "tool-pin.json"
+WHEEL_PIN = "wheel-pin.json"   # the wheels unpacked into the image by _fetch_tool.py wheels (never by pip)
 LOCAL_PIN = "pin.json"      # the person's own raise, under <state>/fetcher/
 STATE_ENV, STATE_FOLDER = "OPENHORA_STATE_DIR", "fetcher"
 VERSION = re.compile(r"[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]{1,8})?")
@@ -131,6 +132,113 @@ def pin_missing(pin: dict) -> list:
     if not pin.get("redirect_hosts"):
         missing.append("redirect_hosts")
     return missing
+
+
+WHEEL_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
+WHEEL_VERSION = re.compile(r"[0-9]{1,4}(\.[0-9]{1,4}){1,3}")
+WHEEL_ARCHES = ("amd64", "arm64", "any")
+WHEEL_MACHINE = {"amd64": "x86_64", "arm64": "aarch64"}
+WHEEL_PYTHON_TAG = re.compile(r"cp3([0-9]{1,2})")
+MANYLINUX = re.compile(r"manylinux_2_([0-9]{1,2})_([a-z0-9_]+)|manylinux2014_([a-z0-9_]+)")
+MAX_WHEEL_BYTES = 64 * 1024 * 1024
+WHEEL_HOST = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
+WHEEL_FIELDS = ("name", "version", "arch", "filename", "url", "size", "sha256")
+
+
+def wheel_pin(folder: str = HERE) -> dict:
+    with open(os.path.join(folder, WHEEL_PIN), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def wheel_pin_missing(pin: dict) -> list:
+    """The names of what is not filled in the wheel pin (null, an empty string and 0 count as missing; `redirect_hosts` may be empty)."""
+    missing = [key for key in ("read_on", "download_hosts") if pin.get(key) in (None, "", 0, [])]
+    wheels = pin.get("wheels")
+    if not isinstance(wheels, list) or not wheels:
+        return missing + ["wheels"]
+    for i, entry in enumerate(wheels):
+        for key in WHEEL_FIELDS:
+            if not isinstance(entry, dict) or entry.get(key) in (None, "", 0):
+                missing.append("wheels[%d].%s" % (i, key))
+    return missing
+
+
+def wheel_tag_problem(entry: dict) -> str:
+    name, version, arch, filename = entry["name"], entry["version"], entry["arch"], entry["filename"]
+    prefix = "%s-%s-" % (name, version)
+    if not isinstance(filename, str) or not filename.startswith(prefix) or not filename.endswith(".whl"):
+        return "a file name does not start with its name and version or does not end in .whl"
+    tags = filename[len(prefix):-len(".whl")].split("-")
+    if len(tags) != 3:
+        return "a file name does not carry exactly a python, an abi and a platform tag"
+    python, abi, platform_tag = tags
+    found = WHEEL_PYTHON_TAG.fullmatch(python)
+    native = (found and abi == "abi3" and int(found.group(1)) <= 11) or (python == "cp311" and abi == "cp311")
+    if not (native or (python == "py3" and abi == "none")):
+        return "a file's python and abi tags are not abi3 (up to 3.11), cp311 or py3-none"
+    if arch == "any":
+        return "" if platform_tag == "any" else "a pure wheel (arch any) has a platform tag other than any"
+    parts = platform_tag.split(".")
+    if len(parts) > 2:
+        return "a platform tag has more than two parts"
+    seen = False
+    for part in parts:
+        m = MANYLINUX.fullmatch(part)
+        if not m:
+            return "a platform tag is not manylinux"
+        if m.group(1) is not None:
+            seen = True
+            if int(m.group(1)) > 36 or m.group(2) != WHEEL_MACHINE[arch]:
+                return "a platform tag is for another glibc or machine"
+        elif m.group(3) != WHEEL_MACHINE[arch]:
+            return "a platform tag is for another machine"
+    return "" if seen else "a platform tag names no manylinux_2_<glibc> form"
+
+
+def wheel_pin_problem(pin: dict) -> str:
+    """Why a filled wheel pin is not valid, or an empty string. Names no value."""
+    if not isinstance(pin, dict):
+        return "not an object"
+    hosts = pin.get("download_hosts")
+    redirects = pin.get("redirect_hosts")
+    if not isinstance(hosts, list) or not isinstance(redirects, list) or not all(isinstance(h, str) and WHEEL_HOST.fullmatch(h) for h in hosts + redirects):
+        return "a host is not a plain lower-case name"
+    wheels = pin.get("wheels")
+    if not isinstance(wheels, list) or not wheels:
+        return "no wheels"
+    arches = {}
+    versions = {}
+    for entry in wheels:
+        if not isinstance(entry, dict) or set(entry) != set(WHEEL_FIELDS):
+            return "a wheel entry has not exactly its fields"
+        name, version = entry["name"], entry["version"]
+        if not isinstance(name, str) or not WHEEL_NAME.fullmatch(name):
+            return "a name is not of the allowed shape"
+        if not isinstance(version, str) or not WHEEL_VERSION.fullmatch(version):
+            return "a version is not of the allowed shape"
+        if entry["arch"] not in WHEEL_ARCHES:
+            return "an arch is not amd64, arm64 or any"
+        problem = wheel_tag_problem(entry)
+        if problem:
+            return problem
+        url = entry["url"]
+        if not isinstance(url, str):
+            return "an address is not text"
+        host = url[len("https://"):].split("/", 1)[0] if url.startswith("https://") else ""
+        if host not in hosts or not url.endswith("/" + entry["filename"]) or url.count("/") < 4 or any(ord(c) < 33 or ord(c) > 126 for c in url):
+            return "an address is not https on a download host, ending in its file name"
+        size = entry["size"]
+        if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_WHEEL_BYTES:
+            return "a size is not a number in range"
+        if not isinstance(entry["sha256"], str) or not SHA256.fullmatch(entry["sha256"]):
+            return "a sha256 is malformed"
+        arches.setdefault(name, []).append(entry["arch"])
+        if versions.setdefault(name, version) != version:
+            return "a name has two versions"
+    for name, found in arches.items():
+        if sorted(found) not in (["any"], ["amd64", "arm64"]):
+            return "a package is not one pure wheel or one wheel for each of amd64 and arm64"
+    return ""
 
 
 def definition_hash(folder: str = HERE) -> str:
