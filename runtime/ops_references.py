@@ -60,7 +60,7 @@ REFUSALS = {
     "platform_not_ready": "this platform's fetch file is not filled yet (the maintainer fills it from a live check), so its links cannot be fetched",
     "out_refused": "the fetch tool refused the reference's folder",
     "too_long": f"the video is longer than {references.VIDEO_SECONDS_MAX} seconds",
-    "no_duration": "the platform gave no duration for this video",
+    "no_duration": "the length of this video is not known: neither the platform nor the fetched file gave one, and nothing was kept",
     "too_large": "the video is larger than the size bound",
     "network": ("the fetch tool reached only hosts that are not on its list, so nothing was fetched (the platform's fetch file may need a host added: "
                 "that is the maintainer's to check)"),
@@ -266,17 +266,19 @@ def reference_video(project: str, reference, confirm=False, channel=None) -> dic
     except references.RefError as e:
         raise _ref_error(e) from None
     duration = record["duration"]
-    if not references.is_num(duration):
-        raise core.OpsError(f"{REFUSALS['no_duration']} (no_duration)", 1)
-    if duration > references.VIDEO_SECONDS_MAX:
+    if references.is_num(duration) and duration > references.VIDEO_SECONDS_MAX:
         raise core.OpsError(f"{REFUSALS['too_long']} (too_long)", 1)
     bound = _video_bound(data_dir)
     if bound <= 0:
         raise core.OpsError("the store of references is full: remove a reference first (reference-remove)", 1)
     if not confirm:
+        warning = ("this fetches the whole video, measures it and deletes it at once; it is never kept, never used in a video and never leaves this "
+                   "computer; nothing is fetched until it is confirmed (--confirm)")
+        if not references.is_num(duration):
+            warning += (f"; the platform gave no length for this video, so the fetch is bounded by the size bound and its time limit; the length is measured "
+                        f"from the file after the download, and a video over {references.VIDEO_SECONDS_MAX} seconds is deleted and refused")
         return {"reference": reference, "confirmed": False, "duration": duration, "seconds_max": references.VIDEO_SECONDS_MAX, "max_bytes": bound,
-                "warning": ("this fetches the whole video, measures it and deletes it at once; it is never kept, never used in a video and never leaves this "
-                            "computer; nothing is fetched until it is confirmed (--confirm)")}
+                "warning": warning}
     rid, platform = record["id"], record["platform"]
     try:
         guard = references.operation(data_dir, rid)
@@ -287,7 +289,14 @@ def reference_video(project: str, reference, confirm=False, channel=None) -> dic
     deleted = False
     try:
         try:
-            _fetch(ctx, rid, platform, record["link"], "video", bound)
+            fetched = _fetch(ctx, rid, platform, record["link"], "video", bound)
+            measured = fetched.get("duration")
+            if references.is_num(measured):
+                if measured > references.VIDEO_SECONDS_MAX:
+                    references.delete_video(data_dir, rid)
+                    raise core.OpsError(f"{REFUSALS['too_long']} (too_long)", 1)
+                if not references.is_num(record["duration"]):
+                    references.update(data_dir, rid, lambda r: r.update(duration=measured))
             size = references.video_size(data_dir, rid)
             references.update(data_dir, rid, lambda r: r["sizes"].update(video=size))
             references.drop_facts(data_dir, rid)

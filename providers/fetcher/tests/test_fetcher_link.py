@@ -116,10 +116,16 @@ def test_auto_gives_the_original_pattern_alone_and_a_language_gives_both():
     assert ytdlp.subtitle_languages(both_null, "en") == []
 
 
-def test_the_video_stage_checks_what_the_meta_stage_read_before_any_container(world):
-    refused(world, "no_duration", stage="video")                    # no info.json yet
+def test_the_video_stage_checks_a_stated_length_before_any_container_and_starts_one_when_none_is_stated(world):
+    # Changed by the maintainer's decision of 2026-11-10: a missing length is no longer refused before a container; it is measured from the file.
+    world.cfg["fetch_files"] = {"video.mp4": K.text("x")}
+    world.cfg["fetch_seconds"] = 20.0
+    world.save()
     (world.ref / "info.json").write_text(json.dumps(dict(K.INFO, duration=None)))
-    refused(world, "no_duration", stage="video")
+    code, out, _ = world.fetch(stage="video")
+    assert code == 0 and out["duration"] == 20.0 and any("fetch" in run for run in world.runs()), "the containers started with no stated length"
+    (world.ref / "video.mp4").unlink()
+    (world.config / "calls.jsonl").unlink()
     (world.ref / "info.json").write_text(json.dumps(dict(K.INFO, duration=301)))
     refused(world, "too_long", stage="video")
     refused(world, "too_long", stage="video", **{})

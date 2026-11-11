@@ -29,7 +29,8 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt; a refus
 
 Closed refusal codes. Exit 2: link_refused, platform_not_ready, out_refused, bad_arguments, pin_refused. Exit 1: release_refused, too_long, no_duration, too_large,
 network, fetch_failed, time_limit, measure_failed, facts_invalid, build_failed. Exit 3 (not configured): pin_not_filled, image_not_built,
-docker_missing, docker_not_running, docker_not_local. `not_public` is not mapped: the tool's exit code does not tell a sign-in from another
+docker_missing, docker_not_running, docker_not_local. `no_duration` means neither the platform's details nor the fetched file give a
+length (the file was not kept); `too_long` also comes after the download, from the length read from the file. `not_public` is not mapped: the tool's exit code does not tell a sign-in from another
 failure, so until a live run gives its text the answer is fetch_failed (with the sentence that the tool may be out of date).
 
 What the person gives, and what never is: the link of a public page, nothing else. No account, no cookie, no config file, no program to
@@ -54,6 +55,7 @@ import hashlib
 import http.client
 import ipaddress
 import json
+import math
 import os
 import re
 import shutil
@@ -92,7 +94,8 @@ EXTRACTOR = re.compile(r"[A-Za-z0-9_]{1,40}")
 LANG_PATTERN = re.compile(r"[A-Za-z0-9_.*{}-]{1,60}")
 VIDEO_FILE = re.compile(r"video\.(mp4|webm|mov)")
 SUBTITLE_FILE = re.compile(r"subs\.[a-z]{2,3}\.vtt")
-CLOSED_CODES = ("fetch_failed", "time_limit", "too_large", "measure_failed")
+CLOSED_CODES = ("fetch_failed", "time_limit", "too_large", "measure_failed", "too_long")
+MAX_RESULT_SECONDS = 86400
 
 # The caps (a test names each).
 MAX_LINK = 2048
@@ -193,11 +196,17 @@ def require_docker():
 
 
 def require_pin():
-    """The effective pin, filled. Refused before any docker call."""
+    """The effective pin, filled, and the wheel pin, filled and valid. Refused before any docker call: `pin_not_filled` for a null field of
+    either, `pin_refused` for a filled wheel pin that fails its check."""
     pin = _fetcher_image.effective_pin(FOLDER)
     missing = _fetcher_image.pin_missing(pin)
-    if missing:
-        raise Refusal("not-configured", "pin_not_filled", "the tool's pin is not filled (%s): see providers/fetcher/README.md" % ", ".join(missing))
+    wheels = _fetcher_image.wheel_pin(FOLDER)
+    wheel_missing = _fetcher_image.wheel_pin_missing(wheels)
+    if missing or wheel_missing:
+        raise Refusal("not-configured", "pin_not_filled", "a pin is not filled (%s): see providers/fetcher/README.md" % ", ".join(missing + wheel_missing))
+    problem = _fetcher_image.wheel_pin_problem(wheels)
+    if problem:
+        raise Refusal("usage", "pin_refused", "the wheel pin is not valid: %s" % problem)
     return pin
 
 
@@ -244,8 +253,11 @@ def cmd_check(args):
 def cmd_pin_show(args):
     pin = _fetcher_image.effective_pin(FOLDER)
     missing = _fetcher_image.pin_missing(pin)
+    wheels = _fetcher_image.wheel_pin(FOLDER)
+    wheel_missing = _fetcher_image.wheel_pin_missing(wheels)
     return {"ok": True, "pin": pin, "filled": not missing, "missing": missing,
-            "source": "committed" if pin == _fetcher_image.committed_pin(FOLDER) else "local-raise"}
+            "source": "committed" if pin == _fetcher_image.committed_pin(FOLDER) else "local-raise",
+            "wheels": {"filled": not wheel_missing, "missing": wheel_missing, "problem": "" if wheel_missing else _fetcher_image.wheel_pin_problem(wheels)}}
 
 
 # --- the pin routine: the release's metadata, never the download ---------------------------------------------------------------------------
@@ -430,7 +442,10 @@ def read_result(folder):
         value = json.loads(raw.decode("utf-8")) if raw is not None else None
     except ValueError:
         return None
-    if not isinstance(value, dict) or set(value) != {"ok", "code", "exit"} or not isinstance(value["ok"], bool):
+    if not isinstance(value, dict) or set(value) != {"ok", "code", "exit", "seconds"} or not isinstance(value["ok"], bool):
+        return None
+    seconds = value["seconds"]
+    if seconds is not None and not (isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and math.isfinite(seconds) and 0 < seconds <= MAX_RESULT_SECONDS):
         return None
     if value["code"] is not None and value["code"] not in CLOSED_CODES:
         return None
@@ -773,12 +788,11 @@ def cmd_fetch(args):
     url = check_link(args.url, fetch)
     out_dir = check_reference_folder(os.path.abspath(args.out))
     max_seconds = min(args.max_seconds or VIDEO_MAX_SECONDS, VIDEO_MAX_SECONDS)
-    if args.stage == "video":      # the host checks what `meta` read before it asks for the file
+    stated = None
+    if args.stage == "video":      # a length the platform stated is checked before any container; none stated is measured from the file afterwards
         info = read_info(os.path.join(out_dir, "info.json"))
-        duration = info["duration"] if info else None
-        if duration is None:
-            raise Refusal("failed", "no_duration", "the details do not say how long the video is")
-        if duration > max_seconds:
+        stated = info["duration"] if info else None
+        if stated is not None and stated > max_seconds:
             raise Refusal("failed", "too_long", "the video is longer than %d s" % max_seconds)
     pin = require_pin()
     require_docker()
@@ -815,7 +829,7 @@ def cmd_fetch(args):
         command = container_command(run_name, image["id"], inner, [(fetch_dir, "/out", "rw")], FETCH_LIMITS, net_in, deadline)
         run_container(command, run_name, timeout)
         proxy.stop()
-        return collect_fetch(args.stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pin)
+        return collect_fetch(args.stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pin, max_seconds, stated)
     finally:
         box.remove(run_name)
         if proxy is not None:
@@ -826,7 +840,7 @@ def cmd_fetch(args):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def collect_fetch(stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pin):
+def collect_fetch(stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pin, max_seconds=VIDEO_MAX_SECONDS, stated=None):
     names = scan(fetch_dir, fetch_allowed(stage), fetch_caps(stage, max_bytes))
     result = read_result(fetch_dir)
     parsed = read_proxy(proxy_dir)
@@ -840,6 +854,12 @@ def collect_fetch(stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pi
         elif code == "fetch_failed" and report["bytes"] >= proxy_cap:
             code = "too_large"
         raise Refusal("failed", code, "the fetch did not give the file (%s); the tool may be out of date" % code)
+    seconds = result["seconds"]
+    if stage == "video":     # nothing is linked into the reference folder when the length is over the bound or known from nowhere
+        if seconds is not None and seconds > max_seconds:
+            raise Refusal("failed", "too_long", "the video is longer than %d s" % max_seconds)
+        if seconds is None and stated is None:
+            raise Refusal("failed", "no_duration", "neither the platform's details nor the fetched file give a length; the file was not kept")
     info = None
     if "info.json" in kept:
         info = read_info(os.path.join(fetch_dir, "info.json"))
@@ -851,7 +871,8 @@ def collect_fetch(stage, out_dir, fetch_dir, proxy_dir, max_bytes, proxy_cap, pi
         info = read_info(os.path.join(out_dir, "info.json")) or {}
     files = [{"name": name, "size": os.path.getsize(os.path.join(out_dir, name)), "sha256": sha256_file(os.path.join(out_dir, name))}
              for _, name in sources]
-    return {"ok": True, "stage": stage, "files": files, "duration": info.get("duration"), "width": info.get("width"), "height": info.get("height"),
+    duration = seconds if stage == "video" and seconds is not None else (stated if stage == "video" else info.get("duration"))
+    return {"ok": True, "stage": stage, "files": files, "duration": duration, "width": info.get("width"), "height": info.get("height"),
             "subtitles": info.get("subtitles", "none"), "refused_hosts": len(report["refused_hosts"]), "bytes": report["bytes"], "tool": pin["version"]}
 
 

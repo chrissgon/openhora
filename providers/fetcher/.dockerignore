@@ -3,6 +3,7 @@
 !.dockerignore
 !image-manifest.json
 !tool-pin.json
+!wheel-pin.json
 !facts.schema.json
 !_fetch_tool.py
 !_fetcher_inner.py

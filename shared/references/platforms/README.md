@@ -116,7 +116,7 @@ A platform whose public videos a person may give as references has one more file
 
 Everything but `link.hosts` is null or empty until a live run observes it and a person approves the values: the fetcher refuses a platform whose `extractors` or `link.path_pattern` is null or empty. A value is never written from general knowledge.
 
-Fetch files filled so far: `youtube.fetch.json` (Shorts links, values observed in a live run on 2026-11-10 and approved). `tiktok.fetch.json` and `instagram.fetch.json` carry only `link.hosts` and are not ready.
+Fetch files filled so far: `youtube.fetch.json` (Shorts links, values observed in a live run on 2026-11-10 and approved). `tiktok.fetch.json` (values observed in a live run on 2026-11-10 and approved; no subtitles). `instagram.fetch.json` carries only `link.hosts` and is not ready.
 
 ## What stays in a provider
 

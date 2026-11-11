@@ -9,7 +9,8 @@
 #     build passes them as build arguments, stops when the file it downloads differs from any of them, and `build` refuses to start
 #     while the pin is not filled. Nothing is installed with pip, at build time or at run time.
 #
-# What the image holds: python3, ffmpeg (with ffprobe), the CA certificates, the pinned tool file and this folder's own scripts. No compiler,
+# What the image holds: python3, ffmpeg (with ffprobe), the CA certificates, the pinned tool file, the pinned wheels (wheel-pin.json: curl_cffi,
+# cffi, certifi, pycparser) and this folder's own scripts. No compiler,
 # a non-root user. The host starts it as three kinds of container (see ytdlp.py): the proxy, the only one with a way out; the fetch, on an
 # internal network whose only other member is the proxy; and the measure, with no network at all. Every one has a read-only root file
 # system, no capability and no environment variable of the host.
@@ -44,6 +45,12 @@ RUN test -n "${TOOL_URL}" -a -n "${TOOL_SHA256}" -a -n "${TOOL_SIZE}" -a -n "${T
       || { echo "tool-pin.json is not filled: run pin-show, then fill the pin from the release's metadata first" >&2; exit 1; } \
     && python3 -I /opt/fetcher/_fetch_tool.py "${TOOL_URL}" "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_REDIRECT_HOSTS}" /opt/fetcher/yt-dlp
 
+# The wheels the tool's impersonation needs (curl_cffi and what it imports): unpacked by `_fetch_tool.py wheels`, never by a package manager of
+# Python. Each file is downloaded from a host of wheel-pin.json's download_hosts, checked by size and sha256, and its members are checked
+# before anything is written. They are used only inside the fetch container, whose only route is the proxy.
+COPY wheel-pin.json /opt/fetcher/wheel-pin.json
+RUN python3 -I /opt/fetcher/_fetch_tool.py wheels /opt/fetcher/wheel-pin.json
+
 ENV HOME=/tmp \
     LANG=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -53,7 +60,7 @@ COPY . /opt/fetcher/
 RUN chmod -R go-w /opt/fetcher \
     && printf '%s\n' "openhora fetcher image" > /etc/openhora-fetcher-image \
     && useradd --system --uid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin fetcher \
-    && python3 -I /opt/fetcher/_fetcher_inner.py --result /opt/fetcher/versions.json selfcheck --expect-version "${TOOL_VERSION}"
+    && python3 -I /opt/fetcher/_fetcher_inner.py --result /opt/fetcher/versions.json selfcheck --expect-version "${TOOL_VERSION}" --expect-wheels /opt/fetcher/wheel-pin.json
 
 LABEL org.openhora.component="fetcher" \
       org.openhora.tool.version="${TOOL_VERSION}" \

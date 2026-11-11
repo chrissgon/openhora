@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -39,7 +40,8 @@ INFO_KEYS = ("id", "extractor_key", "duration", "width", "height", "fps", "uploa
 MAX_SUBTITLE_FILES, MAX_SUBTITLE_BYTES, MAX_INFO_BYTES = 4, 1 << 20, 1 << 20
 TITLE_MAX, DESCRIPTION_MAX = 300, 2000
 STAGES = ("meta", "video")
-CODES = ("fetch_failed", "time_limit", "too_large", "measure_failed")
+CODES = ("fetch_failed", "time_limit", "too_large", "measure_failed", "too_long")
+PROBE_SECONDS = 30       # ffprobe's share of the container's time: the tool's own timeout is shortened by it in the video stage
 FILTERS = ("scdet", "vidstabdetect", "palettegen", "edgedetect", "blackdetect", "tblend", "signalstats")
 
 
@@ -128,11 +130,25 @@ def read_info(path):
         return {}
 
 
-def tidy(out_dir, stage, max_bytes):
-    """Keep only the allowed files of /out, renamed; returns None when all is well or a code of CODES. Everything else is removed."""
+def probe_seconds(path):
+    """The length of the media file at `path` as ffprobe reads it, or None when it gives no finite number above 0."""
+    import _measure
+    try:
+        value = _measure.probe_duration(path)
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return float(value)
+
+
+def tidy(out_dir, stage, max_bytes, max_seconds):
+    """Keep only the allowed files of /out, renamed. Returns (problem, seconds): `problem` is None when all is well or a code of CODES, `seconds`
+    the length of the kept video as read from the file (None for the meta stage or when the file gives none). A video longer than `max_seconds`
+    is removed and reported `too_long`. Everything else is removed."""
     names = sorted(os.listdir(out_dir))
     kept_subtitles, seen = 0, set()
-    manual = False
+    manual, seconds = False, None
     info_raw = read_info(os.path.join(out_dir, "ref.info.json")) if "ref.info.json" in names else {}
     for name in names:
         path = os.path.join(out_dir, name)
@@ -148,8 +164,13 @@ def tidy(out_dir, stage, max_bytes):
         if stage == "video" and name == "ref." + ext and ext in VIDEO_EXTENSIONS and os.path.isfile(path) and not os.path.islink(path):
             if os.path.getsize(path) > max_bytes:
                 os.unlink(path)
-                return "too_large"
-            os.rename(path, os.path.join(out_dir, "video." + ext))
+                return "too_large", None
+            kept = os.path.join(out_dir, "video." + ext)
+            os.rename(path, kept)
+            seconds = probe_seconds(kept)
+            if seconds is not None and seconds > max_seconds:
+                os.unlink(kept)
+                return "too_long", seconds
             continue
         if name in ("result.json",):
             continue
@@ -163,36 +184,37 @@ def tidy(out_dir, stage, max_bytes):
         if info_raw:
             with open(os.path.join(out_dir, "info.json"), "w", encoding="utf-8") as f:
                 json.dump(sanitise_info(info_raw, state), f)
-    return None
+    return None, seconds
 
 
-def write_result(path, ok, code=None, exit_code=None):
+def write_result(path, ok, code=None, exit_code=None, seconds=None):
     if path:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"ok": bool(ok), "code": code, "exit": exit_code}, f)
+            json.dump({"ok": bool(ok), "code": code, "exit": exit_code, "seconds": seconds}, f)
 
 
 def verb_fetch(args):
     argv = ytdlp_argv(args.stage, args.url, args.extractors.split(","), args.proxy_url, args.max_seconds, args.max_bytes,
                       [x for x in args.langs.split(",") if x])
     out_dir = os.path.dirname(args.result) if args.result else "/out"
+    tool_timeout = max(5, args.timeout - PROBE_SECONDS) if args.stage == "video" else args.timeout
     try:
         done = subprocess.run([sys.executable, "-I", TOOL] + argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=args.timeout)
+                              stderr=subprocess.DEVNULL, timeout=tool_timeout)
     except subprocess.TimeoutExpired:
-        tidy(out_dir, args.stage, args.max_bytes)
+        tidy(out_dir, args.stage, args.max_bytes, args.max_seconds)
         write_result(args.result, False, "time_limit", None)
         return 1
-    problem = tidy(out_dir, args.stage, args.max_bytes)
+    problem, seconds = tidy(out_dir, args.stage, args.max_bytes, args.max_seconds)
     produced = os.listdir(out_dir)
     have = any(n.startswith("video.") for n in produced) if args.stage == "video" else "info.json" in produced
     if problem:
-        write_result(args.result, False, problem, done.returncode)
+        write_result(args.result, False, problem, done.returncode, seconds)
         return 1
     if done.returncode != 0 or not have:
         write_result(args.result, False, "fetch_failed", done.returncode)
         return 1
-    write_result(args.result, True, None, done.returncode)
+    write_result(args.result, True, None, done.returncode, seconds)
     return 0
 
 
@@ -222,6 +244,21 @@ def command_line(*argv):
     return (done.stdout or done.stderr or "").strip()
 
 
+def impersonate_targets(text):
+    """How many lines of the tool's `--list-impersonate-targets` name `curl_cffi` as the backend and do not say it is unavailable."""
+    return sum(1 for line in (text or "").splitlines() if "curl_cffi" in line and "unavailable" not in line.lower())
+
+
+def pinned_version(path, name):
+    try:
+        with open(path, encoding="utf-8") as f:
+            wheels = json.load(f).get("wheels") or []
+    except (OSError, ValueError, AttributeError):
+        return None
+    versions = {w.get("version") for w in wheels if isinstance(w, dict) and w.get("name") == name}
+    return versions.pop() if len(versions) == 1 else None
+
+
 def verb_selfcheck(args):
     ffmpeg = command_line("ffmpeg", "-version").split("\n")[0]
     filters = command_line("ffmpeg", "-hide_banner", "-filters")
@@ -231,6 +268,13 @@ def verb_selfcheck(args):
            "yt_dlp": tool, "filters": have}
     if args.expect_version and tool != args.expect_version:
         out["ok"] = False
+    if args.expect_wheels:
+        have_version = command_line(sys.executable, "-I", "-c", "import curl_cffi; print(curl_cffi.__version__)")
+        targets = impersonate_targets(command_line(sys.executable, "-I", TOOL, "--list-impersonate-targets"))
+        wanted = pinned_version(args.expect_wheels, "curl_cffi")
+        out["curl_cffi"], out["impersonate_targets"] = have_version, targets
+        if wanted is None or have_version != wanted or targets < 1:
+            out["ok"] = False
     if args.result:
         with open(args.result, "w", encoding="utf-8") as f:
             json.dump(out, f)
@@ -264,6 +308,7 @@ def parser():
     x.add_argument("--out", default="/out")
     s = sub.add_parser("selfcheck")
     s.add_argument("--expect-version", dest="expect_version", default="")
+    s.add_argument("--expect-wheels", dest="expect_wheels", default="")
     return p
 
 
