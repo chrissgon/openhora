@@ -34,8 +34,8 @@ sys.path.insert(0, str(HERE))
 import _net  # noqa: E402
 
 # The licence policy (decision D5 and the maintainer's decision 3). runtime/media_stock.py (V9b-3) holds the same two tuples; a test compares them.
-LICENCES_ACCEPTED = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0")
-LICENCES_CREDIT = ("cc-by-4.0", "cc-by-3.0")
+LICENCES_ACCEPTED = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
+LICENCES_CREDIT = ("cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
 UNVERIFIED = "unverified"     # the licence id of a candidate of the `unverified` tier: never in LICENCES_ACCEPTED
 TIERS = ("library", "per-item", "unverified")
 KINDS = ("image", "clip")
