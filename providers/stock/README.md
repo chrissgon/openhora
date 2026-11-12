@@ -126,6 +126,7 @@ What was read on 2026-11-11 (the public schema, version 50135c9, the terms of se
 - **Duties of the terms of service:** no scraping; adhere to all rate limits; no use of several machines to get around them; proper attribution of CC-licensed works; an app built on
   the API must prominently say it was made using Openverse but is not endorsed or certified by Openverse (the runtime page of V9b-3a shows this notice); Openverse does not
   verify the licensing status of its items; it reserves the right to charge fees for commercial or heavy use.
+- **Picture floor:** `IMAGE_MIN = (950, 534)` in `openverse.py` replaces the class floor (1080 x 1350) for this source only: Openverse's Flickr files are 1024 px on the long side (K1: 1024x768), and since V9d a wide picture is drawn in the glass layout at most 950 px wide. Pexels keeps the class floor.
 - **Hosts (K1, 2026-11-11):** the preview is served by `api.openverse.org` itself (`/v1/images/{identifier}/thumb/`). The files K1 saw came from Flickr (`live.staticflickr.com`, paths
   like `/3731/11907599844_507ae44b10_b.jpg`) and Wikimedia (`upload.wikimedia.org`, paths like `/wikipedia/commons/b/b8/<name>.jpg`), so `media_hosts` lists the three hosts and `redirect_hosts`
   is `[]` (the Flickr file came back 200 with no redirect). `path_patterns.image` is one expression over the path of a file URL, for every host: the class cannot keep a pattern per host, so

@@ -36,6 +36,10 @@ SECRET = ""      # the one secret this implementation reads is none: the class c
 # purpose: mostly species photos, noise for cutaways.
 UPSTREAM_SOURCES = ("flickr", "wikimedia", "stocksnap", "rawpixel", "nasa", "met")
 LICENCES_ASKED = "cc0,pdm,by"                # the library's own licence filter, a first pass: the table decides
+# The smallest picture this implementation keeps, (width, height). The class floor is (1080, 1350), but Openverse's Flickr files are the `_b` size, 1024 px on the long side
+# (K1, 2026-11-11: 1024x768), and since V9d a picture wider than tall (width/height > 0.8, or `fit: contain`) is drawn in the glass layout at most 950 px wide (1080 minus
+# 2 x 65 safe margins), where 1024x768 is enough. 950 is that width; 534 is the height of a 950 px wide 16:9 picture. The class reads this with getattr(impl, "IMAGE_MIN", FLOOR["image"]).
+IMAGE_MIN = (950, 534)
 MAX_PAGE_SIZE = 20                           # anonymous callers are throttled above 20 results per page
 
 

@@ -315,3 +315,18 @@ def test_the_clean_k1_shaped_urls_still_pass_the_committed_rule():
     for url in ("https://live.staticflickr.com/3731/11907599844_507ae44b10_b.jpg", "https://upload.wikimedia.org" + K1_PATHS[3],
                 "https://api.openverse.org/v1/images/%s/thumb/" % uid(1)):
         assert openverse._clean_url(url) == url
+
+
+# --- the picture floor of this implementation (V9d glass layout, K1 size) ------------------------------------------------------------------
+
+def test_the_floor_is_the_glass_layout_width_and_a_k1_sized_file_passes(tmp_path, monkeypatch):
+    assert openverse.IMAGE_MIN == (950, 534) and _stock.FLOOR["image"] == (1080, 1350)       # the class floor is untouched
+    r = serve(make(tmp_path, monkeypatch), [item(1, width=1024, height=768), item(2, width=949, height=700), item(3, width=1000, height=500),
+                                            item(4, width=950, height=534), item(5, width=950, height=533)])
+    code, got = r.search("image", "quiet harbour", 6)
+    assert code == 0 and sorted(c["item"] for c in got["candidates"]) == [uid(1), uid(4)] and got["dropped"]["too_small"] == 3
+
+
+def test_pexels_keeps_the_class_floor():
+    import pexels
+    assert pexels.IMAGE_MIN == _stock.FLOOR["image"] == (1080, 1350)      # Pexels keeps the class floor
