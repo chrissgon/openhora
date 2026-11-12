@@ -94,7 +94,7 @@ Progress:
 
   Two segments may need two motions (a teacher buys alone, a school is sold to). Without a price write `price not set; biz-business-model writes it`.
 - [ ] Step 4: Candidate channels, at least four, from the "Where to find them" of icp.md, the owner's assets and research: communities and groups, associations and their chapters, events with dates, app or plugin marketplaces, content platforms, partners, direct outreach to a public directory where the law allows it. A code host or a store where the offer is released is not a channel. For each channel capture, with the source rules of `biz-icp-positioning` step 4 (URL, title, publisher, publication date or `undated`, access date from `date +%F`, tier 1 official or the channel's own page, 2 reputable secondary, 3 blog, snippet or unknown, exact quote, `fact`, `estimate` or `opinion`; flag anything older than 12 months): its reach into the profile (members or activity, with a date), its own rules on promotion (quoted from the channel's rules page), its cost, the hours per week it takes, and the owner's access. A channel whose rules page was not read gets `not researched yet` in the rules columns; one whose rules page exists but could not be read gets `not researched yet: unreadable`; one with no published rules gets `no published rules` (case D of `references/gtm-cases.md`). When the request proposes a tactic that breaks a platform's published rules but has a compliant variant, or a channel only boosts another channel, read cases C and B of that file.
-- [ ] Step 5: Score each channel from 1 to 5 on: reach (of the primary profile), access (the owner's; 5 = an audience or network already there), cost (5 = free), hours (5 = fits easily in the weekly hours of item 2), rules (5 = promotion allowed as planned, 1 = forbidden; `not researched yet` scores 1), speed (to a first result). Every score cites sources or is `1` with no source. Access for bought reach (paid boosts, ads) is 3 at most, and the Channels reading says so. Pass the scores as JSON on standard input, with no temporary file:
+- [ ] Step 5: No stop rule fired, so this run ends with `gtm.md` written. Never offer to research more first and never ask whether to write it. Score each channel from 1 to 5 on: reach (of the primary profile), access (the owner's; 5 = an audience or network already there), cost (5 = free), hours (5 = fits easily in the weekly hours of item 2), rules (5 = promotion allowed as planned, 1 = forbidden; `not researched yet` scores 1), speed (to a first result). Every score cites sources or is `1` with no source. Access for bought reach (paid boosts, ads) is 3 at most, and the Channels reading says so. Pass the scores as JSON on standard input, with no temporary file:
   ```bash
   python3 <this skill's folder>/scripts/rank.py [--no-evidence-label "<translation>"] <<'EOF'
   {"criteria": [...], "options": [...]}
@@ -219,6 +219,7 @@ Approve the artifact only if all of the following hold:
 - Every readiness condition is checkable, and none is `yes` unless the user or the state file says so.
 - Every measurement row has `Continue if` and `Stop if`, and no numeric target appears that the user did not set.
 - No tactic of Stop rule 4 appears in the plan; it is listed under Left out.
+- When no stop rule fired, `docs/business/gtm.md` is written, with every unsourced or unread score as `1` and `not researched yet`; the reply asks no permission to write it.
 - The artifact says `hypothesis` (or `limited`); the state file's row says `draft`.
 - No figure, rule or channel appears without its source; no file was written under `docs/workbench/research/`.
 
@@ -230,4 +231,5 @@ Approve the artifact only if all of the following hold:
 - Privacy law limits cold outreach to people (note it in the channel's rules); contacts who agreed to receive news are a channel, a bought or scraped list is never one.
 - A launch week can carry most of the month's results, so the launch week gets the heaviest effort and the later weeks only follow-up.
 - "No numeric target yet" is a goal: measure a baseline window, with the rule that reads it written before the window starts.
+- Thin sources never withhold `gtm.md`: score `1`, label `not researched yet`, write the file. Offering more research first, or asking whether to write it, is wrong.
 - Launching on a date before a stranger can use the product spends the launch week. Launch on the readiness condition.
