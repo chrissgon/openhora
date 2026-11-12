@@ -119,7 +119,8 @@ def declared():
 def test_the_credentials_of_the_harnesses_carry_the_billing_the_contract_states():
     found = declared()
     assert found == {"CLAUDE_CODE_OAUTH_TOKEN": {"subscription"}, "CLAUDE_CODE_WEB_API_KEY": {"metered"},
-                     "ANTHROPIC_API_KEY": {"metered"}, "OPENROUTER_API_KEY": {"metered"}, "DEEPSEEK_API_KEY": {"metered"}}
+                     "ANTHROPIC_API_KEY": {"metered"}, "OPENROUTER_API_KEY": {"metered"}, "DEEPSEEK_API_KEY": {"metered"},
+                     "EXA_API_KEY": {"metered"}}
 
 
 def test_the_harness_that_holds_a_login_declares_it_once_and_no_other_harness_does():
