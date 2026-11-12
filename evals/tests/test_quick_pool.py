@@ -762,13 +762,22 @@ def test_a_quick_line_before_the_newest_epoch_alone_does_not_turn_the_route_on_f
 
 # --- the committed evidence has no pool ---------------------------------------------------------------------------------
 
-def test_no_committed_skill_has_a_pool_until_a_quick_test_exists():
-    names = [p.parent.parent.name for p in sorted((REPO / "skills").glob("*/evals/evals.json"))][:8]
-    assert names
-    for name in names:
-        r = es.all_status(str(REPO), name)["skills"][0]
-        assert "pool" not in r and all("pool" not in m for m in r["models"].values())
-    assert not [p for p in (REPO / "skills").glob("*/evals/evidence/*.jsonl") if '"kind": "quick"' in p.read_text().split("\n", 1)[0]]
+def _has_quick_evidence(skill_dir):
+    return any('"kind": "quick"' in p.read_text().split("\n", 1)[0] for p in (skill_dir / "evals" / "evidence").glob("*.jsonl"))
+
+
+def test_a_committed_skill_has_a_pool_exactly_when_its_evidence_holds_a_quick_test():
+    dirs = [p.parent.parent for p in sorted((REPO / "skills").glob("*/evals/evals.json"))]
+    quick = [d for d in dirs if _has_quick_evidence(d)]
+    assert "biz-business-model" in [d.name for d in quick]
+    others = [d for d in dirs if d not in quick][:8]
+    assert others
+    for d in others:
+        r = es.all_status(str(REPO), d.name)["skills"][0]
+        assert "pool" not in r and all("pool" not in m for m in r["models"].values()), d.name
+    for d in quick:
+        r = es.all_status(str(REPO), d.name)["skills"][0]
+        assert any("pool" in m for m in r["models"].values()), d.name
 
 
 # --- the runner: --quick ------------------------------------------------------------------------------------------------

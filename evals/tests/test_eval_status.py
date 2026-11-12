@@ -998,4 +998,5 @@ def test_the_gate_file_is_written_in_its_own_layout_and_reads_back_the_same():
     cfg = json.loads((REPO / "evals" / "eval-gate.json").read_text())
     text = es.format_gate({**cfg, "epochs": [{"date": "2030-01-01", "models": "all", "skills": ["core-demo"], "cause": "x"}]})
     assert json.loads(text)["epochs"][0]["skills"] == ["core-demo"] and json.loads(text)["models"] == cfg["models"]
-    assert '"web_cases": {\n    "biz-icp-positioning": [1, 3],' in text and '"epochs": [\n    {\n' in text
+    first_skill, first_cases = next(iter(cfg["web_cases"].items()))
+    assert f'"web_cases": {{\n    {json.dumps(first_skill)}: {json.dumps(first_cases)},' in text and '"epochs": [\n    {\n' in text
