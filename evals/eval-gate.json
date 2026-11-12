@@ -28,7 +28,8 @@
     "brand-name": [2],
     "brand-strategy": [3],
     "core-research": [1, 4, 5],
-    "eng-architecture": [1]
+    "eng-architecture": [1],
+    "mkt-video-media-search": [1, 2, 3]
   },
   "models": {
     "claude-sonnet-5-5": {

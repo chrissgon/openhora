@@ -84,6 +84,7 @@ Generated from the skills' frontmatter by `python3 scripts/owner_table.py`; neve
 <!-- owner-table:begin -->
 | Artifact | Owning skill | Updated by |
 |----------|--------------|------------|
+| `.workbench-local/video/web-candidates.json` | mkt-video-media-search | - |
 | `AGENTS.md` | core-agents-md | core-project-init |
 | `docs/brand/guidelines.md` | brand-guidelines | - |
 | `docs/brand/identity.md` | brand-identity | - |
