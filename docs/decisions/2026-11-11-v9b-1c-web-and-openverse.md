@@ -106,5 +106,5 @@ Changes:
 Limits found, stated:
 
 - The class applies `path_patterns` with `fullmatch` on the URL's path only, one pattern for every host (`_stock.py`, `_net.split_url`). A pattern per host is not possible, so a Flickr-shaped path on the Wikimedia host matches too; the host list is what keeps other hosts out.
-- The path the pattern sees leaves out the query: `split_url` returns the path without it, and the request target keeps it. A file URL with a query on a listed host and an allowed path shape therefore passes the pattern and is fetched with its query. The licence is the item's own, and the host and path shape are still checked, but a query cannot be refused by the pattern. Closing this is a change in `_net.py`, outside this row; it is reported to the supervisor.
+- The path the pattern sees leaves out the query: `split_url` returns the path without it, and the request target keeps it, so the pattern alone would let a file URL with a query through. This is closed in the implementation, not in `_net.py`: `openverse.py` (`_clean_url`) drops an item whose `url` or `thumbnail` has a query, a fragment, user info, a port or a scheme other than https. The class then refuses the missing URL with its existing codes: `host` in a search (counted in `dropped`), `host_refused` in a fetch. `_net.py` is unchanged.
 

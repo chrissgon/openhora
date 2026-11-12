@@ -287,3 +287,31 @@ def test_the_pattern_is_checked_on_the_files_host_and_path(tmp_path, monkeypatch
         r.net.add(IMG, "/t/%s.jpg" % i["id"], image_response())
     code, got = r.search("image", "quiet harbour", 6)
     assert code == 0 and [c["item"] for c in got["candidates"]] == [uid(1)] and got["dropped"]["host"] == 3
+
+
+# --- a URL that is not a plain https URL is refused by the implementation (the class matches the path alone) -------------------------------
+
+CLEAN = "https://%s/f/%s.jpg" % (IMG, uid(1))
+
+
+@pytest.mark.parametrize("bad", [CLEAN + "?x=1", CLEAN + "#f", "https://user@%s/f/%s.jpg" % (IMG, uid(1)), "https://%s:8443/f/%s.jpg" % (IMG, uid(1)),
+                                 "http://%s/f/%s.jpg" % (IMG, uid(1)), CLEAN + "?", CLEAN + "#", None, 5])
+@pytest.mark.parametrize("field", ["url", "thumbnail"])
+def test_an_item_whose_url_or_thumbnail_is_not_a_plain_https_url_is_dropped(tmp_path, monkeypatch, field, bad):
+    one = dict(item(1), **{field: bad})
+    r = serve(make(tmp_path, monkeypatch), [one, item(2)])
+    code, got = r.search("image", "quiet harbour", 6)
+    assert code == 0 and [c["item"] for c in got["candidates"]] == [uid(2)] and got["dropped"]["host"] == 1
+
+
+def test_fetch_refuses_a_file_url_with_a_query(tmp_path, monkeypatch):
+    r = make(tmp_path, monkeypatch)
+    r.net.add(API, "/v2/pictures/%s/" % uid(3), json_response(dict(item(3), url="https://%s/f/%s.jpg?x=1" % (IMG, uid(3)))))
+    code, got = r.fetch("image", uid(3), 20_000_000)
+    assert code == 1 and got["code"] == "host_refused" and r.net.count(IMG) == 0
+
+
+def test_the_clean_k1_shaped_urls_still_pass_the_committed_rule():
+    for url in ("https://live.staticflickr.com/3731/11907599844_507ae44b10_b.jpg", "https://upload.wikimedia.org" + K1_PATHS[3],
+                "https://api.openverse.org/v1/images/%s/thumb/" % uid(1)):
+        assert openverse._clean_url(url) == url

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _stock  # noqa: E402
@@ -45,6 +46,21 @@ def _id(value):
 
 def _int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _clean_url(value):
+    """The URL as given when it is a plain https URL (no query, no fragment, no user info, no port), else None. The class matches the path pattern on the path alone, so
+    this is where a query or a fragment is refused; a None URL is dropped by the class as `host` (search) or refused as `host_refused` (fetch)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = urllib.parse.urlsplit(value)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "https" or parts.query or parts.fragment or "@" in parts.netloc or port is not None or not parts.hostname or "?" in value or "#" in value:
+        return None
+    return value
 
 
 def licence_key(item) -> "str | None":
@@ -76,8 +92,8 @@ def item_request(src, kind, item):
 
 def _image(src, item):
     return {"item": _id(item.get("id")), "width": _int(item.get("width")), "height": _int(item.get("height")), "seconds": None,
-            "author": item.get("creator"), "title": item.get("title"), "page": item.get("foreign_landing_url"), "preview_url": item.get("thumbnail"),
-            "file_url": item.get("url"), "licence": _stock.map_licence(src["licences"], licence_key(item))}
+            "author": item.get("creator"), "title": item.get("title"), "page": item.get("foreign_landing_url"), "preview_url": _clean_url(item.get("thumbnail")),
+            "file_url": _clean_url(item.get("url")), "licence": _stock.map_licence(src["licences"], licence_key(item))}
 
 
 def read_search(src, kind, answer):

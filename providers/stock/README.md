@@ -130,7 +130,8 @@ What was read on 2026-11-11 (the public schema, version 50135c9, the terms of se
   like `/3731/11907599844_507ae44b10_b.jpg`) and Wikimedia (`upload.wikimedia.org`, paths like `/wikipedia/commons/b/b8/<name>.jpg`), so `media_hosts` lists the three hosts and `redirect_hosts`
   is `[]` (the Flickr file came back 200 with no redirect). `path_patterns.image` is one expression over the path of a file URL, for every host: the class cannot keep a pattern per host, so
   a Flickr-shaped path on the Wikimedia host also matches, and the host list is what keeps it out of other hosts. The other four upstream sources' hosts are added when a search shows them.
-  With these, the source file is ready (`--check` passes).
+  The class matches the pattern on the path alone, so `openverse.py` itself drops an item whose `url` or `thumbnail` has a query, a fragment, user info, a port or a scheme other
+  than https (`_clean_url`: it counts as `host` in a search and is `host_refused` in a fetch). With these, the source file is ready (`--check` passes).
 
 ## The open web (`web.py`)
 
