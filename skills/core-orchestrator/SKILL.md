@@ -1,17 +1,17 @@
 ---
 name: core-orchestrator
 description: >
-  Name the skill or flow that should handle a request, and hand over. Load it before answering
-  whenever the user asks which skill or flow would handle something, or whether it has what it
-  needs, even when the answer looks obvious from the skill list, another skill's description
-  matches the task, or the user says not to start yet: loading it starts nothing; it reports the
-  route and what is found or missing, then stops. Use it first, too, before reading code or
-  writing a file, for any request to build, implement, fix, design, plan, write, review, validate,
-  publish, schedule or send something (an app, a ticket, a post), including one naming an external
-  system, before checking for a tool for that system and even when no other skill is installed;
-  for a request spanning areas, continuing a multi-phase effort, or that may need no skill; and
-  for "where are we", "what's next" or "what can you do here". Not for a one-step request with no
-  specialized knowledge and no side effects: answer that directly.
+  Load this skill FIRST, before answering, reading code or writing a file, on any request to
+  start, build, implement, fix, design, plan, write, review, validate, critique, improve, publish,
+  schedule or send a piece of work (an app, a business model, a ticket, a post, a document,
+  "improve our onboarding", "validate my idea"), including one naming an external system, and on
+  any question about which skill or flow fits a task or whether its inputs are in place, even
+  when you could answer from your own knowledge, the answer looks obvious from the skill list,
+  another skill's description matches, or the user says not to run it yet. Loading it starts
+  nothing: it names the route, reports what is found or missing, then stops. Also load it for a
+  request spanning areas, continuing a multi-phase effort, or that may need no skill; and for
+  "where are we", "what's next" or "what can you do here". Skip it only for a one-step request
+  with no specialized knowledge and no side effects: answer that directly.
 license: MIT
 metadata:
   area: core
