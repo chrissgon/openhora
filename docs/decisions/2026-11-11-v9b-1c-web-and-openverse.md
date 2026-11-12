@@ -108,3 +108,15 @@ Limits found, stated:
 - The class applies `path_patterns` with `fullmatch` on the URL's path only, one pattern for every host (`_stock.py`, `_net.split_url`). A pattern per host is not possible, so a Flickr-shaped path on the Wikimedia host matches too; the host list is what keeps other hosts out.
 - The path the pattern sees leaves out the query: `split_url` returns the path without it, and the request target keeps it, so the pattern alone would let a file URL with a query through. This is closed in the implementation, not in `_net.py`: `openverse.py` (`_clean_url`) drops an item whose `url` or `thumbnail` has a query, a fragment, user info, a port or a scheme other than https. The class then refuses the missing URL with its existing codes: `host` in a search (counted in `dropped`), `host_refused` in a fetch. `_net.py` is unchanged.
 
+### Downloads with no Content-Length, and the row extension (2026-11-11, after K1)
+
+K1's live fetch of an Openverse file got an item answer of 200 and a Flickr file answer of 200 `image/jpeg`, and the provider refused it with `no_length`: Flickr's CDN serves the file with `Transfer-Encoding: chunked` and no `Content-Length` (seen three times with curl `--http1.1`). The class's `_net._save` refused every download without a length, while `_save_open` already read one under the cap.
+
+The supervisor approved extending this row to `providers/stock/_net.py`, `_save` only, to follow `_save_open`'s rule:
+
+- A missing `Content-Length` means the length is unknown; the cap is enforced while the body is read (`too_large` once the total passes it) and the final "exactly that long" check applies only when a length was given.
+- A `Content-Length` that is present and not a number is still `no_length`; a given length over the cap is still `too_large` before a byte is read; the signature sniff, the deadline, the 0600 temp file and its removal on any failure are unchanged. The `download` docstring says so.
+- Tests (`test_stock_net.py`): a chunked answer under the cap is saved with the right sha256; one that passes the cap mid-stream is `too_large` with no file and no `.part-*`; a malformed length is `no_length`; a body shorter than a given length is `network`; a body with no length still has its signature checked.
+
+The residual risk: a server with no length can make the provider read up to the cap (the per-file cap) before refusing; the deadline still bounds the time.
+

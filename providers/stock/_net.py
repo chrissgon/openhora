@@ -266,7 +266,9 @@ def download(url: str, cap: int, dest: str, types, *, allowed_hosts, redirect_ho
     """Download one file from a media host into `dest`'s folder, as `dest` + the extension of its type, and return {"file", "bytes", "sha256",
     "type"}. The first URL's host is in `allowed_hosts` and its path fullmatches `path_pattern` (a compiled regular expression); at most one
     redirect, to a host of `redirect_hosts`. The response is 200, its `Content-Type` (parameters dropped) is one of `types`, its `Content-Length`
-    is known and at most `cap`, the body is exactly that long and begins with the signature of its type. The file is written 0600 under a temporary
+    is at most `cap` when it is given and, when it is given, the body is exactly that long; a response with no `Content-Length` (a chunked answer, as Flickr's CDN serves its files) has
+    an unknown length and is read under the cap, which is enforced while the body is read (`too_large`); a `Content-Length` that is present and not a number is `no_length`. The body
+    begins with the signature of its type. The file is written 0600 under a temporary
     name and renamed; a failure removes it. No key is sent."""
     clock = SEAMS["clock"]
     deadline = clock() + timeout
@@ -303,12 +305,15 @@ def _save(conn, response, cap, dest, folder, types, deadline, clock) -> dict:
     kind = (response.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
     if kind not in types or kind not in EXTENSIONS:
         raise NetError("type_refused")
-    size = (response.getheader("Content-Length") or "").strip()
-    if not (size.isascii() and size.isdigit()):
-        raise NetError("no_length")
-    length = int(size)
-    if length > cap:
-        raise NetError("too_large")
+    raw = response.getheader("Content-Length")
+    length = None                     # a missing header is an unknown length (a chunked answer): the cap is enforced while the body is read
+    if raw is not None:
+        size = raw.strip()
+        if not (size.isascii() and size.isdigit()):
+            raise NetError("no_length")           # a header that is there and is not a number is refused
+        length = int(size)
+        if length > cap:
+            raise NetError("too_large")
     temp = os.path.join(folder, ".part-%s" % hashlib.sha256(os.urandom(16)).hexdigest()[:16])
     final = dest + "." + EXTENSIONS[kind]
     digest, total, head = hashlib.sha256(), 0, b""
@@ -327,13 +332,13 @@ def _save(conn, response, cap, dest, folder, types, deadline, clock) -> dict:
                 if not block:
                     break
                 total += len(block)
-                if total > cap or total > length:
+                if total > cap or (length is not None and total > length):
                     raise NetError("too_large")
                 if len(head) < 16:
                     head = (head + block)[:16]
                 digest.update(block)
                 handle.write(block)
-        if total != length:
+        if length is not None and total != length:
             raise NetError("network")
         if not SIGNATURES[kind](head):
             raise NetError("type_refused")

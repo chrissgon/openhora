@@ -204,9 +204,7 @@ def test_a_redirect_with_no_location_or_to_http_is_refused(net, tmp_path):
     raises("redirect_refused", fetch_file, tmp_path, "https://%s/b" % IMG)
 
 
-def test_no_content_length_or_one_over_the_cap_is_refused_before_a_byte_is_read(net, tmp_path):
-    net.add(IMG, "/nolen", kit.image_response(length=False))
-    raises("no_length", fetch_file, tmp_path, "https://%s/nolen" % IMG)
+def test_a_given_length_over_the_cap_is_refused_before_a_byte_is_read(net, tmp_path):
     class NoRead(Response):
         def read(self, amount=None):
             raise AssertionError("a byte was read before the length was checked")
@@ -340,3 +338,50 @@ def test_no_module_of_the_class_reads_a_proxy_variable_or_a_cookie_jar():
         text = path.read_text(encoding="utf-8")
         for word in ("getproxies", "CookieJar", "HTTPCookieProcessor", "ProxyHandler", "HTTPS_PROXY", "http_proxy"):
             assert word not in text, (path.name, word)
+
+
+# --- no Content-Length: a chunked answer (K1, 2026-11-11: Flickr's CDN) -------------------------------------------------------------------
+
+def attempt(tmp_path, url, **kw):
+    """(error code or None, the folder's file names, the result) of one download into a folder of its own."""
+    folder = kit.out_dir(tmp_path, "out%d" % next(COUNTER))
+    try:
+        got = _net.download(url, kw.pop("cap", 10_000), os.path.join(folder, "full-x"), ("image/jpeg",), allowed_hosts=[IMG, CDN], redirect_hosts=[CDN], **kw)
+    except _net.NetError as stop:
+        return stop.code, sorted(os.listdir(folder)), None
+    return None, sorted(os.listdir(folder)), got
+
+
+def test_an_answer_with_no_length_under_the_cap_is_saved_with_its_sha256(net, tmp_path):
+    import hashlib
+    body = kit.jpeg(3000)
+    net.add(IMG, "/chunked", kit.image_response(body, length=False))
+    code, names, got = attempt(tmp_path, "https://%s/chunked" % IMG)
+    assert code is None and names == ["full-x.jpg"] and got["bytes"] == len(body)
+    assert got["sha256"] == hashlib.sha256(body).hexdigest() and Path(got["file"]).read_bytes() == body
+
+
+def test_an_answer_with_no_length_that_passes_the_cap_mid_stream_is_too_large_and_leaves_no_file(net, tmp_path):
+    net.add(IMG, "/endless", kit.image_response(kit.jpeg(5000), length=False))
+    code, names, _ = attempt(tmp_path, "https://%s/endless" % IMG, cap=1000)
+    assert code == "too_large" and names == []                    # no `.part-*` and no final file
+
+
+@pytest.mark.parametrize("value", ["abc", "12x", "-5", "1.5", "0x10", "\u0661\u0662"])
+def test_a_content_length_that_is_there_and_not_a_number_is_no_length(net, tmp_path, value):
+    net.add(IMG, "/bad", Response(200, kit.jpeg(500), {"Content-Type": "image/jpeg", "Content-Length": value}))
+    code, names, _ = attempt(tmp_path, "https://%s/bad" % IMG)
+    assert code == "no_length" and names == []
+
+
+def test_a_body_shorter_than_the_given_length_is_still_network(net, tmp_path):
+    body = kit.jpeg(500)
+    net.add(IMG, "/short", Response(200, body, {"Content-Type": "image/jpeg", "Content-Length": str(len(body) + 100)}))
+    code, names, _ = attempt(tmp_path, "https://%s/short" % IMG)
+    assert code == "network" and names == []
+
+
+def test_an_answer_with_no_length_still_has_its_signature_checked(net, tmp_path):
+    net.add(IMG, "/html", kit.image_response(b"<html>" + b"x" * 100, length=False))
+    code, names, _ = attempt(tmp_path, "https://%s/html" % IMG)
+    assert code == "type_refused" and names == []

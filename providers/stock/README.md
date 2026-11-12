@@ -79,8 +79,9 @@ The provider's own standard-library code does the network, on the host, with clo
 checked against the file's list before any lookup, every address it resolves to global (private, loopback, link-local, NAT64, 6to4, Teredo and
 IPv4-mapped private ones are refused), the connection opened to the address that was checked, no proxy variable read, no cookie jar. A request that
 carries a key (the API) follows no redirect; a download follows at most one, to a host of `redirect_hosts`, and carries no key. A download's
-`Content-Length` is known and under the cap before a byte is read, the body is exactly that long and begins with the signature of its declared type,
-and the partial file is removed on any failure. Nothing here decodes a downloaded file: decoding is the renderer's, in a container with no network.
+`Content-Length`, when the server sends one, is under the cap before a byte is read and the body is exactly that long; a server that sends none (a chunked answer, as Flickr's CDN does:
+seen in K1 on 2026-11-11) has an unknown length, and the cap is enforced while the body is read (`too_large`); a `Content-Length` that is there and not a number is `no_length`. The body begins
+with the signature of its declared type, and the partial file is removed on any failure. Nothing here decodes a downloaded file: decoding is the renderer's, in a container with no network.
 
 ## The key
 
