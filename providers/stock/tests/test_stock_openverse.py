@@ -14,7 +14,8 @@ import _stock
 import openverse
 
 COMMITTED = Path(openverse.__file__).resolve().parent / "sources" / "openverse.json"
-TABLE = {"by 4.0": "cc-by-4.0", "by 3.0": "cc-by-3.0", "cc0 1.0": "cc0-1.0", "pdm 1.0": "pdm-1.0"}
+TABLE = {"by 4.0": "cc-by-4.0", "by 3.0": "cc-by-3.0", "by 2.5": "cc-by-2.5", "by 2.0": "cc-by-2.0", "cc0 1.0": "cc0-1.0", "pdm 1.0": "pdm-1.0"}
+COMMITTED_TODAY = "2026-11-11"        # the day the committed file's terms were read (kit.TODAY is earlier)
 SEARCH, ITEM = "/v2/pictures/", "/v2/pictures/{item}/"
 
 
@@ -64,35 +65,34 @@ def test_the_implementation_declares_the_class_and_its_verbs():
     assert openverse.SECRET == ""                       # no key exists, so none is named: a source file that names one is refused (below)
 
 
-def test_the_committed_source_file_holds_the_approved_values_and_waits_for_the_live_leg(tmp_path, monkeypatch):
+def test_the_committed_source_file_holds_the_approved_values_and_is_ready(tmp_path, monkeypatch):
     committed = json.loads(COMMITTED.read_text(encoding="utf-8"))
     assert list(committed) == list(_stock.SOURCE_KEYS)
     assert (committed["source"], committed["licence_tier"], committed["secret_in"], committed["kinds"]) == ("openverse", "per-item", "none", ["image"])
     assert committed["licence"] is None and committed["secret"] is None
-    assert committed["licences"] == {"cc0 1.0": "cc0-1.0", "pdm 1.0": "pdm-1.0", "by 4.0": "cc-by-4.0", "by 3.0": "cc-by-3.0"}
+    assert committed["licences"] == {"cc0 1.0": "cc0-1.0", "pdm 1.0": "pdm-1.0", "by 4.0": "cc-by-4.0", "by 3.0": "cc-by-3.0", "by 2.5": "cc-by-2.5",
+                                     "by 2.0": "cc-by-2.0"}
     assert committed["licence_url"] == "https://docs.openverse.org/terms_of_service.html" and committed["terms_read_on"] == "2026-11-11"
     assert committed["api"] == {"host": "api.openverse.org", "search_image": "/v1/images/", "search_clip": None, "item_image": "/v1/images/{item}/", "item_clip": None}
-    assert committed["media_hosts"] == ["api.openverse.org"] and committed["redirect_hosts"] == []      # the upstream file hosts come after K1
-    assert committed["path_patterns"]["image"] is None and committed["path_patterns"]["clip"] is None      # after K1
+    assert committed["media_hosts"] == ["api.openverse.org", "live.staticflickr.com", "upload.wikimedia.org"] and committed["redirect_hosts"] == []
+    assert committed["path_patterns"]["preview"] == "^/v1/images/[0-9a-f-]{36}/thumb/$" and committed["path_patterns"]["clip"] is None
     assert committed["rendition"] == {"preview": "thumbnail", "image": "url", "clip": None}
     assert committed["cache_seconds"] == 86400 and committed["credit_line"] == "{title} by {author}, {licence}, via Openverse"
-    with pytest.raises(_stock.Refusal) as stop:
-        _stock.read_source(str(COMMITTED), kit.TODAY, "openverse", None)
-    assert stop.value.code == "source_not_ready" and stop.value.exit_code == 3 and stop.value.fields == ["path_patterns.image"]   # only the image pattern is missing
+    ready = _stock.read_source(str(COMMITTED), COMMITTED_TODAY, "openverse", None)       # no refusal: the file is ready
+    assert set(ready["_patterns"]) == {"preview", "image"}
     r = make(tmp_path, monkeypatch)
     monkeypatch.setitem(_stock.SEAMS, "sources", None)               # the real rule: providers/stock/sources/openverse.json
-    for verb in (("--check",), ("search", "--kind", "image", "--query", "old harbour", "--out", r.out),
-                 ("fetch", "--kind", "image", "--item", uid(1), "--max-bytes", "99", "--out", r.out)):
-        code, got = r.run(*verb, source_file=str(COMMITTED))
-        assert code == 3 and got["code"] == "source_not_ready" and got["fields"] == ["path_patterns.image"]
+    code, got = r.run("--check", source_file=str(COMMITTED), today=COMMITTED_TODAY)
+    assert code == 0 and got["ok"] is True and got["source"] == "openverse"
     assert r.net.count() == 0
 
 
 def test_the_committed_licence_table_maps_the_four_keys_and_drops_the_rest():
     table = json.loads(COMMITTED.read_text(encoding="utf-8"))["licences"]
-    for licence, version, expected in (("cc0", "1.0", "cc0-1.0"), ("pdm", "1.0", "pdm-1.0"), ("by", "4.0", "cc-by-4.0"), ("by", "3.0", "cc-by-3.0")):
+    for licence, version, expected in (("cc0", "1.0", "cc0-1.0"), ("pdm", "1.0", "pdm-1.0"), ("by", "4.0", "cc-by-4.0"), ("by", "3.0", "cc-by-3.0"),
+                                  ("by", "2.5", "cc-by-2.5"), ("by", "2.0", "cc-by-2.0")):
         assert _stock.map_licence(table, openverse.licence_key({"license": licence, "license_version": version})) == expected
-    for licence, version in (("by-sa", "4.0"), ("by-nc", "4.0"), ("by-nd", "4.0"), ("by", None), ("by", "2.0")):
+    for licence, version in (("by-sa", "4.0"), ("by-nc", "4.0"), ("by-nd", "4.0"), ("by", None), ("by", "1.0"), ("by-sa", "2.0")):
         assert _stock.map_licence(table, openverse.licence_key({"license": licence, "license_version": version})) is None
 
 
@@ -106,8 +106,8 @@ def test_check_needs_no_key(tmp_path, monkeypatch):
 # --- licences --------------------------------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("licence,version,expected", [
-    ("by", "4.0", "cc-by-4.0"), ("by", "3.0", "cc-by-3.0"), ("cc0", "1.0", "cc0-1.0"), ("pdm", "1.0", "pdm-1.0"), ("BY", " 4.0 ", "cc-by-4.0"),
-    ("by", None, None), ("by", "", None), ("by", "2.0", None), ("by", "4.0 ", "cc-by-4.0"),
+    ("by", "4.0", "cc-by-4.0"), ("by", "3.0", "cc-by-3.0"), ("by", "2.5", "cc-by-2.5"), ("by", "2.0", "cc-by-2.0"), ("cc0", "1.0", "cc0-1.0"), ("pdm", "1.0", "pdm-1.0"),
+    ("BY", " 4.0 ", "cc-by-4.0"), ("by", None, None), ("by", "", None), ("by", "1.0", None), ("by", "4.0 ", "cc-by-4.0"),
     ("by-sa", "4.0", None), ("by-sa", "3.0", None), ("by-nc", "4.0", None), ("by-nc-sa", "4.0", None), ("by-nd", "4.0", None), ("by-nc-nd", "4.0", None),
     ("sampling+", "1.0", None), ("cc0", None, None), ("pdm", "2.0", None), (None, "4.0", None), ("", "4.0", None), (5, "4.0", None)])
 def test_each_licence_and_version_is_mapped_or_dropped(tmp_path, monkeypatch, licence, version, expected):
@@ -123,9 +123,9 @@ def test_each_licence_and_version_is_mapped_or_dropped(tmp_path, monkeypatch, li
 
 def test_a_licence_that_asks_for_credit_and_has_no_author_is_dropped_but_a_free_one_is_kept(tmp_path, monkeypatch):
     r = serve(make(tmp_path, monkeypatch), [item(1, "by", "4.0", author=None), item(2, "by", "3.0", author=""), item(3, "cc0", "1.0", author=None),
-                                            item(4, "pdm", "1.0", author=None)])
+                                            item(4, "pdm", "1.0", author=None), item(5, "by", "2.0", author=None), item(6, "by", "2.5", author="")])
     code, got = r.search("image", "quiet harbour", 6)
-    assert code == 0 and sorted(c["licence"] for c in got["candidates"]) == ["cc0-1.0", "pdm-1.0"] and got["dropped"]["licence"] == 2
+    assert code == 0 and sorted(c["licence"] for c in got["candidates"]) == ["cc0-1.0", "pdm-1.0"] and got["dropped"]["licence"] == 4
 
 
 def test_a_source_file_whose_table_maps_to_a_refused_licence_is_refused_at_load(tmp_path, monkeypatch):
@@ -245,3 +245,45 @@ def test_the_licence_key_is_the_lower_case_name_and_the_version():
     assert openverse.licence_key({"license": "by"}) == "by"
     assert openverse.licence_key({"license": "by", "license_version": 4}) == "by"
     assert openverse.licence_key({"license_version": "4.0"}) is None and openverse.licence_key({"license": "  "}) is None
+
+
+# --- the image path pattern of the committed file (K1, 2026-11-11) ---------------------------------------------------------------------
+
+K1_PATHS = ("/3731/11907599844_507ae44b10_b.jpg", "/2370/2325882432_94b118903a.jpg", "/51/121209617_949ce54a9d_b.jpg",
+            "/wikipedia/commons/b/b8/P%C3%B4r-do-sol_no_Vale_do_Rio_das_Antas_%285982770740%29.jpg")
+
+
+def committed_pattern():
+    return _stock.read_source(str(COMMITTED), COMMITTED_TODAY, "openverse", None)["_patterns"]["image"]
+
+
+@pytest.mark.parametrize("path", K1_PATHS)
+def test_the_three_flickr_paths_and_the_wikimedia_path_of_k1_match(path):
+    assert committed_pattern().fullmatch(path)
+
+
+@pytest.mark.parametrize("path", ["/3731/11907599844_507ae44b10_b.jpg/x", "/photos/3731/1_a.jpg", "/3731/1_a.gif", "/3731/1_a.svg", "/a/b.jpg", "/3731/1_ABC.jpg",
+                                  "/wikipedia/commons/b/b8/../x.jpg", "/wikipedia/commons/b/b8/a..jpg", "/wikipedia/commons/b/b8/x.svg", "/wikipedia/commons/b/b8/x.jpg?a=1",
+                                  "/wikipedia/commons/b/b8/dir/x.jpg", "/wikipedia/commons/bb/b8/x.jpg", "/wikipedia/en/b/b8/x.jpg", "/..", "/", ""])
+def test_other_path_shapes_do_not_match(path):
+    assert not committed_pattern().fullmatch(path)
+
+
+def test_the_pattern_is_checked_on_the_files_host_and_path(tmp_path, monkeypatch):
+    """The committed hosts and pattern, with the fake network: a listed host with an unknown path shape is dropped, and so is an unlisted host with a Flickr path."""
+    src = json.loads(COMMITTED.read_text(encoding="utf-8"))
+    r = Run(tmp_path, monkeypatch, source(**dict(src, terms_read_on="2026-11-01", api=dict(src["api"], host=API), media_hosts=[API, IMG, "upload.wikimedia.example"],
+                                                 path_patterns={"preview": r"/t/[0-9a-f-]+\.jpg", "image": src["path_patterns"]["image"], "clip": None})),
+            impl=openverse, resolver=kit.FakeResolver({}))
+
+    def with_url(n, url):
+        return dict(item(n), url=url)
+    good = with_url(1, "https://%s/3731/11907599844_507ae44b10_b.jpg" % IMG)
+    other_shape = with_url(2, "https://%s/photos/x.jpg" % IMG)
+    other_host = with_url(3, "https://elsewhere.example/3731/11907599844_507ae44b10_b.jpg")
+    with_dots = with_url(4, "https://%s/wikipedia/commons/b/b8/../x.jpg" % IMG)
+    r.net.add(API, "/v1/images/", json_response({"results": [good, other_shape, other_host, with_dots]}))
+    for i in (good, other_shape, other_host, with_dots):
+        r.net.add(IMG, "/t/%s.jpg" % i["id"], image_response())
+    code, got = r.search("image", "quiet harbour", 6)
+    assert code == 0 and [c["item"] for c in got["candidates"]] == [uid(1)] and got["dropped"]["host"] == 3

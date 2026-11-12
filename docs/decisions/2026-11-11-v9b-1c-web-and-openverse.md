@@ -88,3 +88,23 @@ Values committed in `providers/stock/sources/openverse.json` (their own commit, 
 Code: the search sends `license=cc0,pdm,by`, `source=flickr,wikimedia,stocksnap,rawpixel,nasa,met` (constant `UPSTREAM_SOURCES`, since the class's `SOURCE_KEYS` is strict; `inaturalist` is out on purpose, mostly species photos), `page_size` at most 20 and `mature=false`. `license_type` is gone. The table stays the rule; the filter is a first pass.
 
 The source stays `source_not_ready` (field `path_patterns.image`) until K1 fills the file hosts and the image pattern.
+
+### CC BY 2.0 and 2.5, and the hosts from K1 (2026-11-11)
+
+K1, the supervisor's live leg, searched Openverse with the approved parameters, then made one detail call, one file fetch and one thumbnail fetch. The supervisor then asked the maintainer: "Aceito também CC BY 2.0 e 2.5, com crédito na legenda como a 3.0 e a 4.0?" He answered: "Sim, aceite". validate: allow english-only -- a quotation of the maintainer's own words
+
+This is a licence policy change (the maintainer's word), and the spec's amendment of 2026-11-11 widens this row to `providers/stock/_stock.py`, `LICENCES_ACCEPTED` and `LICENCES_CREDIT` only.
+
+K1 facts: 20 results, all `license` "by" with `license_version` "2.0"; 19 from the source flickr with `url` host `live.staticflickr.com` and paths like `/3731/11907599844_507ae44b10_b.jpg`, `/2370/2325882432_94b118903a.jpg`, `/51/121209617_949ce54a9d_b.jpg`; 1 from wikimedia, host `upload.wikimedia.org`, path like `/wikipedia/commons/b/b8/P%C3%B4r-do-sol_no_Vale_do_Rio_das_Antas_%285982770740%29.jpg`; the thumbnails all on `api.openverse.org`. The Flickr file came back 200, `image/jpeg`, 1024x768, no redirect. The version string of pdm was not seen, so `pdm 1.0` stays.
+
+Changes:
+
+- `_stock.py`: `cc-by-2.5` and `cc-by-2.0` join `LICENCES_ACCEPTED` and `LICENCES_CREDIT` (an item with one of them and no author is dropped, like 3.0 and 4.0). Nothing else in that file.
+- `sources/openverse.json`, in its own commit: `licences` gains `by 2.5` and `by 2.0`; `media_hosts` is `["api.openverse.org", "live.staticflickr.com", "upload.wikimedia.org"]`; `redirect_hosts` stays `[]`; `path_patterns.image` accepts exactly the two path shapes (`/<digits>/<digits>_<hex>[_<letter>].jpg|jpeg|png` and `/wikipedia/commons/<hex>/<2 hex>/<name>.jpg|jpeg|png`, a name of letters, digits and `_ . % ( ) -` without `..`). The source is ready.
+- A `by 1.0`, `by-sa`, `by-nc`, `by-nd` and a `by` with no version are still dropped.
+
+Limits found, stated:
+
+- The class applies `path_patterns` with `fullmatch` on the URL's path only, one pattern for every host (`_stock.py`, `_net.split_url`). A pattern per host is not possible, so a Flickr-shaped path on the Wikimedia host matches too; the host list is what keeps other hosts out.
+- The path the pattern sees leaves out the query: `split_url` returns the path without it, and the request target keeps it. A file URL with a query on a listed host and an allowed path shape therefore passes the pattern and is fetched with its query. The licence is the item's own, and the host and path shape are still checked, but a query cannot be refused by the pattern. Closing this is a change in `_net.py`, outside this row; it is reported to the supervisor.
+

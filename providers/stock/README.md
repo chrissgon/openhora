@@ -52,8 +52,8 @@ The per-video caps (6 slots, 36 previews, 400 MiB, 40 API calls) belong to the r
 
 ## The licence rule
 
-Accepted: a library's own licence (`pexels-license`, `pixabay-content-license`), `cc0-1.0`, `pdm-1.0`, `cc-by-4.0` and `cc-by-3.0`
-(`LICENCES_ACCEPTED`; the two that ask for credit are `LICENCES_CREDIT`, and an item with one of them and no author is dropped). Never CC BY-SA, NC, ND,
+Accepted: a library's own licence (`pexels-license`, `pixabay-content-license`), `cc0-1.0`, `pdm-1.0`, `cc-by-4.0`, `cc-by-3.0`, `cc-by-2.5` and
+`cc-by-2.0` (`LICENCES_ACCEPTED`; the four that ask for credit are `LICENCES_CREDIT`, and an item with one of them and no author is dropped). Never CC BY-SA, NC, ND,
 "editorial only", a licence with no version. A candidate outside the tuple is dropped here and again by the runtime; a source file whose licence is
 outside it is refused at load (`licence_refused`). A source file declares a `licence_tier`:
 
@@ -111,7 +111,7 @@ Select the implementation with `STOCK_MEDIA_PROVIDER`, then `STOCK_PROVIDER`; th
 | `openverse` | `per-item` | none | image | each item's own licence and version, mapped through the file's `licences` table; any pair not in the table is dropped |
 | `web` | `unverified` | none | image, clip | no search here: the search is a model's; this file only fetches a URL it wrote (below) |
 
-`openverse.json` holds the values the maintainer approved on 2026-11-11 (`licence_tier` `per-item`, `secret_in` `none` and `kinds` `["image"]` are its fixed fields). The `licences` table has four keys: `cc0 1.0`, `pdm 1.0`, `by 4.0` and `by 3.0`. The `licences` table maps
+`openverse.json` holds the values the maintainer approved on 2026-11-11 (`licence_tier` `per-item`, `secret_in` `none` and `kinds` `["image"]` are its fixed fields). The `licences` table has six keys: `cc0 1.0`, `pdm 1.0`, `by 4.0`, `by 3.0`, `by 2.5` and `by 2.0` (the last two added the same day, after K1). The `licences` table maps
 `"<licence> <version>"` (the item's `license` in lower case, a space, its `license_version`) to one of our ids; an item with no version is keyed by its name alone,
 which no table maps, so a `by` with no version, `by-sa`, `by-nc` and `by-nd` never pass. The class refuses a table that maps to an id outside `LICENCES_ACCEPTED`.
 An item whose preview or file host is not in `media_hosts` is dropped (`host`). The implementation names no secret (`SECRET = ""`): a source file that names one is
@@ -126,8 +126,11 @@ What was read on 2026-11-11 (the public schema, version 50135c9, the terms of se
 - **Duties of the terms of service:** no scraping; adhere to all rate limits; no use of several machines to get around them; proper attribution of CC-licensed works; an app built on
   the API must prominently say it was made using Openverse but is not endorsed or certified by Openverse (the runtime page of V9b-3a shows this notice); Openverse does not
   verify the licensing status of its items; it reserves the right to charge fees for commercial or heavy use.
-- **Hosts:** the preview is served by `api.openverse.org` itself (`/v1/images/{identifier}/thumb/`), so `media_hosts` is `["api.openverse.org"]` for now. The upstream hosts of the
-  full files, `redirect_hosts` and the `image` path pattern are filled after the live leg (K1), so the source stays `source_not_ready` (`path_patterns.image`) until then.
+- **Hosts (K1, 2026-11-11):** the preview is served by `api.openverse.org` itself (`/v1/images/{identifier}/thumb/`). The files K1 saw came from Flickr (`live.staticflickr.com`, paths
+  like `/3731/11907599844_507ae44b10_b.jpg`) and Wikimedia (`upload.wikimedia.org`, paths like `/wikipedia/commons/b/b8/<name>.jpg`), so `media_hosts` lists the three hosts and `redirect_hosts`
+  is `[]` (the Flickr file came back 200 with no redirect). `path_patterns.image` is one expression over the path of a file URL, for every host: the class cannot keep a pattern per host, so
+  a Flickr-shaped path on the Wikimedia host also matches, and the host list is what keeps it out of other hosts. The other four upstream sources' hosts are added when a search shows them.
+  With these, the source file is ready (`--check` passes).
 
 ## The open web (`web.py`)
 
