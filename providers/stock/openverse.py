@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""stock:media on Openverse: pictures searched by words through the library's keyless API (package V9b-1c).
+
+This file only says how to call Openverse and how to read its answer; the verbs, the caps, the licence rule, the cache and the refusals are the class's
+(providers/stock/_stock.py). Every host, path, pattern, licence URL, licence table and credit line comes from providers/stock/sources/openverse.json, which is
+filled by the maintainer's approval (values read 2026-11-11; the image path pattern and file hosts wait for K1); every verb refuses (exit 3, `source_not_ready`) until it is filled.
+
+The tier is `per-item`: each item states its own licence and version, and the source file's `licences` table maps `"<licence> <version>"` (lower case, one space; a
+licence with no version is its name alone, which no table maps) to one of our accepted ids. An item whose pair is not in the table is dropped, so CC BY-SA, NC, ND and
+a CC BY with no version never pass. An item with a credit licence and no author is dropped by the class. An item whose preview or file host is not in the source
+file's `media_hosts` is dropped. The search asks for the licences cc0, pdm and by and for six upstream sources, as a first filter only: the table is the rule.
+
+  --check --source-file F --today D            the source file ready (no key: Openverse is read anonymously, `secret_in` is `none`)
+  search --source-file F --today D --kind image --query Q [--count N] --out DIR
+                                               one API call (or the cache), then each candidate's preview picture into DIR
+  fetch --source-file F --today D --kind image --item ID --max-bytes B --out DIR
+                                               one API call for the item (or the cache), then one download of the file its answer names
+
+No key exists, so none is read, sent or stored. No verb takes a URL. Exit codes: 0 ok, 1 failed, 2 usage, 3 not configured. Standard library only.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import urllib.parse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _stock  # noqa: E402
+
+SERVES = "stock:media"
+SOURCE = "openverse"
+VERBS = ("search", "fetch")
+SECRET = ""      # the one secret this implementation reads is none: the class compares a source file's secret with this, so a file that names one is refused (`secret`)
+# The upstream sources the search asks for, a first pass only (maintainer-approved 2026-11-11). It is a constant of this implementation because the source file's keys are
+# the class's strict SOURCE_KEYS (providers/stock/_stock.py) and have no field for it. The licence table of the source file stays the rule. `inaturalist` is left out on
+# purpose: mostly species photos, noise for cutaways.
+UPSTREAM_SOURCES = ("flickr", "wikimedia", "stocksnap", "rawpixel", "nasa", "met")
+LICENCES_ASKED = "cc0,pdm,by"                # the library's own licence filter, a first pass: the table decides
+# The smallest picture this implementation keeps, (width, height). The class floor is (1080, 1350), but Openverse's Flickr files are the `_b` size, 1024 px on the long side
+# (K1, 2026-11-11: 1024x768), and since V9d a picture wider than tall (width/height > 0.8, or `fit: contain`) is drawn in the glass layout at most 950 px wide (1080 minus
+# 2 x 65 safe margins), where 1024x768 is enough. 950 is that width; 534 is the height of a 950 px wide 16:9 picture. The class reads this with getattr(impl, "IMAGE_MIN", FLOOR["image"]).
+IMAGE_MIN = (950, 534)
+MAX_PAGE_SIZE = 20                           # anonymous callers are throttled above 20 results per page
+
+
+def _id(value):
+    """The item id as text, or None (the item is then dropped) when the answer holds no id of the allowed shape."""
+    return value if isinstance(value, str) and _stock.ITEM.fullmatch(value) else None
+
+
+def _int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _clean_url(value):
+    """The URL as given when it is a plain https URL (no query, no fragment, no user info, no port), else None. The class matches the path pattern on the path alone, so
+    this is where a query or a fragment is refused; a None URL is dropped by the class as `host` (search) or refused as `host_refused` (fetch)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = urllib.parse.urlsplit(value)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "https" or parts.query or parts.fragment or "@" in parts.netloc or port is not None or not parts.hostname or "?" in value or "#" in value:
+        return None
+    return value
+
+
+def licence_key(item) -> "str | None":
+    """The key of an item's own licence in the source file's `licences` table: the lower-case licence name, a space and the version; the name alone when the item
+    states no version (and no table maps that); None when the item states no licence."""
+    own = item.get("license")
+    if not isinstance(own, str) or not own.strip():
+        return None
+    version = item.get("license_version")
+    version = version.strip() if isinstance(version, str) else ""
+    return own.strip().lower() + (" " + version if version else "")
+
+
+def auth(src, key):
+    """Openverse is read anonymously: no header and no query parameter carry a credential."""
+    return {}, {}
+
+
+def search_request(src, kind, query, per_page):
+    """(path, parameters) of one search: the licence filter, the upstream sources, no mature content, and `per_page` results (at most MAX_PAGE_SIZE)."""
+    return src["api"]["search_" + kind], {"q": query, "license": LICENCES_ASKED, "source": ",".join(UPSTREAM_SOURCES),
+                                          "page_size": str(min(per_page, MAX_PAGE_SIZE)), "mature": "false"}
+
+
+def item_request(src, kind, item):
+    """(path, parameters) of one item; the path template holds `{item}` once."""
+    return src["api"]["item_" + kind].replace("{item}", item), {}
+
+
+def _image(src, item):
+    return {"item": _id(item.get("id")), "width": _int(item.get("width")), "height": _int(item.get("height")), "seconds": None,
+            "author": item.get("creator"), "title": item.get("title"), "page": item.get("foreign_landing_url"), "preview_url": _clean_url(item.get("thumbnail")),
+            "file_url": _clean_url(item.get("url")), "licence": _stock.map_licence(src["licences"], licence_key(item))}
+
+
+def read_search(src, kind, answer):
+    """The raw candidates of a search answer (`results`); a shape the answer does not have gives none."""
+    items = answer.get("results") if isinstance(answer, dict) else None
+    return [_image(src, i) for i in items if isinstance(i, dict)] if isinstance(items, list) and kind == "image" else []
+
+
+def read_item(src, kind, answer):
+    """The raw item of an item answer (the item object itself), or None."""
+    return _image(src, answer) if isinstance(answer, dict) and kind == "image" else None
+
+
+if __name__ == "__main__":
+    sys.exit(_stock.run(sys.modules[__name__]))
