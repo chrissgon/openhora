@@ -84,7 +84,7 @@ Progress:
   3. Paid budget per month. Recommend 0 until a channel shows a signal.
   4. The owner's own assets: audience sizes, network, accounts, past customers who agreed to be contacted, partners. Recommend what icp.md records under founder access.
   5. The launch condition: what must be true before launch (a stranger can sign up or install and reach the first result alone; the price is published; support answers), and a date only if the user has one. Recommend a condition, not a date, when the product is not usable yet.
-  6. Languages and markets, and their order. Recommend icp.md's.
+  6. Languages and markets, and their order. Recommend icp.md's. A recorded decision on the language, or on the market, records this item: the market it does not name is the customer's country in icp.md or in the state file's customer decision, and one language with one market needs no order.
 
   When the answers arrive, record each as a dated decision in the state file, quoting the user. A reply that explicitly accepts the recommendation of the question just asked ("follow your recommendation") is an answer; a bare "go" is not. A decision that contradicts another skill's recorded decision: case E of `references/gtm-cases.md`.
 - [ ] Step 3: Motion. Write one motion per segment, with the criteria that were met and the input each came from:
@@ -137,6 +137,7 @@ Progress:
 <table as printed by rank.py>
 - Totals and the gap between the top two: <gap> [M1]
 - Chosen: <channel(s)>; reading: <one line each>
+- Close call: <no | yes, broken by the state file's decision of <date>: "<the rule, quoted>">
 - Owner's choice when it differs from the rank order: <order chosen, the owner's words and date; the totals above stay as printed | not applicable>
 
 ## Channel rules
