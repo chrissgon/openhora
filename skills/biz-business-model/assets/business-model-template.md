@@ -45,5 +45,6 @@ Template of `docs/business/business-model.md`. Translate the headings and labels
 ## Method
 - Queries: <each query>
 - M1: unit_economics.py with the inputs of the Costs table on standard input
+- Update <YYYY-MM-DD>: <what changed; which M labels were rerun> (one dated line per update; none on a first version)
 - Checks: check_refs.py --file docs/business/business-model.md; lint_model.py --file docs/business/business-model.md --kind model
 ```

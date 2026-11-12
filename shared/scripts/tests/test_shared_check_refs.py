@@ -58,7 +58,18 @@ def test_each_part_of_an_entry_is_required(tmp_path, entry, missing):
     assert json.loads(r.stdout)["incomplete"] == [{"ref": "1", "missing": missing}]
 
 
-def test_undated_and_a_year_alone_are_dates_of_publication(tmp_path):
+def test_a_file_location_counts_as_a_location(tmp_path):
+    entry = '[1] Interview notes, Northwind Institute. Published undated. Accessed 2026-09-30. file: docs/notes/interviews.md. ' \
+            'Tier 2. fact. Quote: "10 firms"'
+    r = run(CHECK_REFS, "--file", doc(tmp_path, entry))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert json.loads(r.stdout)["ok"] is True
+    bare = entry.replace("file: docs/notes/interviews.md. ", "")
+    r = run(CHECK_REFS, "--file", doc(tmp_path, bare))
+    assert json.loads(r.stdout)["incomplete"] == [{"ref": "1", "missing": ["url"]}]
+
+
+def test_undated_and_a_year_alone_alone_are_dates_of_publication(tmp_path):
     for published in ("undated", "2025", "2025-11", "2025-11-03"):
         entry = f'Survey, Northwind. Published {published}. Accessed 2026-09-30. https://n.example. Tier 2. fact. Quote: "x"'
         assert run(CHECK_REFS, "--file", doc(tmp_path, "[1] " + entry)).returncode == 0, published

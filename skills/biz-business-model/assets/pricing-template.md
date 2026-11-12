@@ -7,7 +7,8 @@ Template of `docs/business/pricing.md`. Translate the headings and labels into t
 - Language: <same rule>
 - Status: hypothesis | validated (<n> paying customers, <date>) | limited
 - Date: <YYYY-MM-DD>
-- Decision: OPEN-1: <the question to the user> | decided by the user on <date>: "<their words>"
+- Decision: OPEN-1: <the price question to the user> | decided by the user on <date>: "<their words>"
+- OPEN-2: <a plan-limit question: free plan period, whether one item counts against a paid limit, the margin rule with free users>; recommended: <answer>, because <reason> (one line per open item; `decided by the owner on <date>: "<their words>"` once decided)
 - Ready: no | yes
 
 ## Anchors
@@ -16,7 +17,7 @@ Template of `docs/business/pricing.md`. Translate the headings and labels into t
 (a price cell holds a price with its currency, a unit with `per` or `/`, and a date; an introductory offer also its term and renewal price; or `price not found`)
 
 ## Price pressure
-- <a floor bid, a free alternative, a bundled feature>: <what it does to the price> [n]; `none found`
+- <a floor bid, a free alternative, a bundled feature, another buyer's price such as a school's>: <what it does to the price> [n]; `none found`
 
 ## Proposed price
 - <amount> <currency> per <unit> (<billing>): above the cost floor of <floor> [M1]; against <anchor> [n] and <anchor> [n]; goal within capacity: <yes | no> [M1]

@@ -2,7 +2,7 @@
   "grader": "claude-sonnet-5-5",
   "threshold": 0.8,
   "tolerance": 0.05,
-  "measurement_version": 11,
+  "measurement_version": 12,
   "measurement_floor": 6,
   "runs": 3,
   "baseline_runs": 1,
@@ -47,6 +47,7 @@
       "aliases": ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"],
       "adapter": "agents-dir",
       "pass_env": ["OPENROUTER_API_KEY"],
+      "web_pass_env": ["OPENROUTER_API_KEY", "EXA_API_KEY"],
       "route": "openrouter",
       "provider_pin": "deepinfra",
       "upstream_models": ["deepseek/deepseek-v4.1-flash"],
@@ -67,6 +68,7 @@
       "aliases": ["openai/gpt-6-luna", "gpt-6-luna"],
       "adapter": "agents-dir",
       "pass_env": ["OPENROUTER_API_KEY"],
+      "web_pass_env": ["OPENROUTER_API_KEY", "EXA_API_KEY"],
       "route": "openrouter",
       "provider_pin": "azure",
       "upstream_models": ["openai/gpt-6-luna"],
@@ -105,6 +107,12 @@
       "models": "all",
       "skills": "all",
       "cause": "Both eval runners raised: claude-code 2.1.284 to 2.1.309 (it carries claude-haiku-5-5) and opencode-ai 1.18.32 to 1.19.4 (it carries openai/gpt-6-luna under openrouter); the floor adapter writes small_model (the run's own model) into opencode's configuration; the lab adds claude-haiku-5-5 and openrouter/openai/gpt-6-luna"
+    },
+    {
+      "date": "2026-11-12",
+      "models": ["openrouter/deepseek/deepseek-v4.1-flash", "openrouter/openai/gpt-6-luna"],
+      "skills": ["biz-business-model", "biz-gtm", "biz-icp-positioning", "biz-market-analysis", "brand-identity", "brand-name", "brand-strategy", "core-research", "eng-architecture"],
+      "cause": "web search of the opencode adapter uses the maintainer's Exa key; the free endpoint answered 429 to every search"
     }
   ],
   "measurement_sha256": "bda6ad390f116cbd92feb5b967c9277fb8afbeb709a5c70f06312cb3be1f212e"

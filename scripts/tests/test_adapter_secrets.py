@@ -85,9 +85,12 @@ BEFORE = {
     # Added since: the low-limit key of the eval cases that use the open network.
     "CLAUDE_CODE_WEB_API_KEY": ((), "claude-code-web-evals", ("evals/eval_run.py models[<id>].web_pass_env",
                                                               "adapters/claude-code/run-prompt.sh")),
+    # Added since: the search key of the opencode runner, for the same cases, on the OpenRouter lab models.
+    "EXA_API_KEY": ((), "EXA_API_KEY", ("evals/eval_run.py models[<id>].web_pass_env",
+                                        "adapters/agents-dir/run-prompt.sh")),
 }
 ADAPTER_SECRETS = {"OPENROUTER_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
-                   "CLAUDE_CODE_WEB_API_KEY"}
+                   "CLAUDE_CODE_WEB_API_KEY", "EXA_API_KEY"}
 
 
 class FakeStore:

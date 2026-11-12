@@ -2995,8 +2995,11 @@ def test_the_repository_gate_file_holds_the_control_of_an_event_and_names_the_ni
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         declared |= {(Path(path).parents[1].name, str(c["id"])) for c in data.get("evals") or [] if er.allow_web(data, c)}
     assert listed == declared  # no case opens the network unlisted, and the list names no case that does not
-    # No low-limit key for the web cases: a run of one receives its model's pass_env, which its key proxy holds.
-    assert not [m for m in gate["models"].values() if isinstance(m, dict) and "web_pass_env" in m]
+    # Only the two OpenRouter lab models carry a web key: the Exa search key of opencode (2026-11-12). The model's own
+    # key stays in the list, since the list replaces pass_env on a web case and the key proxy still holds that key.
+    with_web = {k: m["web_pass_env"] for k, m in gate["models"].items() if isinstance(m, dict) and "web_pass_env" in m}
+    assert with_web == {k: ["OPENROUTER_API_KEY", "EXA_API_KEY"]
+                        for k in ("openrouter/deepseek/deepseek-v4.1-flash", "openrouter/openai/gpt-6-luna")}
 
 
 @pytest.mark.parametrize("extra, why", [
