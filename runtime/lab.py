@@ -866,7 +866,7 @@ def platforms_cited(skill_dir: str) -> list:
     for path in texts:
         try:
             with open(path, encoding="utf-8", errors="ignore") as f:
-                cites = PLATFORMS_CITED in f.read()
+                cites = PLATFORMS_CITED.rstrip("/") in f.read()  # a command may name the folder without its slash
         except OSError:
             continue
         if cites:
