@@ -9,8 +9,8 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Is this idea worth pursuing; who has the problem; is there a market | biz-validate-idea (planned) |
 | Size the market, map competitors and alternatives | biz-market-analysis |
 | Who exactly we sell to; how we position against alternatives | biz-icp-positioning |
-| How we make money; pricing; unit economics; validate the business model | biz-business-model (planned) |
-| How we reach and acquire the first customers | biz-gtm (planned) |
+| How we make money; pricing; unit economics; validate the business model | biz-business-model |
+| How we reach and acquire the first customers | biz-gtm |
 | The whole plan in one document; investor narrative | biz-business-plan (planned) |
 | Validate or build a business end to end | flow-business-plan (planned) |
 | Size the market, then choose who to sell to first and how to stand out | flow-market-positioning |

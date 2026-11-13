@@ -42,14 +42,14 @@ Where: **repo** is this repository, **work** is `evals-workspace/` of the checko
 **The gate file's keys**, generated from `evals/eval-gate.json` (a text value is shown only for a model or an adapter id). The models and their adapters: `lab_models` (the models a full test runs, in order), `grader` and `models` (the known ids, each with its aliases, its `adapter`, its credential names `pass_env` and, when one is set, `web_pass_env`, its `route`, `provider_pin`, `upstream_models`, `price_source` and `run_token_budget`). The gate: `threshold`, `tolerance`. The control of a test event: `runs`, `baseline_runs`, `baseline_margin`, `timeout_seconds`, `retries`, `max_resumes`, `total_jobs`, `web_jobs`, `account_jobs`, `web_cases`. The measurement: `measurement_version`, `measurement_floor`, `measurement_sha256`, `epochs`.
 
 <!-- generated: gate-keys -->
-Measurement version 11, measurement floor 6.
+Measurement version 12, measurement floor 6.
 
 | Key | Value, or its shape |
 |---|---|
 | `grader` | `claude-sonnet-5-5` |
 | `threshold` | 0.8 |
 | `tolerance` | 0.05 |
-| `measurement_version` | 11 |
+| `measurement_version` | 12 |
 | `measurement_floor` | 6 |
 | `runs` | 3 |
 | `baseline_runs` | 1 |
@@ -60,10 +60,10 @@ Measurement version 11, measurement floor 6.
 | `total_jobs` | 14 |
 | `web_jobs` | `claude-sonnet-5-5`: 2, `openrouter/deepseek/deepseek-v4.1-flash`: 2, `claude-haiku-5-5`: 2, `openrouter/openai/gpt-6-luna`: 2 |
 | `account_jobs` | `claude-code`: 7, `agents-dir`: 7 |
-| `web_cases` | 8 keys: `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture`, `mkt-video-media-search` |
+| `web_cases` | 9 keys: `biz-business-model`, `biz-gtm`, `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture` |
 | `models` | 4 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash`, `claude-haiku-5-5`, `openrouter/openai/gpt-6-luna` |
 | `lab_models` | 4 names, not shown |
-| `epochs` | 5 entries, each with `date`, `models`, `skills`, `cause` |
+| `epochs` | 6 entries, each with `date`, `models`, `skills`, `cause` |
 | `measurement_sha256` | text, not shown |
 <!-- /generated -->
 

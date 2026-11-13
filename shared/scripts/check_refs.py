@@ -18,7 +18,7 @@ Reports:
     publisher  no ", <publisher>" after the title, before the published label
     published  no "<published label> <date>" and no "<published label> <undated label>"
     accessed   no "<accessed label> <date>"
-    url        no http(s) URL
+    url        no http(s) URL and no "file: <path>" location (a project file counts as a location)
     tier       no "<tier label> 1", "2" or "3"
     quote      no quoted text ("...")
 A date is YYYY, YYYY-MM or YYYY-MM-DD. Headings and labels are matched case-insensitive; pass the
@@ -34,6 +34,7 @@ REF = re.compile(r"\[(\d+[a-z]?)\]")
 CMD = re.compile(r"\bM(\d+)\b")
 QUOTE = re.compile(r"[\"“”]")
 DATE = r"\d{4}(?:-\d{2}){0,2}(?!\d)"
+FILE_LOC = re.compile(r"\bfile:\s*[^\s.,;]\S*", re.I)
 PARTS = ("publisher", "published", "accessed", "url", "tier", "quote")
 
 
@@ -45,7 +46,7 @@ def missing_parts(entry, labels):
         "publisher": bool(re.search(r"\S\s*,\s*\S", head)),
         "published": bool(re.search(r"\b" + published + r"\s+(?:" + DATE + "|" + undated + r"\b)", entry, re.I)),
         "accessed": bool(re.search(r"\b" + accessed + r"\s+" + DATE, entry, re.I)),
-        "url": bool(re.search(r"https?://\S", entry)),
+        "url": bool(re.search(r"https?://\S", entry)) or bool(FILE_LOC.search(entry)),
         "tier": bool(re.search(r"\b" + tier + r"\s+[123](?!\d)", entry, re.I)),
         "quote": bool(QUOTE.search(entry)),
     }

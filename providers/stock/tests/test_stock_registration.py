@@ -21,6 +21,9 @@ import resolve  # noqa: E402
 import _stock  # noqa: E402
 
 
+VERBS = {"web": ("preview", "fetch")}      # the open-web source fetches a URL a model wrote: it has no search verb
+
+
 def sources():
     return sorted(p.stem for p in (STOCK / "sources").glob("*.json"))
 
@@ -47,7 +50,7 @@ def test_every_implementation_declares_the_class_and_its_verbs_as_text():
         tree = ast.parse((STOCK / (name + ".py")).read_text(encoding="utf-8"))
         values = {t.id: ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)
                   and t.id in ("SERVES", "SOURCE", "VERBS")}
-        assert values["SERVES"] == "stock:media" and values["SOURCE"] == name and values["VERBS"] == ("search", "fetch")
+        assert values["SERVES"] == "stock:media" and values["SOURCE"] == name and values["VERBS"] == VERBS.get(name, ("search", "fetch"))
 
 
 def test_every_file_of_the_class_parses_as_python_3_9():
@@ -56,7 +59,7 @@ def test_every_file_of_the_class_parses_as_python_3_9():
 
 
 def test_no_source_name_appears_in_the_runtime_or_the_renderer():
-    names = [json.loads((STOCK / "sources" / (n + ".json")).read_text())["source"] for n in sources()]
+    names = [json.loads((STOCK / "sources" / (n + ".json")).read_text())["source"] for n in sources() if n != "web"]      # "web" is ordinary English in the runtime: its file names are checked below
     found = []
     for folder in ("runtime", "providers/renderer"):
         for path in sorted((REPO / folder).rglob("*")):
@@ -64,6 +67,11 @@ def test_no_source_name_appears_in_the_runtime_or_the_renderer():
                 text = path.read_text(encoding="utf-8", errors="ignore").lower()
                 found += [(str(path.relative_to(REPO)), n) for n in names if re.search(r"\b%s\b" % re.escape(n), text)]
     assert found == []
+    for folder in ("runtime", "providers/renderer"):
+        for path in sorted((REPO / folder).rglob("*")):
+            if path.is_file() and path.suffix in (".py", ".json", ".md", ".js", ".html", ".txt") and "node_modules" not in path.parts:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                assert "providers/stock/web" not in text and "sources/web.json" not in text and "stock/web.py" not in text, str(path)
 
 
 def test_the_two_licence_tuples_of_the_provider_and_the_runtime_are_equal_once_the_runtime_has_its_own():
@@ -86,7 +94,7 @@ def test_adding_a_source_is_two_files_and_no_other_change(tmp_path, monkeypatch)
     (root / "providers" / "stock" / "sources" / "aster.json").write_text(json.dumps(kit.source(source="aster", secret="STOCK_ASTER_API_KEY")), encoding="utf-8")
     after = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
     assert sorted(set(after) - set(before)) == ["providers/stock/aster.py", "providers/stock/sources/aster.json"] and set(before) <= set(after)
-    assert resolve.implementations("stock:media", root=root, env={}) == ["aster", "pexels"]
+    assert resolve.implementations("stock:media", root=root, env={}) == sorted(sources() + ["aster"])
     # a fake find sees it with no other change
     spec = importlib.util.spec_from_file_location("aster", root / "providers" / "stock" / "aster.py")
     aster = importlib.util.module_from_spec(spec)

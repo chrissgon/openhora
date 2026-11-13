@@ -11,9 +11,12 @@
 | `docs/brand/profile.md` | brand-profile | - |
 | `docs/brand/strategy.md` | brand-strategy | - |
 | `docs/brand/voice.md` | brand-voice | - |
+| `docs/business/business-model.md` | biz-business-model | - |
+| `docs/business/gtm.md` | biz-gtm | - |
 | `docs/business/icp.md` | biz-icp-positioning | - |
 | `docs/business/market.md` | biz-market-analysis | - |
 | `docs/business/positioning.md` | biz-icp-positioning | - |
+| `docs/business/pricing.md` | biz-business-model | - |
 | `docs/delivery/repo-baseline.md` | ops-repo-baseline | - |
 | `docs/design/briefs/<artifact>.lint.json` | design-brief | - |
 | `docs/design/briefs/<artifact>.md` | design-brief | - |
@@ -59,4 +62,4 @@
 | `docs/workbench/critiques/<topic>.md` | core-critique | - |
 | `docs/workbench/research/<topic>.check.json` | core-research | - |
 | `docs/workbench/research/<topic>.md` | core-research | - |
-| `docs/workbench/state.md` | core-project-init | biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
+| `docs/workbench/state.md` | core-project-init | biz-business-model, biz-gtm, biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |

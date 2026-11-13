@@ -25,8 +25,8 @@ def refused(tmp_path, data, today=kit.TODAY):
 
 
 def test_the_licence_tuples_are_the_decided_ones():
-    assert _stock.LICENCES_ACCEPTED == ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0")
-    assert _stock.LICENCES_CREDIT == ("cc-by-4.0", "cc-by-3.0")
+    assert _stock.LICENCES_ACCEPTED == ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
+    assert _stock.LICENCES_CREDIT == ("cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
     assert set(_stock.LICENCES_CREDIT) <= set(_stock.LICENCES_ACCEPTED)
     for refused_id in ("cc-by-sa-4.0", "cc-by-nc-4.0", "cc-by-nd-4.0", "editorial", "cc-by", "unverified"):
         assert refused_id not in _stock.LICENCES_ACCEPTED
@@ -203,7 +203,9 @@ def test_admission_of_a_licence():
     assert ok("library", "pexels-license", "Aster Lane") and ok("library", "pexels-license", "")
     assert ok("per-item", "cc0-1.0", "") and ok("per-item", "pdm-1.0", "")
     assert ok("per-item", "cc-by-4.0", "Aster Lane") and ok("per-item", "cc-by-3.0", "Aster Lane")
-    assert not ok("per-item", "cc-by-4.0", "") and not ok("per-item", "cc-by-3.0", "")        # a credit licence with no author to credit
+    assert ok("per-item", "cc-by-2.5", "Aster Lane") and ok("per-item", "cc-by-2.0", "Aster Lane")
+    assert not ok("per-item", "cc-by-4.0", "") and not ok("per-item", "cc-by-3.0", "")
+    assert not ok("per-item", "cc-by-2.5", "") and not ok("per-item", "cc-by-2.0", "")        # a credit licence with no author to credit
     assert not ok("per-item", "cc-by-sa-4.0", "Aster Lane") and not ok("per-item", None, "Aster Lane")
     assert not ok("unverified", "unverified", "Aster Lane")                              # refused unless the project turned the tier on
     assert ok("unverified", "unverified", "Aster Lane", allow_unverified=True)

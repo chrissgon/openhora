@@ -1,0 +1,26 @@
+{
+ "source": "hand-written fictional fixture in the shape of the biz-business-model output template (fictional product, .example domain)",
+ "cases": [
+  {
+   "skill": "biz-business-model",
+   "document": "docs/business/business-model.md",
+   "files": {
+    "docs/business/business-model.md": "# Business model: Quiz Maker\n\n- Owner: biz-business-model\n- Language: en\n- Status: hypothesis\n- Date: 2026-11-10\n- Offer: Quiz Maker; who pays: the teacher; who uses: the teacher; goal: 10 paying teachers in 12 weeks (state file, 2026-11-09)\n\n## What stays free\n- nothing recorded\n\n## Revenue model\n- Unit: per teacher per month, because the value grows with the teacher's own students [1]\n- Billing: recurring per month; payment: not chosen\n- Price: see docs/business/pricing.md (proposed)\n\n## Costs\n| Cost | Kind (variable per unit, fee %, tax %, fixed per period, hours) | Value | From |\n|---|---|---|---|\n| Hosting | fixed per period | 20 per month | user |\n| Payment fee | fee % | 3 | [1] |\n| Support | hours | 5 per month | state file |\n\n## Unit economics\n| Measure | Value |\n|---|---|\n| Contribution per unit | 7.0 |\n| Cost floor | 3.0 |\n| Customers for the goal | 10 |\n- Reading: contribution per unit 7.0, cost floor 3.0, 10 customers for the goal, 5 hours of 20 available [M1]\n\n## Path to the goal\n- Customers needed: 10 [M1]; hours per month at the goal: 5 of 20 [M1]; within capacity: yes\n- What breaks first: support hours\n\n## Risks\n- A free alternative exists: the forum lists one [1]\n\n## Unknowns\n- The payment method.\n\n## Assumptions\n- none\n\n## Sources\n[1] Community rules, Example Teachers Forum. Published undated. Accessed 2026-11-10. https://forum.example/rules. Tier 1. fact. Quote: \"Members may share their own tools once a month in the showcase thread.\"\n\n## Method\n- Queries: quiz tool pricing\n- M1: unit_economics.py with the inputs of the Costs table on standard input\n- Checks: check_refs.py --file docs/business/business-model.md; lint_model.py --file docs/business/business-model.md --kind model\n"
+   },
+   "checks": [
+    [
+     "check_refs.py",
+     "--file",
+     "docs/business/business-model.md"
+    ],
+    [
+     "lint_model.py",
+     "--file",
+     "docs/business/business-model.md",
+     "--kind",
+     "model"
+    ]
+   ]
+  }
+ ]
+}

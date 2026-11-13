@@ -1,0 +1,24 @@
+{
+ "source": "hand-written fictional fixture in the shape of the biz-gtm output template (fictional teachers forum, .example domain)",
+ "cases": [
+  {
+   "skill": "biz-gtm",
+   "document": "docs/business/gtm.md",
+   "files": {
+    "docs/business/gtm.md": "# Go-to-market: Quiz Maker for independent piano teachers\n\n- Owner: biz-gtm\n- Language: en\n- Status: hypothesis\n- Date: 2026-11-10\n- Goal: first 10 paying teachers in 12 weeks (state file, 2026-11-09)\n- Hours per week: 6 (state file, 2026-11-09); paid budget: 0 per month (state file, 2026-11-09)\n\n## Motion\n- Independent teachers: self-serve, because the price is below the cost of a conversation (pricing.md)\n- Price the motion carries: price not set; biz-business-model writes it\n\n## Channels\n| Channel | Reach | Access | Cost | Hours | Rules | Speed | Total |\n|---|---|---|---|---|---|---|---|\n| Teachers forum | 4 | 3 | 5 | 4 | 4 | 3 | 23 |\n| Own newsletter | 2 | 5 | 5 | 5 | 5 | 4 | 26 |\n| Local association chapters | 3 | 2 | 4 | 3 | 1 | 2 | 15 |\n| Marketplace listing | 3 | 1 | 4 | 3 | 1 | 2 | 14 |\n- Totals and the gap between the top two: 3 points [M1]\n- Chosen: Own newsletter; reading: the owner's list is the fastest first result\n\n## Channel rules\n| Channel | Promotion allowed as planned | Rule (quote) | Source |\n|---|---|---|---|\n| Teachers forum | yes | \"Members may share their own tools once a month in the showcase thread.\" | [1] |\n| Own newsletter | yes | not researched yet | not researched yet |\n\n## Launch readiness\n| Condition | Done (yes, no, unknown) | Evidence |\n|---|---|---|\n| A stranger can sign up and reach the first quiz alone | unknown | not tested |\n| The price is published | no | pricing.md is open |\n\n## First four weeks\n| Week | Action | Channel | Hours | Output |\n|---|---|---|---|---|\n| 1 | Launch email to the list | Own newsletter | 4 | one email sent |\n| 1 | Showcase post | Teachers forum | 2 | one post |\n| 2 | Follow up with replies | Own newsletter | 3 | replies answered |\n- Hours per week: 6 of 6\n\n## Measurement\n| Channel | Metric | Baseline window | Read in week | Continue if | Stop if |\n|---|---|---|---|---|---|\n| Own newsletter | sign-ups from the email | 4 weeks | 5 | it brought the most sign-ups of the window | it brought none in the window |\n\n## Left out\n- none\n\n## Next skills\n- mkt-messaging: takes the motion and the chosen channel\n\n## Unknowns\n- Whether a stranger can reach the first quiz alone.\n\n## Assumptions\n- none\n\n## Sources\n[1] Community rules, Example Teachers Forum. Published undated. Accessed 2026-11-10. https://forum.example/rules. Tier 1. fact. Quote: \"Members may share their own tools once a month in the showcase thread.\"\n\n## Method\n- Queries: teachers forum promotion rules\n- M1: rank.py with the scores of the Channels table on standard input\n- Checks: check_refs.py --file docs/business/gtm.md; lint_gtm.py --file docs/business/gtm.md\n"
+   },
+   "checks": [
+    [
+     "check_refs.py",
+     "--file",
+     "docs/business/gtm.md"
+    ],
+    [
+     "lint_gtm.py",
+     "--file",
+     "docs/business/gtm.md"
+    ]
+   ]
+  }
+ ]
+}

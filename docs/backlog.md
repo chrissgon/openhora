@@ -149,6 +149,23 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - From: the maintainer's word on 2026-10-12 (note option B as a future adjustment), after the review of the parallel runs; the release keeps the conservative wildcard (option A).
   - Needs: a rule that gives each placeholder its value before a run (for example `<task>` from the task's key), and the skills writing their files under that value, so the runtime knows the files before the run starts.
   - Done when: two tasks of one floor whose skills write `docs/engineering/plans/<task>.md` run at the same time on different files, shown by a test of `runtime/parallel.py` and one real run; no task ever overwrites another's file.
+- [ ] **R23. The interface as a virtual office: Habblaud as inspiration, and possibly as the agents' interface.** Habblaud (https://habblaud.com/en, read 2026-11-11) shows coding agents as avatars in a pixel-art building, with:
+  - one room per project, holding the agents working on it, each with what it is doing now ("Editando app.json", "Lendo api.ts");
+  - a side list of projects with their agents, the account each uses and a task count;
+  - each account's 5-hour and weekly usage meters;
+  - a live activity feed;
+  - a "waiting on you" counter, with approvals from the phone.
+
+  It is local (Docker or npm, served at `localhost:4747`), works with two AI coding tools through install commands, and its page footer says MIT. The page gives no repository link (a template placeholder) and documents no API for feeding it agents from another system.
+  - From: the maintainer's word on 2026-11-11: "Ele organiza os agentes de uma maneira que achei mais intuitiva. Talvez até pensar em adotar essa plataforma como UI dos nossos agentes se possível". It echoes the maintainer's earlier wish for the interface as a scene where projects are places and agents are people in them.
+  - What to take, at least: the project room as the unit of the screen; what each agent is doing now, in a few words; the account's usage beside the agents that spend it; and "waiting on you" as the first number on the screen.
+  - Decision: adopt Habblaud as the agents' interface (principle 14, adopt before building), or take only its ideas into `interface/`. It can be adopted only if all of these hold:
+    - the repository and its MIT licence are confirmed;
+    - it can be fed from openhora's own events (runs, reviews, approvals) through an adapter, never by the core naming it;
+    - approvals in it keep the hard limits: exact content and a hash, approved where the runtime approves today;
+    - it loads nothing from another host, as `interface/` requires.
+  - Needs: the repository found and read; a spike that feeds it one real run of the task runtime through an adapter.
+  - Done when: the decision is recorded in `docs/decisions/`, and either an adapter shows openhora's agents in it, or `interface/` has the ideas chosen from it.
 - [ ] **INSTRUCTIONS. The field evidence of a use with standing instructions.** The file `docs/workbench/instructions.md` and limit L40 are built (pull request #430). Open: the field evidence of a use (`scripts/evidence.py`) does not record whether the project's instructions were present, so a use with instructions cannot be told from one without; add a closed-form field (present or absent, never the text) when field evidence next changes.
   - Done when: a recorded use says whether the project's instructions were present.
 
@@ -356,7 +373,7 @@ What is built next is the maintainer's call, made when a real project needs it. 
 
 - [ ] **NS7. Flow `flow-implement-ticket`.** read ticket → clarify → route to fix-bug, build-feature or improve-code → update ticket. Requires `integration:issue-tracker`, for which no provider exists.
   - Decision (2026-10-15, package FLOWS1): not a flow file. Routing a ticket to one of three flows is the planner's decision, which a static file cannot make; the router reads the ticket and proposes `flow-fix-bug`, `flow-build-feature` or `flow-improve-code`. The ticket itself needs `integration:issue-tracker`, for which no provider exists.
-- [ ] **NS8. Flow `flow-business-plan`.** validate-idea → ai-opportunity-assessment → market-analysis → icp-positioning → business-model → gtm → business-plan. Five of its seven phases are not built (NS14 and the rows of `biz-business-model`, `biz-gtm`, `biz-business-plan` and `ai-opportunity-assessment` in the inventory).
+- [ ] **NS8. Flow `flow-business-plan`.** validate-idea → ai-opportunity-assessment → market-analysis → icp-positioning → business-model → gtm → business-plan. Three of its seven phases are not built (NS14, and the rows of `biz-business-plan` and `ai-opportunity-assessment` in the inventory); `biz-business-model` and `biz-gtm` were built on 2026-11-11.
   - Decision (the maintainer, 2026-10-15): a flow FILE (`flows/<name>.json`), not a skill (group B, below). It waits for its skills.
 - [ ] **NS9. Flow `flow-design`.** user-research → ux-flows → design-system → brief and execute → handoff. Its first phase is not built (`design-user-research`, in the inventory).
   - Decision (the maintainer, 2026-10-15): a flow FILE (`flows/<name>.json`), not a skill (group B, below). It waits for its skills.
@@ -372,7 +389,7 @@ What is built next is the maintainer's call, made when a real project needs it. 
 - [ ] **NS14. Skill `biz-validate-idea`.** The writer of `docs/business/idea-validation.md`, which `biz-market-analysis` reads when present and no built skill writes.
   - Decision (the maintainer, 2026-10-15): create it (group A, below).
 
-**Group A, decided by the maintainer on 2026-10-15: create all of these**, after the walk of this backlog and a last review of the architecture, written against the maintainer's real cases (two or three per skill, rewritten with fictional names): NS1, NS2, NS12, NS13, NS14, and also `mkt-landing-page`, `mkt-analytics`, `design-user-research` and the missing phases of the business plan (`biz-business-model`, `biz-gtm`, `biz-business-plan`, `ai-opportunity-assessment`). Testing policy for every new skill: a quick test first (the quick mode of P11), to find problems cheaply; the full test only when the quick test is acceptable; never several full tests.
+**Group A, decided by the maintainer on 2026-10-15: create all of these**, after the walk of this backlog and a last review of the architecture, written against the maintainer's real cases (two or three per skill, rewritten with fictional names): NS1, NS2, NS12, NS13, NS14, and also `mkt-landing-page`, `mkt-analytics`, `design-user-research` and the missing phases of the business plan (`biz-business-model`, `biz-gtm`, `biz-business-plan`, `ai-opportunity-assessment`). `biz-business-model` and `biz-gtm` were built on 2026-11-11. Testing policy for every new skill: a quick test first (the quick mode of P11), to find problems cheaply; the full test only when the quick test is acceptable; never several full tests.
 
 **Group B, decided by the maintainer on 2026-10-15: flows are documents, not skills** (NS3 to NS11). Each is a file `flows/<name>.json` that lists a flow of skills; its tests are code tests (choosing a flow builds a plan that respects its spec), with no model test. Create them all. Step 1 (package FLOWS1, pull request #426, merged) built NS4, NS5, NS6 and `flows/fix-bug.json`, and removed the `flow-fix-bug` skill with the change of the routing table of `core-orchestrator`; NS10 was not built then (its reasons are in the item). NS7 is not a static flow (above). NS3, NS8, NS9 and NS11 wait for their skills.
 

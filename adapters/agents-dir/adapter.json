@@ -43,6 +43,18 @@
         "adapters/agents-dir/run-prompt.sh"
       ],
       "store_username": "deepseek"
+    },
+    {
+      "name": "EXA_API_KEY",
+      "purpose": "web search of the eval runs of the cases that use the open network (web_cases of evals/eval-gate.json) on a model of this adapter: the runner reads it as EXA_API_KEY and calls Exa with it; without it every search goes to Exa's free endpoint, which answers HTTP 429",
+      "permission": "an Exa API key with a low spend limit, used for evals only: it is passed into the run on the open network, which reads pages written by others, so a leak costs at most the key's limit",
+      "billing": "metered",
+      "readers": [
+        "evals/eval_run.py models[<id>].web_pass_env",
+        "adapters/agents-dir/run-prompt.sh"
+      ],
+      "note": "unlike the model's key, this value is in the run's environment (the runner reads it there, and puts it in the query of its search call); only a model entry that lists it in web_pass_env receives it, and only on a web case",
+      "store_username": "EXA_API_KEY"
     }
   ]
 }
