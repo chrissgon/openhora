@@ -1,0 +1,4 @@
+{"record": "use", "skill": "biz-gtm", "version": "0.1.0", "content_sha256": "9ae2446e630e051f4da8ba230584a85d9b40ddbd10eca9dcdf2e30f94a1fc0fb", "model": "unknown", "adapter": "unknown", "use": "3680ff3f", "week": "2026-W46"}
+{"record": "use", "skill": "biz-gtm", "version": "0.1.0", "content_sha256": "9ae2446e630e051f4da8ba230584a85d9b40ddbd10eca9dcdf2e30f94a1fc0fb", "model": "unknown", "adapter": "unknown", "use": "d204ccb3", "week": "2026-W46"}
+{"record": "verdict", "skill": "biz-gtm", "version": "0.1.0", "content_sha256": "9ae2446e630e051f4da8ba230584a85d9b40ddbd10eca9dcdf2e30f94a1fc0fb", "model": "unknown", "adapter": "unknown", "use": "3680ff3f", "week": "2026-W46", "score": 0.5, "judge": "user"}
+{"record": "verdict", "skill": "biz-gtm", "version": "0.1.0", "content_sha256": "9ae2446e630e051f4da8ba230584a85d9b40ddbd10eca9dcdf2e30f94a1fc0fb", "model": "unknown", "adapter": "unknown", "use": "d204ccb3", "week": "2026-W46", "score": 0.5, "judge": "user"}

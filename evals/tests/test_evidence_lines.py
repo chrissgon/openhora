@@ -112,7 +112,10 @@ def test_a_committed_file_stays_valid_when_the_gate_file_changes_runs_and_drops_
 def test_every_committed_file_is_valid_by_its_own_event_line_with_no_gate_file(tmp_path):
     for source in ALL_COMMITTED:
         assert el.evidence_file_problems(str(source)) == [], source
-    assert el.evidence_problems(str(REPO))[0] == {}
+    # A field file needs eval_status.py's reader, which this call does not pass (evidence_problems reports it as
+    # unread); eval_status.py evidence, in the validator, judges it. Every other committed file stands here alone.
+    found = el.evidence_problems(str(REPO))[0]
+    assert {rel: why for rel, why in found.items() if not os.path.basename(rel).startswith("field-")} == {}
 
 
 def test_a_malformed_model_id_is_still_refused(tmp_path):
