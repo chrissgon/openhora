@@ -3620,7 +3620,7 @@
   "default_model": null,
   "recommended_model": "demo-model-b",
   "snapshot": {
-    "commit": "ccd20f5e1310",
+    "commit": "2a0b99cc6d09",
     "source": "docs/inventory.md"
   }
 }
