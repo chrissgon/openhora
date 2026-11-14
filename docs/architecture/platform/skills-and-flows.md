@@ -102,6 +102,7 @@ An arrow is "the owner's path is an input of". A dashed arrow is an `updates` en
 <!-- generated: artifacts-by-owner -->
 | Artifact | Owning skill | Updated by |
 |----------|--------------|------------|
+| `.workbench-local/video/web-candidates.json` | mkt-video-media-search | - |
 | `AGENTS.md` | core-agents-md | core-project-init |
 | `docs/brand/guidelines.md` | brand-guidelines | - |
 | `docs/brand/identity.md` | brand-identity | - |

@@ -60,7 +60,7 @@ Measurement version 12, measurement floor 6.
 | `total_jobs` | 14 |
 | `web_jobs` | `claude-sonnet-5-5`: 2, `openrouter/deepseek/deepseek-v4.1-flash`: 2, `claude-haiku-5-5`: 2, `openrouter/openai/gpt-6-luna`: 2 |
 | `account_jobs` | `claude-code`: 7, `agents-dir`: 7 |
-| `web_cases` | 9 keys: `biz-business-model`, `biz-gtm`, `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture` |
+| `web_cases` | 10 keys: `biz-business-model`, `biz-gtm`, `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture`, `mkt-video-media-search` |
 | `models` | 4 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash`, `claude-haiku-5-5`, `openrouter/openai/gpt-6-luna` |
 | `lab_models` | 4 names, not shown |
 | `epochs` | 6 entries, each with `date`, `models`, `skills`, `cause` |

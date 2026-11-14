@@ -21,7 +21,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "4.3.0"
+  version: "4.4.0"
 ---
 
 # Orchestrator
