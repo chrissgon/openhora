@@ -8,12 +8,9 @@
     "VID_STOCK_CREDIT": "Crédito para colocar na legenda",
     "VID_STOCK_CLIP_NOT_DRAWN": "Este motor ainda não desenha vídeos. Escolha uma imagem para este espaço.",
     "CARD_VIDEO_ASSET": "Imagem: {slot}, {source}, {licence}, sha256 {sha}",
-    "CARD_VIDEO_CREDITS": "Crédito para colocar na legenda",
-    "CARD_VIDEO_CREDIT": "Crédito: {credit}",
     "CARD_VIDEO_WEB": "Encontrado na internet, licença não verificada: {host}",
-    "CARD_VIDEO_WEB_PAGE": "Página de origem: {page}",
     "VID_STOCK_PROVIDED": "Mídia fornecida por {source} ({link})",
-    "CARD_VIDEO_PROVIDED": "Mídia fornecida por {source} ({link})"
+    "CARD_VIDEO_CREDITS_COUNT": "{count} imagens precisam de crédito; o texto do crédito está na página deste computador (sha256 {sha})"
   },
   "same_as_english": []
 }

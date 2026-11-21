@@ -163,18 +163,50 @@ def delivered(world, task):
     return gate, doc
 
 
-def test_a_cc_by_picture_puts_its_credit_in_the_document_the_card_and_the_body_and_a_cc0_one_puts_none(world, monkeypatch):
+def test_a_cc_by_picture_binds_its_credit_by_count_and_hash_not_by_text_in_the_document_the_card_and_the_body(world, monkeypatch):
     video = approved_video(world, monkeypatch, "cc-by-4.0")
     out = go_on(world, video["task"])
     assert out["stopped"] == "deliver"
     gate, doc = delivered(world, video["task"])
-    [credit] = doc["credits"]
-    assert credit.startswith("\"A picture of market stall\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf")
+    [drawn] = json.loads(work_file(world, "render.json").read_text())["assets"]
+    assert drawn["credit"].startswith("\"A picture of market stall\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf")
+    assert doc["credits"] == {"count": 1, "sha256": sha(json.dumps([drawn["credit"]], ensure_ascii=False).encode("utf-8"))}
     assert doc["assets"][0]["licence"] == "cc-by-4.0" and doc["assets"][0]["slot"] == "beat7" and "web" not in doc
     keys = [line[0] for line in gate["payload"]["card"]]
-    assert "CARD_VIDEO_ASSET" in keys and "CARD_VIDEO_CREDITS" in keys and ["CARD_VIDEO_CREDIT", {"credit": credit}] in gate["payload"]["card"]
-    assert "Credit to put in the caption" in gate["body"] and credit in gate["body"] and "Picture: beat7, shelf, cc-by-4.0, sha256 " in gate["body"]
+    assert "CARD_VIDEO_ASSET" in keys and ["CARD_VIDEO_CREDITS_COUNT", {"count": "1", "sha": doc["credits"]["sha256"]}] in gate["payload"]["card"]
+    assert "1 pictures need a credit; the credit text is on this computer's page" in gate["body"] and "Bram Hollow" not in gate["body"]
+    assert "Picture: beat7, shelf, cc-by-4.0, sha256 " in gate["body"]
     assert gate["payload"]["effect"]["assets"] == 1 and gate["payload"]["effect"]["credits"] == 1
+
+
+MARK_TITLE, MARK_AUTHOR = "zqxtitlemarker", "ZQXAUTHORMARKER"
+
+
+def test_s4_library_text_is_absent_from_the_decision_the_hash_input_and_the_messaging_card_and_present_on_the_page_the_terminal_and_the_download(world, monkeypatch):
+    layout_engine(world["engine"])
+    found = to_found(world, monkeypatch, {"beat7": ("zqx title", "image")})
+    found["sources"].licences, found["sources"].authors, found["sources"].titles = {"shelf": "cc-by-4.0"}, {"shelf": MARK_AUTHOR}, {"shelf": MARK_TITLE}
+    done = ops.video_media_find(world["path"], found["task"], confirm=True)
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    assert go_on(world, found["task"])["stopped"] == "deliver"
+    gate, doc = delivered(world, found["task"])
+    phrases = st.load("phrases")
+    phone = phrases.card_text(gate["payload"]["card"], {"language": "pt-BR"}) + phrases.card_text(gate["payload"]["card"])      # the messaging card, in both languages
+    hash_input = json.dumps(doc, sort_keys=True)
+    for text in (gate["body"], hash_input, phone, json.dumps(gate["payload"]), gate["title"]):
+        assert MARK_TITLE not in text and MARK_AUTHOR not in text
+    assert "imagens precisam de crédito" in phone
+    for channel in ("terminal", "page"):
+        credits = ops.video_credits(world["path"], found["task"], channel=channel)
+        assert MARK_TITLE in credits["credits"][0] and MARK_AUTHOR in credits["credits"][0] and credits["text_from_the_library"] is True
+        assert credits["provided"] and credits["provided"][0].startswith("Media provided by shelf (")
+    assert MARK_TITLE in shown["credits"][0]      # the approval's own answer, in the terminal and the page
+    ops.approve(world["path"], gate["id"], sha256=gate["payload_sha256"], channel="terminal")
+    got = st.load("ops_media").video_download(world["path"], found["task"], out=str(Path(world["tmp"]) / "s4.mp4"), channel="terminal")
+    assert MARK_TITLE in got["credits"][0] and MARK_AUTHOR in got["credits"][0]
 
 
 def test_a_cc0_picture_and_a_video_with_no_picture_leave_the_document_as_it_always_was(world, monkeypatch):
@@ -272,19 +304,17 @@ def test_the_unverified_seam_is_accepted_when_everything_holds_and_the_document_
     assert doc["assets"][0]["licence"] == "unverified" and "gallery" not in json.dumps(doc) and PAGE not in json.dumps(doc)
     assert "gallery" not in gate["body"] and PAGE not in gate["body"] and "Found on the web, licence not checked: pics.example" in gate["body"]
     card = gate["payload"]["card"]
-    assert ["CARD_VIDEO_WEB", {"host": "pics.example"}] in card and ["CARD_VIDEO_WEB_PAGE", {"page": PAGE}] in card      # the card shows the address, read from the store
+    assert ["CARD_VIDEO_WEB", {"host": "pics.example"}] in card and not any(line[0] == "CARD_VIDEO_WEB_PAGE" for line in card) and "gallery" not in json.dumps(card)      # S4: no page address on a card
     assert "gallery" not in json.dumps(gate["payload"]["effect"])
 
 
-def test_the_card_shows_an_address_only_when_it_is_the_one_the_document_names():
+def test_a_card_never_shows_a_source_page_address_and_the_page_hash_helper_reads_an_https_address_only():
     host, page_sha = step_media._page_parts(PAGE)
     assert (host, page_sha) == ("pics.example", sha(PAGE.encode())) and step_media._page_parts("http://pics.example/x") == ("", "") and step_media._page_parts(None) == ("", "")
     doc = deliver_document.build(task=1, recording="a" * 16, platform="instagram", post="docs/marketing/content/x.md",
                                  video={"name": "render-%s.mp4" % ("b" * 12), "sha256": "b" * 64, "size": 10, "duration_ms": 5}, cover=None, verify_platform="instagram",
                                  assets=[{"slot": "beat7", "sha256": "c" * 64, "source": "web", "item": "q-" + "c" * 12, "licence": "unverified"}],
                                  web=[{"slot": "beat7", "sha256": "c" * 64, "page_host": host, "page_sha256": page_sha}])
-    assert ["CARD_VIDEO_WEB_PAGE", {"page": PAGE}] in deliver_document.card_lines(doc, "d" * 64, {"beat7": PAGE})
-    assert not any(line[0] == "CARD_VIDEO_WEB_PAGE" for line in deliver_document.card_lines(doc, "d" * 64, {}))
     assert not any(line[0] == "CARD_VIDEO_WEB_PAGE" for line in deliver_document.card_lines(doc, "d" * 64))
 
 
@@ -353,7 +383,7 @@ def test_the_render_records_what_it_drew_and_a_set_changed_after_it_cannot_chang
         media.write_work(world["data"], world["rid"], name, json.dumps({"passed": True, "platform": "instagram"}).encode())
     step_media._document(step, state)
     again = kept["doc"]
-    assert again["credits"] == doc["credits"] == [drawn["credit"]] and again["assets"] == doc["assets"] and "BOGUS" not in json.dumps(again)
+    assert again["credits"] == doc["credits"] and again["assets"] == doc["assets"] and "BOGUS" not in json.dumps(again)
 
 
 def test_a_picture_of_the_set_that_no_beat_draws_gets_no_credit(world, monkeypatch):
@@ -390,8 +420,9 @@ def test_the_download_answer_repeats_the_credits_and_the_card_says_who_provided_
     go_on(world, video["task"])
     gate, doc = delivered(world, video["task"])
     link = json.loads((stock_dir(world) / "set.json").read_text())["assets"][0]["source_link"]
-    assert link.startswith("https://") and ["CARD_VIDEO_PROVIDED", {"source": "shelf", "link": link}] in gate["payload"]["card"]
+    assert link.startswith("https://") and not any(line[0] == "CARD_VIDEO_PROVIDED" for line in gate["payload"]["card"])      # S4: not on the card that can go to a phone
+    assert ops.video_credits(world["path"], video["task"], channel="page")["provided"] == ["Media provided by shelf (%s)" % link]
     ops.approve(world["path"], gate["id"], sha256=gate["payload_sha256"], channel="terminal")
     ops_media = st.load("ops_media")
     done = ops_media.video_download(world["path"], video["task"], out=str(Path(world["tmp"]) / "out.mp4"), channel="terminal")
-    assert done["credits"] == doc["credits"] and len(done["credits"]) == 1
+    assert len(done["credits"]) == 1 and sha(json.dumps(done["credits"], ensure_ascii=False).encode("utf-8")) == doc["credits"]["sha256"]

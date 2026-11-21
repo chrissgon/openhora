@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from test_interface_captions import PRELUDE
+from test_interface_floor import run_node as run_floor_node
 from test_interface_lobby import INTERFACE, needs_node, run_node  # noqa: F401
 
 MODEL = r"""
@@ -242,3 +243,36 @@ def test_a_layout_is_added_with_its_words_and_no_picture_and_a_bad_search_sends_
     assert got["form"]["text"] is True and "fit" in "".join(got["form"]["labels"]) and "asset" not in "".join(got["form"]["labels"])
     assert got["bad"] == {"problem": "Write 1 to 6 English words, with letters only.", "edits": 0}
     assert got["sent"] == [[{"op": "animation", "block": "oh:cutaway", "params": {}, "word_from": 5, "word_to": 5, "show": "a busy market", "search": "market stall", "want": "clip"}]]
+
+
+CARD = r"""
+import { settle, find, all } from "@FAKE@";
+import { createCard } from "@JS@/floor/cards.js";
+const HASH = "c".repeat(64);
+const MARK = "ZQXAUTHORMARKER";
+const calls = [];
+let host = "127.0.0.1";
+const env = () => ({ project: "p", now: () => new Date("2026-10-12T12:00:00Z"), requestIds: new Set([1]), links: { floor: (a) => `#/f/${a}`, lobby: () => "#/l", open: () => "#/x", parent: () => "#/p" },
+  api: { videoCredits: async (p, id) => { calls.push(["credits", p, id]); return { credits: [`"A shop" by ${MARK}, CC BY 4.0`], provided: ["Media provided by shelf (https://shelf.example/terms)"], web: [] }; } },
+  reread: async () => null, changed() {}, gone() {}, host: () => host });
+const item = (assets) => ({ id: 31, kind: "effect", effect_word: "deliver", title: "Deliver the video", body: ["Platform: instagram", "1 pictures need a credit; the credit text is on this computer's page (sha256 " + "d".repeat(64) + ")",
+  "Delivery document sha256 " + HASH].join("\n"), payload: { effect: { assets } }, payload_sha256: HASH, status: "open", actions: ["approved", "rejected"], agent: null, task_id: 9, run_id: null, created_at: "2026-10-12T09:00:00Z" });
+const out = {};
+const home = createCard(item(1), env()); await settle();
+out.home = { text: home.el.textContent.includes(MARK), lines: all(home.el, "ul.wb-dl-rows")[1].children.map((n) => n.textContent), calls: calls.length, body: all(home.el, "ul.wb-dl-rows")[0].textContent.includes(MARK) };
+host = "192.168.1.20";
+const away = createCard(item(1), env()); await settle();
+out.away = { text: away.el.textContent.includes(MARK), calls: calls.length };
+host = "127.0.0.1";
+const none = createCard(item(0), env()); await settle();
+out.none = { text: none.el.textContent.includes(MARK), calls: calls.length };
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_deliver_card_reads_the_credits_for_this_computers_own_page_only_and_labels_them_text_from_the_library(tmp_path):
+    got = run_floor_node(tmp_path, CARD)
+    assert got["home"]["lines"] == ['Media provided by shelf (https://shelf.example/terms)', '"A shop" by ZQXAUTHORMARKER, CC BY 4.0'] and got["home"]["calls"] == 1
+    assert got["home"]["body"] is False, "the delivery document's own rows never hold the text"
+    assert got["away"] == {"text": False, "calls": 1} and got["none"] == {"text": False, "calls": 1}, "no read over the local network, none for a video with no picture"

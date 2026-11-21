@@ -52,6 +52,7 @@ class FakeSources:
 
     def __init__(self):
         self.calls, self.licences, self.authors, self.count, self.fail, self.barrier = [], {}, {}, 2, {}, None
+        self.titles = {}
         self.lock, self.active, self.most_active, self.clip_seconds = threading.Lock(), {}, {}, 8
         self.waited = set()
 
@@ -89,7 +90,7 @@ class FakeSources:
             data = png(8, 8, (n * 40 % 255, 100, 200))
             Path(out, name).write_bytes(data)
             rows.append({"item": item, "kind": kind, "width": 1600, "height": 1200, "seconds": self.clip_seconds if kind == "clip" else None,
-                         "author": self.authors.get(source, "Bram Hollow"), "title": "A picture of %s" % query, "licence": self.licences.get(source, "cc0-1.0"),
+                         "author": self.authors.get(source, "Bram Hollow"), "title": self.titles.get(source, "A picture of %s" % query), "licence": self.licences.get(source, "cc0-1.0"),
                          "page": "https://%s.example/p/%s" % (source, item), "preview": name, "preview_sha256": sha(data)})
         return {"ok": True, "source": source, "kind": kind, "candidates": rows, "dropped": {}, "requests": 1, "cached": False, "previews": len(rows)}
 

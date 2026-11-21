@@ -20,4 +20,5 @@ export const actions = {
   handOver: api.handOver,
   pollJob: api.pollJob,
   flows: api.flows,
+  videoCredits: api.videoCredits,
 };

@@ -606,7 +606,9 @@ def video_credits(project: str, task_id, channel=None) -> dict:
     found = media_stock.read_credits(ctx["cfg"]["data_dir"], task_id)
     if found is None:
         raise _fail("no_credits", "no media set was approved for this task, or its credits record was removed after a year")
-    return {"task": found.get("task"), "assets": found.get("assets") or [], "credits": found.get("credits") or [], "web": found.get("web") or []}
+    provided = [phrases.text("VID_STOCK_PROVIDED", ctx["cfg"], source=p["source"], link=p.get("link") or "-") for p in found.get("providers") or [] if isinstance(p, dict)]
+    return {"task": found.get("task"), "assets": found.get("assets") or [], "credits": found.get("credits") or [], "web": found.get("web") or [], "provided": provided,
+            "text_from_the_library": True}      # S4: the credit lines, the titles, the authors and the page addresses are written by the libraries and the web: shown here, on this computer
 
 
 if __name__ == "__main__":

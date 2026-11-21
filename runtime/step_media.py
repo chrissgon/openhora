@@ -722,7 +722,8 @@ def _document(ctx: steps.Context, state: dict) -> dict:
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
                                  verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview,
-                                 assets=assets, web=web, credits=credits)
+                                 assets=assets, web=web,
+                                 credits={"count": len(credits), "sha256": hashlib.sha256(json.dumps(credits, ensure_ascii=False).encode("utf-8")).hexdigest()} if credits else None)      # S4: the text stays out
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 
 
@@ -731,20 +732,8 @@ def _open(ctx: steps.Context, state: dict) -> dict:
     recorded = state["steps"]["document"]["result"]["effect_sha256"]
     doc = _service(ctx, "effect_files").read(ctx.task_id, int(state.get("cycle", 0)), recorded)
     deliver_document.check(doc)
-    pages, providers = {}, {}
-    if doc.get("assets"):      # each licensed source's link, from the set the pictures were fetched in (plain text on the card)
-        store, _, rid = _handles(ctx)
-        found = _optional_json(store, rid, STOCK_SET) or {}
-        providers = {a["source"]: a["source_link"] for a in found.get("assets") or [] if isinstance(a, dict) and a.get("licence") != STOCK_UNVERIFIED
-                     and isinstance(a.get("source_link"), str) and a["source_link"] and any(d["source"] == a["source"] for d in doc["assets"])}
-    if doc.get("web"):      # the source page of each open-web picture, read from the store (the document holds its host and the hash of its address, never the address)
-        store, _, rid = _handles(ctx)
-        found = _optional_json(store, rid, STOCK_SET) or {}
-        shown = {w["slot"]: w["page_sha256"] for w in doc["web"]}
-        pages = {a["slot"]: a["page"] for a in found.get("assets") or [] if isinstance(a, dict) and a.get("licence") == STOCK_UNVERIFIED and isinstance(a.get("page"), str)
-                 and _page_parts(a["page"])[1] == shown.get(a["slot"])}      # an address is shown only when it is the one the document's hash names
     return {"title": deliver_document.title(doc)[:200], "body": deliver_document.body(doc, recorded), "payload_sha256": recorded,
-            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded, pages, providers)}}
+            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded)}}
 
 
 # --- what a step prepared again removes ---------------------------------------------------------------------------------------

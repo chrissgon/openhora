@@ -8,11 +8,8 @@
     "VID_STOCK_CREDIT": "Credit to put in the caption",
     "VID_STOCK_CLIP_NOT_DRAWN": "This engine cannot draw clips yet. Pick a picture for this slot.",
     "CARD_VIDEO_ASSET": "Picture: {slot}, {source}, {licence}, sha256 {sha}",
-    "CARD_VIDEO_CREDITS": "Credit to put in the caption",
-    "CARD_VIDEO_CREDIT": "Credit: {credit}",
     "CARD_VIDEO_WEB": "Found on the web, licence not checked: {host}",
-    "CARD_VIDEO_WEB_PAGE": "Source page: {page}",
     "VID_STOCK_PROVIDED": "Media provided by {source} ({link})",
-    "CARD_VIDEO_PROVIDED": "Media provided by {source} ({link})"
+    "CARD_VIDEO_CREDITS_COUNT": "{count} pictures need a credit; the credit text is on this computer's page (sha256 {sha})"
   }
 }

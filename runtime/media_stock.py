@@ -465,7 +465,9 @@ def credits_record(found: dict, document: dict, recording: str, now=None) -> dic
     """The credits record: the set document without the words the person typed (`show`, `search`), plus, for each open-web asset, its page link and claimed licence
     (which the document itself does not bind: the delivery document holds only their host and the hash of the link)."""
     assets = [{k: v for k, v in a.items() if k not in ("show", "search")} for a in document["assets"]]
-    return {"version": SET_VERSION, "task": document["task"], "recording": recording, "approved_at": now_stamp(now), "delivered_at": None, "assets": assets, "credits": list(document["credits"]),
+    return {"version": SET_VERSION, "task": document["task"], "recording": recording, "approved_at": now_stamp(now), "delivered_at": None,
+            "providers": [{"source": s, "link": l} for s, l in sorted({a["source"]: a.get("source_link") or "" for a in found.get("assets") or []
+                                                                         if a.get("licence") != UNVERIFIED}.items())], "assets": assets, "credits": list(document["credits"]),
             "web": [{"slot": a["slot"], "sha256": a["sha256"], "page": a.get("page") or "", "licence_claim": a.get("licence_claim") or ""}
                     for a in document["assets"] if a.get("licence") == UNVERIFIED]}
 

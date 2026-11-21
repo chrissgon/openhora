@@ -171,12 +171,13 @@ def test_the_module_imports_nothing_of_the_repository_and_holds_no_function_that
 
 ASSET = {"slot": "beat7", "sha256": "e" * 64, "source": "shelf", "item": "item-1", "licence": "cc-by-4.0"}
 CREDIT = "\"A picture\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf"
+CREDITS = {"count": 1, "sha256": "d" * 64}      # S4: the document binds the credits by their count and the hash of the list, never by their text
 WEB = {"slot": "beat9", "sha256": "f" * 64, "page_host": "pics.example", "page_sha256": "a" * 64}
 UNCHECKED = {"slot": "beat9", "sha256": "f" * 64, "source": "other", "item": "q-" + "f" * 12, "licence": "unverified"}
 
 
 def test_a_video_with_no_picture_keeps_the_document_and_the_summary_it_always_had():
-    doc = make(assets=(), web=(), credits=())
+    doc = make(assets=(), web=(), credits=None)
     assert set(doc) == set(dd.KEYS) and "assets" not in dd.summary(doc)
     assert [line[0] for line in dd.card_lines(doc, DIGEST)] == ["CARD_VIDEO_PLATFORM", "CARD_VIDEO_POST", "CARD_VIDEO_FILE", "CARD_VIDEO_COVER", "CARD_VIDEO_VERIFIED",
                                                                  "CARD_VIDEO_NO_BLOCKS", "CARD_VIDEO_NO_PREVIEW", "CARD_VIDEO_DIGEST", "CARD_VIDEO_CLOSING"]
@@ -184,21 +185,20 @@ def test_a_video_with_no_picture_keeps_the_document_and_the_summary_it_always_ha
 
 
 def test_the_pictures_credits_and_unchecked_files_are_in_the_document_the_card_and_the_body():
-    doc = make(assets=[ASSET, UNCHECKED], web=[WEB], credits=[CREDIT])
-    assert doc["assets"] == [ASSET, UNCHECKED] and doc["web"] == [WEB] and doc["credits"] == [CREDIT]
+    doc = make(assets=[ASSET, UNCHECKED], web=[WEB], credits=CREDITS)
+    assert doc["assets"] == [ASSET, UNCHECKED] and doc["web"] == [WEB] and doc["credits"] == CREDITS
     assert dd.summary(doc)["assets"] == 2 and dd.summary(doc)["web"] == 1 and dd.summary(doc)["credits"] == 1
-    lines = dd.card_lines(doc, DIGEST, {"beat9": "https://pics.example/gallery"})
+    lines = dd.card_lines(doc, DIGEST)
     keys = [line[0] for line in lines]
     assert keys[-2:] == ["CARD_VIDEO_DIGEST", "CARD_VIDEO_CLOSING"]
-    assert keys.count("CARD_VIDEO_ASSET") == 2 and "CARD_VIDEO_CREDITS" in keys and ["CARD_VIDEO_CREDIT", {"credit": CREDIT}] in lines
-    assert ["CARD_VIDEO_WEB", {"host": "pics.example"}] in lines and ["CARD_VIDEO_WEB_PAGE", {"page": "https://pics.example/gallery"}] in lines
+    assert keys.count("CARD_VIDEO_ASSET") == 2 and ["CARD_VIDEO_CREDITS_COUNT", {"count": "1", "sha": "d" * 64}] in lines
+    assert ["CARD_VIDEO_WEB", {"host": "pics.example"}] in lines and not any(k in ("CARD_VIDEO_WEB_PAGE", "CARD_VIDEO_CREDIT", "CARD_VIDEO_PROVIDED") for k in keys)
     body = dd.body(doc, DIGEST)
-    assert "Picture: beat7, shelf, cc-by-4.0, sha256 " + "e" * 64 in body and "Credit to put in the caption\nCredit: " + CREDIT in body
+    assert "Picture: beat7, shelf, cc-by-4.0, sha256 " + "e" * 64 in body and "1 pictures need a credit; the credit text is on this computer's page (sha256 " + "d" * 64 + ")" in body and "Bram Hollow" not in body
     assert "Found on the web, licence not checked: pics.example" in body and "gallery" not in body
     phrases = st.load("phrases")
-    english = [phrases.text(k, None, **f) for k, f in lines if k != "CARD_VIDEO_WEB_PAGE"]
-    assert all(sentence in body for sentence in english if "Delivery document" not in sentence and "Approving" not in sentence and sentence.startswith(
-        ("Picture:", "Credit", "\"A picture", "Found on")))
+    english = [phrases.text(k, None, **f) for k, f in lines]
+    assert all(sentence in body for sentence in english if sentence.startswith(("Picture:", "1 pictures", "Found on")))
 
 
 @pytest.mark.parametrize("change", [
@@ -207,10 +207,11 @@ def test_the_pictures_credits_and_unchecked_files_are_in_the_document_the_card_a
     {"assets": [dict(ASSET, extra=1)]}, {"assets": [{k: v for k, v in ASSET.items() if k != "item"}]}, {"assets": "x"},
     {"assets": [UNCHECKED]}, {"assets": [UNCHECKED], "web": [dict(WEB, slot="beat1")]}, {"assets": [UNCHECKED], "web": [dict(WEB, sha256="0" * 64)]},
     {"assets": [UNCHECKED], "web": [dict(WEB, page_host="not a host")]}, {"assets": [UNCHECKED], "web": [dict(WEB, page_sha256="z")]}, {"assets": [UNCHECKED], "web": [WEB, WEB]},
-    {"assets": [ASSET], "web": [WEB]}, {"credits": [CREDIT + "\n" + CREDIT]}, {"credits": [""]}, {"credits": ["x" * 601]}, {"credits": [3]}, {"credits": [CREDIT] * 13},
+    {"assets": [ASSET], "web": [WEB]}, {"credits": {"count": 0, "sha256": "d" * 64}}, {"credits": {"count": 1, "sha256": "x"}}, {"credits": {"count": 13, "sha256": "d" * 64}}, {"credits": {"count": 1}},
+    {"credits": {"count": 1, "sha256": "d" * 64, "text": CREDIT}}, {"credits": [CREDIT]},
 ])
 def test_a_document_with_a_malformed_picture_entry_is_refused(change):
-    base = dict(assets=[ASSET], web=[], credits=[CREDIT])
+    base = dict(assets=[ASSET], web=[], credits=CREDITS)
     if "assets" in change and change["assets"] and isinstance(change["assets"], list) and change["assets"][0] == UNCHECKED:
         base["web"] = []
     with pytest.raises(ValueError):
@@ -219,6 +220,6 @@ def test_a_document_with_a_malformed_picture_entry_is_refused(change):
 
 @pytest.mark.parametrize("key", ["assets", "web", "credits"])
 def test_a_key_that_is_present_holds_something(key):
-    doc = make(assets=[ASSET], credits=[CREDIT])
+    doc = make(assets=[ASSET], credits=CREDITS)
     doc[key] = []
     assert refused(doc) == key

@@ -57,9 +57,8 @@ def test_the_search_rule_the_slot_id_and_the_word_bounds_are_the_class_and_the_r
 def test_the_not_approved_sentence_of_the_step_is_the_english_phrase():
     phrases = st.load("phrases")
     assert step_media.STOCK_NOT_APPROVED == phrases.en("VID_STOCK_NOT_APPROVED")
-    for key in ("CARD_VIDEO_ASSET", "CARD_VIDEO_CREDITS", "CARD_VIDEO_CREDIT", "CARD_VIDEO_WEB", "CARD_VIDEO_WEB_PAGE"):
+    for key in ("CARD_VIDEO_ASSET", "CARD_VIDEO_CREDITS_COUNT", "CARD_VIDEO_WEB"):
         assert phrases.en(key)
-    assert phrases.en("CARD_VIDEO_CREDITS") == phrases.en("VID_STOCK_CREDIT")      # the body's English line and the phrase say the same words
 
 
 def test_the_step_kind_still_imports_nothing_new_and_the_credit_licence_names_are_built_by_code():

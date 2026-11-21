@@ -635,7 +635,7 @@ def test_every_credit_line_fits_the_document_even_with_fields_of_the_longest_siz
         assert 0 < len(line) <= deliver.CREDIT_MAX and "\n" not in line
         deliver.build(task=1, recording="a" * 16, platform="instagram", post="docs/marketing/content/x.md",
                       video={"name": "render-%s.mp4" % ("b" * 12), "sha256": "b" * 64, "size": 5, "duration_ms": 5}, cover=None, verify_platform="instagram",
-                      assets=[{"slot": "a1", "sha256": "c" * 64, "source": "shelf", "item": "x", "licence": licence}], credits=[line])
+                      assets=[{"slot": "a1", "sha256": "c" * 64, "source": "shelf", "item": "x", "licence": licence}], credits={"count": 1, "sha256": "d" * 64})
     assert ms.credit_line({"licence": "cc0-1.0".replace("cc0", "cc-by").replace("1.0", "4.0"), "title": "a\nb", "author": "x", "source": "s", "page": ""}).count("\n") == 0
 
 

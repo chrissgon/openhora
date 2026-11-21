@@ -152,7 +152,7 @@ def check(doc) -> dict:
 
 def _check_assets(doc: dict) -> None:
     """The three optional keys, closed: each present only when it holds something, `web` naming assets of `assets`."""
-    for key in OPTIONAL_KEYS:
+    for key in ("assets", "web"):
         if key in doc and (not isinstance(doc[key], list) or not doc[key] or len(doc[key]) > ASSETS_MAX):
             raise ValueError(key)
     slots, unverified, previous = {}, set(), None
@@ -180,24 +180,27 @@ def _check_assets(doc: dict) -> None:
             raise ValueError("web.page")
     if unverified and seen != unverified:
         raise ValueError("web")      # a picture nobody checked is listed with its source page, always
-    for line in doc.get("credits", []):
-        if not isinstance(line, str) or not line or len(line) > CREDIT_MAX or any(c in line for c in "\n\r"):
+    if "credits" in doc:      # S4: library text (a credit's title and author) is never in the document: it binds the credits by their count and their sha256
+        found = doc["credits"]
+        if not (isinstance(found, dict) and set(found) == {"count", "sha256"} and type(found["count"]) is int and 1 <= found["count"] <= ASSETS_MAX and _sha(found["sha256"])):
             raise ValueError("credits")
 
 
-def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=()) -> dict:
+def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=None) -> dict:
     """The document, already passed through `check`. `video` is `{name, sha256, size, duration_ms}`, `cover` is `{name, sha256, size}` or
     None, `blocks` a sequence of `{id, sha256}` and `preview` None or `{sha256, size, from_sha256}`. `assets`, `web` and `credits` (V9b-3a) are added as keys only
-    when they hold something: `assets` `{slot, sha256, source, item, licence}`, `web` `{slot, sha256, page_host, page_sha256}`, `credits` lines of text."""
+    when they hold something: `assets` `{slot, sha256, source, item, licence}`, `web` `{slot, sha256, page_host, page_sha256}`, `credits` `{count, sha256}`: the number of credit lines and the sha256 of the list (the text is never in the document)."""
     doc = {"effect": WORD, "version": VERSION, "task": task, "recording": recording, "platform": platform, "post": post,
            "video": dict(video) if isinstance(video, dict) else video,
            "cover": dict(cover) if isinstance(cover, dict) else cover,
            "verify": {"passed": True, "platform": verify_platform},
            "blocks": [dict(b) if isinstance(b, dict) else b for b in blocks],
            "preview": dict(preview) if isinstance(preview, dict) else preview}
-    for key, value in (("assets", assets), ("web", web), ("credits", credits)):
+    for key, value in (("assets", assets), ("web", web)):
         if value:
             doc[key] = [dict(v) if isinstance(v, dict) else v for v in value]
+    if credits:
+        doc["credits"] = dict(credits)
     return check(doc)
 
 
@@ -232,11 +235,11 @@ def summary(doc: dict) -> dict:
     found = {"word": WORD, "platform": doc["platform"], "video_sha256": doc["video"]["sha256"], "size": doc["video"]["size"],
              "duration_ms": doc["video"]["duration_ms"], "blocks": len(doc["blocks"]), "preview": doc["preview"] is not None}
     if doc.get("assets"):      # only a video with pictures adds the keys: the summary of every other video is what it always was
-        found.update(assets=len(doc["assets"]), web=len(doc.get("web") or []), credits=len(doc.get("credits") or []))
+        found.update(assets=len(doc["assets"]), web=len(doc.get("web") or []), credits=doc["credits"]["count"] if doc.get("credits") else 0)
     return found
 
 
-def card_lines(doc: dict, digest: str, pages=None, providers=None) -> list:
+def card_lines(doc: dict, digest: str) -> list:
     """The lines of the body as `[key, {field: text}]`, every value a str: what a messaging card says in the project's language
     (runtime/phrases.py `card_text`). `body` is their English sentences, so the stored body and its hash do not change."""
     video, cover, preview = doc["video"], doc["cover"], doc["preview"]
@@ -252,27 +255,20 @@ def card_lines(doc: dict, digest: str, pages=None, providers=None) -> list:
     else:
         lines.append(["CARD_VIDEO_NO_BLOCKS", {}])
     lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
-    lines.extend(_asset_card_lines(doc, pages, providers))
+    lines.extend(_asset_card_lines(doc))
     lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
     lines.append(["CARD_VIDEO_CLOSING", {}])
     return lines
 
 
-def _asset_card_lines(doc: dict, pages, providers=None) -> list:
-    """The lines of the pictures: one per picture, the credit lines (the heading, then each), and for each picture nobody checked the short warning and its source page.
-    `pages` maps a slot to the page address the store keeps, already checked by the caller against the document's `page_sha256` (this module hashes nothing): the
-    address of a picture with none in `pages` is left out."""
+def _asset_card_lines(doc: dict) -> list:
+    """The lines of the pictures: one per picture, how many credits there are (the text is on this computer's page, never on a phone card: S4), and for each picture nobody
+    checked the short warning (its host). No text a library or a web page wrote, and no source page address, is on a card."""
     lines = [["CARD_VIDEO_ASSET", {"slot": a["slot"], "source": a["source"], "licence": a["licence"], "sha": a["sha256"]}] for a in doc.get("assets") or []]
     if doc.get("credits"):
-        lines.append(["CARD_VIDEO_CREDITS", {}])
-        lines.extend(["CARD_VIDEO_CREDIT", {"credit": c}] for c in doc["credits"])
-    for source, link in sorted((providers or {}).items()):      # "Media provided by <source>", the link as plain text: the caller read it from the store
-        lines.append(["CARD_VIDEO_PROVIDED", {"source": source, "link": link}])
+        lines.append(["CARD_VIDEO_CREDITS_COUNT", {"count": str(doc["credits"]["count"]), "sha": doc["credits"]["sha256"]}])
     for w in doc.get("web") or []:
         lines.append(["CARD_VIDEO_WEB", {"host": w["page_host"]}])
-        page = (pages or {}).get(w["slot"])
-        if isinstance(page, str) and page:
-            lines.append(["CARD_VIDEO_WEB_PAGE", {"page": page}])
     return lines
 
 
@@ -293,8 +289,7 @@ def body(doc: dict, digest: str) -> str:
     for a in doc.get("assets") or []:
         lines.append(f"Picture: {a['slot']}, {a['source']}, {a['licence']}, sha256 {a['sha256']}")
     if doc.get("credits"):
-        lines.append("Credit to put in the caption")
-        lines.extend(f"Credit: {c}" for c in doc["credits"])
+        lines.append(f"{doc['credits']['count']} pictures need a credit; the credit text is on this computer's page (sha256 {doc['credits']['sha256']})")
     for w in doc.get("web") or []:
         lines.append(f"Found on the web, licence not checked: {w['page_host']}")
     lines.append(f"Delivery document sha256 {digest}")
