@@ -274,11 +274,17 @@ still equal, within the codec's loss, to the render's own first picture of a ran
 `ROW` a slot id and `COL` 1 to 6, staged like `render`'s assets (a file of a reference store is refused before a container is asked for), no recording, no
 network. `preview` checks small pictures (a source's own previews) and tiles them onto `sheet.png`; a tile nobody gave a picture for is the theme's
 background. `full` also normalises each picture: re-encoded to PNG with the image's ffmpeg (one thread, bit-exact scaling and encoding), its metadata
-stripped, its long side scaled to 1920 (the frame's), never enlarged more than 1.5 times (`asset_too_small`), written as `asset-<sha12>.png` (0400, named by its
+stripped, **never enlarged** (a long side over 1920, the frame's, is scaled down to it; any other picture keeps its size), refused `asset_too_small` only when the layout its ratio selects would draw it enlarged more than 1.5 times (see the size rule below), written as `asset-<sha12>.png` (0400, named by its
 own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a file of no known kind are `asset_type` (a clip is accepted since V9b-5a: see "Clips"), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
 `width`, `height`, `source_sha256`; `sheet`, `sheet_sha256`, `rows`) from a closed schema, hashes each file on the way out and checks its header, and never
 rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both, **and it stays so after V9b-5a**: the runtime keeps
 refusing a clip pick with `clip_not_drawn` until a later, small package flips it); the catalogue lists them as `asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
+
+**The size rule** (the supervisor's correction after live leg K3, which replaces V9b-2's "long side to 1920, at most 1.5 times"): never enlarge; a long side over 1920 is
+scaled down to it, otherwise the picture keeps its size. `asset_too_small` only when the picture would be drawn more than 1.5 times its own size in the layout its
+ratio selects with the default look: ratio (w/h) at or under 0.8 the cover layout (refuse when `max(1080/w, 1920/h) > 1.5`), otherwise the glass layout (refuse when
+`min((1080 - 2*65)/w, 1700/h) > 1.5`). A 1024x683 picture is kept as it is; 600x337 and 800x1200 are refused. The numbers are named constants in `_asset_sheet.py` and a test reads
+them from `renderat.html` and from the default `glass_ratio_max`. Loss: a theme whose `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than 1.5 times.
 
 ## Clips (`asset-sheet` and the clip cutaway, V9b-5a)
 
@@ -293,7 +299,7 @@ A file ffprobe or the decoder cannot get through, or that comes out shorter than
 - `--mode preview`: the tile is the clip's frame at 0.5 s (its first frame when the clip is not longer than that), drawn like a picture tile with a small solid
   accent-coloured marker in the tile's corner (a drawn glyph would need a font the image may not have). Nothing but the sheet is written.
 - `--mode full`: H.264 High, yuv420p, bt709 tagged, a constant frame rate `--fps N` (new optional flag, a whole number from 24 to 60, 30 by default; `bad_fps`
-  otherwise), no audio, the long side scaled to 1920 with the aspect kept (each side made even) and never enlarged more than 1.5 times (`asset_too_small`),
+  otherwise), no audio, the same size rule as a picture (each side made even),
   the `lanczos+accurate_rnd+bitexact` scaler, x264 on one thread (the decoder and the filter graph too: `threads=1:lookahead_threads=1:sliced-threads=0`), crf 16,
   faststart, written as `asset-<sha12>.mp4` (0400, named by its own bytes). The same argv gives the same bytes at any core count (a test runs it twice; the bytes
   at 4 and 8 cores are a live check). The answer's rows gain `kind` (`image` or `clip`) and `seconds` (0 for an image, the clip's length otherwise); a clip's

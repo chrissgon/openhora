@@ -7,10 +7,10 @@ Two modes:
   preview  `--asset ROW:COL=FILE` are small pictures or clips (a source's own previews): each is checked (a PNG or a JPEG, or a clip; complete, not animated,
            within the size bounds) and tiled onto the contact sheet. A clip's tile is its frame at 0.5 s (its first frame when it is shorter), with a small
            accent-coloured marker in the tile's corner. A tile that has no picture is the theme's background. Nothing but the sheet is written.
-  full     each file is checked the same way and normalised. A picture is re-encoded to PNG, its metadata stripped, its long side scaled to LONG_SIDE (the long
-           side of the frame, so the picture covers the frame's height) and never enlarged more than MAX_UPSCALE times (`asset_too_small`); it is written as
+  full     each file is checked the same way and normalised. A picture is re-encoded to PNG, its metadata stripped, never enlarged (a long side over LONG_SIDE is scaled down to it), refused `asset_too_small` when the layout would draw it enlarged more than MAX_UPSCALE times
+           (`target_size`); it is written as
            `asset-<sha12>.png` (mode 0400), named by its own bytes. A clip is re-encoded to H.264 High, yuv420p, bt709 tagged, a constant `--fps` (24 to 60,
-           30 by default), no audio, the first 10 seconds, its long side scaled to LONG_SIDE and never enlarged more than MAX_UPSCALE times, x264 on one thread,
+           30 by default), no audio, the first 10 seconds, the same size rule as a picture, x264 on one thread,
            faststart, and written as `asset-<sha12>.mp4` (mode 0400).
 
 A clip is told from a picture by its first bytes (an MP4 or MOV `ftyp` box, a WebM's EBML header), never by a name; it is read with that container's demuxer
@@ -38,8 +38,15 @@ from _vocab import SLOT_ID, load_data
 MODES = ("preview", "full")
 MAX_TILES = 36                 # the most pictures in one call: six rows of six
 MAX_COL = 6
-LONG_SIDE = 1920               # a normalised picture's long side: the frame's (1080x1920)
-MAX_UPSCALE = 1.5              # a picture is never enlarged more than this (a smaller one is `asset_too_small`)
+LONG_SIDE = 1920               # a normalised picture's long side is at most this: the frame's (1080x1920); a smaller picture is never enlarged
+MAX_UPSCALE = 1.5              # a picture is refused (`asset_too_small`) when the layout would draw it enlarged more than this
+MAX_UPSCALE_RATIO = (3, 2)     # MAX_UPSCALE as a fraction, for integer arithmetic
+FRAME_W, FRAME_H = 1080, 1920  # the frame
+# The next three are the cutaway page's own numbers (`blocks/oh/cutaway/renderat.html`: SAFE and MAX_FG_H) and the cutaway look's default `glass_ratio_max` (0.8, as
+# the fraction 4/5); a test reads them from there, so a change there fails it.
+SAFE = 65
+MAX_FG_H = 1700
+GLASS_RATIO_MAX = (4, 5)
 TILE = (180, 320)              # a picture's box on the sheet, a quarter of a frame's each side less a little
 GAP = 8                        # pixels around a tile
 SHEET_NAME = "sheet.png"
@@ -113,12 +120,23 @@ def check_picture(path: str, field: str, limits: dict) -> dict:
 
 
 def target_size(w: int, h: int, field: str) -> tuple:
-    """The size a picture is normalised to: its long side becomes LONG_SIDE and the aspect is kept (whole pixels, rounded half up). A picture whose long
-    side would have to grow by more than MAX_UPSCALE is `asset_too_small`. Integer arithmetic only."""
+    """The size a picture or clip is normalised to (the supervisor's correction after live leg K3, which replaces V9b-2's "long side to 1920, at most 1.5 times"):
+    never enlarged. A long side over LONG_SIDE is scaled down to it with the aspect kept (whole pixels, rounded half up); any other picture keeps its own size.
+    It is `asset_too_small` only when the final picture would be drawn more than MAX_UPSCALE times its own size in the layout its ratio selects with the default
+    look: at or under GLASS_RATIO_MAX the cover layout (max(frame width / w, frame height / h) over the limit), else the glass layout
+    (min((frame width - 2 x SAFE) / w, MAX_FG_H / h) over the limit). Integer arithmetic only. Loss: a theme whose `glass_ratio_max` differs, or a `fit` that forces
+    cover on a landscape picture, can draw a picture enlarged more than MAX_UPSCALE times."""
     long_side = max(w, h)
-    if long_side * 3 < LONG_SIDE * 2:
+    if long_side > LONG_SIDE:
+        w, h = max(1, (w * LONG_SIDE + long_side // 2) // long_side), max(1, (h * LONG_SIDE + long_side // 2) // long_side)
+    limit_n, limit_d = MAX_UPSCALE_RATIO
+    if w * GLASS_RATIO_MAX[1] <= h * GLASS_RATIO_MAX[0]:          # ratio at or under 0.8: cover
+        too_small = FRAME_W * limit_d > limit_n * w or FRAME_H * limit_d > limit_n * h
+    else:                                                         # glass: both bounds of the picture's box need more than the limit
+        too_small = (FRAME_W - 2 * SAFE) * limit_d > limit_n * w and MAX_FG_H * limit_d > limit_n * h
+    if too_small:
         fail("asset_too_small", field)
-    return max(1, (w * LONG_SIDE + long_side // 2) // long_side), max(1, (h * LONG_SIDE + long_side // 2) // long_side)
+    return w, h
 
 
 def check_clip(path: str, data: bytes, demuxer: str, field: str, limits: dict, ffprobe, decoders) -> dict:
@@ -336,7 +354,7 @@ def asset_sheet(*, items: dict, mode: str, out_dir: str, ffmpeg: str, data=None,
             with open(made, "rb") as fh:
                 raw = fh.read()
             facts = _assets.image_facts(raw)
-            if facts is None or facts[0] != "png" or max(facts[1], facts[2]) != LONG_SIDE or not png_complete(raw):
+            if facts is None or facts[0] != "png" or (facts[1], facts[2]) != tuple(picture["size"]) or not png_complete(raw):
                 fail("asset_unreadable", field)
             digest = hashlib.sha256(raw).hexdigest()
             name = ASSET_NAME % digest[:12]

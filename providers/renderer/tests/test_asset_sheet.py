@@ -122,19 +122,31 @@ def test_a_larger_picture_is_scaled_down_to_the_long_side_and_keeps_its_aspect(t
 
 
 @needs_ffmpeg
-def test_an_upscale_of_one_and_a_half_times_is_accepted_and_more_is_refused(tmp_path):
-    ok = run(tmp_path, {"slot-1:1": write(tmp_path, "ok.png", png_bytes(1280, 720))})
-    assert (ok["assets"][0]["width"], ok["assets"][0]["height"]) == (1920, 1080)
-    assert code_of(run, tmp_path, {"slot-1:1": write(tmp_path, "small.png", png_bytes(1279, 720))}, out="out2") == ("asset_too_small", "slot-1:1")
-    assert not (tmp_path / "out2").exists() or not any((tmp_path / "out2").iterdir())
+def test_a_picture_is_never_enlarged_and_is_refused_only_when_its_layout_would_enlarge_it_past_one_and_a_half_times(tmp_path):
+    """The supervisor's correction after live leg K3 (an Openverse medium rendition, 1024x683, was refused by the older rule): V9b-2 read the spec as "the long side
+    becomes 1920, at most 1.5 times"; the rule now is the layout's: never enlarge, refuse `asset_too_small` by the size the page would draw."""
+    ok = run(tmp_path, {"slot-1:1": write(tmp_path, "medium.png", png_bytes(1024, 683)), "slot-2:1": write(tmp_path, "tall.png", png_bytes(1080, 1920))})
+    assert [(a["width"], a["height"]) for a in ok["assets"]] == [(1024, 683), (1080, 1920)]
+    for name, size, row in (("tiny", (600, 337), "slot-1:1"), ("narrow", (800, 1200), "slot-1:1")):
+        assert code_of(run, tmp_path, {row: write(tmp_path, name + ".png", png_bytes(*size))}, out="o-" + name) == ("asset_too_small", row), name
 
 
-def test_the_target_size_is_integer_arithmetic_with_the_limit_at_one_and_a_half():
-    assert A.target_size(1280, 720, "f") == (1920, 1080)
-    assert A.target_size(720, 1280, "f") == (1080, 1920)
-    assert A.target_size(1920, 1080, "f") == (1920, 1080)
-    assert code_of(A.target_size, 1279, 700, "f") == ("asset_too_small", "f")
-    assert A.target_size(1, 1920, "f") == (1, 1920)
+def test_the_target_size_is_integer_arithmetic_and_follows_the_layout():
+    assert A.target_size(1024, 683, "f") == (1024, 683) and A.target_size(1080, 1920, "f") == (1080, 1920) and A.target_size(4000, 3000, "f") == (1920, 1440)
+    assert A.target_size(1280, 720, "f") == (1280, 720)
+    assert code_of(A.target_size, 600, 337, "f") == ("asset_too_small", "f")             # glass: min(950/600, 1700/337) = 1.58
+    assert A.target_size(634, 400, "f") == (634, 400)                                     # 950 / 634 = 1.498
+    assert code_of(A.target_size, 632, 400, "f") == ("asset_too_small", "f")              # 1.503
+    assert code_of(A.target_size, 800, 1200, "f") == ("asset_too_small", "f")             # ratio 0.67, cover: 1920 / 1200 = 1.6
+    assert A.target_size(864, 1280, "f") == (864, 1280)                                   # 1.5 on the width, 1.5 on the height
+    assert code_of(A.target_size, 864, 1080, "f") == ("asset_too_small", "f")                  # ratio 0.8, cover: 1920 / 1080 = 1.78
+
+
+def test_the_size_rule_reads_the_pages_numbers():
+    page = (K.BLOCKS / "oh" / "cutaway" / "renderat.html").read_text(encoding="utf-8")
+    assert "SAFE = %d, MAX_FG_H = %d" % (A.SAFE, A.MAX_FG_H) in page
+    assert (A.FRAME_W, A.FRAME_H, A.LONG_SIDE) == (DATA["frame"]["width"], DATA["frame"]["height"], 1920) and A.MAX_UPSCALE == 1.5 == A.MAX_UPSCALE_RATIO[0] / A.MAX_UPSCALE_RATIO[1]
+    assert A.GLASS_RATIO_MAX[0] / A.GLASS_RATIO_MAX[1] == DATA["presets"]["cutaway"]["looks"]["glass_ratio_max"]
 
 
 # ---------------------------------------------------------------- what it refuses
@@ -343,7 +355,7 @@ def test_the_host_stores_the_normalised_pictures_content_addressed_and_read_only
         assert path.parent == out_dir and path.name == x["file"] == "asset-%s.png" % x["sha256"][:12]
         assert hashlib.sha256(path.read_bytes()).hexdigest() == x["sha256"] and oct(path.stat().st_mode & 0o777) == "0o400"
         assert _assets.image_facts(path.read_bytes()) == ("png", x["width"], x["height"])
-    assert max(out["assets"][1]["width"], out["assets"][1]["height"]) == 1920
+    assert (out["assets"][1]["width"], out["assets"][1]["height"]) == (1000, 1500)                    # never enlarged
     assert hashlib.sha256(Path(out["sheet_path"]).read_bytes()).hexdigest() == out["sheet_sha256"]
     run = world.runs()[before]["argv"]
     assert run[run.index("--network") + 1] == "none"
@@ -488,15 +500,19 @@ def test_a_clip_of_twelve_seconds_is_cut_to_ten(tmp_path):
 
 
 @needs_ffmpeg
-def test_a_clip_enlarged_one_and_a_half_times_is_accepted_and_one_and_six_tenths_is_refused(tmp_path):
+def test_a_clip_follows_the_same_size_rule_with_even_sides(tmp_path):
     ok = C.flat_clip(tmp_path / "ok.mp4", 1280, 720, 1)
     a, = run_clips(tmp_path, {"slot-1:1": ok})["assets"]
-    assert (a["width"], a["height"]) == (1920, 1080)
-    small = C.flat_clip(tmp_path / "small.mp4", 1200, 676, 1)                                  # 1920 / 1200 = 1.6
+    assert (a["width"], a["height"]) == (1280, 720)                                            # kept: never enlarged
+    medium = C.flat_clip(tmp_path / "medium.mp4", 1024, 682, 1)
+    assert (run_clips(tmp_path, {"slot-1:1": medium}, out="m")["assets"][0]["width"],) == (1024,)
+    big = C.flat_clip(tmp_path / "big.mp4", 2560, 1440, 1)
+    assert (lambda r: (r["width"], r["height"]))(run_clips(tmp_path, {"slot-1:1": big}, out="b")["assets"][0]) == (1920, 1080)       # scaled down
+    small = C.flat_clip(tmp_path / "small.mp4", 600, 338, 1)                                    # glass needs 1.58 times
     assert code_of(run_clips, tmp_path, {"slot-1:1": small}, out="no") == ("asset_too_small", "slot-1:1")
     assert not (tmp_path / "no").exists()
-    assert A.clip_size(1280, 721, "f") == (1920, 1082) and A.clip_size(1080, 1920, "f") == (1080, 1920)          # the sides are made even
-    assert code_of(A.clip_size, 1279, 700, "f") == ("asset_too_small", "f")
+    assert A.clip_size(1024, 683, "f") == (1024, 684) and A.clip_size(1080, 1920, "f") == (1080, 1920)          # the sides are made even
+    assert code_of(A.clip_size, 800, 1200, "f") == ("asset_too_small", "f")
 
 
 @needs_ffmpeg
@@ -615,7 +631,7 @@ def test_the_host_stores_a_normalised_clip_content_addressed_and_read_only_and_a
     path = Path(video["path"])
     assert path.parent == out_dir and hashlib.sha256(path.read_bytes()).hexdigest() == video["sha256"] and oct(path.stat().st_mode & 0o777) == "0o400"
     v, = probe_json(path)["streams"]
-    assert v["codec_name"] == "h264" and v["r_frame_rate"] == "24/1" and (video["width"], video["height"]) == (1920, 1080)
+    assert v["codec_name"] == "h264" and v["r_frame_rate"] == "24/1" and (video["width"], video["height"]) == (1280, 720)
     assert sorted(p.name for p in out_dir.iterdir()) == sorted(["sheet.png", video["file"], picture["file"]])
     run = world.runs()[-1]["argv"]
     assert run[run.index("--network") + 1] == "none" and run[run.index("--fps") + 1] == "24"

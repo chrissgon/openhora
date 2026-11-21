@@ -10,8 +10,7 @@
     (`libdav1d` or `libaom-av1`), never assumed; the native `av1` decoder needs a hardware accelerator and does not count. With none, av1 is `asset_type`.
   - Limits: the byte cap, at most 7680x4320 (either way up), the first 10 seconds (a longer clip is cut, not refused).
   - `preview`: the tile is the clip's frame at 0.5 s (its first frame when shorter), with a small solid accent-coloured marker in the tile's corner.
-  - `full`: H.264 High, yuv420p, bt709 tagged, a constant `--fps N` (new optional flag, 24 to 60, default 30), no audio, the long side 1920 and never enlarged
-    more than 1.5 times, each side made even, the `lanczos+accurate_rnd+bitexact` scaler, x264 on one thread (decoder and filter graph too), faststart, written
+  - `full`: H.264 High, yuv420p, bt709 tagged, a constant `--fps N` (new optional flag, 24 to 60, default 30), no audio, the size rule below (each side made even), the `lanczos+accurate_rnd+bitexact` scaler, x264 on one thread (decoder and filter graph too), faststart, written
     as `asset-<sha12>.mp4` (0400). The rows gain `kind` and `seconds`.
 - **The ffmpeg engine draws a clip under an `oh:cutaway` entry** (`_media.clip_filters`, `_render.load_clips`, `_render.settle_clips`, `_render.clip_rows`).
   - The clip is loaded with the checks of the `full` output (H.264, yuv420p, one stream, a constant rate from 24 to 60, within the caps, at most ten seconds,
@@ -37,7 +36,16 @@
   `clip_transition` for a clip entry. The loss: those themes cannot use clips yet. A picture keeps both. Only `oh:cutaway` draws a clip: `oh:screenshot`, `oh:pip`
   and any other block with a clip slot are `asset_type` naming the slot.
 
-**The image tag changed.** The common image's tag was `openhora-renderer:8206b171b52b` (V9b-2) and is `openhora-renderer:aa4b5e7cb199` (`_asset_sheet.py`, `_assets.py`,
+- **The size rule of `asset-sheet` full mode, for images and clips** (the supervisor's correction after live leg K3; it replaces V9b-2's reading "long side to
+  1920, at most 1.5 times"). K3: Openverse returned a CC BY 2.0 picture of 1024x683, the medium rendition Flickr serves and typical of Openverse; the old rule scaled it
+  1.875x and refused it `asset_too_small`, so nearly every Openverse picture would be refused, although a landscape picture is drawn in the glass layout at no more than
+  950x1700 (`SAFE` = 65, `MAX_FG_H` = 1700), here 0.93x. The rule: (1) never enlarge: a long side over 1920 is scaled down to 1920 with the aspect kept, otherwise the picture
+  keeps its size; (2) `asset_too_small` only when the picture would be drawn more than 1.5 times its own size in the layout its ratio selects with the default look: ratio
+  (w/h) at or under 0.8 the cover layout, refuse when `max(1080/w, 1920/h) > 1.5`; otherwise the glass layout, refuse when `min((1080 - 2*65)/w, 1700/h) > 1.5`; (3) the figures
+  are named constants in `_asset_sheet.py`, and a test reads `SAFE`, `MAX_FG_H` from `renderat.html` and `glass_ratio_max` from the cutaway look. **The loss:** a theme whose
+  `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than 1.5 times.
+
+**The image tag changed.** The common image's tag was `openhora-renderer:8206b171b52b` (V9b-2) and is `openhora-renderer:640490c4a634` (`_asset_sheet.py`, `_assets.py`,
 `_frames.py`, `_inner.py`, `_media.py` and `_render.py` are in the image). The HyperFrames image's tag is unchanged (`openhora-hyperframes:12ff7f4128cb`); no file of it
 changed. No test holds the common image's tag. The common image must be rebuilt before a live render (the maintainer's, STOP 5).
 
@@ -75,5 +83,9 @@ refusals (`asset_type` on the pip and on `oh:screenshot`, `asset_hash`, `clip_tr
 - The same bytes at 4 and 8 cores (the supervisor's live leg, `test_engine_contract_live.py`); the argv pins one thread for the normaliser and the same four slice
   threads as the rest of the compose.
 - C10 of the clip cutaway (cover and glass, five frames inside the beat), on synthetic clips; and any clip that is not synthetic.
+- **Byte determinism of the compose's final encode.** The filter graph is deterministic (its raw output has one hash over repeated runs, tested). On the host's ffmpeg
+  9.0.2 the pinned four-slice-thread x264 gave different bytes for one identical raw input on moving content (6 runs, 6 hashes; one thread: 1 hash), while a
+  flat plain compose is stable. This is the encoder's pinned setting, not this package; whether the image's x264 does it is the live leg's question (`F9`, `M4`). The tests
+  therefore compare the graph's frames, not the mp4's bytes, for a clip render.
 - The time of a glass clip's compose: measured on the host at about 0.5 s per entry frame, on four filter threads; the image's figure is not known.
 - The HyperFrames engine draws no clip (V9b-5b).
