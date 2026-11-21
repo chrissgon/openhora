@@ -750,3 +750,21 @@ def test_the_engine_keeps_a_code_of_the_closed_list_only_from_the_renderers_firs
         assert refused.value.code == "refused" and (refused.value.reason or "") == reason, tail
     source = (REPO / "providers" / "renderer" / "_asset_sheet.py").read_text(encoding="utf-8")
     assert set(re.findall(r'"(asset_[a-z_]+)"', source)) == set(ops_media_stock.ASSET_CODES)
+
+
+def test_a_clip_row_from_the_renderer_never_reaches_the_stock_path_and_an_image_row_with_kind_and_seconds_does(world, monkeypatch):
+    found = to_found(world, monkeypatch)
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    found["sheets"].mutate = lambda answer: dict(answer, assets=[dict(a, kind="clip", seconds=4.0) for a in answer["assets"]])
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "engine_refused" in str(refused.value)
+    found["sheets"].mutate = lambda answer: dict(answer, assets=[dict(a, kind="image", seconds=0) for a in answer["assets"]])      # the 5a shape of an image row
+    assert ops.video_media_fetch_picks(world["path"], found["task"])["assets"]
+    assert media_animation_kinds(world) == ["image"]
+
+
+def media_animation_kinds(world):
+    animation = st.load("media_animation")
+    return animation.asset_kinds(str(REPO), None) if True else []

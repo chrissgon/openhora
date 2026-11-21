@@ -469,7 +469,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         name, digest = a.get("file"), a.get("sha256")
         if not (isinstance(name, str) and media_stock.ASSET_FILE.fullmatch(name) and isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)
                 and name == f"asset-{digest[:12]}.png" and type(a.get("width")) is int and type(a.get("height")) is int and a["width"] > 0 and a["height"] > 0
-                and a.get("source_sha256") == fetched[slot][1]):
+                and a.get("source_sha256") == fetched[slot][1] and a.get("kind", "image") == "image" and a.get("seconds", 0) == 0):      # V9b-5a rows carry `kind` and `seconds`: a clip row never reaches the stock path
             raise _fail("engine_refused", "the renderer's files are not what was asked for")
         moves[name] = name
         got = fetched[slot][2]
