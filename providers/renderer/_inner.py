@@ -19,7 +19,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H [--asset-sha256 SLOT=HEX]...)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
-  asset-sheet --asset ROW:COL=FILE ... --mode preview|full --out DIR   the pictures to pick from, checked and tiled; in full mode normalised too
+  asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
@@ -302,8 +302,8 @@ def verb_storyboard(args) -> dict:
 def verb_asset_sheet(args) -> dict:
     """The pictures of `--asset ROW:COL=FILE` checked and tiled onto `sheet.png` in `--out`; with `--mode full` each is also normalised to
     `asset-<sha12>.png` (`_asset_sheet`). The host checks the answer again."""
-    ffmpeg, _ffprobe = tools(args)
-    return _asset_sheet.asset_sheet(items=pairs(args.asset, "--asset"), mode=args.mode, out_dir=args.out, ffmpeg=ffmpeg)
+    ffmpeg, ffprobe = tools(args)
+    return _asset_sheet.asset_sheet(items=pairs(args.asset, "--asset"), mode=args.mode, out_dir=args.out, ffmpeg=ffmpeg, ffprobe=ffprobe, fps=args.fps)
 
 
 def verb_cover(args) -> dict:
@@ -668,7 +668,8 @@ def parser() -> argparse.ArgumentParser:
     common(sp)
     sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE")
     sp.add_argument("--mode", required=True, choices=("preview", "full"))
-    sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")
+    sp.add_argument("--fps", default=str(_media.CLIP_FPS_DEFAULT), help="the constant frame rate a clip is written at in full mode, 24 to 60")
+    sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png (or .mp4 for a clip)")
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)

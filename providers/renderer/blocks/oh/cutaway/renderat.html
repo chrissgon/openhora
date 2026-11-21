@@ -99,36 +99,55 @@ function drawGlass(img, L) {
   return { canvas: canvas, box: { x: fx, y: fy, w: fw, h: fh } };
 }
 
+// The box of the glass layout for a w x h picture (what drawGlass computes), for a clip the compose draws: the page reports it as window.__box.
+function glassBox(w, h) {
+  const fs = Math.min((FRAME_W - 2 * SAFE) / w, MAX_FG_H / h);
+  const fw = Math.round(w * fs), fh = Math.round(h * fs);
+  return { x: Math.round((FRAME_W - fw) / 2), y: Math.round((FRAME_H - fh) / 2), w: fw, h: fh };
+}
+
 window.renderAt = function (t, data) {
   const P = data.params;
   const L = data.look;
   const stage = document.getElementById('stage');
-  const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
-  const fit = P.fit || 'cover';
-  const ratioMax = L.glass_ratio_max === undefined ? 0.8 : Number(L.glass_ratio_max);
-  const ratio = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
-  const glass = ratio > 0 && !(fit === 'cover' && ratio <= ratioMax) && L.glass_blur_px !== undefined;
-  let layer = img;
-  if (glass) {
-    const drawn = drawGlass(img, L);
-    layer = drawn.canvas;
-    window.__box = drawn.box;
-    layer.style.cssText = 'position:absolute;left:0;top:0;width:1080px;height:1920px;';
+  // A clip (data.params_kind.asset is "clip") is drawn by the render's compose, under this layer: the page draws the label chip only, on a transparent stage.
+  if (data.params_kind && data.params_kind.asset === 'clip') {
+    stage.style.background = 'transparent';
+    stage.replaceChildren();
+    const cs = data.clip_size || { w: 0, h: 0 };
+    const cratio = cs.h > 0 ? cs.w / cs.h : 0;
+    const cmax = L.glass_ratio_max === undefined ? 0.8 : Number(L.glass_ratio_max);
+    const cglass = cratio > 0 && !((P.fit || 'cover') === 'cover' && cratio <= cmax) && L.glass_blur_px !== undefined;
+    window.__box = cglass ? glassBox(cs.w, cs.h) : { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
   } else {
-    window.__box = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
-    img.style.objectFit = fit;
+    if (stage.style.background) stage.style.removeProperty('background');      // a page that drew a clip before and now draws a picture
+    const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
+    const fit = P.fit || 'cover';
+    const ratioMax = L.glass_ratio_max === undefined ? 0.8 : Number(L.glass_ratio_max);
+    const ratio = img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 0;
+    const glass = ratio > 0 && !(fit === 'cover' && ratio <= ratioMax) && L.glass_blur_px !== undefined;
+    let layer = img;
+    if (glass) {
+      const drawn = drawGlass(img, L);
+      layer = drawn.canvas;
+      window.__box = drawn.box;
+      layer.style.cssText = 'position:absolute;left:0;top:0;width:1080px;height:1920px;';
+    } else {
+      window.__box = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
+      img.style.objectFit = fit;
+    }
+    stage.replaceChildren(layer);
+    // transition "cut": on screen from the first frame to the last, no offset, opacity 1, scale 1. "slide" and "zoom" are values a theme may pick.
+    let x = 0, scale = 1, opacity = 1;
+    if (L.transition === 'slide') {
+      x = Math.round((1 - easeOutCubic(clamp(t / 0.3))) * 1080) - Math.round((1 - easeOutCubic(clamp((data.duration - t) / 0.25))) * 1080);
+    } else if (L.transition === 'zoom') {
+      scale = 1 + 0.12 * clamp(t / data.duration);
+      opacity = Math.min(clamp(t / 0.15), clamp((data.duration - t) / 0.15));
+    }
+    layer.style.transform = 'translateX(' + x + 'px) scale(' + scale.toFixed(4) + ')';
+    layer.style.opacity = opacity.toFixed(3);
   }
-  stage.replaceChildren(layer);
-  // transition "cut": on screen from the first frame to the last, no offset, opacity 1, scale 1. "slide" and "zoom" are values a theme may pick.
-  let x = 0, scale = 1, opacity = 1;
-  if (L.transition === 'slide') {
-    x = Math.round((1 - easeOutCubic(clamp(t / 0.3))) * 1080) - Math.round((1 - easeOutCubic(clamp((data.duration - t) / 0.25))) * 1080);
-  } else if (L.transition === 'zoom') {
-    scale = 1 + 0.12 * clamp(t / data.duration);
-    opacity = Math.min(clamp(t / 0.15), clamp((data.duration - t) / 0.15));
-  }
-  layer.style.transform = 'translateX(' + x + 'px) scale(' + scale.toFixed(4) + ')';
-  layer.style.opacity = opacity.toFixed(3);
   if (P.label) {
     const chip = document.createElement('div');
     chip.id = 'chip';

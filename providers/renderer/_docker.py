@@ -546,7 +546,7 @@ RESULT_SCHEMAS = {
                   pixel_min_psnr_db=opt(N), pixel_ranges=opt(I), pixel_seconds=opt(N)),
     "hf-page": dct(ok=B, page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
                    captions_drawn=opt(I), beats_drawn=opt(I), effects_dropped=opt(lst(dct(id=S, reason=S), 100)), runtimes=opt(mp(S)), fonts_used=opt(mp(S))),
-    "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
+    "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 100)), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),

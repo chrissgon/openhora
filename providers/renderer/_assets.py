@@ -1,5 +1,6 @@
 """The inputs both engines serve to a page: the allow-listed fonts (checked by hash) and the person's image assets (checked by their
-header bytes), and the safe read every input goes through. No browser, no frames: the drawing engine (_frames) and the HyperFrames
+header bytes), and the safe read every input goes through. A clip (V9b-5a) is told from a picture here by its first bytes; it is read and probed by the
+ffmpeg engine's render (`_render`), which is the only place that draws one. No browser, no frames: the drawing engine (_frames) and the HyperFrames
 engine both import this file. Standard library only.
 """
 from __future__ import annotations
@@ -116,6 +117,47 @@ def image_facts(data: bytes):
                 return "jpg", w, h
             i += 2 + length
     return None
+
+
+def head_bytes(path: str, count: int = 64) -> bytes:
+    """The first `count` bytes of a regular file (opened with O_NOFOLLOW), or b"" when it cannot be read: the type of a file is told from these, never from its name."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return b""
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return b""
+        return os.read(fd, count)
+    finally:
+        os.close(fd)
+
+
+def split_clips(items: dict) -> tuple:
+    """({slot: path} of the pictures, {slot: (path, demuxer)} of the clips): a file whose first bytes are an MP4 or MOV `ftyp` box or a WebM's EBML header is a clip."""
+    import _media
+    pictures, clips = {}, {}
+    for slot, path in items.items():
+        demuxer = _media.clip_container(head_bytes(path))
+        if demuxer:
+            clips[slot] = (path, demuxer)
+        else:
+            pictures[slot] = path
+    return pictures, clips
+
+
+def read_clip(slot: str, path: str, sha256s: dict, limits: dict) -> dict:
+    """{kind: "clip", data, sha256, container} of one clip's bytes: a regular file within the byte cap, the hash checked against the one recorded at
+    intake when given (`asset_hash`). The container must be an MP4 (`asset_type`): a render draws the one form `asset-sheet` writes."""
+    import _media
+    data = read_regular(path, limits["asset_max_bytes"], "asset_unreadable", slot)
+    demuxer = _media.clip_container(data[:_media.SNIFF_BYTES])
+    if demuxer != "mov":
+        raise Refusal("asset_type", slot)
+    digest = hashlib.sha256(data).hexdigest()
+    if sha256s.get(slot) and sha256s[slot] != digest:
+        raise Refusal("asset_hash", slot)
+    return {"kind": "clip", "data": data, "sha256": digest, "container": demuxer}
 
 
 def load_assets(items: dict, sha256s: dict, limits: dict) -> dict:
