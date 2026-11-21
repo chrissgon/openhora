@@ -267,6 +267,146 @@ def asset_input(kind: str, path: str) -> list:
     return ["-f", demuxer, "-c:v", decoder, "-protocol_whitelist", "file", "-i", path]
 
 
+# ---------------------------------------------------------------- clips (V9b-5a)
+
+CLIP_CODECS = ("h264", "hevc", "vp8", "vp9")           # the video codecs a clip may arrive in; av1 only with a software decoder in the image (`clip_decoder`)
+AV1_DECODERS = ("libdav1d", "libaom-av1")              # the software decoders of av1: the native `av1` decoder needs a hardware accelerator, so it is not one
+CLIP_DECODER = {"h264": "h264", "hevc": "hevc", "vp8": "vp8", "vp9": "vp9"}
+CLIP_MAX_SECONDS = 10.0                                # the first ten seconds of a clip are kept; a longer one is cut, not refused
+CLIP_MAX_LONG, CLIP_MAX_SHORT = 7680, 4320             # the largest clip read: 8K, either way up
+CLIP_FPS_MIN, CLIP_FPS_MAX, CLIP_FPS_DEFAULT = 24, 60, 30
+CLIP_SECONDS_SLACK = 0.1                               # a normalised clip is at most CLIP_MAX_SECONDS plus this (the container rounds the last frame up)
+CLIP_EXT = "mp4"                                       # the one container a normalised clip is written in
+EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+
+
+def clip_container(head: bytes):
+    """'mov' for an MP4 or MOV (an `ftyp` box first), 'matroska' for a WebM (an EBML header), else None. By the first bytes, never by a name."""
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        return "mov"
+    if head[:4] == EBML_MAGIC:
+        return "matroska"
+    return None
+
+
+def clip_input(demuxer: str, decoder=None) -> list:
+    """The input options of a clip: its container's demuxer forced (an MP4 or MOV with no external data reference), only the `file` protocol, and, when
+    given, the decoder forced too. The caller adds `-i PATH`."""
+    out = ["-f", demuxer] + (["-enable_drefs", "0"] if demuxer == "mov" else []) + ["-protocol_whitelist", "file"]
+    return out + (["-c:v", decoder] if decoder else [])
+
+
+def software_decoders(ffmpeg: str) -> tuple:
+    """The names of the video decoders this ffmpeg was built with, read from `ffmpeg -decoders` (never assumed): the image's build decides which codecs a clip may use."""
+    out, _ = run([ffmpeg, "-hide_banner", "-decoders"], 30)
+    return tuple(sorted(set(re.findall(r"^\s*V\S*\s+(\S+)\s", out, re.M))))
+
+
+def clip_decoder(codec: str, decoders):
+    """The decoder to force for a clip's codec, or None when the clip may not be read: the four codecs of CLIP_CODECS, and av1 only when one of AV1_DECODERS is built in."""
+    if codec in CLIP_DECODER:
+        return CLIP_DECODER[codec]
+    if codec == "av1":
+        return next((d for d in AV1_DECODERS if d in (decoders or ())), None)
+    return None
+
+
+def _rotation(v: dict) -> int:
+    rotation = 0
+    for sd in v.get("side_data_list", []) or []:
+        if "rotation" in sd:
+            rotation = int(round(float(sd["rotation"]))) % 360
+    if not rotation and (v.get("tags") or {}).get("rotate"):
+        try:
+            rotation = int(float(v["tags"]["rotate"])) % 360
+        except ValueError:
+            rotation = 0
+    return rotation
+
+
+def probe_clip(ffprobe: str, path: str, demuxer: str, field: str, decoders=None, output: bool = False, timeout: float = 60) -> dict:
+    """Facts of a clip, with every refusal a closed code naming `field`. The first video stream is the clip; any audio, subtitle or data stream is ignored
+    when `output` is false (the normaliser drops them) and refused when it is true (a normalised clip has one stream and nothing else).
+    `asset_type`: no video stream, a picture stream, a codec outside CLIP_CODECS (av1 only with a software decoder in `decoders`), HDR, and, for an
+    `output`, any other stream, another container than MP4, another pixel format than yuv420p, a rotation, a rate that is not constant or is outside 24 to 60;
+    `asset_dimensions`: a side or a size over the caps; `asset_corrupt`: a file ffprobe cannot read, or no length."""
+    argv = [ffprobe, "-v", "error", *clip_input(demuxer), "-show_streams", "-show_format", "-of", "json", path]
+    try:
+        out, _ = run(argv, timeout)
+    except ToolError as exc:
+        if exc.code == "tool_failed":
+            raise Refusal("asset_corrupt", field) from None
+        raise
+    try:
+        info = json.loads(out)
+        streams = info["streams"]
+        video = [s for s in streams if s.get("codec_type") == "video"]
+        fmt = info["format"]
+    except (ValueError, KeyError, TypeError):
+        raise Refusal("asset_corrupt", field) from None
+    if not video or video[0].get("disposition", {}).get("attached_pic"):
+        raise Refusal("asset_type", field)
+    v = video[0]
+    if output and len(streams) != 1:
+        raise Refusal("asset_type", field)
+    codec = v.get("codec_name")
+    if (codec != "h264" if output else clip_decoder(codec, decoders) is None):
+        raise Refusal("asset_type", field)
+    if output and ("mp4" not in str(fmt.get("format_name", "")) or v.get("pix_fmt") != "yuv420p" or _rotation(v)):
+        raise Refusal("asset_type", field)
+    if v.get("color_transfer") in HDR_TRANSFERS or str(v.get("color_space") or "").startswith("bt2020"):
+        raise Refusal("asset_type", field)
+    try:
+        w, h = int(v["width"]), int(v["height"])
+        duration = float(fmt.get("duration") if fmt.get("duration") not in (None, "N/A") else v.get("duration"))
+    except (KeyError, ValueError, TypeError):
+        raise Refusal("asset_corrupt", field) from None
+    if _rotation(v) in (90, 270):
+        w, h = h, w
+    if not math.isfinite(duration) or duration <= 0 or w < 1 or h < 1:
+        raise Refusal("asset_corrupt", field)
+    if max(w, h) > CLIP_MAX_LONG or min(w, h) > CLIP_MAX_SHORT:
+        raise Refusal("asset_dimensions", field)
+    fps, average = _fps(v.get("r_frame_rate")), _fps(v.get("avg_frame_rate"))
+    if output and (not CLIP_FPS_MIN - 0.01 <= fps <= CLIP_FPS_MAX + 0.01 or abs(fps - average) > 0.001 or duration > CLIP_MAX_SECONDS + CLIP_SECONDS_SLACK):
+        raise Refusal("asset_type", field)
+    return {"codec": codec, "width": w, "height": h, "duration": duration, "seconds": round(min(duration, CLIP_MAX_SECONDS), 3), "fps": round(average or fps, 3),
+            "color_space": v.get("color_space"), "audio": any(s.get("codec_type") == "audio" for s in streams)}
+
+
+def first_frame_rgb(ffmpeg: str, path: str, demuxer: str, size: int = 32, timeout: float = 120) -> bytes:
+    """The first frame of a normalised clip as raw rgb24 of `size` x `size` samples (a box average, bit-exact), for the predominant colour."""
+    argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-threads", "1", "-filter_threads", "1", *clip_input(demuxer, "h264"), "-i", path,
+            "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "1",
+            "-vf", "scale=%d:%d:in_range=tv:in_color_matrix=bt709:out_range=pc:flags=area+accurate_rnd+bitexact,format=rgb24" % (size, size),
+            "-f", "rawvideo", "-"]
+    try:
+        proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, timeout=timeout, start_new_session=True)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ToolError("tool_failed", os.path.basename(ffmpeg)) from None
+    if proc.returncode != 0 or len(proc.stdout) != size * size * 3:
+        raise ToolError("tool_failed", os.path.basename(ffmpeg))
+    return proc.stdout
+
+
+def predominant(rgb: bytes):
+    """The cutaway page's `predominant` rule on raw rgb24 samples (32 x 32 of them): each channel cut to 16 steps, a sample whose channels are all 235 or more
+    or all 24 or less skipped, the step with the most samples wins (the first to reach a count wins a tie), and the answer is the middle of that step as
+    `RRGGBB`, or None when nothing is left. The page reads a 32 x 32 canvas the browser scaled; the host's samples are a box average of the clip's first frame."""
+    counts, best, best_n = {}, None, 0
+    for i in range(0, len(rgb) - 2, 3):
+        r, g, b = rgb[i], rgb[i + 1], rgb[i + 2]
+        if min(r, g, b) >= 235 or max(r, g, b) <= 24:
+            continue
+        key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] > best_n:
+            best, best_n = key, counts[key]
+    if best is None:
+        return None
+    return "%02X%02X%02X" % (((best >> 8) << 4) + 8, (((best >> 4) & 15) << 4) + 8, ((best & 15) << 4) + 8)
+
+
 def _even(x: float) -> int:
     n = int(math.ceil(x))
     return n + (n % 2)
@@ -456,16 +596,97 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
     return g
 
 
+# The glass layout of the cutaway page (`blocks/oh/cutaway/renderat.html`, `drawGlass`), drawn by the filter graph for a clip. The look values (blur, tint alpha,
+# radius, ratio) come from the preset; these are the page's own constants, copied here: the safe side margin, the tallest picture, and the shadow
+# (`shadowColor` 0.45, `shadowBlur` 48, `shadowOffsetY` 12; a canvas blurs a shadow with a deviation of half its `shadowBlur`).
+GLASS_FRAME = (1080, 1920)
+GLASS_SAFE = 65
+GLASS_MAX_FG_H = 1700
+SHADOW_ALPHA, SHADOW_BLUR, SHADOW_DY = 0.45, 48, 12
+GBLUR_STEPS = 3                      # gblur approximates a Gaussian with this many passes: 3 is within a level or two of a true one
+
+
+def js_round(x: float) -> int:
+    """`Math.round`: halves go up."""
+    return int(math.floor(x + 0.5))
+
+
+def glass_box(w: int, h: int) -> dict:
+    """The centred picture of the glass layout for a clip of `w` x `h`: whole, within the safe side margins and the tallest height, as the page computes it."""
+    fw0, fh0 = GLASS_FRAME
+    scale = min((fw0 - 2 * GLASS_SAFE) / float(w), GLASS_MAX_FG_H / float(h))
+    bw, bh = js_round(w * scale), js_round(h * scale)
+    return {"x": js_round((fw0 - bw) / 2.0), "y": js_round((fh0 - bh) / 2.0), "w": bw, "h": bh}
+
+
+def rounded_alpha(radius: int, gain: float = 1.0, ox: str = "W/2", oy: str = "H/2", hw: str = "W/2", hh: str = "H/2") -> str:
+    """The `geq` expression of a rounded rectangle's coverage (0 to 255, one pixel of soft edge, `gain` times it): the pip's mask pattern. `ox`, `oy` are the
+    centre and `hw`, `hh` the half sizes, as expressions."""
+    body = "clip((%d-hypot(max(abs(X+0.5-%s)-(%s-%d),0),max(abs(Y+0.5-%s)-(%s-%d),0)))*255,0,255)" % (radius, ox, hw, radius, oy, hh, radius)
+    return body if gain == 1.0 else "%s*%.2f" % (body, gain)
+
+
+def clip_filters(c: dict, src: int, i: int, fps, total: int) -> tuple:
+    """The filters of one clip cutaway: ([filter strings], the label of its stream). The stream is `total` frames of 1080x1920 gbrap, the clip's picture on the
+    entry's frames `start_frame` to `end_frame` - 1 and transparent on every other frame (the pip's pattern: no `enable` expression, nothing to be a
+    frame off). The clip is conformed to `fps`, plays from the entry's first frame and holds its last frame to the entry's end. The heavy work (the blur,
+    the scale) is done on the entry's own frames only, before the stream is padded to the length of the output. `c` holds asset, start_frame, end_frame, mode
+    ("cover" or "glass") and, for glass, box {x, y, w, h}, radius, blur, tint ("RRGGBB" or None) and tint_alpha."""
+    fw, fh = GLASS_FRAME
+    lo = max(0, c["start_frame"])
+    hi = min(c["end_frame"], total) - 1
+    n = hi - lo + 1
+    if n < 1:
+        raise ValueError("a clip cutaway with no frame")
+    clock = "setpts=N/(%s*TB)" % fps
+    rgb = "in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s" % SWS
+    head = "[%d:v:0]fps=%s:start_time=0,tpad=stop=-1:stop_mode=clone,trim=end_frame=%d,%s" % (src, fps, n, clock)
+    k = "%d" % i
+    g = []
+    if c["mode"] == "glass":
+        box, r, blur = c["box"], c["radius"], c["blur"]
+        bw, bh = fw + 4 * int(math.ceil(blur)), fh + 4 * int(math.ceil(blur))
+        g.append("%s,split=2[gs%s][gf%s]" % (head, k, k))
+        g.append("[gs%s]scale=%d:%d:force_original_aspect_ratio=increase:%s,format=gbrp,crop=%d:%d,setsar=1,gblur=sigma=%g:steps=%d,crop=%d:%d[gb%s]"
+                 % (k, bw, bh, rgb, bw, bh, blur, GBLUR_STEPS, fw, fh, k))
+        top = "gb%s" % k
+        if c.get("tint"):
+            alpha = max(0, min(255, js_round(c["tint_alpha"] * 255)))
+            g.append("color=c=0x%s%02X:s=%dx%d:r=%s,format=gbrap,trim=end_frame=%d,%s[gt%s]" % (c["tint"], alpha, fw, fh, fps, n, clock, k))
+            g.append("[%s][gt%s]overlay=0:0:format=gbrp[gl%s]" % (top, k, k))
+            top = "gl%s" % k
+        sx, sy = box["x"] + box["w"] / 2.0, box["y"] + SHADOW_DY + box["h"] / 2.0
+        shadow = rounded_alpha(r, SHADOW_ALPHA, "%g" % sx, "%g" % sy, "%g" % (box["w"] / 2.0), "%g" % (box["h"] / 2.0))
+        g.append("color=c=black:s=%dx%d:r=1:d=1,geq=lum='%s':cb=128:cr=128,format=gray,gblur=sigma=%g:steps=%d,loop=loop=-1:size=1:start=0,fps=%s,trim=end_frame=%d,%s[sm%s]"
+                 % (fw, fh, shadow, SHADOW_BLUR / 2.0, GBLUR_STEPS, fps, n, clock, k))
+        g.append("color=c=black:s=%dx%d:r=%s,format=gbrp,trim=end_frame=%d,%s[sb%s]" % (fw, fh, fps, n, clock, k))
+        g.append("[sb%s][sm%s]alphamerge[sh%s]" % (k, k, k))
+        g.append("[%s][sh%s]overlay=0:0:format=gbrp[gd%s]" % (top, k, k))
+        g.append("[gf%s]scale=%d:%d:%s,format=gbrp,setsar=1[fs%s]" % (k, box["w"], box["h"], rgb, k))
+        g.append("color=c=black:s=%dx%d:r=1:d=1,geq=lum='%s':cb=128:cr=128,format=gray,loop=loop=-1:size=1:start=0,fps=%s,trim=end_frame=%d,%s[fm%s]"
+                 % (box["w"], box["h"], rounded_alpha(r), fps, n, clock, k))
+        g.append("[fs%s][fm%s]alphamerge[fc%s]" % (k, k, k))
+        g.append("[gd%s][fc%s]overlay=%d:%d:format=gbrp[lay%s]" % (k, k, box["x"], box["y"], k))
+    else:
+        g.append("%s,scale=%d:%d:force_original_aspect_ratio=increase:%s,format=gbrp,crop=%d:%d,setsar=1[lay%s]" % (head, fw, fh, rgb, fw, fh, k))
+    g.append("[lay%s]tpad=start=%d:start_mode=clone:stop=-1:stop_mode=clone,trim=end_frame=%d,%s,format=gbrp[ca%s]" % (k, lo, total, clock, k))
+    g.append("color=c=black:s=16x16:r=%s,geq=lum='if(between(N,%d,%d),255,0)':cb=128:cr=128,format=gray,trim=end_frame=%d,%s,scale=%d:%d:flags=%s[cm%s]"
+             % (fps, lo, hi, total, clock, fw, fh, SWS, k))
+    g.append("[ca%s][cm%s]alphamerge[cc%s]" % (k, k, k))
+    return g, "cc%s" % k
+
+
 def compose_argv(ffmpeg: str, plan: dict) -> list:
     """The whole render as one ffmpeg command, built as a list. `plan` holds:
 
       src, has_audio, fps, size [w, h], src_matrix ("bt709" or "auto"), kept [[from_frame, to_frame], ...] on the
       source frame grid at `fps`, layers (a subset of ["beat", "caption"]), frames_dir (relative to the working folder),
-      pips [{asset, kind, start_frame, end_frame, x, y, w, h, radius}], out_frames, max_bytes, out_name (relative).
+      pips [{asset, kind, start_frame, end_frame, x, y, w, h, radius}], out_frames, max_bytes, out_name (relative), and, only when a clip
+      cutaway is drawn, clips [{asset, start_frame, end_frame, mode, ...}] (`clip_filters`).
 
     The picture, from the bottom: the cut recording (the speaker, full frame, as without a pip); for each pip layout the asset (an image,
     or a clip when `kind` is "clip") scaled to its card box and masked to a rounded rectangle, over the speaker on the beat's frames; the
-    beat frames; the captions. Everything is composed in RGB (gbrp), the recording read as bt709 limited
+    clip cutaways (a normalised clip filling the frame, or in the glass layout, on the entry's frames); the beat frames; the captions. Everything is composed in RGB (gbrp), the recording read as bt709 limited
     range and written back as bt709, tagged with setparams. No path is inside the filter graph.
     """
     fps, (w, h) = plan["fps"], plan["size"]
@@ -495,10 +716,16 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
                                           ":cb=128:cr=128,format=gray") % (p["w"], p["h"], fps, lo, hi, r, r, r)]
         mask_in.append(nxt)
         nxt += 1
+    clips = plan.get("clips") or []
+    clip_in = []
+    for c in clips:      # a clip cutaway (V9b-5a): a normalised MP4, read with its container's demuxer and decoder forced, from a file only
+        inputs += clip_input("mov", "h264") + ["-i", c["asset"]]
+        clip_in.append(nxt)
+        nxt += 1
 
     g = base_graph(plan)
 
-    if not idx and not pips:
+    if not idx and not pips and not clips:
         g.append("[cv]%s[vout]" % TAGS)
     else:
         g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
@@ -519,6 +746,11 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
             g.append("[ca%d][cm%d]alphamerge[card%d]" % (i, i, i))
             g.append("[%s][card%d]overlay=%d:%d:format=gbrp[ob%d]" % (cur, i, p["x"], p["y"], i))
             cur = "ob%d" % i
+        for i, c in enumerate(clips):      # the clip cutaway is under the beat layer (its label chip) and over the speaker and any card
+            more, label = clip_filters(c, clip_in[i], i, fps, plan["out_frames"])
+            g += more
+            g.append("[%s][%s]overlay=0:0:format=gbrp[oc%d]" % (cur, label, i))
+            cur = "oc%d" % i
         for layer in ("beat", "caption"):
             if layer in idx:
                 g.append("[%d:v]format=gbrap[l_%s]" % (idx[layer], layer))

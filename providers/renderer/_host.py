@@ -37,7 +37,7 @@ CRASH_CODES = {125: "docker_run_failed", 126: "docker_run_failed", 127: "docker_
 ASSET_SHEET_MAX_TILES = 36              # the most pictures one `asset-sheet` call takes (the same figure as `_asset_sheet.MAX_TILES`, which the image holds)
 ASSET_SHEET_COLUMNS = 6                 # a tile's column is 1 to this
 ASSET_SHEET_MAX_BYTES = 32 * 1024 * 1024         # the largest contact sheet the host keeps
-ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.png")
+ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.(png|mp4)")
 
 
 
@@ -369,13 +369,17 @@ def verb_verify(args) -> dict:
 
 
 def verb_asset_sheet(args) -> dict:
-    """The pictures a person may pick from, checked and tiled (`_asset_sheet.py`, in the common image), or, once picked, normalised. `--asset ROW:COL=FILE`
+    """The pictures and clips a person may pick from, checked and tiled (`_asset_sheet.py`, in the common image), or, once picked, normalised. `--asset ROW:COL=FILE`
     (at most 36, ROW a slot id, COL 1 to 6) is staged like `render`'s `--asset`; the container gets no recording. `--mode preview` checks and tiles small
-    pictures and writes `sheet.png`; `--mode full` also writes one `asset-<sha12>.png` per picture (a PNG of the frame's long side, no metadata). The
+    pictures and clips and writes `sheet.png`; `--mode full` also writes one `asset-<sha12>.png` per picture (a PNG of the frame's long side, no metadata) or one
+    `asset-<sha12>.mp4` per clip (H.264, `--fps` 24 to 60, 30 by default, the first 10 seconds, no audio; V9b-5a). The
     host reads the answer as untrusted: the set of tiles must be the one it asked for, each name the picture's own hash, each file hashed on the way out
     and its header sized as the answer says, before any file gets its final name (never over another file, apart from the sheet)."""
     if args.mode not in ("preview", "full"):
         raise Usage("--mode is preview or full")
+    fps = getattr(args, "fps", _media.CLIP_FPS_DEFAULT)
+    if not _media.CLIP_FPS_MIN <= fps <= _media.CLIP_FPS_MAX:
+        raise Refusal("bad_fps", "fps")
     items = pairs(args.asset, "--asset ROW:COL=FILE")
     if not items:
         raise Usage("asset-sheet takes at least one --asset ROW:COL=FILE")
@@ -394,7 +398,7 @@ def verb_asset_sheet(args) -> dict:
     bad = Refusal("container_result_invalid", "asset-sheet")
     with Job(args, 300, "asset-sheet") as job:
         job.max_entries = len(keyed) + 4
-        inner = ["asset-sheet", "--mode", args.mode, "--out", D.MOUNT_OUT]
+        inner = ["asset-sheet", "--mode", args.mode, "--fps", str(fps), "--out", D.MOUNT_OUT]
         for (row, col), path in sorted(keyed.items()):
             inner += ["--asset", "%s:%d=%s" % (row, col, job.stage("assets/%s.%d" % (row, col), path, cap))]
         result = job.run(inner, "asset-sheet")
@@ -414,6 +418,10 @@ def verb_asset_sheet(args) -> dict:
                 named = ASSET_FILE.fullmatch(a["file"] or "")
                 if named is None or named.group(1) != a["sha256"][:12]:
                     raise bad
+                if a.get("kind") is not None and named.group(2) != {"image": "png", "clip": "mp4"}.get(a["kind"]):
+                    raise bad
+            if a.get("kind") not in (None, "image", "clip") or (a.get("seconds") is not None and not 0 <= a["seconds"] <= _media.CLIP_MAX_SECONDS + _media.CLIP_SECONDS_SLACK):
+                raise bad
         os.makedirs(out_dir, mode=0o700, exist_ok=True)
         replayed = 0
         if args.mode == "full":
@@ -422,7 +430,10 @@ def verb_asset_sheet(args) -> dict:
                 dims = next((a["width"], a["height"]) for a in got.values() if a["file"] == name)
                 candidate = os.path.join(job.root, "candidate-" + name)
                 job.collect(name, candidate, max_bytes=cap, mode=0o400, expect_sha256=digest)
-                if _output.png_size(candidate) != dims:
+                if name.endswith(".png"):
+                    if _output.png_size(candidate) != dims:
+                        raise bad
+                elif _media.clip_container(_assets.head_bytes(candidate)) != "mov" or not _media.faststart(candidate):      # a clip: an MP4 with its index first (its size is the hash's)
                     raise bad
                 outcome = D.copy_out(candidate, os.path.join(out_dir, name), max_bytes=cap, mode=0o400, expect_sha256=digest, exclusive=True)
                 replayed += outcome == "replayed"
@@ -551,5 +562,6 @@ def add_common_parsers(sub) -> None:
     sp = sub.add_parser("asset-sheet")
     add_limits(sp)
     sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE", help="a picture and its place on the sheet (at most 36; ROW a slot id, COL 1 to 6)")
-    sp.add_argument("--mode", required=True, choices=("preview", "full"), help="preview: check and tile small pictures; full: normalise the picked ones too")
+    sp.add_argument("--mode", required=True, choices=("preview", "full"), help="preview: check and tile small pictures and clips; full: normalise the picked ones too")
+    sp.add_argument("--fps", type=int, default=_media.CLIP_FPS_DEFAULT, help="the constant frame rate a clip is written at in full mode, 24 to 60 (default 30)")
     sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")
