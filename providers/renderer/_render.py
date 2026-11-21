@@ -2,10 +2,12 @@
 
   1. the edit list, the beats and the platform file are read and checked, and the recording is probed and matched to the
      edit list by its sha256;
-  2. the pinned blocks (staged per job), the allow-listed fonts and the person's image assets are loaded and served from memory;
-  3. the HTML presets are drawn frame by frame on the output timeline by the pinned browser over the DevTools pipe;
-  4. one ffmpeg command cuts the recording and composes everything: H.264 + AAC, 1080x1920, faststart, bt709 tagged,
-     capped by `-fs`;
+  2. the pinned blocks (staged per job), the allow-listed fonts and the person's image assets are loaded and served from memory; a clip
+     (V9b-5a, a normalised MP4 from `asset-sheet`, told from a picture by its first bytes) is checked and probed, never served to a page;
+  3. the HTML presets are drawn frame by frame on the output timeline by the pinned browser over the DevTools pipe (a clip cutaway's page draws
+     only its label);
+  4. one ffmpeg command cuts the recording and composes everything (a clip cutaway included, under the beat layer): H.264 + AAC, 1080x1920,
+     faststart, bt709 tagged, capped by `-fs`;
   5. ffprobe checks the file against the platform's video spec; it is written as render-<sha12>.mp4, O_EXCL, mode 0400.
 
 A render that goes past its time limit is stopped (the browser's process group and ffmpeg's are killed). Standard library.
@@ -21,6 +23,7 @@ import tempfile
 import time
 import zlib
 
+import _assets
 import _blocks
 import _edl
 import _frames
@@ -88,10 +91,70 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
             "fade": data["zoom"]["audio_fade_seconds"], "src": src, "fps": edl["fps"], "size": edl["size"], "has_audio": edl["source"]["has_audio"], "src_matrix": edl["source"]["color_matrix"],
             "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips,
             "out_frames": edl["out_frames"], "max_bytes": _media.byte_limit(platform), "out_name": "out.mp4"}
+    clips = clip_rows(data, timeline, assets, edl["theme"]["colors"])
+    if clips:
+        plan["clips"] = clips                        # only a render that draws a clip cutaway has the key: any other plan is what it always was
     effects = _edl.range_effects(edl, timeline)      # the punches and grades, by kept range (V9a-3): the plan of a render with none has no such key
     if effects:
         plan["effects"] = effects
     return plan
+
+
+def load_clips(files: dict, sha256s: dict, limits: dict, ffmpeg: str, ffprobe: str) -> dict:
+    """{slot: {kind: "clip", data, sha256, container, width, height, seconds, fps, tint}} of the clips of a render (`files` is `_assets.split_clips`'s). Each is
+    read as the form `asset-sheet` writes (`_assets.read_clip`: an MP4, its sha256 matched when one is given) and probed against the same checks as that
+    output (`_media.probe_clip`, output mode: H.264, yuv420p, constant frame rate, within the caps, no audio and no other stream, ten seconds at most);
+    `tint` is the predominant colour of its first frame (`_media.predominant`) or None."""
+    out = {}
+    for slot, (path, _demuxer) in sorted(files.items()):
+        clip = _assets.read_clip(slot, path, sha256s, limits)
+        facts = _media.probe_clip(ffprobe, path, "mov", slot, output=True)
+        try:
+            tint = _media.predominant(_media.first_frame_rgb(ffmpeg, path, "mov"))
+        except _media.ToolError:
+            raise Refusal("asset_corrupt", slot) from None
+        clip.update(width=facts["width"], height=facts["height"], seconds=facts["seconds"], fps=facts["fps"], tint=tint)
+        out[slot] = clip
+    return out
+
+
+def settle_clips(vocab: dict, data: dict, timeline: dict, assets: dict) -> None:
+    """Check where each clip is used, and mark the entries that draw one (`entry["params_kind"] = {"asset": "clip"}`, which the page is told). Only an `oh:cutaway`
+    draws a clip: any other block with a clip slot (`oh:screenshot`, `oh:pip`, a keyword card) is `asset_type` naming the slot; a cutaway whose look is not the
+    hard cut is `clip_transition` (a slide or a zoom is not drawn for a clip). Run after the blocks are resolved (`entry["block"]` is set)."""
+    for e in timeline["beats"]:
+        for name in _slot_names(vocab, e):
+            slot = e["params"][name]
+            if assets[slot]["kind"] != "clip":
+                continue
+            if e["block"] != "oh:cutaway" or name != "asset":
+                raise Refusal("asset_type", slot)
+            if data["presets"][e["preset"]]["looks"].get("transition") != "cut":
+                raise Refusal("clip_transition", slot)
+            e["params_kind"] = {name: "clip"}
+            e["clip_size"] = {"w": assets[slot]["width"], "h": assets[slot]["height"]}      # the page reports the box the compose draws
+
+
+def clip_rows(data: dict, timeline: dict, assets: dict, colors=None) -> list:
+    """The compose plan's `clips` rows (`_media.clip_filters`), one per clip cutaway of the timeline. The look is the page's: a clip whose ratio is at or under
+    `glass_ratio_max` with `fit: cover` fills the frame (cover); any other is drawn whole over a blurred, tinted copy of itself (glass). The tint is the clip's
+    predominant colour, else the theme's background colour (`colors`, the edit list's theme; the preset file's own when left out), as the page does."""
+    rows = []
+    for e in timeline["beats"]:
+        if (e.get("params_kind") or {}).get("asset") != "clip":
+            continue
+        slot = e["params"]["asset"]
+        a = assets[slot]
+        looks = data["presets"][e["preset"]]["looks"]
+        ratio = a["width"] / float(a["height"])
+        ratio_max = float(looks.get("glass_ratio_max", 0.8))
+        glass = ratio > 0 and not ((e["params"].get("fit") or "cover") == "cover" and ratio <= ratio_max) and looks.get("glass_blur_px") is not None
+        row = {"asset": "assets/%s.%s" % (slot, _media.CLIP_EXT), "start_frame": e["start_frame"], "end_frame": e["end_frame"], "mode": "glass" if glass else "cover"}
+        if glass:
+            row.update(box=_media.glass_box(a["width"], a["height"]), radius=int(looks["glass_radius_px"]), blur=float(looks["glass_blur_px"]),
+                       tint=a.get("tint") or (colors or data["theme"]["colors"])["bg"].lstrip("#").upper(), tint_alpha=float(looks["glass_tint_alpha"]))
+        rows.append(row)
+    return rows
 
 
 def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, asset_files, asset_sha256s, ffmpeg, ffprobe, browser,
@@ -117,13 +180,16 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     extra = sorted(set(asset_files) - used)
     if extra:
         raise Refusal("asset_unused", extra[0])
-    assets = _frames.load_assets({s: asset_files[s] for s in sorted(used)}, asset_sha256s, limits)
+    picture_files, clip_files = _assets.split_clips({s: asset_files[s] for s in sorted(used)})
+    assets = _frames.load_assets(picture_files, asset_sha256s, limits)
+    assets.update(load_clips(clip_files, asset_sha256s, limits, ffmpeg, ffprobe))
 
     catalogue = _blocks.load_catalogue(blocks_dir or _blocks.BLOCKS_DIR, blocks_sha256)
     templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]))
+    settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
-    asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items()}
+    asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items() if a["kind"] != "clip"}
     serve = {}
     serve.update(tpl_serve)
     serve.update(font_serve)
@@ -155,7 +221,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
         t0 = time.time()
         os.mkdir(os.path.join(work, "assets"), 0o700)
         for slot, a in assets.items():
-            fd = os.open(os.path.join(work, "assets", "%s.%s" % (slot, a["kind"])), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            fd = os.open(os.path.join(work, "assets", "%s.%s" % (slot, _media.CLIP_EXT if a["kind"] == "clip" else a["kind"])), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as fh:
                 fh.write(a["data"])
         font_urls = font_urls_of(data, edl, font_serve)

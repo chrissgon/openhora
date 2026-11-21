@@ -613,6 +613,38 @@ def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores_on_eac
     assert len(shas) == 1, "STOP RULE 3, a nondeterminism on %s in the cutaway case: %s" % (engine, sorted(shas))
 
 
+def clip_cutaway_leg(lab, label, cpus, cpuset, shape):
+    """The cutaway case on the ffmpeg engine with a clip on its beat (slot beat2): a synthetic moving clip (a gradient carrying its own frame number, made by the
+    host's ffmpeg), normalised by the common image's own `asset-sheet` verb, `shape` "cover" (1080x1920) or "glass" (1920x1080). Cached."""
+    import clip_kit as CK
+    transcript = K.build_transcript(CUTAWAY_SENTENCES)
+
+    def make():
+        rec = lab.recording("cutaway", transcript)
+        edl, beats, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
+        raw = CK.counter_clip(lab.folder / ("clip-%s-raw.mp4" % shape), *((1080, 1920) if shape == "cover" else (1920, 1080)), 90)
+        sheet = lab.folder / ("clip-%s-sheet" % shape)
+        if not sheet.exists():
+            rc, out, err = host("ffmpeg", "asset-sheet", "--asset", "slot-1:1=%s" % raw, "--mode", "full", "--out", sheet)
+            assert rc == 0 and out["assets"][0]["kind"] == "clip", (out, err[-2000:])
+        clip = next(sheet.glob("asset-*.mp4"))
+        return lab.render("ffmpeg", "clip-%s-%s" % (shape, label), rec, edl, beats, cpus, cpuset, assets={"beat2": clip})
+    return lab.cached(("clip-cutaway", shape, label), make)
+
+
+@mac_only
+@legs("M5", ("ffmpeg",))
+def test_mac_m5_the_clip_cutaway_is_one_sha256_at_four_and_at_eight_cores_in_cover_and_in_glass(engine, lab, eight_cpus):
+    """V9b-5a: a normalised moving clip under a cover cutaway and under a glass cutaway, composed by the common image's ffmpeg, the same sha256 at 4 and 8 cores."""
+    lab.need(engine)
+    for shape in ("cover", "glass"):
+        runs = [clip_cutaway_leg(lab, "m5-4", 4, "0-3", shape), clip_cutaway_leg(lab, "m5-8", 8, "0-7", shape)]
+        for run in runs:
+            assert run.rc == 0, (shape, run.out, run.err[-2000:])
+        shas = {r.out["sha256"] for r in runs}
+        assert len(shas) == 1, "STOP RULE 3, a nondeterminism on the ffmpeg engine in the %s clip cutaway: %s" % (shape, sorted(shas))
+
+
 REAL = {}
 
 
