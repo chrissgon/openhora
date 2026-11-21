@@ -38,11 +38,7 @@ ASSET_SHEET_MAX_TILES = 36              # the most pictures one `asset-sheet` ca
 ASSET_SHEET_COLUMNS = 6                 # a tile's column is 1 to this
 ASSET_SHEET_MAX_BYTES = 32 * 1024 * 1024         # the largest contact sheet the host keeps
 ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.png")
-# The closed shape of the `asset-sheet` answer. It is registered here, with the verb that reads it, because this package's files are the verb's: the result
-# schemas of every other verb are in `_docker.py`.
-D.RESULT_SCHEMAS.setdefault("asset-sheet", D.dct(
-    ok=D.B, assets=D.lst(D.dct(row=D.S, col=D.I, file=D.opt(D.S), sha256=D.S, width=D.I, height=D.I, source_sha256=D.S), ASSET_SHEET_MAX_TILES),
-    sheet=D.S, sheet_sha256=D.S, rows=D.lst(D.S, ASSET_SHEET_MAX_TILES)))
+
 
 
 class Usage(Exception):

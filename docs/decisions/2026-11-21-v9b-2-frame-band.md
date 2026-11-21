@@ -29,8 +29,16 @@
 - **`asset_kinds`** in each engine file (`["image"]` on both) and `asset_kinds_by_engine` in the catalogue.
 
 **The image tags changed.** `hf_render.py` (the HyperFrames image) and `_asset_sheet.py`, `_inner.py`, `_hf_compose.py`, `_hf_gate.py`, `_blocks.py` and the
-blocks (the common image) changed, so both tags changed (HyperFrames `e5f2134dd1b8` to `ab3bda641195`; the pin in `test_hf_fixes.py` is updated). Both images
+blocks (the common image) changed, so both tags changed (HyperFrames `e5f2134dd1b8` to `12ff7f4128cb`, the last change being a `.png` entry in `hf_measure.mjs`'s MIME table; the common image `5aba516536a5` to `8206b171b52b`; the pin in `test_hf_fixes.py` is updated). Both images
 must be rebuilt before a live render (the maintainer's, STOP 5).
+
+**Readings of the spec, accepted by the supervisor.**
+
+- `asset-sheet`'s "the smallest size that covers 1080x1920" is read as: the long side becomes 1920 and the aspect is kept, and a picture whose long side would
+  grow more than 1.5 times (under 1280 px) is `asset_too_small`. The literal reading (cover both dimensions) would refuse every landscape picture under about
+  2275 px wide.
+- A frame entry is counted under `beats` (`beats_drawn` and the `beats` layer name), because the `hf-page` result allows four layer names and captions plus
+  beats already fill them.
 
 **Not verified.** No image was rebuilt and no live render ran; no C10 was shown (the maintainer's words for `oh:cutaway` on HyperFrames and `oh:screenshot` on
 both engines go here once he gives them); the determinism at 4 and 8 cores (`F9`, `M4` of `test_engine_contract_live.py`) and spike S2 are the supervisor's.

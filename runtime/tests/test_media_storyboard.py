@@ -215,10 +215,10 @@ def test_the_return_has_the_key_the_sheet_the_beats_the_engine_and_the_advisory_
     assert found["beats"][0]["drawn_block"] == "oh:keyword" and found["beats"][0]["video_block"] == "hf:spring-pop"      # the block each engine's preset map names for the keyword preset: the video differs from the drawing
 
 
-def test_video_block_is_null_where_the_projects_engine_draws_no_block_for_the_preset(world, drawing):
+def test_video_block_is_the_engines_block_for_the_cutaway_since_v9b_2(world, drawing):
     found = draw(world)
     [cutaway] = [b for b in found["beats"] if b["preset"] == "cutaway"]
-    assert cutaway["drawn_block"] == "oh:cutaway" and cutaway["video_block"] is None
+    assert cutaway["drawn_block"] == "oh:cutaway" and cutaway["video_block"] == "oh:cutaway"      # the HyperFrames engine draws the cutaway now; only the pip has no block there
 
 
 def test_the_terminal_gets_the_absolute_path_of_the_sheet_and_the_page_does_not(world, drawing):

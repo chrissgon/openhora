@@ -65,7 +65,7 @@ function writeRefusal(code, field) {
   fs.writeFileSync(outPath, JSON.stringify({ ok: false, code, field: String(field).slice(0, 40), problems: rows }));
 }
 
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".woff2": "font/woff2", ".mov": "video/quicktime", ".mp4": "video/mp4" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".woff2": "font/woff2", ".mov": "video/quicktime", ".mp4": "video/mp4", ".png": "image/png" };
 
 // One byte range of a file of `size` bytes: null when there is no Range header (the whole body), "bad" when the header is not one range or is out of
 // bounds (answered 416), else {start, end} (answered 206 with Content-Range).

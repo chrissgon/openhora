@@ -218,8 +218,8 @@ def test_the_gate_constants_are_unchanged():
 
 def test_the_hyperframes_image_files_are_unchanged():
     """The tag, the hash of the files the HyperFrames image's manifest lists, is the one the folder gave at 7ba825b until V9b-2, which changed
-    `hf_render.py` (the project's `assets/` folder) and so the tag, `ab3bda641195`. A package that changes the image updates this pin (and says so in its
+    `hf_render.py` (the project's `assets/` folder) and `hf_measure.mjs` (a `.png` entry in its MIME table), and so the tag, `12ff7f4128cb`. A package that changes the image updates this pin (and says so in its
     decision file)."""
     sys.path.insert(0, str(K.RENDERER / "hyperframes-image"))
     import hf_image
-    assert hf_image.image_tag(str(K.RENDERER / "hyperframes-image")) == "openhora-hyperframes:ab3bda641195"
+    assert hf_image.image_tag(str(K.RENDERER / "hyperframes-image")) == "openhora-hyperframes:12ff7f4128cb"
