@@ -104,3 +104,9 @@ refusals (`asset_type` on the pip and on `oh:screenshot`, `asset_hash`, `clip_tr
   therefore compare the graph's frames, not the mp4's bytes, for a clip render.
 - The time of a glass clip's compose: measured on the host at about 0.5 s per entry frame, on four filter threads; the image's figure is not known.
 - The HyperFrames engine draws no clip (V9b-5b).
+
+**C10 of the clip cutaway (STOP 7), 2026-11-21.** The maintainer approved the visuals. Asked "Você aprova o visual do cutaway com vídeo nesta folha?", he answered, in his own chat message to the supervisor on 2026-11-21: "Aprovo" (validate: allow english-only -- the maintainer's own words, quoted). This records that approval of the clip cutaway's look only; it is no consent for anything else (the merge, the readiness of the pull request and the runtime package that flips `asset_kinds` are separate).
+
+- What he looked at: the common image `openhora-renderer:cc41c16fd797`, built from 23f2530; `oh:cutaway` on the ffmpeg engine with synthetic, bt709-tagged, moving clips: a vertical 1080x1920 clip (cover), a landscape 1920x1080 clip and a square 1080x1080 clip (glass), and a landscape clip on a flat blue ground (glass). Each was shown beside the same cutaway drawing the clip's first frame as a picture, at frames 72, 92, 112, 132 and 150 of the beat (frames 70 to 151). No real clip or picture was used.
+- The supervisor's live leg M5 passed: one sha256 at 4 and at 8 cores, in cover and in glass.
+- **Known loss, shown to him and recorded.** When the predominant colour of a frame is a near tie (six equal-area bars: 123 samples against 120), the page's browser downscale and the host's box average can pick different buckets, so a clip's glass tint may differ from the same frame drawn as a picture. With a clear predominant colour the backgrounds are identical pixel for pixel.
