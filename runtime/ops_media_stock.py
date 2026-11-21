@@ -118,7 +118,36 @@ def _sources_for(ctx: dict) -> "Sources":
 
 def _engine_of(ctx: dict):
     """The media engine of this project (a seam: a test puts a fake in its place)."""
-    return media_animation.engine_of(ctx)
+    store = ops_step_seams.MediaStore(ctx)
+    return SheetEngine(store.root(), store.renderer())
+
+
+# The closed list of the codes `asset-sheet` refuses a picture with (providers/renderer/_asset_sheet.py; a test compares). Only a code of this list is kept; free text never is.
+ASSET_CODES = ("asset_corrupt", "asset_dimensions", "asset_duplicate", "asset_max_bytes", "asset_max_pixels", "asset_max_side", "asset_too_small", "asset_type", "asset_unreadable")
+ASSET_PHRASE = {"asset_too_small": "VID_STOCK_ASSET_SMALL"}      # every other code of the list says "this file cannot be used" (VID_STOCK_ASSET_UNUSABLE)
+
+
+class SheetEngine(ops_step_seams.MediaEngine):
+    """The media engine with one difference: a refusal of `asset-sheet` keeps its closed code (the first line of the renderer's stderr, `refused: <code> <field>`), read only if
+    the code is in ASSET_CODES, so the person is told why a picture was refused. Every other answer and failure is the engine's own."""
+
+    def call(self, cls, verb, args, timeout):
+        if verb != "asset-sheet":
+            return super().call(cls, verb, args, timeout)
+        resolver = project_config.resolver(self._root)
+        try:
+            done = resolver.call(cls, verb, list(args), root=self._root, timeout=timeout, env=resolver.provider_environment(cls, None, ()),
+                                 **({"implementation": self._renderer} if self._renderer else {}))
+        except resolver.ProviderCallError as e:
+            if e.kind == "not-configured":
+                raise ops_step_seams.StepServiceError("not_configured") from None
+            found = ops_step_seams.REFUSAL_LINE.search(getattr(e, "stderr_tail", "") or "") if e.kind != "usage" and e.exit_code == 1 else None
+            if found and found.group(1) in ASSET_CODES:
+                raise ops_step_seams.StepServiceError("refused", found.group(1)) from None
+            raise ops_step_seams.StepServiceError("refused" if e.kind == "usage" or e.exit_code == 1 else "engine_failed") from None
+        if not isinstance(done, dict):
+            raise ops_step_seams.StepServiceError("engine_failed")
+        return done
 
 
 def _sheet(ctx: dict, mode: str, items: dict, out: str) -> dict:
@@ -129,6 +158,8 @@ def _sheet(ctx: dict, mode: str, items: dict, out: str) -> dict:
     try:
         done = _engine_of(ctx).call("renderer:video", "asset-sheet", flags, SHEET_TIMEOUT)
     except ops_step_seams.StepServiceError as e:
+        if e.code == "refused" and e.reason in ASSET_CODES:
+            raise _fail(e.reason, phrases.text(ASSET_PHRASE.get(e.reason, "VID_STOCK_ASSET_UNUSABLE"), ctx["cfg"])) from None
         raise _fail("engine_refused" if e.code == "refused" else "not_configured" if e.code == "not_configured" else "engine_failed",
                     "the renderer could not make the sheet") from None
     return done if isinstance(done, dict) else {}
@@ -419,7 +450,15 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         budget[0] -= fetched[row["slot"]][2]["bytes"]
     scratch, path = media_stock.make_scratch(data_dir, rid)
     items = {(slot, 1): got[0] for slot, got in fetched.items()}
-    done = _sheet(ctx, "full", items, path)
+    try:
+        done = _sheet(ctx, "full", items, path)
+    except core.OpsError:      # the picture was refused: nothing stays fetched, the set is back to its candidates, and the person picks again
+        try:
+            media_stock.remove_where(data_dir, rid, lambda n: n.startswith("full-") or n.startswith(".work") or n == media_stock.QUARANTINE)
+            media_stock.write_doc(data_dir, rid, media_stock.SET, dict(found, phase="found", assets=[], credits=[], credit_of={}))
+        except media_stock.StockError:
+            pass
+        raise
     rows = {(a.get("row"), a.get("col")): a for a in done.get("assets") or [] if isinstance(a, dict)}
     if done.get("ok") is not True or set(rows) != set(items) or done.get("sheet") != "sheet.png" or done.get("mode", "full") != "full":
         raise _fail("engine_refused", "the renderer's files are not what was asked for")

@@ -10,6 +10,8 @@
     "CARD_VIDEO_ASSET": "Picture: {slot}, {source}, {licence}, sha256 {sha}",
     "CARD_VIDEO_WEB": "Found on the web, licence not checked: {host}",
     "VID_STOCK_PROVIDED": "Media provided by {source} ({link})",
-    "CARD_VIDEO_CREDITS_COUNT": "{count} pictures need a credit; the credit text is on this computer's page (sha256 {sha})"
+    "CARD_VIDEO_CREDITS_COUNT": "{count} pictures need a credit; the credit text is on this computer's page (sha256 {sha})",
+    "VID_STOCK_ASSET_SMALL": "This picture is too small to show well; pick another one.",
+    "VID_STOCK_ASSET_UNUSABLE": "This file cannot be used; pick another one."
   }
 }

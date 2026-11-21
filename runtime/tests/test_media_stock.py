@@ -687,3 +687,66 @@ def test_the_credits_record_is_kept_until_the_later_of_the_approval_and_the_deli
     assert kept["delivered_at"] == "2025-01-01T00:00:00Z"
     late = media._epoch("2026-03-01T00:00:00Z")
     assert media_stock.purge_credits(world["data"], now=late + 364 * day) == 0 and media_stock.purge_credits(world["data"], now=late + 366 * day) == 1
+
+
+# --- a refusal of the renderer keeps its closed code (K3) ----------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("code, key", [("asset_too_small", "VID_STOCK_ASSET_SMALL"), ("asset_type", "VID_STOCK_ASSET_UNUSABLE"), ("asset_corrupt", "VID_STOCK_ASSET_UNUSABLE"),
+                                       ("asset_unreadable", "VID_STOCK_ASSET_UNUSABLE")])
+def test_a_picture_the_renderer_refuses_keeps_its_closed_code_and_says_why_and_the_person_can_pick_again(world, monkeypatch, code, key):
+    found = to_found(world, monkeypatch)
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    found["sheets"].fail = ops_step_seams_error(code)
+    original = found["sheets"].call
+    found["sheets"].call = lambda cls, verb, args, timeout: original(cls, verb, args, timeout) if flag_of(args, "--mode") == "preview" else (_ for _ in ()).throw(found["sheets"].fail)
+    phrases = st.load("phrases")
+    for tag in ("en", "pt-BR"):
+        with pytest.raises(ops_core.OpsError) as refused:
+            ops.video_media_fetch_picks(world["path"], found["task"])
+        assert str(refused.value).startswith(code + ":") and "engine_refused" not in str(refused.value)
+    assert phrases.text(key, {"language": "en"}) in str(refused.value)
+    doc = json.loads((stock_folder(world) / "set.json").read_text())
+    assert doc["phase"] == "found" and doc["assets"] == [] and not (stock_folder(world) / "approved.json").exists()
+    assert not [n for n in os.listdir(stock_folder(world)) if n.startswith("full-") or n.startswith(".work")]
+    other = done["slots"][0]["candidates"][-1]["pick"]
+    pick(world, found["task"], "beat7", other, review_of(world)["revision"])      # the candidates are still there: pick again
+    assert review_of(world)["slot_assets"]["beat7"] == other
+
+
+def ops_step_seams_error(code):
+    from media_stock_kit import ops_step_seams as seams
+    return seams.StepServiceError("refused", code)
+
+
+def test_the_engine_keeps_a_code_of_the_closed_list_only_from_the_renderers_first_line(monkeypatch):
+    seams = st.load("ops_step_seams")
+
+    class Boom(Exception):
+        kind, exit_code = "failed", 1
+
+        def __init__(self, tail):
+            self.stderr_tail = tail
+
+    class Resolver:
+        ProviderCallError = Boom
+        failure = None
+
+        @staticmethod
+        def provider_environment(cls, env, passes):
+            return {}
+
+        @classmethod
+        def call(cls, *a, **k):
+            raise Boom(cls.failure)
+    monkeypatch.setattr(project_config, "resolver", lambda root: Resolver)
+    engine = ops_media_stock.SheetEngine("/x", None)
+    for tail, reason in (("refused: asset_too_small asset", "asset_too_small"), ("refused: asset_type asset", "asset_type"), ("refused: nothing_known asset", ""),
+                         ("refused: asset_too_small\x00 free text", ""), ("boom", "")):
+        Resolver.failure = tail
+        with pytest.raises(seams.StepServiceError) as refused:
+            engine.call("renderer:video", "asset-sheet", ["--mode", "full"], 5)
+        assert refused.value.code == "refused" and (refused.value.reason or "") == reason, tail
+    source = (REPO / "providers" / "renderer" / "_asset_sheet.py").read_text(encoding="utf-8")
+    assert set(re.findall(r'"(asset_[a-z_]+)"', source)) == set(ops_media_stock.ASSET_CODES)
