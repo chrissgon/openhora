@@ -61,7 +61,7 @@
   - The live case `test_mac_m5` of `test_engine_contract_live.py`: a normalised synthetic moving clip in a cover and a glass cutaway on the ffmpeg engine, one sha256 at 4 and 8 cores.
   - The claim "the same bytes with 1 and 2 workers" is removed: it was never proved (see the finding on x264 below).
 
-**The image tag changed.** The common image's tag was `openhora-renderer:8206b171b52b` (V9b-2) and is `openhora-renderer:640490c4a634` (`_asset_sheet.py`, `_assets.py`,
+**The image tag changed.** The common image's tag was `openhora-renderer:8206b171b52b` (V9b-2) and is `openhora-renderer:cc41c16fd797` (`_asset_sheet.py`, `_assets.py`,
 `_frames.py`, `_inner.py`, `_media.py` and `_render.py` are in the image). The HyperFrames image's tag is unchanged (`openhora-hyperframes:12ff7f4128cb`); no file of it
 changed. No test holds the common image's tag. The common image must be rebuilt before a live render (the maintainer's, STOP 5).
 

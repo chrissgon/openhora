@@ -123,7 +123,7 @@ def test_a_larger_picture_is_scaled_down_to_the_long_side_and_keeps_its_aspect(t
 
 @needs_ffmpeg
 def test_a_picture_is_never_enlarged_and_is_refused_only_when_its_layout_would_enlarge_it_past_one_and_a_half_times(tmp_path):
-    """The supervisor's correction after live leg K3 (an Openverse medium rendition, 1024x683, was refused by the older rule): V9b-2 read the spec as "the long side
+    """The supervisor's correction after live leg K3 (a medium-rendition picture of 1024x683 was refused by the older rule): V9b-2 read the spec as "the long side
     becomes 1920, at most 1.5 times"; the rule now is the layout's: never enlarge, refuse `asset_too_small` by the size the page would draw."""
     ok = run(tmp_path, {"slot-1:1": write(tmp_path, "medium.png", png_bytes(1024, 683)), "slot-2:1": write(tmp_path, "tall.png", png_bytes(1080, 1920))})
     assert [(a["width"], a["height"]) for a in ok["assets"]] == [(1024, 683), (1080, 1920)]
