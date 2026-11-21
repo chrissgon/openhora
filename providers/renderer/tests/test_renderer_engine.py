@@ -99,7 +99,7 @@ def test_a_template_outside_the_folder_or_with_a_changed_hash_is_refused(tmp_pat
 
 
 def test_the_blocks_presets_and_declared_parameters_are_equal():
-    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {K.template_of(n) for n in DATA["presets"]} | {K.template_of("caption")}
+    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {K.template_of(n) for n in DATA["presets"]} | {K.template_of("caption"), "oh/screenshot/renderat.html"}      # oh:screenshot draws the cutaway preset (V9b-2)
     for name, cfg in DATA["presets"].items():
         html = read(os.path.join(str(K.BLOCKS), K.template_of(name)))
         params = re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1)

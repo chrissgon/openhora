@@ -210,15 +210,16 @@ def test_the_old_finish_line_is_gone():
 def test_the_gate_constants_are_unchanged():
     data = load_data()
     assert _hf_gate.PIXEL_MIN_PSNR_DB == 30.0
-    assert _hf_gate.ZONES == ("card", "caption")
+    assert _hf_gate.ZONES == ("frame", "card", "caption")       # V9b-2: the frame band is judged, and refused outside a cutaway (decision 6)
     zones = data["zones"]
     assert (zones["card_top"], zones["gap"], zones["caption_bottom"], zones["card_min_height"], zones["caption_min_height"]) == (110, 18, 1560, 80, 120)
     assert data["face_box_default"] == {"x": 240, "y": 620, "w": 600, "h": 560}
 
 
 def test_the_hyperframes_image_files_are_unchanged():
-    """V9a draws on the HyperFrames image as it is: the tag, the hash of the files its manifest lists, is the one the folder gave at 7ba825b.
-    A package that changes the image updates this pin (and says so in its decision file)."""
+    """The tag, the hash of the files the HyperFrames image's manifest lists, is the one the folder gave at 7ba825b until V9b-2, which changed
+    `hf_render.py` (the project's `assets/` folder) and `hf_measure.mjs` (a `.png` entry in its MIME table), and so the tag, `12ff7f4128cb`. A package that changes the image updates this pin (and says so in its
+    decision file)."""
     sys.path.insert(0, str(K.RENDERER / "hyperframes-image"))
     import hf_image
-    assert hf_image.image_tag(str(K.RENDERER / "hyperframes-image")) == "openhora-hyperframes:e5f2134dd1b8"
+    assert hf_image.image_tag(str(K.RENDERER / "hyperframes-image")) == "openhora-hyperframes:12ff7f4128cb"

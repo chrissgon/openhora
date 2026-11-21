@@ -224,7 +224,7 @@ class Lab:
             return d / "edl.json", d / "beats.json", json.loads((d / "edl.json").read_text())
         return self.cached(("docs", name), make)
 
-    def render(self, engine, tag, recording, edl, beats, cpus=4, cpuset="0-3", blocks=None, memory=False, timeout=3600, passed_ok=True):
+    def render(self, engine, tag, recording, edl, beats, cpus=4, cpuset="0-3", blocks=None, memory=False, timeout=3600, passed_ok=True, assets=None):
         """One render through the engine's host, the way a person runs it. `blocks` is a test blocks folder (RENDERER_TEST=1); the HyperFrames
         engine otherwise draws from the oh: pages on the renderat runtime (the test folder of this lab). `memory` samples both containers and
         counts OOM kills. Leaves nothing: the run is checked clean before it returns."""
@@ -238,6 +238,8 @@ class Lab:
                 "--cpus", cpus, "--cpuset", cpuset]
         if engine == "ffmpeg":
             args += ["--jobs", 2]
+        for slot, picture in sorted((assets or {}).items()):
+            args += ["--asset", "%s=%s" % (slot, picture)]
         figures, started = None, time.monotonic()
         if memory:
             with C.Sampler() as sampler:
@@ -274,6 +276,71 @@ class Lab:
         rec = self.recording("short", transcript)
         edl, beats, doc = self.documents("plain", rec, transcript, C.PLAIN_POST, ("--zoom", "none", "--push-in", "0"))
         return rec, edl, beats, doc
+
+
+CUTAWAY_POST = """# Post: Money habits with a cutaway (a fictional fixture)
+
+- Owner: mkt-social-copy
+- Status: draft
+- Network: instagram
+- Format: reel
+
+```script
+beat: 1
+line: Hey, quick story about money.
+on-screen: Money story
+preset: keyword
+icon: coin
+
+beat: 2
+line: Here is what my dashboard looked like.
+on-screen: My dashboard
+preset: cutaway
+asset: a screenshot of the budgeting dashboard
+fit: cover
+
+beat: 3
+line: Last year I tracked every expense for ninety days.
+```
+
+```post
+Money habits. What would you track first?
+```
+"""
+CUTAWAY_SENTENCES = [K.SENTENCES[0], K.SENTENCES[6], K.SENTENCES[1]]
+
+
+def cutaway_picture(folder: Path) -> Path:
+    """A landscape picture of two flat colours, made with zlib (never a real picture): the cutaway draws it in the glass layout."""
+    import struct
+    import zlib
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    w, h = 1200, 675
+    row = b"\x00" + bytes((200, 40, 40)) * (w // 2) + bytes((40, 60, 200)) * (w - w // 2)
+    path = folder / "cutaway.png"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(row * h, 9)) + chunk(b"IEND", b""))
+    return path
+
+
+def cutaway_leg(lab, engine, label, cpus, cpuset):
+    """The cutaway case through `engine` at `cpus`, cached: a post with one cutaway beat (slot beat2) and its picture. The HyperFrames engine draws it
+    from the frame band, with the gates loosened inside the cut (V9b-2); the ffmpeg engine draws it as it always did."""
+    transcript = K.build_transcript(CUTAWAY_SENTENCES)
+
+    def make():
+        rec = lab.recording("cutaway", transcript)
+        edl, beats, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
+        blocks = None
+        if engine == "hyperframes":
+            blocks = lab.folder / "blocks-hf-cutaway"
+            if not blocks.exists():
+                shutil.copytree(K.BLOCKS, blocks)
+                K.write_hf_compose_blocks(blocks, cutaway=True)
+        picture = cutaway_picture(lab.folder)
+        return lab.render(engine, "cutaway-%s-%s" % (engine, label), rec, edl, beats, cpus, cpuset, blocks=blocks, assets={"beat2": picture})
+    return lab.cached(("cutaway", engine, label), make)
 
 
 LABS = []                                       # the one lab of the session: made inside the first test that needs it, with the person's state folder in place
@@ -349,6 +416,17 @@ def test_f3_the_same_input_gives_one_sha256_twice_and_at_two_cpus(engine, lab):
     if engine == "hyperframes":
         gates = [r.out["gate"] for r in runs]
         assert gates[0] == gates[1] == gates[2], gates
+
+
+@legs("F9")
+def test_f9_the_cutaway_case_is_one_sha256_at_four_and_at_two_cpus_on_each_engine(engine, lab):
+    lab.need(engine)
+    runs = [cutaway_leg(lab, engine, "a", 4, "0-3"), cutaway_leg(lab, engine, "b", 2, "0-1")]
+    for run in runs:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+    assert runs[0].out["sha256"] == runs[1].out["sha256"], [r.out["sha256"] for r in runs]
+    if engine == "hyperframes":
+        assert runs[0].out["gate"] == runs[1].out["gate"] and "oh:cutaway" in runs[0].out["blocks"]
 
 
 # ---------------------------------------------------------------- F4 proxy
@@ -522,6 +600,17 @@ def test_mac_m1_the_short_case_composed_is_one_sha256_at_four_and_at_eight_cores
         record("short", C.short_transcript(), doc, engine, cpus, cpuset, run)
         assert run.rc == 0, (run.out, run.err[-2000:])
     assert_one_sha("short", engine)
+
+
+@mac_only
+@legs("M4")
+def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores_on_each_engine(engine, lab, eight_cpus):
+    lab.need(engine)
+    runs = [cutaway_leg(lab, engine, "m4-4", 4, "0-3"), cutaway_leg(lab, engine, "m4-8", 8, "0-7")]
+    for run in runs:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+    shas = {r.out["sha256"] for r in runs}
+    assert len(shas) == 1, "STOP RULE 3, a nondeterminism on %s in the cutaway case: %s" % (engine, sorted(shas))
 
 
 REAL = {}

@@ -1,4 +1,12 @@
 {
+ "asset_kinds_by_engine": {
+  "ffmpeg": [
+   "image"
+  ],
+  "hyperframes": [
+   "image"
+  ]
+ },
  "blocks": [
   {
    "band": "caption",
@@ -562,6 +570,55 @@
    "use_when": "the speaker repeats a sentence someone said"
   },
   {
+   "band": "frame",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:screenshot",
+   "namespace": "oh",
+   "natural_duration": 1.5,
+   "params": {
+    "asset": {
+     "required": true,
+     "type": [
+      "image",
+      "clip"
+     ]
+    },
+    "fit": {
+     "default": "cover",
+     "type": "choice",
+     "values": [
+      "cover",
+      "contain"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    }
+   },
+   "preset": "cutaway",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "asset": "slot-1",
+     "fit": "contain",
+     "label": "The page on screen"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "a document, a page or a screen is shown whole, framed, while the line is spoken"
+  },
+  {
    "band": "card",
    "engines": [
     "ffmpeg",
@@ -626,7 +683,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "34338f61310f86d390e899eaf0d80be448c4fdf8d51f1028bc20f9c6c39e68ce",
+ "blocks_sha256": "42c6f521176186f00d31b163ecc46d97a7b69cb8f970c582a257e3c182251112",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -648,6 +705,7 @@
   "hyperframes": {
    "presets": {
     "caption": "hf:caption-highlight",
+    "cutaway": "oh:cutaway",
     "keyword": "hf:spring-pop",
     "list": "oh:list",
     "mark": "oh:mark",

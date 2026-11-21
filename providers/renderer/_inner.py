@@ -13,12 +13,13 @@ only writable mount) and /scratch (memory-backed), with no network.
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   proxy    --edl EDL --in VIDEO --out FILE.mp4         a 1080x1920 H.264 proxy of the recording, at the edit list's fps (the HyperFrames engine)
   encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR [--boxes B --boxes-sha256 H --beats BEATS --vocabulary V --proxy P
-           --proxy-sha256 H]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
+           --proxy-sha256 H [--blocks DIR --blocks-sha256 H]]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
            refuses a box on the face or a caption below the line, and after the encode a face region that differs from the undrawn base
   preview  --in MP4 --sha256 H --out FILE.mp4             a 720x1280 copy of a finished render, at most 15 MiB, one encoder thread
-  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H)   the HyperFrames
+  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H [--asset-sha256 SLOT=HEX]...)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
+  asset-sheet --asset ROW:COL=FILE ... --mode preview|full --out DIR   the pictures to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
@@ -42,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _align  # noqa: E402
+import _asset_sheet  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
@@ -297,6 +299,13 @@ def verb_storyboard(args) -> dict:
                                blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
 
 
+def verb_asset_sheet(args) -> dict:
+    """The pictures of `--asset ROW:COL=FILE` checked and tiled onto `sheet.png` in `--out`; with `--mode full` each is also normalised to
+    `asset-<sha12>.png` (`_asset_sheet`). The host checks the answer again."""
+    ffmpeg, _ffprobe = tools(args)
+    return _asset_sheet.asset_sheet(items=pairs(args.asset, "--asset"), mode=args.mode, out_dir=args.out, ffmpeg=ffmpeg)
+
+
 def verb_cover(args) -> dict:
     ffmpeg, ffprobe = tools(args)
     facts = _media.probe(ffprobe, args.input)
@@ -353,8 +362,11 @@ def verb_proxy(args) -> dict:
 def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
     """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
     path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
-    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`, `caption_not_drawn`."""
+    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`, `caption_not_drawn`.
+    `--blocks` and `--blocks-sha256` (both or neither) are the staged catalogue the gate reads the entries that may cross the face from (`_hf_gate.crossing_spans`)."""
     flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
+    if bool(args.blocks) != bool(args.blocks_sha256) or (args.blocks and not any(flags)):
+        raise Usage("encode takes --blocks and --blocks-sha256 together, and only with the flags of the gate")
     if not any(flags):
         return None
     if not all(flags):
@@ -369,7 +381,11 @@ def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
         raise Refusal("proxy_changed", "proxy")
     if _media.probe(ffprobe, args.proxy)["duration"] < edl["kept"][-1][1] / float(edl["fps"]) - 2.0 / edl["fps"]:
         raise Refusal("proxy_truncated", "proxy")                                # a short proxy would be padded by the filter graph, never compared
-    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces, timeline=timeline)
+    # Which entries may cover the face (a full-frame cutaway) is read from the staged, pinned catalogue. Without `--blocks` none may: a `frame` box and a
+    # changed face region are then refused on every frame, so leaving the flags out can only make the gate stricter.
+    catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256) if args.blocks else None
+    crossing = _hf_gate.crossing_spans(timeline, catalogue) if catalogue else []
+    return dict(_hf_gate.check_boxes(doc, timeline, faces, data, crossing=crossing), faces=faces, timeline=timeline, crossing=crossing)
 
 
 def verb_encode(args) -> dict:
@@ -405,7 +421,7 @@ def verb_encode(args) -> dict:
         _media.run(_media.encode_argv(ffmpeg, args.input, part, plan), 3600)
         if gate is not None:
             started = time.time()
-            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work, timeline=gate["timeline"])
+            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work, timeline=gate["timeline"], crossing=gate["crossing"])
             pixel_seconds = round(time.time() - started, 2)
         verdict = _media.check_output(ffprobe, part, platform)
         if verdict["failures"]:
@@ -469,6 +485,8 @@ def verb_hf_page(args) -> dict:
     (the beats are checked and not drawn). Without it: `--blocks` and `--blocks-sha256` are required, the catalogue is loaded from that folder
     (every hash checked there, the pins file's sha256 against the one given) and the captions and the beats are drawn with the blocks the
     HyperFrames engine runs (`_hf_compose`)."""
+    if args.asset_sha256 and args.base_only:
+        raise Usage("hf-page takes --asset-sha256 only with the blocks")
     if args.base_only == bool(args.blocks or args.blocks_sha256):
         raise Usage("hf-page takes --base-only, or --blocks and --blocks-sha256 together, not both and not neither")
     if not args.base_only and not (args.blocks and args.blocks_sha256):
@@ -485,7 +503,8 @@ def verb_hf_page(args) -> dict:
         page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
     else:
         catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256)
-        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"])
+        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"],
+                                      {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()})
     return dict(page, ok=True)
 
 
@@ -628,6 +647,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--vocabulary", help="the vocabulary file, for the entries on the timeline")
     sp.add_argument("--proxy", help="the proxy of the recording (the undrawn base the pixel check compares with)")
     sp.add_argument("--proxy-sha256", help="the sha256 of the proxy, as the host hashed it before the drawing")
+    sp.add_argument("--blocks", help="the staged blocks folder: which blocks may cover the face (the gate's flags are needed too)")
+    sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
     sp = sub.add_parser("preview")
     common(sp)
     sp.add_argument("--in", dest="input", required=True, help="the finished render (an MP4)")
@@ -642,6 +663,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only")
     sp.add_argument("--blocks", help="the staged blocks folder (the captions and the beats are drawn with the blocks the engine runs)")
     sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
+    sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 of a picture the frame blocks draw (the host puts the file into assets/)")
+    sp = sub.add_parser("asset-sheet")
+    common(sp)
+    sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE")
+    sp.add_argument("--mode", required=True, choices=("preview", "full"))
+    sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -657,7 +684,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page}
+         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page, "asset-sheet": verb_asset_sheet}
 
 
 def write_result(path, obj) -> None:

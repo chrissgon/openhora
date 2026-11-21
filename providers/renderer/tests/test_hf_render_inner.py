@@ -628,3 +628,91 @@ def test_the_time_the_page_took_to_be_ready_is_read_from_the_end_of_boxes_json_a
         path.write_text(text)
         assert R.boxes_ready_ms(str(path)) == expect
     assert R.boxes_ready_ms(str(tmp_path / "missing")) is None
+
+
+# ---------------------------------------------------------------- the pictures of a frame block (package V9b-2)
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 40
+
+
+def digest(raw: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(raw).hexdigest()
+
+
+def project_with_assets(folder: Path, pictures: dict, declared=None) -> Path:
+    """A project with `assets/<slot>.png` for each of `pictures` ({slot: bytes}); `vars.json` names `declared` ({slot: sha256}), by default each file's own."""
+    declared = {slot: digest(raw) for slot, raw in pictures.items()} if declared is None else declared
+    project = make_project(folder, vars_text=json.dumps({"duration": 3.0, "fps": 30, "zooms": [], "assets": declared}) + "\n")
+    (project / "assets").mkdir()
+    for slot, raw in pictures.items():
+        (project / "assets" / (slot + ".png")).write_bytes(raw)
+    return project
+
+
+def test_a_project_with_pictures_whose_hashes_vars_json_names_is_accepted_and_one_without_the_folder_is_as_before(tmp_path):
+    project = project_with_assets(tmp_path / "project", {"beat7": PNG, "slot-1": PNG + b"1"})
+    assert R.check_project(str(project)) == BASE_PAGE
+    assert R.check_project(str(make_project(tmp_path / "plain"))) == BASE_PAGE
+    assert R.ASSETS_MAX == 12 and R.ASSET_MAX_BYTES == json.loads((ROOT / "providers" / "renderer" / "renderer-presets.json").read_text())["limits"]["asset_max_bytes"]
+
+
+@pytest.mark.parametrize("name", ["Slot9.png", "beat7.jpg", "beat 7.png", "-beat.png", "beat7.png.png", "nested/beat7.png"])
+def test_a_picture_with_a_name_that_is_not_a_slot_png_is_refused(tmp_path, name):
+    project = project_with_assets(tmp_path / "project", {"beat7": PNG})
+    (project / "assets" / Path(name).parent).mkdir(parents=True, exist_ok=True)
+    (project / "assets" / name).write_bytes(PNG)
+    assert refusal(R.check_project, str(project))[0] == "project_unexpected_file"
+
+
+def test_a_link_in_assets_is_refused(tmp_path):
+    project = project_with_assets(tmp_path / "project", {"beat7": PNG})
+    (tmp_path / "elsewhere.png").write_bytes(PNG)
+    (project / "assets" / "beat7.png").unlink()
+    (project / "assets" / "beat7.png").symlink_to(tmp_path / "elsewhere.png")
+    assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "assets/beat7.png")
+
+
+def test_a_picture_over_the_cap_is_refused(tmp_path, monkeypatch):
+    project = project_with_assets(tmp_path / "project", {"beat7": PNG})
+    monkeypatch.setattr(R, "ASSET_MAX_BYTES", len(PNG) - 1)
+    assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "assets/beat7.png")
+
+
+def test_more_than_twelve_pictures_are_refused(tmp_path):
+    project = project_with_assets(tmp_path / "project", {"s%d" % n: PNG + bytes([n]) for n in range(13)})
+    assert refusal(R.check_project, str(project))[0] == "project_unexpected_file"
+    assert R.check_project(str(project_with_assets(tmp_path / "twelve", {"s%d" % n: PNG + bytes([n]) for n in range(12)}))) == BASE_PAGE
+
+
+def test_a_picture_whose_hash_is_not_in_vars_json_is_asset_hash(tmp_path):
+    project = project_with_assets(tmp_path / "project", {"beat7": PNG}, declared={"beat7": "0" * 64})
+    assert refusal(R.check_project, str(project)) == ("asset_hash", "beat7")
+    other = project_with_assets(tmp_path / "other", {"beat7": PNG}, declared={})
+    assert refusal(R.check_project, str(other)) == ("asset_hash", "assets")                       # a file with no entry
+    third = project_with_assets(tmp_path / "third", {"beat7": PNG}, declared={"beat7": digest(PNG), "beat8": digest(PNG)})
+    assert refusal(R.check_project, str(third)) == ("asset_hash", "assets")                       # an entry with no file
+    fourth = project_with_assets(tmp_path / "fourth", {"beat7": PNG}, declared={"beat7": "xyz"})
+    assert refusal(R.check_project, str(fourth)) == ("asset_hash", "assets")
+
+
+def test_a_project_whose_vars_json_names_pictures_but_has_no_folder_and_one_with_files_but_no_entry_are_refused(tmp_path):
+    named = make_project(tmp_path / "named", vars_text=json.dumps({"duration": 3.0, "fps": 30, "assets": {"beat7": digest(PNG)}}) + "\n")
+    assert refusal(R.check_project, str(named)) == ("asset_hash", "assets")
+    bare = make_project(tmp_path / "bare")
+    (bare / "assets").mkdir()
+    (bare / "assets" / "beat7.png").write_bytes(PNG)
+    assert refusal(R.check_project, str(bare)) == ("asset_hash", "vars.json")
+    garbled = make_project(tmp_path / "garbled", vars_text="not json\n")
+    (garbled / "assets").mkdir()
+    (garbled / "assets" / "beat7.png").write_bytes(PNG)
+    assert refusal(R.check_project, str(garbled)) == ("asset_hash", "vars.json")
+
+
+def test_a_file_in_assets_that_is_not_a_png_is_refused(tmp_path):
+    project = project_with_assets(tmp_path / "project", {"beat7": b"GIF89a" + b"\0" * 40})
+    assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "assets:beat7.png")
+
+
+def test_a_non_object_vars_json_without_pictures_is_not_this_checks_business(tmp_path):
+    assert R.check_project(str(make_project(tmp_path / "project", vars_text="[1, 2]\n"))) == BASE_PAGE

@@ -59,7 +59,9 @@ BLOCK_REQUIRED = frozenset(("name", "kind", "preset", "band", "may_cross_face", 
 HF_KEYS = frozenset(("tier", "commit", "notice", "files"))
 BLOCK_KEYS = BLOCK_REQUIRED | HF_KEYS
 PARAM_KEYS = frozenset(("type", "required", "default", "max", "max_items", "pattern", "values", "min", "integer"))
-ENGINE_KEYS = frozenset(("schema_version", "note", "runtimes", "presets", "engine"))
+ENGINE_KEYS = frozenset(("schema_version", "note", "runtimes", "presets", "engine", "asset_kinds"))
+ENGINE_REQUIRED = ENGINE_KEYS - {"asset_kinds"}
+ASSET_KINDS = ("image", "clip")                  # what an engine can draw as a block's picture; an engine file without the key draws images only
 ALLOWLIST_KEYS = frozenset(("schema_version", "note", "registry_commit", "blocks"))
 CATALOGUE_FIELDS = ("name", "kind", "preset", "band", "may_cross_face", "license", "source", "use_when", "params", "samples",
                     "natural_duration")
@@ -254,7 +256,7 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
 
 def check_engine(obj, name: str) -> dict:
     where = "engines:%s.json" % name
-    if not isinstance(obj, dict) or set(obj) != ENGINE_KEYS or not _is_int(obj["schema_version"]) or obj["schema_version"] != SCHEMA_VERSION \
+    if not isinstance(obj, dict) or not ENGINE_REQUIRED <= set(obj) <= ENGINE_KEYS or not _is_int(obj["schema_version"]) or obj["schema_version"] != SCHEMA_VERSION \
             or obj["engine"] != name or not isinstance(obj["note"], str):
         _fail(where)
     runtimes = obj["runtimes"]
@@ -262,6 +264,9 @@ def check_engine(obj, name: str) -> dict:
         _fail(where)
     presets = obj["presets"]
     if not isinstance(presets, dict) or not presets or not all(_is_str(k, PRESET) and _is_str(v, NAME) for k, v in presets.items()):
+        _fail(where)
+    kinds = obj.get("asset_kinds", ["image"])
+    if not isinstance(kinds, list) or not kinds or len(set(map(str, kinds))) != len(kinds) or any(k not in ASSET_KINDS for k in kinds):
         _fail(where)
     return obj
 
@@ -405,6 +410,7 @@ def catalogue_doc(catalogue: dict) -> dict:
         blocks.append(entry)
     return {"schema_version": SCHEMA_VERSION, "note": CATALOGUE_NOTE, "blocks_sha256": catalogue["sha256"],
             "engines": {e: {"runtimes": v["runtimes"], "presets": v["presets"]} for e, v in sorted(catalogue["engines"].items())},
+            "asset_kinds_by_engine": {e: list(v.get("asset_kinds", ["image"])) for e, v in sorted(catalogue["engines"].items())},
             "blocks": blocks}
 
 

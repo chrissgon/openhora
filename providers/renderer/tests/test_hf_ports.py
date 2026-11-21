@@ -34,7 +34,7 @@ PORTS = {
     "testimonial-card": ("quote", "testimonial-card", "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"),
     "spring-pop": ("keyword", "spring-pop", "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"),
 }
-DEFAULTS = {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
+DEFAULTS = {"caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
             "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]
 MAKER = "hey" + "gen"            # the registry's maker may be named in NOTICE.md and the licence file only (V0 section 8): this test never spells it out
@@ -241,7 +241,7 @@ def test_every_caption_instance_ends_at_the_caption_bottom_line_and_is_clipped_t
 def test_the_hyperframes_engine_runs_both_runtimes_and_its_defaults_are_the_ports_and_oh_list(catalogue):
     engine = catalogue["engines"]["hyperframes"]
     assert engine["runtimes"] == ["gsap", "renderat"] and engine["presets"] == DEFAULTS
-    assert "cutaway" not in engine["presets"] and "pip" not in engine["presets"]
+    assert engine["presets"]["cutaway"] == "oh:cutaway" and "pip" not in engine["presets"]          # V9b-2: the cutaway is drawn; the pip stays absent until V9b-6
     for preset, name in DEFAULTS.items():
         block = _blocks.resolve(catalogue, "hyperframes", preset, None, "beats.b1")
         assert block["name"] == name and block["preset"] == preset

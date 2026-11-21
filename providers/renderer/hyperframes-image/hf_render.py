@@ -7,7 +7,9 @@ Run inside the image, with no network, as
     python3 -I /opt/hf-run/hf_render.py --project /work/project --out /work/out --tmp /work/tmp --fps <n> --timeout <s> [--measure]
 
 `--project` holds exactly `index.html`, `vars.json` and `media/proxy.mp4` (each a regular file within a cap), and, for a page that draws,
-a folder `blocks/` of at most 16 pages (`blocks/<name>.html`, each at most 1 MiB), written by the common image and mounted read-write; this
+a folder `blocks/` of at most 16 pages (`blocks/<name>.html`, each at most 1 MiB), written by the common image and mounted read-write, and, when a
+block draws the person's pictures, a folder `assets/` of at most 12 regular files `<slot>.png` (each a PNG, at most ASSET_MAX_BYTES), each the file whose
+sha256 `vars.json` names under `assets` (and every name there has its file); this
 script checks the folder, checks that the page and each block page name no font outside the allow-list (HyperFrames adds a bundled font for
 any family a page names and does not declare), copies the three allow-listed font files into `fonts/` when a page uses them (each checked
 against its sha256), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes HQ `.mov`, four workers, no frame cache. With
@@ -44,6 +46,10 @@ PROJECT_FILES = {"index.html": INDEX_MAX_BYTES, "vars.json": VARS_MAX_BYTES, "me
 BLOCK_PAGE = re.compile(r"blocks/[a-z0-9-]{1,80}\.html")
 BLOCK_PAGE_MAX_BYTES = 1024 ** 2         # one block page's cap
 BLOCK_PAGES_MAX = 16                     # the most block pages a project holds
+ASSET_FILE = re.compile(r"assets/[a-z0-9][a-z0-9_-]{0,31}\.png")         # a picture: `<slot id>.png` (providers/renderer/_vocab.py SLOT_ID)
+ASSETS_MAX = 12                          # the most pictures a project holds (the same figure as _hf_compose.MAX_ASSETS)
+ASSET_MAX_BYTES = 67108864               # one picture's cap (the same figure as renderer-presets.json limits.asset_max_bytes; a test keeps the two equal)
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 INSTANCES_FILE = "instances.json"        # the tier-A rows the page stage wrote (V3b-3); optional
 INSTANCES_MAX_BYTES = 256 * 1024
 REGISTRY_ROOT = "/opt/hf-registry"       # the registry files baked into the image from registry.sha256
@@ -98,10 +104,37 @@ def check_fonts(html: str, field: str = "index.html") -> None:
         refuse("font_not_allowed", field)
 
 
+def check_assets(project: str, found: set) -> None:
+    """The pictures of a project: `found` holds their names (`assets/<slot>.png`, each already a regular file within its cap, and at most ASSETS_MAX). The
+    project's `vars.json` names each one's sha256 under `assets`: a picture with no entry, an entry with no picture, an entry that is not a slot and a hash
+    that differs are refused (`asset_hash`), and so is a file that is not a PNG (`project_unexpected_file`)."""
+    try:
+        with open(os.path.join(project, "vars.json"), "rb") as fh:
+            declared = json.loads(fh.read(VARS_MAX_BYTES).decode("utf-8")).get("assets")
+    except (OSError, ValueError, UnicodeDecodeError, AttributeError):
+        declared = None
+    if not found and declared is None:
+        return
+    if not isinstance(declared, dict) or len(declared) > ASSETS_MAX:
+        refuse("asset_hash", "vars.json")
+    names = {"assets/%s.png" % slot for slot in declared}
+    if names != found or not all(isinstance(v, str) and HEX64.fullmatch(v) for v in declared.values()):
+        refuse("asset_hash", "assets")
+    for slot, digest in sorted(declared.items()):
+        path = os.path.join(project, "assets", slot + ".png")
+        with open(path, "rb") as fh:
+            raw = fh.read(ASSET_MAX_BYTES + 1)
+        if not raw.startswith(PNG_MAGIC):
+            refuse("project_unexpected_file", "assets:%s.png" % slot)
+        if hashlib.sha256(raw).hexdigest() != digest:
+            refuse("asset_hash", slot[:40])
+
+
 def check_project(project: str) -> str:
     """The folder holds exactly the three files, each a regular file (never a link) within its cap, and at most BLOCK_PAGES_MAX block pages
-    in a `blocks` folder (`blocks/<name>.html`, each a regular file within BLOCK_PAGE_MAX_BYTES), and nothing else. Returns the page's text."""
-    found, pages = set(), 0
+    in a `blocks` folder (`blocks/<name>.html`, each a regular file within BLOCK_PAGE_MAX_BYTES), at most ASSETS_MAX pictures in an `assets` folder
+    (`check_assets`), and nothing else. Returns the page's text."""
+    found, pages, pictures = set(), 0, set()
     for base, dirs, files in os.walk(project, followlinks=False):
         for name in dirs + files:
             path = os.path.join(base, name)
@@ -111,12 +144,17 @@ def check_project(project: str) -> str:
             except OSError:
                 refuse("project_unexpected_file", rel[:80])
             if os.path.isdir(path) and not os.path.islink(path):
-                if rel not in ("media", "blocks"):
+                if rel not in ("media", "blocks", "assets"):
                     refuse("project_unexpected_file", rel[:80])
                 continue
             if rel == INSTANCES_FILE:
                 if (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > INSTANCES_MAX_BYTES:
                     refuse("project_unexpected_file", rel)
+                continue
+            if ASSET_FILE.fullmatch(rel):
+                pictures.add(rel)
+                if len(pictures) > ASSETS_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > ASSET_MAX_BYTES:
+                    refuse("project_unexpected_file", rel[:80])
                 continue
             if BLOCK_PAGE.fullmatch(rel):
                 pages += 1
@@ -132,6 +170,7 @@ def check_project(project: str) -> str:
             refuse("project_unexpected_file", rel)
         if os.lstat(path).st_size > cap:
             refuse("project_unexpected_file", rel)
+    check_assets(project, pictures)
     with open(os.path.join(project, "index.html"), "rb") as fh:
         return fh.read(INDEX_MAX_BYTES).decode("utf-8", "replace")
 

@@ -216,3 +216,8 @@ def test_what_it_reads_is_what_the_wrapper_writes():
     wrap = load("hf_wrap_for_measure_static", FOLDER / "hf_wrap.py")
     script = wrap.REGISTER
     assert "REAL_WIN.__hfEscape = true" in script and 'setAttribute("data-hf-escape", "1")' in script and "REAL.documentElement" in script
+
+
+def test_the_measure_servers_mime_table_names_png_for_the_pictures_of_a_frame_block():
+    """V9b-2: the project's assets/ folder holds PNG files; they are served as image/png, not left to the browser's sniffing."""
+    assert '".png": "image/png"' in SCRIPT.read_text(encoding="utf-8")

@@ -108,6 +108,8 @@ class FakeRun:
         self.seen["timeout"] = timeout
         project = Path(mounts["/work/project"][0])
         assert (project / "media" / "proxy.mp4").read_bytes() == PROXY_BYTES      # the proxy is in the project before the drawing starts
+        folder = project / "assets"                                               # the pictures of a frame block, as the drawing container finds them
+        self.seen["assets"] = {f.name: (f.read_bytes(), stat.S_IMODE(f.stat().st_mode)) for f in sorted(folder.iterdir())} if folder.is_dir() else None
         if self.fail.get("hf") == "raise":
             raise RuntimeError("a stage failed")
         out = Path(mounts["/work/out"][0])
@@ -785,3 +787,107 @@ def test_the_pages_ready_time_is_in_the_drawing_result_schema_and_in_a_composed_
     assert "measure_ready_ms" in H.HF_SCHEMA[1]
     result, _ = run(world, monkeypatch, base_only=False)
     assert "measure_ready_ms" not in result                     # the fake container reports none
+
+
+# ---------------------------------------------------------------- the pictures of a frame block and the blocks of the gate (package V9b-2)
+
+def png_of(width=64, height=36, rgb=(200, 60, 40)) -> bytes:
+    import struct
+    import zlib
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    row = b"\x00" + bytes(rgb) * width
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(row * height)) + chunk(b"IEND", b"")
+
+
+@pytest.fixture
+def pictures(world):
+    one = world.tmp / "one.png"
+    one.write_bytes(png_of())
+    two = world.tmp / "two.png"
+    two.write_bytes(png_of(rgb=(10, 20, 200)))
+    return one, two
+
+
+def refusal_of(call, *args):
+    with pytest.raises(Refusal) as caught:
+        call(*args)
+    return caught.value.code, caught.value.field
+
+
+def test_a_composed_render_hands_the_page_stage_each_pictures_hash_and_the_encode_stage_the_blocks(world, monkeypatch, test_blocks, pictures):
+    one, two = pictures
+    result, fake = run(world, monkeypatch, "--dry-run", "--asset", "7=%s" % one, "--asset", "slot-2=%s" % two, "--asset-sha256", "7=%s" % SHA(one.read_bytes()), base_only=False)
+    page = result["commands"]["page"]
+    inner = page[page.index(COMMON_ID) + 1:]
+    wanted = [("--asset-sha256", "beat7=%s" % SHA(one.read_bytes())), ("--asset-sha256", "slot-2=%s" % SHA(two.read_bytes()))]
+    assert [(inner[i], inner[i + 1]) for i, w in enumerate(inner) if w == "--asset-sha256"] == wanted          # a beat number is the slot `beat<N>`, as on the ffmpeg engine
+    encode = result["commands"]["encode"]
+    enc = encode[encode.index(COMMON_ID) + 1:]
+    assert option(enc, "--blocks") == "/job/blocks" and option(enc, "--blocks-sha256") == pins_sha(test_blocks) == option(inner, "--blocks-sha256")
+    assert fake.commands == [] and run_folders(world) == []                                                      # a dry run reads, stages and writes nothing of the pictures
+
+
+def test_the_pictures_are_in_the_project_before_the_drawing_starts_new_and_private_and_the_run_folder_is_gone_after(world, monkeypatch, test_blocks, pictures):
+    one, two = pictures
+    result, fake = run(world, monkeypatch, "--asset", "beat7=%s" % one, "--asset", "slot-2=%s" % two, fake=FakeRun(), base_only=False)
+    assert fake.seen["assets"] == {"beat7.png": (one.read_bytes(), 0o600), "slot-2.png": (two.read_bytes(), 0o600)}
+    assert option(fake.seen["page"], "--asset-sha256") == "beat7=%s" % SHA(one.read_bytes())
+    assert option(fake.seen["encode"], "--blocks-sha256") == pins_sha(test_blocks)
+    assert run_folders(world) == [] and result["verified"] is True
+
+
+def test_a_render_with_no_picture_has_no_assets_folder_and_no_asset_flag(world, monkeypatch, test_blocks):
+    result, fake = run(world, monkeypatch, fake=FakeRun(), base_only=False)
+    assert fake.seen["assets"] is None and "--asset-sha256" not in fake.seen["page"]
+
+
+def test_the_encode_stage_of_a_base_only_render_has_no_blocks_flags(world, monkeypatch, test_blocks):
+    result, _ = run(world, monkeypatch, "--dry-run")
+    encode = result["commands"]["encode"]
+    assert "--blocks" not in encode and "--blocks-sha256" not in encode
+
+
+@pytest.mark.parametrize("make, code, field", [
+    (lambda w, one, two: ["--asset", "7=%s" % (w.tmp / "nowhere.png")], "asset_unreadable", "beat7"),
+    (lambda w, one, two: ["--asset", "7=%s" % one, "--asset-sha256", "7=" + "0" * 64], "asset_hash", "beat7"),
+    (lambda w, one, two: ["--asset", "Bad Slot=%s" % one], "bad_slot", "Bad Slot"),
+])
+def test_a_missing_picture_a_hash_that_differs_and_a_bad_slot_are_refused_before_any_container(world, monkeypatch, test_blocks, pictures, make, code, field):
+    one, two = pictures
+    monkeypatch.setattr(box, "run", FakeRun())
+    assert refusal_of(H.verb_render, args_for(world, *make(world, one, two), base_only=False)) == (code, field)
+    assert world.runs() == [] and run_folders(world) == []
+
+
+def test_a_jpeg_a_gif_and_a_text_file_are_asset_type_because_the_drawing_image_serves_png_only(world, monkeypatch, test_blocks):
+    monkeypatch.setattr(box, "run", FakeRun())
+    for name, raw in (("a.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 8 + b"\xff\xc0\x00\x0b\x08\x00\x10\x00\x10\x01\x01\x11\x00" + b"\xff\xd9"),
+                      ("b.gif", b"GIF89a" + b"\x00" * 20), ("c.txt", b"hello")):
+        path = world.tmp / name
+        path.write_bytes(raw)
+        assert refusal_of(H.verb_render, args_for(world, "--asset", "7=%s" % path, base_only=False))[0] == "asset_type", name
+    assert world.runs() == []
+
+
+def test_more_than_twelve_pictures_and_a_picture_given_to_a_base_only_render_are_refused(world, monkeypatch, test_blocks, pictures):
+    one, _ = pictures
+    monkeypatch.setattr(box, "run", FakeRun())
+    many = [x for n in range(13) for x in ("--asset", "s%d=%s" % (n, one))]
+    assert refusal_of(H.verb_render, args_for(world, *many, base_only=False)) == ("too_many_assets", "asset")
+    assert refusal_of(H.verb_render, args_for(world, "--asset", "s1=%s" % one)) == ("asset_unused", "s1")
+
+
+def test_an_asset_that_is_not_slot_equals_file_is_a_usage_error(world, pictures):
+    one, _ = pictures
+    for bad in ("justafile", "=%s" % one, "slot="):
+        with pytest.raises(_host.Usage):
+            H.verb_render(args_for(world, "--asset", bad, base_only=False))
+
+
+def test_the_render_parser_takes_the_two_asset_flags_and_prints_them_in_its_help():
+    parsed = H.parser().parse_args(["render", "--edl", "e", "--beats", "b", "--in", "i", "--out", "o", "--platform-file", "p", "--vocabulary", "v",
+                                    "--asset", "slot-1=/x/a.png", "--asset-sha256", "slot-1=" + "a" * 64])
+    assert parsed.asset == ["slot-1=/x/a.png"] and parsed.asset_sha256 == ["slot-1=" + "a" * 64]
+    assert "--asset SLOT=FILE" in H.__doc__ and "--asset-sha256 SLOT=HEX" in H.__doc__

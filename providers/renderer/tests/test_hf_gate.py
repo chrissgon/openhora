@@ -163,13 +163,13 @@ def test_the_faces_of_the_real_timeline_cover_every_frame(docs):
 
 # ---------------------------------------------------------------- the rules on the boxes
 
-def check_without_the_glyph_rule(doc, timeline, ranges, data):
+def check_without_the_glyph_rule(doc, timeline, ranges, data, **kwargs):
     """`check_boxes` with the caption-drawn rule out of reach (no entry is long enough to be judged): the tests that follow are about the other rules
     and draw no glyphs. The rule has its own tests, further down, with the real constant."""
     old = G.CAPTION_DRAWN_MIN_FRAMES
     G.CAPTION_DRAWN_MIN_FRAMES = 10 ** 9
     try:
-        return G.check_boxes(doc, timeline, ranges, data)
+        return G.check_boxes(doc, timeline, ranges, data, **kwargs)
     finally:
         G.CAPTION_DRAWN_MIN_FRAMES = old
 
@@ -220,7 +220,7 @@ def test_a_box_that_only_touches_the_faces_edge_is_not_a_hit(docs):
 
 
 @pytest.mark.parametrize("zone", ["frame", "cutaway", ""])
-def test_a_box_of_the_frame_band_or_of_any_other_zone_is_overlay_hits_face(docs, zone):
+def test_a_box_of_the_frame_band_outside_a_cutaway_or_of_any_other_zone_is_overlay_hits_face(docs, zone):
     assert code_of(checked, docs, {2: [box(zone, y=10.0, h=10.0, key="x")]}) == ("overlay_hits_face", "frame 2 x")
 
 
@@ -783,3 +783,220 @@ def test_no_environment_variable_and_no_flag_turns_the_gates_off():
     assert "os.environ" not in source and "getenv" not in source and "os.environ" not in inner.split("def encode_gate")[1].split("def verb_hf_page")[0]
     gate_flags = [w for w in ("--boxes", "--boxes-sha256", "--beats", "--vocabulary", "--proxy", "--proxy-sha256") if '"%s"' % w in inner]
     assert len(gate_flags) == 6 and "--no-gate" not in inner and "--skip" not in inner
+
+
+# ---------------------------------------------------------------- decision 6: the face gate, loosened only inside the cut (package V9b-2)
+
+CUT_FIRST, CUT_END = 30, 61                      # a cutaway entry on frames 30 to 60 (the end is exclusive)
+
+
+@pytest.fixture(scope="module")
+def cut_catalogue():
+    return _blocks.load_catalogue()
+
+
+def with_cutaway(docs, block=None, start=CUT_FIRST, end=CUT_END):
+    """(data, edl, timeline, ranges) of the kit's post with one more beat entry: a cutaway on frames `start` to `end - 1`, drawn by `block` (the engine's
+    default for the preset when None)."""
+    data, edl, timeline, ranges = timeline_of(docs)
+    entry = {"id": "bcut", "preset": "cutaway", "kind": "layout", "start_frame": start, "end_frame": end, "face": dict(ranges[0][2]),
+             "params": {"asset": "slot-1", "fit": "cover"}}
+    if block:
+        entry["block"] = block
+    timeline["beats"] = timeline["beats"] + [entry]
+    return data, edl, timeline, ranges
+
+
+def frame_box(**kwargs):
+    return box("frame", **dict({"x": 0.0, "y": 0.0, "w": 1080.0, "h": 1920.0, "key": "oh:cutaway"}, **kwargs))
+
+
+def checked_with(docs, cut_catalogue, per_frame, block=None, catalogue=None, **kwargs):
+    data, edl, timeline, ranges = with_cutaway(docs, block, **kwargs)
+    spans = G.crossing_spans(timeline, catalogue or cut_catalogue)
+    return check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per_frame), timeline, ranges, data, crossing=spans)
+
+
+def test_a_frame_box_inside_a_cutaway_entry_passes_whether_or_not_it_covers_the_face(docs, cut_catalogue):
+    face = timeline_of(docs)[3][0][2]
+    on_face = frame_box(x=face["x"] + 10, y=face["y"] + 10, w=200.0, h=200.0)
+    for frame in (CUT_FIRST, 45, CUT_END - 1):
+        assert checked_with(docs, cut_catalogue, {frame: [frame_box(), on_face]})["boxes"] == 2, frame
+
+
+def test_the_same_box_one_frame_before_and_one_frame_after_the_entry_is_overlay_hits_face(docs, cut_catalogue):
+    for frame in (CUT_FIRST - 1, CUT_END):
+        assert code_of(checked_with, docs, cut_catalogue, {frame: [frame_box()]}) == ("overlay_hits_face", "frame %d oh:cutaway" % frame)
+
+
+def test_a_frame_box_inside_an_entry_whose_block_may_not_cross_the_face_fails(docs, cut_catalogue):
+    closed = copy.deepcopy(cut_catalogue)
+    closed["blocks"]["oh:cutaway"]["may_cross_face"] = False
+    assert G.crossing_spans(with_cutaway(docs)[2], closed) == []
+    assert code_of(lambda: checked_with(docs, cut_catalogue, {40: [frame_box()]}, catalogue=closed)) == ("overlay_hits_face", "frame 40 oh:cutaway")
+    assert checked_with(docs, cut_catalogue, {40: [frame_box()]})["boxes"] == 1                  # with the committed block it passes
+
+
+def test_only_an_entry_of_the_frame_band_with_may_cross_face_opens_a_span(docs, cut_catalogue):
+    data, edl, timeline, ranges = with_cutaway(docs)
+    assert G.crossing_spans(timeline, cut_catalogue) == [(CUT_FIRST, CUT_END)]                  # the kit's four cards add none
+    screenshot = with_cutaway(docs, block="oh:screenshot")[2]
+    assert G.crossing_spans(screenshot, cut_catalogue) == [(CUT_FIRST, CUT_END)]
+    card_band = copy.deepcopy(cut_catalogue)
+    card_band["blocks"]["oh:cutaway"].update(band="card", may_cross_face=False)
+    assert G.crossing_spans(timeline, card_band) == []
+    assert G.inside([(30, 61)], 30) and G.inside([(30, 61)], 60) and not G.inside([(30, 61)], 29) and not G.inside([(30, 61)], 61) and not G.inside([], 0)
+
+
+def test_a_caption_box_on_the_face_during_a_cutaway_still_fails_and_so_does_a_caption_below_1560(docs, cut_catalogue):
+    face = timeline_of(docs)[3][0][2]
+    on_face = box("caption", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="oh:caption", glyph=True)
+    assert code_of(checked_with, docs, cut_catalogue, {40: [on_face]}) == ("overlay_hits_face", "frame 40 oh:caption")
+    assert code_of(checked_with, docs, cut_catalogue, {40: [box("caption", y=1540.0, h=40.0, glyph=True)]}) == ("caption_below_line", "frame 40 bottom 1580")
+    assert code_of(checked_with, docs, cut_catalogue, {45: [frame_box(), box("caption", y=1540.0, h=40.0)]})[0] == "caption_below_line"
+    low_card = box("card", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0)                # a card on the face too
+    assert code_of(checked_with, docs, cut_catalogue, {40: [low_card]})[0] == "overlay_hits_face"
+
+
+def test_a_render_with_no_frame_entry_gives_the_same_gate_result_with_or_without_the_new_input(docs, cut_catalogue):
+    data, edl, timeline, ranges = timeline_of(docs)
+    assert G.crossing_spans(timeline, cut_catalogue) == []
+    f = first_frame_without_an_entry(docs)[0]
+    per = {f: [box("caption", y=1450.0, h=50.0, glyph=True)], 3: [box("card", y=data["zones"]["card_top"], h=40.0)]}
+    old = check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data)
+    assert check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data, crossing=[]) == old
+    assert code_of(checked, docs, {2: [frame_box(key="x")]}) == ("overlay_hits_face", "frame 2 x")          # the frame band is refused everywhere, as before
+
+
+def stats_run(edl, values):
+    """A `run` seam for `pixel_check`: each range's stats file has 40 dB everywhere but at the frames of `values` ({output frame: dB})."""
+    def run(argv, timeout, cwd=None):
+        k = int(argv[argv.index("-filter_complex") + 1].split("stats_file=psnr-")[1].split(".log")[0])
+        a, b = edl["kept"][k]
+        first = sum(y - x for x, y in edl["kept"][:k])
+        (Path(cwd) / ("psnr-%d.log" % k)).write_text("".join("n:%d mse_avg:1 psnr_avg:%s psnr_y:1\n" % (i + 1, values.get(first + i, 40.0)) for i in range(b - a)))
+        return "", ""
+    return run
+
+
+def test_the_pixel_check_skips_exactly_the_frames_inside_the_entry(tmp_path):
+    edl = small_edl(kept=((0, 100),))
+    inside_cut = {f: 12.0 for f in range(CUT_FIRST, CUT_END)}                                     # the picture covers the face: 12 dB on every frame of the entry
+    spans = [(CUT_FIRST, CUT_END)]
+    assert code_of(G.pixel_check, "ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, inside_cut))[0] == "face_pixels_changed"
+    result = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, inside_cut), crossing=spans)
+    assert result == {"pixel_min_psnr_db": 40.0, "pixel_ranges": 1}
+    for frame in (CUT_FIRST - 1, CUT_END):                                                         # one frame before and one after the entry are judged as ever
+        values = {**inside_cut, frame: 20.0}
+        assert code_of(lambda: G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, values), crossing=spans)) \
+            == ("face_pixels_changed", "range 0 frame %d psnr 20.0" % frame)
+
+
+def test_with_an_entry_of_frames_30_to_60_face_changes_at_frames_29_and_61_still_fail_face_pixels_changed(tmp_path):
+    edl = small_edl(kept=((0, 100),))
+    spans = [(30, 61)]
+    for frame in (29, 61):
+        run = stats_run(edl, {**{f: 12.0 for f in range(30, 61)}, frame: 28.0})
+        assert code_of(lambda: G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, crossing=spans)) \
+            == ("face_pixels_changed", "range 0 frame %d psnr 28.0" % frame)
+    ok = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, {f: 12.0 for f in range(30, 61)}), crossing=spans)
+    assert ok["pixel_min_psnr_db"] == 40.0
+
+
+def test_an_entry_that_covers_a_whole_range_leaves_nothing_to_judge_and_the_figure_is_the_cap(tmp_path):
+    edl = small_edl(kept=((0, 20), (30, 60)))
+    values = {f: 5.0 for f in range(0, 20)}
+    ok = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, values), crossing=[(0, 20)])
+    assert ok == {"pixel_min_psnr_db": 40.0, "pixel_ranges": 2}
+    everything = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, {f: 5.0 for f in range(50)}), crossing=[(0, 50)])
+    assert everything == {"pixel_min_psnr_db": G.PSNR_CAP, "pixel_ranges": 2}
+
+
+def test_a_render_with_no_frame_entry_has_the_same_pixel_result_with_or_without_the_new_input(tmp_path):
+    edl = small_edl()
+    run = stats_run(edl, {7: 31.2})
+    plain = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run)
+    assert plain == {"pixel_min_psnr_db": 31.2, "pixel_ranges": 2}
+    assert G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, crossing=()) == plain
+
+
+def test_the_gate_module_says_where_the_loosening_is_and_zones_hold_the_frame_band():
+    assert G.ZONES == ("frame", "card", "caption") and G.ENGINE == "hyperframes"
+    assert "decision 6" in G.__doc__ and "crossing_spans" in G.__doc__
+
+
+# ---------------------------------------------------------------- the encode verb with a cutaway: the loosening end to end (package V9b-2)
+
+CUTAWAY_ROW = {"id": "bcut", "beat": 7, "preset": "cutaway", "params": {"label": "My dashboard", "fit": "cover", "asset": "beat7"}, "word_from": 53, "word_to": 59, "score": 1.0}
+
+
+@pytest.fixture(scope="module")
+def gated_cutaway(tmp_path_factory, gated, docs):
+    """The kit's post with a cutaway beat, and an intermediate whose every pixel is black on the frames of that entry (the picture covers the face), the
+    rest being the clean render. Returns (folder, proxy, mov, edl, entry)."""
+    _, proxy, _, edl = gated
+    data, _, beats, vocab = copy.deepcopy(docs)
+    beats["layouts"] = [dict(CUTAWAY_ROW)]
+    entry = next(e for e in _edl.resolve_timeline(copy.deepcopy(edl), beats, vocab, data)["beats"] if e["id"] == "bcut")
+    folder = tmp_path_factory.mktemp("gated-cutaway")
+    K.write_json(folder / "edl.json", edl)
+    K.write_json(folder / "beats.json", beats)
+    cover = "drawbox=x=0:y=0:w=1080:h=1920:color=black:t=fill:enable='between(n,%d,%d)'" % (entry["start_frame"], entry["end_frame"] - 1)
+    graph = ";".join(G.reference_graph(edl, data, "[0:v:0]"))
+    mov = folder / "hf.mov"
+    ffmpeg("-i", proxy, "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000", "-filter_complex", graph + ";[cv]" + cover + ",format=yuv422p10le[o]", "-map", "[o]", "-map", "1:a",
+           "-c:v", "prores_ks", "-profile:v", "3", "-c:a", "pcm_s16le", "-frames:v", edl["out_frames"], "-t", "%.6f" % (edl["out_frames"] / float(edl["fps"])), mov)
+    return folder, proxy, mov, edl, entry
+
+
+def cutaway_doc(folder, edl, entry, chip=True):
+    doc, _ = clean_doc(folder, edl)
+    if chip:
+        doc["per_frame"][entry["start_frame"] + 2].append(box("frame", x=65.0, y=320.0, w=300.0, h=60.0, key="oh:cutaway", glyph=True))
+    return doc
+
+
+BLOCK_FLAGS = ["--blocks", str(K.BLOCKS), "--blocks-sha256", K.BLOCKS_SHA256]
+
+
+@needs_ffmpeg
+def test_with_the_blocks_a_picture_over_the_face_in_exactly_the_cutaways_frames_passes_both_gates(gated_cutaway, tmp_path):
+    folder, proxy, mov, edl, entry = gated_cutaway
+    doc = cutaway_doc(folder, edl, entry)
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc), *BLOCK_FLAGS)
+    assert rc == 0, err
+    clean = D.sanitise(out, D.RESULT_SCHEMAS["encode"], "encode")
+    assert clean["pixel_min_psnr_db"] >= 40.0 and clean["gate_boxes"] == clean_doc(folder, edl)[1] + 1                 # the captions' glyph boxes and the chip
+    assert sorted(os.listdir(tmp_path / "out")) == ["render-%s.mp4" % clean["sha256"][:12]]
+
+
+@needs_ffmpeg
+def test_without_the_blocks_the_same_render_is_refused_the_gate_is_then_stricter_never_looser(gated_cutaway, tmp_path):
+    folder, proxy, mov, edl, entry = gated_cutaway
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", cutaway_doc(folder, edl, entry)))
+    assert rc == 1 and (out["code"], out["field"]) == ("overlay_hits_face", "frame %d oh:cutaway" % (entry["start_frame"] + 2)) and left_over(tmp_path / "out") == []
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out2", cutaway_doc(folder, edl, entry, chip=False)))
+    assert rc == 1 and out["code"] == "face_pixels_changed" and left_over(tmp_path / "out2") == []
+
+
+@needs_ffmpeg
+def test_a_frame_box_one_frame_outside_the_entry_is_refused_even_with_the_blocks(gated_cutaway, tmp_path):
+    folder, proxy, mov, edl, entry = gated_cutaway
+    doc = cutaway_doc(folder, edl, entry, chip=False)
+    doc["per_frame"][entry["end_frame"]].append(box("frame", x=65.0, y=320.0, w=300.0, h=60.0, key="oh:cutaway", glyph=True))
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc), *BLOCK_FLAGS)
+    assert rc == 1 and (out["code"], out["field"]) == ("overlay_hits_face", "frame %d oh:cutaway" % entry["end_frame"]) and left_over(tmp_path / "out") == []
+
+
+@needs_ffmpeg
+def test_the_blocks_flags_are_together_and_only_with_the_gates_flags(gated, tmp_path):
+    folder, proxy, mov, edl = gated
+    doc = boxes_doc(edl["out_frames"])
+    for extra in (["--blocks", str(K.BLOCKS)], ["--blocks-sha256", K.BLOCKS_SHA256]):
+        rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc), *extra)
+        assert rc == 2 and "--blocks" in err and not (tmp_path / "out").exists()
+    rc, out, err = K.run_verb("encode", "--in", mov, "--sha256", sha(Path(mov).read_bytes()), "--edl", folder / "edl.json", "--platform-file", K.INSTAGRAM,
+                              "--out", tmp_path / "base", *BLOCK_FLAGS)
+    assert rc == 2 and "only with the flags of the gate" in err and not (tmp_path / "base").exists()
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out3", doc), "--blocks", str(K.BLOCKS), "--blocks-sha256", "0" * 64)
+    assert rc == 1 and out["code"] == "blocks_changed" and not (tmp_path / "out3").exists()

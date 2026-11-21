@@ -252,3 +252,68 @@ def test_stage_blocks_copies_only_the_pinned_files_and_hashes_the_copy(tmp_path)
     other = StubJob(tmp_path / "in2")
     os.mkdir(other.in_dir)
     assert refused(_host.stage_blocks, other, changed).code == "block_hash"
+
+
+# ---------------------------------------------------------------- the cutaway on both engines, the screenshot block and the engines' asset kinds (V9b-2)
+
+def test_the_catalogue_names_what_each_engine_draws_as_a_picture():
+    cat = _blocks.load_catalogue()
+    assert cat["engines"]["ffmpeg"]["asset_kinds"] == ["image"] and cat["engines"]["hyperframes"]["asset_kinds"] == ["image"]
+    doc = json.load(open(os.path.join(BLOCKS, "catalogue.json"), encoding="utf-8"))
+    assert doc["asset_kinds_by_engine"] == {"ffmpeg": ["image"], "hyperframes": ["image"]}
+    assert doc["engines"]["hyperframes"]["presets"]["cutaway"] == "oh:cutaway" and "pip" not in doc["engines"]["hyperframes"]["presets"]
+    assert doc["engines"]["ffmpeg"]["presets"]["pip"] == "oh:pip"
+
+
+def test_an_engine_file_without_asset_kinds_draws_images_only_and_a_bad_list_is_refused(tmp_path):
+    folder = blocks_copy(tmp_path)
+    edit_json(folder, "engines/ffmpeg.json", lambda d: d.pop("asset_kinds"))
+    cat = _blocks.load_catalogue(folder)
+    assert _blocks.catalogue_doc(cat)["asset_kinds_by_engine"]["ffmpeg"] == ["image"]
+    edit_json(folder, "engines/ffmpeg.json", lambda d: d.update(asset_kinds=["image", "clip"]))
+    assert _blocks.catalogue_doc(_blocks.load_catalogue(folder))["asset_kinds_by_engine"]["ffmpeg"] == ["image", "clip"]
+    for bad in ([], ["video"], ["image", "image"], "image", [1]):
+        edit_json(folder, "engines/ffmpeg.json", lambda d, bad=bad: d.update(asset_kinds=bad))
+        assert refused(_blocks.load_catalogue, folder).code == "block_schema", bad
+
+
+def test_the_screenshot_block_has_the_cutaways_parameters_and_draws_the_cutaway_preset_on_both_engines():
+    cat = _blocks.load_catalogue()
+    shot, cut = cat["blocks"]["oh:screenshot"], cat["blocks"]["oh:cutaway"]
+    assert shot["params"] == cut["params"] == VOCAB["presets"]["cutaway"]["params"]
+    assert (shot["preset"], shot["kind"], shot["band"], shot["may_cross_face"], shot["license"], shot["source"]) == ("cutaway", "layout", "frame", True, ["MIT"], "openhora")
+    assert len(shot["samples"]) == 1 and shot["natural_duration"] == 1.5 and _blocks.engines_of(cat, shot) == ["ffmpeg", "hyperframes"]
+    for engine in ("ffmpeg", "hyperframes"):
+        assert _blocks.resolve(cat, engine, "cutaway", "oh:screenshot", "beats.b1")["name"] == "oh:screenshot"
+        assert _blocks.resolve(cat, engine, "cutaway", None, "beats.b1")["name"] == "oh:cutaway"                  # the default stays the cutaway
+    assert _blocks.check_params(shot, {"asset": "slot-1", "fit": "contain", "label": "The page on screen"}, VOCAB) == {"asset": "slot-1", "fit": "contain", "label": "The page on screen"}
+    assert refused(_blocks.check_params, shot, {"asset": "slot-1", "position": "top"}, VOCAB).code == "undeclared_param"
+    assert refused(_blocks.check_params, shot, {"fit": "cover"}, VOCAB).code == "missing_param"
+
+
+def test_the_screenshot_page_declares_the_cutaways_parameters_reads_only_them_and_names_no_font_or_colour_outside_the_theme():
+    html = open(os.path.join(BLOCKS, "oh", "screenshot", "renderat.html"), encoding="utf-8").read()
+    assert re.search(r'<meta name="pv-preset" content="([^"]*)">', html).group(1) == "cutaway"
+    assert set(re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1).split(",")) == set(DATA["presets"]["cutaway"] and VOCAB["presets"]["cutaway"]["params"])
+    looks = set(filter(None, re.search(r'<meta name="pv-looks" content="([^"]*)">', html).group(1).split(",")))
+    assert looks <= set(DATA["presets"]["cutaway"]["looks"]) and set(re.findall(r"\bL\.([a-z0-9_]+)", html)) <= looks
+    assert set(re.findall(r"\bP\.([a-z0-9_]+)", html)) <= set(VOCAB["presets"]["cutaway"]["params"])
+    from _lint import lint
+    assert lint(html) == [] and "innerHTML" not in html
+    assert not re.search(r"font-family\s*:\s*(?!var\()", html)               # the families come from the theme's tokens only
+    assert "background:var(--c-bg)" in html.replace(" ", "")
+
+
+def test_the_cutaway_page_the_screenshot_page_follows_is_unchanged_byte_for_byte():
+    assert sha(os.path.join(BLOCKS, "oh", "cutaway", "renderat.html")) == OLD_PINS["cutaway"]
+
+
+def test_a_beat_naming_the_screenshot_block_is_drawn_by_its_page_on_the_ffmpeg_engine_and_the_cutaway_by_its_own_by_default():
+    cat = _blocks.load_catalogue()
+    entry = {"id": "b1", "preset": "cutaway", "block": "oh:screenshot", "params": {"asset": "slot-1", "fit": "contain"}}
+    templates, names = _blocks.templates_for(cat, "ffmpeg", {"beats": [entry]}, VOCAB, with_caption=False)
+    assert templates == {"caption": "oh/caption/renderat.html", "oh:screenshot": "oh/screenshot/renderat.html"} and names == ["oh/screenshot/renderat.html"]
+    assert entry["block"] == "oh:screenshot"
+    plain = {"id": "b2", "preset": "cutaway", "params": {"asset": "slot-1"}}
+    templates, names = _blocks.templates_for(cat, "ffmpeg", {"beats": [plain]}, VOCAB, with_caption=False)
+    assert templates["oh:cutaway"] == "oh/cutaway/renderat.html" and plain["block"] == "oh:cutaway"

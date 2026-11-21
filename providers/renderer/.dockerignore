@@ -8,6 +8,7 @@
 !_fetch_browser.py
 !_inner.py
 !_align.py
+!_asset_sheet.py
 !_assets.py
 !_blocks.py
 !_cdp.py

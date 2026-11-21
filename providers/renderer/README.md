@@ -10,9 +10,10 @@ beats come from the post file's script block.
 | File | What it is |
 |------|------------|
 | `ffmpeg.py` | The host side, the one implementation file of the folder: the drawing verbs (`render`, `storyboard`, `pin-blocks`, `block-params`), `build`, `pin-browser`, `reap` and `--check`; the verbs that need no browser come from `_host.py`. Python 3.9, standard library only. |
-| `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still` and `verify` (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
+| `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still`, `verify` and `asset-sheet` (V9b-2) (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
-| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
+| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `asset-sheet`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
+| `_asset_sheet.py` | The `asset-sheet` verb's inner side (V9b-2, common, in the image): checks and tiles pictures, normalises the picked ones. Standard library and the image's ffmpeg only; see "The asset sheet" below. |
 | `_retakes.py` | The retake rule (see "Retakes" below): standard library only, in the image. |
 | `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py`, `_media.py` | The common part, which imports nothing of the browser, the frames or the storyboard (a test walks the imports): the edit list and its check, the cuts, captions, the beats and their alignment, the vocabulary's typed parameters, the text rules, ffprobe/ffmpeg and the one compose command. |
 | `_layout.py`, `_assets.py`, `_output.py` | Also common: the bands the face box leaves, the face test and the 1560 caption test (`zones`, `face_hit`, `caption_hit`); the allow-listed fonts and the image assets with the safe read (`font_allowlist`, `load_fonts`, `load_assets`, `read_regular`); the platform file's read, `cover`, `still` and the never-rewriting write (`read_platform`, `make_cover`, `make_still`, `png_size`, `write_once`). The old modules import the moved names back. |
@@ -133,6 +134,33 @@ by frame with `psnr`, and refuses `face_pixels_changed` under 30 dB: that is wha
 proxy is hashed again in the encode container, since the drawing container could write to it. Tests: `tests/test_hf_gate.py`,
 `tests/test_hf_measure_static.py`.
 
+### The frame band and the pictures (V9b-2)
+
+A block of the `frame` band (an `oh:` layout with one picture parameter and a `renderat` page: `oh:cutaway`, `oh:screenshot`) is drawn by this engine as a
+whole-frame layer, under the cards and the captions and over the cuts (`ZONE_ORDER` is `frame`, `card`, `caption`). It is an iframe of the block's page, as
+any `renderat` block is, driven the same way; the page is the one the ffmpeg engine draws and its look (`presets.cutaway.looks`: the hard cut and the glass
+layout of V9d) comes with the payload, so nothing of it is copied. `pip` stays absent from `blocks/engines/hyperframes.json` until the package that draws a
+card on this engine. The pictures are the person's, as `asset-sheet` normalised them: `hyperframes.py render` takes `--asset SLOT=FILE` and
+`--asset-sha256 SLOT=HEX` as `ffmpeg.py` does (a beat number is the slot `beat<N>`), reads each file on the host (a regular file, never one of a reference store;
+PNG by its header bytes, bounded, the hash checked: a JPEG is `asset_type` here, since the drawing image serves PNG files only), gives `hf-page` each hash
+(`--asset-sha256`, which writes them as `assets` in `vars.json` and refuses a slot with no picture, `asset_missing`, and a picture with no slot,
+`asset_unused`) and copies each file to `project/assets/<slot>.png` once the page stage is done. `hf_render.py` accepts an `assets/` folder of at most 12
+regular PNG files named `<slot>.png`, each at most `asset_max_bytes`, each matching the sha256 `vars.json` names, and refuses any other file or name, a link, a
+hash that is not named (`asset_hash`) and a name with no file. The block's page loads each picture as `window.__imgs[slot]` and keeps the `decode()` promises
+(`window.__hfImageLoads`, also added to `window.__hfFaceLoads`, which the measure step awaits in every frame before the first one).
+
+**The gates inside a cut (decision 6).** A cutaway covers the face by design, so inside its entry, and only there, the face gate is loosened:
+`_hf_gate.crossing_spans` takes, from the pinned catalogue the encode stage is given (`--blocks`, `--blocks-sha256`, staged and hashed by the host like the page
+stage's), the beat entries whose block is of the `frame` band with `may_cross_face` true. A `frame`-zone box (the label chip's text) is allowed on those frames
+and is `overlay_hits_face` on any other; the pixel check counts exactly those frames as passing, so the frame before and the frame after are judged as ever;
+captions keep every rule on every frame (the face box, 1560). Without `--blocks` no frame is inside a cut: the gate is then stricter, never looser. Tests:
+`tests/test_hf_gate.py` (`decision 6`), `tests/test_hf_cutaway.py` (the compose, and the V9d look through it in the host's browser, with a stand-in for GSAP's
+timeline: the real timeline is in the image only), `tests/test_hf_render_inner.py`, `tests/test_hf_engine.py`.
+
+`oh:screenshot` is a second block of the `cutaway` preset (a beat names it with `block`): the picture whole, as a rounded card with a shadow over a backdrop in
+the theme's colour, with a slow push-in and the label chip; the home of a landscape or small picture. It has the cutaway's parameters, is of the `frame` band
+and may cross the face, and both engines draw it.
+
 ## Tier A: registry components (V3b-3)
 
 A component of the HyperFrames registry is drawn only after `hyperframes.py compat --survey <dir> --out <file>` ran its admission in the
@@ -154,8 +182,8 @@ contract of `_gsap_lint.py` and nothing else (no `renderat` page: an `hf:` block
 caption ports are bottom-anchored in the caption band and size their type by arithmetic from the band's height and the words' length, so the lowest
 glyph stays above the band's bottom (1560 on the presets); the registry's slam style is not ported (S2 measured 50 face hits). The final
 `blocks/engines/hyperframes.json` runs `gsap` and `renderat` and names `hf:caption-highlight`, `hf:spring-pop`, `hf:count-up`, `hf:testimonial-card`
-and `oh:list` for `caption`, `keyword`, `number`, `quote` and `list`; any `oh:` block stays selectable by name, and the engine draws no `cutaway` and no
-`pip`. The licence text of the registry (`hyperframes-image/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
+and `oh:list` for `caption`, `keyword`, `number`, `quote` and `list`; any `oh:` block stays selectable by name, and since V9b-2 the engine draws `oh:cutaway` as the
+`cutaway` preset's block (the frame band, below) and no `pip`. The licence text of the registry (`hyperframes-image/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
 (`hyperframes-image/NOTICE.md`) travel in the image folder, because nothing but pinned files may live under `blocks/`. Tests: `tests/test_hf_ports.py`.
 
 Two of the ports were fixed in V9a-1. `hf:spring-pop` sets its stage's layout inline and sizes its type with a pure function `fit(text, bandHeight)` (up to 150
@@ -239,6 +267,19 @@ images and nothing outside the container decodes a recording: this is the one pl
 `still-<sha12>.png` (0400, never rewritten, the same bytes are a replay) after checking, itself, the hash, the PNG header, the 1080x1920
 size and an 8 MiB cap. An offset outside the recording is `bad_still_offset`. The host also refuses a result whose `at_ms` is not the request or whose `bytes` is not the file's size. Adding this verb changed the image definition, so the tag changed: until the maintainer runs `build --confirmed` the new tag does not exist and every renderer step reports `image_not_built` (not `image_stale`, which is for an image that exists and is older than the files). Test: `tests/test_renderer_still.py`, which also holds the
 still equal, within the codec's loss, to the render's own first picture of a range that starts at that frame.
+
+## The asset sheet (`asset-sheet`, V9b-2)
+
+`asset-sheet --asset ROW:COL=FILE ... --mode preview|full --out <dir>` is a common verb (both engines serve it from the common image): up to 36 pictures,
+`ROW` a slot id and `COL` 1 to 6, staged like `render`'s assets (a file of a reference store is refused before a container is asked for), no recording, no
+network. `preview` checks small pictures (a source's own previews) and tiles them onto `sheet.png`; a tile nobody gave a picture for is the theme's
+background. `full` also normalises each picture: re-encoded to PNG with the image's ffmpeg (one thread, bit-exact scaling and encoding), its metadata
+stripped, its long side scaled to 1920 (the frame's), never enlarged more than 1.5 times (`asset_too_small`), written as `asset-<sha12>.png` (0400, named by its
+own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a clip are `asset_type` (a clip
+until a later package draws clips), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
+`width`, `height`, `source_sha256`; `sheet`, `sheet_sha256`, `rows`) from a closed schema, hashes each file on the way out and checks its header, and never
+rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both); the catalogue lists them as
+`asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
 
 ## The storyboard (`storyboard`)
 
@@ -354,6 +395,10 @@ skip with a reason where those are absent; the host side runs against a fake doc
 - The quality of the presets beyond that one recording (condition C2), and the push-in's jitter.
 - **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
   and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
+- **V9b-2 was built without an image rebuild, a live render or the maintainer's look at the HyperFrames cutaway** (C10 of `oh:cutaway` on this engine and of
+  `oh:screenshot` on both): the compose, the gates and the page's look in the host's browser are tested, with a stand-in for GSAP's timeline; HyperFrames' own
+  render of the iframe, the decode of the pictures before frame 0 in it, the loopback server's answer for a PNG, the determinism at 4 and 8 cores (`F9`, `M4` of
+  `tests/test_engine_contract_live.py`) and spike S2 (a clip in a frame-band iframe) wait for the rebuilt images.
 - Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
   `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has
   `fit: contain` is drawn whole, centred, inside the safe margins, over a blurred, tinted copy of itself (`glass_blur_px`, `glass_tint_alpha`,
