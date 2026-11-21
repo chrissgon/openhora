@@ -131,15 +131,16 @@ def test_a_picture_is_never_enlarged_and_is_refused_only_when_its_layout_would_e
         assert code_of(run, tmp_path, {row: write(tmp_path, name + ".png", png_bytes(*size))}, out="o-" + name) == ("asset_too_small", row), name
 
 
-def test_the_target_size_is_integer_arithmetic_and_follows_the_layout():
-    assert A.target_size(1024, 683, "f") == (1024, 683) and A.target_size(1080, 1920, "f") == (1080, 1920) and A.target_size(4000, 3000, "f") == (1920, 1440)
-    assert A.target_size(1280, 720, "f") == (1280, 720)
-    assert code_of(A.target_size, 600, 337, "f") == ("asset_too_small", "f")             # glass: min(950/600, 1700/337) = 1.58
-    assert A.target_size(634, 400, "f") == (634, 400)                                     # 950 / 634 = 1.498
-    assert code_of(A.target_size, 632, 400, "f") == ("asset_too_small", "f")              # 1.503
-    assert code_of(A.target_size, 800, 1200, "f") == ("asset_too_small", "f")             # ratio 0.67, cover: 1920 / 1200 = 1.6
-    assert A.target_size(864, 1280, "f") == (864, 1280)                                   # 1.5 on the width, 1.5 on the height
-    assert code_of(A.target_size, 864, 1080, "f") == ("asset_too_small", "f")                  # ratio 0.8, cover: 1920 / 1080 = 1.78
+def test_the_target_size_follows_the_display_need_and_the_scale_rule():
+    """d = the enlargement the layout asks of the source; refused when d > 1.5; scale s = min(1, max(1920 / long side, d)); the long side at most 3840."""
+    keep = {(1024, 683): (1024, 683), (1080, 1920): (1080, 1920), (800, 2400): (800, 2400), (1080, 2400): (1080, 2400), (1280, 720): (1280, 720),
+            (634, 400): (634, 400), (864, 1280): (864, 1280), (4000, 3000): (1920, 1440), (1080, 5000): (829, 3840), (3000, 2000): (1920, 1280)}
+    for source, want in keep.items():
+        assert A.target_size(*source, "f") == want, source
+    for source in ((600, 337), (800, 1200), (632, 400), (864, 1080)):
+        assert code_of(A.target_size, *source, "f") == ("asset_too_small", "f"), source
+    assert A.display_need(1024, 683) < 1 and A.display_need(800, 1200) > 1.5 and A.display_need(1080, 1920) == 1 and A.display_need(4000, 3000) < 1
+    assert A.MAX_OUT_SIDE == 3840
 
 
 def test_the_size_rule_reads_the_pages_numbers():
@@ -440,7 +441,8 @@ def test_the_clip_argv_forces_the_demuxer_and_the_decoder_reads_the_first_video_
     clip = {"demuxer": "mov", "decoder": "h264", "color_space": "bt709", "width": 1920, "height": 1080}
     argv = A.clip_normalise_argv("ffmpeg", clip, "/in/a.mp4", "/out/a.mp4", (1920, 1080), 24, 5000)
     i = argv.index("-i")
-    assert argv[i - 10:i] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file", "-c:v", "h264", "-t", "10"] and argv[i + 1] == "/in/a.mp4"
+    assert argv[i - 14:i] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file", "-max_pixels", "33177600", "-codec_whitelist", "h264", "-c:v", "h264", "-t", "10"]
+    assert argv[i + 1] == "/in/a.mp4"
     assert argv[argv.index("-map") + 1] == "0:v:0" and argv.count("-map") == 1
     for flag in ("-an", "-sn", "-dn"):
         assert flag in argv
@@ -448,7 +450,8 @@ def test_the_clip_argv_forces_the_demuxer_and_the_decoder_reads_the_first_video_
     assert argv[argv.index("-r") + 1] == "24" and argv[argv.index("-fps_mode") + 1] == "cfr" and argv[argv.index("-fs") + 1] == "5000"
     assert argv[argv.index("-vf") + 1].startswith("fps=24:start_time=0,scale=1920:1080:in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv:")
     web = A.clip_normalise_argv("ffmpeg", dict(clip, demuxer="matroska", decoder="vp9"), "/in/a.webm", "/out/a.mp4", (1920, 1080), 30, 5000)
-    assert web[web.index("-i") - 8:web.index("-i") - 2] == ["-f", "matroska", "-protocol_whitelist", "file", "-c:v", "vp9"] and "-enable_drefs" not in web
+    assert web[web.index("-i") - 12:web.index("-i") - 2] == ["-f", "matroska", "-protocol_whitelist", "file", "-max_pixels", "33177600", "-codec_whitelist", "vp9", "-c:v", "vp9"]
+    assert "-enable_drefs" not in web
     assert "-lavfi" not in argv and all(isinstance(a, str) for a in argv) and not any("filter_complex" == a for a in argv)
 
 
@@ -459,7 +462,7 @@ def test_a_clip_is_told_by_its_first_bytes_never_by_its_name(tmp_path):
     swapped = {"slot-1:1": write(tmp_path, "looks-like.webm", Path(mp4).read_bytes()), "slot-1:2": write(tmp_path, "looks-like.mp4", Path(webm).read_bytes())}
     result = run_clips(tmp_path, swapped)
     assert [a["kind"] for a in result["assets"]] == ["clip", "clip"] and all(a["file"].endswith(".mp4") for a in result["assets"])
-    assert _media.clip_container(Path(mp4).read_bytes()[:16]) == "mov" and _media.clip_container(Path(webm).read_bytes()[:16]) == "matroska"
+    assert _media.clip_container(Path(mp4).read_bytes()[:_media.SNIFF_BYTES]) == "mov" and _media.clip_container(Path(webm).read_bytes()[:_media.SNIFF_BYTES]) == "matroska"
     assert _media.clip_container(png_bytes(8, 8)[:16]) is None and _media.clip_container(b"") is None
 
 
@@ -483,7 +486,9 @@ def test_a_clip_with_audio_two_video_streams_and_a_data_stream_keeps_only_the_fi
 def test_av1_is_read_only_when_the_images_ffmpeg_has_a_software_decoder_for_it(tmp_path):
     assert _media.clip_decoder("av1", ("libdav1d", "h264")) == "libdav1d" and _media.clip_decoder("av1", ("libaom-av1",)) == "libaom-av1"
     assert _media.clip_decoder("av1", ("av1", "h264", "hevc")) is None and _media.clip_decoder("av1", ()) is None          # the native decoder needs a hardware accelerator
-    assert [_media.clip_decoder(c, ()) for c in ("h264", "hevc", "vp8", "vp9", "mpeg4", "prores")] == ["h264", "hevc", "vp8", "vp9", None, None]
+    every = ("h264", "hevc", "vp8", "vp9")
+    assert [_media.clip_decoder(c, every) for c in every + ("mpeg4", "prores")] == ["h264", "hevc", "vp8", "vp9", None, None]
+    assert _media.clip_decoder("h264", ("hevc",)) is None and _media.clip_decoder("h264", ()) is None and _media.clip_decoder("h264", None) == "h264"      # a decoder the image lacks
     if "libsvtav1" not in subprocess.run([K.FFMPEG, "-hide_banner", "-encoders"], capture_output=True, text=True).stdout or "libdav1d" not in _media.software_decoders(K.FFMPEG):
         pytest.skip("this ffmpeg has no av1 encoder or no software av1 decoder")
     clip = C.counter_clip(tmp_path / "a.mp4", 1280, 720, 20, codec_args=("-c:v", "libsvtav1"))
@@ -515,7 +520,9 @@ def test_a_clip_follows_the_same_size_rule_with_even_sides(tmp_path):
     assert code_of(run_clips, tmp_path, {"slot-1:1": small}, out="no") == ("asset_too_small", "slot-1:1")
     assert not (tmp_path / "no").exists()
     assert A.clip_size(1024, 683, "f") == (1024, 684) and A.clip_size(1080, 1920, "f") == (1080, 1920)          # the sides are made even
-    assert code_of(A.clip_size, 800, 1200, "f") == ("asset_too_small", "f")
+    assert A.clip_size(800, 2400, "f") == (800, 2400) and A.clip_size(1080, 2400, "f") == (1080, 2400) and A.clip_size(4000, 3000, "f") == (1920, 1440)
+    assert A.clip_size(1080, 5000, "f") == (830, 3840)                                                              # capped at 3840 tall, then made even
+    assert code_of(A.clip_size, 800, 1200, "f") == ("asset_too_small", "f") and code_of(A.clip_size, 600, 337, "f") == ("asset_too_small", "f")
 
 
 @needs_ffmpeg
@@ -651,3 +658,108 @@ def test_the_host_refuses_a_bad_frame_rate_before_any_container(tmp_path):
         args = host.parse_args(["asset-sheet", "--asset", "slot-1:1=" + png, "--mode", "full", "--fps", fps, "--out", str(tmp_path / "o")])
         assert code_of(_host.verb_asset_sheet, args) == ("bad_fps", "fps"), fps
     assert _host.ASSET_FILE.fullmatch("asset-0123456789ab.mp4") and not _host.ASSET_FILE.fullmatch("asset-0123456789ab.webm")
+
+
+# ---------------------------------------------------------------- the review of #821: whitelists, caps, brands, durations
+
+def test_only_the_brands_of_an_mp4_or_a_mov_and_the_doctypes_of_a_webm_are_clips():
+    ftyp = lambda brand: b"\x00\x00\x00\x18ftyp" + brand + b"\x00" * 40                          # noqa: E731
+    for brand in (b"isom", b"iso2", b"iso3", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"qt  "):
+        assert _media.clip_container(ftyp(brand)) == "mov", brand
+    for brand in (b"avif", b"avis", b"heic", b"heix", b"mif1", b"msf1", b"3gp4", b"M4A ", b"crx "):
+        assert _media.clip_container(ftyp(brand)) is None, brand
+    ebml = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\xf7\x81\x01\x42\xf2\x81\x04\x42\xf3\x81\x08"
+    assert _media.clip_container(ebml + b"\x42\x82\x84webm" + b"\x00" * 20) == "matroska" and _media.clip_container(ebml + b"\x42\x82\x88matroska" + b"\x00" * 20) == "matroska"
+    assert _media.clip_container(ebml + b"\x42\x82\x84xxxx" + b"\x00" * 20) is None and _media.clip_container(ebml[:4] + b"\x00" * 60) is None
+
+
+def test_a_file_of_another_brand_is_asset_type_in_both_modes(tmp_path):
+    for name, raw in (("avif", b"\x00\x00\x00\x1cftypavif" + b"\x00" * 60), ("heic", b"\x00\x00\x00\x18ftypheic" + b"\x00" * 60), ("ebml", b"\x1a\x45\xdf\xa3" + b"\x00" * 60)):
+        for mode in ("preview", "full"):
+            assert code_of(A.asset_sheet, items={"slot-1:1": write(tmp_path, name, raw)}, mode=mode, out_dir=str(tmp_path / "o"), ffmpeg="/nowhere", data=DATA) == ("asset_type", "slot-1:1"), (name, mode)
+
+
+def test_the_clip_input_carries_a_codec_whitelist_and_a_pixel_cap_on_ffprobe_and_ffmpeg_alike(tmp_path):
+    every = ("h264", "hevc", "vp8", "vp9", "libdav1d", "libaom-av1", "h264_cuvid")
+    probe_whitelist = _media.codec_whitelist(every).split(",")
+    assert {"h264", "hevc", "vp8", "vp9", "libdav1d", "libaom-av1"} <= set(probe_whitelist) and not any("cuvid" in n or "v4l2" in n for n in probe_whitelist)
+    assert "libdav1d" not in _media.codec_whitelist(("h264",)).split(",")                      # an av1 decoder is named only when the image has it
+    argv_ffprobe = []
+    probe = tmp_path / "ffprobe-record"
+    probe.write_text("#!%s\nimport json, sys\nopen(%r, 'w').write(json.dumps(sys.argv[1:]))\nprint(json.dumps({'streams': [{'codec_type': 'video', 'codec_name': 'h264', 'width': 64, 'height': 64, 'r_frame_rate': '30/1', 'avg_frame_rate': '30/1'}], 'format': {'duration': '1'}}))\n"
+                     % (sys.executable, str(tmp_path / "argv.json")))
+    probe.chmod(0o755)
+    _media.probe_clip(str(probe), "/x.mp4", "mov", "f", ("h264", "libdav1d"))
+    argv_ffprobe = json.loads((tmp_path / "argv.json").read_text())
+    assert argv_ffprobe[argv_ffprobe.index("-max_pixels") + 1] == "33177600" and argv_ffprobe[argv_ffprobe.index("-codec_whitelist") + 1].split(",") == _media.codec_whitelist(("h264", "libdav1d")).split(",")
+    clip = {"demuxer": "mov", "decoder": "libdav1d", "color_space": "bt709", "width": 1920, "height": 1080, "seconds": 1.0}
+    for argv in (A.clip_normalise_argv("ffmpeg", clip, "/i.mp4", "/o.mp4", (1920, 1080), 30, 100), A.clip_frame_argv("ffmpeg", clip, "/i.mp4", "/o.png"),
+                 _media.compose_argv("ffmpeg", {"src": "/s", "has_audio": False, "fps": 30, "size": [1080, 1920], "src_matrix": "bt709", "kept": [[0, 60]], "layers": [], "frames_dir": "f",
+                                                "pips": [], "out_frames": 60, "max_bytes": 1, "out_name": "o.mp4", "zoom": {"mode": "none", "factor": 1, "push_in": 0, "anchor_y": 0.25},
+                                                "anchor": (540.0, 400.0), "fade": 0.015, "clips": [{"asset": "assets/c.mp4", "start_frame": 5, "end_frame": 20, "mode": "cover"}]})):
+        i = argv.index("-max_pixels")
+        assert argv[i + 1] == "33177600" and argv[argv.index("-codec_whitelist") + 1] in ("libdav1d", "h264") and argv[argv.index("-codec_whitelist") + 1] == argv[argv.index("-c:v", i) + 1]
+    assert "h264_cuvid" not in " ".join(A.clip_normalise_argv("ffmpeg", clip, "/i.mp4", "/o.mp4", (1920, 1080), 30, 100))
+
+
+@needs_ffmpeg
+def test_the_whitelist_lets_a_clip_with_audio_through_and_refuses_a_codec_outside_it(tmp_path):
+    with_audio = tmp_path / "audio.mp4"
+    C.ffmpeg("-f", "lavfi", "-i", "color=c=red:s=1280x720:r=30:d=1", "-f", "lavfi", "-i", "sine=f=300:d=1", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", str(with_audio))
+    a, = run_clips(tmp_path, {"slot-1:1": str(with_audio)})["assets"]
+    assert a["kind"] == "clip"
+    mpeg4 = tmp_path / "old.mp4"
+    C.ffmpeg("-f", "lavfi", "-i", "color=c=red:s=1280x720:r=30:d=1", "-pix_fmt", "yuv420p", "-c:v", "mpeg4", str(mpeg4))
+    assert code_of(run_clips, tmp_path, {"slot-1:1": str(mpeg4)}, out="o2") == ("asset_type", "slot-1:1")
+
+
+def test_a_frame_rate_over_120_and_more_than_1200_frames_in_ten_seconds_are_asset_type(tmp_path):
+    clip = write(tmp_path, "any.mp4", b"\x00\x00\x00\x18ftypisom" + b"\x00" * 40)
+    def facts(**more):
+        return fake_ffprobe(tmp_path, {"streams": [stream(**more)], "format": {"duration": "5"}})
+    def refused(probe):
+        return code_of(_media.probe_clip, probe, clip, "mov", "f", ("h264",))
+    assert refused(facts(r_frame_rate="240/1", avg_frame_rate="30/1")) == ("asset_type", "f") and refused(facts(avg_frame_rate="121/1")) == ("asset_type", "f")
+    assert _media.probe_clip(facts(r_frame_rate="120/1", avg_frame_rate="120/1"), clip, "mov", "f", ("h264",))["fps"] == 120.0
+    assert refused(facts(nb_frames="1201", duration="1")) == ("asset_type", "f")                                  # more than 1200 in the 10 s window
+    assert _media.probe_clip(facts(nb_frames="1200"), clip, "mov", "f", ("h264",))["codec"] == "h264"
+    assert _media.probe_clip(facts(nb_frames="2400", duration="20"), clip, "mov", "f", ("h264",))["codec"] == "h264"       # 1200 of them fall in the first 10 s: kept
+    assert (_media.CLIP_MAX_FPS, _media.CLIP_MAX_FRAMES, _media.CLIP_MAX_PIXELS) == (120, 1200, 33177600)
+
+
+def test_a_normalised_clip_with_a_side_over_3840_is_asset_type_at_render(tmp_path):
+    clip = write(tmp_path, "any.mp4", b"\x00\x00\x00\x18ftypisom" + b"\x00" * 40)
+    wide = fake_ffprobe(tmp_path, {"streams": [stream(width=3842, height=1080, format_name="x")], "format": {"duration": "2", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}})
+    assert code_of(_media.probe_clip, wide, clip, "mov", "f", None, True) == ("asset_type", "f")
+    ok = fake_ffprobe(tmp_path, {"streams": [stream(width=3840, height=1080)], "format": {"duration": "2", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"}})
+    assert _media.probe_clip(ok, clip, "mov", "f", None, True)["width"] == 3840
+    assert _media.CLIP_RENDER_MAX_SIDE == A.MAX_OUT_SIDE == 3840
+
+
+@needs_ffmpeg
+def test_the_clips_length_is_its_video_streams_own_and_an_audio_track_running_past_it_does_not_count(tmp_path):
+    clip = tmp_path / "long-audio.mp4"
+    C.ffmpeg("-f", "lavfi", "-i", "color=c=red:s=1280x720:r=30:d=1", "-f", "lavfi", "-i", "sine=f=300:d=2", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac", str(clip))
+    assert probe_json(clip)["format"]["duration"] and float(probe_json(clip)["format"]["duration"]) > 1.5                     # the container says 2 s
+    a, = run_clips(tmp_path, {"slot-1:1": str(clip)})["assets"]
+    assert a["seconds"] == pytest.approx(1.0, abs=0.1)                                                                       # the video's 1 s
+    assert _media.probe_clip(K.FFPROBE, str(clip), "mov", "f", ("h264",))["seconds"] == pytest.approx(1.0, abs=0.1)
+    only_format = fake_ffprobe(tmp_path, {"streams": [stream()], "format": {"duration": "3"}})
+    assert _media.probe_clip(only_format, str(clip), "mov", "f", ("h264",))["seconds"] == 3.0                                 # no stream length: the container's
+
+
+def test_the_decoder_list_is_read_from_the_decoder_lines_and_not_from_the_legend(monkeypatch):
+    listing = "Decoders:\n V..... = Video\n A..... = Audio\n ------\n V....D h264                 H.264\n VFS..D hevc                 HEVC\n V..... libdav1d             dav1d\n A....D aac                  AAC\n"
+    monkeypatch.setattr(_media, "run", lambda argv, timeout, cwd=None: (listing, ""))
+    assert _media.software_decoders("ffmpeg") == ("h264", "hevc", "libdav1d")
+
+
+@needs_ffmpeg
+def test_a_clip_whose_decoder_the_image_lacks_is_asset_type(tmp_path):
+    clip = C.counter_clip(tmp_path / "a.mp4", 1280, 720, 10)
+    assert code_of(run_clips, tmp_path, {"slot-1:1": clip}, decoders=("hevc",)) == ("asset_type", "slot-1:1")
+
+
+def test_a_clip_entry_with_no_frame_is_a_closed_refusal_not_a_value_error():
+    assert code_of(_media.clip_filters, {"asset": "a", "start_frame": 50, "end_frame": 50, "mode": "cover"}, 3, 0, 30, 120) == ("clip_no_frames", "clip")
+    assert code_of(_media.clip_filters, {"asset": "a", "start_frame": 130, "end_frame": 140, "mode": "cover"}, 3, 0, 30, 120) == ("clip_no_frames", "clip")

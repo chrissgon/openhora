@@ -79,7 +79,7 @@ def test_the_cover_graph_has_no_path_no_enable_and_a_stream_the_length_of_the_ou
     for needle in ("assets/", ".mp4", "beat3", "/in/recording", "frames/", "enable="):
         assert needle not in graph, needle
     i = argv.index("assets/beat3.mp4")
-    assert argv[i - 9:i] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file", "-c:v", "h264", "-i"]
+    assert argv[i - 13:i] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file", "-max_pixels", "33177600", "-codec_whitelist", "h264", "-c:v", "h264", "-i"]
     assert "[3:v:0]fps=30:start_time=0,tpad=stop=-1:stop_mode=clone,trim=end_frame=60,setpts=N/(30*TB),scale=1080:1920:force_original_aspect_ratio=increase:" in graph
     assert "[lay0]tpad=start=20:start_mode=clone:stop=-1:stop_mode=clone,trim=end_frame=120,setpts=N/(30*TB),format=gbrp[ca0]" in graph      # the stream is the whole output
     assert "if(between(N,20,79),255,0)" in graph and "trim=end_frame=120,setpts=N/(30*TB),scale=1080:1920:flags=lanczos+accurate_rnd+bitexact[cm0]" in graph
@@ -102,8 +102,8 @@ def test_the_glass_graph_is_the_pages_look_from_the_same_values():
     assert "if(between(N,20,79),255,0)" in graph and "trim=end_frame=120" in graph and "split=2[gs0][gf0]" in graph
     scales = re.findall(r"scale=[^,;\[]*", graph)
     assert all("flags=lanczos+accurate_rnd+bitexact" in x for x in scales), scales
-    untinted = graph_of(_media.compose_argv("ffmpeg", plan_with([dict(GLASS, tint=None)])))
-    assert "color=c=0x" not in untinted.split("[gb0]")[0] and "[gt0]" not in untinted                                                        # no predominant colour: no tint
+    bare = graph_of(_media.compose_argv("ffmpeg", plan_with([dict(GLASS, tint=None)])))
+    assert "[gt0]" not in bare                                                                                   # the builder draws no tint for a row that has none: the planner always gives one (clip_rows)
 
 
 def test_the_look_values_of_the_page_are_the_ones_this_port_copies():
@@ -431,7 +431,7 @@ def test_a_clip_is_loaded_with_the_checks_of_the_normalised_form(tmp_path):
 
 def test_a_clip_is_told_from_a_picture_by_its_first_bytes_and_the_pictures_are_unchanged(tmp_path):
     (tmp_path / "a.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 40)
-    (tmp_path / "b.webm").write_bytes(b"\x1a\x45\xdf\xa3" + b"\x00" * 40)
+    (tmp_path / "b.webm").write_bytes(b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x84webm" + b"\x00" * 40)
     (tmp_path / "c.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 40)
     (tmp_path / "d.bin").write_bytes(b"not a clip")
     pictures, clips = _assets.split_clips({s: str(tmp_path / n) for s, n in (("a", "a.mp4"), ("b", "b.webm"), ("c", "c.png"), ("d", "d.bin"), ("e", "missing"))})
@@ -458,7 +458,7 @@ def render_it(files, out, *more, slots=()):
 @pytest.fixture(scope="module")
 def world(tmp_path_factory):
     """One recording through analyse, base and align (its beat 3 a cutaway, its beat 4 a pip), a cover clip and a glass clip made by `asset-sheet`, and the renders:
-    the cover clip on the cutaway, the same with one worker, the glass clip, and the pip's picture throughout."""
+    the cover clip on the cutaway, the glass clip, and the pip's picture throughout."""
     tmp = tmp_path_factory.mktemp("clipcut")
     files = K.pipeline(tmp, K.build_transcript(K.SHORT_SENTENCES), K.SHORT_POST)
     out = {}
@@ -538,3 +538,48 @@ def test_a_render_with_pictures_only_has_no_clip_in_its_plan(world):
     _layout.pip_cards(data, timeline, assets)
     plan = _render.compose_plan(data, edl, timeline, assets, platform, "/in/rec")
     assert "clips" not in plan
+
+
+def test_a_glass_clip_with_no_predominant_colour_is_tinted_with_the_themes_background_as_the_page_does():
+    page = (K.BLOCKS / "oh" / "cutaway" / "renderat.html").read_text(encoding="utf-8")
+    assert "predominant(img) || getComputedStyle(document.documentElement).getPropertyValue('--c-bg').trim()" in page          # the page's fallback: the theme's `bg`
+    tl = timeline_with("oh:cutaway")
+    tl["beats"][0]["params_kind"] = {"asset": "clip"}
+    plain = {"beat3": dict(CLIP, tint=None)}
+    row, = _render.clip_rows(DATA, tl, plain)
+    assert row["mode"] == "glass" and row["tint"] == DATA["theme"]["colors"]["bg"].lstrip("#").upper()
+    themed, = _render.clip_rows(DATA, tl, plain, {"bg": "#10203a"})                       # the edit list's own theme
+    assert themed["tint"] == "10203A"
+    assert "color=c=0x10203A73" in graph_of(_media.compose_argv("ffmpeg", plan_with([themed])))
+    own, = _render.clip_rows(DATA, tl, {"beat3": dict(CLIP, tint="3A9E5C")}, {"bg": "#10203a"})
+    assert own["tint"] == "3A9E5C"                                                        # a predominant colour wins
+
+
+@needs_browser
+def test_the_page_reports_the_glass_box_of_a_clip_as_it_does_for_an_image(tmp_path):
+    steps = [("wide", {}, {"params_kind": {"asset": "clip"}, "clip_size": {"w": 1920, "h": 1080}}, 0.5), ("wide", {}, {"params_kind": {"asset": "clip"}, "clip_size": {"w": 1080, "h": 1920}}, 0.5),
+             ("wide", {"fit": "contain"}, {"params_kind": {"asset": "clip"}, "clip_size": {"w": 1080, "h": 1920}}, 0.5), ("wide", {}, {}, 0.5)]
+    serve, _ = _frames.load_templates(["oh/cutaway/renderat.html"])
+    serve["/assets/wide.png"] = (pictures()["wide"], "image/png")
+    with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "c"), time_limit=240) as chrome:
+        chrome.start()
+        page = chrome.new_page(1080, 1920)
+        page.open("/t/oh/cutaway/renderat.html", {"colors": COLORS, "fonts": {}, "images": {"wide": _cdp.ORIGIN + "/assets/wide.png"}})
+        boxes = []
+        for picture, params, extra, t in steps:
+            page.frame(t, dict({"params": dict({"asset": picture}, **params), "look": LOOKS, "zones": {}, "duration": 2.0}, **extra))
+            boxes.append(json.loads(page.evaluate("JSON.stringify(window.__box)")))
+    assert boxes[0] == _media.glass_box(1920, 1080) and boxes[1] == {"x": 0, "y": 0, "w": 1080, "h": 1920} and boxes[2] == _media.glass_box(1080, 1920)
+    assert boxes[3] == _media.glass_box(1200, 675)                                        # an image: the box of its own picture
+
+
+@needs_ffmpeg
+def test_a_rotated_clip_and_a_clip_with_a_side_over_3840_are_refused_at_render(tmp_path):
+    good = normalised(tmp_path, 1280, 720, 20)
+    rotated = tmp_path / "rotated.mp4"
+    C.ffmpeg("-display_rotation", "90", "-i", good, "-c", "copy", str(rotated))
+    limits = DATA["limits"]
+    assert code_of(_render.load_clips, {"beat3": (str(rotated), "mov")}, {}, limits, K.FFMPEG, K.FFPROBE) == ("asset_type", "beat3")
+    wide = tmp_path / "wide.mp4"
+    C.ffmpeg("-f", "lavfi", "-i", "color=c=0x2060C0:s=3842x64:r=30:d=0.5", "-pix_fmt", "yuv420p", "-c:v", "libx264", str(wide))
+    assert code_of(_render.load_clips, {"beat3": (str(wide), "mov")}, {}, limits, K.FFMPEG, K.FFPROBE) == ("asset_type", "beat3")

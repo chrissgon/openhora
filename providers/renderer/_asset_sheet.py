@@ -24,6 +24,7 @@ over 7680x4320 is `asset_dimensions`, one that cannot be read is `asset_corrupt`
 from __future__ import annotations
 
 import hashlib
+from fractions import Fraction
 import os
 import shutil
 import struct
@@ -40,6 +41,7 @@ MAX_TILES = 36                 # the most pictures in one call: six rows of six
 MAX_COL = 6
 LONG_SIDE = 1920               # a normalised picture's long side is at most this: the frame's (1080x1920); a smaller picture is never enlarged
 MAX_UPSCALE = 1.5              # a picture is refused (`asset_too_small`) when the layout would draw it enlarged more than this
+MAX_OUT_SIDE = 3840            # the long side of a normalised picture or clip is at most this (a render refuses a clip with a side over it)
 MAX_UPSCALE_RATIO = (3, 2)     # MAX_UPSCALE as a fraction, for integer arithmetic
 FRAME_W, FRAME_H = 1080, 1920  # the frame
 # The next three are the cutaway page's own numbers (`blocks/oh/cutaway/renderat.html`: SAFE and MAX_FG_H) and the cutaway look's default `glass_ratio_max` (0.8, as
@@ -119,24 +121,28 @@ def check_picture(path: str, field: str, limits: dict) -> dict:
     return {"kind": kind, "width": w, "height": h, "data": data, "sha256": hashlib.sha256(data).hexdigest(), "alpha": has_alpha(data, kind)}
 
 
+def display_need(w: int, h: int) -> Fraction:
+    """`d`, the enlargement the layout its ratio selects with the default look asks of a w x h source: at or under GLASS_RATIO_MAX (the cover layout)
+    max(frame width / w, frame height / h), else (the glass layout) min((frame width - 2 x SAFE) / w, MAX_FG_H / h)."""
+    if w * GLASS_RATIO_MAX[1] <= h * GLASS_RATIO_MAX[0]:
+        return max(Fraction(FRAME_W, w), Fraction(FRAME_H, h))
+    return min(Fraction(FRAME_W - 2 * SAFE, w), Fraction(MAX_FG_H, h))
+
+
 def target_size(w: int, h: int, field: str) -> tuple:
-    """The size a picture or clip is normalised to (the supervisor's correction after live leg K3, which replaces V9b-2's "long side to 1920, at most 1.5 times"):
-    never enlarged. A long side over LONG_SIDE is scaled down to it with the aspect kept (whole pixels, rounded half up); any other picture keeps its own size.
-    It is `asset_too_small` only when the final picture would be drawn more than MAX_UPSCALE times its own size in the layout its ratio selects with the default
-    look: at or under GLASS_RATIO_MAX the cover layout (max(frame width / w, frame height / h) over the limit), else the glass layout
-    (min((frame width - 2 x SAFE) / w, MAX_FG_H / h) over the limit). Integer arithmetic only. Loss: a theme whose `glass_ratio_max` differs, or a `fit` that forces
-    cover on a landscape picture, can draw a picture enlarged more than MAX_UPSCALE times."""
-    long_side = max(w, h)
-    if long_side > LONG_SIDE:
-        w, h = max(1, (w * LONG_SIDE + long_side // 2) // long_side), max(1, (h * LONG_SIDE + long_side // 2) // long_side)
-    limit_n, limit_d = MAX_UPSCALE_RATIO
-    if w * GLASS_RATIO_MAX[1] <= h * GLASS_RATIO_MAX[0]:          # ratio at or under 0.8: cover
-        too_small = FRAME_W * limit_d > limit_n * w or FRAME_H * limit_d > limit_n * h
-    else:                                                         # glass: both bounds of the picture's box need more than the limit
-        too_small = (FRAME_W - 2 * SAFE) * limit_d > limit_n * w and MAX_FG_H * limit_d > limit_n * h
-    if too_small:
+    """The size a picture or clip is normalised to (the supervisor's rule after live leg K3 and the review of #821, which replaces V9b-2's "long side to 1920, at most
+    1.5 times"). `d` = `display_need` of the SOURCE; `asset_too_small` when d is over MAX_UPSCALE. The scale is s = min(1, max(LONG_SIDE / long side, d)): never an enlargement,
+    and a reduction only as far as the drawing still needs; the long side of the result is at most MAX_OUT_SIDE. Whole pixels, rounded half up; exact fractions.
+    Loss: a theme whose `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than MAX_UPSCALE times."""
+    d = display_need(w, h)
+    if d * MAX_UPSCALE_RATIO[1] > MAX_UPSCALE_RATIO[0]:
         fail("asset_too_small", field)
-    return w, h
+    s = min(Fraction(1), max(Fraction(LONG_SIDE, max(w, h)), d))
+    tw, th = int(s * w + Fraction(1, 2)), int(s * h + Fraction(1, 2))
+    if max(tw, th) > MAX_OUT_SIDE:
+        k = Fraction(MAX_OUT_SIDE, max(tw, th))
+        tw, th = int(k * tw + Fraction(1, 2)), int(k * th + Fraction(1, 2))
+    return max(1, tw), max(1, th)
 
 
 def check_clip(path: str, data: bytes, demuxer: str, field: str, limits: dict, ffprobe, decoders) -> dict:
@@ -285,7 +291,7 @@ def asset_sheet(*, items: dict, mode: str, out_dir: str, ffmpeg: str, data=None,
     for (row, col), path in sorted(keyed.items()):
         field = "%s:%d" % (row, col)
         raw = _assets.read_regular(path, data["limits"]["asset_max_bytes"], "asset_unreadable", field)
-        demuxer = _media.clip_container(raw[:16])
+        demuxer = _media.clip_container(raw[:_media.SNIFF_BYTES])
         if demuxer:
             if decoders is None:                                    # the image's ffmpeg says which codecs it can read, once, when a clip is given
                 try:

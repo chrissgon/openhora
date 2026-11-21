@@ -119,7 +119,7 @@ def image_facts(data: bytes):
     return None
 
 
-def head_bytes(path: str, count: int = 16) -> bytes:
+def head_bytes(path: str, count: int = 64) -> bytes:
     """The first `count` bytes of a regular file (opened with O_NOFOLLOW), or b"" when it cannot be read: the type of a file is told from these, never from its name."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
@@ -151,7 +151,7 @@ def read_clip(slot: str, path: str, sha256s: dict, limits: dict) -> dict:
     intake when given (`asset_hash`). The container must be an MP4 (`asset_type`): a render draws the one form `asset-sheet` writes."""
     import _media
     data = read_regular(path, limits["asset_max_bytes"], "asset_unreadable", slot)
-    demuxer = _media.clip_container(data[:16])
+    demuxer = _media.clip_container(data[:_media.SNIFF_BYTES])
     if demuxer != "mov":
         raise Refusal("asset_type", slot)
     digest = hashlib.sha256(data).hexdigest()

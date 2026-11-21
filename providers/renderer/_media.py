@@ -278,34 +278,57 @@ CLIP_FPS_MIN, CLIP_FPS_MAX, CLIP_FPS_DEFAULT = 24, 60, 30
 CLIP_SECONDS_SLACK = 0.1                               # a normalised clip is at most CLIP_MAX_SECONDS plus this (the container rounds the last frame up)
 CLIP_EXT = "mp4"                                       # the one container a normalised clip is written in
 EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+SNIFF_BYTES = 64                                       # the first bytes a clip's container is told from (an EBML header's doctype is about 30 bytes in)
+MP4_BRANDS = (b"isom", b"iso2", b"iso3", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"qt  ")      # the `ftyp` major brands of an MP4 or MOV; AVIF, HEIC and the rest are not clips
+EBML_DOCTYPES = (b"\x42\x82\x84webm", b"\x42\x82\x88matroska")                                                   # the DocType element of a WebM or Matroska header
+CLIP_MAX_PIXELS = 7680 * 4320                          # the decoder's own cap (`-max_pixels`), beyond what the header says
+CLIP_MAX_FPS = 120                                     # a clip declaring more frames a second than this is refused at probe
+CLIP_MAX_FRAMES = 1200                                 # and one with more frames than this in its first CLIP_MAX_SECONDS
+CLIP_RENDER_MAX_SIDE = 3840                            # a normalised clip's side: a render refuses a larger one
+# The audio and subtitle decoders a clip's probe may open (ffprobe opens a decoder for every stream, and a codec whitelist refuses any it does not name); an input
+# with another audio codec is `asset_type`. The normaliser and the render map the first video stream only, so their whitelist is the one video decoder.
+PROBE_OTHER_DECODERS = ("aac", "mp3", "opus", "vorbis", "flac", "ac3", "eac3", "alac", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_u8", "pcm_f32le", "amr_nb", "amr_wb",
+                        "mov_text", "subrip", "webvtt")
 
 
 def clip_container(head: bytes):
     """'mov' for an MP4 or MOV (an `ftyp` box first), 'matroska' for a WebM (an EBML header), else None. By the first bytes, never by a name."""
-    if len(head) >= 12 and head[4:8] == b"ftyp":
+    if len(head) >= 12 and head[4:8] == b"ftyp" and head[8:12] in MP4_BRANDS:
         return "mov"
-    if head[:4] == EBML_MAGIC:
+    if head[:4] == EBML_MAGIC and any(t in head[:SNIFF_BYTES] for t in EBML_DOCTYPES):
         return "matroska"
     return None
 
 
-def clip_input(demuxer: str, decoder=None) -> list:
-    """The input options of a clip: its container's demuxer forced (an MP4 or MOV with no external data reference), only the `file` protocol, and, when
-    given, the decoder forced too. The caller adds `-i PATH`."""
-    out = ["-f", demuxer] + (["-enable_drefs", "0"] if demuxer == "mov" else []) + ["-protocol_whitelist", "file"]
+def codec_whitelist(decoders) -> str:
+    """The `-codec_whitelist` of a clip's probe: the video decoders a clip may use (CLIP_DECODER's, and the av1 software decoders `decoders` has) and the audio and
+    subtitle decoders ffprobe opens for the other streams. Never a hardware wrapper."""
+    names = list(CLIP_DECODER.values()) + [d for d in AV1_DECODERS if d in (decoders or ())] + list(PROBE_OTHER_DECODERS)
+    return ",".join(names)
+
+
+def clip_input(demuxer: str, decoder=None, whitelist=None) -> list:
+    """The input options of a clip: its container's demuxer forced (an MP4 or MOV with no external data reference), only the `file` protocol, the decoder's own
+    pixel cap, a codec whitelist (the forced decoder alone, else `whitelist`: a software decoder, never a hardware wrapper) and, when given, the decoder forced
+    too. The caller adds `-i PATH`."""
+    out = ["-f", demuxer] + (["-enable_drefs", "0"] if demuxer == "mov" else []) + ["-protocol_whitelist", "file", "-max_pixels", str(CLIP_MAX_PIXELS)]
+    allowed = decoder or whitelist
+    if allowed:
+        out += ["-codec_whitelist", allowed]
     return out + (["-c:v", decoder] if decoder else [])
 
 
 def software_decoders(ffmpeg: str) -> tuple:
     """The names of the video decoders this ffmpeg was built with, read from `ffmpeg -decoders` (never assumed): the image's build decides which codecs a clip may use."""
     out, _ = run([ffmpeg, "-hide_banner", "-decoders"], 30)
-    return tuple(sorted(set(re.findall(r"^\s*V\S*\s+(\S+)\s", out, re.M))))
+    return tuple(sorted(n for n in set(re.findall(r"^\s*V[.A-Z]{5}\s+(\S+)\s", out, re.M)) if n != "="))
 
 
 def clip_decoder(codec: str, decoders):
     """The decoder to force for a clip's codec, or None when the clip may not be read: the four codecs of CLIP_CODECS, and av1 only when one of AV1_DECODERS is built in."""
     if codec in CLIP_DECODER:
-        return CLIP_DECODER[codec]
+        name = CLIP_DECODER[codec]
+        return name if decoders is None or name in decoders else None      # a decoder the image's ffmpeg lacks: the clip may not be read
     if codec == "av1":
         return next((d for d in AV1_DECODERS if d in (decoders or ())), None)
     return None
@@ -330,12 +353,12 @@ def probe_clip(ffprobe: str, path: str, demuxer: str, field: str, decoders=None,
     `asset_type`: no video stream, a picture stream, a codec outside CLIP_CODECS (av1 only with a software decoder in `decoders`), HDR, and, for an
     `output`, any other stream, another container than MP4, another pixel format than yuv420p, a rotation, a rate that is not constant or is outside 24 to 60;
     `asset_dimensions`: a side or a size over the caps; `asset_corrupt`: a file ffprobe cannot read, or no length."""
-    argv = [ffprobe, "-v", "error", *clip_input(demuxer), "-show_streams", "-show_format", "-of", "json", path]
+    argv = [ffprobe, "-v", "error", *clip_input(demuxer, whitelist=codec_whitelist(decoders)), "-show_streams", "-show_format", "-of", "json", path]
     try:
         out, _ = run(argv, timeout)
     except ToolError as exc:
         if exc.code == "tool_failed":
-            raise Refusal("asset_corrupt", field) from None
+            raise Refusal("asset_type" if "whitelist" in exc.tail else "asset_corrupt", field) from None      # a codec outside the whitelist is a kind of clip not read
         raise
     try:
         info = json.loads(out)
@@ -358,7 +381,8 @@ def probe_clip(ffprobe: str, path: str, demuxer: str, field: str, decoders=None,
         raise Refusal("asset_type", field)
     try:
         w, h = int(v["width"]), int(v["height"])
-        duration = float(fmt.get("duration") if fmt.get("duration") not in (None, "N/A") else v.get("duration"))
+        own = v.get("duration")                       # the video stream's own length, the container's only when the stream has none (an audio track may run past it)
+        duration = float(own if own not in (None, "N/A") else fmt.get("duration"))
     except (KeyError, ValueError, TypeError):
         raise Refusal("asset_corrupt", field) from None
     if _rotation(v) in (90, 270):
@@ -368,6 +392,16 @@ def probe_clip(ffprobe: str, path: str, demuxer: str, field: str, decoders=None,
     if max(w, h) > CLIP_MAX_LONG or min(w, h) > CLIP_MAX_SHORT:
         raise Refusal("asset_dimensions", field)
     fps, average = _fps(v.get("r_frame_rate")), _fps(v.get("avg_frame_rate"))
+    if max(fps, average) > CLIP_MAX_FPS:
+        raise Refusal("asset_type", field)
+    try:
+        frames = int(v["nb_frames"]) if v.get("nb_frames") not in (None, "N/A") else None
+    except ValueError:
+        frames = None
+    if frames is not None and frames * min(1.0, CLIP_MAX_SECONDS / duration) > CLIP_MAX_FRAMES:
+        raise Refusal("asset_type", field)
+    if output and max(w, h) > CLIP_RENDER_MAX_SIDE:
+        raise Refusal("asset_type", field)
     if output and (not CLIP_FPS_MIN - 0.01 <= fps <= CLIP_FPS_MAX + 0.01 or abs(fps - average) > 0.001 or duration > CLIP_MAX_SECONDS + CLIP_SECONDS_SLACK):
         raise Refusal("asset_type", field)
     return {"codec": codec, "width": w, "height": h, "duration": duration, "seconds": round(min(duration, CLIP_MAX_SECONDS), 3), "fps": round(average or fps, 3),
@@ -637,7 +671,7 @@ def clip_filters(c: dict, src: int, i: int, fps, total: int) -> tuple:
     hi = min(c["end_frame"], total) - 1
     n = hi - lo + 1
     if n < 1:
-        raise ValueError("a clip cutaway with no frame")
+        raise Refusal("clip_no_frames", "clip")
     clock = "setpts=N/(%s*TB)" % fps
     rgb = "in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s" % SWS
     head = "[%d:v:0]fps=%s:start_time=0,tpad=stop=-1:stop_mode=clone,trim=end_frame=%d,%s" % (src, fps, n, clock)

@@ -411,17 +411,19 @@ def verb_asset_sheet(args) -> dict:
             if not re.fullmatch(r"[0-9a-f]{64}", a["sha256"]) or not re.fullmatch(r"[0-9a-f]{64}", a["source_sha256"]) \
                     or not (1 <= a["width"] <= side and 1 <= a["height"] <= side):
                 raise bad
+            clip_kind = _media.clip_container(_assets.head_bytes(keyed[(a["row"], a["col"])])) is not None       # the host tells the input's kind itself: the container's word is checked
+            kind, seconds = a.get("kind"), a.get("seconds")
+            if kind != ("clip" if clip_kind else "image") or not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+                raise bad
+            if (kind == "image" and seconds != 0) or (kind == "clip" and not 0 < seconds <= _media.CLIP_MAX_SECONDS + _media.CLIP_SECONDS_SLACK):
+                raise bad
             if args.mode == "preview":
                 if a["file"] is not None:
                     raise bad
             else:
                 named = ASSET_FILE.fullmatch(a["file"] or "")
-                if named is None or named.group(1) != a["sha256"][:12]:
+                if named is None or named.group(1) != a["sha256"][:12] or named.group(2) != {"image": "png", "clip": "mp4"}[kind]:
                     raise bad
-                if a.get("kind") is not None and named.group(2) != {"image": "png", "clip": "mp4"}.get(a["kind"]):
-                    raise bad
-            if a.get("kind") not in (None, "image", "clip") or (a.get("seconds") is not None and not 0 <= a["seconds"] <= _media.CLIP_MAX_SECONDS + _media.CLIP_SECONDS_SLACK):
-                raise bad
         os.makedirs(out_dir, mode=0o700, exist_ok=True)
         replayed = 0
         if args.mode == "full":
