@@ -274,17 +274,18 @@ still equal, within the codec's loss, to the render's own first picture of a ran
 `ROW` a slot id and `COL` 1 to 6, staged like `render`'s assets (a file of a reference store is refused before a container is asked for), no recording, no
 network. `preview` checks small pictures (a source's own previews) and tiles them onto `sheet.png`; a tile nobody gave a picture for is the theme's
 background. `full` also normalises each picture: re-encoded to PNG with the image's ffmpeg (one thread, bit-exact scaling and encoding), its metadata
-stripped, **never enlarged** (a long side over 1920, the frame's, is scaled down to it; any other picture keeps its size), refused `asset_too_small` only when the layout its ratio selects would draw it enlarged more than 1.5 times (see the size rule below), written as `asset-<sha12>.png` (0400, named by its
+stripped, sized by the size rule below (never enlarged, refused `asset_too_small` when its layout would draw it enlarged more than 1.5 times), written as `asset-<sha12>.png` (0400, named by its
 own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a file of no known kind are `asset_type` (a clip is accepted since V9b-5a: see "Clips"), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
 `width`, `height`, `source_sha256`; `sheet`, `sheet_sha256`, `rows`) from a closed schema, hashes each file on the way out and checks its header, and never
 rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both, **and it stays so after V9b-5a**: the runtime keeps
 refusing a clip pick with `clip_not_drawn` until a later, small package flips it); the catalogue lists them as `asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
 
-**The size rule** (the supervisor's correction after live leg K3, which replaces V9b-2's "long side to 1920, at most 1.5 times"): never enlarge; a long side over 1920 is
-scaled down to it, otherwise the picture keeps its size. `asset_too_small` only when the picture would be drawn more than 1.5 times its own size in the layout its
-ratio selects with the default look: ratio (w/h) at or under 0.8 the cover layout (refuse when `max(1080/w, 1920/h) > 1.5`), otherwise the glass layout (refuse when
-`min((1080 - 2*65)/w, 1700/h) > 1.5`). A 1024x683 picture is kept as it is; 600x337 and 800x1200 are refused. The numbers are named constants in `_asset_sheet.py` and a test reads
-them from `renderat.html` and from the default `glass_ratio_max`. Loss: a theme whose `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than 1.5 times.
+**The size rule** (the supervisor's, after live leg K3 and the review of #821; it replaces V9b-2's "long side to 1920, at most 1.5 times"): `d` is the enlargement the layout its ratio
+selects with the default look asks of the **source**: ratio (w/h) at or under 0.8 the cover layout, `max(1080/w, 1920/h)`, otherwise the glass layout, `min((1080 - 2*65)/w, 1700/h)`.
+`asset_too_small` when `d > 1.5`. The output scale is `s = min(1, max(1920 / max(w, h), d))`, the long side at most 3840: it never enlarges and shrinks only as far as the drawing
+still needs (1024x683 stays, 4000x3000 becomes 1920x1440, 800x2400 and 1080x2400 stay, 600x337 and 800x1200 are refused). At render a clip with a side over 3840 is `asset_type`.
+The numbers are named constants in `_asset_sheet.py` and a test reads them from `renderat.html` and from the default `glass_ratio_max`. Loss: a theme whose `glass_ratio_max`
+differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than 1.5 times.
 
 ## Clips (`asset-sheet` and the clip cutaway, V9b-5a)
 

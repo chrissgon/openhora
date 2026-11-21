@@ -36,14 +36,30 @@
   `clip_transition` for a clip entry. The loss: those themes cannot use clips yet. A picture keeps both. Only `oh:cutaway` draws a clip: `oh:screenshot`, `oh:pip`
   and any other block with a clip slot are `asset_type` naming the slot.
 
-- **The size rule of `asset-sheet` full mode, for images and clips** (the supervisor's correction after live leg K3; it replaces V9b-2's reading "long side to
-  1920, at most 1.5 times"). K3: Openverse returned a CC BY 2.0 picture of 1024x683, the medium rendition Flickr serves and typical of Openverse; the old rule scaled it
-  1.875x and refused it `asset_too_small`, so nearly every Openverse picture would be refused, although a landscape picture is drawn in the glass layout at no more than
-  950x1700 (`SAFE` = 65, `MAX_FG_H` = 1700), here 0.93x. The rule: (1) never enlarge: a long side over 1920 is scaled down to 1920 with the aspect kept, otherwise the picture
-  keeps its size; (2) `asset_too_small` only when the picture would be drawn more than 1.5 times its own size in the layout its ratio selects with the default look: ratio
-  (w/h) at or under 0.8 the cover layout, refuse when `max(1080/w, 1920/h) > 1.5`; otherwise the glass layout, refuse when `min((1080 - 2*65)/w, 1700/h) > 1.5`; (3) the figures
-  are named constants in `_asset_sheet.py`, and a test reads `SAFE`, `MAX_FG_H` from `renderat.html` and `glass_ratio_max` from the cutaway look. **The loss:** a theme whose
-  `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture enlarged more than 1.5 times.
+- **The size rule of `asset-sheet` full mode, for images and clips** (the supervisor's rule after live leg K3 and the review of #821; it replaces V9b-2's reading "long side to
+  1920, at most 1.5 times" and the first wording given to this package). K3: Openverse returned a CC BY 2.0 picture of 1024x683, the medium rendition Flickr serves and typical of
+  Openverse; the old rule scaled it 1.875x and refused it `asset_too_small`, although a landscape picture is drawn in the glass layout at no more than 950x1700 (`SAFE` = 65,
+  `MAX_FG_H` = 1700), here 0.93x. The rule, quoted: the display need `d` of the source, at ratio at or under 0.8 (cover) `max(1080/w, 1920/h)`, otherwise (glass)
+  `min((1080 - 2*65)/w, 1700/h)`; refused `asset_too_small` when `d > 1.5`, judged on the source; the output scale is `s = min(1, max(1920 / max(w, h), d))`, the output long side
+  capped at 3840; it never enlarges and shrinks only as far as the drawing still needs (1024x683 stays, 4000x3000 becomes 1920x1440, 800x2400 and 1080x2400 stay, 1080x5000 becomes
+  829x3840); at render a clip with a side over 3840 is `asset_type`. The figures are named constants in `_asset_sheet.py`, and a test reads `SAFE`, `MAX_FG_H` from `renderat.html`
+  and `glass_ratio_max` from the cutaway look. **The loss:** a theme whose `glass_ratio_max` differs, or a `fit` that forces cover on a landscape picture, can draw a picture
+  enlarged more than 1.5 times.
+- **Changes after the review of #821 at c8911fa.**
+  - Two tests outside the new files were changed, with the supervisor's word: `test_renderer_blocks.py` `OLD_PINS["cutaway"]` (the whole-file hash of the cutaway page moved, since the
+    page has a clip branch) and `test_the_cutaway_page_the_screenshot_page_follows_...`, reworded to compare the drawing code an image goes through (from `const img = ...` to the
+    opacity line) with the V9b-2 page's, line for line and indentation aside. The proof that an image cutaway is unchanged is `test_clip_cutaway.py`'s golden-frames test, which draws
+    both pages on the same pictures and times and finds the same frame bytes.
+  - A codec whitelist and `-max_pixels 33177600` on every clip input. The forced software decoder is the whitelist of the normaliser, the frame grab and the compose; ffprobe opens a
+    decoder for every stream, so its whitelist is the video decoders plus a fixed list of audio and subtitle decoders (`_media.PROBE_OTHER_DECODERS`), and an input with another audio
+    codec is `asset_type`: this goes a little beyond "the allowed video decoders" and keeps clips with ordinary audio acceptable (the audio is dropped).
+  - At probe: a frame rate over 120, or more than 1200 frames in the first 10 s, is `asset_type`; the video stream's own duration is used (the container's only when the stream has none).
+  - A glass clip with no predominant colour is tinted with the theme's background colour, as the page does. The page reports the glass box of a clip as `window.__box`.
+  - Only the `ftyp` brands of an MP4 or MOV (isom, iso2-iso6, mp41, mp42, avc1, M4V, qt) and the EBML doctypes webm and matroska are clips.
+  - The host checks every row's `kind` against the input's own first bytes, an image row's `seconds` is 0, a clip's is over 0 and at most 10.1.
+  - `clip_no_frames` is the closed refusal of an entry with no frame; a decoder missing from the image's list is `asset_type`; `software_decoders` skips the legend lines.
+  - The live case `test_mac_m5` of `test_engine_contract_live.py`: a normalised synthetic moving clip in a cover and a glass cutaway on the ffmpeg engine, one sha256 at 4 and 8 cores.
+  - The claim "the same bytes with 1 and 2 workers" is removed: it was never proved (see the finding on x264 below).
 
 **The image tag changed.** The common image's tag was `openhora-renderer:8206b171b52b` (V9b-2) and is `openhora-renderer:640490c4a634` (`_asset_sheet.py`, `_assets.py`,
 `_frames.py`, `_inner.py`, `_media.py` and `_render.py` are in the image). The HyperFrames image's tag is unchanged (`openhora-hyperframes:12ff7f4128cb`); no file of it
@@ -71,7 +87,7 @@ first-video-stream-only rule with audio, two video streams and a data stream, av
 the tile and its marker, `bad_fps`, the refusals from fake ffprobe facts); the compose graph for cover and glass (goldens), frame for frame on a counter clip (the
 first frame, the held last frame, a clip shorter and longer than the entry, a 24 fps clip in a 30 fps output, transparent outside the entry), the same bytes twice;
 the page (an image cutaway's frame bytes equal to the page of V9b-2 on five frames, a clip draws only the chip, a page that drew a clip draws a picture afterwards
-as a fresh page does); whole renders of a generated recording with a cover clip and a glass clip (frame-exact, the same bytes with 1 and 2 workers), and the
+as a fresh page does); whole renders of a generated recording with a cover clip and a glass clip (frame-exact), and the
 refusals (`asset_type` on the pip and on `oh:screenshot`, `asset_hash`, `clip_transition`).
 
 **Not verified.**
