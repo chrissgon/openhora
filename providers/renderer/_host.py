@@ -26,7 +26,7 @@ import _media
 import _output
 from _browser import NotConfigured
 from _text import Refusal
-from _vocab import load_data, load_vocabulary
+from _vocab import SLOT_ID, load_data, load_vocabulary
 
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
@@ -34,6 +34,15 @@ COVER_MAX_BYTES = 16 * 1024 * 1024
 PREVIEW_FILE = "preview-%s.mp4"           # the stored preview, named by the first 12 hex characters of its own sha256
 STILL_MAX_BYTES = 8 * 1024 * 1024        # the largest still the host keeps (the service refuses to serve more): a 1080x1920 photograph is a few MiB
 CRASH_CODES = {125: "docker_run_failed", 126: "docker_run_failed", 127: "docker_run_failed", 137: "container_killed", 143: "container_killed"}
+ASSET_SHEET_MAX_TILES = 36              # the most pictures one `asset-sheet` call takes (the same figure as `_asset_sheet.MAX_TILES`, which the image holds)
+ASSET_SHEET_COLUMNS = 6                 # a tile's column is 1 to this
+ASSET_SHEET_MAX_BYTES = 32 * 1024 * 1024         # the largest contact sheet the host keeps
+ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.png")
+# The closed shape of the `asset-sheet` answer. It is registered here, with the verb that reads it, because this package's files are the verb's: the result
+# schemas of every other verb are in `_docker.py`.
+D.RESULT_SCHEMAS.setdefault("asset-sheet", D.dct(
+    ok=D.B, assets=D.lst(D.dct(row=D.S, col=D.I, file=D.opt(D.S), sha256=D.S, width=D.I, height=D.I, source_sha256=D.S), ASSET_SHEET_MAX_TILES),
+    sheet=D.S, sheet_sha256=D.S, rows=D.lst(D.S, ASSET_SHEET_MAX_TILES)))
 
 
 class Usage(Exception):
@@ -207,6 +216,22 @@ def opt(flag, value):
     return [] if value is None else [flag, str(value)]
 
 
+def pairs(items, field: str) -> dict:
+    """{key: value} of `KEY=VALUE` items, each key once (the same reading as `ffmpeg.py`'s, which the second engine shares)."""
+    out = {}
+    for item in items or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key or not value or key in out:
+            raise Usage("%s takes KEY=VALUE, once per key" % field)
+        out[key] = value
+    return out
+
+
+def slot_key(key: str) -> str:
+    """A beat number is read as the slot id `beat<N>` the alignment gives it."""
+    return "beat%s" % key if key.isdigit() else key
+
+
 # ---------------------------------------------------------------- the common verbs
 
 def verb_analyse(args) -> dict:
@@ -347,8 +372,74 @@ def verb_verify(args) -> dict:
                         "--sha256", digest] + expect, "verify")
 
 
+def verb_asset_sheet(args) -> dict:
+    """The pictures a person may pick from, checked and tiled (`_asset_sheet.py`, in the common image), or, once picked, normalised. `--asset ROW:COL=FILE`
+    (at most 36, ROW a slot id, COL 1 to 6) is staged like `render`'s `--asset`; the container gets no recording. `--mode preview` checks and tiles small
+    pictures and writes `sheet.png`; `--mode full` also writes one `asset-<sha12>.png` per picture (a PNG of the frame's long side, no metadata). The
+    host reads the answer as untrusted: the set of tiles must be the one it asked for, each name the picture's own hash, each file hashed on the way out
+    and its header sized as the answer says, before any file gets its final name (never over another file, apart from the sheet)."""
+    if args.mode not in ("preview", "full"):
+        raise Usage("--mode is preview or full")
+    items = pairs(args.asset, "--asset ROW:COL=FILE")
+    if not items:
+        raise Usage("asset-sheet takes at least one --asset ROW:COL=FILE")
+    if len(items) > ASSET_SHEET_MAX_TILES:
+        raise Refusal("too_many_assets", "asset")
+    keyed = {}
+    for key, path in items.items():
+        row, sep, col = key.partition(":")
+        if not sep or not SLOT_ID.fullmatch(row) or len(col) != 1 or col not in "123456":
+            raise Refusal("bad_slot", key[:32])
+        keyed[(row, int(col))] = path
+    data = load_data()
+    cap, side = data["limits"]["asset_max_bytes"], data["limits"]["asset_max_side"]
+    out_dir = os.path.abspath(args.out)
+    bad = Refusal("container_result_invalid", "asset-sheet")
+    with Job(args, 300, "asset-sheet") as job:
+        job.max_entries = len(keyed) + 4
+        inner = ["asset-sheet", "--mode", args.mode, "--out", D.MOUNT_OUT]
+        for (row, col), path in sorted(keyed.items()):
+            inner += ["--asset", "%s:%d=%s" % (row, col, job.stage("assets/%s.%d" % (row, col), path, cap))]
+        result = job.run(inner, "asset-sheet")
+        rows = sorted({row for row, _ in keyed})
+        got = {(a["row"], a["col"]): a for a in result.get("assets", [])}
+        if set(got) != set(keyed) or len(got) != len(result.get("assets", [])) or result.get("rows") != rows or result.get("sheet") != "sheet.png" \
+                or not re.fullmatch(r"[0-9a-f]{64}", result.get("sheet_sha256", "")):
+            raise bad
+        for a in got.values():
+            if not re.fullmatch(r"[0-9a-f]{64}", a["sha256"]) or not re.fullmatch(r"[0-9a-f]{64}", a["source_sha256"]) \
+                    or not (1 <= a["width"] <= side and 1 <= a["height"] <= side):
+                raise bad
+            if args.mode == "preview":
+                if a["file"] is not None:
+                    raise bad
+            else:
+                named = ASSET_FILE.fullmatch(a["file"] or "")
+                if named is None or named.group(1) != a["sha256"][:12]:
+                    raise bad
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
+        replayed = 0
+        if args.mode == "full":
+            for name in sorted({a["file"] for a in got.values()}):
+                digest = next(a["sha256"] for a in got.values() if a["file"] == name)
+                dims = next((a["width"], a["height"]) for a in got.values() if a["file"] == name)
+                candidate = os.path.join(job.root, "candidate-" + name)
+                job.collect(name, candidate, max_bytes=cap, mode=0o400, expect_sha256=digest)
+                if _output.png_size(candidate) != dims:
+                    raise bad
+                outcome = D.copy_out(candidate, os.path.join(out_dir, name), max_bytes=cap, mode=0o400, expect_sha256=digest, exclusive=True)
+                replayed += outcome == "replayed"
+        sheet = os.path.join(out_dir, "sheet.png")
+        job.collect("sheet.png", sheet, max_bytes=ASSET_SHEET_MAX_BYTES, mode=0o400, expect_sha256=result["sheet_sha256"])
+        if _output.png_size(sheet) is None:
+            raise bad
+        rows_out = [dict(a, path=(os.path.join(out_dir, a["file"]) if a["file"] else None)) for _, a in sorted(got.items())]
+        return {"ok": True, "mode": args.mode, "assets": rows_out, "sheet": "sheet.png", "sheet_path": sheet, "sheet_sha256": result["sheet_sha256"],
+                "rows": rows, "replayed": replayed, "image": {"id": job.image["id"], "tag": job.image["tag"]}}
+
+
 COMMON_HANDLERS = {"analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "cover": verb_cover,
-                   "still": verb_still, "preview": verb_preview, "verify": verb_verify}
+                   "still": verb_still, "preview": verb_preview, "verify": verb_verify, "asset-sheet": verb_asset_sheet}
 COMMON_VERBS = tuple(COMMON_HANDLERS)
 
 
@@ -460,3 +551,8 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--sha256", help="the sha256 the render reported; the file's own when left out")
     sp.add_argument("--edl", help="the edit list the render came from: its length is checked against the file's")
+    sp = sub.add_parser("asset-sheet")
+    add_limits(sp)
+    sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE", help="a picture and its place on the sheet (at most 36; ROW a slot id, COL 1 to 6)")
+    sp.add_argument("--mode", required=True, choices=("preview", "full"), help="preview: check and tile small pictures; full: normalise the picked ones too")
+    sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")

@@ -19,6 +19,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
+  asset-sheet --asset ROW:COL=FILE ... --mode preview|full --out DIR   the pictures to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
@@ -42,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import _align  # noqa: E402
+import _asset_sheet  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
@@ -295,6 +297,13 @@ def verb_storyboard(args) -> dict:
     return _preview.storyboard(rows=rows, data=data, vocab=vocab, allow=allow, colors=pairs(args.color, "--color"), font_flags=font_flags, face=face,
                                tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch,
                                blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
+
+
+def verb_asset_sheet(args) -> dict:
+    """The pictures of `--asset ROW:COL=FILE` checked and tiled onto `sheet.png` in `--out`; with `--mode full` each is also normalised to
+    `asset-<sha12>.png` (`_asset_sheet`). The host checks the answer again."""
+    ffmpeg, _ffprobe = tools(args)
+    return _asset_sheet.asset_sheet(items=pairs(args.asset, "--asset"), mode=args.mode, out_dir=args.out, ffmpeg=ffmpeg)
 
 
 def verb_cover(args) -> dict:
@@ -642,6 +651,11 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only")
     sp.add_argument("--blocks", help="the staged blocks folder (the captions and the beats are drawn with the blocks the engine runs)")
     sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
+    sp = sub.add_parser("asset-sheet")
+    common(sp)
+    sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE")
+    sp.add_argument("--mode", required=True, choices=("preview", "full"))
+    sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -657,7 +671,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page}
+         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page, "asset-sheet": verb_asset_sheet}
 
 
 def write_result(path, obj) -> None:
