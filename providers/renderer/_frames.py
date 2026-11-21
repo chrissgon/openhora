@@ -167,7 +167,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                 for e in timeline["beats"]:
                     if e["preset"] == preset and e.get("block", e["preset"]) == key:
                         for name, value in e["params"].items():
-                            if value in assets:
+                            if value in assets and assets[value]["kind"] != "clip":      # a clip is drawn by the compose, never by the page (V9b-5a)
                                 images[value] = _cdp.ORIGIN + "/assets/%s.%s" % (value, assets[value]["kind"])
             return {"colors": colors, "fonts": theme_fonts_urls, "images": images}
 
@@ -188,6 +188,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                         pages[key] = page
                     page = pages[key]
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
+                    if track != "caption" and entry.get("params_kind"):
+                        payload["params_kind"] = entry["params_kind"]      # {"asset": "clip"}: the page draws the label only; the compose draws the clip (V9b-5a)
                     result = page.frame((f - entry["start_frame"]) / fps, payload)
                     sig = result["html"]
                     hit = face_hit(result["boxes"], entry["face"])
