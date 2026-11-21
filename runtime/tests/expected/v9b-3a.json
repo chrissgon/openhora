@@ -22,6 +22,10 @@
       75,
       76,
       77
+    ],
+    "registry_rows.OFF_HOST": [
+      "video-media-find",
+      "video-media-fetch-picks"
     ]
   }
 }

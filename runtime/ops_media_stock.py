@@ -43,6 +43,7 @@ import media  # noqa: E402
 import media_animation  # noqa: E402
 import media_stock  # noqa: E402
 import operations  # noqa: E402
+import ops_config  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_media_edit  # noqa: E402
 import ops_step_seams  # noqa: E402
@@ -184,7 +185,6 @@ def _need_sources(ctx: dict) -> list:
     names = media_stock.licensed(cfg["workbench"], media_stock.sources_of(cfg))
     if not names:
         raise _fail("stock_off", "this project uses no licensed stock source: media.stock in docs/workbench/runtime.json lists them")
-    import ops_config      # at call time: the configuration module is a heavy import and only the acceptance check needs it
     got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)      # noqa: E731
     missing = [i for i in policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg, ops_config._digest_key(ctx))
                if i["group"].startswith(policy_widening.STOCK_GROUP)]
@@ -227,7 +227,7 @@ def _candidate(source: str, kind: str, raw, folder_facts, tier: str):
             "page": page, "width": width, "height": height, "seconds": seconds, "preview": preview, "preview_sha256": digest}, None
 
 
-def _public(candidate: dict) -> dict:
+def _shown(candidate: dict) -> dict:
     """A candidate as the answers show it: no file name, no URL but the library's own page."""
     return {k: candidate[k] for k in ("pick", "source", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds")} | \
         {"preview": candidate.get("preview") is not None}
@@ -325,7 +325,7 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
     except media_stock.StockError as e:
         raise _stock_error(e) from None
     return {"confirmed": True, "found": total, "sheet": sheet, "dropped": dropped, "message": phrases.text("VID_STOCK_FOUND", ctx["cfg"], found=total, slots=len(slots)),
-            "slots": [dict(s, candidates=[_public(c) | {"col": n + 1} for n, c in enumerate(merged[s["slot"]])]) for s in slots]}
+            "slots": [dict(s, candidates=[_shown(c) | {"col": n + 1} for n, c in enumerate(merged[s["slot"]])]) for s in slots]}
 
 
 def _preview_sheet(ctx: dict, rid: str, slots: list, merged: dict):

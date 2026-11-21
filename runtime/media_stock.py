@@ -43,6 +43,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import captions  # noqa: E402
 import media  # noqa: E402
+import project_config  # noqa: E402
 
 CLASS = "stock:media"
 SOURCES = ("providers", "stock", "sources")
@@ -508,7 +509,6 @@ def source_data(root: str, name: str):
 
 def shipped(root: str) -> list:
     """The sources the checkout ships: the implementations of the class `stock:media`, by providers/resolve.py."""
-    import project_config      # at call time: this module stays importable without the configuration loader
     return sorted(project_config.resolver(root).implementations(CLASS, root=root))
 
 

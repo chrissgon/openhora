@@ -105,7 +105,7 @@ def rendering(key: str, tag: str, url):
 
 # Keys whose English text is a template for a place that is not a phone, or that spells a command on purpose: the card lines of a stored effect (their approve line is cut
 # from a phone card by messaging_cards), and the lines the terminal and the page print.
-TERMINAL_ONLY = {"NOT_NAMED_NEXT", "NW_APPROVE_WITH", "CARD_MAIL_APPROVE", "CARD_FILE_APPROVE"}
+TERMINAL_ONLY = {"NOT_NAMED_NEXT", "NW_APPROVE_WITH", "CARD_MAIL_APPROVE", "CARD_FILE_APPROVE", "VID_STOCK_NOT_ACCEPTED"}      # the last: the terminal and the page answer it (the media operations have no messaging channel) and it names the command
 
 
 @pytest.mark.parametrize("tag", ["en", "pt-BR"])

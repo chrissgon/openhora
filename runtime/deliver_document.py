@@ -292,7 +292,7 @@ def body(doc: dict, digest: str) -> str:
         lines.append(f"Picture: {a['slot']}, {a['source']}, {a['licence']}, sha256 {a['sha256']}")
     if doc.get("credits"):
         lines.append("Credit to put in the caption")
-        lines.extend(doc["credits"])
+        lines.extend(f"Credit: {c}" for c in doc["credits"])
     for w in doc.get("web") or []:
         lines.append(f"Found on the web, licence not checked: {w['page_host']}")
     lines.append(f"Delivery document sha256 {digest}")

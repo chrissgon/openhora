@@ -9,11 +9,9 @@
     "VID_STOCK_CLIP_NOT_DRAWN": "Este motor ainda não desenha vídeos. Escolha uma imagem para este espaço.",
     "CARD_VIDEO_ASSET": "Imagem: {slot}, {source}, {licence}, sha256 {sha}",
     "CARD_VIDEO_CREDITS": "Crédito para colocar na legenda",
-    "CARD_VIDEO_CREDIT": "{credit}",
+    "CARD_VIDEO_CREDIT": "Crédito: {credit}",
     "CARD_VIDEO_WEB": "Encontrado na internet, licença não verificada: {host}",
     "CARD_VIDEO_WEB_PAGE": "Página de origem: {page}"
   },
-  "same_as_english": [
-    "CARD_VIDEO_CREDIT"
-  ]
+  "same_as_english": []
 }

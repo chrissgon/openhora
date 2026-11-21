@@ -66,7 +66,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import media_stock  # noqa: E402  (the data files of the stock sources: read as data)
 import operations  # noqa: E402
+import project_config  # noqa: E402  (ConfigError, for a checkout with no provider resolver)
 
 ORDER = ("messaging", "mcp", "page")   # the order of the widening list: the channel that reaches a person's phone first, then the MCP mode, then the page
 EFFECTIVE = "config:effective"   # the store's cursor that holds the snapshot of the file the person accepted last
@@ -335,8 +337,6 @@ def stock_items(cfg: dict, secret: str = "") -> list:
     `media` object."""
     if not isinstance((cfg or {}).get("media"), dict) or not isinstance(cfg.get("workbench"), str):
         return []
-    import media_stock      # at call time: the module reads the source data files, and the rest of this one stays pure
-    import project_config
     try:
         names = media_stock.licensed(cfg["workbench"], media_stock.sources_of(cfg))
     except (project_config.ConfigError, OSError, ValueError, LookupError):      # a checkout with no provider resolver names no source: no item
