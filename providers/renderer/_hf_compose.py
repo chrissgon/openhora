@@ -11,6 +11,11 @@ Two runtimes draw a block on this engine, chosen per block (our `gsap` first, el
             full-frame iframe per block, with the colours and fonts set as the ffmpeg engine's driver sets them and the same guard on timers
             and the network; one tween of a getter/setter object on the root timeline calls the page's `renderAt` at every seek.
 
+A `frame`-band block (an `oh:` layout, the cutaway) is a renderat block with one asset parameter: its page sits in the same kind of iframe, in the
+frame zone (under the cards and the captions, over the cuts), and its `window.__imgs` is filled from `assets/<slot>.png` of the project, each image
+decoded before frame 0 (`window.__hfImageLoads`). The files are the person's pictures as `asset-sheet` normalised them; their sha256 are in `vars.json`
+(`assets`), which the drawing image checks against the files.
+
 A tier-A block (an overlay admitted from the registry, `hyperframes-image/hf_compat.py`) is a third case: the page holds only its placeholder
 element and one row of `instances.json` (the block's files with their sha256, its start and end in seconds, its band); the drawing image reads
 the component's files from its own registry folder, checks each hash, lints and wraps it (`hyperframes-image/hf_wrap.py`) and replaces the
@@ -26,6 +31,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 
 import _assets
 import _blocks
@@ -36,6 +42,7 @@ import _layout
 import _payload
 from _hf_page import COLOR, dumps, num
 from _text import Refusal, is_clean
+from _vocab import SLOT_ID
 
 ENGINE = "hyperframes"
 RUNTIME_ORDER = ("gsap", "renderat")                    # the engine's runtimes in this order: our own page first
@@ -44,7 +51,10 @@ MAX_PAGE_BYTES = 2 * 1024 ** 2
 MAX_BLOCK_PAGE_BYTES = 1 << 20
 MAX_BLOCK_PAGES = 16
 MAX_INSTANCES_BYTES = 256 * 1024                        # instances.json, the tier-A rows (the same figure as hf_render.py)
-ZONE_ORDER = ("card", "caption")                        # the layers above the video, bottom first (the frame band is not drawn on this engine)
+ZONE_ORDER = ("frame", "card", "caption")               # the layers above the video, bottom first: a whole-frame layout, the cards, the captions
+MAX_ASSETS = 12                                         # the most pictures one project holds (the same figure as hf_render.py)
+SHA256 = re.compile(r"[0-9a-f]{64}")
+IMAGE_PREFIX = "../assets/"                             # where a block page finds the pictures: the project's assets/ folder, one level up from blocks/
 
 # The three allow-listed fonts (assets/fonts/allowlist.json; a test keeps the two equal): id -> (family, weight, file).
 FONT_FILES = {"inter-500": ("Inter", 500, "inter-500.woff2"), "inter-800": ("Inter", 800, "inter-800.woff2"),
@@ -186,14 +196,41 @@ def read_block_file(catalogue: dict, block: dict, runtime: str) -> tuple:
         fail("template_unreadable", _blocks.field_of(rel))
 
 
-def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int) -> list:
-    """The entries the engine draws, in layer order (the cards, then the captions), each {zone, key, block, runtime, band, start, end, payload,
-    field}; every block resolved on this engine, its tier and band checked, its parameters and texts checked."""
+def asset_param(block: dict):
+    """The name of the one parameter of `block` that takes a picture (type image, clip or a list of them), or None when it has none or more than one."""
+    names = [n for n, spec in block["params"].items() if spec["type"] in ("image", "clip") or isinstance(spec["type"], list)]
+    return names[0] if len(names) == 1 else None
+
+
+def is_frame_block(block: dict) -> bool:
+    """A block the frame band admits: one of ours (`oh:`), a layout, drawn by renderat, with exactly one asset parameter."""
+    return block["band"] == "frame" and block["name"].startswith("oh:") and block["kind"] == "layout" and "renderat" in block["implementations"] \
+        and asset_param(block) is not None
+
+
+def check_assets(assets) -> dict:
+    """{slot: sha256} as given (`bad_slot`, `asset_hash` or `too_many_assets` otherwise); None is no pictures."""
+    assets = dict(assets or {})
+    if len(assets) > MAX_ASSETS:
+        fail("too_many_assets", "assets")
+    for slot, digest in assets.items():
+        if not isinstance(slot, str) or not SLOT_ID.fullmatch(slot):
+            fail("bad_slot", str(slot))
+        if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+            fail("asset_hash", slot)
+    return assets
+
+
+def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int, assets=None) -> list:
+    """The entries the engine draws, in layer order (the frame layouts, the cards, then the captions), each {zone, key, block, runtime, band, start, end,
+    payload, field}; every block resolved on this engine, its tier and band checked, its parameters and texts checked. A frame entry also names its `slot`:
+    every slot a frame entry uses is one of `assets` (`asset_missing`) and every one of `assets` is used (`asset_unused`)."""
     if ENGINE not in catalogue["engines"]:
         fail("engine_unknown", ENGINE)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     by_index = {w["index"]: w for w in edl["words"]}
-    plan = []
+    plan, used = [], set()
+    assets = check_assets(assets)
     if timeline["captions"]:
         block = _blocks.resolve(catalogue, ENGINE, "caption", None, "edl.captions")
         if block.get("tier") == "A":
@@ -207,25 +244,42 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
     for e in timeline["beats"]:
         field = "beats.%s" % e["id"]
         block = _blocks.resolve(catalogue, ENGINE, e["preset"], e.get("block"), field)
-        if block["band"] != "card":
+        frame_band = block["band"] == "frame"
+        if block["band"] != "card" and not (frame_band and is_frame_block(block)):
             fail("preset_not_on_engine", field)
         clean = _blocks.check_params(block, e["params"], vocab, field + ".params")
         if clean != e["params"]:
             fail("text_not_clean", field + ".params")
         e["block"] = block["name"]
+        if frame_band:
+            slot = clean[asset_param(block)]
+            if slot not in assets:
+                fail("asset_missing", slot)
+            used.add(slot)
+            plan.append({"zone": "frame", "key": block["name"], "block": block, "field": field, "entry": e, "slot": slot,
+                         "payload": _payload.beat_data(data, e, fps, edl)})
+            continue
         tier_a = block.get("tier") == "A"
         # A tier-A instance gets only the parameters its block declares (snake_case names, as `check_params` just checked them); the page gets
         # them as `inst[N]`, and the drawing image's wrapper hands them to the component as its own variables.
         payload = dict(clean) if tier_a else _payload.beat_data(data, e, fps, edl)
         plan.append({"zone": "card", "key": block["name"], "block": block, "field": field, "entry": e, "payload": payload, "tier_a": tier_a})
+    unused = sorted(set(assets) - used)
+    if unused:
+        fail("asset_unused", unused[0])
     plan.sort(key=lambda p: ZONE_ORDER.index(p["zone"]))                         # stable: the timeline order inside a layer
     for p in plan:
-        top, bottom = _layout.zones(data, p["entry"]["face"])[p["zone"]]
-        if bottom - top <= 0:
-            fail("band_too_small", p["field"])
-        p["band"] = (top, bottom - top)
+        if p["zone"] == "frame":                                                 # a whole-frame layout: the band is the frame
+            p["band"] = (0, data["frame"]["height"])
+        else:
+            top, bottom = _layout.zones(data, p["entry"]["face"])[p["zone"]]
+            if bottom - top <= 0:
+                fail("band_too_small", p["field"])
+            p["band"] = (top, bottom - top)
         p["start"], p["end"] = p["entry"]["start_frame"], p["entry"]["end_frame"]
         p["runtime"] = runtime_of(catalogue, p["block"])
+        if p["zone"] == "frame" and p["runtime"] != "renderat":
+            fail("preset_not_on_engine", p["field"])
     return plan
 
 
@@ -262,9 +316,20 @@ def font_faces_js(fonts: dict) -> str:
             "}));" % rows)
 
 
-def renderat_page(text: str, name: str, pairs: list, fonts: dict) -> str:
+def images_js(slots) -> str:
+    """The script that gives a frame block its pictures: `window.__imgs[slot]` is an `Image` of `../assets/<slot>.png`, and the promises of their `decode()`
+    are `window.__hfImageLoads` (also added to `window.__hfFaceLoads`, which the measure step awaits in every frame before the first one), so that each
+    picture is decoded before frame 0 as the ffmpeg engine's driver decodes it. A picture that does not load makes the promise reject: the page reports
+    it and the render fails; it is never drawn as a blank."""
+    return ("window.__imgs = {};\nwindow.__hfImageLoads = [];\n"
+            "(function () {\n  var slots = %s;\n  slots.forEach(function (s) {\n    var im = new Image();\n    im.src = %s + s + '.png';\n"
+            "    window.__imgs[s] = im;\n    window.__hfImageLoads.push(im.decode());\n  });\n"
+            "  window.__hfFaceLoads = (window.__hfFaceLoads || []).concat(window.__hfImageLoads);\n})();" % (dumps(sorted(slots)), dumps(IMAGE_PREFIX)))
+
+
+def renderat_page(text: str, name: str, pairs: list, fonts: dict, slots=()) -> str:
     """The block's `renderat.html` with, right after its charset line (else after `<head>`), the guard, the theme's custom properties set inline on the root element (an inline
-    value beats the page's own `:root` rule) and the page's `@font-face` rules, and the `__frame` the root timeline calls."""
+    value beats the page's own `:root` rule) and the page's `@font-face` rules, and the `__frame` the root timeline calls. A frame block (`slots` not empty) also gets `images_js`."""
     charset = '<meta charset="utf-8">'
     anchor = charset if text.count(charset) == 1 else "<head>"                   # the charset stays in the first 1024 bytes of the page
     if text.count("<head>") != 1 or text.count(anchor) != 1:
@@ -273,18 +338,22 @@ def renderat_page(text: str, name: str, pairs: list, fonts: dict) -> str:
     loads = "\n".join("  document.fonts.load(%s);" % dumps("%d 20px \"%s\"" % (weight, family)) for family, weight, _ in sorted(set(fonts.values())))
     setup = ("(function () {\n  var rs = document.documentElement.style;\n%s\n  if (document.fonts && document.fonts.load) {\n%s\n  }\n"
              "  window.__frame = function (t, data) { window.renderAt(t, data); };\n})();" % (sets, loads))
+    if slots:
+        setup += "\n" + images_js(slots)
     insert = "\n<style>\n%s\n</style>\n<script>\n%s\n%s\n</script>" % (font_face_css(fonts, "../fonts/"), GUARD_JS, setup)
     return text.replace(anchor, anchor + insert, 1)
 
 
-def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, out_dir: str, fps: int) -> dict:
-    """Write `index.html`, `vars.json` and, for the renderat blocks, `blocks/<ns>-<name>.html` into `out_dir`, an existing empty folder.
+def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, out_dir: str, fps: int, assets=None) -> dict:
+    """Write `index.html`, `vars.json` and, for the renderat blocks, `blocks/<ns>-<name>.html` into `out_dir`, an existing empty folder. `assets` is
+    {slot: sha256} of the pictures the frame blocks draw (the files themselves are put into `assets/` by the host, and the drawing image checks them).
     Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers, blocks, blocks_sha256, captions_drawn, beats_drawn, runtimes,
     fonts_used}. Everything is checked before anything is written."""
     frame = data["frame"]
     background = data["theme"]["colors"]["bg"]
     _hf_page.check_target(out_dir, background)
-    plan = draw_plan(data, edl, beats, vocab, catalogue, fps)
+    assets = check_assets(assets)
+    plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets)
     fonts = map_fonts(edl)
     pairs = theme_pairs(edl, fonts)
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
@@ -293,7 +362,9 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
 
     css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']
-    layers, tail, inst, ra, ra_frames, ra_keys = [], [], [], {}, {}, []
+    if any(p["zone"] == "frame" for p in plan):                                  # over the cuts (z 0, earlier in the page), under the cards
+        css.append('[data-hf-zone="frame"]{z-index:0}')
+    layers, tail, inst, ra, ra_frames, ra_keys, ra_slots = [], [], [], {}, {}, [], {}
     tier_a_rows = {}
     for p in plan:
         name = p["block"]["name"]
@@ -330,6 +401,8 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
                 ra_keys.append((p["key"], p["zone"], p["block"]))
             ra[p["key"]].append(p["payload"])
             ra_frames[p["key"]].append([p["start"], p["end"]])
+            if p["zone"] == "frame":
+                ra_slots.setdefault(p["key"], set()).add(p["slot"])
     ra_keys.sort(key=lambda row: (0 if row[0] == "caption" else 1, row[0]))                       # the caption first, then each block by name
     files = {}
     runtimes = {p["block"]["name"]: p["runtime"] for p in plan}
@@ -338,7 +411,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
         ns, short = block["name"].split(":")
         page_name = "blocks/%s-%s.html" % (ns, short)
         rel, text = read_block_file(catalogue, block, "renderat")
-        files[page_name] = renderat_page(text, block["name"], pairs, fonts).encode("utf-8")
+        files[page_name] = renderat_page(text, block["name"], pairs, fonts, ra_slots.get(key, ())).encode("utf-8")
         if len(files[page_name]) > MAX_BLOCK_PAGE_BYTES:
             fail("page_too_large", block["name"])
         pages[key] = page_name
@@ -358,6 +431,8 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     scripts.extend(tail)
 
     full_vars = dict(parts["vars"], inst=inst, ra=ra)
+    if assets:
+        full_vars["assets"] = dict(sorted(assets.items()))                        # only a project with a frame block has the key: no other page changes
     defaults = dict(parts["vars"], inst=[], ra={})
     page = _hf_page.render_page(dict(parts, vars=defaults), width=frame["width"], height=frame["height"], fps=fps, background=background,
                                 css="\n".join(css) + "\n", layers=("\n" + "\n".join(layers)) if layers else "",
@@ -373,10 +448,11 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     if len(files["index.html"]) > MAX_PAGE_BYTES:
         fail("page_too_large", "index.html")
     _hf_page.write_files(out_dir, dict(sorted(files.items())))
-    shown = [name for name in ("captions" if any(p["zone"] == "caption" for p in plan) else None, "beats" if any(p["zone"] == "card" for p in plan) else None) if name]
+    shown = [name for name in ("captions" if any(p["zone"] == "caption" for p in plan) else None,
+                               "beats" if any(p["zone"] in ("card", "frame") for p in plan) else None) if name]
     return {"page_sha256": hashlib.sha256(files["index.html"]).hexdigest(), "vars_sha256": hashlib.sha256(files["vars.json"]).hexdigest(),
             "clips": len(parts["clips"]), "zooms": len(parts["zooms"]), "duration": round(parts["out_seconds"], 3), "fps": fps,
             "layers": ["cuts", "zoom"] + shown, "blocks": {name: block_pin(catalogue, catalogue["blocks"][name], rt) for name, rt in sorted(runtimes.items())},
             "blocks_sha256": catalogue["sha256"], "captions_drawn": sum(1 for p in plan if p["zone"] == "caption"),
-            "beats_drawn": sum(1 for p in plan if p["zone"] == "card"), "effects_dropped": timeline["effects_dropped"], "runtimes": dict(sorted(runtimes.items())),
+            "beats_drawn": sum(1 for p in plan if p["zone"] in ("card", "frame")), "effects_dropped": timeline["effects_dropped"], "runtimes": dict(sorted(runtimes.items())),
             "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())}}

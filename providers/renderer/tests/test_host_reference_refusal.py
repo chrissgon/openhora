@@ -84,3 +84,24 @@ def test_what_a_copy_made_outside_the_store_does_is_not_caught_and_the_limit_say
     copy.write_bytes((store / "0123456789abcdef" / "video.mp4").read_bytes())
     _host.refuse_reference(str(copy), "recording")
     assert not os.path.islink(copy)
+
+
+# ---------------------------------------------------------------- the pictures of the new verb and of the second engine (V9b-2)
+
+def test_an_asset_path_in_a_reference_store_is_refused_by_asset_sheet_and_by_both_engines_renders_before_anything_is_read(store, tmp_path, no_docker):
+    import argparse
+    import types
+    picture = store / "0123456789abcdef" / "picture.png"
+    picture.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+    sub = argparse.ArgumentParser().add_subparsers(dest="verb")
+    _host.add_common_parsers(sub)
+    args = sub.choices["asset-sheet"].parse_args(["--asset", "slot-1:1=%s" % picture, "--mode", "preview", "--out", str(tmp_path / "o")])
+    with pytest.raises(Refusal) as caught:
+        _host.verb_asset_sheet(args)
+    assert caught.value.code == "reference_refused"
+    import hyperframes
+    for engine_args in (types.SimpleNamespace(asset=["slot-1=%s" % picture], asset_sha256=None, base_only=False),):
+        with pytest.raises(Refusal) as caught:
+            hyperframes.read_assets(engine_args, {"limits": {"asset_max_bytes": 1 << 20, "asset_max_side": 8192, "asset_max_pixels": 40_000_000}})
+        assert caught.value.code == "reference_refused"
+    assert not (tmp_path / "o").exists()

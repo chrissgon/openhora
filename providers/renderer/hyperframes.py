@@ -37,9 +37,11 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
                            build the HyperFrames image (the common image is built by `ffmpeg.py build`). The one step that uses the
                            network, at the person's word; --confirmed writes the build record that --check and render read.
   reap                     remove containers and run folders a killed render left behind.
-  render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--base-only] [--work-dir DIR] [--cpuset 0-3]
-         [--time-limit S] [--dry-run] [--memory-mb N] [--cpus N] [--scratch-mb N] [--timeout S]
-        Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). --work-dir names an existing folder of this user's (not a link) that
+  render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--asset SLOT=FILE]... [--asset-sha256 SLOT=HEX]...
+         [--base-only] [--work-dir DIR] [--cpuset 0-3] [--time-limit S] [--dry-run] [--memory-mb N] [--cpus N] [--scratch-mb N] [--timeout S]
+        Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). `--asset` gives the picture of a block of the frame band (the cutaway): a PNG, as
+        `asset-sheet` writes it, read on the host (type, size, hash) and copied into the project's `assets/`; each slot a beat uses must have one and
+        each one given must be used. --work-dir names an existing folder of this user's (not a link) that
         holds the run folder; the default is the renderer's own work folder. --dry-run prints the four stage commands.
   compat --survey DIR --out FILE [--timeout S] [--dry-run]
         The compatibility run of tier A: checks the survey folder (regular files only, at most 2000 files, 20 MB, 256 KiB each), mounts it
@@ -82,7 +84,8 @@ import _docker as D  # noqa: E402
 import _hf_gate  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
-from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, stage_blocks, CRASH_CODES)  # noqa: E402
+from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, pairs, refuse_reference, slot_key,  # noqa: E402
+                   stage_blocks, CRASH_CODES)
 from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import load_data  # noqa: E402
@@ -144,6 +147,7 @@ GATE_FIELDS = ("gate_frames", "gate_boxes", "pixel_min_psnr_db", "pixel_ranges",
 GATE_OPTIONAL = ("lowest_caption_bottom",)              # reported only when a caption box was drawn
 COMPOSED_FIELDS = ("blocks", "blocks_sha256", "captions_drawn", "beats_drawn", "runtimes", "fonts_used")   # what the page stage adds to a render that draws
 RESULT_MAX_BYTES = 64 * 1024
+ASSETS_MAX = 12                                         # the most pictures one render takes (the figure of `_hf_compose.MAX_ASSETS` and of hf_render.py; a test keeps them equal)
 
 BUILD_HINT = "python3 providers/renderer/hyperframes.py build --confirmed"
 HINTS = {
@@ -449,6 +453,38 @@ def check_may_draw() -> None:
         raise Refusal("engine_unknown", ENGINE)
 
 
+def read_assets(args, data: dict) -> dict:
+    """{slot: {data, sha256, width, height}} of the pictures given with `--asset`, read on the host as `ffmpeg.py` reads them (a regular file within the cap,
+    its type by the header bytes, its size within the bounds, its hash the `--asset-sha256` when one is given) and refused unless each is a PNG (`asset_type`):
+    the drawing image serves PNG files only. A path in a reference store is refused before it is read. A render of the base page draws no beat, so a picture
+    given to it is unused (`asset_unused`)."""
+    files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
+    hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
+    if args.base_only and files:
+        raise Refusal("asset_unused", sorted(files)[0][:32])
+    if len(files) > ASSETS_MAX:
+        raise Refusal("too_many_assets", "asset")
+    for slot, path in sorted(files.items()):
+        refuse_reference(path, "asset")
+    loaded = _assets.load_assets(files, hashes, data["limits"])
+    for slot, picture in sorted(loaded.items()):
+        if picture["kind"] != "png":
+            raise Refusal("asset_type", slot[:32])
+    return loaded
+
+
+def put_assets(project: str, assets: dict) -> None:
+    """The pictures into `<project>/assets/<slot>.png`, each new (O_EXCL, no link followed) and mode 0600, from the bytes the host read and hashed."""
+    if not assets:
+        return
+    folder = os.path.join(project, "assets")
+    os.mkdir(folder, 0o700)
+    for slot, picture in sorted(assets.items()):
+        fd = os.open(os.path.join(folder, slot + ".png"), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(picture["data"])
+
+
 def verb_render(args) -> dict:
     if not args.base_only:
         check_may_draw()
@@ -459,6 +495,7 @@ def verb_render(args) -> dict:
             raise Refusal("bad_cpuset", "cpuset") from None
     out_dir = os.path.abspath(os.path.dirname(args.out) if args.out.endswith(".mp4") else args.out)
     data = load_data()
+    assets = read_assets(args, data)
     out_seconds, fps, byte_cap, limit = read_documents(args, data)
     deadline = time.monotonic() + limit
     check_memory(args)
@@ -488,6 +525,8 @@ def verb_render(args) -> dict:
                      "--out", "/work/project"]
             blocks_args = ["--base-only"] if args.base_only else stage_blocks(job, _blocks.blocks_dir())
             inner += blocks_args
+            for slot, picture in sorted(assets.items()):
+                inner += ["--asset-sha256", "%s=%s" % (slot, picture["sha256"])]
             if dry:
                 commands["page"] = job.argv(inner)[2]
             else:
@@ -495,6 +534,8 @@ def verb_render(args) -> dict:
                 if not args.base_only and page.get("blocks_sha256") != blocks_args[-1]:
                     raise Refusal("blocks_changed", "blocks")
         seconds["page"] = round(time.monotonic() - started, 2)
+        if not dry:
+            put_assets(project, assets)
         os.mkdir(media, 0o700)
 
         # Stage 2, the proxy, in the common image.
@@ -540,6 +581,10 @@ def verb_render(args) -> dict:
                 inner += ["--boxes", "/work/hf/boxes.json", "--boxes-sha256", drawn["boxes_sha256"] if drawn else "0" * 64,
                           "--beats", job.stage("beats.json", args.beats), "--vocabulary", job.stage("vocabulary.json", args.vocabulary),
                           "--proxy", "/work/media/proxy.mp4", "--proxy-sha256", proxy_sha256]
+                encode_blocks = stage_blocks(job, _blocks.blocks_dir())       # the gate reads which blocks cross the face (`may_cross_face`) from the pinned catalogue
+                if encode_blocks[-1] != blocks_args[-1]:
+                    raise Refusal("blocks_changed", "blocks")
+                inner += encode_blocks
             if dry:
                 commands["encode"] = job.argv(inner)[2]
                 return {"ok": True, "dry_run": True, "engine": ENGINE, "commands": commands, "image": job.image, "hf_image": image,
@@ -747,6 +792,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", required=True)
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--vocabulary", required=True)
+    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="the picture of a frame-band block (a PNG); each slot a beat uses, once")
+    sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 the picture had at intake; checked when given")
     sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only, no captions and no beats")
     sp.add_argument("--work-dir", help="an existing absolute folder of this user's (not a link) that holds the run folder; default: the renderer's work folder")
     sp.add_argument("--cpuset", help="pin the containers to these cores, for example 0-3")

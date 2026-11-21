@@ -1,6 +1,11 @@
 """The gates on what the HyperFrames engine draws (package V3b-2): the DOM boxes of every frame against the face box and the line at 1560,
 and the pixels of the face region against the undrawn base. Nothing the engine draws reaches the final encode unless both pass.
 
+One rule is loosened, and only inside a cut (package V9b-2, decision 6 of `docs/decisions/2026-11-21-v9b-2-frame-band.md`): while an entry of the `frame`
+band whose block has `may_cross_face: true` (a full-frame cutaway) is on, its picture covers the face by design, so a `frame`-zone box on those frames is
+allowed and the pixel check does not judge the face region of exactly those frames (`crossing_spans`, taken from the pinned catalogue, never from a file the
+drawing container wrote). Anywhere else a `frame`-zone box is `overlay_hits_face`, and the captions keep every rule on every frame.
+
 Two checks, both code, neither with a switch:
 
   boxes   `boxes.json` is what the page itself reported after the drawing (`hyperframes-image/hf_measure.mjs`: every box of every frame,
@@ -26,6 +31,7 @@ import math
 import re
 
 import _assets
+import _blocks
 import _edl
 import _layout
 import _media
@@ -33,7 +39,8 @@ from _text import Refusal
 
 BOXES_MAX_BYTES = 64 * 1024 ** 2                # the cap of boxes.json (hf_measure.mjs refuses a larger one, `boxes_too_large`)
 MAX_BOXES_PER_FRAME = 2000                      # the same figure as hf_measure.mjs (`boxes_too_many`)
-ZONES = ("card", "caption")                     # the bands boxes sit in; the `frame` band is not drawn on this engine
+ZONES = ("frame", "card", "caption")           # the bands boxes sit in; a `frame` box is allowed only inside a crossing entry (`crossing_spans`)
+ENGINE = "hyperframes"
 ALLOWED_FAMILIES = ("Inter", "JetBrains Mono")  # the families of assets/fonts/allowlist.json
 KEY = re.compile(r"[A-Za-z0-9_.:\-]{1,60}")
 PIXEL_MIN_PSNR_DB = 30.0                        # calibrated 2026-11-08 on synthetic content: clean 36.31 dB live and 49.85 and 51.65 offline, planted 19.8 dB (decision file of V3b-2)
@@ -111,10 +118,28 @@ def faces_by_frame(timeline: dict, range_faces: list, out_frames: int) -> dict:
     return out
 
 
-def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dict:
-    """Every box of every frame against the face box and the line at 1560, in frame order, the first violation raised:
+def crossing_spans(timeline: dict, catalogue: dict) -> list:
+    """[(first frame, last frame + 1)] of the beat entries that may cover the face: those whose block (the one the beat names, else the engine's default
+    for its preset) is of the `frame` band and has `may_cross_face` true. The block is read from the pinned catalogue, so a drawing container cannot say
+    which frames are inside a cut."""
+    spans = []
+    for e in timeline["beats"]:
+        block = _blocks.resolve(catalogue, ENGINE, e["preset"], e.get("block"), ("beats.%s" % e["id"])[:80])
+        if block["band"] == "frame" and block["may_cross_face"] is True:
+            spans.append((e["start_frame"], e["end_frame"]))
+    return spans
 
-      a `frame`-zone box (or any zone but card and caption)     overlay_hits_face  "frame <f> <key>"
+
+def inside(spans, f: int) -> bool:
+    return any(a <= f < b for a, b in spans)
+
+
+def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict, crossing=()) -> dict:
+    """Every box of every frame against the face box and the line at 1560, in frame order, the first violation raised. `crossing` is the spans of
+    `crossing_spans` (none by default: nothing may cross the face):
+
+      a `frame`-zone box on a frame outside `crossing`          overlay_hits_face  "frame <f> <key>"
+      a box of any zone but frame, card and caption             overlay_hits_face  "frame <f> <key>"
       a box (element or glyph) that touches the face            overlay_hits_face  "frame <f> <key>"
       a caption box (element or glyph) whose bottom is below the caption band's bottom   caption_below_line  "frame <f> bottom <y>"
       a caption entry of CAPTION_DRAWN_MIN_FRAMES frames or more with no frame in its span that holds a caption-zone glyph box of width and
@@ -130,6 +155,10 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dic
             zone, field = b["zone"], ("frame %d %s" % (f, b["key"]))[:80]
             if zone not in ZONES:
                 raise Refusal("overlay_hits_face", field)
+            if zone == "frame":
+                if not inside(crossing, f):
+                    raise Refusal("overlay_hits_face", field)
+                continue                                                          # inside a cut: the picture covers the face by design
             face = faces[zone][f]
             if _layout.face_hit([b], face):
                 raise Refusal("overlay_hits_face", field)
@@ -277,11 +306,12 @@ def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data
             "-filter_complex", ";".join(g), "-map", "[p]", "-sws_flags", _media.SWS, "-an", "-c:v", "rawvideo", "-frames:v", str(last - first), "-f", "null", "-"]
 
 
-def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None, timeline=None) -> dict:
+def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None, timeline=None, crossing=()) -> dict:
     """Run the pixel check in the folder `work` (the stats files are written there, and are the caller's to remove) and judge it: the
     minimum PSNR over every frame of every kept range, refused `face_pixels_changed` ("range <k> frame <f> psnr <x>") when any frame is
-    under PIXEL_MIN_PSNR_DB. Returns {pixel_min_psnr_db, pixel_ranges}. `run` stands where `_media.run` stands (a test's seam; production
-    leaves it out)."""
+    under PIXEL_MIN_PSNR_DB. The frames inside `crossing` (the spans of `crossing_spans`, in output frames) are not judged: each counts as PSNR_CAP, so
+    exactly those frames are skipped and the frame before and the frame after are judged as ever. Returns {pixel_min_psnr_db, pixel_ranges}. `run`
+    stands where `_media.run` stands (a test's seam; production leaves it out)."""
     run = run or _media.run
     effects = _edl.range_effects(edl, timeline) if timeline else None     # the reference holds the punches and the grades the page draws
     range_faces = punched_faces(range_faces, timeline)                     # and the crop covers the face at every punched zoom
@@ -290,6 +320,8 @@ def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dic
     lowest = None
     for k, (first, last, _box) in enumerate(range_faces):
         values = read_stats(work + "/" + (STATS_NAME % k), last - first)
+        if crossing:
+            values = [PSNR_CAP if inside(crossing, first + i) else v for i, v in enumerate(values)]
         worst = min(range(len(values)), key=lambda i: values[i])
         if lowest is None or values[worst] < lowest:
             lowest = values[worst]

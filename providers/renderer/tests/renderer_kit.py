@@ -81,12 +81,14 @@ POP_BLOCK = {"schema_version": 1, "name": "hf:demo-pop", "kind": "overlay", "pre
 OH_PRESETS = {"caption": "oh:caption", "keyword": "oh:keyword", "list": "oh:list", "number": "oh:number", "quote": "oh:quote"}
 
 
-def write_hf_compose_blocks(folder, mixed=False) -> None:
+def write_hf_compose_blocks(folder, mixed=False, cutaway=False) -> None:
     """In a copy of the blocks: the HyperFrames engine's own file and, when `mixed`, a fictional tier-B gsap block `hf:demo-pop` that draws the
     keyword preset. Without `mixed` the engine runs the renderat runtime only and draws the oh: pages (the one-file measurement's setup:
-    no cutaway and no pip, which this engine does not draw). Pinned again."""
+    no pip, which this engine does not draw, and no cutaway unless `cutaway`, which adds `oh:cutaway` as the cutaway preset's block, V9b-2). Pinned again."""
     folder = Path(folder)
     runtimes, presets = ["renderat"], dict(OH_PRESETS)
+    if cutaway:
+        presets["cutaway"] = "oh:cutaway"
     if mixed:
         (folder / "hf" / "demo-pop").mkdir()
         (folder / "hf" / "demo-pop" / "block.json").write_text(json.dumps(POP_BLOCK, indent=1))

@@ -1,0 +1,45 @@
+{
+ "schema_version": 1,
+ "name": "oh:screenshot",
+ "kind": "layout",
+ "preset": "cutaway",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "a document, a page or a screen is shown whole, framed, while the line is spoken",
+ "params": {
+  "asset": {
+   "type": [
+    "image",
+    "clip"
+   ],
+   "required": true
+  },
+  "fit": {
+   "type": "choice",
+   "values": [
+    "cover",
+    "contain"
+   ],
+   "default": "cover"
+  },
+  "label": {
+   "type": "text",
+   "max": 40
+  }
+ },
+ "samples": [
+  {
+   "asset": "slot-1",
+   "fit": "contain",
+   "label": "The page on screen"
+  }
+ ],
+ "natural_duration": 1.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

@@ -390,6 +390,7 @@ def verb_asset_sheet(args) -> dict:
         row, sep, col = key.partition(":")
         if not sep or not SLOT_ID.fullmatch(row) or len(col) != 1 or col not in "123456":
             raise Refusal("bad_slot", key[:32])
+        refuse_reference(path, "asset")                                  # a reference store's file is looked at, never used: refused before a container is asked for
         keyed[(row, int(col))] = path
     data = load_data()
     cap, side = data["limits"]["asset_max_bytes"], data["limits"]["asset_max_side"]

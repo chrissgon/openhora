@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="cutaway">
+<meta name="pv-params" content="asset,fit,label">
+<meta name="pv-looks" content="glass_radius_px">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#stage { position:absolute; left:0; top:0; width:1080px; height:1920px; overflow:hidden; background:var(--c-bg); }
+#card { position:absolute; overflow:hidden; background:#000000; box-shadow:0 12px 48px rgba(0, 0, 0, 0.45); transform-origin:50% 50%; }
+#card > img { position:absolute; left:0; top:0; width:100%; height:100%; }
+#chip { position:absolute; left:65px; top:320px; padding:14px 28px; border-radius:16px; border:4px solid var(--c-chip_border);
+        background:var(--c-chip_fill); color:var(--c-chip_text); font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:38px; letter-spacing:0.03em; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+'use strict';
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+
+const FRAME_W = 1080, FRAME_H = 1920, SAFE = 65, MAX_H = 1700, MAX_SCALE = 2, PUSH = 0.04, DEFAULT_RADIUS = 24;
+
+// The screenshot: the picture whole, as a card with rounded corners and a shadow, in the middle of a backdrop in the theme's colour, with a slow push-in
+// over the beat. It is on screen from the first frame to the last (a hard cut, like the cutaway). `fit` is not read: the picture is always shown whole.
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const L = data.look;
+  const stage = document.getElementById('stage');
+  const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const radius = L.glass_radius_px === undefined ? DEFAULT_RADIUS : Number(L.glass_radius_px);
+  const fs = w > 0 && h > 0 ? Math.min((FRAME_W - 2 * SAFE) / w, MAX_H / h, MAX_SCALE) : 1;
+  const cw = Math.round(w * fs), ch = Math.round(h * fs);
+  const cx = Math.round((FRAME_W - cw) / 2), cy = Math.round((FRAME_H - ch) / 2);
+  const card = document.createElement('div');
+  card.id = 'card';
+  card.style.left = cx + 'px';
+  card.style.top = cy + 'px';
+  card.style.width = cw + 'px';
+  card.style.height = ch + 'px';
+  card.style.borderRadius = radius + 'px';
+  card.style.transform = 'scale(' + (1 + PUSH * clamp(t / data.duration)).toFixed(4) + ')';
+  img.style.objectFit = 'fill';
+  card.appendChild(img);
+  window.__box = { x: cx, y: cy, w: cw, h: ch };
+  stage.replaceChildren(card);
+  if (P.label) {
+    const chip = document.createElement('div');
+    chip.id = 'chip';
+    chip.textContent = P.label;
+    stage.appendChild(chip);
+  }
+};
+</script>
+</body>
+</html>
