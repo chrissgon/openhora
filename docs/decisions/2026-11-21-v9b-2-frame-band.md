@@ -16,6 +16,11 @@
     is of the band and may not cross the face); making the pixel check blind to a whole range.
 - **The caption over a glass picture is approved**: "Sim, igual ao cartão" (C10 of V9d, 2026-11-11; validate: allow english-only -- the maintainer's own
   words, quoted). The caption band stays where it is, over the bottom of a centred picture, on both engines. The rule that captions keep every rule is unchanged.
+- **The frame band on HyperFrames is approved (C10 of V9b-2, 2026-11-21)**: "Aprovo" (validate: allow english-only -- the maintainer's own words, quoted). It
+  approves `oh:cutaway` on HyperFrames and `oh:screenshot` on both engines. He was shown comparison sheets of synthetic pictures in three shapes (landscape
+  1200x675, square 1000x1000, vertical 600x1000); each sheet has five frames inside the cutaway beat, one row per block and engine. All twelve renders passed
+  the gates. The caption style differs between the two engines, because each uses its existing default; this package does not change that. The pictures are
+  synthetic: no real recording or real picture was rendered.
 - **The frame band on HyperFrames.** `oh:cutaway` is `blocks/engines/hyperframes.json`'s block for the `cutaway` preset. A frame-band entry is an iframe of the
   block's own `renderat` page, in the frame zone (under the cards and the captions, over the cuts), with `window.__imgs` filled from `assets/<slot>.png` and
   each `decode()` kept as a promise. The look is not copied: the page already draws the hard cut and the glass layout of V9d, and its looks come with the
@@ -40,6 +45,9 @@ must be rebuilt before a live render (the maintainer's, STOP 5).
 - A frame entry is counted under `beats` (`beats_drawn` and the `beats` layer name), because the `hf-page` result allows four layer names and captions plus
   beats already fill them.
 
-**Not verified.** No image was rebuilt and no live render ran; no C10 was shown (the maintainer's words for `oh:cutaway` on HyperFrames and `oh:screenshot` on
-both engines go here once he gives them); the determinism at 4 and 8 cores (`F9`, `M4` of `test_engine_contract_live.py`) and spike S2 are the supervisor's.
-The page tests run in the host's browser with a stand-in for GSAP's timeline, since GSAP is in the HyperFrames image only.
+**Verified by the supervisor on 2026-11-21.** Both images were rebuilt at the tags above. The C10 renders ran (the bullet above). The determinism legs `F9` and
+`M4` of `test_engine_contract_live.py` passed on both engines, byte-identical. Spike S2 (a video clip inside a HyperFrames cutaway) was run and is recorded in
+the spec, not here; it recommends the clip as HyperFrames' own element over the clip inside the block's page, for V9b-5b.
+
+**Still not verified.** No render used a real recording or a real picture. The page tests run in the host's browser with a stand-in for GSAP's timeline, since
+GSAP is in the HyperFrames image only.
