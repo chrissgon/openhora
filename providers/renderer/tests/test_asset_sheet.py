@@ -294,6 +294,9 @@ def test_the_answer_is_rebuilt_from_a_closed_schema():
                                       "source_sha256": "f" * 64, "extra": "dropped"}], "sheet": "sheet.png", "sheet_sha256": "a" * 64, "rows": ["slot-1"], "stray": 1}
     clean = D.sanitise(answer, D.RESULT_SCHEMAS["asset-sheet"], "asset-sheet")
     assert set(clean) == {"ok", "assets", "sheet", "sheet_sha256", "rows"} and "extra" not in clean["assets"][0]
+    rows = [dict(answer["assets"][0], kind="clip", seconds=2.5, file="asset-0123456789ab.mp4"), dict(answer["assets"][0], kind="image", seconds=0)]
+    kept = D.sanitise(dict(answer, assets=rows), D.RESULT_SCHEMAS["asset-sheet"], "asset-sheet")["assets"]
+    assert [(r["kind"], r["seconds"]) for r in kept] == [("clip", 2.5), ("image", 0)]          # V9b-5a: the rows keep kind and seconds
     too_many = dict(answer, assets=answer["assets"] * 37)
     with pytest.raises(Refusal):
         D.sanitise(too_many, D.RESULT_SCHEMAS["asset-sheet"], "asset-sheet")

@@ -64,8 +64,7 @@ changed. No test holds the common image's tag. The common image must be rebuilt 
   letterbox a `fit: contain` picture there; the compose does not, since no preset lacks the glass look and a letterbox on the theme's background is a layout the spec
   does not ask for.
 - The 7680x4320 caps and the 10 seconds are constants in `_media.py` (`renderer-presets.json` is in the image's manifest and not in this package's row).
-- **The result schema is in `_docker.py`, not `_host.py`** (stop rule 3, see the pull request): `kind` and `seconds` are validated by the host when present and are
-  dropped by `D.sanitise` until the schema line (`_docker.py` 549) is changed by a package whose row has it. The host verb works with and without them.
+- **The result schema is in `_docker.py`, not `_host.py`** (stop rule 3, cleared by the supervisor): the row was widened by exactly one change, `kind=S, seconds=N` on the row dict of `RESULT_SCHEMAS["asset-sheet"]`. A host-side test proves `D.sanitise` keeps both.
 
 **Verified (offline, on the host's ffmpeg 9.0.2, a headless Chromium and synthetic clips).** `asset-sheet` in both modes (the pinned form, the same bytes twice, the
 first-video-stream-only rule with audio, two video streams and a data stream, av1 following the decoder list, the 10-second cut, the 1.5 and 1.6 times upscale,
