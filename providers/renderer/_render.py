@@ -91,7 +91,7 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
             "fade": data["zoom"]["audio_fade_seconds"], "src": src, "fps": edl["fps"], "size": edl["size"], "has_audio": edl["source"]["has_audio"], "src_matrix": edl["source"]["color_matrix"],
             "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips,
             "out_frames": edl["out_frames"], "max_bytes": _media.byte_limit(platform), "out_name": "out.mp4"}
-    clips = clip_rows(data, timeline, assets)
+    clips = clip_rows(data, timeline, assets, edl["theme"]["colors"])
     if clips:
         plan["clips"] = clips                        # only a render that draws a clip cutaway has the key: any other plan is what it always was
     effects = _edl.range_effects(edl, timeline)      # the punches and grades, by kept range (V9a-3): the plan of a render with none has no such key
@@ -132,11 +132,13 @@ def settle_clips(vocab: dict, data: dict, timeline: dict, assets: dict) -> None:
             if data["presets"][e["preset"]]["looks"].get("transition") != "cut":
                 raise Refusal("clip_transition", slot)
             e["params_kind"] = {name: "clip"}
+            e["clip_size"] = {"w": assets[slot]["width"], "h": assets[slot]["height"]}      # the page reports the box the compose draws
 
 
-def clip_rows(data: dict, timeline: dict, assets: dict) -> list:
+def clip_rows(data: dict, timeline: dict, assets: dict, colors=None) -> list:
     """The compose plan's `clips` rows (`_media.clip_filters`), one per clip cutaway of the timeline. The look is the page's: a clip whose ratio is at or under
-    `glass_ratio_max` with `fit: cover` fills the frame (cover); any other is drawn whole over a blurred, tinted copy of itself (glass)."""
+    `glass_ratio_max` with `fit: cover` fills the frame (cover); any other is drawn whole over a blurred, tinted copy of itself (glass). The tint is the clip's
+    predominant colour, else the theme's background colour (`colors`, the edit list's theme; the preset file's own when left out), as the page does."""
     rows = []
     for e in timeline["beats"]:
         if (e.get("params_kind") or {}).get("asset") != "clip":
@@ -150,7 +152,7 @@ def clip_rows(data: dict, timeline: dict, assets: dict) -> list:
         row = {"asset": "assets/%s.%s" % (slot, _media.CLIP_EXT), "start_frame": e["start_frame"], "end_frame": e["end_frame"], "mode": "glass" if glass else "cover"}
         if glass:
             row.update(box=_media.glass_box(a["width"], a["height"]), radius=int(looks["glass_radius_px"]), blur=float(looks["glass_blur_px"]),
-                       tint=a.get("tint"), tint_alpha=float(looks["glass_tint_alpha"]))
+                       tint=a.get("tint") or (colors or data["theme"]["colors"])["bg"].lstrip("#").upper(), tint_alpha=float(looks["glass_tint_alpha"]))
         rows.append(row)
     return rows
 

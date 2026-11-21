@@ -189,7 +189,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     page = pages[key]
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
                     if track != "caption" and entry.get("params_kind"):
-                        payload["params_kind"] = entry["params_kind"]      # {"asset": "clip"}: the page draws the label only; the compose draws the clip (V9b-5a)
+                        payload["params_kind"] = entry["params_kind"]
+                        payload["clip_size"] = entry["clip_size"]      # {"asset": "clip"}: the page draws the label only; the compose draws the clip (V9b-5a)
                     result = page.frame((f - entry["start_frame"]) / fps, payload)
                     sig = result["html"]
                     hit = face_hit(result["boxes"], entry["face"])

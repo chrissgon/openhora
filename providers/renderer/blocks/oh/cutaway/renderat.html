@@ -99,6 +99,13 @@ function drawGlass(img, L) {
   return { canvas: canvas, box: { x: fx, y: fy, w: fw, h: fh } };
 }
 
+// The box of the glass layout for a w x h picture (what drawGlass computes), for a clip the compose draws: the page reports it as window.__box.
+function glassBox(w, h) {
+  const fs = Math.min((FRAME_W - 2 * SAFE) / w, MAX_FG_H / h);
+  const fw = Math.round(w * fs), fh = Math.round(h * fs);
+  return { x: Math.round((FRAME_W - fw) / 2), y: Math.round((FRAME_H - fh) / 2), w: fw, h: fh };
+}
+
 window.renderAt = function (t, data) {
   const P = data.params;
   const L = data.look;
@@ -107,7 +114,11 @@ window.renderAt = function (t, data) {
   if (data.params_kind && data.params_kind.asset === 'clip') {
     stage.style.background = 'transparent';
     stage.replaceChildren();
-    window.__box = { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
+    const cs = data.clip_size || { w: 0, h: 0 };
+    const cratio = cs.h > 0 ? cs.w / cs.h : 0;
+    const cmax = L.glass_ratio_max === undefined ? 0.8 : Number(L.glass_ratio_max);
+    const cglass = cratio > 0 && !((P.fit || 'cover') === 'cover' && cratio <= cmax) && L.glass_blur_px !== undefined;
+    window.__box = cglass ? glassBox(cs.w, cs.h) : { x: 0, y: 0, w: FRAME_W, h: FRAME_H };
   } else {
     if (stage.style.background) stage.style.removeProperty('background');      // a page that drew a clip before and now draws a picture
     const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
