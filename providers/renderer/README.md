@@ -13,7 +13,7 @@ beats come from the post file's script block.
 | `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still`, `verify` and `asset-sheet` (V9b-2) (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
 | `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `asset-sheet`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
-| `_asset_sheet.py` | The `asset-sheet` verb's inner side (V9b-2, common, in the image): checks and tiles pictures, normalises the picked ones. Standard library and the image's ffmpeg only; see "The asset sheet" below. |
+| `_asset_sheet.py` | The `asset-sheet` verb's inner side (V9b-2 and V9b-5a, common, in the image): checks and tiles pictures and clips, normalises the picked ones. Standard library and the image's ffmpeg and ffprobe only; see "The asset sheet" and "Clips" below. |
 | `_retakes.py` | The retake rule (see "Retakes" below): standard library only, in the image. |
 | `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py`, `_media.py` | The common part, which imports nothing of the browser, the frames or the storyboard (a test walks the imports): the edit list and its check, the cuts, captions, the beats and their alignment, the vocabulary's typed parameters, the text rules, ffprobe/ffmpeg and the one compose command. |
 | `_layout.py`, `_assets.py`, `_output.py` | Also common: the bands the face box leaves, the face test and the 1560 caption test (`zones`, `face_hit`, `caption_hit`); the allow-listed fonts and the image assets with the safe read (`font_allowlist`, `load_fonts`, `load_assets`, `read_regular`); the platform file's read, `cover`, `still` and the never-rewriting write (`read_platform`, `make_cover`, `make_still`, `png_size`, `write_once`). The old modules import the moved names back. |
@@ -275,11 +275,59 @@ still equal, within the codec's loss, to the render's own first picture of a ran
 network. `preview` checks small pictures (a source's own previews) and tiles them onto `sheet.png`; a tile nobody gave a picture for is the theme's
 background. `full` also normalises each picture: re-encoded to PNG with the image's ffmpeg (one thread, bit-exact scaling and encoding), its metadata
 stripped, its long side scaled to 1920 (the frame's), never enlarged more than 1.5 times (`asset_too_small`), written as `asset-<sha12>.png` (0400, named by its
-own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a clip are `asset_type` (a clip
-until a later package draws clips), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
+own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a file of no known kind are `asset_type` (a clip is accepted since V9b-5a: see "Clips"), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
 `width`, `height`, `source_sha256`; `sheet`, `sheet_sha256`, `rows`) from a closed schema, hashes each file on the way out and checks its header, and never
-rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both); the catalogue lists them as
-`asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
+rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both, **and it stays so after V9b-5a**: the runtime keeps
+refusing a clip pick with `clip_not_drawn` until a later, small package flips it); the catalogue lists them as `asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
+
+## Clips (`asset-sheet` and the clip cutaway, V9b-5a)
+
+**`asset-sheet` takes clips**, in both modes, beside pictures (the rows of one sheet may mix them). A clip is told from a picture by its first bytes, never by its
+name: an MP4 or MOV (an `ftyp` box first) or a WebM (an EBML header). It is read with that container's demuxer forced (`mov` with `-enable_drefs 0`, or `matroska`),
+`-protocol_whitelist file` and the decoder forced too, its **first video stream only**: audio, subtitle and data streams are never mapped, metadata and chapters
+are dropped. The decoders allowed are h264, hevc, vp8 and vp9, and **av1 only when the image's ffmpeg has a software decoder for it**, read at run time from
+`ffmpeg -decoders` (`libdav1d` or `libaom-av1`; the native `av1` decoder needs a hardware accelerator and does not count); with none, an av1 clip is `asset_type`.
+The limits: the byte cap of `asset_max_bytes`, at most 7680x4320 (either way up; `asset_dimensions`), and the **first 10 seconds** (a longer clip is cut, not refused).
+A file ffprobe or the decoder cannot get through, or that comes out shorter than it says, is `asset_corrupt`; HDR, a picture stream and another codec are `asset_type`.
+
+- `--mode preview`: the tile is the clip's frame at 0.5 s (its first frame when the clip is not longer than that), drawn like a picture tile with a small solid
+  accent-coloured marker in the tile's corner (a drawn glyph would need a font the image may not have). Nothing but the sheet is written.
+- `--mode full`: H.264 High, yuv420p, bt709 tagged, a constant frame rate `--fps N` (new optional flag, a whole number from 24 to 60, 30 by default; `bad_fps`
+  otherwise), no audio, the long side scaled to 1920 with the aspect kept (each side made even) and never enlarged more than 1.5 times (`asset_too_small`),
+  the `lanczos+accurate_rnd+bitexact` scaler, x264 on one thread (the decoder and the filter graph too: `threads=1:lookahead_threads=1:sliced-threads=0`), crf 16,
+  faststart, written as `asset-<sha12>.mp4` (0400, named by its own bytes). The same argv gives the same bytes at any core count (a test runs it twice; the bytes
+  at 4 and 8 cores are a live check). The answer's rows gain `kind` (`image` or `clip`) and `seconds` (0 for an image, the clip's length otherwise); a clip's
+  `width` and `height` are the normalised ones.
+
+**The ffmpeg engine draws a clip under an `oh:cutaway` entry.** `render --asset SLOT=FILE` takes the normalised MP4 (a clip is told from a picture by its first
+bytes; `--asset-sha256` is checked as for a picture). It is probed with the checks of the `full` output (`_media.probe_clip`, output mode): H.264, yuv420p, one
+stream, a constant rate from 24 to 60, within the caps, ten seconds at most, no rotation; anything else, audio included, is `asset_type`. The clip is **never served
+to a page**. The compose (`_media.clip_filters`, from `plan["clips"]`, a key only a render that draws a clip has) draws it **under the beat layer and over the
+speaker (and any pip card)**, on the entry's frames only: it is conformed to the output rate (`fps=`), plays from the entry's first frame, its last frame is held
+to the entry's end, and it is one stream the whole length of the output, transparent outside the entry (the pip's pattern: no `enable` expression, so no frame
+can be off; the heavy filters run on the entry's own frames, before the stream is padded). The look is the page's, from the same values:
+
+- `fit: cover` and a ratio at or under `glass_ratio_max` (0.8): the clip scaled to cover 1080x1920, centred.
+- otherwise the glass: a copy scaled to cover (1080 + 4 x blur by 1920 + 4 x blur) and blurred (`gblur`, sigma = `glass_blur_px`, 3 passes; a CSS blur of N px is a
+  Gaussian of deviation N), cut to the frame; a tint of the clip's first-frame predominant colour at `glass_tint_alpha` (a `color` source, alpha as 0.45 x 255 = 115;
+  the colour is the page's `predominant` rule ported to the host, `_media.predominant`, on a 32x32 box average of the first frame; none when the frame is all near
+  white or near black); a shadow (a blurred black rounded rectangle at 0.45, offset 12, a blur deviation of half the page's 48); the clip whole, within `SAFE` = 65
+  and `MAX_FG_H` = 1700, with the radius mask (`glass_radius_px`, the pip's `geq` pattern). The page's constants that are not looks are copied in `_media.py` and a
+  test reads the page for them.
+
+**The page is told the asset is a clip** with `data.params_kind = {"asset": "clip"}` (set on the entry by `_render.settle_clips`, passed by `_frames.draw_frames`) and then
+draws **only the label chip** on a transparent stage; `window.__imgs` holds nothing for a clip slot. A test draws the page before and after this package on
+the same pictures and times and finds the same frame bytes for an image cutaway (`tests/golden/cutaway-renderat-v9b2.html` is the earlier page, kept for it).
+
+- **Transitions.** A clip cutaway draws the `cut` transition only (the default since V9d). A theme whose cutaway look is `slide` or `zoom` is refused `clip_transition`
+  for a clip entry. The loss: those themes cannot use clips yet.
+- **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip` or any other block is `asset_type` naming the slot.
+- **The gate** judges a clip cutaway frame as an image cutaway frame: the page reports the same boxes (none), and the face rules of every card and caption are
+  unchanged. The HyperFrames engine has no clip path (`asset_kinds` `["image"]`): `hyperframes.py render` still refuses a clip as `asset_type`.
+
+Tests: `tests/test_asset_sheet.py` (the verb), `tests/test_clip_cutaway.py` (the compose, the page, the refusals and whole renders), `tests/clip_kit.py` (the synthetic
+clips: a moving gradient carrying its own frame number). Not verified here: the image's own ffmpeg (its av1 decoder, its `gblur`, `geq` and `tpad` behaviour), the
+bytes at 4 and 8 cores in the image, and a clip that is not synthetic.
 
 ## The storyboard (`storyboard`)
 
@@ -399,10 +447,10 @@ skip with a reason where those are absent; the host side runs against a fake doc
   `oh:screenshot` on both): the compose, the gates and the page's look in the host's browser are tested, with a stand-in for GSAP's timeline; HyperFrames' own
   render of the iframe, the decode of the pictures before frame 0 in it, the loopback server's answer for a PNG, the determinism at 4 and 8 cores (`F9`, `M4` of
   `tests/test_engine_contract_live.py`) and spike S2 (a clip in a frame-band iframe) wait for the rebuilt images.
-- Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
+- On the HyperFrames engine an asset is a PNG (a clip is drawn by the ffmpeg engine's compose only, V9b-5a); the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
   `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has
   `fit: contain` is drawn whole, centred, inside the safe margins, over a blurred, tinted copy of itself (`glass_blur_px`, `glass_tint_alpha`,
-  `glass_radius_px` of `presets.cutaway.looks`); a clip asset is as before. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).
+  `glass_radius_px` of `presets.cutaway.looks`); a clip drawn in the same look is "Clips" above. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).
 
 ## Limits that match the plan
 
