@@ -147,17 +147,31 @@ class FakeSheets:
 SLOT_SOURCE = {"slot": "beat7", "beat": 7, "param": "asset", "type": "image", "description": "a screenshot of a shop"}
 
 
+def per_item_template() -> dict:
+    """The data file of the shipped keyless source whose tier is `per-item` (read by what it says, never by name): the model of the fictional source `shelf` the tests use."""
+    for path in sorted((REPO / "providers" / "stock" / "sources").glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("licence_tier") == "per-item" and data.get("secret_in") == "none":
+            return data
+    raise AssertionError("no per-item source is shipped")
+
+
 def copy_stock_providers(tree: Path, extra=None) -> None:
-    """The class's own files into the stand-in tree: the implementations, the helpers and each source's data file; `extra` maps a name to a source file (a dict) that gets a
-    small implementation of its own (a second library for the merge)."""
+    """The class's own files into the stand-in tree: the helpers, the open-web provider and its data file, a fictional per-item source `shelf` (the shipped one's data file under another
+    name), and a small implementation of its own for each name of `extra` (a dict of data files: a second library for the merge). No shipped library is named."""
     target = tree / "providers" / "stock"
-    shutil.copytree(REPO / "providers" / "stock", target, ignore=shutil.ignore_patterns("tests", "__pycache__", "README.md"))
-    for name, data in (extra or {}).items():
+    (target / "sources").mkdir(parents=True)
+    for name in ("_stock.py", "_net.py", "web.py"):
+        shutil.copy(REPO / "providers" / "stock" / name, target / name)
+    shutil.copy(REPO / "providers" / "stock" / "sources" / "web.json", target / "sources" / "web.json")
+    sources = {"shelf": dict(per_item_template(), source="shelf")}
+    sources.update(extra or {})
+    for name, data in sources.items():
         (target / f"{name}.py").write_text(f'SERVES = "stock:media"\nSOURCE = "{name}"\n', encoding="utf-8")
         (target / "sources" / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-LIBRARY = {"source": "fakelib", "licence_tier": "library", "licence": "pexels-license", "licences": None, "licence_url": "https://fakelib.example/licence", "terms_read_on": "2026-11-12",
+LIBRARY = {"source": "fakelib", "licence_tier": "library", "licence": media_stock.LICENCES_ACCEPTED[0], "licences": None, "licence_url": "https://fakelib.example/licence", "terms_read_on": "2026-11-12",
            "secret": None, "secret_in": None, "api": {"host": "api.fakelib.example", "search_image": "/s", "search_clip": "/c", "item_image": "/i/{item}", "item_clip": "/v/{item}"},
            "media_hosts": ["img.fakelib.example"], "redirect_hosts": [], "path_patterns": {"preview": ".*", "image": ".*", "clip": ".*"}, "rendition": {"preview": "p", "image": "i", "clip": "c"},
            "cache_seconds": 0, "credit_line": None, "kinds": ["image", "clip"]}

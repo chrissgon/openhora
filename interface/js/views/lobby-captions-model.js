@@ -183,3 +183,82 @@ export function wordsText(words, from, to) {
 export function canEdit(mode) {
   return mode === "review" || mode === "gate";
 }
+
+// ---- the media set (package V9b-3a): the words for a slot's pictures, the picks, and the layouts an animation can add -------------------------------------------------------------
+
+export const WANT_KINDS = Object.freeze(["image", "clip"]);
+export const SEARCH_WORDS_MAX = 6;
+const SEARCH_RULE = /^[A-Za-z][A-Za-z' -]{1,59}$/;      // = providers/stock/_stock.py SEARCH: the service checks again and its sentence is shown as it came
+
+/** The sentence that says why the search words are not acceptable, or "" when they are: 1 to 6 words of English letters, apostrophes and hyphens. */
+export function searchProblem(text) {
+  const t = typeof text === "string" ? text : "";
+  if (!SEARCH_RULE.test(t) || t !== t.trim()) return "Write 1 to 6 English words, with letters only.";
+  if (t.split(/\s+/).length > SEARCH_WORDS_MAX) return "Write 1 to 6 English words, with letters only.";
+  return "";
+}
+
+/** Give a slot the choice `stock` (its picture comes from the media set). */
+export function slotStockEdit(slot) {
+  return { op: "slot", slot, choice: "stock" };
+}
+
+/** The words to search for a slot and the kind of file wanted. */
+export function slotSearchEdit(slot, search, want) {
+  return { op: "slot_search", slot, search, want: WANT_KINDS.includes(want) ? want : "image" };
+}
+
+/** Pick one candidate (`<source>:<item>`) for a slot. */
+export function slotAssetEdit(slot, pick) {
+  return { op: "slot_asset", slot, pick };
+}
+
+/** Clear the pick of a slot. */
+export function clearPickEdit(slot) {
+  return { op: "slot_asset", slot, clear: true };
+}
+
+/** The slots of a view that take a picture from the media set: the rows of `view.slots` (a script slot or the slot of an added layout), each with its words and its pick. */
+export function stockSlots(view) {
+  return (view && Array.isArray(view.slots) ? view.slots : []).map((s) => ({
+    slot: s.slot, description: s.description || "", kind: s.type, choice: s.choice || null, search: s.search || "", want: s.want || "image", pick: s.pick || null, file: s.file || null,
+    layout: Boolean(s.animation),
+  }));
+}
+
+/** The form fields of a layout block of the catalogue (a block with one picture parameter): the parameters it can type, without the picture, which is chosen in the media set. */
+export function layoutFieldsOf(entry) {
+  const typeable = {};
+  for (const [name, spec] of Object.entries(entry && entry.params && typeof entry.params === "object" ? entry.params : {})) {
+    const type = spec && typeof spec === "object" ? spec.type : undefined;
+    if (Array.isArray(type) || type === "image" || type === "clip") continue;
+    typeable[name] = spec;
+  }
+  return fieldsOf({ params: typeable });
+}
+
+/** An animation edit that adds a layout over the selected words, with the words that say what it shows and what to search. */
+export function addLayout(block, params, sel, show, search, want) {
+  const edit = addAnimation(block, params, sel);
+  if (show) edit.show = show;
+  if (search) {
+    edit.search = search;
+    edit.want = WANT_KINDS.includes(want) ? want : "image";
+  }
+  return edit;
+}
+
+/** What a candidate says about itself, as text: its source, its licence (a licence nobody checked is said so), its author and its size. */
+export function candidateText(c) {
+  const licence = c.licence === "unverified" ? "licence not checked" : c.licence;
+  const who = c.author ? `, by ${c.author}` : "";
+  const size = c.seconds ? `${c.width}x${c.height}, ${c.seconds} s` : `${c.width}x${c.height}`;
+  return `${c.source}: ${licence}${who}, ${size}`;
+}
+
+/** The credit lines of an approved set, and the slots that need an approval of their own, from the answer of `video-media-approve`. */
+export function approvalSummary(answer) {
+  const a = answer || {};
+  return { approved: Boolean(a.approved), hash: typeof a.sha256 === "string" ? a.sha256 : "", credits: Array.isArray(a.credits) ? a.credits : [],
+    own: Array.isArray(a.needs_own_approval) ? a.needs_own_approval : [], assets: a.set && Array.isArray(a.set.assets) ? a.set.assets : [] };
+}

@@ -487,6 +487,31 @@ export function videoWatch(p, id, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/watch`, { raw: true, accept: "video/mp4", signal });
 }
 
+/** POST /projects/{p}/videos/{id}/media/find (job): without `confirm` the words and the sources a search would use, nothing sent; with it the libraries are searched. The job's result is the answer. */
+export function videoMediaFind(p, id, confirm, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/find`, { body: { confirm: Boolean(confirm) }, signal });
+}
+
+/** POST /projects/{p}/videos/{id}/media/fetch-picks (job): fetches the full file of each pick and has the renderer normalise it. */
+export function videoMediaFetchPicks(p, id, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/fetch-picks`, { signal });
+}
+
+/** POST /projects/{p}/videos/{id}/media/approve: without `hash` the media set to read (its sha256, credits and the files that need their own approval); with the current hash, the approval. */
+export function videoMediaApprove(p, id, hash, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/approve`, { body: hash ? { hash } : {}, signal });
+}
+
+/** GET /projects/{p}/videos/{id}/media/file/{name}: one picture of the media set the renderer made (`sheet-preview.png`, `sheet.png` or `asset-<sha12>.png`), as a Blob (image/png). */
+export function videoMediaFile(p, id, name, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/media/file/${enc(name)}`, { raw: true, signal });
+}
+
+/** GET /projects/{p}/videos/{id}/media/credits: the credits record of the media set approved for the video. */
+export function videoCredits(p, id, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/media/credits`, { signal });
+}
+
 /** GET /projects/{p}/commands: {commands: [{command, arguments, help}]}, the lines `/help` prints, in its order. */
 export function commands(p, options) {
   return send("GET", `/projects/${enc(p)}/commands`, options);

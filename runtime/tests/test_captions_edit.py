@@ -64,21 +64,21 @@ def test_at_most_six_slots_take_words_or_a_pick():
     assert len(review["slot_searches"]) == 6
     assert code([{"op": "slot_search", "slot": "s6", "search": "market", "want": "image"}], review=review, slots=slots) == ("too_many_slots", "edits[0]")
     assert apply([{"op": "slot_search", "slot": "s0", "search": "fruit", "want": "image"}], review=review, slots=slots)[1]["slot_searches"]["s0"]["search"] == "fruit"
-    stock = {s: {"openverse:%s" % s} for s in slots}
-    _, picked, _ = apply([{"op": "slot_asset", "slot": s, "pick": "openverse:%s" % s} for s in slots[:6]], slots=slots, stock=stock)
+    stock = {s: {"shelf:%s" % s} for s in slots}
+    _, picked, _ = apply([{"op": "slot_asset", "slot": s, "pick": "shelf:%s" % s} for s in slots[:6]], slots=slots, stock=stock)
     assert len(picked["slot_assets"]) == 6
-    assert code([{"op": "slot_asset", "slot": "s6", "pick": "openverse:s6"}], review=picked, slots=slots, stock=stock) == ("too_many_slots", "edits[0]")
+    assert code([{"op": "slot_asset", "slot": "s6", "pick": "shelf:s6"}], review=picked, slots=slots, stock=stock) == ("too_many_slots", "edits[0]")
 
 
 def test_slot_asset_names_a_candidate_of_the_set_for_that_slot_or_clears_the_pick():
-    stock = {"beat7": {"openverse:item-1", "openverse:item-2"}, "beat8": {"openverse:item-3"}}
-    _, review, _ = apply([{"op": "slot_asset", "slot": "beat7", "pick": "openverse:item-2"}], stock=stock)
-    assert review["slot_assets"] == {"beat7": "openverse:item-2"}
-    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "openverse:item-3"}], stock=stock) == ("asset_not_found", "edits[0].pick")      # a candidate of another slot
-    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "openverse:item-1"}], stock=None) == ("asset_not_found", "edits[0].pick")      # no set was found
+    stock = {"beat7": {"shelf:item-1", "shelf:item-2"}, "beat8": {"shelf:item-3"}}
+    _, review, _ = apply([{"op": "slot_asset", "slot": "beat7", "pick": "shelf:item-2"}], stock=stock)
+    assert review["slot_assets"] == {"beat7": "shelf:item-2"}
+    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "shelf:item-3"}], stock=stock) == ("asset_not_found", "edits[0].pick")      # a candidate of another slot
+    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "shelf:item-1"}], stock=None) == ("asset_not_found", "edits[0].pick")      # no set was found
     assert code([{"op": "slot_asset", "slot": "beat7", "pick": "../../etc"}], stock=stock) == ("bad_choice", "edits[0].pick")
-    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "openverse:item-1", "clear": True}], stock=stock) == ("unknown_field", "edits[0]")
-    assert code([{"op": "slot_asset", "slot": "beat9", "pick": "openverse:item-1"}], stock=stock) == ("unknown_slot", "edits[0].slot")
+    assert code([{"op": "slot_asset", "slot": "beat7", "pick": "shelf:item-1", "clear": True}], stock=stock) == ("unknown_field", "edits[0]")
+    assert code([{"op": "slot_asset", "slot": "beat9", "pick": "shelf:item-1"}], stock=stock) == ("unknown_slot", "edits[0].slot")
     _, cleared, _ = apply([{"op": "slot_asset", "slot": "beat7", "clear": True}], review)
     assert cleared["slot_assets"] == {} and cleared["revision"] == 2
     pick = "web:q-%s" % ("a" * 12)
@@ -92,8 +92,8 @@ def test_a_layout_animation_takes_a_slot_of_its_own_with_the_words_that_say_what
     assert item["id"] == "a1" and item["asset_param"] == "asset" and "asset" not in item["params"] and item["show"] == "a busy market"
     assert (item["search"], item["want"]) == ("market stall", "image") and review["slot_searches"]["a1"] == {"search": "market stall", "want": "image"}
     assert captions.check_review(review) == review      # the stored shape reads back
-    _, picked, _ = apply([{"op": "slot_asset", "slot": "a1", "pick": "openverse:item-1"}, {"op": "slot", "slot": "a1", "choice": "stock"}], review, stock={"a1": {"openverse:item-1"}})
-    assert picked["slot_assets"] == {"a1": "openverse:item-1"} and picked["empty_slots"] == {"a1": "stock"}
+    _, picked, _ = apply([{"op": "slot_asset", "slot": "a1", "pick": "shelf:item-1"}, {"op": "slot", "slot": "a1", "choice": "stock"}], review, stock={"a1": {"shelf:item-1"}})
+    assert picked["slot_assets"] == {"a1": "shelf:item-1"} and picked["empty_slots"] == {"a1": "stock"}
     _, gone, _ = apply([{"op": "animation", "id": "a1", "remove": True}], picked)
     assert gone["animations"] == [] and gone["slot_searches"] == {} and gone["slot_assets"] == {} and gone["empty_slots"] == {}      # it takes its slot with it
 
@@ -119,7 +119,7 @@ def test_a_review_with_no_stock_keys_reads_as_empty_and_a_bad_stored_shape_is_re
     assert captions.check_review(old) == review and captions.REVIEW_VERSION == 1      # no version bump: an absent key reads as {}
     for field, value in (("slot_searches", {"beat7": {"search": "x", "want": "image"}}), ("slot_searches", {"beat7": {"search": "market stall", "want": "video"}}),
                          ("slot_searches", {"BAD": {"search": "market", "want": "image"}}), ("slot_assets", {"beat7": "no-colon"}), ("slot_assets", {"beat7": 3}),
-                         ("slot_assets", {"s%d" % n: "openverse:x" for n in range(7)}), ("slot_searches", [])):
+                         ("slot_assets", {"s%d" % n: "shelf:x" for n in range(7)}), ("slot_searches", [])):
         with pytest.raises(captions.CaptionError) as raised:
             captions.check_review(dict(copy.deepcopy(review), **{field: value}))
         assert raised.value.code == "review_unreadable" and raised.value.field == field
@@ -135,10 +135,10 @@ def test_the_view_lists_the_slots_with_their_words_and_picks_and_the_layouts_slo
     edits = [{"op": "animation", "block": "oh:cutaway", "params": {}, "word_from": 1, "word_to": 3, "show": "a busy market", "search": "market stall", "want": "image"},
              {"op": "slot_search", "slot": "beat7", "search": "fruit crate", "want": "clip"}]
     edited, review, _ = apply(edits, animate=layout_checker)
-    review["slot_assets"] = {"a1": "openverse:item-1"}
+    review["slot_assets"] = {"a1": "shelf:item-1"}
     view = captions.view(edited, review, {}, {"slots": [{"slot": "beat7", "beat": 7, "param": "asset", "type": "image", "description": "a screenshot"}]},
                          {"a1": {"name": "asset-%s.png" % ("1" * 12), "type": "png", "sha256": "1" * 64}})
     rows = {r["slot"]: r for r in view["slots"]}
     assert rows["beat7"]["search"] == "fruit crate" and rows["beat7"]["want"] == "clip" and rows["beat7"]["pick"] is None
-    assert rows["a1"]["animation"] == "a1" and rows["a1"]["beat"] is None and rows["a1"]["description"] == "a busy market" and rows["a1"]["pick"] == "openverse:item-1"
+    assert rows["a1"]["animation"] == "a1" and rows["a1"]["beat"] is None and rows["a1"]["description"] == "a busy market" and rows["a1"]["pick"] == "shelf:item-1"
     assert rows["a1"]["file"]["sha256"] == "1" * 64 and view["animations"][0]["slot"] == "a1" and view["animations"][0]["asset_param"] == "asset"

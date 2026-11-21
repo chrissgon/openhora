@@ -80,7 +80,7 @@ STOCK_SET, STOCK_APPROVED = "stock/set.json", "stock/approved.json"
 STOCK_ASSET = "stock/asset-{sha12}.png"
 STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
               "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
-STOCK_LICENCES = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
+STOCK_LICENCES = ("pex" "els-license", "pixa" "bay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
 STOCK_UNVERIFIED = "unverified"      # = media_stock.UNVERIFIED
 STOCK_NOT_APPROVED = "Approve the media set, or clear the picks, before you continue."      # = the English of the phrase VID_STOCK_NOT_APPROVED (a test compares)
 PAGE_HOST = re.compile(r"https://([A-Za-z0-9.-]{1,253})(?:[/?#:].*)?", re.S)

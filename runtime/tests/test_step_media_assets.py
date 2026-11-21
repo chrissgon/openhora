@@ -15,7 +15,7 @@ import pytest
 
 import standin_tree as st
 from media_kit import flag, media, open_items, ops, ops_core, ops_step_seams, run_task, step_media, steps, task_row, to_gate, work_file, world  # noqa: F401
-from stock_kit import SLOT_SOURCE, configure, media_stock, ops_media_stock, png, review_of, sha, to_found, FakeSheets, FakeSources, pick
+from media_stock_kit import SLOT_SOURCE, configure, media_stock, ops_media_stock, png, review_of, sha, to_found, FakeSheets, FakeSources, pick
 
 deliver_document = st.load("deliver_document")
 captions = st.load("captions")
@@ -42,7 +42,7 @@ def approved_video(world, monkeypatch, licence="cc0-1.0"):
     """A video with a picture found, picked, fetched and approved, waiting at the review. Returns the world of stock_kit."""
     layout_engine(world["engine"])
     found = to_found(world, monkeypatch)
-    found["sources"].licences = {"openverse": licence}
+    found["sources"].licences = {"shelf": licence}
     done = ops.video_media_find(world["path"], found["task"], confirm=True)
     pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
     ops.video_media_fetch_picks(world["path"], found["task"])
@@ -131,7 +131,7 @@ def test_a_pick_that_is_not_the_approved_one_or_a_set_of_another_task_or_a_chang
     doc = json.loads((stock_dir(world) / "set.json").read_text())
     approved = json.loads((stock_dir(world) / "approved.json").read_text())
     review = review_of(world)
-    media.write_work(world["data"], world["rid"], "review.json", json.dumps(dict(review, slot_assets={"beat7": "openverse:another-item"})).encode())
+    media.write_work(world["data"], world["rid"], "review.json", json.dumps(dict(review, slot_assets={"beat7": "shelf:another-item"})).encode())
     assert go_on(world, video["task"])["code"] == "media_not_approved"
     media.write_work(world["data"], world["rid"], "review.json", json.dumps(review).encode())
     media_stock.write_doc(world["data"], world["rid"], "approved.json", dict(approved, task=video["task"] + 1))
@@ -169,11 +169,11 @@ def test_a_cc_by_picture_puts_its_credit_in_the_document_the_card_and_the_body_a
     assert out["stopped"] == "deliver"
     gate, doc = delivered(world, video["task"])
     [credit] = doc["credits"]
-    assert credit.startswith("\"A picture of market stall\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via openverse")
+    assert credit.startswith("\"A picture of market stall\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf")
     assert doc["assets"][0]["licence"] == "cc-by-4.0" and doc["assets"][0]["slot"] == "beat7" and "web" not in doc
     keys = [line[0] for line in gate["payload"]["card"]]
     assert "CARD_VIDEO_ASSET" in keys and "CARD_VIDEO_CREDITS" in keys and ["CARD_VIDEO_CREDIT", {"credit": credit}] in gate["payload"]["card"]
-    assert "Credit to put in the caption" in gate["body"] and credit in gate["body"] and "Picture: beat7, openverse, cc-by-4.0, sha256 " in gate["body"]
+    assert "Credit to put in the caption" in gate["body"] and credit in gate["body"] and "Picture: beat7, shelf, cc-by-4.0, sha256 " in gate["body"]
     assert gate["payload"]["effect"]["assets"] == 1 and gate["payload"]["effect"]["credits"] == 1
 
 
@@ -195,7 +195,7 @@ def test_a_video_with_no_stock_has_the_document_summary_and_card_it_always_had(w
 # --- the seam for a picture nobody checked (a planted synthetic candidate) -----------------------------------------------------------------------------
 
 
-def plant_unverified(world, monkeypatch, own=True, stock=("openverse", "web")):
+def plant_unverified(world, monkeypatch, own=True, stock=("shelf", "web")):
     """A video whose set holds one picture of the licence `unverified` (written here, as the open-web path of another package would), approved as a set, with the approval of
     its own when `own`. Nothing is fetched from anywhere: the picture is a flat-colour PNG."""
     layout_engine(world["engine"])
@@ -243,7 +243,7 @@ def test_the_unverified_seam_is_refused_with_an_own_approval_from_another_task_s
 
 def test_the_unverified_seam_is_refused_when_the_source_was_turned_off_after_the_approval(world, monkeypatch):
     plant = plant_unverified(world, monkeypatch)
-    configure(world, monkeypatch, ["openverse"])      # the project stops using the open-web source and accepts the file
+    configure(world, monkeypatch, ["shelf"])      # the project stops using the open-web source and accepts the file
     out = go_on(world, plant["task"])
     assert out["ok"] is False and out["code"] == "media_not_approved" and not world["engine"].of("render")
 

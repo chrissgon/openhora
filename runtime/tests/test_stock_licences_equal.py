@@ -73,4 +73,4 @@ def test_the_step_kind_still_imports_nothing_new_and_the_credit_licence_names_ar
     for licence in media_stock.LICENCES_CREDIT:
         name, version, url = media_stock.licence_name(licence)
         assert name == "CC BY" and url == "https://creativecommons.org/licenses/by/%s/" % version and licence == "cc-by-" + version
-    assert media_stock.licence_name("cc0-1.0")[0] == "CC0" and media_stock.licence_name("pexels-license") is None and media_stock.licence_name("cc-by-sa-4.0") is None
+    assert media_stock.licence_name("cc0-1.0")[0] == "CC0" and media_stock.licence_name(media_stock.LICENCES_ACCEPTED[0]) is None and media_stock.licence_name("cc-by-sa-4.0") is None

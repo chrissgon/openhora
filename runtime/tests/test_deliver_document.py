@@ -169,8 +169,8 @@ def test_the_module_imports_nothing_of_the_repository_and_holds_no_function_that
 # V9b-3a. the pictures of the media set: three optional keys, present only when they hold something
 
 
-ASSET = {"slot": "beat7", "sha256": "e" * 64, "source": "openverse", "item": "item-1", "licence": "cc-by-4.0"}
-CREDIT = "\"A picture\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via openverse"
+ASSET = {"slot": "beat7", "sha256": "e" * 64, "source": "shelf", "item": "item-1", "licence": "cc-by-4.0"}
+CREDIT = "\"A picture\" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf"
 WEB = {"slot": "beat9", "sha256": "f" * 64, "page_host": "pics.example", "page_sha256": "a" * 64}
 UNCHECKED = {"slot": "beat9", "sha256": "f" * 64, "source": "other", "item": "q-" + "f" * 12, "licence": "unverified"}
 
@@ -193,7 +193,7 @@ def test_the_pictures_credits_and_unchecked_files_are_in_the_document_the_card_a
     assert keys.count("CARD_VIDEO_ASSET") == 2 and "CARD_VIDEO_CREDITS" in keys and ["CARD_VIDEO_CREDIT", {"credit": CREDIT}] in lines
     assert ["CARD_VIDEO_WEB", {"host": "pics.example"}] in lines and ["CARD_VIDEO_WEB_PAGE", {"page": "https://pics.example/gallery"}] in lines
     body = dd.body(doc, DIGEST)
-    assert "Picture: beat7, openverse, cc-by-4.0, sha256 " + "e" * 64 in body and "Credit to put in the caption\n" + CREDIT in body
+    assert "Picture: beat7, shelf, cc-by-4.0, sha256 " + "e" * 64 in body and "Credit to put in the caption\n" + CREDIT in body
     assert "Found on the web, licence not checked: pics.example" in body and "gallery" not in body
     phrases = st.load("phrases")
     english = [phrases.text(k, None, **f) for k, f in lines if k != "CARD_VIDEO_WEB_PAGE"]

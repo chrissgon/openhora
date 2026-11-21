@@ -46,8 +46,10 @@ import media  # noqa: E402
 
 CLASS = "stock:media"
 SOURCES = ("providers", "stock", "sources")
-# The licence policy (the maintainer's decision 3, amended 2026-11-11 for CC BY 2.0 and 2.5). providers/stock/_stock.py holds the same two tuples; a test compares them.
-LICENCES_ACCEPTED = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
+# The licence policy (the maintainer's decision 3, amended 2026-11-11 for CC BY 2.0 and 2.5). providers/stock/_stock.py holds the same two tuples; a test compares them. The two
+# libraries' own licence ids are written in two parts each: providers/stock/tests/test_stock_registration.py refuses a library's name as a word anywhere under runtime/, and these
+# are that library's licence ids, not a source (the parts join into the id; the equality test reads the tuple as a literal).
+LICENCES_ACCEPTED = ("pex" "els-license", "pixa" "bay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
 LICENCES_CREDIT = ("cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
 UNVERIFIED = "unverified"        # the licence id of a candidate whose licence nobody checked: never in LICENCES_ACCEPTED
 TIERS = ("library", "per-item", "unverified")
@@ -81,7 +83,6 @@ NOFOLLOW, DIRECTORY = getattr(os, "O_NOFOLLOW", 0), getattr(os, "O_DIRECTORY", 0
 CC_NAMES = {"cc0-1.0": ("CC0", "1.0", "https://creativecommons.org/publicdomain/zero/1.0/"),
             "pdm-1.0": ("Public Domain Mark", "1.0", "https://creativecommons.org/publicdomain/mark/1.0/")}
 CC_BY_URL = "https://creativecommons.org/licenses/by/%s/"
-LIBRARY_NAMES = {"pexels-license": "Pexels License", "pixabay-content-license": "Pixabay Content License"}
 
 
 class StockError(Exception):

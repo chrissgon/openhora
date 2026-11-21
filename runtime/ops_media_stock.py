@@ -30,7 +30,6 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import concurrent.futures
-import hashlib
 import os
 import re
 import sys

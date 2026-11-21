@@ -16,7 +16,7 @@ import pytest
 
 import standin_tree as st
 from media_kit import add, media, ops, ops_core, task_row, to_review, work_file, world  # noqa: F401
-from stock_kit import (FakeSheets, FakeSources, LIBRARY, REPO, accepted, captions, configure, media_stock, ops_media_edit, ops_media_stock, pick, png, review_of, sha, to_found)
+from media_stock_kit import (FakeSheets, FakeSources, LIBRARY, REPO, accepted, captions, configure, media_stock, ops_media_edit, ops_media_stock, pick, png, review_of, sha, to_found)
 
 project_config = st.load("project_config")
 policy_widening = st.load("policy_widening")
@@ -50,7 +50,7 @@ def stock_folder(world):
 def test_the_default_sources_are_the_keyless_ones_and_an_empty_list_turns_stock_off(world, monkeypatch):
     configure(world, monkeypatch, "default", accept=False)
     cfg = project_config.load(world["path"])
-    assert media_stock.sources_of(cfg) == ["openverse", "web"]      # every shipped source whose data file says it needs no key
+    assert media_stock.sources_of(cfg) == ["shelf", "web"]      # every shipped source whose data file says it needs no key
     assert "stock" not in cfg["media"]
     configure(world, monkeypatch, [], accept=False)
     cfg = project_config.load(world["path"])
@@ -61,7 +61,7 @@ def test_the_default_sources_are_the_keyless_ones_and_an_empty_list_turns_stock_
     assert media_stock.sources_of(project_config.load(world["path"])) == []      # a project with no `media` object uses none: the default is offered where videos are set up
 
 
-@pytest.mark.parametrize("bad", ["openverse", ["nosuchsource"], ["openverse", "openverse"], [3], ["openverse"] * 9, ["a" * 40]])
+@pytest.mark.parametrize("bad", ["shelf", ["nosuchsource"], ["shelf", "shelf"], [3], ["shelf"] * 9, ["a" * 40]])
 def test_a_stock_list_that_is_not_a_list_of_shipped_sources_is_refused(world, monkeypatch, bad):
     configure(world, monkeypatch, "default", accept=False)
     path = Path(world["path"]) / "docs" / "workbench" / "runtime.json"
@@ -73,15 +73,13 @@ def test_a_stock_list_that_is_not_a_list_of_shipped_sources_is_refused(world, mo
 
 
 def test_a_search_before_the_acceptance_answers_stock_not_accepted_naming_the_command(world, monkeypatch):
-    found = to_found(world, monkeypatch, accept=False) if False else None      # the world is made below: the project is not accepted
-    configure(world, monkeypatch, "default", accept=False)
+    configure(world, monkeypatch, "default", accept=False)      # the file changed and the person has not accepted it
     fake, sheets = FakeSources(), FakeSheets()
     monkeypatch.setattr(ops_media_stock, "_sources_for", lambda ctx: fake)
     monkeypatch.setattr(ops_media_stock, "_engine_of", lambda ctx: sheets)
     with pytest.raises(ops_core.OpsError) as refused:      # the file changed and was not accepted: the operations layer itself refuses until `accept-config`
         ops.video_media_find(world["path"], 1)
-    assert "accept-config" in str(refused.value)
-    assert found is None and fake.calls == []
+    assert "accept-config" in str(refused.value) and fake.calls == []
 
 
 def test_the_acceptance_of_a_file_that_adds_a_source_is_needed_before_the_search_and_prints_what_is_given_away(world, monkeypatch):
@@ -89,35 +87,33 @@ def test_the_acceptance_of_a_file_that_adds_a_source_is_needed_before_the_search
     configure(world, monkeypatch, "default", accept=False)
     shown = ops.config(world["path"])
     items = [i for i in shown["widening"] if i["group"].startswith("stock=")]
-    assert [i["group"] for i in items] == ["stock=openverse@2026-11-11"]      # the open web is no item of this package
-    assert "the search words of each video are sent to openverse" in items[0]["means"] and "cc-by-2.0" in items[0]["means"]
+    assert [i["group"] for i in items] == ["stock=shelf@2026-11-11"]      # the open web is no item of this package
+    assert "the search words of each video are sent to shelf" in items[0]["means"] and "cc-by-2.0" in items[0]["means"]
     assert "the files stay on this computer" in items[0]["means"]
     monkeypatch.setattr(ops_media_stock, "_sources_for", lambda ctx: FakeSources())
     accepted(world)
     with pytest.raises(ops_core.OpsError) as refused:      # accepted, but nothing is set up for the video yet
         ops.video_media_find(world["path"], task)
-    assert "no_slots" in str(refused.value) or "not_at_review" in str(refused.value) or "no_slots" in str(refused.value)
+    assert "no_slots" in str(refused.value) or "not_at_review" in str(refused.value)
 
 
 def test_the_widening_record_must_hold_the_stock_items_or_the_search_is_refused(world, monkeypatch):
     configure(world, monkeypatch, "default", accept=True)
     task = to_review(world)
-    store = ops_core.context(world["path"])
     ctx = ops_core.context(world["path"])
     ctx["store"].cursor_set(ctx["conn"], policy_widening.ACCOUNTS, json.dumps({"v": 1, "items": ""}))      # a record from before the sources were accepted
     monkeypatch.setattr(ops_media_stock, "_sources_for", lambda ctx: FakeSources())
     with pytest.raises(ops_core.OpsError) as refused:
         ops.video_media_find(world["path"], task)
     assert "stock_not_accepted" in str(refused.value) and "accept-config --widen" in str(refused.value)
-    assert store is not None
 
 
 def test_one_widening_item_per_source_and_a_new_one_when_the_terms_date_changes(world, monkeypatch):
-    configure(world, monkeypatch, ["openverse", "fakelib"], extra={"fakelib": LIBRARY})
+    configure(world, monkeypatch, ["shelf", "fakelib"], extra={"fakelib": LIBRARY})
     cfg = project_config.load(world["path"])
     items = policy_widening.stock_items(cfg, "k")
-    assert [i["group"] for i in items] == ["stock=openverse@2026-11-11", "stock=fakelib@2026-11-12"]
-    assert items[1]["means"].startswith("stock media from fakelib:") and "pexels-license" in items[1]["means"] and "read on 2026-11-12" in items[1]["means"]
+    assert [i["group"] for i in items] == ["stock=shelf@2026-11-11", "stock=fakelib@2026-11-12"]
+    assert items[1]["means"].startswith("stock media from fakelib:") and media_stock.LICENCES_ACCEPTED[0] in items[1]["means"] and "read on 2026-11-12" in items[1]["means"]
     before, record = {i["digest"] for i in items}, policy_widening.dump_accounts(cfg, "k")      # the record the acceptance wrote, before the file changes
     source = Path(world["tree"]) / "providers" / "stock" / "sources" / "fakelib.json"
     data = json.loads(source.read_text())
@@ -136,19 +132,19 @@ def test_one_widening_item_per_source_and_a_new_one_when_the_terms_date_changes(
 def test_find_without_confirm_sends_nothing_and_says_which_words_go_where(world, monkeypatch):
     found = to_found(world, monkeypatch)
     shown = find(world, found["task"], confirm=False)
-    assert shown["confirmed"] is False and shown["sources"] == ["openverse"]
+    assert shown["confirmed"] is False and shown["sources"] == ["shelf"]
     assert shown["slots"] == [{"slot": "beat7", "show": "a screenshot of a shop 0", "search": "market stall", "want": "image"}]
-    assert "market stall" in shown["message"] and "openverse" in shown["message"]
+    assert "market stall" in shown["message"] and "shelf" in shown["message"]
     assert found["sources"].calls == [] and found["sheets"].calls == [] and not (stock_folder(world) / "set.json").exists()
 
 
 def test_find_with_confirm_searches_every_source_that_serves_the_kind_merges_round_robin_and_keeps_at_most_six(world, monkeypatch):
-    found = to_found(world, monkeypatch, stock=["fakelib", "fakelib2", "fakelib3", "openverse"],
+    found = to_found(world, monkeypatch, stock=["fakelib", "fakelib2", "fakelib3", "shelf"],
                      extra={"fakelib": LIBRARY, "fakelib2": dict(LIBRARY, source="fakelib2"), "fakelib3": dict(LIBRARY, source="fakelib3")})
     done = find(world, found["task"])
     [row] = done["slots"]
     assert done["confirmed"] is True and done["found"] == 6 and len(row["candidates"]) == 6
-    assert [c["source"] for c in row["candidates"]] == ["fakelib", "fakelib2", "fakelib3", "openverse", "fakelib", "fakelib2"]      # round robin, in the order of media.stock, at most six
+    assert [c["source"] for c in row["candidates"]] == ["fakelib", "fakelib2", "fakelib3", "shelf", "fakelib", "fakelib2"]      # round robin, in the order of media.stock, at most six
     assert [c["col"] for c in row["candidates"]] == [1, 2, 3, 4, 5, 6] and done["sheet"] == "sheet-preview.png"
     calls = found["sources"].of("search")
     assert len(calls) == 4 and all(c["flags"][c["flags"].index("--count") + 1] == "2" for c in calls)      # a source gives a slot at most two
@@ -162,22 +158,22 @@ def test_find_with_confirm_searches_every_source_that_serves_the_kind_merges_rou
 
 
 def test_the_sources_of_a_slot_are_searched_at_the_same_time_and_each_source_one_request_at_a_time(world, monkeypatch):
-    found = to_found(world, monkeypatch, FOUND_TWO, stock=["fakelib", "openverse"], extra={"fakelib": LIBRARY})
+    found = to_found(world, monkeypatch, FOUND_TWO, stock=["fakelib", "shelf"], extra={"fakelib": LIBRARY})
     found["sources"].barrier = threading.Barrier(2)      # both sources must be inside `search` together, or the barrier times out and the find fails
     done = find(world, found["task"])
     assert done["found"] == 8 and len(found["sources"].of("search")) == 4
-    assert found["sources"].most_active == {"fakelib": 1, "openverse": 1}
+    assert found["sources"].most_active == {"fakelib": 1, "shelf": 1}
 
 
 def test_a_candidate_with_a_licence_outside_the_tuple_or_a_credit_licence_without_an_author_or_a_bad_shape_is_dropped(world, monkeypatch):
-    found = to_found(world, monkeypatch, stock=["fakelib", "openverse"], extra={"fakelib": LIBRARY})
-    found["sources"].licences = {"fakelib": "cc-by-sa-4.0", "openverse": "cc-by-4.0"}
-    found["sources"].authors = {"openverse": ""}
+    found = to_found(world, monkeypatch, stock=["fakelib", "shelf"], extra={"fakelib": LIBRARY})
+    found["sources"].licences = {"fakelib": "cc-by-sa-4.0", "shelf": "cc-by-4.0"}
+    found["sources"].authors = {"shelf": ""}
     done = find(world, found["task"])
     assert done["found"] == 0 and done["dropped"]["licence"] == 4 and done["sheet"] is None
     assert found["sheets"].calls == []
-    found["sources"].licences = {"openverse": "cc-by-4.0", "fakelib": "pexels-license"}
-    found["sources"].authors = {"openverse": "Bram Hollow"}
+    found["sources"].licences = {"shelf": "cc-by-4.0", "fakelib": media_stock.LICENCES_ACCEPTED[0]}
+    found["sources"].authors = {"shelf": "Bram Hollow"}
     assert find(world, found["task"])["found"] == 4
     original = found["sources"]._search
 
@@ -192,7 +188,7 @@ def test_a_candidate_with_a_licence_outside_the_tuple_or_a_credit_licence_withou
 
 
 def test_a_source_that_is_not_ready_or_times_out_is_skipped_and_counted(world, monkeypatch):
-    found = to_found(world, monkeypatch, stock=["fakelib", "openverse"], extra={"fakelib": LIBRARY})
+    found = to_found(world, monkeypatch, stock=["fakelib", "shelf"], extra={"fakelib": LIBRARY})
     found["sources"].fail = {"fakelib": "not_ready"}
     done = find(world, found["task"])
     assert done["found"] == 2 and done["dropped"]["source"] == 1
@@ -226,8 +222,6 @@ def test_a_find_needs_the_video_to_wait_at_the_review_and_a_slot_with_words(worl
     with pytest.raises(ops_core.OpsError) as refused:
         find(world, found["task"])
     assert "not_at_review" in str(refused.value)
-    plain = to_review.__module__ and None
-    assert plain is None
 
 
 def test_the_stock_folder_of_a_recording_in_a_reference_store_is_refused(world, monkeypatch):
@@ -308,10 +302,10 @@ def test_a_pick_outside_the_candidates_is_refused_and_a_pick_for_a_slot_that_doe
     find(world, found["task"])
     revision = review_of(world)["revision"]
     with pytest.raises(ops_core.OpsError) as refused:
-        pick(world, found["task"], "beat7", "openverse:nosuchitem", revision)
+        pick(world, found["task"], "beat7", "shelf:nosuchitem", revision)
     assert "asset_not_found" in str(refused.value)
     with pytest.raises(ops_core.OpsError) as refused:
-        pick(world, found["task"], "beat99", "openverse:x", revision)
+        pick(world, found["task"], "beat99", "shelf:x", revision)
     assert "unknown_slot" in str(refused.value)
 
 
@@ -365,7 +359,7 @@ def test_the_operations_answer_the_terminal_and_the_page_only_and_the_lan_socket
 
 def fetched(world, monkeypatch, licence="cc0-1.0", words=None):
     found = to_found(world, monkeypatch, words)
-    found["sources"].licences = {"openverse": licence}
+    found["sources"].licences = {"shelf": licence}
     done = find(world, found["task"])
     picked_all(world, found["task"], done["slots"])
     ops.video_media_fetch_picks(world["path"], found["task"])
@@ -379,7 +373,7 @@ def test_approve_prints_the_set_its_hash_and_its_credits_and_needs_the_current_h
     [asset] = shown["set"]["assets"]
     assert asset["licence"] == "cc-by-3.0" and asset["licence_url"] == "https://creativecommons.org/licenses/by/3.0/" and asset["slot"] == "beat7"
     [credit] = shown["credits"]
-    assert credit.startswith("\"A picture of market stall\" by Bram Hollow, CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/), via openverse (https://openverse.example/p/")
+    assert credit.startswith("\"A picture of market stall\" by Bram Hollow, CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/), via shelf (https://shelf.example/p/")
     assert shown["credit_heading"] == "Credit to put in the caption"
     with pytest.raises(ops_core.OpsError) as refused:
         ops.video_media_approve(world["path"], found["task"], hash="0" * 64)
@@ -389,7 +383,7 @@ def test_approve_prints_the_set_its_hash_and_its_credits_and_needs_the_current_h
     done = ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
     assert done["approved"] is True and done["sha256"] == shown["sha256"]
     record = json.loads((stock_folder(world) / "approved.json").read_text())
-    assert record["hash"] == shown["sha256"] and record["task"] == found["task"] and record["unverified"] == {} and record["sources"] == ["openverse", "web"]
+    assert record["hash"] == shown["sha256"] and record["task"] == found["task"] and record["unverified"] == {} and record["sources"] == ["shelf", "web"]
     assert record["assets"][0]["sha256"] == asset["sha256"] and ops.video_media_approve(world["path"], found["task"])["approved"] is True
     assert oct((stock_folder(world) / "approved.json").stat().st_mode & 0o777) == "0o600"
 
@@ -453,7 +447,7 @@ def test_the_credits_record_holds_what_answers_a_takedown_and_is_kept_a_year(wor
     ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
     record = ops.video_credits(world["path"], found["task"], channel="terminal")
     assert record["task"] == found["task"] and record["credits"] == shown["credits"] and record["web"] == []
-    assert "search" not in record["assets"][0] and "show" not in record["assets"][0] and record["assets"][0]["source"] == "openverse"
+    assert "search" not in record["assets"][0] and "show" not in record["assets"][0] and record["assets"][0]["source"] == "shelf"
     path = Path(world["data"]) / "media" / "credits" / ("%d.json" % found["task"])
     assert oct(path.stat().st_mode & 0o777) == "0o600"
     now = path.stat().st_mtime
@@ -497,9 +491,9 @@ def test_limit_75_licensed_media_is_fetched_only_after_the_acceptance_and_the_co
             return {"ok": True}
     monkeypatch.setattr(project_config, "resolver", lambda root: Resolver)
     real = ops_media_stock.Sources(str(REPO))
-    assert real.call("openverse", "search", ["--kind", "image", "--query", "market stall", "--count", 2, "--out", "/x"], 5) == {"ok": True}
-    assert seen["cls"] == "stock:media" and seen["verb"] is None and seen["kw"]["implementation"] == "openverse" and seen["environment"] == ("stock:media", ())
-    assert seen["args"][0] == "--source-file" and seen["args"][1].endswith("providers/stock/sources/openverse.json") and seen["args"][4] == "search"
+    assert real.call("shelf", "search", ["--kind", "image", "--query", "market stall", "--count", 2, "--out", "/x"], 5) == {"ok": True}
+    assert seen["cls"] == "stock:media" and seen["verb"] is None and seen["kw"]["implementation"] == "shelf" and seen["environment"] == ("stock:media", ())
+    assert seen["args"][0] == "--source-file" and seen["args"][1].endswith("providers/stock/sources/shelf.json") and seen["args"][4] == "search"
     assert not any(re.search(r"key|token|secret", a, re.I) for a in seen["args"] if a.startswith("--") and a not in ("--source-file",))
     for flagged in ("--url", "--allow-unverified"):
         assert flagged not in seen["args"]
@@ -507,7 +501,7 @@ def test_limit_75_licensed_media_is_fetched_only_after_the_acceptance_and_the_co
 
 def test_no_source_is_named_in_the_runtime_files_of_the_stock_path():
     sources = {json.loads(p.read_text())["source"] for p in (REPO / "providers" / "stock" / "sources").glob("*.json")}
-    assert {"openverse", "pexels", "web"} <= sources
+    assert len(sources) >= 3 and "web" in sources
     files = ("media_stock", "ops_media_stock", "step_media", "deliver_document", "captions", "media_animation", "policy_widening", "project_config", "media", "ops_media_edit",
              "upkeep", "operations", "service", "cli")
     for name in files:
@@ -515,13 +509,13 @@ def test_no_source_is_named_in_the_runtime_files_of_the_stock_path():
         for source in sources:
             if source == "web":      # the word is also the key of the delivery document and of the credits record for a picture nobody checked: never a source's name, so no comparison or default
                 assert not re.search(r"(source|implementation|names?|sources|default\w*)\s*(==|!=|=|in)\s*[(\[\"']*\s*[\"']web[\"']", text), f"{name}.py names the source web"
-                assert not re.search(r"[\"']web[\"']\s*,\s*[\"']openverse|[\"']openverse[\"']\s*,\s*[\"']web", text), name
+                assert not re.search(r"[\"']web[\"']\s*,\s*[\"']shelf|[\"']shelf[\"']\s*,\s*[\"']web", text), name
             else:
                 assert not re.search(r"[\"'`]%s[\"'`]" % source, text), f"{name}.py names the source {source}"
             assert not re.search(r"providers/stock/%s\.py" % source, text), name
     for path in sorted((REPO / "providers" / "renderer").glob("*.py")):
         text = path.read_text(encoding="utf-8")
-        for source in ("openverse", "pexels"):
+        for source in sources - {"web"}:
             assert not re.search(r"[\"']%s[\"']" % source, text), f"{path.name} names the source {source}"
 
 
