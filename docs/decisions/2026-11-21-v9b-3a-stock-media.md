@@ -60,7 +60,7 @@
   `test_registry_rows.py` (134 rows; the two that reach a library are `off-host` through the ledger `registry_rows.OFF_HOST`) are extended, and `TERMINAL_ONLY` of `test_phone_guard.py` lists
   `VID_STOCK_NOT_ACCEPTED`, which names the command on purpose and is answered by the terminal and the page only. No lazy import is added (the import ratchet holds). The credit lines of the
   delivery body read `Credit: <line>`, since a phrase that is only a field is refused by `test_source_names.py`.
-- The two licence ids of the libraries' own licences are written in two parts in the runtime's tuples (`media_stock.py`, `step_media.py`), because
+- (Superseded by the review fixes below: the licence ids are written whole again.) The two licence ids of the libraries' own licences were written in two parts in the runtime's tuples (`media_stock.py`, `step_media.py`), because
   `providers/stock/tests/test_stock_registration.py` (V9b-1) refuses a library's name as a word anywhere under `runtime/` and also reads `LICENCES_ACCEPTED` there as a literal, so the id cannot be
   written in one piece. **Recommended fix, for the maintainer's package:** that test should take the licence ids out of the text before it greps.
 - The page draws the Pictures section only on this computer's own page and only at the caption review; the open-web asset's own panel and the warning texts are V9b-3b.
@@ -69,3 +69,18 @@
 **Verified.** The tests named in the pull request, offline, with a fake provider, a fake renderer and flat-colour PNGs made with zlib. **Not verified.** K3 (the supervisor's live
 leg, after the maintainer's yes): a real search of Openverse, a pick, the fetch, the container's normalisation, the approval, a render with the picture and the delivery card.
 No real picture, link, author or search result was used or committed. The open-web path (`video-media-websearch`, the stronger approval, the warning texts) is V9b-3b.
+
+
+## Review fixes of #820 (spec amendment 2026-11-21 "after the review of #820")
+
+- **Class `G` is confirmed** (the amendment): the five operations are internal rows. The saving: no network search or approval is in the catalog a line in words reaches, and the catalog hash does not move
+  (principle 12). The loss: a person cannot ask for a search in words; the page and the terminal remain. Cost is `none`, privacy `off-host` for the two that reach a library.
+- **Defaults:** the keyless sources, the `unverified` tier first, then by name (today `web`, `openverse`). Without a `media` object a render accepts no stock source (the whole object removed after an approval refuses the render).
+- **Acceptance asked again at the fetch** (B1): `video-media-fetch-picks` calls the same check as the find, and refuses a pick of a source that is not accepted; a changed `terms_read_on` is a new item.
+- **Repair rule** (S1): a failed task is a repair state only when the failure is at `remap`. **Render record:** `render.json` holds the drawn pictures (slot, sha256, source, item, licence, page host and hash, credit line); `document` builds the assets, the `web` rows and the credits from it, so a set changed after the render
+  cannot reach the delivery, and a picture no beat draws gets no credit.
+- **Retention:** the credits record carries the task and recording and is kept until the later of the approval and the delivery plus 365 days (`media.mark_delivered` stamps the delivery); the sweep also removes `.*.part` leftovers.
+- Also: the channel is checked before the project is read; a fetched file's name carries `full-` (`q-` in quarantine); a choice other than `stock` clears the pick and voids the approval; every credit line fits `CREDIT_MAX` (fields are capped when the line is built);
+  the fetch answer names each picture's file; the download answer and the card say "Media provided by <source> (<link>)" (plain text) and the credits; `video-credits` is refused on the LAN socket; `why_not` follows 7.3 (a block of either kind with one picture parameter is added; the item records its kind so it joins the right list of beats); the clip sentence is in the project's language.
+- **Licence ids written whole;** `providers/stock/tests/test_stock_registration.py` strips the exact values of `_stock.LICENCES_ACCEPTED` before its source-name grep (the only change to it). Splitting a string to pass a guard is not done again; such a conflict is reported as stop rule 3.
+- **Open (S4), the maintainer's:** whether library text (title and author of a credit) may appear in a decision's body and on the messaging card. Left as it is.

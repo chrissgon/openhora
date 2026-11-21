@@ -1169,12 +1169,12 @@ OPERATIONS = (
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "confirm", "kind": "flag"}),
      "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
      "help": "find licensed pictures for the slots of a new video that waits at the caption review (--task <id>): without --confirm it sends nothing and says which words go to which sources; with --confirm the sources are searched and the previews drawn on a sheet",
-     "natural": {"class": "G", "since": 4, "order": 184, "privacy": "off-host", "cost": "provider", "what": "find licensed pictures for a new video", "about": "Find licensed pictures for a new video.", "slots": {}}},
+     "natural": {"class": "G", "since": 4, "order": 184, "privacy": "off-host", "cost": "none", "what": "find licensed pictures for a new video", "about": "Find licensed pictures for a new video.", "slots": {}}},
     {"name": "video-media-fetch-picks", "call": "video_media_fetch_picks",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
      "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
      "help": "fetch the full file of each picture picked for a new video (--task <id>) and have the renderer normalise it; every slot needs a pick first",
-     "natural": {"class": "G", "since": 4, "order": 185, "privacy": "off-host", "cost": "provider", "what": "fetch the pictures picked for a new video", "about": "Fetch the pictures picked for a new video.", "slots": {}}},
+     "natural": {"class": "G", "since": 4, "order": 185, "privacy": "off-host", "cost": "none", "what": "fetch the pictures picked for a new video", "about": "Fetch the pictures picked for a new video.", "slots": {}}},
     {"name": "video-media-sheet-file", "call": "video_media_sheet_file",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "file", "kind": "str", "required": True, "label": "sheet-preview.png, sheet.png or asset-<sha12>.png"},),
      "channels": ("page",), "model": False, "channel_arg": True,
@@ -1345,7 +1345,7 @@ SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
 LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
-LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross)
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross)
 LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant

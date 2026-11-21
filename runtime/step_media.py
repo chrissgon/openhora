@@ -80,7 +80,7 @@ STOCK_SET, STOCK_APPROVED = "stock/set.json", "stock/approved.json"
 STOCK_ASSET = "stock/asset-{sha12}.png"
 STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
               "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
-STOCK_LICENCES = ("pex" "els-license", "pixa" "bay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
+STOCK_LICENCES = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
 STOCK_UNVERIFIED = "unverified"      # = media_stock.UNVERIFIED
 STOCK_NOT_APPROVED = "Approve the media set, or clear the picks, before you continue."      # = the English of the phrase VID_STOCK_NOT_APPROVED (a test compares)
 PAGE_HOST = re.compile(r"https://([A-Za-z0-9.-]{1,253})(?:[/?#:].*)?", re.S)
@@ -217,7 +217,9 @@ def _sources_now(ctx: steps.Context, approved: dict) -> list:
     """The sources the project uses now: `media.stock` when its configuration names it, else the ones the approval was given under (the default list is a property of the
     checkout, which only grows)."""
     found = (ctx.services.get("config") or {}).get("media")
-    listed = found.get("stock") if isinstance(found, dict) else None
+    if not isinstance(found, dict):      # a project with no `media` object uses no stock source
+        return []
+    listed = found.get("stock")
     return list(listed) if isinstance(listed, list) else [n for n in approved.get("sources") or [] if isinstance(n, str)]
 
 
@@ -524,7 +526,7 @@ def _align(ctx: steps.Context, state: dict) -> dict:
                 if a["id"] not in stock:
                     continue
                 entry["params"] = dict(a["params"], **{a["asset_param"]: a["id"]})
-                beats.setdefault("layouts", []).append(entry)
+                beats.setdefault("overlays" if a.get("pic_kind") == "overlay" else "layouts", []).append(entry)
                 continue
             added.append(entry)
     skipped = set(review["dropped_punches"])      # the script's punches the person dropped stay dropped, whatever the alignment finds
@@ -603,6 +605,19 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     blocks_sha = done.get("blocks_sha256")
     record = {"name": name, "sha256": digest, "size": size, "duration_ms": max(1, int(round(seconds * 1000))), "blocks": _blocks_of(done),
               "blocks_sha256": blocks_sha if isinstance(blocks_sha, str) and SHA256.fullmatch(blocks_sha) else None}
+    if pictures:      # what this render drew, kept with it: the delivery's assets and credits come from here, never from a set changed since
+        found = _optional_json(store, rid, STOCK_SET) or {}
+        credit_of = found.get("credit_of") if isinstance(found.get("credit_of"), dict) else {}
+        drawn = []
+        for slot, got in sorted(pictures.items()):
+            a = got["asset"]
+            row = {"slot": slot, "sha256": a["sha256"], "source": a["source"], "item": a["item"], "licence": a["licence"]}
+            if a["licence"] == STOCK_UNVERIFIED:
+                row["page_host"], row["page_sha256"] = _page_parts(a.get("page"))
+            if isinstance(credit_of.get(slot), str) and credit_of[slot]:
+                row["credit"] = credit_of[slot]
+            drawn.append(row)
+        record["assets"] = drawn
     _asked(store.write, rid, RENDER_JSON, _dump(record))
     result = {"sha256": digest, "size": size}
     if pictures:
@@ -697,17 +712,13 @@ def _document(ctx: steps.Context, state: dict) -> dict:
         preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]}
     else:
         preview = None
-    pictures = _drawn_pictures(ctx, store, rid, "asset_not_approved")
     assets, web, credits = [], [], []
-    found = _optional_json(store, rid, STOCK_SET) if pictures else None
-    for slot, got in sorted(pictures.items()):
-        a = got["asset"]
-        assets.append({"slot": slot, "sha256": a["sha256"], "source": a["source"], "item": a["item"], "licence": a["licence"]})
-        if a["licence"] == STOCK_UNVERIFIED:
-            host, page_sha = _page_parts(a.get("page"))
-            web.append({"slot": slot, "sha256": a["sha256"], "page_host": host, "page_sha256": page_sha})
-    if pictures:
-        credits = [c for c in (found or {}).get("credits") or [] if isinstance(c, str)]      # the lines the set's licences ask for, built when its files were fetched
+    for row in render.get("assets") or []:      # the pictures this render drew, as the render recorded them (a set changed since cannot reach the delivery)
+        assets.append({k: row[k] for k in ("slot", "sha256", "source", "item", "licence")})
+        if row["licence"] == STOCK_UNVERIFIED:
+            web.append({"slot": row["slot"], "sha256": row["sha256"], "page_host": row.get("page_host", ""), "page_sha256": row.get("page_sha256", "")})
+        if isinstance(row.get("credit"), str):
+            credits.append(row["credit"])
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
                                  verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview,
@@ -720,7 +731,12 @@ def _open(ctx: steps.Context, state: dict) -> dict:
     recorded = state["steps"]["document"]["result"]["effect_sha256"]
     doc = _service(ctx, "effect_files").read(ctx.task_id, int(state.get("cycle", 0)), recorded)
     deliver_document.check(doc)
-    pages = {}
+    pages, providers = {}, {}
+    if doc.get("assets"):      # each licensed source's link, from the set the pictures were fetched in (plain text on the card)
+        store, _, rid = _handles(ctx)
+        found = _optional_json(store, rid, STOCK_SET) or {}
+        providers = {a["source"]: a["source_link"] for a in found.get("assets") or [] if isinstance(a, dict) and a.get("licence") != STOCK_UNVERIFIED
+                     and isinstance(a.get("source_link"), str) and a["source_link"] and any(d["source"] == a["source"] for d in doc["assets"])}
     if doc.get("web"):      # the source page of each open-web picture, read from the store (the document holds its host and the hash of its address, never the address)
         store, _, rid = _handles(ctx)
         found = _optional_json(store, rid, STOCK_SET) or {}
@@ -728,7 +744,7 @@ def _open(ctx: steps.Context, state: dict) -> dict:
         pages = {a["slot"]: a["page"] for a in found.get("assets") or [] if isinstance(a, dict) and a.get("licence") == STOCK_UNVERIFIED and isinstance(a.get("page"), str)
                  and _page_parts(a["page"])[1] == shown.get(a["slot"])}      # an address is shown only when it is the one the document's hash names
     return {"title": deliver_document.title(doc)[:200], "body": deliver_document.body(doc, recorded), "payload_sha256": recorded,
-            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded, pages)}}
+            "payload": {"effect": deliver_document.summary(doc), "card": deliver_document.card_lines(doc, recorded, pages, providers)}}
 
 
 # --- what a step prepared again removes ---------------------------------------------------------------------------------------

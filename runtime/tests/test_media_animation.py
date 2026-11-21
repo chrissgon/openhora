@@ -172,13 +172,13 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     assert (rows["oh:cutaway"]["addable"], rows["oh:cutaway"]["why"]) == (True, None)      # V9b-3a: a layout with one picture parameter is added; its picture comes from the media set
     assert (rows["oh:pip"]["addable"], rows["oh:pip"]["why"]) == (True, None)      # the ffmpeg engine draws the preset pip
     assert rows["oh:caption"]["why"] == "kind"
-    assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] == "slot" and rows["oh:only-hf"]["why"] == "engine"
+    assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] is None and rows["oh:only-hf"]["why"] == "engine"
     assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "oh:keyword" and (shown["animations_max"], shown["beats_max"]) == (12, 12)
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     none = animation.listing(root)
     whys = {b["name"]: b["why"] for b in none["blocks"]}
     assert none["presets"] == {} and none["engine"] is None
-    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "slot" and whys["oh:cutaway"] == "not_configured" and whys["oh:caption"] == "kind"
+    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "not_configured" and whys["oh:cutaway"] == "not_configured" and whys["oh:caption"] == "kind"
     assert all(whys[name] == "not_configured" for name in ("oh:keyword", "oh:list", "oh:number", "oh:quote", "oh:only-hf"))
 
 
@@ -494,7 +494,7 @@ def test_a_layout_with_one_picture_parameter_is_addable_and_an_hf_block_or_a_blo
     presets = {"cutaway": "oh:cutaway"}
     assert animation.why_not(found["oh:cutaway"], "ffmpeg", presets) is None and animation.why_not(found["oh:screenshot"], "ffmpeg", presets) is None
     assert animation.why_not(found["hf:frame"], "ffmpeg", presets) == "slot" and animation.why_not(found["oh:two"], "ffmpeg", presets) == "slot"
-    assert animation.why_not(found["oh:overlay-pic"], "ffmpeg", presets) == "slot"
+    assert animation.why_not(found["oh:overlay-pic"], "ffmpeg", dict(presets, keyword="oh:keyword")) is None      # 7.3: only more than one picture parameter, or an hf: block, is `slot`
     assert animation.why_not(found["oh:cutaway"], "ffmpeg", {"keyword": "oh:keyword"}) == "engine"      # the engine does not draw the preset
     assert animation.why_not(found["oh:cutaway"], None, presets) == "not_configured" and animation.why_not(found["oh:cutaway"], "ffmpeg") is None
     assert animation.asset_params(found["oh:two"]) == ["asset", "second"] and animation.asset_params(found["oh:keyword"]) == []
@@ -505,7 +505,7 @@ def test_the_checker_shows_a_layout_a_placeholder_slot_stores_no_picture_and_ref
     fake = use(monkeypatch, Checking())
     animate = animation.checker(ctx_of(tmp_path))
     done = animate("oh:cutaway", {"fit": "contain", "label": "  A busy market "}, "edits[0]")
-    assert done == {"block": "oh:cutaway", "preset": "cutaway", "params": {"fit": "contain", "label": "A busy market"}, "asset_param": "asset"}
+    assert done == {"block": "oh:cutaway", "preset": "cutaway", "params": {"fit": "contain", "label": "A busy market"}, "asset_param": "asset", "pic_kind": "layout"}
     assert fake.seen[0][1] == {"fit": "contain", "label": "A busy market", "asset": "a1"}      # the renderer's checker is shown the slot id, never a picture
     assert refusal(animate, "oh:cutaway", {"asset": "beat1"}, "edits[0]") == ("bad_params", "edits[0].params")
     assert len(fake.calls) == 1

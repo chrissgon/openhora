@@ -94,7 +94,7 @@ SLOT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")      # = providers/renderer/_v
 PICK = re.compile(r"[a-z][a-z0-9]{1,30}:(?:[A-Za-z0-9_-]{1,64}|q-[0-9a-f]{12})")      # "<source>:<item>", or "<source>:q-<sha12>" for a file of the quarantine
 STOCK_SLOTS_MAX = 6            # the slots of one video that take a picture or a clip from the media set
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
-LAYOUT_KEYS = {"asset_param", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
+LAYOUT_KEYS = {"asset_param", "pic_kind", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
 ANIMATIONS_MAX = 12            # the animations one review may add
 BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")      # = providers/renderer/_edl.py EFFECT_KINDS (a test compares)
@@ -240,6 +240,8 @@ def _check_animations(items) -> None:
         if not (isinstance(item["id"], str) and ANIMATION_ID.fullmatch(item["id"])) or item["id"] in seen:
             raise bad
         if "asset_param" in item:      # an added layout (V9b-3a): the parameter its picture fills, and the words that say what it shows and what to search
+            if item.get("pic_kind", "layout") not in ("overlay", "layout"):
+                raise bad
             try:
                 if not (isinstance(item["asset_param"], str) and PARAM_NAME.fullmatch(item["asset_param"]) and isinstance(item["params"], dict)
                         and item["asset_param"] not in item["params"]):
@@ -537,6 +539,8 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
             review["empty_slots"].pop(slot, None)
         elif choice in SLOT_CHOICES:
             review["empty_slots"][slot] = choice
+            if choice != "stock":      # the picture is not wanted any more: the pick goes, and with it the approval of the set (runtime/ops_media_edit.py voids it)
+                review["slot_assets"].pop(slot, None)
         else:
             raise CaptionError("bad_choice", f"{where}.choice")
     elif op == "face_box":
@@ -647,6 +651,8 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
     given = {k: edit[k] for k in ("show", "search", "want") if k in edit}
     if checked.get("asset_param"):      # a layout: the parameter that holds its picture, and the words that say what to show and what to search
         item["asset_param"] = checked["asset_param"]
+        if checked.get("pic_kind") in ("overlay", "layout"):
+            item["pic_kind"] = checked["pic_kind"]
         if "show" in given:
             item["show"] = check_show(given["show"], f"{where}.show")
         if ("search" in given) != ("want" in given):
@@ -955,7 +961,7 @@ def animations_current(review: dict, edited: dict, live: set) -> tuple:
             row = {"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
                    "word_from": inside[0], "word_to": inside[-1]}
             if "asset_param" in item:
-                row["asset_param"] = item["asset_param"]
+                row["asset_param"], row["pic_kind"] = item["asset_param"], item.get("pic_kind", "layout")
             out.append(row)
         else:
             lost.append(item["id"])

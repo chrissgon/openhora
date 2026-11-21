@@ -296,3 +296,102 @@ def test_limit_76_only_an_approved_picture_is_rendered(world, monkeypatch):
     shown = ops.video_media_approve(world["path"], video["task"])
     ops.video_media_approve(world["path"], video["task"], hash=shown["sha256"])
     assert run_task(world, video["task"])["stopped"] == "deliver" and flag(world["engine"].of("render")[-1]["args"], "--asset-sha256").endswith(shown["set"]["assets"][0]["sha256"])
+
+
+# --- the review fixes of #820 -------------------------------------------------------------------------------------------------------------------
+
+
+import types
+
+ops_media_edit = st.load("ops_media_edit")
+
+
+def document_ctx(world, task):
+    """A stand-in Context for `step_media._document` alone: the real media store, a files service that keeps the document, the project's configuration."""
+    ctx = ops_core.context(world["path"])
+    kept = {}
+    files = types.SimpleNamespace(write=lambda t, c, doc: kept.setdefault("doc", doc) and "d" * 64)
+    services = {"media_store": ops_step_seams.MediaStore(ctx), "effect_files": files, "config": ctx["cfg"], "media_engine": object()}
+    step = types.SimpleNamespace(task_id=task, args={"media": world["rid"], "post": "docs/marketing/content/x.md"}, services=services)
+    state = {"steps": {"take": {"result": {"platform": "instagram"}}, "cover": {"result": {}}, "verify": {"result": {}}}, "cycle": 0}
+    return step, state, kept
+
+
+def test_a_failure_at_the_render_or_the_document_is_not_a_repair_state_but_one_at_remap_is(world, monkeypatch):
+    video = approved_video(world, monkeypatch)
+    world["engine"].fail["render"] = ops_step_seams.StepServiceError("engine_failed")
+    out = go_on(world, video["task"])
+    assert out["ok"] is False and out["failed"] == "render"
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops_media_edit.edit(ops_core.context(world["path"]), video["task"], review_of(world)["revision"], [{"op": "slot", "slot": "beat7", "choice": "none"}])
+    assert "only while the video waits" in str(refused.value)
+    row = task_row(world, video["task"])
+    assert not ops_media_edit.stock_repair(row, row["step_state"])
+    media_stock.void_approval(world["data"], world["rid"])
+    world["engine"].fail.clear()
+    again = run_task(world, video["task"])
+    assert again["failed"] == "render" and again["code"] == "asset_not_approved"      # the approval check at the render: a code of the repair list, but not at remap
+    row = task_row(world, video["task"])
+    assert not ops_media_edit.stock_repair(row, row["step_state"])
+    assert ops_media_edit.stock_repair(dict(row, state="failed"), {"failure": {"step": "remap", "code": "media_not_approved"}})
+    assert not ops_media_edit.stock_repair(dict(row, state="failed"), {"failure": {"step": "document", "code": "media_not_approved"}})
+
+
+def test_the_render_records_what_it_drew_and_a_set_changed_after_it_cannot_change_the_deliverys_assets_or_credits(world, monkeypatch):
+    video = approved_video(world, monkeypatch, "cc-by-4.0")
+    go_on(world, video["task"])
+    record = json.loads(work_file(world, "render.json").read_text())
+    [drawn] = record["assets"]
+    assert drawn["slot"] == "beat7" and drawn["licence"] == "cc-by-4.0" and drawn["credit"].startswith('"A picture of market stall" by Bram Hollow, CC BY 4.0')
+    _, doc = delivered(world, video["task"])
+    changed = json.loads((stock_dir(world) / "set.json").read_text())
+    changed["credits"], changed["credit_of"] = ["BOGUS"], {"beat7": "BOGUS"}
+    changed["assets"][0]["licence"] = "cc0-1.0"
+    media_stock.write_doc(world["data"], world["rid"], "set.json", changed)
+    step, state, kept = document_ctx(world, video["task"])
+    for name in ("verify.json",):
+        media.write_work(world["data"], world["rid"], name, json.dumps({"passed": True, "platform": "instagram"}).encode())
+    step_media._document(step, state)
+    again = kept["doc"]
+    assert again["credits"] == doc["credits"] == [drawn["credit"]] and again["assets"] == doc["assets"] and "BOGUS" not in json.dumps(again)
+
+
+def test_a_picture_of_the_set_that_no_beat_draws_gets_no_credit(world, monkeypatch):
+    video = approved_video(world, monkeypatch, "cc-by-4.0")
+    plain = world["engine"]
+
+    def no_layout(a):
+        out = flag(a, "--out")
+        Path(out).write_text(json.dumps({"report": [], "slots": [dict(SLOT_SOURCE)]} if out.endswith("proposal.beats.json") else {"overlays": [], "layouts": []}))
+        return {"ok": True, "beats": 1, "overlays": 0, "layouts": 0, "unmatched": []}
+    plain._align = no_layout
+    assert go_on(world, video["task"])["stopped"] == "deliver"
+    _, doc = delivered(world, video["task"])
+    assert "credits" not in doc and "assets" not in doc and "assets" not in json.loads(work_file(world, "render.json").read_text())
+
+
+def test_removing_the_whole_media_object_after_an_unverified_approval_refuses_the_render(world, monkeypatch):
+    plant = plant_unverified(world, monkeypatch)
+    path = Path(world["path"]) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text())
+    raw.pop("media")
+    path.write_text(json.dumps(raw))
+    accepted_now(world)
+    out = go_on(world, plant["task"])
+    assert out["ok"] is False and out["code"] == "media_not_approved" and not world["engine"].of("render")
+
+
+def accepted_now(world):
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"], widen=ops.config(world["path"])["widening_sha256"])
+
+
+def test_the_download_answer_repeats_the_credits_and_the_card_says_who_provided_the_media(world, monkeypatch):
+    video = approved_video(world, monkeypatch, "cc-by-4.0")
+    go_on(world, video["task"])
+    gate, doc = delivered(world, video["task"])
+    link = json.loads((stock_dir(world) / "set.json").read_text())["assets"][0]["source_link"]
+    assert link.startswith("https://") and ["CARD_VIDEO_PROVIDED", {"source": "shelf", "link": link}] in gate["payload"]["card"]
+    ops.approve(world["path"], gate["id"], sha256=gate["payload_sha256"], channel="terminal")
+    ops_media = st.load("ops_media")
+    done = ops_media.video_download(world["path"], video["task"], out=str(Path(world["tmp"]) / "out.mp4"), channel="terminal")
+    assert done["credits"] == doc["credits"] and len(done["credits"]) == 1

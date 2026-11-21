@@ -11,6 +11,8 @@
     "CARD_VIDEO_CREDITS": "Credit to put in the caption",
     "CARD_VIDEO_CREDIT": "Credit: {credit}",
     "CARD_VIDEO_WEB": "Found on the web, licence not checked: {host}",
-    "CARD_VIDEO_WEB_PAGE": "Source page: {page}"
+    "CARD_VIDEO_WEB_PAGE": "Source page: {page}",
+    "VID_STOCK_PROVIDED": "Media provided by {source} ({link})",
+    "CARD_VIDEO_PROVIDED": "Media provided by {source} ({link})"
   }
 }

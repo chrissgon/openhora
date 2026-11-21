@@ -112,7 +112,7 @@ def stock_repair(task: dict, state: dict) -> bool:
     """Whether the task failed because a pick of the media set is not approved (or a picture changed): the review is passed, the video is stopped before it renders, and the
     person may still choose, approve or clear the pictures. The same words as the review's own edit: `review`."""
     failure = state.get("failure")
-    return task["state"] == "failed" and isinstance(failure, dict) and failure.get("code") in STOCK_REPAIR
+    return task["state"] == "failed" and isinstance(failure, dict) and failure.get("code") in STOCK_REPAIR and failure.get("step") == "remap"
 
 
 def _where(ctx: dict, task: dict, state: dict):

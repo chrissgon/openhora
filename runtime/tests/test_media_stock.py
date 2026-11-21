@@ -50,7 +50,7 @@ def stock_folder(world):
 def test_the_default_sources_are_the_keyless_ones_and_an_empty_list_turns_stock_off(world, monkeypatch):
     configure(world, monkeypatch, "default", accept=False)
     cfg = project_config.load(world["path"])
-    assert media_stock.sources_of(cfg) == ["shelf", "web"]      # every shipped source whose data file says it needs no key
+    assert media_stock.sources_of(cfg) == ["web", "shelf"]      # the open-web tier first, then by name
     assert "stock" not in cfg["media"]
     configure(world, monkeypatch, [], accept=False)
     cfg = project_config.load(world["path"])
@@ -554,3 +554,136 @@ def test_the_tuples_and_the_review_keys_have_one_reading_in_a_video_with_no_stoc
     old = {k: v for k, v in review.items() if k not in ("slot_searches", "slot_assets")}
     assert captions.check_review(old)["slot_assets"] == {}      # an absent key reads as {}: REVIEW_VERSION is still 1
     assert captions.REVIEW_VERSION == 1
+
+
+# --- the review fixes of #820 -------------------------------------------------------------------------------------------------------------------
+
+
+def test_fetch_picks_asks_the_acceptance_again_a_changed_terms_date_is_a_new_item_nobody_accepted(world, monkeypatch):
+    found = to_found(world, monkeypatch)
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    source = Path(world["tree"]) / "providers" / "stock" / "sources" / "shelf.json"
+    data = json.loads(source.read_text())
+    data["terms_read_on"] = "2027-02-03"
+    source.write_text(json.dumps(data))
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "stock_not_accepted" in str(refused.value) and found["sources"].of("fetch") == []
+    accepted(world)
+    assert ops.video_media_fetch_picks(world["path"], found["task"])["assets"]
+
+
+def test_a_fetched_file_must_carry_the_prefix_of_its_place(world, monkeypatch):
+    found = to_found(world, monkeypatch)
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    original = found["sources"]._fetch
+
+    def odd(source, flags):
+        answer = original(source, flags)
+        folder = Path(flag_of(flags, "--out"))
+        (folder / answer["file"]).rename(folder / "prev-sneaky.png")
+        return dict(answer, file="prev-sneaky.png")
+    found["sources"]._fetch = odd
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "fetch_failed" in str(refused.value)
+
+
+def flag_of(flags, name):
+    return flags[flags.index(name) + 1]
+
+
+def test_the_fetch_answer_names_each_picture_file_and_says_who_provided_the_media(world, monkeypatch):
+    found, _ = fetched(world, monkeypatch)
+    shown = ops.video_media_approve(world["path"], found["task"])
+    [asset] = shown["set"]["assets"]
+    [line] = shown["provided"]
+    assert line.startswith("Media provided by shelf (https://") and line.endswith(")")
+    sheet = json.loads((stock_folder(world) / "set.json").read_text())["assets"][0]
+    assert sheet["source_link"] and ("asset-%s.png" % asset["sha256"][:12]) in os.listdir(stock_folder(world))
+
+
+def test_the_fetch_answer_carries_the_file_name_of_each_picture(world, monkeypatch):
+    found = to_found(world, monkeypatch)
+    done = find(world, found["task"])
+    picked_all(world, found["task"], done["slots"])
+    got = ops.video_media_fetch_picks(world["path"], found["task"])
+    [a] = got["assets"]
+    assert re.fullmatch(r"asset-[0-9a-f]{12}\.png", a["file"]) and (stock_folder(world) / a["file"]).exists() and got["provided"]
+
+
+def test_a_choice_other_than_stock_clears_the_pick_and_voids_the_approval(world, monkeypatch):
+    found, _ = fetched(world, monkeypatch)
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    assert (stock_folder(world) / "approved.json").exists()
+    for choice in ("none", "keyword"):
+        ops_media_edit.edit(ops_core.context(world["path"]), found["task"], review_of(world)["revision"], [{"op": "slot", "slot": "beat7", "choice": choice}])
+        assert review_of(world)["slot_assets"] == {} and not (stock_folder(world) / "approved.json").exists()
+        ops_media_edit.edit(ops_core.context(world["path"]), found["task"], review_of(world)["revision"], [{"op": "slot", "slot": "beat7", "choice": "stock"}])
+
+
+def test_every_credit_line_fits_the_document_even_with_fields_of_the_longest_size():
+    from media_stock_kit import media_stock as ms
+    deliver = st.load("deliver_document")
+    assert ms.CREDIT_MAX == deliver.CREDIT_MAX
+    for licence in ms.LICENCES_CREDIT:
+        asset = {"licence": licence, "title": "T" * 500, "author": "A" * 500, "source": "s" * 31, "page": "https://x.example/" + "p" * 280}
+        line = ms.credit_line(asset)
+        assert 0 < len(line) <= deliver.CREDIT_MAX and "\n" not in line
+        deliver.build(task=1, recording="a" * 16, platform="instagram", post="docs/marketing/content/x.md",
+                      video={"name": "render-%s.mp4" % ("b" * 12), "sha256": "b" * 64, "size": 5, "duration_ms": 5}, cover=None, verify_platform="instagram",
+                      assets=[{"slot": "a1", "sha256": "c" * 64, "source": "shelf", "item": "x", "licence": licence}], credits=[line])
+    assert ms.credit_line({"licence": "cc0-1.0".replace("cc0", "cc-by").replace("1.0", "4.0"), "title": "a\nb", "author": "x", "source": "s", "page": ""}).count("\n") == 0
+
+
+def test_the_stock_operations_refuse_a_channel_before_they_look_at_the_project(world, monkeypatch):
+    found = to_found(world, monkeypatch)
+    path = Path(world["path"]) / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text())
+    raw["media"] = {"language": "en"}
+    path.write_text(json.dumps(raw))      # the file changed and is not accepted: the context would answer accept-config
+    for channel in ("messaging", "mcp"):
+        for call, args in ((ops.video_media_find, (found["task"],)), (ops.video_media_fetch_picks, (found["task"],)), (ops.video_media_approve, (found["task"],)),
+                           (ops.video_credits, (found["task"],)), (ops.video_media_sheet_file, (found["task"], "sheet.png"))):
+            with pytest.raises(ops_core.OpsError) as refused:
+                call(world["path"], *args, channel=channel)
+            assert "accept-config" not in str(refused.value), (call.__name__, channel)
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_find(world["path"], found["task"])      # no channel: the project is looked at, and the unaccepted file is what answers
+    assert "accept-config" in str(refused.value)
+    assert "video-credits" in operations.LAN_REFUSED_OPS and operations.by_name("video-media-find")["natural"]["cost"] == "none"
+
+
+def test_a_part_file_the_stock_folder_left_goes_with_the_strays_and_the_clip_sentence_is_in_the_language(world, monkeypatch):
+    found, _ = fetched(world, monkeypatch)
+    folder = stock_folder(world)
+    (folder / ".set.json.part").write_bytes(b"x")
+    now = os.stat(folder / ".set.json.part").st_mtime
+    assert media.purge(world["data"], now=now + 2 * 86400)["stray"] >= 1 and not (folder / ".set.json.part").exists()
+    phrases = st.load("phrases")
+    assert phrases.text("VID_STOCK_CLIP_NOT_DRAWN", {"language": "pt-BR"}) != phrases.en("VID_STOCK_CLIP_NOT_DRAWN")
+
+
+def test_the_credits_record_is_kept_until_the_later_of_the_approval_and_the_delivery_plus_a_year(world, monkeypatch):
+    found, _ = fetched(world, monkeypatch, "cc-by-4.0")
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    path = Path(world["data"]) / "media" / "credits" / ("%d.json" % found["task"])
+    record = json.loads(path.read_text())
+    assert record["recording"] == world["rid"] and record["task"] == found["task"] and record["delivered_at"] is None
+    base = media._epoch(record["approved_at"])
+    day = 86400
+    # approved, then delivered 100 days later: the delivery counts
+    media._stamp_credits(world["data"], found["task"], now=base + 100 * day)
+    assert media_stock.purge_credits(world["data"], now=base + 400 * day) == 0 and path.exists()
+    assert media_stock.purge_credits(world["data"], now=base + 466 * day) == 1 and not path.exists()
+    # delivered first, approved again later: the approval counts, and the delivery's time is kept
+    media_stock.write_credits(world["data"], found["task"], dict(record, approved_at="2026-01-01T00:00:00Z", delivered_at="2025-01-01T00:00:00Z"))
+    media_stock.write_credits(world["data"], found["task"], dict(record, approved_at="2026-03-01T00:00:00Z", delivered_at=None))
+    kept = json.loads(path.read_text())
+    assert kept["delivered_at"] == "2025-01-01T00:00:00Z"
+    late = media._epoch("2026-03-01T00:00:00Z")
+    assert media_stock.purge_credits(world["data"], now=late + 364 * day) == 0 and media_stock.purge_credits(world["data"], now=late + 366 * day) == 1

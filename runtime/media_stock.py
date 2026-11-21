@@ -48,9 +48,8 @@ import project_config  # noqa: E402
 CLASS = "stock:media"
 SOURCES = ("providers", "stock", "sources")
 # The licence policy (the maintainer's decision 3, amended 2026-11-11 for CC BY 2.0 and 2.5). providers/stock/_stock.py holds the same two tuples; a test compares them. The two
-# libraries' own licence ids are written in two parts each: providers/stock/tests/test_stock_registration.py refuses a library's name as a word anywhere under runtime/, and these
-# are that library's licence ids, not a source (the parts join into the id; the equality test reads the tuple as a literal).
-LICENCES_ACCEPTED = ("pex" "els-license", "pixa" "bay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
+# libraries' own licence ids are written whole; the grep test of providers/stock/tests/test_stock_registration.py strips them before it looks for a source's name.
+LICENCES_ACCEPTED = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
 LICENCES_CREDIT = ("cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")
 UNVERIFIED = "unverified"        # the licence id of a candidate whose licence nobody checked: never in LICENCES_ACCEPTED
 TIERS = ("library", "per-item", "unverified")
@@ -76,6 +75,7 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 SOURCE_NAME = re.compile(r"[a-z][a-z0-9]{1,30}")
 SERVED = (SHEET, SHEET_PREVIEW)                       # plus ASSET_FILE: the only files the page is given (the ones the container made)
 CREDITS_FOLDER = "credits"
+CREDIT_MAX = 600                                      # = runtime/deliver_document.py CREDIT_MAX (a test compares)
 CREDITS_DAYS = 365
 CREDITS_NAME = re.compile(r"[0-9]{1,9}\.json")
 DAY = 86400.0
@@ -111,9 +111,11 @@ def credit_line(asset: dict) -> str:
     """The credit a credit licence asks for, built by code: `"<title or 'Untitled'>" by <author>, <licence name> <version> (<licence URL>), via <source> (<page link>)`
     (decision D12). `page` is the library's own page for the item, when it gave one."""
     name, version, url = licence_name(asset["licence"])
-    title = asset.get("title") or "Untitled"
-    tail = " (%s)" % asset["page"] if asset.get("page") else ""
-    return "\"%s\" by %s, %s %s (%s), via %s%s" % (title, asset["author"], name, version, url, asset["source"], tail)
+    one = lambda text, limit: " ".join(str(text or "").split())[:limit]      # noqa: E731  (one line, capped: every credit line fits CREDIT_MAX)
+    title, author, page = one(asset.get("title"), 100) or "Untitled", one(asset.get("author"), 100), one(asset.get("page"), 300)
+    line = lambda tail: "\"%s\" by %s, %s %s (%s), via %s%s" % (title, author, name, version, url, one(asset["source"], 31), tail)      # noqa: E731
+    found = line(" (%s)" % page if page else "")
+    return found if len(found) <= CREDIT_MAX else line("")
 
 
 def credits_of(assets) -> list:
@@ -433,6 +435,8 @@ def write_credits(data_dir: str, task: int, doc: dict) -> None:
     except OSError:
         raise StockError("the credits folder cannot be opened", "unreadable") from None
     try:
+        if doc.get("delivered_at") is None and (read_credits(data_dir, task) or {}).get("delivered_at"):
+            doc = dict(doc, delivered_at=read_credits(data_dir, task)["delivered_at"])      # an approval after the delivery keeps the delivery's time: the later of the two counts
         _write_in(fd, "%d.json" % task, (json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"), 0o600)
     finally:
         os.close(fd)
@@ -457,17 +461,18 @@ def read_credits(data_dir: str, task: int):
     return doc if isinstance(doc, dict) else None
 
 
-def credits_record(found: dict, document: dict) -> dict:
+def credits_record(found: dict, document: dict, recording: str, now=None) -> dict:
     """The credits record: the set document without the words the person typed (`show`, `search`), plus, for each open-web asset, its page link and claimed licence
     (which the document itself does not bind: the delivery document holds only their host and the hash of the link)."""
     assets = [{k: v for k, v in a.items() if k not in ("show", "search")} for a in document["assets"]]
-    return {"version": SET_VERSION, "task": document["task"], "assets": assets, "credits": list(document["credits"]),
+    return {"version": SET_VERSION, "task": document["task"], "recording": recording, "approved_at": now_stamp(now), "delivered_at": None, "assets": assets, "credits": list(document["credits"]),
             "web": [{"slot": a["slot"], "sha256": a["sha256"], "page": a.get("page") or "", "licence_claim": a.get("licence_claim") or ""}
                     for a in document["assets"] if a.get("licence") == UNVERIFIED]}
 
 
 def purge_credits(data_dir: str, *, now: float) -> int:
-    """Remove the credits records last written CREDITS_DAYS ago or more (the upkeep part `media` runs it, limit L77). Returns how many went."""
+    """Remove the credits records whose later of approval and delivery (`approved_at`, `delivered_at`; the file's own time for a record that has neither) was CREDITS_DAYS ago or
+    more (the upkeep part `media` runs it, limit L77). Returns how many went."""
     folder, count = credits_folder(data_dir), 0
     try:
         fd = os.open(folder, os.O_RDONLY | DIRECTORY | NOFOLLOW)
@@ -479,7 +484,12 @@ def purge_credits(data_dir: str, *, now: float) -> int:
                 info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             except OSError:
                 continue
-            if CREDITS_NAME.fullmatch(name) and now - info.st_mtime >= CREDITS_DAYS * DAY and media._remove_tree(fd, name):
+            if not CREDITS_NAME.fullmatch(name):
+                continue
+            doc = read_credits(data_dir, int(name[:-5])) or {}
+            stamps = [media._epoch(doc.get(k)) for k in ("approved_at", "delivered_at")]
+            base = max([t for t in stamps if t is not None] or [info.st_mtime])
+            if now - base >= CREDITS_DAYS * DAY and media._remove_tree(fd, name):
                 count += 1
     finally:
         os.close(fd)
@@ -515,7 +525,8 @@ def shipped(root: str) -> list:
 def default_sources(root: str) -> list:
     """The sources a project that names none uses: those whose data file says they need no key (`secret_in` is `none`). A source that needs a key is on only when the person
     lists it."""
-    return [n for n in shipped(root) if (source_data(root, n) or {}).get("secret_in") == "none"]
+    keyless = [n for n in shipped(root) if (source_data(root, n) or {}).get("secret_in") == "none"]
+    return sorted(keyless, key=lambda n: (tier_of(root, n) != "unverified", n))      # the open-web tier first, then by name
 
 
 def sources_of(cfg: dict) -> list:

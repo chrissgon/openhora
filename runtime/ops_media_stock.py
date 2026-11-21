@@ -240,8 +240,8 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
     """Search the licensed sources for the pictures of the slots of this video. Without `confirm` it sends nothing and answers {"confirmed": False, "sources", "slots":
     [{"slot", "show", "search", "want"}], "message"}; with it, {"confirmed": True, "found", "slots": [{"slot", "show", "search", "want", "candidates": [...]}],
     "sheet", "dropped", "message"}. core.OpsError for every refusal, with nothing kept."""
-    ctx = core.context(project)
     _channel("video-media-find", channel)
+    ctx = core.context(project)
     if not (type(confirm) is bool or confirm is None):
         raise core.OpsError("confirm is true or false", 2)
     task, rid, state = _task(ctx, task_id)
@@ -359,7 +359,7 @@ def _licence_url(root: str, name: str, licence: str) -> str:
     return given if isinstance(given, str) and URL.fullmatch(given) else ""
 
 
-def _picked(found: dict, review: dict, store_kinds: list) -> list:
+def _picked(found: dict, review: dict, store_kinds: list, cfg=None) -> list:
     """[(slot row, chosen candidate)] for every slot of the set: each slot must have a pick that is one of its candidates; a clip needs an engine that draws clips."""
     out, missing = [], []
     for row in found["slots"]:
@@ -369,7 +369,7 @@ def _picked(found: dict, review: dict, store_kinds: list) -> list:
             missing.append(row["slot"])
             continue
         if chosen["kind"] == "clip" and "clip" not in store_kinds:
-            raise _fail("clip_not_drawn", phrases.en("VID_STOCK_CLIP_NOT_DRAWN"))
+            raise _fail("clip_not_drawn", phrases.text("VID_STOCK_CLIP_NOT_DRAWN", cfg))
         out.append((row, chosen))
     if missing:
         raise _fail("no_pick", "every slot needs a pick before the files are fetched; no pick for: " + ", ".join(missing))
@@ -379,8 +379,8 @@ def _picked(found: dict, review: dict, store_kinds: list) -> list:
 def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     """Fetch the full file of each pick, have the renderer normalise it, and delete the previews and the unpicked files. Answers {"assets": [{"slot", "pick", "source",
     "kind", "licence", "width", "height"}], "sheet": "sheet.png", "message"}. The approval, if there was one, is void."""
-    ctx = core.context(project)
     _channel("video-media-fetch-picks", channel)
+    ctx = core.context(project)
     task, rid, state = _task(ctx, task_id)
     _at_review(ctx, task, state)
     store = ops_step_seams.MediaStore(ctx)
@@ -393,12 +393,13 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     if found is None or found.get("task") != task_id or not isinstance(found.get("slots"), list):
         raise _fail("no_set", "find the media first (video-media-find)")
     root = ctx["root"]
+    accepted = _need_sources(ctx)      # the acceptance is asked again: a source whose terms changed since the find is a new item the person has not accepted
     names = media_stock.sources_of(cfg)
-    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()))
+    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg)
     if len(picks) > media_stock.MAX_FULL:
         raise _fail("too_many_slots", f"at most {media_stock.MAX_FULL} files are fetched for a video")
-    for _, chosen in picks:      # a source the project no longer lists is not asked
-        if chosen["source"] not in names:
+    for _, chosen in picks:      # a source the project no longer lists, or that is licensed and not accepted, is not asked
+        if chosen["source"] not in names or (media_stock.tier_of(root, chosen["source"]) != "unverified" and chosen["source"] not in accepted):
             raise _fail("source_off", "a pick comes from a source this project no longer uses: pick again")
     try:
         media_stock.void_approval(data_dir, rid)
@@ -436,18 +437,38 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         data = media_stock.source_data(root, chosen["source"]) or {}
         assets.append({"slot": slot, "show": row["show"], "search": row["search"], "source": chosen["source"], "item": chosen["item"], "kind": chosen["kind"],
                        "licence": chosen["licence"], "licence_url": _licence_url(root, chosen["source"], chosen["licence"]),
+                       "source_link": _source_link(root, chosen["source"]),
                        "terms_read_on": data.get("terms_read_on") if isinstance(data.get("terms_read_on"), str) else None,
                        "author": chosen["author"] or got.get("author") or "", "title": chosen["title"], "page": chosen["page"], "licence_claim": chosen.get("licence_claim") or "",
                        "sha256": digest, "width": a["width"], "height": a["height"], "seconds": chosen["seconds"], "unverified": chosen["licence"] == media_stock.UNVERIFIED})
     try:
         media_stock.adopt(data_dir, rid, scratch, moves)
         media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") or n == media_stock.SHEET_PREVIEW)      # the previews and the preview sheet go now
-        found = dict(found, phase="fetched", assets=assets, credits=media_stock.credits_of(assets), fetched_at=media_stock.now_stamp())
+        found = dict(found, phase="fetched", assets=assets, credits=media_stock.credits_of(assets), fetched_at=media_stock.now_stamp(),
+                     credit_of={a["slot"]: media_stock.credit_line(a) for a in assets if a["licence"] in media_stock.LICENCES_CREDIT})
         media_stock.write_doc(data_dir, rid, media_stock.SET, found)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height")} | {"pick": f"{a['source']}:{a['item']}"} for a in assets],
-            "sheet": media_stock.SHEET, "message": "Check the pictures, then approve the media set."}
+    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height")} | {"pick": f"{a['source']}:{a['item']}", "file": f"asset-{a['sha256'][:12]}.png"}
+                       for a in assets],
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "message": "Check the pictures, then approve the media set."}
+
+
+def _source_link(root: str, source: str) -> str:
+    """The link a licensed source's data file gives for itself (its terms page), or "" : shown as text, never loaded."""
+    given = (media_stock.source_data(root, source) or {}).get("licence_url")
+    return given if isinstance(given, str) and URL.fullmatch(given) else ""
+
+
+def _provided(assets, cfg) -> list:
+    """One line per licensed source whose picture the set holds: "Media provided by <source> (<link>)", in the project's language, the link as plain text."""
+    out, seen = [], set()
+    for a in assets:
+        if a.get("licence") == media_stock.UNVERIFIED or a["source"] in seen:
+            continue
+        seen.add(a["source"])
+        out.append(phrases.text("VID_STOCK_PROVIDED", cfg, source=a["source"], link=a.get("source_link") or "-"))
+    return out
 
 
 def _fetch_one(ctx: dict, sources, data_dir: str, rid: str, folder: str, root: str, chosen: dict, cap: int):
@@ -480,6 +501,8 @@ def _fetch_one(ctx: dict, sources, data_dir: str, rid: str, folder: str, root: s
         raise _fail("fetch_failed", "a source's answer is not in the shape the store keeps")
     if not unverified and (done.get("licence") not in media_stock.LICENCES_ACCEPTED or done.get("licence") != chosen["licence"] or done.get("item") != chosen["item"]):
         raise _fail("licence_refused", "a fetched file is not under the licence the candidate had")
+    if not name.startswith("q-" if unverified else "full-"):
+        raise _fail("fetch_failed", "a source's answer is not in the shape the store keeps")
     size, digest = done.get("bytes"), done.get("sha256")
     if type(size) is not int or not 0 < size <= cap or not (isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)):
         raise _fail("fetch_failed", "a source's answer is not in the shape the store keeps")
@@ -511,8 +534,8 @@ def video_media_sheet_file(project: str, task_id, file, channel=None) -> dict:
     """One PNG the container made for this video's media set, for the page: {"media_type": "image/png", "data": bytes}. Only `sheet-preview.png`, `sheet.png` and
     `asset-<sha12>.png`; the raw preview and full files and the quarantine are never served. It may cross the local network's socket (it is our own drawing of previews
     already shown to the person)."""
-    ctx = core.context(project)
     _channel("video-media-sheet-file", channel)
+    ctx = core.context(project)
     _, rid, _ = _task(ctx, task_id)
     try:
         return {"media_type": "image/png", "data": media_stock.read_served(ctx["cfg"]["data_dir"], rid, file, PNG_LIMIT)}
@@ -540,8 +563,8 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
     """The media set, for the person to read and approve. Without `hash`: {"approved": whether the current set is, "set": the set document, "sha256", "credits", "needs_own_approval":
     the slots of the assets that need one of their own (a licence nobody checked)}. With `hash` equal to the set's current hash: `approved.json` is written, the previews, the full
     files and the quarantine are deleted, the credits record is written, and {"approved": True, "sha256", "credits"} is answered. A stale hash is refused (`stale_hash`)."""
-    ctx = core.context(project)
     _channel("video-media-approve", channel)
+    ctx = core.context(project)
     task, rid, state = _task(ctx, task_id)
     _at_review(ctx, task, state)
     data_dir, cfg = ctx["cfg"]["data_dir"], ctx["cfg"]
@@ -554,7 +577,7 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
         raise _stock_error(e) from None
     own = [a["slot"] for a in document["assets"] if a["unverified"]]
     if hash is None:
-        return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": own,
+        return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": own, "provided": _provided(found["assets"], cfg),
                 "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
     if not (isinstance(hash, str) and media_stock.SHA256.fullmatch(hash)):
         raise core.OpsError("the hash is 64 lowercase hexadecimal characters", 2)
@@ -567,17 +590,17 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
         media_stock.write_doc(data_dir, rid, media_stock.APPROVED, record)
         keep = {f"asset-{a['sha256'][:12]}.png" for a in document["assets"]}
         media_stock.clear_candidates(data_dir, rid, keep=keep | {media_stock.SHEET})
-        media_stock.write_credits(data_dir, task_id, media_stock.credits_record(found, document))
+        media_stock.write_credits(data_dir, task_id, media_stock.credits_record(found, document, rid))
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    return {"approved": True, "sha256": digest, "credits": document["credits"], "needs_own_approval": own, "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
+    return {"approved": True, "sha256": digest, "credits": document["credits"], "needs_own_approval": own, "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
 
 
 def video_credits(project: str, task_id, channel=None) -> dict:
     """The credits record of a task: the set document without the words typed for each slot, the credit lines, and each open-web asset's source page and claimed licence.
     It answers a takedown request. {"task", "assets", "credits", "web"}."""
-    ctx = core.context(project)
     _channel("video-credits", channel)
+    ctx = core.context(project)
     if isinstance(task_id, bool) or not isinstance(task_id, int):
         raise core.OpsError("the task is a number", 2)
     found = media_stock.read_credits(ctx["cfg"]["data_dir"], task_id)

@@ -331,7 +331,7 @@ def test_a_new_video_and_its_run_are_jobs_and_the_edit_binds_its_arguments(stand
 
 def test_the_constants_of_the_media_routes():
     assert service.MEDIA_UPLOAD_BYTES == media.MEDIA_MAX_BYTES
-    assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve")
+    assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits")
     group = operations.GROUPS["media"]
     assert len(group["operations"]) == 18 and group["kind"] is None
     assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch",

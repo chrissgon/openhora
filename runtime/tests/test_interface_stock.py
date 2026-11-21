@@ -86,10 +86,10 @@ function makeStock(options = {}) {
         : { confirmed: false, sources: ["shelf"], slots: [], message: "These words will be sent to shelf: shop front." };
       return { job: "jf" };
     },
-    videoMediaFetchPicks: async () => { calls.push(["fetch"]); results.jp = { assets: [{ slot: "beat7", source: "shelf", kind: "image", licence: "cc-by-4.0", width: 1080, height: 1920, pick: "shelf:item-1", file: "asset-" + "b".repeat(12) + ".png" }], sheet: "sheet.png", message: "Check the pictures." }; return { job: "jp" }; },
+    videoMediaFetchPicks: async () => { calls.push(["fetch"]); results.jp = { assets: [{ slot: "beat7", source: "shelf", kind: "image", licence: "cc-by-4.0", width: 1080, height: 1920, pick: "shelf:item-1", file: "asset-" + "b".repeat(12) + ".png" }], sheet: "sheet.png", provided: ["Media provided by shelf (https://shelf.example/terms)"], message: "Check the pictures." }; return { job: "jp" }; },
     videoMediaApprove: async (p, t, hash) => {
       calls.push(["approve", hash || null]);
-      return { approved: Boolean(hash), sha256: HASH, credits: ['"A shop 1" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf'], needs_own_approval: o.own || [],
+      return { approved: Boolean(hash), sha256: HASH, credits: ['"A shop 1" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf'], needs_own_approval: o.own || [], provided: ["Media provided by shelf (https://shelf.example/terms)"],
         set: { assets: [{ slot: "beat7", source: "shelf", licence: "cc-by-4.0", width: 1080, height: 1920 }] } };
     },
     videoMediaFile: async (p, t, name) => { calls.push(["file", name]); return new Blob(["png"], { type: "image/png" }); },
@@ -126,7 +126,7 @@ click(btn(cands[0], "Pick this")); await settle();
 out.pick = { sent: r.calls.filter((c) => c[0] === "edit").slice(-1)[0][2], fetchDisabled: btn(r.el, "Fetch the picks").disabled, picked: textOf(byClass(r.el, "wb-cr-media-slot")[0]).includes("Picked: shelf:item-1"),
   button: labels(byClass(r.el, "wb-cr-candidate")[0]) };
 click(btn(r.el, "Fetch the picks")); await settle();
-out.fetched = { calls: r.calls.filter((c) => c[0] === "fetch").length, files: r.calls.filter((c) => c[0] === "file").map((c) => c[1]).slice(-2), imgs: tag(r.el, "img").length, read: labels(r.el).includes("Read the media set") };
+out.fetched = { calls: r.calls.filter((c) => c[0] === "fetch").length, files: r.calls.filter((c) => c[0] === "file").map((c) => c[1]).slice(-2), imgs: tag(r.el, "img").length, provided: byClass(r.el, "wb-cr-provided").map(textOf), anchorsToo: tag(r.el, "a").length, read: labels(r.el).includes("Read the media set") };
 click(btn(r.el, "Read the media set")); await settle();
 out.read = { text: textOf(r.el).includes(`This set has the hash ${"a".repeat(64)}.`), credit: byClass(r.el, "wb-cr-credit").map(textOf), head: textOf(r.el).includes(MEDIA_CREDIT_LINE), approve: labels(r.el).includes("Approve the media"), calls: r.calls.filter((c) => c[0] === "approve") };
 click(btn(r.el, "Approve the media")); await settle();
@@ -155,6 +155,7 @@ def test_the_pictures_section_sends_nothing_until_the_words_are_confirmed_and_wa
     assert got["found"]["fetchDisabled"] is True and got["found"]["notice"].startswith("2 candidates for 1 slots")
     assert got["pick"]["sent"] == [{"op": "slot_asset", "slot": "beat7", "pick": "shelf:item-1"}] and got["pick"]["fetchDisabled"] is False and got["pick"]["picked"] is True
     assert got["pick"]["button"] == ["Picked"]
+    assert got["fetched"]["provided"] == ["Media provided by shelf (https://shelf.example/terms)"] and got["fetched"]["anchorsToo"] == 0 and got["fetched"]["imgs"] == 2, "the sheet and the picture of the set load (the file name the answer sends)"
     assert got["fetched"]["calls"] == 1 and got["fetched"]["files"] == ["sheet.png", "asset-" + "b" * 12 + ".png"] and got["fetched"]["read"] is True
     assert got["read"]["text"] is True and got["read"]["approve"] is True and got["read"]["head"] is True
     assert got["read"]["credit"] == ['"A shop 1" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf']

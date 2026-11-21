@@ -11,7 +11,9 @@
     "CARD_VIDEO_CREDITS": "Crédito para colocar na legenda",
     "CARD_VIDEO_CREDIT": "Crédito: {credit}",
     "CARD_VIDEO_WEB": "Encontrado na internet, licença não verificada: {host}",
-    "CARD_VIDEO_WEB_PAGE": "Página de origem: {page}"
+    "CARD_VIDEO_WEB_PAGE": "Página de origem: {page}",
+    "VID_STOCK_PROVIDED": "Mídia fornecida por {source} ({link})",
+    "CARD_VIDEO_PROVIDED": "Mídia fornecida por {source} ({link})"
   },
   "same_as_english": []
 }

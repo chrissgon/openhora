@@ -649,7 +649,29 @@ def mark_delivered(data_dir: str, rid: str, *, sha256: str, task_id: int, pendin
             raise MediaError("the render changed after it was shown", "stale")
         record["delivered"] = {"at": _stamp(now), "sha256": sha256, "task": task_id, "pending": pending_id}
 
-    return update(data_dir, rid, change, now)
+    done = update(data_dir, rid, change, now)
+    _stamp_credits(data_dir, task_id, now)
+    return done
+
+
+def _stamp_credits(data_dir: str, task_id: int, now=None) -> None:
+    """V9b-3a, limit L77: the credits record of the task (`<data_dir>/media/credits/<task>.json`) learns the time of the delivery, so it is kept until the later of the approval
+    and the delivery plus a year. Best effort: a record that is not there or cannot be read is left alone."""
+    path = os.path.join(root_of(data_dir), "credits", "%d.json" % task_id)
+    try:
+        fd = os.open(path, os.O_RDONLY | NOFOLLOW)
+        with os.fdopen(fd, "rb") as f:
+            doc = json.loads(f.read(JSON_LIMIT + 1).decode("utf-8"))
+        if not isinstance(doc, dict):
+            return
+        doc["delivered_at"] = _stamp(now)
+        part = path + ".part"
+        out = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | NOFOLLOW, 0o600)
+        with os.fdopen(out, "wb") as f:
+            f.write((json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"))
+        os.replace(part, path)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return
 
 
 def delivered_file(data_dir: str, rid: str) -> dict:
@@ -808,7 +830,7 @@ def _newest(parent_fd: int, name: str, info) -> float:
     return newest
 
 
-STOCK_STRAY = re.compile(r"prev-[A-Za-z0-9._-]{1,200}|full-[A-Za-z0-9._-]{1,200}|sheet-preview\.png|\.work[A-Za-z0-9._-]{0,40}")
+STOCK_STRAY = re.compile(r"\.[A-Za-z0-9._-]{1,100}\.part|prev-[A-Za-z0-9._-]{1,200}|full-[A-Za-z0-9._-]{1,200}|sheet-preview\.png|\.work[A-Za-z0-9._-]{0,40}")
 STOCK_QUARANTINE = "quarantine"
 
 

@@ -169,14 +169,14 @@ def asset_params(entry: dict) -> list:
 
 def why_not(entry: dict, engine, presets=None):
     """The first word of WHY that holds for this block, or None when it can be added now. `slot` is for a block with more than one picture parameter, for an `hf:`
-    block that takes one, and for an overlay that takes one (a layout with exactly one is added: its picture is chosen in the media set). `presets`, when given, is the
+    block that takes one (a block of either kind with exactly one is added: its picture is chosen in the media set, and its kind decides the list of beats it joins). `presets`, when given, is the
     engine's own `{preset: block}`: a layout whose preset the engine does not draw is `engine`."""
     if entry["kind"] not in ANIMATION_KINDS:
         return "kind"
     if entry["preset"] is None:
         return "no_preset"
     pictures = asset_params(entry)
-    if len(pictures) > 1 or (pictures and (entry["name"].startswith("hf:") or entry["kind"] != "layout")):
+    if len(pictures) > 1 or (pictures and entry["name"].startswith("hf:")):
         return "slot"
     if engine is not None and engine not in entry["engines"]:
         return "engine"
@@ -305,7 +305,7 @@ def checker(ctx: dict):
             raise captions.CaptionError("block_check_failed", where)
         found = {"block": block, "preset": entry["preset"], "params": cleaned}
         if picture is not None:
-            found["asset_param"] = picture
+            found["asset_param"], found["pic_kind"] = picture, entry["kind"]
         return found
 
     return animate

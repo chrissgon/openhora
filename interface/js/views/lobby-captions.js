@@ -509,12 +509,14 @@ export function createCaptionReview(env) {
         const img = a && a.file ? sheetImage(a.file, `The picture for slot ${a.slot}`) : null;
         if (img) parts.push(img);
       }
+      for (const line of mediaFetched.provided || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));      // "Media provided by <source> (<link>)": plain text, never a link
       parts.push(h("div", { class: "wb-cr-actions" }, button("Read the media set", readApproval)));
     }
     if (mediaApproval) {
       const summary = approvalSummary(mediaApproval);
       parts.push(h("p", { class: "wb-cr-line", text: summary.approved ? "This media set is approved." : `This set has the hash ${summary.hash}.` }));
       for (const a of summary.assets) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `${a.slot}: ${a.source}, ${a.licence}, ${a.width}x${a.height}` }));
+      for (const line of (mediaApproval && mediaApproval.provided) || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));
       if (summary.credits.length) {
         parts.push(h("p", { class: "wb-cr-line", text: MEDIA_CREDIT_LINE }));
         for (const line of summary.credits) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-credit", text: line }));

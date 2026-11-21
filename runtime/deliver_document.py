@@ -41,7 +41,7 @@ SOURCE = re.compile(r"[a-z][a-z0-9]{1,30}")
 ITEM = re.compile(r"[A-Za-z0-9_-]{1,64}")
 LICENCE = re.compile(r"[a-z][a-z0-9.-]{1,40}")
 HOST = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?){1,8}")
-CREDIT_MAX = 600
+CREDIT_MAX = 600      # = runtime/media_stock.py CREDIT_MAX; media_stock.credit_line caps its fields so every line fits
 
 RECORDING = re.compile(r"[0-9a-f]{16}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -236,7 +236,7 @@ def summary(doc: dict) -> dict:
     return found
 
 
-def card_lines(doc: dict, digest: str, pages=None) -> list:
+def card_lines(doc: dict, digest: str, pages=None, providers=None) -> list:
     """The lines of the body as `[key, {field: text}]`, every value a str: what a messaging card says in the project's language
     (runtime/phrases.py `card_text`). `body` is their English sentences, so the stored body and its hash do not change."""
     video, cover, preview = doc["video"], doc["cover"], doc["preview"]
@@ -252,13 +252,13 @@ def card_lines(doc: dict, digest: str, pages=None) -> list:
     else:
         lines.append(["CARD_VIDEO_NO_BLOCKS", {}])
     lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
-    lines.extend(_asset_card_lines(doc, pages))
+    lines.extend(_asset_card_lines(doc, pages, providers))
     lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
     lines.append(["CARD_VIDEO_CLOSING", {}])
     return lines
 
 
-def _asset_card_lines(doc: dict, pages) -> list:
+def _asset_card_lines(doc: dict, pages, providers=None) -> list:
     """The lines of the pictures: one per picture, the credit lines (the heading, then each), and for each picture nobody checked the short warning and its source page.
     `pages` maps a slot to the page address the store keeps, already checked by the caller against the document's `page_sha256` (this module hashes nothing): the
     address of a picture with none in `pages` is left out."""
@@ -266,6 +266,8 @@ def _asset_card_lines(doc: dict, pages) -> list:
     if doc.get("credits"):
         lines.append(["CARD_VIDEO_CREDITS", {}])
         lines.extend(["CARD_VIDEO_CREDIT", {"credit": c}] for c in doc["credits"])
+    for source, link in sorted((providers or {}).items()):      # "Media provided by <source>", the link as plain text: the caller read it from the store
+        lines.append(["CARD_VIDEO_PROVIDED", {"source": source, "link": link}])
     for w in doc.get("web") or []:
         lines.append(["CARD_VIDEO_WEB", {"host": w["page_host"]}])
         page = (pages or {}).get(w["slot"])
