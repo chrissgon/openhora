@@ -410,6 +410,12 @@ ROUTES = (
     # V5-1: the storyboard of a post (VD14) and one of its PNGs; our own drawing of a script, so both may cross the LAN socket too (not in operations.LAN_REFUSED_OPS).
     _route("POST", "/projects/{p}/video-storyboard", "video-storyboard", take=("post",)),      # a job (it can take minutes): it starts a container, so it is not a GET
     _route("GET", "/projects/{p}/video-storyboard/{key}/{name}", "video-storyboard-file", bind={"key": "key", "file": "name"}, take=(), raw=True),
+    # V9b-3a: the licensed pictures of a video. The search, the fetch and the approval are loopback only (operations.LAN_REFUSED_OPS, limit L75); the PNGs the container made may cross.
+    _route("POST", "/projects/{p}/videos/{id}/media/find", "video-media-find", bind={"task_id": "id"}, take=("confirm",)),
+    _route("POST", "/projects/{p}/videos/{id}/media/fetch-picks", "video-media-fetch-picks", bind={"task_id": "id"}, take=()),
+    _route("GET", "/projects/{p}/videos/{id}/media/file/{name}", "video-media-sheet-file", bind={"task_id": "id", "file": "name"}, take=(), raw=True),
+    _route("POST", "/projects/{p}/videos/{id}/media/approve", "video-media-approve", bind={"task_id": "id"}, take=("hash",)),
+    _route("GET", "/projects/{p}/videos/{id}/media/credits", "video-credits", bind={"task_id": "id"}, take=()),
     # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
     # media-remove: one recording removed for good; only an id crosses, so it may cross the LAN socket (not in operations.LAN_REFUSED_OPS).

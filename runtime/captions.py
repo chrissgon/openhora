@@ -76,15 +76,25 @@ OPS = {
     "anchor": {"beat", "word_from", "word_to", "clear"},
     "overlay": {"beat", "dropped"},
     "slot": {"slot", "choice"},
+    "slot_search": {"slot", "search", "want"},
+    "slot_asset": {"slot", "pick", "clear"},
     "face_box": {"x", "y", "w", "h", "clear"},
     "cover": {"offset_ms"},
     "theme": {"choice"},
-    "animation": {"id", "block", "params", "word_from", "word_to", "remove"},
+    "animation": {"id", "block", "params", "word_from", "word_to", "remove", "show", "search", "want"},
     "effect": {"id", "kind", "word_from", "word_to", "remove"},
 }
 WORD_OPS = ("edit", "delete", "merge", "split")
-SLOT_CHOICES = ("keyword", "none")
+SLOT_CHOICES = ("keyword", "none", "stock")      # `stock` (V9b-3a): the picture comes from the media set the person approves (runtime/media_stock.py); with no approved pick it reads as `none`
+WANT_KINDS = ("image", "clip")
+SEARCH = re.compile(r"[A-Za-z][A-Za-z' -]{1,59}")      # = providers/stock/_stock.py SEARCH (a test compares); at most SEARCH_WORDS words
+SEARCH_WORDS = 6
+SHOW = (3, 80)                 # the length of the words that say what a slot shows
+SLOT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")      # = providers/renderer/_vocab.py SLOT_ID
+PICK = re.compile(r"[a-z][a-z0-9]{1,30}:(?:[A-Za-z0-9_-]{1,64}|q-[0-9a-f]{12})")      # "<source>:<item>", or "<source>:q-<sha12>" for a file of the quarantine
+STOCK_SLOTS_MAX = 6            # the slots of one video that take a picture or a clip from the media set
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
+LAYOUT_KEYS = {"asset_param", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
 ANIMATIONS_MAX = 12            # the animations one review may add
 BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")      # = providers/renderer/_edl.py EFFECT_KINDS (a test compares)
@@ -122,7 +132,8 @@ def new_review() -> dict:
     """The review state of a recording nobody has reviewed yet."""
     return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "kept_retakes": [], "anchors": {}, "dropped_beats": [],
             "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
-            "theme": "identity", "animations": [], "effects": [], "dropped_punches": []}
+            "theme": "identity", "animations": [], "effects": [], "dropped_punches": [],
+            "slot_searches": {}, "slot_assets": {}}
 
 
 def check_review(value) -> dict:
@@ -150,6 +161,7 @@ def check_review(value) -> dict:
         raise CaptionError("review_unreadable", "dropped_beats")
     if not isinstance(out["empty_slots"], dict) or not all(isinstance(k, str) and v in SLOT_CHOICES for k, v in out["empty_slots"].items()):
         raise CaptionError("review_unreadable", "empty_slots")
+    _check_stock(out["slot_searches"], out["slot_assets"])
     if out["face_box"] is not None:
         check_face_box(out["face_box"], "face_box")
     if not _is_int(out["cover_offset_ms"]) or not 0 <= out["cover_offset_ms"] <= COVER_MAX_MS:
@@ -159,6 +171,42 @@ def check_review(value) -> dict:
     _check_animations(out["animations"])
     _check_effects(out["effects"], out["dropped_punches"])
     return out
+
+
+def check_search(value, where: str) -> str:
+    """The search words a person gave for a slot: 1 to SEARCH_WORDS words of ASCII letters (the rule of the stock class), else CaptionError("search_refused")."""
+    if not isinstance(value, str) or value != value.strip() or not SEARCH.fullmatch(value) or len(value.split()) > SEARCH_WORDS:
+        raise CaptionError("search_refused", where)
+    return value
+
+
+def check_show(value, where: str) -> str:
+    """The words that say what a slot shows (`show`): SHOW characters, printable, no control or format character."""
+    if not isinstance(value, str) or not SHOW[0] <= len(value) <= SHOW[1] or value != value.strip() \
+            or any(unicodedata.category(ch) in REFUSED_CATEGORIES for ch in value):
+        raise CaptionError("show_refused", where)
+    return value
+
+
+def _check_stock(searches, assets) -> None:
+    """The stored slot searches and picks, closed, or CaptionError("review_unreadable", "slot_searches" or "slot_assets")."""
+    bad = CaptionError("review_unreadable", "slot_searches")
+    if not isinstance(searches, dict) or len(searches) > STOCK_SLOTS_MAX:
+        raise bad
+    for slot, found in searches.items():
+        if not (isinstance(slot, str) and SLOT_ID.fullmatch(slot) and isinstance(found, dict) and set(found) == {"search", "want"}
+                and found["want"] in WANT_KINDS):
+            raise bad
+        try:
+            check_search(found["search"], "slot_searches")
+        except CaptionError:
+            raise bad from None
+    bad = CaptionError("review_unreadable", "slot_assets")
+    if not isinstance(assets, dict) or len(assets) > STOCK_SLOTS_MAX:
+        raise bad
+    for slot, pick in assets.items():
+        if not (isinstance(slot, str) and SLOT_ID.fullmatch(slot) and isinstance(pick, str) and PICK.fullmatch(pick)):
+            raise bad
 
 
 def _check_effects(items, dropped) -> None:
@@ -186,10 +234,24 @@ def _check_animations(items) -> None:
         raise bad
     seen = set()
     for item in items:
-        if not (isinstance(item, dict) and set(item) == {"id", "block", "preset", "params", "from", "to"}):
+        base = {"id", "block", "preset", "params", "from", "to"}
+        if not (isinstance(item, dict) and base <= set(item) <= base | LAYOUT_KEYS and (not set(item) & LAYOUT_KEYS or "asset_param" in item)):
             raise bad
         if not (isinstance(item["id"], str) and ANIMATION_ID.fullmatch(item["id"])) or item["id"] in seen:
             raise bad
+        if "asset_param" in item:      # an added layout (V9b-3a): the parameter its picture fills, and the words that say what it shows and what to search
+            try:
+                if not (isinstance(item["asset_param"], str) and PARAM_NAME.fullmatch(item["asset_param"]) and isinstance(item["params"], dict)
+                        and item["asset_param"] not in item["params"]):
+                    raise bad
+                if "show" in item:
+                    check_show(item["show"], "animations")
+                if ("search" in item) != ("want" in item) or (item.get("want") is not None and item["want"] not in WANT_KINDS):
+                    raise bad
+                if "search" in item:
+                    check_search(item["search"], "animations")
+            except CaptionError:
+                raise bad from None
         seen.add(item["id"])
         if not (isinstance(item["block"], str) and BLOCK_NAME.fullmatch(item["block"])):
             raise bad
@@ -317,7 +379,7 @@ def _index(value, n: int, where: str, field: str = "index") -> int:
     return value
 
 
-def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None, punches=None) -> tuple:
+def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None, punches=None, stock=None) -> tuple:
     """(edited transcript, review, counts) after `edits`, or a CaptionError with nothing changed (both inputs are copied).
 
     edited      the current transcript.edited.json
@@ -333,6 +395,8 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
                 edit (`animation_unavailable`)
     punches     the beat numbers the script asked a punch for (an `effect` edit that drops `p<beat>` names one of these); None accepts any beat
                 number from 1 to BEATS_MAX (the step ignores a drop that names no punch)
+    stock       {slot id: the picks (`<source>:<item>`) of the media set's candidates for that slot} (V9b-3a): a `slot_asset` edit names one of them; None means no
+                set was found, so every pick is refused (`asset_not_found`)
     counts      {"edited", "split", "merged", "deleted"}: how many words each kind of edit touched; never a text."""
     limits = dict({"word_chars_max": WORD_CHARS_MAX, "words_max": WORDS_MAX}, **(limits or {}))
     review = check_review(review)
@@ -353,7 +417,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
             decisions.append((op, edit, where))
     out_review = copy.deepcopy(review)
     for op, edit, where in decisions:
-        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches)
+        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches, stock)
     out, counts = _rebuild(edited, actions, limits)
     _check_grades_apart(out["words"], out_review)
     out_review["revision"] += 1
@@ -396,7 +460,18 @@ def _plan_word_edit(op: str, edit: dict, where: str, n: int, words: list, chars:
         actions[i] = ("split", [harden_word(p, f"{where}.parts", chars) for p in parts], None)
 
 
-def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None, punches=None) -> None:
+def stock_slot_ids(review: dict, slots) -> set:
+    """The slot ids a picture can be asked for: the script's slots and the added layouts' (`a<n>`)."""
+    return set(slots) | {a["id"] for a in review["animations"] if "asset_param" in a}
+
+
+def _stock_slot(value, where: str, slots, review: dict) -> str:
+    if not isinstance(value, str) or value not in stock_slot_ids(review, slots):
+        raise CaptionError("unknown_slot", f"{where}.slot")
+    return value
+
+
+def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None, punches=None, stock=None) -> None:
     if op == "retake":
         rid = edit.get("id")
         if not isinstance(rid, str) or rid not in proposals or type(edit.get("confirmed")) is not bool:
@@ -431,9 +506,32 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         dropped = set(review["dropped_beats"])
         dropped.add(beat) if edit["dropped"] else dropped.discard(beat)
         review["dropped_beats"] = sorted(dropped)
+    elif op == "slot_search":
+        slot = _stock_slot(edit.get("slot"), where, slots, review)
+        if edit.get("want") not in WANT_KINDS:
+            raise CaptionError("bad_choice", f"{where}.want")
+        found = {"search": check_search(edit.get("search"), f"{where}.search"), "want": edit["want"]}
+        if slot not in review["slot_searches"] and len(review["slot_searches"]) >= STOCK_SLOTS_MAX:
+            raise CaptionError("too_many_slots", where)
+        review["slot_searches"][slot] = found
+    elif op == "slot_asset":
+        slot = _stock_slot(edit.get("slot"), where, slots, review)
+        if edit.get("clear") is True and set(edit) == {"op", "slot", "clear"}:
+            review["slot_assets"].pop(slot, None)
+            return
+        if "clear" in edit:
+            raise CaptionError("unknown_field", where)
+        pick = edit.get("pick")
+        if not isinstance(pick, str) or not PICK.fullmatch(pick):
+            raise CaptionError("bad_choice", f"{where}.pick")
+        if pick not in ((stock or {}).get(slot) or ()):
+            raise CaptionError("asset_not_found", f"{where}.pick")
+        if slot not in review["slot_assets"] and len(review["slot_assets"]) >= STOCK_SLOTS_MAX:
+            raise CaptionError("too_many_slots", where)
+        review["slot_assets"][slot] = pick
     elif op == "slot":
         slot, choice = edit.get("slot"), edit.get("choice")
-        if not isinstance(slot, str) or slot not in slots:
+        if not isinstance(slot, str) or slot not in stock_slot_ids(review, slots):
             raise CaptionError("unknown_slot", f"{where}.slot")
         if choice is None:
             review["empty_slots"].pop(slot, None)
@@ -525,8 +623,12 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
         if not kept:
             raise CaptionError("unknown_animation", f"{where}.id")
         review["animations"] = [a for a in review["animations"] if a["id"] != edit["id"]]
+        if "asset_param" in kept[0]:      # an added layout takes its picture, its words and its choice with it
+            for held in ("slot_searches", "slot_assets", "empty_slots"):
+                review[held].pop(edit["id"], None)
         return
-    if set(edit) != {"op", "block", "params", "word_from", "word_to"}:
+    base = {"op", "block", "params", "word_from", "word_to"}
+    if not base <= set(edit) <= base | {"show", "search", "want"}:
         raise CaptionError("bad_edit", where)
     if animate is None:
         raise CaptionError("animation_unavailable", where)
@@ -541,8 +643,24 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
     used = {a["id"] for a in stored}
     number = next(k for k in range(1, ANIMATIONS_MAX + 1) if f"a{k}" not in used)
     o_from, o_to = origin_span(words, first, last)
-    stored.append({"id": f"a{number}", "block": checked["block"], "preset": checked["preset"], "params": checked["params"],
-                   "from": o_from, "to": o_to})
+    item = {"id": f"a{number}", "block": checked["block"], "preset": checked["preset"], "params": checked["params"], "from": o_from, "to": o_to}
+    given = {k: edit[k] for k in ("show", "search", "want") if k in edit}
+    if checked.get("asset_param"):      # a layout: the parameter that holds its picture, and the words that say what to show and what to search
+        item["asset_param"] = checked["asset_param"]
+        if "show" in given:
+            item["show"] = check_show(given["show"], f"{where}.show")
+        if ("search" in given) != ("want" in given):
+            raise CaptionError("bad_edit", where)
+        if "search" in given:
+            if given["want"] not in WANT_KINDS:
+                raise CaptionError("bad_choice", f"{where}.want")
+            item["search"], item["want"] = check_search(given["search"], f"{where}.search"), given["want"]
+            if len(review["slot_searches"]) >= STOCK_SLOTS_MAX:
+                raise CaptionError("too_many_slots", where)
+            review["slot_searches"][item["id"]] = {"search": item["search"], "want": item["want"]}
+    elif given:
+        raise CaptionError("bad_edit", where)
+    stored.append(item)
     stored.sort(key=lambda a: (a["from"], int(a["id"][1:])))
 
 
@@ -715,8 +833,11 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
         meets = now is not None and any(
             not b["dropped"] and b["word_from"] is not None and b["word_to"] is not None
             and b["word_from"] <= now[1] and b["word_to"] >= now[0] for b in beats)
-        animations.append({"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
-                           "word_from": now and now[0], "word_to": now and now[1], "lost": now is None, "overlaps_beat": meets})
+        row = {"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
+               "word_from": now and now[0], "word_to": now and now[1], "lost": now is None, "overlaps_beat": meets}
+        if "asset_param" in item:      # a layout: its picture slot is the animation's own id
+            row.update(slot=item["id"], asset_param=item["asset_param"], show=item.get("show"))
+        animations.append(row)
     effects = []
     for item in review["effects"]:
         now = span_current(words, item["from"], item["to"])
@@ -727,9 +848,17 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
         now = span_current(words, item["word_from"], item["word_to"])
         punches.append({"id": f"p{item['beat']}", "beat": item["beat"], "word_from": now and now[0], "word_to": now and now[1],
                         "dropped": item["beat"] in dropped_punches})
+    found = review["slot_searches"]
     slot_rows = [{"slot": s["slot"], "beat": s["beat"], "param": s["param"], "type": s["type"], "description": s["description"],
-                  "file": assets.get(s["slot"]), "choice": review["empty_slots"].get(s["slot"])}
+                  "file": assets.get(s["slot"]), "choice": review["empty_slots"].get(s["slot"]),
+                  "search": (found.get(s["slot"]) or {}).get("search"), "want": (found.get(s["slot"]) or {}).get("want"),
+                  "pick": review["slot_assets"].get(s["slot"])}
                  for s in proposal_beats.get("slots") or []]
+    slot_rows += [{"slot": a["id"], "beat": None, "param": a["asset_param"], "type": "image|clip", "description": a.get("show") or "",
+                   "file": assets.get(a["id"]), "choice": review["empty_slots"].get(a["id"]),
+                   "search": (found.get(a["id"]) or {}).get("search"), "want": (found.get(a["id"]) or {}).get("want"),
+                   "pick": review["slot_assets"].get(a["id"]), "animation": a["id"]}
+                  for a in review["animations"] if "asset_param" in a]
     unplaced_rows = [{"index": u["index"], "word": (span_current(words, u["index"], u["index"]) or (None,))[0], "start": u["start"],
                       "end": u["end"]} for u in unplaced.values()]
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
@@ -823,8 +952,11 @@ def animations_current(review: dict, edited: dict, live: set) -> tuple:
         now = span_current(words, item["from"], item["to"])
         inside = [i for i in range(now[0], now[1] + 1) if i in live] if now else []
         if inside:
-            out.append({"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
-                        "word_from": inside[0], "word_to": inside[-1]})
+            row = {"id": item["id"], "block": item["block"], "preset": item["preset"], "params": copy.deepcopy(item["params"]),
+                   "word_from": inside[0], "word_to": inside[-1]}
+            if "asset_param" in item:
+                row["asset_param"] = item["asset_param"]
+            out.append(row)
         else:
             lost.append(item["id"])
     out.sort(key=lambda a: (a["word_from"], int(a["id"][1:])))

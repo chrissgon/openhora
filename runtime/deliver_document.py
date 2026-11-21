@@ -16,6 +16,12 @@ at most 64; empty until the block catalogue fills them) and `preview` (null, or 
 messaging card carries, `from_sha256` equal to `video.sha256`: the render itself when it is at most `PREVIEW_MAX_BYTES` (15 MiB), else the copy the
 renderer's `preview` verb made (`preview_name` names its file), else null).
 
+Three keys are present only when the video uses licensed or found pictures (V9b-3a, so a video with none keeps the document and the hash it always had): `assets` (one
+`{slot, sha256, source, item, licence}` per picture the render drew, sorted by slot, at most 12: the normalised PNG's hash, the library, the item's id and the licence id),
+`web` (one `{slot, sha256, page_host, page_sha256}` per asset whose licence nobody checked: the host of its source page and the sha256 of the page's address, never the address,
+since a decision's body holds no tool output) and `credits` (the credit lines the licences ask for, which the delivery and the caption carry, at most 12 lines of 600
+characters).
+
 `check` refuses any other key or type and never echoes content: its `ValueError` names a field. `on_cards` is decision 14: a messaging card may
 approve a delivery only when the preview it carries was made from this render. With no preview it is always False.
 
@@ -28,6 +34,14 @@ import re
 WORD = "deliver"
 VERSION = 1
 KEYS = ("blocks", "cover", "effect", "platform", "post", "preview", "recording", "task", "verify", "version", "video")
+OPTIONAL_KEYS = ("assets", "credits", "web")      # V9b-3a: present only when the video uses pictures from the media set
+ASSETS_MAX = 12
+SLOT = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
+SOURCE = re.compile(r"[a-z][a-z0-9]{1,30}")
+ITEM = re.compile(r"[A-Za-z0-9_-]{1,64}")
+LICENCE = re.compile(r"[a-z][a-z0-9.-]{1,40}")
+HOST = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?){1,8}")
+CREDIT_MAX = 600
 
 RECORDING = re.compile(r"[0-9a-f]{16}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -69,7 +83,7 @@ def check(doc) -> dict:
     for key in KEYS:
         if key not in doc:
             raise ValueError(key)
-    if set(doc) != set(KEYS):
+    if set(doc) - set(OPTIONAL_KEYS) != set(KEYS):
         raise ValueError("keys")
     if doc["effect"] != WORD:
         raise ValueError("effect")
@@ -132,18 +146,58 @@ def check(doc) -> dict:
             raise ValueError("preview.from_sha256")
         if preview["sha256"] == video["sha256"] and preview["size"] != video["size"]:
             raise ValueError("preview.size")
+    _check_assets(doc)
     return doc
 
 
-def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None) -> dict:
+def _check_assets(doc: dict) -> None:
+    """The three optional keys, closed: each present only when it holds something, `web` naming assets of `assets`."""
+    for key in OPTIONAL_KEYS:
+        if key in doc and (not isinstance(doc[key], list) or not doc[key] or len(doc[key]) > ASSETS_MAX):
+            raise ValueError(key)
+    slots, unverified, previous = {}, set(), None
+    for item in doc.get("assets", []):
+        _keys(item, ("slot", "sha256", "source", "item", "licence"), "assets")
+        if not (isinstance(item["slot"], str) and SLOT.fullmatch(item["slot"])) or (previous is not None and item["slot"] <= previous) or item["slot"] in slots:
+            raise ValueError("assets.slot")
+        previous = item["slot"]
+        if not _sha(item["sha256"]):
+            raise ValueError("assets.sha256")
+        if not (isinstance(item["source"], str) and SOURCE.fullmatch(item["source"])) or not (isinstance(item["item"], str) and ITEM.fullmatch(item["item"])):
+            raise ValueError("assets.source")
+        if not (isinstance(item["licence"], str) and LICENCE.fullmatch(item["licence"])):
+            raise ValueError("assets.licence")
+        slots[item["slot"]] = item
+        if item["licence"] == "unverified":
+            unverified.add(item["slot"])
+    seen = set()
+    for item in doc.get("web", []):
+        _keys(item, ("slot", "sha256", "page_host", "page_sha256"), "web")
+        if item["slot"] not in unverified or item["slot"] in seen or slots[item["slot"]]["sha256"] != item["sha256"]:
+            raise ValueError("web.slot")
+        seen.add(item["slot"])
+        if not (isinstance(item["page_host"], str) and HOST.fullmatch(item["page_host"])) or not _sha(item["page_sha256"]):
+            raise ValueError("web.page")
+    if unverified and seen != unverified:
+        raise ValueError("web")      # a picture nobody checked is listed with its source page, always
+    for line in doc.get("credits", []):
+        if not isinstance(line, str) or not line or len(line) > CREDIT_MAX or any(c in line for c in "\n\r"):
+            raise ValueError("credits")
+
+
+def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=()) -> dict:
     """The document, already passed through `check`. `video` is `{name, sha256, size, duration_ms}`, `cover` is `{name, sha256, size}` or
-    None, `blocks` a sequence of `{id, sha256}` and `preview` None or `{sha256, size, from_sha256}`."""
+    None, `blocks` a sequence of `{id, sha256}` and `preview` None or `{sha256, size, from_sha256}`. `assets`, `web` and `credits` (V9b-3a) are added as keys only
+    when they hold something: `assets` `{slot, sha256, source, item, licence}`, `web` `{slot, sha256, page_host, page_sha256}`, `credits` lines of text."""
     doc = {"effect": WORD, "version": VERSION, "task": task, "recording": recording, "platform": platform, "post": post,
            "video": dict(video) if isinstance(video, dict) else video,
            "cover": dict(cover) if isinstance(cover, dict) else cover,
            "verify": {"passed": True, "platform": verify_platform},
            "blocks": [dict(b) if isinstance(b, dict) else b for b in blocks],
            "preview": dict(preview) if isinstance(preview, dict) else preview}
+    for key, value in (("assets", assets), ("web", web), ("credits", credits)):
+        if value:
+            doc[key] = [dict(v) if isinstance(v, dict) else v for v in value]
     return check(doc)
 
 
@@ -175,11 +229,14 @@ def describe(doc: dict) -> str:
 
 def summary(doc: dict) -> dict:
     """The closed facts a decision's payload records: words, hashes and numbers."""
-    return {"word": WORD, "platform": doc["platform"], "video_sha256": doc["video"]["sha256"], "size": doc["video"]["size"],
-            "duration_ms": doc["video"]["duration_ms"], "blocks": len(doc["blocks"]), "preview": doc["preview"] is not None}
+    found = {"word": WORD, "platform": doc["platform"], "video_sha256": doc["video"]["sha256"], "size": doc["video"]["size"],
+             "duration_ms": doc["video"]["duration_ms"], "blocks": len(doc["blocks"]), "preview": doc["preview"] is not None}
+    if doc.get("assets"):      # only a video with pictures adds the keys: the summary of every other video is what it always was
+        found.update(assets=len(doc["assets"]), web=len(doc.get("web") or []), credits=len(doc.get("credits") or []))
+    return found
 
 
-def card_lines(doc: dict, digest: str) -> list:
+def card_lines(doc: dict, digest: str, pages=None) -> list:
     """The lines of the body as `[key, {field: text}]`, every value a str: what a messaging card says in the project's language
     (runtime/phrases.py `card_text`). `body` is their English sentences, so the stored body and its hash do not change."""
     video, cover, preview = doc["video"], doc["cover"], doc["preview"]
@@ -195,8 +252,25 @@ def card_lines(doc: dict, digest: str) -> list:
     else:
         lines.append(["CARD_VIDEO_NO_BLOCKS", {}])
     lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
+    lines.extend(_asset_card_lines(doc, pages))
     lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
     lines.append(["CARD_VIDEO_CLOSING", {}])
+    return lines
+
+
+def _asset_card_lines(doc: dict, pages) -> list:
+    """The lines of the pictures: one per picture, the credit lines (the heading, then each), and for each picture nobody checked the short warning and its source page.
+    `pages` maps a slot to the page address the store keeps, already checked by the caller against the document's `page_sha256` (this module hashes nothing): the
+    address of a picture with none in `pages` is left out."""
+    lines = [["CARD_VIDEO_ASSET", {"slot": a["slot"], "source": a["source"], "licence": a["licence"], "sha": a["sha256"]}] for a in doc.get("assets") or []]
+    if doc.get("credits"):
+        lines.append(["CARD_VIDEO_CREDITS", {}])
+        lines.extend(["CARD_VIDEO_CREDIT", {"credit": c}] for c in doc["credits"])
+    for w in doc.get("web") or []:
+        lines.append(["CARD_VIDEO_WEB", {"host": w["page_host"]}])
+        page = (pages or {}).get(w["slot"])
+        if isinstance(page, str) and page:
+            lines.append(["CARD_VIDEO_WEB_PAGE", {"page": page}])
     return lines
 
 
@@ -214,6 +288,13 @@ def body(doc: dict, digest: str) -> str:
     else:
         lines.append("no animation blocks")
     lines.append(f"preview {preview['sha256']}, made from {preview['from_sha256']}" if preview else "no preview")
+    for a in doc.get("assets") or []:
+        lines.append(f"Picture: {a['slot']}, {a['source']}, {a['licence']}, sha256 {a['sha256']}")
+    if doc.get("credits"):
+        lines.append("Credit to put in the caption")
+        lines.extend(doc["credits"])
+    for w in doc.get("web") or []:
+        lines.append(f"Found on the web, licence not checked: {w['page_host']}")
     lines.append(f"Delivery document sha256 {digest}")
     lines.append(CLOSING)
     return "\n".join(lines)

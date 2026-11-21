@@ -302,7 +302,7 @@ def account_items(cfg: dict, secret: str = "") -> list:
         group = f"default-account={default}"
         out.append({"place": "accounts", "channel": "accounts", "group": group, "means": f"a line in words that names no service goes to your {PROVIDER_NAME[default]} account when both could serve it",
                     "digest": _digest(group, secret)})
-    return out + reference_items(cfg, secret)
+    return out + reference_items(cfg, secret) + stock_items(cfg, secret)
 
 
 REFERENCES_GROUP = "references=on"
@@ -319,6 +319,36 @@ def reference_items(cfg: dict, secret: str = "") -> list:
     if not (isinstance(media, dict) and media.get("references") == "on"):
         return []
     return [{"place": "references", "channel": "references", "group": REFERENCES_GROUP, "means": REFERENCES_TERMS, "digest": _digest(REFERENCES_GROUP, secret)}]
+
+
+STOCK_GROUP = "stock="
+STOCK_MEANS = ("stock media from {name}: the search words of each video are sent to {name}; only pictures and clips under {licences}, read on {date}, are kept; a licence that "
+               "asks for credit puts the credit in the delivery and the caption; the people, brands and claims a picture shows are yours to check before you approve it; the "
+               "files stay on this computer and are deleted with the recording")
+
+
+def stock_items(cfg: dict, secret: str = "") -> list:
+    """The items of the licensed stock sources a project uses (package V9b-3a, `media.stock`, or the default when the project has a `media` object): one per source, in the
+    group `stock=<name>@<terms_read_on or "none">`, so a source that is added and a source whose terms were read again are new items. They ride the record of the accounts and
+    the references: `accept-config` stops, prints each one's `means` and needs `--widen`, and a search is refused (`stock_not_accepted`) until the record holds them. The open
+    web is not an item of this package (its warning is another package's); a source the data file names `unverified` is left out. Nothing is read unless the project has a
+    `media` object."""
+    if not isinstance((cfg or {}).get("media"), dict) or not isinstance(cfg.get("workbench"), str):
+        return []
+    import media_stock      # at call time: the module reads the source data files, and the rest of this one stays pure
+    import project_config
+    try:
+        names = media_stock.licensed(cfg["workbench"], media_stock.sources_of(cfg))
+    except (project_config.ConfigError, OSError, ValueError, LookupError):      # a checkout with no provider resolver names no source: no item
+        return []
+    out = []
+    for name in names:
+        data = media_stock.source_data(cfg["workbench"], name) or {}
+        date = data.get("terms_read_on") if isinstance(data.get("terms_read_on"), str) else None
+        group = f"{STOCK_GROUP}{name}@{date or 'none'}"
+        means = STOCK_MEANS.format(name=name, licences=", ".join(media_stock.accepted_licences(cfg["workbench"], name)) or "none", date=date or "no date")
+        out.append({"place": "stock", "channel": "stock", "group": group, "means": means, "digest": _digest(group, secret)})
+    return out
 
 
 def dump_accounts(cfg: dict, secret: str = "") -> str:

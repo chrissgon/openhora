@@ -25,6 +25,10 @@ Usage:
   python3 runtime/cli.py video-still --project <dir> --task <id> --out <file>
   python3 runtime/cli.py video-catalogue --project <dir>
   python3 runtime/cli.py video-storyboard --project <dir> --post docs/marketing/content/<name>.md
+  python3 runtime/cli.py video-media-find --project <dir> --task <id> [--confirm]
+  python3 runtime/cli.py video-media-fetch-picks --project <dir> --task <id>
+  python3 runtime/cli.py video-media-approve --project <dir> --task <id> [--hash <sha256>]
+  python3 runtime/cli.py video-credits --project <dir> --task <id>
   python3 runtime/cli.py media-remove --project <dir> --media <id> [--confirm]
   python3 runtime/cli.py reference-add --project <dir> --link <url>
   python3 runtime/cli.py reference-video --project <dir> --reference <id> [--confirm]
@@ -204,6 +208,17 @@ video-catalogue lists the animations the caption review of a new video can add (
 video-storyboard draws the storyboard of a short-video post (--post docs/marketing/content/<name>.md): a still per beat of its ```script block
           and a contact sheet, over a neutral placeholder, with no recording and no model; it prints the key, the beats with the block that drew each
           and the block the project's own engine uses, and `sheet_path`, the absolute path of the sheet. Advisory: the video may look different.
+video-media-find searches the licensed picture libraries the project uses (media.stock in docs/workbench/runtime.json, accepted with accept-config --widen) for the
+          slots of a new video that waits at the caption review (--task <id>): each slot with search words (the review edit `slot_search`) and the choice `stock`, and
+          each added layout with a search. Without --confirm it sends nothing and prints which words go to which libraries; with --confirm the libraries are searched
+          (the words leave this computer), the candidates are merged per slot, and the previews are drawn on a sheet. Pick one per slot with the review edit
+          `{"op": "slot_asset", "slot": "<id>", "pick": "<source>:<item>"}`, then run video-media-fetch-picks.
+video-media-fetch-picks fetches the full file of each pick (--task <id>), has the renderer's container normalise it to a PNG, and deletes the previews and the other
+          files; every slot needs a pick first.
+video-media-approve prints the media set of a new video (--task <id>): each picture, its source and licence, its sha256, the credit lines the licences ask for (put them in
+          the caption) and the files that need an approval of their own; with --hash <the set's sha256> it approves exactly that set. A pick changed afterwards voids it, and
+          the video cannot continue while a pick is not approved.
+video-credits prints the credits record of the media set approved for a new video (--task <id>); it is kept a year after the approval.
 media-remove removes a recording from the media store for good (--media <id>, from media-list): the recording, its transcript,
           its work files, its still and its delivered video. Without --confirm it removes nothing and prints what would go (its
           size, its files, the tasks that named it); with --confirm it removes it. It is refused while a task that has not ended

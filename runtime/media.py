@@ -68,6 +68,8 @@ STILL = re.compile(r"still-[0-9a-f]{12}\.png")
 PREVIEW = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 RAW = re.compile(r"raw\.(mp4|mov)")
 REMOVED = re.compile(r"\.removed-[0-9a-f]{16}")   # a recording a person removed (media-remove), renamed out of the store before its files go
+STOCK_DIR = "stock"                           # V9b-3a: <id>/stock/ holds the licensed pictures of a video (runtime/media_stock.py is the one writer)
+STOCK_FILE = re.compile(r"stock/(set\.json|approved\.json|sheet\.png|sheet-preview\.png|asset-[0-9a-f]{12}\.png)")   # what a step may read or hand the engine by name
 KEPT_AFTER_RAW = (RECORD, "render.json", "verify.json")   # plus RENDER and COVER names: what survives the 7-day purge
 JSON_LIMIT = 5 * 1024 * 1024
 
@@ -128,8 +130,9 @@ def _is_int(value) -> bool:
 
 
 def _check_name(name) -> str:
-    """A work file's name: one of WORK_NAMES, or a render, cover, still, preview or raw file named by its hash or type."""
-    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, PREVIEW, RAW))):
+    """A work file's name: one of WORK_NAMES, or a render, cover, still, preview or raw file named by its hash or type, or (to be read or handed to the
+    engine, never written here) one of the closed files of the stock folder, `stock/<name>` (STOCK_FILE)."""
+    if isinstance(name, str) and (name in WORK_NAMES or any(p.fullmatch(name) for p in (RENDER, COVER, STILL, PREVIEW, RAW, STOCK_FILE))):
         return name
     raise MediaError("that is not the name of a file the store keeps", "usage")
 
@@ -441,20 +444,51 @@ def receive_file(data_dir: str, path: str, *, now=None) -> dict:
 # --- the work files ---------------------------------------------------------------------------------------------------------------
 
 
+def _split(name: str):
+    """(folder names below the recording's folder, leaf): `stock/asset-x.png` is (("stock",), "asset-x.png"); a flat name has no folder."""
+    head, sep, leaf = name.rpartition("/")
+    return ((head,) if sep else ()), leaf
+
+
+def _open_below(dfd: int, folders) -> int:
+    """The descriptor of a folder below the recording's, each step opened without following a link; the caller closes it. The recording's own
+    descriptor is returned (duplicated) when there is no folder."""
+    current = os.dup(dfd)
+    for part in folders:
+        try:
+            nxt = os.open(part, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=current)
+        except FileNotFoundError:
+            os.close(current)
+            raise MediaError("that file is not kept", "not_found") from None
+        except OSError:
+            os.close(current)
+            raise MediaError("that file cannot be read", "unreadable") from None
+        os.close(current)
+        current = nxt
+    return current
+
+
 def path_of(data_dir: str, rid: str, name: str, *, must_exist: bool = True) -> str:
     """The absolute path of a work file, for a provider's argument. With `must_exist`, a missing file is `not_found` and a link or a file
     that is not regular is `unreadable`."""
     _check_name(name)
-    path = os.path.join(folder_of(data_dir, rid), name)
+    path = os.path.join(folder_of(data_dir, rid), *name.split("/"))
+    if STOCK_FILE.fullmatch(name) and references.in_reference(path):
+        raise MediaError("a picture in a reference store is looked at, never used", "usage")      # limit L73: a reference is not material; L76 asks the same of a picture
     if must_exist:
+        folders, leaf = _split(name)
         dfd = _open_folder(data_dir, rid)
         try:
+            sub = _open_below(dfd, folders)
             try:
-                info = os.stat(name, dir_fd=dfd, follow_symlinks=False)
-            except FileNotFoundError:
-                raise MediaError("that file is not kept", "not_found") from None
-            except OSError:
-                raise MediaError("that file cannot be read", "unreadable") from None
+                try:
+                    info = os.stat(leaf, dir_fd=sub, follow_symlinks=False)
+                except FileNotFoundError:
+                    raise MediaError("that file is not kept", "not_found") from None
+                except OSError:
+                    raise MediaError("that file cannot be read", "unreadable") from None
+            finally:
+                os.close(sub)
         finally:
             os.close(dfd)
         if not stat.S_ISREG(info.st_mode):
@@ -465,22 +499,27 @@ def path_of(data_dir: str, rid: str, name: str, *, must_exist: bool = True) -> s
 def read_work(data_dir: str, rid: str, name: str, limit: int = JSON_LIMIT) -> bytes:
     """The bytes of a work file: a regular file with one link, at most `limit` bytes."""
     _check_name(name)
+    folders, leaf = _split(name)
     dfd = _open_folder(data_dir, rid)
     try:
+        sub = _open_below(dfd, folders)
         try:
-            fd = _open_in(dfd, name, os.O_RDONLY)
-        except FileNotFoundError:
-            raise MediaError("that file is not kept", "not_found") from None
-        except OSError:
-            raise MediaError("that file cannot be read", "unreadable") from None
-        try:
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
-                raise MediaError("that file cannot be read", "unreadable")
-            with os.fdopen(fd, "rb", closefd=False) as f:
-                return f.read(limit + 1)
+            try:
+                fd = _open_in(sub, leaf, os.O_RDONLY)
+            except FileNotFoundError:
+                raise MediaError("that file is not kept", "not_found") from None
+            except OSError:
+                raise MediaError("that file cannot be read", "unreadable") from None
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
+                    raise MediaError("that file cannot be read", "unreadable")
+                with os.fdopen(fd, "rb", closefd=False) as f:
+                    return f.read(limit + 1)
+            finally:
+                os.close(fd)
         finally:
-            os.close(fd)
+            os.close(sub)
     finally:
         os.close(dfd)
 
@@ -769,6 +808,76 @@ def _newest(parent_fd: int, name: str, info) -> float:
     return newest
 
 
+STOCK_STRAY = re.compile(r"prev-[A-Za-z0-9._-]{1,200}|full-[A-Za-z0-9._-]{1,200}|sheet-preview\.png|\.work[A-Za-z0-9._-]{0,40}")
+STOCK_QUARANTINE = "quarantine"
+
+
+def _referenced_assets(sub: int) -> set:
+    """The `asset-<sha12>.png` names the stock folder's set.json lists, or an empty set when it cannot be read (every asset is then unreferenced)."""
+    try:
+        fd = os.open("set.json", os.O_RDONLY | NOFOLLOW, dir_fd=sub)
+    except OSError:
+        return set()
+    try:
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            doc = json.loads(f.read(JSON_LIMIT + 1).decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError, RecursionError):
+        return set()
+    finally:
+        os.close(fd)
+    found = doc.get("assets") if isinstance(doc, dict) else None
+    return {"asset-%s.png" % a["sha256"][:12] for a in found if isinstance(a, dict) and isinstance(a.get("sha256"), str)} if isinstance(found, list) else set()
+
+
+def _sweep_stock(data_dir: str, rfd: int, now: float) -> int:
+    """V9b-3a, limit L77: in the stock folder of each recording (`<id>/stock/`), what is older than STRAY_DAYS and is not an approved picture goes: the previews,
+    the full files a fetch made, the preview sheet, a scratch folder, an `asset-*` the set does not list, and everything in `quarantine/`. The folder, the set, the
+    approval and the pictures the set lists stay (they go with the recording). Returns how many entries were removed."""
+    count, limit = 0, STRAY_DAYS * DAY
+    for name in sorted(os.listdir(rfd)):
+        if not ID.fullmatch(name):
+            continue
+        try:
+            top = os.open(name, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=rfd)
+        except OSError:
+            continue
+        try:
+            try:
+                sub = os.open(STOCK_DIR, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=top)
+            except OSError:
+                continue
+            try:
+                keep = _referenced_assets(sub)
+                for entry in sorted(os.listdir(sub)):
+                    try:
+                        info = os.stat(entry, dir_fd=sub, follow_symlinks=False)
+                    except OSError:
+                        continue
+                    stray = STOCK_STRAY.fullmatch(entry) or (re.fullmatch(r"asset-[0-9a-f]{12}\.png", entry) and entry not in keep)
+                    if entry == STOCK_QUARANTINE and stat.S_ISDIR(info.st_mode):
+                        try:
+                            quarantine = os.open(entry, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=sub)
+                        except OSError:
+                            continue
+                        try:
+                            for held in sorted(os.listdir(quarantine)):
+                                try:
+                                    old = os.stat(held, dir_fd=quarantine, follow_symlinks=False)
+                                except OSError:
+                                    continue
+                                if now - old.st_mtime >= limit and _remove_tree(quarantine, held):
+                                    count += 1
+                        finally:
+                            os.close(quarantine)
+                    elif stray and now - info.st_mtime >= limit and _remove_tree(sub, entry):
+                        count += 1
+            finally:
+                os.close(sub)
+        finally:
+            os.close(top)
+    return count
+
+
 def _is_part(name: str) -> bool:
     """A temporary file of an upload (intake's) or of a write of this module: `.incoming-*.part`, `.<name>.part`."""
     return name.endswith(intake.PART_SUFFIX) and name.startswith((intake.PART_PREFIX, "."))
@@ -809,7 +918,7 @@ def purge(data_dir: str, *, now: float, busy=lambda task_id: False) -> dict:
                     out["removed"].append({"recording": rid, "what": "raw"})
                 else:
                     out["kept"].append(rid)
-            out["stray"] = _sweep_strays(data_dir, rfd, now)
+            out["stray"] = _sweep_strays(data_dir, rfd, now) + _sweep_stock(data_dir, rfd, now)
         finally:
             lock.release()
     finally:

@@ -16,7 +16,8 @@ kind `media` (runtime/step_media.py), in one of two places:
 
 `view(ctx, task_id)` reads the same files and writes nothing: the caption review as the person reads it (words, chunks, proposed retakes, beats, and the revision an edit must name).
 
-An edit that changes nothing is refused before anything is written or answered. The files it writes are the person's work: the engine's cleanup never
+A pick of a picture for a slot (`slot_asset`) is one of the candidates the media set found for it (runtime/ops_media_stock.py); a pick that changes voids the approval of the media set, so a picture
+that was not approved is never drawn. An edit that changes nothing is refused before anything is written or answered. The files it writes are the person's work: the engine's cleanup never
 removes them. An added animation's parameters are checked by the renderer's own checker (`block-params`, through runtime/media_animation.py and
 `MediaEngine`), a process on this computer; nothing here reaches the network.
 
@@ -35,6 +36,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import captions  # noqa: E402
 import media_animation  # noqa: E402
+import media_stock  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import ops_step_seams  # noqa: E402
@@ -72,6 +74,28 @@ def _limits(root: str) -> dict:
         return {}
 
 
+def _candidates(data_dir: str, rid: str) -> dict:
+    """{slot: {pick}} of the candidates the media set found, or {} when there is none (every pick is then refused)."""
+    try:
+        found = media_stock.read_doc(data_dir, rid, media_stock.SET)
+    except media_stock.StockError:
+        return {}
+    rows = found.get("slots") if isinstance(found, dict) else None
+    return {r["slot"]: {c["pick"] for c in r.get("candidates") or [] if isinstance(c, dict) and isinstance(c.get("pick"), str)}
+            for r in rows or [] if isinstance(r, dict) and isinstance(r.get("slot"), str)}
+
+
+def _assets(data_dir: str, rid: str, review: dict) -> dict:
+    """{slot: {"name", "type", "sha256"}} of the pictures the set fetched for the review's picks (the file facts the view shows), {} when there is none."""
+    try:
+        found = media_stock.read_doc(data_dir, rid, media_stock.SET)
+    except media_stock.StockError:
+        return {}
+    rows = found.get("assets") if isinstance(found, dict) and found.get("phase") == "fetched" else None
+    return {a["slot"]: {"name": "asset-%s.png" % a["sha256"][:12], "type": "png", "sha256": a["sha256"]} for a in rows or []
+            if isinstance(a, dict) and isinstance(a.get("slot"), str) and isinstance(a.get("sha256"), str) and review["slot_assets"].get(a["slot"]) == "%s:%s" % (a.get("source"), a.get("item"))}
+
+
 def _content(edited: dict, review: dict) -> str:
     """The two documents without the revision counters an edit always raises, to tell whether an edit changed anything."""
     one, two = copy.deepcopy(edited), copy.deepcopy(review)
@@ -81,8 +105,20 @@ def _content(edited: dict, review: dict) -> str:
     return json.dumps([one, two], sort_keys=True)
 
 
+STOCK_REPAIR = ("media_not_approved", "asset_changed", "asset_not_approved")      # a Continue that the media set stopped (V9b-3a): the person approves the set or clears the picks, then starts the video again
+
+
+def stock_repair(task: dict, state: dict) -> bool:
+    """Whether the task failed because a pick of the media set is not approved (or a picture changed): the review is passed, the video is stopped before it renders, and the
+    person may still choose, approve or clear the pictures. The same words as the review's own edit: `review`."""
+    failure = state.get("failure")
+    return task["state"] == "failed" and isinstance(failure, dict) and failure.get("code") in STOCK_REPAIR
+
+
 def _where(ctx: dict, task: dict, state: dict):
-    """(mode, the open delivery decision or None): `review` or `gate`, or a refusal when the task waits at neither."""
+    """(mode, the open delivery decision or None): `review` or `gate`, or a refusal when the task waits at neither (a task the media set stopped counts as at the review)."""
+    if stock_repair(task, state):
+        return "review", None
     if task["state"] != "waiting":
         raise core.OpsError(WAITING_ONLY, 1)
     if steps.step_status(state, "review") == "waiting":
@@ -125,7 +161,7 @@ def edit(ctx: dict, task_id: int, revision: int, edits: list, *, actor=None) -> 
                 read_edited, read_review, edits, revision=revision, proposals=captions.retake_ranges(proposal_edl),
                 beats={r["beat"] for r in proposal_beats.get("report") or [] if r.get("preset")},
                 slots={s["slot"] for s in proposal_beats.get("slots") or []}, limits=_limits(media_store.root()),
-                animate=media_animation.checker(ctx))
+                animate=media_animation.checker(ctx), stock=_candidates(cfg["data_dir"], rid))
         except captions.CaptionError as e:
             raise core.OpsError(f"refused: {e.code} {e.field}".strip(), 1) from None
         if _content(edited, review) == _content(read_edited, read_review):
@@ -137,6 +173,11 @@ def edit(ctx: dict, task_id: int, revision: int, edits: list, *, actor=None) -> 
             media_store.write(rid, REVIEW, (json.dumps(review, indent=1, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"))
         except ops_step_seams.StepServiceError as e:
             raise core.OpsError(f"the review could not be written ({e.code})", 1) from None
+        if review["slot_assets"] != read_review["slot_assets"]:      # a pick that changed is not the one that was approved
+            try:
+                media_stock.void_approval(cfg["data_dir"], rid)
+            except media_stock.StockError:
+                pass
         answered = None
         if mode == "gate":
             with core._write_lock(cfg, wait=None):
@@ -177,7 +218,7 @@ def view(ctx: dict, task_id: int) -> dict:
         read_edited = captions.check_edited(_json(media_store, rid, EDITED, default=captions.start_edited(transcript)))
         read_review = captions.reconcile(read_edited, captions.check_review(_json(media_store, rid, REVIEW, default=captions.new_review())))
         proposal_edl, proposal_beats = _json(media_store, rid, PROPOSAL_EDL), _json(media_store, rid, PROPOSAL_BEATS)
-        shown = captions.view(read_edited, read_review, proposal_edl, proposal_beats, {})
+        shown = captions.view(read_edited, read_review, proposal_edl, proposal_beats, _assets(ctx["cfg"]["data_dir"], rid, read_review))
     except captions.CaptionError as e:
         raise core.OpsError(f"refused: {e.code} {e.field}".strip(), 1) from None
     try:

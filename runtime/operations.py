@@ -1163,6 +1163,33 @@ OPERATIONS = (
      "channels": ("terminal",), "model": False, "channel_arg": True,
      "help": "remove a reference for good, with its details, its subtitles and its facts (--reference <id>); without --confirm it removes nothing and says what would go",
      "natural": {"class": "G", "since": 4, "order": 181, "privacy": "own", "cost": "none", "what": "remove a reference video", "about": "Remove a reference video.", "slots": {}}},
+    # V9b-3a: the licensed pictures of a video (the media set the person approves). Class G, kind internal, like every media operation: never served in words. Terminal and page; the
+    # local network's socket may not search, fetch or approve (LAN_REFUSED_OPS), only read the PNGs the container made. Messaging and the MCP mode have no row.
+    {"name": "video-media-find", "call": "video_media_find",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "confirm", "kind": "flag"}),
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
+     "help": "find licensed pictures for the slots of a new video that waits at the caption review (--task <id>): without --confirm it sends nothing and says which words go to which sources; with --confirm the sources are searched and the previews drawn on a sheet",
+     "natural": {"class": "G", "since": 4, "order": 184, "privacy": "off-host", "cost": "provider", "what": "find licensed pictures for a new video", "about": "Find licensed pictures for a new video.", "slots": {}}},
+    {"name": "video-media-fetch-picks", "call": "video_media_fetch_picks",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
+     "help": "fetch the full file of each picture picked for a new video (--task <id>) and have the renderer normalise it; every slot needs a pick first",
+     "natural": {"class": "G", "since": 4, "order": 185, "privacy": "off-host", "cost": "provider", "what": "fetch the pictures picked for a new video", "about": "Fetch the pictures picked for a new video.", "slots": {}}},
+    {"name": "video-media-sheet-file", "call": "video_media_sheet_file",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "file", "kind": "str", "required": True, "label": "sheet-preview.png, sheet.png or asset-<sha12>.png"},),
+     "channels": ("page",), "model": False, "channel_arg": True,
+     "help": "one PNG of a new video's media set that the renderer made (a sheet or a picture), for the page; never a raw preview or download",
+     "natural": {"class": "G", "since": 4, "order": 186, "privacy": "own", "cost": "none", "what": "read one picture of a new video's media set", "about": "Read one picture of a new video's media set.", "slots": {}}},
+    {"name": "video-media-approve", "call": "video_media_approve",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "hash", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "approve the media set of a new video (--task <id>): without --hash it prints the set, its sha256, the credits it asks for and the files that need their own approval; with --hash <sha256> of that set it approves exactly that set",
+     "natural": {"class": "G", "since": 4, "order": 187, "privacy": "own", "cost": "none", "what": "approve the media set of a new video", "about": "Approve the media set of a new video.", "slots": {}}},
+    {"name": "video-credits", "call": "video_credits",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "the credits record of a new video's approved media set (--task <id>): where each picture came from and the credit its licence asks for; kept a year",
+     "natural": {"class": "G", "since": 4, "order": 188, "privacy": "own", "cost": "none", "what": "read the credits of a new video's media", "about": "Read the credits of a new video's media.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1289,7 +1316,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
     # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
     "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"), "kind": None},
 }
@@ -1318,7 +1345,7 @@ SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
 LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
-LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py)
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross)
 LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant

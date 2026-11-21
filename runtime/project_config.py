@@ -57,6 +57,9 @@ It also reads "media" (package V1b2-1; absent: the step kind's defaults): the se
 package V7b may be fetched for this project; "on" is a widening, so accept-config stops, shows its terms and needs --widen. "renderer" is "auto" (the class renderer:video resolves as
 providers/resolve.py says: a variable, then the class default, hyperframes) or an implementation shipped in providers/renderer/,
 which the runtime then names on every call. Like every key, it is changed only in the terminal and accepted with accept-config.
+"stock" (package V9b-3a) is a list of 1 to 8 names of the sources of the class stock:media (providers/stock/<name>.py: the libraries a video's pictures are searched
+in), or [] for none; absent means every source that needs no key. Each licensed source is a widening item, so accept-config stops, shows what the person gives away
+(the search words leave this computer) and needs --widen; until then the search answers `stock_not_accepted`.
 
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
@@ -727,7 +730,9 @@ def _outbox(value, workbench: str):
     return {"provider": provider, "from": sender}
 
 
-MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS) and the reference videos
+MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references", "stock")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS), the reference videos and the stock sources
+STOCK_CLASS = "stock:media"
+STOCK_MAX = 8
 MEDIA_REFERENCES = ("on", "off")      # `references`: absent is off; "on" is a widening (runtime/policy_widening.py), accepted with `accept-config --widen`
 MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
@@ -752,7 +757,7 @@ def _media(value, workbench: str):
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
-        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off)")
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off) and stock (a list of sources)")
     out = {}
     if "language" in value:
         found = value["language"]
@@ -775,6 +780,12 @@ def _media(value, workbench: str):
         if found not in MEDIA_REFERENCES:
             raise ConfigError("runtime.json media.references must be on or off (absent is off; on is accepted with accept-config --widen)")
         out["references"] = found
+    if "stock" in value:
+        found, shipped = value["stock"], _implementations(workbench, STOCK_CLASS)
+        if not isinstance(found, list) or len(found) > STOCK_MAX or not all(isinstance(n, str) and n in shipped for n in found) or len(set(found)) != len(found):
+            raise ConfigError("runtime.json media.stock must be a list of up to %d different sources, each one of %s (an empty list turns it off)"
+                              % (STOCK_MAX, ", ".join(shipped) or "none: no source is shipped"))
+        out["stock"] = list(found)
     return out
 
 
