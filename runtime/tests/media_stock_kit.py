@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import struct
 import threading
@@ -23,6 +22,7 @@ media = st.load("media")
 captions = st.load("captions")
 media_stock = st.load("media_stock")
 ops_media_stock = st.load("ops_media_stock")
+ops_media_websearch = st.load("ops_media_websearch")
 ops_media_edit = st.load("ops_media_edit")
 ops_step_seams = st.load("ops_step_seams")
 
@@ -55,6 +55,7 @@ class FakeSources:
         self.titles = {}
         self.lock, self.active, self.most_active, self.clip_seconds = threading.Lock(), {}, {}, 8
         self.waited = set()
+        self.fail_urls = set()      # the links of the open web whose preview is refused (V9b-3b)
 
     def of(self, verb, source=None):
         return [c for c in self.calls if c["verb"] == verb and (source is None or c["source"] == source)]
@@ -72,6 +73,8 @@ class FakeSources:
                     self.waited.add(source)
                     self.barrier.wait(timeout=10)
                 return self._search(source, flags)
+            if verb == "preview":
+                return self._preview_url(source, flags)
             if verb == "fetch" and "--item" in flags:
                 return self._fetch(source, flags)
             if verb == "fetch":
@@ -101,6 +104,16 @@ class FakeSources:
         Path(out, name).write_bytes(data)
         return {"ok": True, "source": source, "item": item, "kind": kind, "file": name, "bytes": len(data), "sha256": sha(data), "licence": self.licences.get(source, "cc0-1.0"),
                 "author": self.authors.get(source, "Bram Hollow"), "title": "A picture", "page": "https://%s.example/p/%s" % (source, item), "seconds": None, "requests": 1}
+
+    def _preview_url(self, source, flags):
+        """The open-web provider's `preview`: a flat-colour PNG of its own (the colour comes from the link, so two links give two files) written into `--out` as `q-<sha12>.png`."""
+        url, out = flag(flags, "--url"), flag(flags, "--out")
+        if url in self.fail_urls:
+            raise ops_media_stock.Refused("failed")
+        data = png(8, 8, tuple(hashlib.sha256(url.encode("utf-8")).digest()[:3]))
+        name = "q-%s.png" % sha(data)[:12]
+        Path(out, name).write_bytes(data)
+        return {"ok": True, "file": name, "bytes": len(data), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
 
     def _fetch_url(self, source, flags):
         out = flag(flags, "--out")
@@ -222,3 +235,92 @@ def pick(world, task, slot, pick_string, revision):
 
 def review_of(world):
     return json.loads(work_file(world, "review.json").read_text(encoding="utf-8"))
+
+
+# --- the web search (V9b-3b): a stand-in for the run of the skill, a candidates file and a world ------------------------------------------------------------------------------------
+
+SKILL = "mkt-video-media-search"
+LINK_MARK = "ZQX-LINK-MARK-7731"      # planted in the path and the query of every media link: it must never reach an answer, a run row, a log or stderr
+PAGE_MARK = "aster-lane-page-4417"      # in the path of every page address: the terminal and this computer's own page may show it, a run row and stderr never
+
+
+def web_candidate(slot: str, n: int = 1, kind: str = "image", **more) -> dict:
+    """One candidate of the file the skill writes: invented hosts (`.example`), the planted token in the path and the query of each link."""
+    base = {"slot": slot, "kind": kind, "media_url": "https://pics.example/m/%s/%s-%d.jpg?t=%s" % (LINK_MARK, slot, n, LINK_MARK), "thumb_url": "https://pics.example/t/%s/%s-%d.jpg?t=%s" % (LINK_MARK, slot, n, LINK_MARK),
+            "page_url": "https://pages.example/gallery/%s/%s-%d" % (PAGE_MARK, slot, n), "title": "A market stall at dawn %d" % n, "licence_claim": "free to use, says the page",
+            "screen_work": False, "resolution": "1200x800", "site_terms": "Pictures may be shared with a credit to the page."}
+    base.update(more)
+    return base
+
+
+def web_document(candidates=(), opens=()) -> dict:
+    return {"schema_version": 1, "candidates": list(candidates), "open": list(opens)}
+
+
+class FakeRun:
+    """`ops_contained.execute` as ops_media_websearch calls it: records what it was asked (the prompt, the web flag, the bounds, the files it was given), writes the candidates file a run of the skill
+    would write into the run's own `cwd` (`document`, or `raw` bytes, or a link in its place with `link`), and answers the shape of `lab.run_skill`. `mode`: ok | failed | boom | docker."""
+
+    def __init__(self):
+        self.calls, self.dests, self.mode, self.document, self.raw, self.link, self.cost = [], [], "ok", None, None, False, 0.04
+        self.seen = []      # what each run found in its folder when it ended (to prove the folder is removed afterwards)
+
+    def __call__(self, ctx, skill, meta, keys, routing, prompt, *, platforms=(), timeout=None, dest, prepared_dir, max_cost, sourced=(), around=None, open_web=False):
+        self.calls.append({"skill": skill, "prompt": prompt, "open_web": open_web, "timeout": timeout, "max_cost": max_cost, "sourced": tuple(sourced), "platforms": tuple(platforms or ()),
+                           "around": around is not None, "dest": dest})
+        return self._result(dest, open_web)
+
+    def lab_call(self, skill, prompt, files, dest, *, web=False, model=None, timeout=None, retries=None, platforms=None, max_cost=None, **more):
+        """`lab.run_skill` as the real `ops_contained.execute` calls it: records the files the run was handed."""
+        self.calls.append({"skill": skill, "prompt": prompt, "open_web": web, "timeout": timeout, "max_cost": max_cost, "files": list(files), "platforms": tuple(platforms or ()), "retries": retries,
+                           "dest": dest, "model": model})
+        return self._result(dest, web)
+
+    def _result(self, dest, open_web):
+        self.dests.append(dest)
+        if self.mode == "boom":
+            raise RuntimeError("the stand-in exploded while it held the link " + LINK_MARK)
+        if self.mode == "docker":
+            refused = ops_core.OpsError("docker: the container runtime is unreachable", 3)
+            refused.lab_kind = "docker"
+            raise refused
+        cwd = Path(dest) / "cwd"
+        (Path(dest) / "outputs").mkdir(parents=True, exist_ok=True)
+        cwd.mkdir(parents=True, exist_ok=True)
+        counts = {"attempts": 1, "timeouts": 0, "refusals": 0, "adapter_failures": 0, "early_ends": 0, "pauses": 0, "redactions": 0}
+        base = {"run_dir": str(dest), "cwd": str(cwd), "outputs": str(Path(dest) / "outputs"), "counts": counts, "model": "m", "adapter": "h", "web": open_web,
+                "image_digest": "sha256:" + "5" * 64, "image_platform": "linux/arm64", "base_commit": None, "tmp": None, "staged": []}
+        if self.mode == "failed":
+            return dict(base, status="failed", failure={"kind": "timeout", "reason": "the run failed " + LINK_MARK, "detail": None}, response="", changes=None, timing={},
+                        reported={"total_tokens": 900, "cost_usd": 0.01})
+        folder = cwd / ".workbench-local" / "video"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / "web-candidates.json"
+        if self.link:
+            outside = Path(dest) / "outside.json"
+            outside.write_text(json.dumps(self.document or web_document()), encoding="utf-8")
+            target.symlink_to(outside)
+        elif self.raw is not None:
+            target.write_bytes(self.raw)
+        elif self.document is not None:
+            target.write_text(json.dumps(self.document), encoding="utf-8")
+        return dict(base, status="ok", failure=None, response="done", changes=None, timing={"total_tokens": 1200, "duration_ms": 15000, "cost_usd": self.cost, "skills_loaded": [SKILL]})
+
+
+ROUTING = {"model": "m", "adapter": "h", "billing": "metered", "autonomy": "proven", "web": True, "key_missing": False}
+
+
+def web_world(world, monkeypatch, searches=None, web=True, stock="default", **more):
+    """A video at the caption review whose project uses the open web as a source (accepted with its item), the skill in the stand-in tree (it declares `search:web`, and the checker script is the
+    real one), the fake source for the previews, and `FakeRun` in place of the run. Returns what `to_found` returns and `run` and `routing` (a dict the test may change)."""
+    folder = st.skill(Path(world["tree"]), SKILL, "", ".workbench-local/video/web-candidates.json", area="marketing")
+    manifest = folder / "SKILL.md"
+    manifest.write_text(manifest.read_text(encoding="utf-8").replace("  requires: []", "  requires: [search:web]"), encoding="utf-8")
+    shutil.copy(REPO / "skills" / SKILL / "scripts" / "check_candidates.py", folder / "scripts" / "check_candidates.py")
+    found = to_found(world, monkeypatch, searches, stock=stock, **more)
+    run, routing = FakeRun(), dict(ROUTING, web=web)
+    monkeypatch.setattr(ops_media_websearch.ops_contained, "routed", lambda ctx, skill: ({"web": True, "side_effects": []}, None, routing))
+    monkeypatch.setattr(ops_media_websearch.ops_contained, "execute", run)
+    monkeypatch.setattr(ops_media_websearch.lab, "skill_identity", lambda skill: {"version": "0.1.0", "content_sha256": "e" * 64})
+    monkeypatch.setattr(ops_media_websearch.lab, "reported_usage", lambda dest: None)
+    return dict(found, run=run, routing=routing)

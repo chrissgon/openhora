@@ -87,7 +87,7 @@ def test_the_acceptance_of_a_file_that_adds_a_source_is_needed_before_the_search
     configure(world, monkeypatch, "default", accept=False)
     shown = ops.config(world["path"])
     items = [i for i in shown["widening"] if i["group"].startswith("stock=")]
-    assert [i["group"] for i in items] == ["stock=shelf@2026-11-11"]      # the open web is no item of this package
+    assert [i["group"] for i in items] == ["stock=shelf@2026-11-11", "stock=web@none"]      # V9b-3b: the open web is an item too, after the licensed ones
     assert "the search words of each video are sent to shelf" in items[0]["means"] and "cc-by-2.0" in items[0]["means"]
     assert "the files stay on this computer" in items[0]["means"]
     monkeypatch.setattr(ops_media_stock, "_sources_for", lambda ctx: FakeSources())

@@ -29,6 +29,8 @@ Usage:
   python3 runtime/cli.py video-media-fetch-picks --project <dir> --task <id>
   python3 runtime/cli.py video-media-approve --project <dir> --task <id> [--hash <sha256>]
   python3 runtime/cli.py video-credits --project <dir> --task <id>
+  python3 runtime/cli.py video-media-websearch --project <dir> --task <id> [--confirm]
+  python3 runtime/cli.py video-media-approve-asset --project <dir> --task <id> --slot <id> --sha256 <sha256> [--confirm-digits <12 hex digits>]
   python3 runtime/cli.py media-remove --project <dir> --media <id> [--confirm]
   python3 runtime/cli.py reference-add --project <dir> --link <url>
   python3 runtime/cli.py reference-video --project <dir> --reference <id> [--confirm]
@@ -219,6 +221,14 @@ video-media-approve prints the media set of a new video (--task <id>): each pict
           the caption) and the files that need an approval of their own; with --hash <the set's sha256> it approves exactly that set. A pick changed afterwards voids it, and
           the video cannot continue while a pick is not approved.
 video-credits prints the credits record of the media set approved for a new video (--task <id>); it is kept a year after the approval.
+video-media-websearch searches the open web for pictures for the slots of a new video that waits at the caption review (--task <id>), when the project's media.stock lists the
+          open-web source and its item was accepted with accept-config --widen. Without --confirm it sends nothing and prints the words that would be sent to the web search of the model
+          that runs it and to that model's provider; with --confirm that model runs (it costs model money, at most media.websearch.max_cost_usd a run), then this computer downloads small
+          previews from the sites it found, which see this computer's address. No licence is checked. Pick one with the review edit `slot_asset`, fetch the picks, approve the set, then approve each
+          file found on the web with video-media-approve-asset.
+video-media-approve-asset approves one file of a new video that was found on the open web (--task <id> --slot <id> --sha256 <the file's sha256>): the set must be approved first.
+          Without --confirm-digits it prints the copyright warning, the host, the page and what the page claims (claimed, not checked); with --confirm-digits <the first 12 digits of the sha256> it approves
+          exactly that file for this video. Nothing else approves it.
 media-remove removes a recording from the media store for good (--media <id>, from media-list): the recording, its transcript,
           its work files, its still and its delivered video. Without --confirm it removes nothing and prints what would go (its
           size, its files, the tasks that named it); with --confirm it removes it. It is refused while a task that has not ended

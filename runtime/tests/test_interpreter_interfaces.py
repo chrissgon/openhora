@@ -36,7 +36,7 @@ GATED = [
     "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch",
     "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove",
     "reference-add", "reference-video", "reference-list", "reference-read", "reference-remove", "video-storyboard", "video-storyboard-file",
-    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits"]
+    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset"]
 OPERATIONAL = ["routine-resume", "instructions-set", "instructions-add", "source-refresh", "source-describe", "flow-save", "stage-file", "sync", "hand-over",
                "dispatch", "verdict", "run-next", "run-task", "run-step", "proof", "revoke-policy", "stop-runs"]
 WIDENING = ["give-consent", "set-mode", "set-model", "config", "accept-config", "routine-approve", "source-add", "source-import", "source-drive",
@@ -45,7 +45,7 @@ INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-q
             "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch",
             "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove",
     "reference-add", "reference-video", "reference-list", "reference-read", "reference-remove", "video-storyboard", "video-storyboard-file",
-    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits"]
+    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset"]
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
@@ -130,8 +130,8 @@ def snapshot_problems(snap: dict) -> list:
 # --- runtime/gated_ops.json ----------------------------------------------------------------------------------------------------------------------
 
 def test_the_literal_lists_are_what_the_test_says_they_are():
-    assert len(GATED) == 71 and len(set(GATED)) == 71
-    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 38
+    assert len(GATED) == 73 and len(set(GATED)) == 73
+    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 40
     assert sorted(OPERATIONAL + WIDENING + INTERNAL) == sorted(GATED)
     assert len(DECISIONS) == 5
 

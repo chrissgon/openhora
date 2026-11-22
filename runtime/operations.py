@@ -1190,6 +1190,19 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
      "help": "the credits record of a new video's approved media set (--task <id>): where each picture came from and the credit its licence asks for; kept a year",
      "natural": {"class": "G", "since": 4, "order": 188, "privacy": "own", "cost": "none", "what": "read the credits of a new video's media", "about": "Read the credits of a new video's media.", "slots": {}}},
+    # V9b-3b: the pictures of a video found on the open web, and the stronger approval of one such file. Class G, kind internal: never served in words. Terminal and page; the local network's
+    # socket may not call either (LAN_REFUSED_OPS); messaging and the MCP mode have no row.
+    {"name": "video-media-websearch", "call": "video_media_websearch",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "confirm", "kind": "flag"}),
+     "channels": ("terminal", "page"), "model": True, "job": True, "channel_arg": True,
+     "help": "search the open web for pictures for the slots of a new video that waits at the caption review (--task <id>): without --confirm it sends nothing and says which words would go to the model's web search; with --confirm a model with web search runs, and this computer downloads small previews from the sites it found; no licence is checked",
+     "natural": {"class": "G", "since": 4, "order": 189, "privacy": "off-host", "cost": "model", "what": "search the web for pictures for a new video", "about": "Search the web for pictures for a new video.", "slots": {}}},
+    {"name": "video-media-approve-asset", "call": "video_media_approve_asset",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "slot", "kind": "str", "required": True, "flag": "slot", "label": "slot id"},
+              {"name": "sha256", "kind": "str", "required": True, "flag": "sha256", "label": "sha256 of the file"}, {"name": "confirm", "kind": "str", "flag": "confirm-digits", "label": "first 12 digits of the sha256"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "approve one file of a new video that was found on the open web and that nobody checked (--task <id> --slot <id> --sha256 <hash>): without --confirm-digits it prints the copyright warning, the host, the page and what the page claims; with --confirm-digits <the first 12 digits of the sha256> it approves exactly that file for this video",
+     "natural": {"class": "G", "since": 4, "order": 190, "privacy": "own", "cost": "none", "what": "approve one file found on the web for a new video", "about": "Approve one file found on the web for a new video.", "slots": {}}},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -1316,7 +1329,7 @@ GROUPS = {
     # default policy and widened only with `accept-config --widen`, which prints the retention of the fallback routes. It needs `interpret` beside it (project_config), and does nothing until the
     # newest dated entry of runtime/interpreter_enable.json names a fallback route.
     "interpret-fallback": {"operations": ("say",), "kind": "interpret-fallback"},
-    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
+    "media": {"operations": ("media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset"), "kind": None},   # V1b2-2: a new video from the page; in no GRANTS list, in no default (the page keeps its ceiling)
     # V1d-1: a video from a messaging app (decision 14). In no default policy and in no GRANTS list: accept-config --widen turns it on.
     "media-phone": {"operations": ("video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch"), "kind": None},
 }
@@ -1345,7 +1358,7 @@ SENDERS_KEY = "senders"                            # POL-2: in the LOADED policy
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
 LAN_REFUSED_EFFECTS = ("deliver",)                 # VD18 kept by decision 14: an approval of these effect words that arrives on the LAN socket of --lan is refused (runtime/service.py)
 LAN_REFUSED = "this approval is not taken from the page opened over the local network: approve it on this computer's page or in the terminal"
-LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross)
+LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross); V9b-3b (L78, L80): the web search and the approval of one file found on the web are the same
 LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant

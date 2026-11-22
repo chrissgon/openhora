@@ -502,6 +502,18 @@ export function videoMediaApprove(p, id, hash, { signal } = {}) {
   return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/approve`, { body: hash ? { hash } : {}, signal });
 }
 
+/** POST /projects/{p}/videos/{id}/media/websearch (job): without `confirm` the words that would be sent to the web search of the model that runs it, nothing sent; with it a model searches the open web and this
+ *  computer downloads small previews from the sites found. The job's result is the answer. */
+export function videoMediaWebsearch(p, id, confirm, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/websearch`, { body: { confirm: Boolean(confirm) }, signal });
+}
+
+/** POST /projects/{p}/videos/{id}/media/approve-asset: the approval of one file found on the web. Without `confirm` the copyright warning, the host, the page and the claim; with `confirm` (the first 12 hex
+ *  digits of `sha256`) the file is approved for this video. */
+export function videoMediaApproveAsset(p, id, slot, sha256, confirm, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/approve-asset`, { body: confirm ? { slot, sha256, confirm } : { slot, sha256 }, signal });
+}
+
 /** GET /projects/{p}/videos/{id}/media/file/{name}: one picture of the media set the renderer made (`sheet-preview.png`, `sheet.png` or `asset-<sha12>.png`), as a Blob (image/png). */
 export function videoMediaFile(p, id, name, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/videos/${enc(id)}/media/file/${enc(name)}`, { raw: true, signal });
