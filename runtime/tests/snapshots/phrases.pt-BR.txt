@@ -1138,6 +1138,14 @@ VID_STOCK_PROVIDED: Mídia fornecida por notes.example (<link>)
 VID_STORYBOARD_ADVISORY: Uma imagem por cena sobre um fundo neutro. O vídeo pode ficar diferente.
 VID_STORYBOARD_NO_SCRIPT: Este post não tem roteiro para desenhar.
 VID_TOO_BIG: Este vídeo tem 3.5 KiB, e este app aceita no máximo 25 aqui. Envie pela página aberta neste computador, ou mande um link do Google Drive para ele.
+VID_WEB_FAILED: A busca na internet não terminou; nada foi guardado.
+VID_WEB_LIMIT: A busca na internet já rodou 3 vezes hoje, o limite deste projeto.
+VID_WEB_NEEDS_OWN: Este arquivo precisa da sua própria aprovação depois do aviso.
+VID_WEB_NOTHING: A busca na internet não encontrou nenhuma imagem que possa ser usada.
+VID_WEB_NOT_BUILT: A busca na internet não está configurada aqui; as fontes licenciadas foram pesquisadas.
+VID_WEB_NO_WEB: O modelo escolhido não pode pesquisar na internet aqui; as fontes licenciadas foram pesquisadas.
+VID_WEB_PREVIEW: Estas palavras serão enviadas para a busca na internet do modelo que a executa e para o provedor desse modelo, e este computador vai baixar pequenas prévias dos sites encontrados: move, review.
+VID_WEB_WARNING: Aviso de direitos autorais: este arquivo foi encontrado na internet, em <host>. A plataforma não conseguiu verificar quem é o dono nem se ele pode ser reutilizado, e a licença que a página diz ter, se houver, não foi verificada. Se você aprovar e publicar o vídeo, ele pode ser removido e sua conta pode receber uma advertência por direitos autorais. Aprove só se souber que pode usá-lo. Página de origem: <page>
 WAITS_COUNT: Aguardando você: plan.
 WD_FRI: sex
 WD_MON: seg

@@ -393,6 +393,8 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `video-media-fetch-picks` | `--task` | `video_media_fetch_picks` |
 | `video-media-approve` | `--task` `[--hash]` | `video_media_approve` |
 | `video-credits` | `--task` | `video_credits` |
+| `video-media-websearch` | `--task` `[--confirm]` | `video_media_websearch` |
+| `video-media-approve-asset` | `--task` `--slot` `--sha256` `[--confirm-digits]` | `video_media_approve_asset` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -553,6 +555,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/videos/{id}/media/file/{name}` | `video-media-sheet-file` | `task_id` from `{id}`, `file` from `{name}` | none | - | answers bytes |
 | POST | `/projects/{p}/videos/{id}/media/approve` | `video-media-approve` | `task_id` from `{id}` | `hash` | - | - |
 | GET | `/projects/{p}/videos/{id}/media/credits` | `video-credits` | `task_id` from `{id}` | none | - | - |
+| POST | `/projects/{p}/videos/{id}/media/websearch` | `video-media-websearch` | `task_id` from `{id}` | `confirm` | - | - |
+| POST | `/projects/{p}/videos/{id}/media/approve-asset` | `video-media-approve-asset` | `task_id` from `{id}` | `slot`, `sha256`, `confirm` | - | - |
 | GET | `/projects/{p}/videos/{id}/watch` | `video-watch` | `task_id` from `{id}` | none | - | answers bytes |
 | POST | `/projects/{p}/media/remove` | `media-remove` | - | `media_id`, `confirm` | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |

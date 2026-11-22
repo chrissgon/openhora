@@ -1138,6 +1138,14 @@ VID_STOCK_PROVIDED: Media provided by notes.example (<link>)
 VID_STORYBOARD_ADVISORY: A still per beat over a placeholder. The video may look different.
 VID_STORYBOARD_NO_SCRIPT: This post has no script to draw.
 VID_TOO_BIG: This video is 3.5 KiB, and this app takes at most 25 here. Upload it on the page opened on this computer, or send a Google Drive link to it.
+VID_WEB_FAILED: The web search did not finish; nothing was kept.
+VID_WEB_LIMIT: The web search already ran 3 times today, the limit of this project.
+VID_WEB_NEEDS_OWN: This file needs its own approval after the warning.
+VID_WEB_NOTHING: The web search found no picture that could be used.
+VID_WEB_NOT_BUILT: The web search is not set up here; the licensed sources were searched.
+VID_WEB_NO_WEB: The chosen model cannot search the web here; the licensed sources were searched.
+VID_WEB_PREVIEW: These words will be sent to the web search of the model that runs it and to that model's provider, and this computer will then download small previews from the sites found: move, review.
+VID_WEB_WARNING: Copyright warning: this file was found on the open web, on <host>. The platform could not check who owns it or whether it may be reused, and the licence the page states, if any, was not checked. If you approve it and publish the video, the video may be taken down and your account may receive a copyright strike. Approve it only if you know you may use it. Source page: <page>
 WAITS_COUNT: A plan waits for you.
 WD_FRI: Fri
 WD_MON: Mon
