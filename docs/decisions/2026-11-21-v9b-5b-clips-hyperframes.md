@@ -67,6 +67,7 @@ to `asset-sheet` (it does, by design) and trim a clip cutaway to its clip's leng
 - The clip's `slot` is checked as `SLOT_ID` at the host (a picture's is checked by `load_assets`), since the slot becomes part of a file name.
 - `draw_plan` takes the entry's frames from the timeline entry, since the plan's `start` and `end` are set after the sort; the order of the clip rows against the marked frame entries is the
   timeline order, which the stable sort keeps for the frame zone.
+- Two guard tests outside the spec's file row were widened by the supervisor's decision, because the spec itself requires what they forbid: `test_hf_fixes.py` pins the HyperFrames image tag (now `5bbbcd52f5e0`), and `test_renderer_common.py` lets `_hf_compose` and `verb_hf_page` import `_render` to reuse its clip look.
 - A glass tint that is not `#RRGGBB` is `bad_color` naming the slot, as the spec says.
 
 **The image tags change.** At the base (05309e2) the tags were `openhora-renderer:cc41c16fd797` and `openhora-hyperframes:12ff7f4128cb`. Both change: the common image holds `_inner.py` and
