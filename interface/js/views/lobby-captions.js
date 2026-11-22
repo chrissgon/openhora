@@ -13,6 +13,7 @@ import { hostOf, onLoopback, LAN_MEDIA } from "../cards/deliver.js";
 import {
   selection, grow, shrink, sameSegment, editOf, retakeEdit, anchorEdit, clearAnchor, overlayEdit, removeAnimation, addAnimation,
   fieldsOf, paramsOf, WHY_TEXT, canEdit, RETAKE_REASONS, retakeState, wordsText,
+  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, layoutFieldsOf, addLayout,
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
@@ -23,6 +24,8 @@ export const GATE_LINE = "The delivery card was answered by your edit: the video
 export const READ_ONLY_LINE = "This video is not waiting for a review: its captions are read-only.";
 const POLL_MS = 1000;
 const OPTIONAL_HINT = "Optional; the renderer checks it";
+export const MEDIA_LAN = "The pictures of the media set are shown on this computer's own page (127.0.0.1) only.";
+export const MEDIA_CREDIT_LINE = "Credit to put in the caption";
 
 const noun = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -106,6 +109,15 @@ export function createCaptionReview(env) {
   let typed = {};
   let formProblem = "";
   let focusKey = "";
+  let mediaPreview = null;     // the answer of video-media-find without confirm: the words and the sources a search would use
+  let mediaFound = null;       // the answer of video-media-find with confirm: the candidates per slot
+  let mediaFetched = null;     // the answer of video-media-fetch-picks
+  let mediaApproval = null;    // the answer of video-media-approve without a hash: the set to read
+  let mediaLine = "";          // a plain line about the media set
+  let mediaProblem = "";       // the sentence for search words the page can tell are wrong
+  let sheetUrls = {};          // the name of a picture the renderer made -> its blob URL
+  let wordsTyped = {};         // slot -> {search, want} as typed
+  let layoutExtra = { show: "", search: "", want: "image" };      // the extra fields of a layout the person adds
   let generation = 0;          // changes at every open and close: an answer of an earlier one is dropped
   let control = null;          // AbortController of the polls of this open
   const refs = new Map();
@@ -120,11 +132,17 @@ export function createCaptionReview(env) {
     stillUrl = "";
   }
 
+  function revokeSheets() {
+    for (const url of Object.values(sheetUrls)) URL.revokeObjectURL(url);
+    sheetUrls = {};
+  }
+
   function cleanup() {
     generation += 1;
     if (control) control.abort();
     control = null;
     revokeStill();
+    revokeSheets();
     busy = false;
   }
 
@@ -222,15 +240,16 @@ export function createCaptionReview(env) {
 
   // ---- sending ---------------------------------------------------------------------------------------------------------------------------
 
-  async function sendEdit(edit) {
-    if (busy || !edit || !editable()) return;
+  async function sendEdit(given) {
+    const list = Array.isArray(given) ? given : [given];
+    if (busy || !given || !editable()) return;
     const mine = generation;
     busy = true;
     failure = "";
     notice = "";
     draw();
     try {
-      await env.api.captionsEdit(project(), task, data.view.revision, [edit]);
+      await env.api.captionsEdit(project(), task, data.view.revision, list);
       if (mine !== generation) return;
       edited = true;
       addFor = null;
@@ -316,6 +335,197 @@ export function createCaptionReview(env) {
     if (env.refresh) await env.refresh();
     if (mine !== generation) return;
     draw();
+  }
+
+  // ---- the media set (V9b-3a) ------------------------------------------------------------------------------------------------------------
+
+  async function loadSheet(name, mine) {
+    if (!loopback()) {
+      mediaLine = MEDIA_LAN;
+      return;
+    }
+    if (!may("video-media-sheet-file")) return;
+    try {
+      const blob = await env.api.videoMediaFile(project(), task, name, { signal: control ? control.signal : undefined });
+      if (mine !== generation) return;
+      if (sheetUrls[name]) URL.revokeObjectURL(sheetUrls[name]);
+      sheetUrls[name] = URL.createObjectURL(blob);
+    } catch (e) {
+      if (mine === generation) mediaLine = failureText(e);
+    }
+  }
+
+  /** One call of the media set: `call()` answers a job (find, fetch) or the answer itself (approve); `done(result)` keeps what came back. A refusal is shown as it came. */
+  async function mediaStep(call, asJob, done) {
+    if (busy) return;
+    const mine = generation;
+    busy = true;
+    failure = "";
+    notice = "";
+    mediaLine = "";
+    draw();
+    try {
+      let result;
+      if (asJob) {
+        const job = await runJob(call);
+        if (mine !== generation) return;
+        if (job.state === "failed") {
+          failure = (job.error && job.error.message) || "The step failed.";
+          busy = false;
+          draw();
+          return;
+        }
+        result = job.result;
+      } else {
+        result = await call();
+        if (mine !== generation) return;
+      }
+      await done(result, mine);
+    } catch (e) {
+      if (mine !== generation) return;
+      failure = failureText(e);
+    }
+    busy = false;
+    if (mine === generation) draw();
+  }
+
+  const mediaMay = (op) => may(op) && editable() && modeNow() === "review";
+
+  function findMedia(confirm) {
+    return mediaStep(() => env.api.videoMediaFind(project(), task, confirm), true, async (result, mine) => {
+      if (confirm) {
+        mediaFound = result;
+        mediaPreview = null;
+        mediaFetched = null;
+        mediaApproval = null;
+        revokeSheets();
+        mediaLine = result.message || "";
+        if (result.sheet) await loadSheet(result.sheet, mine);
+      } else {
+        mediaPreview = result;
+        mediaLine = result.message || "";
+      }
+    });
+  }
+
+  function fetchPicks() {
+    return mediaStep(() => env.api.videoMediaFetchPicks(project(), task), true, async (result, mine) => {
+      mediaFetched = result;
+      mediaApproval = null;
+      revokeSheets();
+      mediaLine = result.message || "";
+      await loadSheet(result.sheet, mine);
+      for (const a of result.assets || []) if (a && a.file) await loadSheet(a.file, mine);
+    });
+  }
+
+  function readApproval() {
+    return mediaStep(() => env.api.videoMediaApprove(project(), task), false, async (result) => {
+      mediaApproval = result;
+    });
+  }
+
+  function approveMedia() {
+    const summary = approvalSummary(mediaApproval);
+    return mediaStep(() => env.api.videoMediaApprove(project(), task, summary.hash), false, async (result) => {
+      mediaApproval = result;
+      mediaLine = result.approved ? "The media set is approved." : "";
+    });
+  }
+
+  function candidatesOf(slot) {
+    const row = mediaFound && Array.isArray(mediaFound.slots) ? mediaFound.slots.find((s) => s.slot === slot) : null;
+    return row && Array.isArray(row.candidates) ? row.candidates : [];
+  }
+
+  function slotBox(view, s) {
+    const typed = wordsTyped[s.slot] || { search: s.search, want: s.want };
+    const box = h("li", { class: "wb-cr-item wb-cr-media-slot" }, h("p", { class: "wb-cr-line", text: `Slot ${s.slot}${s.description ? `: ${s.description}` : ""}` }));
+    const words = h("input", { class: "pui-input wb-field-input wb-cr-field", type: "text", maxlength: "60", "aria-label": `Search words for ${s.slot}` });
+    words.value = typed.search;
+    const want = h("select", { class: "wb-select wb-cr-field", "aria-label": `Kind for ${s.slot}` }, ...WANT_KINDS.map((k) => h("option", { value: k }, k)));
+    want.value = typed.want;
+    words.disabled = busy;
+    want.disabled = busy;
+    const keep = () => { wordsTyped[s.slot] = { search: words.value, want: want.value }; };
+    words.addEventListener("input", keep);
+    want.addEventListener("change", keep);
+    box.append(h("label", { class: "wb-cr-label" }, "Search words (English)", words), h("label", { class: "wb-cr-label" }, "Looking for", want));
+    box.append(h("div", { class: "wb-cr-actions" }, button("Use these words", () => {
+      if (busy) return;
+      keep();
+      const found = wordsTyped[s.slot];
+      mediaProblem = searchProblem(found.search);
+      if (mediaProblem) {
+        draw();
+        return;
+      }
+      sendEdit(s.layout ? [slotSearchEdit(s.slot, found.search, found.want)] : [slotStockEdit(s.slot), slotSearchEdit(s.slot, found.search, found.want)]);
+    })));
+    if (s.pick) {
+      box.append(h("p", { class: "wb-cr-line", text: `Picked: ${s.pick}` }), h("div", { class: "wb-cr-actions" }, button("Clear the pick", () => sendEdit(clearPickEdit(s.slot)))));
+    }
+    const list = candidatesOf(s.slot);
+    if (list.length) {
+      const ul = h("ul", { class: "wb-cr-list", "aria-label": `Candidates for ${s.slot}` });
+      for (const c of list) {
+        const li = h("li", { class: "wb-cr-item wb-cr-candidate" }, h("p", { class: "wb-cr-line", text: `Picture ${c.col}: ${candidateText(c)}${c.title ? `, "${c.title}"` : ""}` }));
+        if (c.page) li.append(h("p", { class: "wb-steps-note wb-cr-note wb-cr-page", text: `Page: ${c.page}` }));      // the page address is text, never a link and never an image from another host
+        li.append(h("div", { class: "wb-cr-actions" }, button(s.pick === c.pick ? "Picked" : "Pick this", () => sendEdit(slotAssetEdit(s.slot, c.pick)), { disabled: s.pick === c.pick })));
+        ul.append(li);
+      }
+      box.append(ul);
+    }
+    return box;
+  }
+
+  function sheetImage(name, alt) {
+    return sheetUrls[name] ? h("img", { class: "wb-cr-still wb-cr-sheet", src: sheetUrls[name], alt }) : null;
+  }
+
+  function mediaSection(view) {
+    const slots = stockSlots(view).filter((s) => s.layout || s.choice === "stock" || s.search);
+    const eligible = stockSlots(view);
+    if (!eligible.length || !mediaMay("video-media-find")) return null;
+    if (!loopback()) return section("Pictures", h("p", { class: "wb-steps-note wb-cr-note", text: MEDIA_LAN }));      // the search, the fetch and the approval are never taken over the local network
+    const parts = [h("p", { class: "wb-steps-note wb-cr-note", text: "Pictures come from libraries that allow their reuse; nothing is sent until you confirm the words." })];
+    if (mediaProblem) parts.push(h("p", { class: "wb-form-error wb-cr-problem", role: "alert", text: mediaProblem }));
+    const ul = h("ul", { class: "wb-cr-list", "aria-label": "Slots with a picture" });
+    for (const s of eligible) ul.append(slotBox(view, s));
+    parts.push(ul);
+    const ready = slots.length > 0 && slots.every((s) => s.search);
+    const actions = h("div", { class: "wb-cr-actions" }, button("Find media", () => findMedia(false), { disabled: !ready }));
+    if (mediaPreview) actions.append(button("Send the words and search", () => findMedia(true)));
+    parts.push(actions);
+    if (mediaPreview) parts.push(h("p", { class: "wb-cr-line wb-cr-media-words", text: mediaPreview.message || "" }));
+    const preview = sheetImage("sheet-preview.png", "The candidates, drawn on a sheet");
+    if (preview) parts.push(preview);
+    const picked = slots.length > 0 && slots.every((s) => s.pick);
+    if (mediaFound) parts.push(h("div", { class: "wb-cr-actions" }, button("Fetch the picks", fetchPicks, { disabled: !picked })));
+    const final = sheetImage("sheet.png", "The pictures that were picked");
+    if (final) parts.push(final);
+    if (mediaFetched) {
+      for (const a of mediaFetched.assets || []) {
+        const img = a && a.file ? sheetImage(a.file, `The picture for slot ${a.slot}`) : null;
+        if (img) parts.push(img);
+      }
+      for (const line of mediaFetched.provided || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));      // "Media provided by <source> (<link>)": plain text, never a link
+      parts.push(h("div", { class: "wb-cr-actions" }, button("Read the media set", readApproval)));
+    }
+    if (mediaApproval) {
+      const summary = approvalSummary(mediaApproval);
+      parts.push(h("p", { class: "wb-cr-line", text: summary.approved ? "This media set is approved." : `This set has the hash ${summary.hash}.` }));
+      for (const a of summary.assets) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `${a.slot}: ${a.source}, ${a.licence}, ${a.width}x${a.height}` }));
+      for (const line of (mediaApproval && mediaApproval.provided) || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));
+      if (summary.credits.length) {
+        parts.push(h("p", { class: "wb-cr-line", text: MEDIA_CREDIT_LINE }));
+        for (const line of summary.credits) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-credit", text: line }));
+      }
+      if (summary.own.length) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `These files need their own approval: ${summary.own.join(", ")}.` }));
+      if (!summary.approved) parts.push(h("div", { class: "wb-cr-actions" }, button("Approve the media", approveMedia, { disabled: summary.own.length > 0 })));
+    }
+    if (mediaLine) parts.push(h("p", { class: "wb-steps-note wb-cr-notice", role: "status", text: mediaLine }));
+    return section("Pictures", ...parts);
   }
 
   // ---- drawing ---------------------------------------------------------------------------------------------------------------------------
@@ -509,6 +719,7 @@ export function createCaptionReview(env) {
           if (busy) return;
           addFor = entry;
           typed = {};
+          layoutExtra = { show: "", search: "", want: "image" };
           formProblem = "";
           draw();
         })));
@@ -521,8 +732,26 @@ export function createCaptionReview(env) {
     return list;
   }
 
+  function layoutExtraFields(form) {
+    const show = h("input", { class: "pui-input wb-field-input wb-cr-field", type: "text", maxlength: "80", "aria-label": "What it shows" });
+    show.value = layoutExtra.show;
+    const search = h("input", { class: "pui-input wb-field-input wb-cr-field", type: "text", maxlength: "60", "aria-label": "Search words (English)" });
+    search.value = layoutExtra.search;
+    const want = h("select", { class: "wb-select wb-cr-field", "aria-label": "Looking for" }, ...WANT_KINDS.map((k) => h("option", { value: k }, k)));
+    want.value = layoutExtra.want;
+    for (const node of [show, search, want]) node.disabled = busy;
+    const keep = () => { layoutExtra = { show: show.value, search: search.value, want: want.value }; };
+    show.addEventListener("input", keep);
+    search.addEventListener("input", keep);
+    want.addEventListener("change", keep);
+    form.append(h("label", { class: "wb-cr-label" }, "What it shows (optional)", show), h("label", { class: "wb-cr-label" }, "Search words (optional)", search),
+      h("label", { class: "wb-cr-label" }, "Looking for", want),
+      h("p", { class: "wb-steps-note wb-cr-note", text: "Its picture is chosen below, in Pictures, after the words are saved." }));
+  }
+
   function paramForm(view, entry) {
-    const fields = fieldsOf(entry);
+    const layout = entry.kind === "layout";
+    const fields = layout ? layoutFieldsOf(entry) : fieldsOf(entry);
     const form = h("div", { class: "wb-cr-form" });
     if (fields.unsupported) {
       form.append(h("p", { class: "wb-steps-note wb-cr-why", text: WHY_TEXT.slot }));
@@ -549,6 +778,7 @@ export function createCaptionReview(env) {
       if (f.type === "icon" || f.type === "color") form.append(h("p", { class: "wb-steps-note wb-cr-note", text: OPTIONAL_HINT }));
       if (f.type === "text" && f.maxItems) form.append(h("p", { class: "wb-steps-note wb-cr-note", text: `Up to ${f.maxItems} parts, separated by " | ".` }));
     }
+    if (layout) layoutExtraFields(form);
     if (formProblem) form.append(h("p", { class: "wb-form-error wb-cr-problem", role: "alert", text: formProblem }));
     form.append(h("div", { class: "wb-cr-actions" }, button("Add the animation", () => {
       if (busy || !sel || !editable()) return;
@@ -558,8 +788,16 @@ export function createCaptionReview(env) {
         draw();
         return;
       }
+      if (layout && layoutExtra.search) {
+        const problem = searchProblem(layoutExtra.search);
+        if (problem) {
+          formProblem = problem;
+          draw();
+          return;
+        }
+      }
       formProblem = "";
-      sendEdit(addAnimation(entry.name, made.params, sel));
+      sendEdit(layout ? addLayout(entry.name, made.params, sel, layoutExtra.show.trim(), layoutExtra.search.trim(), layoutExtra.want) : addAnimation(entry.name, made.params, sel));
     }, { disabled: !sel })));
     return form;
   }
@@ -610,7 +848,7 @@ export function createCaptionReview(env) {
       if (notice) parts.push(h("p", { class: "wb-steps-note wb-cr-notice", role: "status", text: notice }));
       if (failure) parts.push(h("p", { class: "notice pui-soft pui-error wb-notice-card", role: "alert", text: failure }));
       const still = stillSection();
-      for (const piece of [still, wordsSection(view), retakesSection(view), beatsSection(view), animationsSection(view), fixedSection(view)]) if (piece) parts.push(piece);
+      for (const piece of [still, wordsSection(view), retakesSection(view), beatsSection(view), animationsSection(view), mediaSection(view), fixedSection(view)]) if (piece) parts.push(piece);
     }
     if (!data) {
       if (notice) parts.push(h("p", { class: "wb-steps-note wb-cr-notice", role: "status", text: notice }));
@@ -643,6 +881,14 @@ export function createCaptionReview(env) {
       addFor = null;
       typed = {};
       formProblem = "";
+      mediaPreview = null;
+      mediaFound = null;
+      mediaFetched = null;
+      mediaApproval = null;
+      mediaLine = "";
+      mediaProblem = "";
+      wordsTyped = {};
+      layoutExtra = { show: "", search: "", want: "image" };
       loading = true;
       draw();
       if (!el.open && typeof el.showModal === "function") el.showModal();

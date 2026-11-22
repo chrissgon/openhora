@@ -1,0 +1,31 @@
+{
+  "package": "v9b-3a",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media_stock"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "video-media-find",
+      "video-media-fetch-picks",
+      "video-media-sheet-file",
+      "video-media-approve",
+      "video-credits"
+    ],
+    "interpreter_coverage.INTERNAL": [
+      "video-media-find",
+      "video-media-fetch-picks",
+      "video-media-sheet-file",
+      "video-media-approve",
+      "video-credits"
+    ],
+    "run_limits.NUMBERS": [
+      75,
+      76,
+      77
+    ],
+    "registry_rows.OFF_HOST": [
+      "video-media-find",
+      "video-media-fetch-picks"
+    ]
+  }
+}

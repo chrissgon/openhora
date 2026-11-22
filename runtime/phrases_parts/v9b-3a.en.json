@@ -1,0 +1,17 @@
+{
+  "package": "v9b-3a",
+  "table": {
+    "VID_STOCK_NOT_ACCEPTED": "Stock media is not accepted for this project yet. Accept docs/workbench/runtime.json in the terminal with accept-config --widen.",
+    "VID_STOCK_PREVIEW": "These words will be sent to {sources}: {words}.",
+    "VID_STOCK_FOUND": "{found} candidates for {slots} slots; pick one per slot, then fetch the picks.",
+    "VID_STOCK_NOT_APPROVED": "Approve the media set, or clear the picks, before you continue.",
+    "VID_STOCK_CREDIT": "Credit to put in the caption",
+    "VID_STOCK_CLIP_NOT_DRAWN": "This engine cannot draw clips yet. Pick a picture for this slot.",
+    "CARD_VIDEO_ASSET": "Picture: {slot}, {source}, {licence}, sha256 {sha}",
+    "CARD_VIDEO_WEB": "Found on the web, licence not checked: {host}",
+    "VID_STOCK_PROVIDED": "Media provided by {source} ({link})",
+    "CARD_VIDEO_CREDITS_COUNT": "{count} pictures need a credit; the credit text is on this computer's page (sha256 {sha})",
+    "VID_STOCK_ASSET_SMALL": "This picture is too small to show well; pick another one.",
+    "VID_STOCK_ASSET_UNUSABLE": "This file cannot be used; pick another one."
+  }
+}

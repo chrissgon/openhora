@@ -151,6 +151,29 @@ Package V7b (decision 15; the provider `fetcher:video` is V7a's): a person gives
 - **Retention** (L74). Subtitles, details and facts 30 days after the reference was added, by the upkeep part `references`; a stray `video.*` or `.fetch-*` after an hour; a folder with no record after a day.
 - **Not built here.** The fetch and the measure themselves (V7a), the pin routine (V7c), messaging and the page (V7d). The runtime is tested against a fake of the provider's verb contract; nothing was fetched.
 
+## The licensed pictures of a video (V9b-3a)
+
+Package V9b-3a (decisions D5 to D14 of the V9b spec): a cutaway or a screenshot slot can take a picture from a library whose licence allows reuse in a published video. The picture is found by
+words, picked by the person, fetched, normalised in the renderer's container, approved as a set and only then drawn. **Nothing reaches a render that the person did not see and approve.**
+
+- **Switch.** `media.stock` is a list of 1 to 8 sources of the class `stock:media` (`providers/stock/<name>.py` and its data file), `[]` for none, absent for every source whose data file says it needs
+  no key. Each licensed source is a widening item (`stock=<source>@<terms date>`): `accept-config` stops, prints that the search words leave this computer, and needs `--widen`; until then the search
+  answers `stock_not_accepted`. A project with no `media` object uses none. The runtime names no source: it asks `providers/resolve.py` and reads the data files.
+- **The edits.** At the caption review the person gives a slot the choice `stock` and its words (`slot_search`: 1 to 6 English words, `image` or `clip`), or adds a layout (`oh:cutaway`, `oh:screenshot`)
+  with its own slot `a<n>`, and later picks one candidate (`slot_asset`). A pick that changes voids the approval.
+- **The operations** (terminal and page; the local network's socket may only read the PNGs the container made): `video-media-find` (without `--confirm` it prints which words go to which sources and sends
+  nothing), `video-media-fetch-picks`, `video-media-approve` (prints the set, its sha256 and the credit lines; with `--hash` it approves exactly that set), `video-credits`, and `video-media-sheet-file` for the page.
+  The folder is `<data_dir>/media/<id>/stock/` (previews, full files, the quarantine, `asset-<sha12>.png`, the sheets, `set.json`, `approved.json`).
+- **The render.** Continue stops (`media_not_approved`) while a pick is not approved; the person approves the set or clears the picks and runs the video again. The engine gets `--asset` and `--asset-sha256`
+  only for an approved picture a beat draws, and the check is made again at the render. A picture is approved when the set's approval holds the set's current hash, its file hashes to the set's sha256
+  again, and its licence is in `LICENCES_ACCEPTED`, or it is `unverified` with an approval of its own for this task and this sha256 from a source the project still uses (the seam the open-web path will use;
+  limit L76).
+- **Credits.** A CC BY picture puts one credit line in the delivery document, the card and the body ("Credit to put in the caption"); the delivery document gains `assets`, `web` and `credits` only when
+  they hold something, so a video with none keeps its document and its hash. The credits record (`<data_dir>/media/credits/<task>.json`) is kept 365 days (`video-credits`).
+- **Retention** (L77). Previews, full files, the quarantine and unlisted pictures after a day and at the approval; approved pictures with the recording and the folder; credits a year.
+- **Not here.** The open-web path (`video-media-websearch`, the stronger approval of a file nobody checked, the copyright warnings) is V9b-3b; clips are drawn from V9b-5a on (a clip pick is refused
+  `clip_not_drawn` until then); the download answer does not repeat the credits.
+
 ## Known limits and improvements
 
 - The storyboard is asked for, never automatic (V5-1): no flow draws it by itself, and it is drawn by the ffmpeg engine for every project (see "The storyboard of a post"). The page's storyboard needs a PNG to show, so the demo copy of the interface says it has no engine; the live leg is one docker-gated test of `runtime/tests/test_media_storyboard.py` (`WB_RENDERER_DOCKER_TESTS=1`), written and not run by V5-1.

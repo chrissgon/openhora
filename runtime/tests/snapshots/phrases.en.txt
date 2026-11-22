@@ -283,9 +283,11 @@ CARD_TODO_LIST: List: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Task: Quarterly review
 CARD_TODO_PLAIN: A task with this title only: no due date and no note.
 CARD_TODO_TITLE: Task: Quarterly review
+CARD_VIDEO_ASSET: Picture: <slot>, notes.example, <licence>, sha256 0123456789abcdef
 CARD_VIDEO_BLOCK: Animation block: 42 0123456789abcdef
 CARD_VIDEO_CLOSING: Approving marks this exact file downloadable. Nothing is published.
 CARD_VIDEO_COVER: Cover: Ana Lima, sha256 0123456789abcdef
+CARD_VIDEO_CREDITS_COUNT: 3 pictures need a credit; the credit text is on this computer's page (sha256 0123456789abcdef)
 CARD_VIDEO_DIGEST: Delivery document sha256 <digest>
 CARD_VIDEO_FILE: Video: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
 CARD_VIDEO_NO_BLOCKS: no animation blocks
@@ -295,6 +297,7 @@ CARD_VIDEO_PLATFORM: Platform: social-x
 CARD_VIDEO_POST: Post: <post>
 CARD_VIDEO_PREVIEW: preview 0123456789abcdef, made from <origin>
 CARD_VIDEO_VERIFIED: verified for social-x
+CARD_VIDEO_WEB: Found on the web, licence not checked: <host>
 CHANGED: This decision changed since you saw it.
 CMD_ATTACHMENTS: Files waiting for your answer: 3.
 CMD_CANCELLED: Request 3 cancelled.
@@ -1123,6 +1126,15 @@ VID_PREVIEW: The video to approve (3.5 KiB). Its approval card follows.
 VID_RECEIVED: Recording received (3.5 KiB).
 VID_RENDERING: Rendering the video. The approval card comes when it is ready.
 VID_REVIEW_WORDS: These are the captions. To correct them, reply to the caption card with one line per correction: wrong -> right. When they are right, reply continue.\n\nmove, review
+VID_STOCK_ASSET_SMALL: This picture is too small to show well; pick another one.
+VID_STOCK_ASSET_UNUSABLE: This file cannot be used; pick another one.
+VID_STOCK_CLIP_NOT_DRAWN: This engine cannot draw clips yet. Pick a picture for this slot.
+VID_STOCK_CREDIT: Credit to put in the caption
+VID_STOCK_FOUND: <found> candidates for <slots> slots; pick one per slot, then fetch the picks.
+VID_STOCK_NOT_ACCEPTED: Stock media is not accepted for this project yet. Accept docs/workbench/runtime.json in the terminal with accept-config --widen.
+VID_STOCK_NOT_APPROVED: Approve the media set, or clear the picks, before you continue.
+VID_STOCK_PREVIEW: These words will be sent to <sources>: move, review.
+VID_STOCK_PROVIDED: Media provided by notes.example (<link>)
 VID_STORYBOARD_ADVISORY: A still per beat over a placeholder. The video may look different.
 VID_STORYBOARD_NO_SCRIPT: This post has no script to draw.
 VID_TOO_BIG: This video is 3.5 KiB, and this app takes at most 25 here. Upload it on the page opened on this computer, or send a Google Drive link to it.

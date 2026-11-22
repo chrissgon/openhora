@@ -46,7 +46,8 @@ BLOCKS_MAX = 500
 CATALOGUE_KEYS = ("name", "namespace", "kind", "preset", "band", "may_cross_face", "license", "source", "use_when", "params", "samples",
                   "natural_duration", "runtimes", "engines", "tier")      # what the listing hands out of an entry; any other key is dropped
 KINDS = ("overlay", "layout", "caption")
-ANIMATION_KINDS = ("overlay",)                                           # M1: overlays only (OPEN-4)
+ANIMATION_KINDS = ("overlay", "layout")                                  # M1: overlays; V9b-3a: layouts that take one picture (the cutaway), whose picture comes from the media set
+SLOT_PLACEHOLDER = "a1"                                                  # the slot id the renderer's checker is shown for a layout's picture parameter: the real one (`a<n>`) is made when the animation is stored
 SLOT_TYPES = ("image", "clip")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 PARAMS_MAX_BYTES = 8 * 1024
@@ -139,6 +140,11 @@ def read_catalogue(root: str) -> dict:
                 or not isinstance(runtimes, list) or not all(isinstance(r, str) for r in runtimes):
             raise bad
         engines[name] = {"presets": dict(presets), "runtimes": list(runtimes)}
+    kinds = doc.get("asset_kinds_by_engine")      # the kinds of file each engine draws (V9b-2): read as data; an engine it does not name draws none
+    if not isinstance(kinds, dict) or not all(isinstance(k, str) and isinstance(v, list) and all(x in SLOT_TYPES for x in v) for k, v in kinds.items()):
+        kinds = {}
+    for name, value in engines.items():
+        value["asset_kinds"] = list(kinds.get(name) or [])
     seen, blocks = set(), {}
     for item in doc["blocks"]:
         entry = _entry(item, seen)
@@ -156,19 +162,39 @@ def engine_name(root: str, implementation=None):
         return None
 
 
-def why_not(entry: dict, engine):
-    """The first word of WHY that holds for this block, or None when it can be added now."""
+def asset_params(entry: dict) -> list:
+    """The names of the parameters of a block that take a picture or a clip (a type `image`, `clip` or a list of them), in the entry's order."""
+    return [name for name, spec in entry["params"].items() if isinstance(spec["type"], list) or spec["type"] in SLOT_TYPES]
+
+
+def why_not(entry: dict, engine, presets=None):
+    """The first word of WHY that holds for this block, or None when it can be added now. `slot` is for a block with more than one picture parameter, for an `hf:`
+    block that takes one (a block of either kind with exactly one is added: its picture is chosen in the media set, and its kind decides the list of beats it joins). `presets`, when given, is the
+    engine's own `{preset: block}`: a layout whose preset the engine does not draw is `engine`."""
     if entry["kind"] not in ANIMATION_KINDS:
         return "kind"
     if entry["preset"] is None:
         return "no_preset"
-    if any(isinstance(spec["type"], list) or spec["type"] in SLOT_TYPES for spec in entry["params"].values()):
+    pictures = asset_params(entry)
+    if len(pictures) > 1 or (pictures and entry["name"].startswith("hf:")):
         return "slot"
     if engine is not None and engine not in entry["engines"]:
+        return "engine"
+    if pictures and presets is not None and entry["preset"] not in presets:
         return "engine"
     if engine is None:
         return "not_configured"
     return None
+
+
+def asset_kinds(root: str, implementation=None) -> list:
+    """The kinds of file (`image`, `clip`) the project's engine draws, from the catalogue; [] when the catalogue or the engine is not known."""
+    try:
+        found = read_catalogue(root)
+    except CatalogueError:
+        return []
+    engine = engine_name(root, implementation)
+    return list((found["engines"].get(engine) or {}).get("asset_kinds") or []) if engine is not None else []
 
 
 def listing(root: str, implementation=None) -> dict:
@@ -179,7 +205,7 @@ def listing(root: str, implementation=None) -> dict:
     rows = []
     for name in sorted(found["blocks"]):
         entry = found["blocks"][name]
-        why = why_not(entry, engine)
+        why = why_not(entry, engine, ((found["engines"].get(engine) or {}).get("presets") if engine is not None else None))
         rows.append(dict(entry, addable=why is None, why=why))
     presets = (found["engines"].get(engine) or {}).get("presets") if engine is not None else None
     return {"engine": engine, "blocks_sha256": found["blocks_sha256"], "animations_max": captions.ANIMATIONS_MAX,
@@ -246,21 +272,25 @@ def checker(ctx: dict):
         entry = state["catalogue"]["blocks"].get(block)
         if entry is None:
             raise captions.CaptionError("unknown_block", f"{where}.block")
-        why = why_not(entry, state["engine"])
+        why = why_not(entry, state["engine"], (state["catalogue"]["engines"].get(state["engine"]) or {}).get("presets") if state["engine"] is not None else None)
         if why is not None:
             raise captions.CaptionError(_CODES[why], f"{where}.block")
         cleaned = _shape(params, where)
+        picture = (asset_params(entry) or [None])[0]      # a layout's picture is never typed: its slot is made when it is stored, the picture is chosen in the media set
+        if picture is not None and picture in cleaned:
+            raise captions.CaptionError("bad_params", f"{where}.params")
         for key, value in list(cleaned.items()):
             spec = entry["params"].get(key)
             if isinstance(value, str) and isinstance(spec, dict) and spec.get("type") == "text":
                 cleaned[key] = unicodedata.normalize("NFC", value).strip()
         if len(json.dumps(cleaned, ensure_ascii=False).encode("utf-8")) > PARAMS_MAX_BYTES:
             raise captions.CaptionError("bad_params", f"{where}.params")
+        checked_params = dict(cleaned, **({picture: SLOT_PLACEHOLDER} if picture else {}))      # what the renderer's checker is shown: a layout's picture parameter holds a slot id
         fd, path = tempfile.mkstemp(prefix="block-params-", suffix=".json")
         try:
             with os.fdopen(fd, "wb") as f:
                 os.fchmod(f.fileno(), 0o600)
-                f.write(json.dumps(cleaned, ensure_ascii=False).encode("utf-8"))
+                f.write(json.dumps(checked_params, ensure_ascii=False).encode("utf-8"))
             flags = ["--block", block, "--params", path, "--vocabulary", ops_step_seams.MediaStore(ctx).reference(VOCABULARY)]
             try:
                 done = engine_of(ctx).call(CLASS, VERB, flags, BLOCK_PARAMS_TIMEOUT)
@@ -271,9 +301,12 @@ def checker(ctx: dict):
                 os.unlink(path)
             except OSError:
                 pass
-        if not (isinstance(done, dict) and done.get("ok") is True and done.get("block") == block and done.get("params") == sorted(cleaned)):
+        if not (isinstance(done, dict) and done.get("ok") is True and done.get("block") == block and done.get("params") == sorted(checked_params)):
             raise captions.CaptionError("block_check_failed", where)
-        return {"block": block, "preset": entry["preset"], "params": cleaned}
+        found = {"block": block, "preset": entry["preset"], "params": cleaned}
+        if picture is not None:
+            found["asset_param"], found["pic_kind"] = picture, entry["kind"]
+        return found
 
     return animate
 

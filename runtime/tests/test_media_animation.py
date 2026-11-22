@@ -169,15 +169,16 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     rows = {b["name"]: b for b in shown["blocks"]}
     assert [b["name"] for b in shown["blocks"]] == sorted(rows)
     assert rows["oh:keyword"]["addable"] is True and rows["oh:keyword"]["why"] is None
-    assert (rows["oh:cutaway"]["addable"], rows["oh:cutaway"]["why"]) == (False, "kind")
+    assert (rows["oh:cutaway"]["addable"], rows["oh:cutaway"]["why"]) == (True, None)      # V9b-3a: a layout with one picture parameter is added; its picture comes from the media set
+    assert (rows["oh:pip"]["addable"], rows["oh:pip"]["why"]) == (True, None)      # the ffmpeg engine draws the preset pip
     assert rows["oh:caption"]["why"] == "kind"
-    assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] == "slot" and rows["oh:only-hf"]["why"] == "engine"
+    assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] is None and rows["oh:only-hf"]["why"] == "engine"
     assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "oh:keyword" and (shown["animations_max"], shown["beats_max"]) == (12, 12)
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     none = animation.listing(root)
     whys = {b["name"]: b["why"] for b in none["blocks"]}
     assert none["presets"] == {} and none["engine"] is None
-    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "slot" and whys["oh:cutaway"] == "kind"
+    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "not_configured" and whys["oh:cutaway"] == "not_configured" and whys["oh:caption"] == "kind"
     assert all(whys[name] == "not_configured" for name in ("oh:keyword", "oh:list", "oh:number", "oh:quote", "oh:only-hf"))
 
 
@@ -229,7 +230,7 @@ def test_every_refusal_that_needs_no_engine_starts_no_process(tmp_path, monkeypa
     where = "edits[0]"
     assert refusal(animate, "keyword", {}, where) == ("bad_block", "edits[0].block")
     assert refusal(animate, "oh:nope", {}, where) == ("unknown_block", "edits[0].block")
-    assert refusal(animate, "oh:cutaway", {}, where) == ("animation_kind", "edits[0].block")
+    assert refusal(animate, "oh:caption", {}, where) == ("animation_kind", "edits[0].block")
     assert refusal(animate, "oh:bare", {}, where) == ("block_no_preset", "edits[0].block")
     assert refusal(animate, "oh:only-hf", {}, where) == ("block_not_on_engine", "edits[0].block")
     for bad in ("text", {f"p{k}": "x" for k in range(13)}, {"text": True}, {"text": {"a": 1}}, {"text": "x" * 9000}, {"Text": "x"}, {"text": float("nan")}):
@@ -396,7 +397,8 @@ def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_res
     shown = ops_media_catalogue.video_catalogue(world["path"])
     assert shown["engine"] == "hyperframes"      # the class default since V4
     assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card",
-                                                                        "oh:mark", "oh:sticker", "oh:nametag"}      # the three review-only blocks of V9a-1 are addable at review
+                                                                        "oh:mark", "oh:sticker", "oh:nametag",
+                                                                        "oh:cutaway", "oh:screenshot"}      # the three review-only blocks of V9a-1 are addable at review; the two picture layouts since V9b-3a (oh:pip is not: HyperFrames does not draw the preset)
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):
@@ -475,3 +477,50 @@ def test_the_real_checker_accepts_a_declared_parameter_and_refuses_an_undeclared
     done = animate("oh:keyword", {"text": "Every step counts"}, "edits[0]")
     assert done == {"block": "oh:keyword", "preset": "keyword", "params": {"text": "Every step counts"}}
     assert refusal(animate, "oh:keyword", {"text": "x", "size": 3}, "edits[0]") == ("undeclared_param", "edits[0].params.size")
+
+
+# V9b-3a. a layout with one picture parameter is added: its picture comes from the media set
+
+
+def test_a_layout_with_one_picture_parameter_is_addable_and_an_hf_block_or_a_block_with_two_is_not(tmp_path, monkeypatch):
+    picture = {"type": ["image", "clip"], "required": True}
+
+    def more(doc):
+        doc["blocks"] += [entry("hf:frame", kind="layout", preset="cutaway", params={"asset": picture}),
+                          entry("oh:two", kind="layout", preset="cutaway", params={"asset": picture, "second": {"type": "image"}}),
+                          entry("oh:overlay-pic", kind="overlay", preset="keyword", params={"asset": picture})]
+    root = plant(tmp_path, more)
+    found = animation.read_catalogue(root)["blocks"]
+    presets = {"cutaway": "oh:cutaway"}
+    assert animation.why_not(found["oh:cutaway"], "ffmpeg", presets) is None and animation.why_not(found["oh:screenshot"], "ffmpeg", presets) is None
+    assert animation.why_not(found["hf:frame"], "ffmpeg", presets) == "slot" and animation.why_not(found["oh:two"], "ffmpeg", presets) == "slot"
+    assert animation.why_not(found["oh:overlay-pic"], "ffmpeg", dict(presets, keyword="oh:keyword")) is None      # 7.3: only more than one picture parameter, or an hf: block, is `slot`
+    assert animation.why_not(found["oh:cutaway"], "ffmpeg", {"keyword": "oh:keyword"}) == "engine"      # the engine does not draw the preset
+    assert animation.why_not(found["oh:cutaway"], None, presets) == "not_configured" and animation.why_not(found["oh:cutaway"], "ffmpeg") is None
+    assert animation.asset_params(found["oh:two"]) == ["asset", "second"] and animation.asset_params(found["oh:keyword"]) == []
+    assert animation.ANIMATION_KINDS == ("overlay", "layout")
+
+
+def test_the_checker_shows_a_layout_a_placeholder_slot_stores_no_picture_and_refuses_one_that_was_typed(tmp_path, monkeypatch):
+    fake = use(monkeypatch, Checking())
+    animate = animation.checker(ctx_of(tmp_path))
+    done = animate("oh:cutaway", {"fit": "contain", "label": "  A busy market "}, "edits[0]")
+    assert done == {"block": "oh:cutaway", "preset": "cutaway", "params": {"fit": "contain", "label": "A busy market"}, "asset_param": "asset", "pic_kind": "layout"}
+    assert fake.seen[0][1] == {"fit": "contain", "label": "A busy market", "asset": "a1"}      # the renderer's checker is shown the slot id, never a picture
+    assert refusal(animate, "oh:cutaway", {"asset": "beat1"}, "edits[0]") == ("bad_params", "edits[0].params")
+    assert len(fake.calls) == 1
+    overlay = animate("oh:keyword", {"text": "x"}, "edits[0]")
+    assert "asset_param" not in overlay
+
+
+def test_the_asset_kinds_of_an_engine_come_from_the_catalogue_and_an_unknown_engine_draws_none(tmp_path, monkeypatch):
+    assert animation.read_catalogue(str(REPO))["engines"]["ffmpeg"]["asset_kinds"] == ["image"] and animation.read_catalogue(str(REPO))["engines"]["hyperframes"]["asset_kinds"] == ["image"]
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    assert animation.asset_kinds(str(REPO)) == ["image"]
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "nothing")
+    assert animation.asset_kinds(str(REPO)) == [] and animation.asset_kinds(str(tmp_path)) == []
+    root = plant(tmp_path / "clip", lambda doc: doc["asset_kinds_by_engine"].update(ffmpeg=["image", "clip"]))
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    assert animation.asset_kinds(root) == ["image", "clip"]
+    root = plant(tmp_path / "odd", lambda doc: doc.update(asset_kinds_by_engine={"ffmpeg": ["video"]}))
+    assert animation.asset_kinds(root) == []

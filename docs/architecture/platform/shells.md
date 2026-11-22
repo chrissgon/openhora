@@ -389,6 +389,10 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `reference-list` | - | `reference_list` |
 | `reference-read` | `--reference` | `reference_read` |
 | `reference-remove` | `--reference` `[--confirm]` | `reference_remove` |
+| `video-media-find` | `--task` `[--confirm]` | `video_media_find` |
+| `video-media-fetch-picks` | `--task` | `video_media_fetch_picks` |
+| `video-media-approve` | `--task` `[--hash]` | `video_media_approve` |
+| `video-credits` | `--task` | `video_credits` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -544,6 +548,11 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/video-catalogue` | `video-catalogue` | - | none | - | - |
 | POST | `/projects/{p}/video-storyboard` | `video-storyboard` | - | `post` | - | - |
 | GET | `/projects/{p}/video-storyboard/{key}/{name}` | `video-storyboard-file` | `key` from `{key}`, `file` from `{name}` | none | - | answers bytes |
+| POST | `/projects/{p}/videos/{id}/media/find` | `video-media-find` | `task_id` from `{id}` | `confirm` | - | - |
+| POST | `/projects/{p}/videos/{id}/media/fetch-picks` | `video-media-fetch-picks` | `task_id` from `{id}` | none | - | - |
+| GET | `/projects/{p}/videos/{id}/media/file/{name}` | `video-media-sheet-file` | `task_id` from `{id}`, `file` from `{name}` | none | - | answers bytes |
+| POST | `/projects/{p}/videos/{id}/media/approve` | `video-media-approve` | `task_id` from `{id}` | `hash` | - | - |
+| GET | `/projects/{p}/videos/{id}/media/credits` | `video-credits` | `task_id` from `{id}` | none | - | - |
 | GET | `/projects/{p}/videos/{id}/watch` | `video-watch` | `task_id` from `{id}` | none | - | answers bytes |
 | POST | `/projects/{p}/media/remove` | `media-remove` | - | `media_id`, `confirm` | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |

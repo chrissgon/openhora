@@ -35,8 +35,10 @@ numbers and hashes: a transcript, a post or a tool's output is never in it, in a
 
 Arguments (checked when the task is planned): {"media": "<16 hex recording id>", "post": "docs/marketing/content/<name>.md"}. The platform is not an
 argument: `take` reads it from the post. The kind is not unattended: the review and the gate are the person's, so it starts when the person starts it,
-and it writes no file of the project (its footprint is empty). Asset slots (a picture placed in the video) are not in this package: every empty slot
-is a keyword or none.
+and it writes no file of the project (its footprint is empty). An asset slot (a picture placed in the video) is a keyword, none, or `stock` (V9b-3a): a picture
+from the media set the person chose and approved (runtime/ops_media_stock.py, the folder `stock/` of the recording, read here by `store.read` and `store.path`
+alone). The engine is given a picture only when it is in the approved set with the set's current hash, its file hashes to the set's sha256 again, and its licence is in the
+accepted tuple or it has its own approval for this task, this sha256 and a source the project still uses (limit L76); anything else stops the step.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -74,6 +76,14 @@ PREVIEW_NAME = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 # The patterns the store removes by (media.STILL, media.RENDER, media.COVER, media.PREVIEW), as the strings it compiles.
 STILL_PATTERN, RENDER_PATTERN, COVER_PATTERN = r"still-[0-9a-f]{12}\.png", r"render-[0-9a-f]{12}\.mp4", r"cover-[0-9a-f]{12}\.png"
 PREVIEW_PATTERN = r"preview-[0-9a-f]{12}\.mp4"
+STOCK_SET, STOCK_APPROVED = "stock/set.json", "stock/approved.json"
+STOCK_ASSET = "stock/asset-{sha12}.png"
+STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
+              "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
+STOCK_LICENCES = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
+STOCK_UNVERIFIED = "unverified"      # = media_stock.UNVERIFIED
+STOCK_NOT_APPROVED = "Approve the media set, or clear the picks, before you continue."      # = the English of the phrase VID_STOCK_NOT_APPROVED (a test compares)
+PAGE_HOST = re.compile(r"https://([A-Za-z0-9.-]{1,253})(?:[/?#:].*)?", re.S)
 POST_LIMIT = 2 * 1024 * 1024
 COVER_LIMIT = 16 * 1024 * 1024
 STILL_DEFAULT_MS = 1500
@@ -180,6 +190,85 @@ def _read(ctx: steps.Context, rel: str, limit: int, field: str, what: str) -> by
 def _num(value):
     """A number as the engine gave it, or None: never text, never a boolean."""
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+# --- the pictures of the media set (V9b-3a) ----------------------------------------------------------------------------------
+
+
+def stock_hash(found: dict) -> str:
+    """The sha256 of the set document of a fetched set: the canonical JSON (keys sorted, no spaces) of {"version", "task", "assets" (the STOCK_KEYS of each, by slot),
+    "credits"}. The same bytes as runtime/media_stock.py `set_hash(set_document(found))` (a test compares), which this module cannot import (limit L30)."""
+    assets = [{k: a.get(k) for k in STOCK_KEYS} for a in sorted(found.get("assets") or [], key=lambda a: a["slot"])]
+    doc = {"version": 1, "task": found.get("task"), "assets": assets, "credits": list(found.get("credits") or [])}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def _optional_json(store, rid: str, name: str):
+    """A work file as JSON, or None when it is not there."""
+    try:
+        return _json(store, rid, name)
+    except steps.StepFailure:
+        if not _exists(store, rid, name):
+            return None
+        raise
+
+
+def _sources_now(ctx: steps.Context, approved: dict) -> list:
+    """The sources the project uses now: `media.stock` when its configuration names it, else the ones the approval was given under (the default list is a property of the
+    checkout, which only grows)."""
+    found = (ctx.services.get("config") or {}).get("media")
+    if not isinstance(found, dict):      # a project with no `media` object uses no stock source
+        return []
+    listed = found.get("stock")
+    return list(listed) if isinstance(listed, list) else [n for n in approved.get("sources") or [] if isinstance(n, str)]
+
+
+def _stock_assets(ctx: steps.Context, store, rid: str, review: dict, code: str) -> dict:
+    """{slot: {"asset", "path"}} of the approved pictures of the review's picks. With no pick it is {} and nothing is read. Otherwise every pick must be an asset of the
+    set that was fetched for this task, the set's approval must hold its current hash, each file must hash to the set's sha256 again, and each licence must be in
+    STOCK_LICENCES or be `unverified` with its own approval (this task, this sha256, a source the project still uses). Anything else is `StepFailure(code)`: `media_not_approved`
+    before the step goes on (Continue), `asset_not_approved` when the engine would be given a picture."""
+    picks = review.get("slot_assets") or {}
+    if not picks:
+        return {}
+    found, approved = _optional_json(store, rid, STOCK_SET), _optional_json(store, rid, STOCK_APPROVED)
+    refuse = lambda field: steps.StepFailure(code, field, "", STOCK_NOT_APPROVED)      # noqa: E731
+    if not isinstance(found, dict) or not isinstance(approved, dict) or found.get("phase") != "fetched" or found.get("task") != ctx.task_id \
+            or approved.get("task") != ctx.task_id or approved.get("hash") != stock_hash(found):
+        raise refuse("stock")
+    sources = _sources_now(ctx, approved)
+    own = approved.get("unverified") if isinstance(approved.get("unverified"), dict) else {}
+    out = {}
+    for slot, pick in sorted(picks.items()):
+        asset = next((a for a in found.get("assets") or [] if isinstance(a, dict) and a.get("slot") == slot), None)
+        if asset is None or "%s:%s" % (asset.get("source"), asset.get("item")) != pick or not isinstance(asset.get("sha256"), str) or not SHA256.fullmatch(asset["sha256"]):
+            raise refuse(slot)
+        if asset.get("licence") == STOCK_UNVERIFIED:
+            given = own.get(slot)
+            if not (isinstance(given, dict) and given.get("sha256") == asset["sha256"] and given.get("task") == ctx.task_id) or asset.get("source") not in sources:
+                raise refuse(slot)
+        elif asset.get("licence") not in STOCK_LICENCES:
+            raise refuse(slot)
+        name = STOCK_ASSET.format(sha12=asset["sha256"][:12])
+        try:
+            same = _asked(store.sha256, rid, name) == asset["sha256"]
+        except steps.StepFailure:
+            same = False
+        if not same:
+            raise steps.StepFailure("asset_changed", slot, "", "fetch the pictures again and approve the media set again")
+        out[slot] = {"asset": asset, "path": _asked(store.path, rid, name)}
+    return out
+
+
+def _used_slots(beats: dict) -> set:
+    """The slot ids the layouts of a beats.json hold in their parameters: what the renderer will ask a picture for."""
+    return {v for e in beats.get("layouts") or [] if isinstance(e, dict) for v in (e.get("params") or {}).values() if isinstance(v, str)}
+
+
+def _page_parts(page) -> tuple:
+    """(host, sha256 of the page text) of an open-web asset's source page, or ("", "") when it holds no https address."""
+    found = PAGE_HOST.fullmatch(page) if isinstance(page, str) else None
+    return (found.group(1).lower(), hashlib.sha256(page.encode("utf-8")).hexdigest()) if found else ("", "")
 
 
 # --- the steps ---------------------------------------------------------------------------------------------------------------
@@ -333,6 +422,7 @@ def _remap(ctx: steps.Context, state: dict) -> dict:
     """The edited transcript the later steps read: the person's, or the transcript itself when nothing was edited, hardened word by word and
     scanned for credentials. It removes nothing: the review and the edited transcript hold the person's work."""
     store, _, rid = _handles(ctx)
+    _stock_assets(ctx, store, rid, _load_review(store, rid), "media_not_approved")      # Continue: a pick that is not approved (or a web picture with no approval of its own) stops here
     if _exists(store, rid, EDITED):
         edited = captions.check_edited(_json(store, rid, EDITED))
     else:
@@ -397,6 +487,33 @@ def _base(ctx: steps.Context, state: dict) -> dict:
             **_counts(edl)}
 
 
+SLOT_FALLBACK = "a picture"      # the description when the person gave neither `show` nor search words that fit the renderer's limits (`slot_description_min`, `slot_description_max`, read from the vocabulary file)
+
+
+def _slot_row(store, entry: dict, a: dict) -> dict:
+    """The row of beats.json `slots` for an added layout or picture overlay drawn with its approved picture, made as the renderer's aligner makes its own
+    (providers/renderer/_align.py build_beats): `slot` is the entry's id, `beat` its beat, `param` the picture parameter, `type` the preset's picture kinds read from the
+    vocabulary file joined with `|`, `description` what the person said the picture shows (`show`), else the search words, else SLOT_FALLBACK, inside the vocabulary's limits."""
+    where = _asked(store.reference, VOCABULARY)
+    try:
+        with open(where, "rb") as f:
+            vocab = json.loads(f.read())
+        spec = vocab["presets"][entry["preset"]]["params"][a["asset_param"]]
+        kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+        low, high = vocab["limits"]["slot_description_min"], vocab["limits"]["slot_description_max"]
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        raise steps.StepFailure("step_output_invalid", "vocabulary") from None
+    kinds = [k for k in kinds if k in ("image", "clip")]
+    words = next((w.strip() for w in a.get("words") or [] if isinstance(w, str) and low <= len(w.strip()) <= high), SLOT_FALLBACK)
+    return {"slot": entry["id"], "beat": entry["beat"], "param": a["asset_param"], "type": "|".join(kinds), "description": words}
+
+
+def _add_slot_row(store, beats: dict, entry: dict, a: dict) -> None:
+    rows = beats.setdefault("slots", [])
+    if not any(isinstance(r, dict) and r.get("slot") == entry["id"] for r in rows):
+        rows.append(_slot_row(store, entry, a))
+
+
 def _align(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     edited = captions.check_edited(_json(store, rid, EDITED))
@@ -412,9 +529,13 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     effects, vanished = captions.effects_current(review, edited, live)
     if vanished:
         raise steps.StepFailure("effect_lost", vanished[0], "", "open the caption review again and place the effect again, or remove it")
+    stock = _stock_assets(ctx, store, rid, review, "media_not_approved")
     args = _beat_args(ctx, _asked(store.path, rid, EDITED), _asked(store.path, rid, BEATS, False)) + ["--edl", _asked(store.path, rid, EDL)]
-    for slot in proposal.get("slots") or []:      # no asset slots in this package: an empty slot is the person's choice, else none
-        args += ["--empty-slot", f"{slot['slot']}={review['empty_slots'].get(slot['slot'], 'none')}"]
+    for slot in proposal.get("slots") or []:      # a slot with an approved picture is left to the renderer; an empty one is the person's choice (`stock` with no pick reads as none), else none
+        if slot["slot"] in stock:
+            continue
+        choice = review["empty_slots"].get(slot["slot"], "none")
+        args += ["--empty-slot", f"{slot['slot']}={'none' if choice == 'stock' else choice}"]
     for beat, (first, last) in sorted(anchors.items()):
         args += ["--anchor", f"{beat}={first}-{last}"]
     done = _call(ctx, "renderer:video", "align", args)
@@ -426,8 +547,16 @@ def _align(ctx: steps.Context, state: dict) -> dict:
     if placed:
         added = beats.setdefault("overlays", [])
         for a in placed:
-            added.append({"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
-                          "block": a["block"], "word_from": a["word_from"], "word_to": a["word_to"], "score": 1.0})
+            entry = {"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
+                     "block": a["block"], "word_from": a["word_from"], "word_to": a["word_to"], "score": 1.0}
+            if a.get("asset_param"):      # an added layout: drawn only with its approved picture (its slot is its id), else not at all
+                if a["id"] not in stock:
+                    continue
+                entry["params"] = dict(a["params"], **{a["asset_param"]: a["id"]})
+                _add_slot_row(store, beats, entry, a)
+                beats.setdefault("overlays" if a.get("pic_kind") == "overlay" else "layouts", []).append(entry)
+                continue
+            added.append(entry)
     skipped = set(review["dropped_punches"])      # the script's punches the person dropped stay dropped, whatever the alignment finds
     kept_punches = [p for p in beats.get("punches") or [] if p.get("beat") not in skipped]
     changed = len(kept_punches) != len(beats.get("punches") or [])
@@ -440,9 +569,12 @@ def _align(ctx: steps.Context, state: dict) -> dict:
         beats["effects"] = effects
     if dropped or placed or changed or effects:
         _asked(store.write, rid, BEATS, _dump(beats))
-    return {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
-            "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
-            "animations": len(placed), "punches": len(beats.get("punches") or []), "effects": len(effects)}
+    found = {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
+             "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
+             "animations": len(placed), "punches": len(beats.get("punches") or []), "effects": len(effects)}
+    if stock:
+        found["pictures"] = len(stock)      # the approved pictures; only a video that has some adds the key
+    return found
 
 
 def _check(ctx: steps.Context, state: dict) -> dict:
@@ -466,12 +598,27 @@ def _blocks_of(done: dict) -> list:
     return out
 
 
+def _drawn_pictures(ctx: steps.Context, store, rid: str, code: str) -> dict:
+    """{slot: {"asset", "path"}} of the approved pictures the beats of this video draw (the layouts' slots): the approval is checked here again, `asset_not_approved` for a
+    picture the set's current approval does not cover."""
+    review = _load_review(store, rid)
+    approved = _stock_assets(ctx, store, rid, review, code)
+    if not approved:
+        return {}
+    used = _used_slots(_json(store, rid, BEATS))
+    return {slot: found for slot, found in approved.items() if slot in used}
+
+
 def _render(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
-    done = _call(ctx, "renderer:video", "render", ["--edl", _asked(store.path, rid, EDL), "--beats", _asked(store.path, rid, BEATS),
-                                                   "--in", _asked(store.raw, rid), "--out", _asked(store.folder, rid),
-                                                   "--platform-file", _asked(store.platform_path, _platform(state)),
-                                                   "--vocabulary", _asked(store.reference, VOCABULARY)])
+    pictures = _drawn_pictures(ctx, store, rid, "asset_not_approved")
+    flags = ["--edl", _asked(store.path, rid, EDL), "--beats", _asked(store.path, rid, BEATS),
+             "--in", _asked(store.raw, rid), "--out", _asked(store.folder, rid),
+             "--platform-file", _asked(store.platform_path, _platform(state)),
+             "--vocabulary", _asked(store.reference, VOCABULARY)]
+    for slot, found in sorted(pictures.items()):      # only an approved picture a beat draws is handed over, with the sha256 the set recorded (the engine checks it at intake)
+        flags += ["--asset", f"{slot}={found['path']}", "--asset-sha256", f"{slot}={found['asset']['sha256']}"]
+    done = _call(ctx, "renderer:video", "render", flags)
     name, digest = os.path.basename(str(done.get("path") or "")), done.get("sha256")
     if not RENDER_NAME.fullmatch(name) or not isinstance(digest, str) or not SHA256.fullmatch(digest) or name[7:19] != digest[:12]:
         raise steps.StepFailure("render_missing", "render")
@@ -486,8 +633,23 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     blocks_sha = done.get("blocks_sha256")
     record = {"name": name, "sha256": digest, "size": size, "duration_ms": max(1, int(round(seconds * 1000))), "blocks": _blocks_of(done),
               "blocks_sha256": blocks_sha if isinstance(blocks_sha, str) and SHA256.fullmatch(blocks_sha) else None}
+    if pictures:      # what this render drew, kept with it: the delivery's assets and credits come from here, never from a set changed since
+        found = _optional_json(store, rid, STOCK_SET) or {}
+        credit_of = found.get("credit_of") if isinstance(found.get("credit_of"), dict) else {}
+        drawn = []
+        for slot, got in sorted(pictures.items()):
+            a = got["asset"]
+            row = {"slot": slot, "sha256": a["sha256"], "source": a["source"], "item": a["item"], "licence": a["licence"]}
+            if a["licence"] == STOCK_UNVERIFIED:
+                row["page_host"], row["page_sha256"] = _page_parts(a.get("page"))
+            if isinstance(credit_of.get(slot), str) and credit_of[slot]:
+                row["credit"] = credit_of[slot]
+            drawn.append(row)
+        record["assets"] = drawn
     _asked(store.write, rid, RENDER_JSON, _dump(record))
     result = {"sha256": digest, "size": size}
+    if pictures:
+        result["pictures"] = len(pictures)
     left_out = _effects_dropped(done)
     if left_out:      # an effect the renderer did not draw (too short, capped, overlapping): the person is told, the render is not refused
         result["effects_dropped"] = left_out
@@ -578,9 +740,18 @@ def _document(ctx: steps.Context, state: dict) -> dict:
         preview = {"sha256": render["sha256"], "size": render["size"], "from_sha256": render["sha256"]}
     else:
         preview = None
+    assets, web, credits = [], [], []
+    for row in render.get("assets") or []:      # the pictures this render drew, as the render recorded them (a set changed since cannot reach the delivery)
+        assets.append({k: row[k] for k in ("slot", "sha256", "source", "item", "licence")})
+        if row["licence"] == STOCK_UNVERIFIED:
+            web.append({"slot": row["slot"], "sha256": row["sha256"], "page_host": row.get("page_host", ""), "page_sha256": row.get("page_sha256", "")})
+        if isinstance(row.get("credit"), str):
+            credits.append(row["credit"])
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
-                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview)
+                                 verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview,
+                                 assets=assets, web=web,
+                                 credits={"count": len(credits), "sha256": hashlib.sha256(json.dumps(credits, ensure_ascii=False).encode("utf-8")).hexdigest()} if credits else None)      # S4: the text stays out
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 
 

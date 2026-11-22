@@ -64,5 +64,10 @@
  {"op": "reference-read", "kind": "internal", "group": null, "why": "prints a reference's measured facts and its third-party text as data; read in the terminal, not served in words"},
  {"op": "reference-remove", "kind": "internal", "group": null, "why": "removes one reference video's files for good, at the person's confirmed request; never served in words"},
  {"op": "video-storyboard", "kind": "internal", "group": "media", "why": "the storyboard of a short-video post, drawn on demand by the page or the terminal; starts a container, no model; not served in words"},
- {"op": "video-storyboard-file", "kind": "internal", "group": "media", "why": "one picture of a drawn storyboard, read by the page; not served in words"}
+ {"op": "video-storyboard-file", "kind": "internal", "group": "media", "why": "one picture of a drawn storyboard, read by the page; not served in words"},
+ {"op": "video-media-find", "kind": "internal", "group": "media", "why": "searches the licensed picture libraries of a project for the slots of a new video, after the person's confirm of the exact words; the words leave this computer; never served in words"},
+ {"op": "video-media-fetch-picks", "kind": "internal", "group": "media", "why": "fetches the full file of each picture the person picked and has the renderer's container normalise it; never served in words"},
+ {"op": "video-media-sheet-file", "kind": "internal", "group": "media", "why": "one PNG of a new video's media set that the renderer made, read by the page; not served in words"},
+ {"op": "video-media-approve", "kind": "internal", "group": "media", "why": "shows the media set of a new video and approves exactly the set whose hash the person typed; never served in words"},
+ {"op": "video-credits", "kind": "internal", "group": "media", "why": "prints the credits record of a new video's approved media set, which answers a takedown request; read in the terminal or on the page, not served in words"}
 ]}

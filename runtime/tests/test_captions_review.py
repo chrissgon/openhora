@@ -475,7 +475,8 @@ def test_the_view_shows_chunks_retakes_adjusted_timing_beats_and_what_was_left_o
     assert set(rows) == {3, 5, 6}, "a beat with no preset has no overlay to check"
     assert rows[3]["below_threshold"] is False and rows[5]["below_threshold"] is True and rows[5]["word_from"] is None
     assert rows[6]["reordered"] is True and shown["counts"]["below_threshold"] == 1 and shown["counts"]["timing_adjusted"] == 1
-    assert shown["slots"] == [{"slot": "beat7", "beat": 7, "param": "asset", "type": "image", "description": "a screenshot", "file": None, "choice": None}]
+    assert shown["slots"] == [{"slot": "beat7", "beat": 7, "param": "asset", "type": "image", "description": "a screenshot", "file": None, "choice": None,
+                               "search": None, "want": None, "pick": None}]      # V9b-3a: the words a person gave for the slot and the picture picked from the media set
 
 
 def test_the_view_follows_the_edits_confirmed_retakes_anchors_and_dropped_overlays():

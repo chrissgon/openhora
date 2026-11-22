@@ -283,9 +283,11 @@ CARD_TODO_LIST: Lista: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Tarefa: Quarterly review
 CARD_TODO_PLAIN: Uma tarefa só com este título: sem data de vencimento e sem nota.
 CARD_TODO_TITLE: Tarefa: Quarterly review
+CARD_VIDEO_ASSET: Imagem: <slot>, notes.example, <licence>, sha256 0123456789abcdef
 CARD_VIDEO_BLOCK: Bloco de animação: 42 0123456789abcdef
 CARD_VIDEO_CLOSING: Aprovar marca este arquivo exato como disponível para baixar. Nada é publicado.
 CARD_VIDEO_COVER: Capa: Ana Lima, sha256 0123456789abcdef
+CARD_VIDEO_CREDITS_COUNT: 3 imagens precisam de crédito; o texto do crédito está na página deste computador (sha256 0123456789abcdef)
 CARD_VIDEO_DIGEST: Documento de entrega sha256 <digest>
 CARD_VIDEO_FILE: Vídeo: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
 CARD_VIDEO_NO_BLOCKS: sem blocos de animação
@@ -295,6 +297,7 @@ CARD_VIDEO_PLATFORM: Plataforma: social-x
 CARD_VIDEO_POST: Publicação: <post>
 CARD_VIDEO_PREVIEW: prévia 0123456789abcdef, feita de <origin>
 CARD_VIDEO_VERIFIED: verificado para social-x
+CARD_VIDEO_WEB: Encontrado na internet, licença não verificada: <host>
 CHANGED: Esta decisão mudou desde que você a viu.
 CMD_ATTACHMENTS: Arquivos esperando sua resposta: 3.
 CMD_CANCELLED: Pedido 3 cancelado.
@@ -1123,6 +1126,15 @@ VID_PREVIEW: O vídeo para aprovar (3.5 KiB). O cartão de aprovação vem em se
 VID_RECEIVED: Gravação recebida (3.5 KiB).
 VID_RENDERING: Renderizando o vídeo. O cartão de aprovação chega quando estiver pronto.
 VID_REVIEW_WORDS: Estas são as legendas. Para corrigir, responda ao cartão das legendas com uma linha por correção: errado -> certo. Quando estiverem certas, responda continuar.\n\nmove, review
+VID_STOCK_ASSET_SMALL: Esta imagem é pequena demais para aparecer bem; escolha outra.
+VID_STOCK_ASSET_UNUSABLE: Este arquivo não pode ser usado; escolha outro.
+VID_STOCK_CLIP_NOT_DRAWN: Este motor ainda não desenha vídeos. Escolha uma imagem para este espaço.
+VID_STOCK_CREDIT: Crédito para colocar na legenda
+VID_STOCK_FOUND: <found> opções para <slots> espaços; escolha uma por espaço e busque as escolhidas.
+VID_STOCK_NOT_ACCEPTED: A busca de mídia ainda não foi aceita neste projeto. Aceite docs/workbench/runtime.json no terminal com accept-config --widen.
+VID_STOCK_NOT_APPROVED: Aprove o conjunto de mídia, ou limpe as escolhas, antes de continuar.
+VID_STOCK_PREVIEW: Estas palavras serão enviadas para <sources>: move, review.
+VID_STOCK_PROVIDED: Mídia fornecida por notes.example (<link>)
 VID_STORYBOARD_ADVISORY: Uma imagem por cena sobre um fundo neutro. O vídeo pode ficar diferente.
 VID_STORYBOARD_NO_SCRIPT: Este post não tem roteiro para desenhar.
 VID_TOO_BIG: Este vídeo tem 3.5 KiB, e este app aceita no máximo 25 aqui. Envie pela página aberta neste computador, ou mande um link do Google Drive para ele.

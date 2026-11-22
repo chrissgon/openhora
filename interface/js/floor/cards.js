@@ -258,6 +258,20 @@ export function createCard(item, env) {
 
   // --- the kinds -------------------------------------------------------------------------------------------------------------
 
+  /** The credits of a video's media set, for this computer's own page only (S4: library text is never on a phone card): the lines are text from the libraries, shown as text. */
+  function creditsBlock(it) {
+    const box = h("div");
+    const effect = (it.payload && it.payload.effect) || {};
+    if (!effect.assets || !onLoopback(hostOf(env)) || !can("video-credits")) return null;
+    Promise.resolve(api().videoCredits(env.project, it.task_id)).then((got) => {
+      const lines = [...(got.provided || []), ...(got.credits || []), ...((got.web || []).map((w) => `Source page: ${w.page}`))];
+      if (!lines.length) return;
+      box.append(h("div", { class: "wb-card-hint", text: "Credit to put in the caption (text from the library, not checked by the platform)" }),
+        h("ul", { class: "wb-dl-rows" }, ...lines.map((line) => h("li", { text: line }))));
+    }).catch(() => {});
+    return box;
+  }
+
   function effectBody() {
     const it = state.item;
     // a tab stop with a name (K-5): the keyboard reaches the whole hash the approval sends
@@ -268,6 +282,7 @@ export function createCard(item, env) {
         h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
         h("div", { class: "wb-card-hint", text: "The delivery: what your approval covers" }),
         h("ul", { class: "wb-dl-rows", tabindex: "0", "aria-label": "The delivery document" }, ...deliverRows(it.body).map((line) => h("li", { text: line }))),
+        creditsBlock(it),
         h("div", { class: "wb-card-hint", text: "Hash of the delivery document" }), hash,
         h("p", { class: "wb-card-line", text: onLoopback(hostOf(env)) ? "Nothing is marked downloadable before you approve this exact content." : LAN_APPROVE }),
         can("reject") ? noteInput() : null, message(), buttons(),

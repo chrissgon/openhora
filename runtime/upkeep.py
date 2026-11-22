@@ -68,6 +68,7 @@ sys.path.insert(0, HERE)
 import attachments  # noqa: E402  (the same folder: the hold of the files a messaging app brought)
 import lab  # noqa: E402  (the same folder: the lab facade's container tool)
 import media  # noqa: E402  (the same folder: the store of the recordings and its retention)
+import media_stock  # noqa: E402  (the same folder: the credits records of the media sets, kept a year)
 import orphans  # noqa: E402  (the same folder: the sweep of orphan containers)
 import references  # noqa: E402  (the same folder: the store of the reference videos and its retention)
 import sources  # noqa: E402  (the same folder: the sources folder, its lease and its lock)
@@ -422,6 +423,8 @@ def sweep_media(ctx: dict, *, now: float) -> dict:
     data_dir = ctx["cfg"]["data_dir"]
     done = media.purge(data_dir, now=now, busy=lambda task_id: task_lock_held(data_dir, task_id))
     done["removed"] = list(done["removed"]) + sweep_storyboards(data_dir, now=now)
+    credits = media_stock.purge_credits(data_dir, now=now)      # V9b-3a, limit L77: the credits records last written a year ago
+    done["removed"] += [{"credits": "record", "what": "all"} for _ in range(credits)]
     return done
 
 

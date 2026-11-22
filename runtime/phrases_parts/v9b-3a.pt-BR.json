@@ -1,0 +1,18 @@
+{
+  "package": "v9b-3a",
+  "table": {
+    "VID_STOCK_NOT_ACCEPTED": "A busca de mídia ainda não foi aceita neste projeto. Aceite docs/workbench/runtime.json no terminal com accept-config --widen.",
+    "VID_STOCK_PREVIEW": "Estas palavras serão enviadas para {sources}: {words}.",
+    "VID_STOCK_FOUND": "{found} opções para {slots} espaços; escolha uma por espaço e busque as escolhidas.",
+    "VID_STOCK_NOT_APPROVED": "Aprove o conjunto de mídia, ou limpe as escolhas, antes de continuar.",
+    "VID_STOCK_CREDIT": "Crédito para colocar na legenda",
+    "VID_STOCK_CLIP_NOT_DRAWN": "Este motor ainda não desenha vídeos. Escolha uma imagem para este espaço.",
+    "CARD_VIDEO_ASSET": "Imagem: {slot}, {source}, {licence}, sha256 {sha}",
+    "CARD_VIDEO_WEB": "Encontrado na internet, licença não verificada: {host}",
+    "VID_STOCK_PROVIDED": "Mídia fornecida por {source} ({link})",
+    "CARD_VIDEO_CREDITS_COUNT": "{count} imagens precisam de crédito; o texto do crédito está na página deste computador (sha256 {sha})",
+    "VID_STOCK_ASSET_SMALL": "Esta imagem é pequena demais para aparecer bem; escolha outra.",
+    "VID_STOCK_ASSET_UNUSABLE": "Este arquivo não pode ser usado; escolha outro."
+  },
+  "same_as_english": []
+}

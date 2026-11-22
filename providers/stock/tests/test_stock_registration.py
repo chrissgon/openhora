@@ -65,6 +65,8 @@ def test_no_source_name_appears_in_the_runtime_or_the_renderer():
         for path in sorted((REPO / folder).rglob("*")):
             if path.is_file() and path.suffix in (".py", ".json", ".md", ".js", ".html", ".txt") and "node_modules" not in path.parts:
                 text = path.read_text(encoding="utf-8", errors="ignore").lower()
+                for licence in _stock.LICENCES_ACCEPTED:      # a library's licence id is a licence, not a source: the runtime holds the tuple whole
+                    text = text.replace(licence, " ")
                 found += [(str(path.relative_to(REPO)), n) for n in names if re.search(r"\b%s\b" % re.escape(n), text)]
     assert found == []
     for folder in ("runtime", "providers/renderer"):
