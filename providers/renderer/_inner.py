@@ -16,7 +16,7 @@ only writable mount) and /scratch (memory-backed), with no network.
            --proxy-sha256 H [--blocks DIR --blocks-sha256 H]]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
            refuses a box on the face or a caption below the line, and after the encode a face region that differs from the undrawn base
   preview  --in MP4 --sha256 H --out FILE.mp4             a 720x1280 copy of a finished render, at most 15 MiB, one encoder thread
-  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H [--asset-sha256 SLOT=HEX]...)   the HyperFrames
+  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H [--asset-sha256 SLOT=HEX]... [--asset SLOT=FILE]...)   the HyperFrames
            engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
@@ -485,8 +485,8 @@ def verb_hf_page(args) -> dict:
     (the beats are checked and not drawn). Without it: `--blocks` and `--blocks-sha256` are required, the catalogue is loaded from that folder
     (every hash checked there, the pins file's sha256 against the one given) and the captions and the beats are drawn with the blocks the
     HyperFrames engine runs (`_hf_compose`)."""
-    if args.asset_sha256 and args.base_only:
-        raise Usage("hf-page takes --asset-sha256 only with the blocks")
+    if (args.asset_sha256 or args.asset) and args.base_only:
+        raise Usage("hf-page takes --asset-sha256 and --asset only with the blocks")
     if args.base_only == bool(args.blocks or args.blocks_sha256):
         raise Usage("hf-page takes --base-only, or --blocks and --blocks-sha256 together, not both and not neither")
     if not args.base_only and not (args.blocks and args.blocks_sha256):
@@ -503,8 +503,18 @@ def verb_hf_page(args) -> dict:
         page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
     else:
         catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256)
-        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"],
-                                      {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()})
+        hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
+        clips = {}
+        files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
+        if files:                                          # the clips of the render (V9b-5b): a picture is never given here, the host puts it into assets/
+            import _render
+            pictures, clip_files = _assets.split_clips(files)
+            if pictures:
+                raise Refusal("asset_type", sorted(pictures)[0][:32])
+            ffmpeg, ffprobe = tools(args)
+            loaded = _render.load_clips(clip_files, hashes, data["limits"], ffmpeg, ffprobe)
+            clips = {slot: {key: c[key] for key in ("width", "height", "seconds", "fps", "tint")} for slot, c in sorted(loaded.items())}
+        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"], hashes, clip_assets=clips)
     return dict(page, ok=True)
 
 
@@ -663,7 +673,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only")
     sp.add_argument("--blocks", help="the staged blocks folder (the captions and the beats are drawn with the blocks the engine runs)")
     sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
-    sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 of a picture the frame blocks draw (the host puts the file into assets/)")
+    sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 of a picture or clip the frame blocks draw (the host puts a picture into assets/ and a clip into media/)")
+    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="a normalised clip (MP4) the frame blocks draw, probed here; a picture is never given")
     sp = sub.add_parser("asset-sheet")
     common(sp)
     sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE")

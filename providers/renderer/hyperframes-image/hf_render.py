@@ -8,8 +8,9 @@ Run inside the image, with no network, as
 
 `--project` holds exactly `index.html`, `vars.json` and `media/proxy.mp4` (each a regular file within a cap), and, for a page that draws,
 a folder `blocks/` of at most 16 pages (`blocks/<name>.html`, each at most 1 MiB), written by the common image and mounted read-write, and, when a
-block draws the person's pictures, a folder `assets/` of at most 12 regular files `<slot>.png` (each a PNG, at most ASSET_MAX_BYTES), each the file whose
-sha256 `vars.json` names under `assets` (and every name there has its file); this
+block draws the person's pictures, a folder `assets/` of regular files `<slot>.png` (each a PNG, at most ASSET_MAX_BYTES), each the file whose
+sha256 `vars.json` names under `assets` (and every name there has its file), and, for a block that draws a clip, `media/clip-<slot>.mp4` files (each an MP4, within the
+same cap, its slot listed in the sorted `clip_slots` of `vars.json` and hashed under `assets`), at most 12 files of both kinds in all; this
 script checks the folder, checks that the page and each block page name no font outside the allow-list (HyperFrames adds a bundled font for
 any family a page names and does not declare), copies the three allow-listed font files into `fonts/` when a page uses them (each checked
 against its sha256), copies GSAP's own file in, and runs `hyperframes render` once: a ProRes HQ `.mov`, four workers, no frame cache. With
@@ -50,6 +51,8 @@ ASSET_FILE = re.compile(r"assets/[a-z0-9][a-z0-9_-]{0,31}\.png")         # a pic
 ASSETS_MAX = 12                          # the most pictures a project holds (the same figure as _hf_compose.MAX_ASSETS)
 ASSET_MAX_BYTES = 67108864               # one picture's cap (the same figure as renderer-presets.json limits.asset_max_bytes; a test keeps the two equal)
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+CLIP_FILE = re.compile(r"media/clip-[a-z0-9][a-z0-9_-]{0,31}\.mp4")      # a clip: `clip-<slot id>.mp4` beside the proxy (V9b-5b; the host writes it after the proxy stage)
+MP4_BRANDS = (b"isom", b"iso2", b"iso3", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1", b"M4V ", b"qt  ")      # `_media.MP4_BRANDS`, a test keeps the two equal
 INSTANCES_FILE = "instances.json"        # the tier-A rows the page stage wrote (V3b-3); optional
 INSTANCES_MAX_BYTES = 256 * 1024
 REGISTRY_ROOT = "/opt/hf-registry"       # the registry files baked into the image from registry.sha256
@@ -104,27 +107,38 @@ def check_fonts(html: str, field: str = "index.html") -> None:
         refuse("font_not_allowed", field)
 
 
-def check_assets(project: str, found: set) -> None:
-    """The pictures of a project: `found` holds their names (`assets/<slot>.png`, each already a regular file within its cap, and at most ASSETS_MAX). The
-    project's `vars.json` names each one's sha256 under `assets`: a picture with no entry, an entry with no picture, an entry that is not a slot and a hash
-    that differs are refused (`asset_hash`), and so is a file that is not a PNG (`project_unexpected_file`)."""
+def check_assets(project: str, found: set, clips: frozenset = frozenset()) -> None:
+    """The pictures and clips of a project: `found` holds the names of the pictures (`assets/<slot>.png`) and `clips` those of the clips (`media/clip-<slot>.mp4`), each
+    already a regular file within its cap, at most ASSETS_MAX in all. The project's `vars.json` names each one's sha256 under `assets` and the slots that are clips
+    under `clip_slots` (a sorted list of distinct slots, each a key of `assets`): a file with no entry, an entry with no file, an entry that is not a slot, an unsorted
+    or repeated `clip_slots` and a hash that differs are refused (`asset_hash`), and so is a picture that is not a PNG or a clip that is not an MP4's `ftyp` box with one of
+    MP4_BRANDS (`project_unexpected_file`). A project with neither key nor file is checked as before."""
     try:
         with open(os.path.join(project, "vars.json"), "rb") as fh:
-            declared = json.loads(fh.read(VARS_MAX_BYTES).decode("utf-8")).get("assets")
+            doc = json.loads(fh.read(VARS_MAX_BYTES).decode("utf-8"))
+        declared, clip_slots = doc.get("assets"), doc.get("clip_slots")
     except (OSError, ValueError, UnicodeDecodeError, AttributeError):
-        declared = None
-    if not found and declared is None:
+        declared, clip_slots = None, None
+    if not found and not clips and declared is None and clip_slots is None:
         return
     if not isinstance(declared, dict) or len(declared) > ASSETS_MAX:
         refuse("asset_hash", "vars.json")
-    names = {"assets/%s.png" % slot for slot in declared}
-    if names != found or not all(isinstance(v, str) and HEX64.fullmatch(v) for v in declared.values()):
+    if clip_slots is None:
+        clip_slots = []
+    if not isinstance(clip_slots, list) or not all(isinstance(v, str) for v in clip_slots) or clip_slots != sorted(set(clip_slots)) \
+            or not all(v in declared for v in clip_slots):
+        refuse("asset_hash", "clip_slots")
+    names = {("media/clip-%s.mp4" if slot in clip_slots else "assets/%s.png") % slot for slot in declared}
+    if names != set(found) | set(clips) or not all(isinstance(v, str) and HEX64.fullmatch(v) for v in declared.values()):
         refuse("asset_hash", "assets")
     for slot, digest in sorted(declared.items()):
-        path = os.path.join(project, "assets", slot + ".png")
+        clip = slot in clip_slots
+        path = os.path.join(project, "media", "clip-%s.mp4" % slot) if clip else os.path.join(project, "assets", slot + ".png")
         with open(path, "rb") as fh:
             raw = fh.read(ASSET_MAX_BYTES + 1)
-        if not raw.startswith(PNG_MAGIC):
+        if clip and not (raw[4:8] == b"ftyp" and raw[8:12] in MP4_BRANDS):
+            refuse("project_unexpected_file", "media:clip-%s.mp4" % slot)
+        if not clip and not raw.startswith(PNG_MAGIC):
             refuse("project_unexpected_file", "assets:%s.png" % slot)
         if hashlib.sha256(raw).hexdigest() != digest:
             refuse("asset_hash", slot[:40])
@@ -132,9 +146,10 @@ def check_assets(project: str, found: set) -> None:
 
 def check_project(project: str) -> str:
     """The folder holds exactly the three files, each a regular file (never a link) within its cap, and at most BLOCK_PAGES_MAX block pages
-    in a `blocks` folder (`blocks/<name>.html`, each a regular file within BLOCK_PAGE_MAX_BYTES), at most ASSETS_MAX pictures in an `assets` folder
-    (`check_assets`), and nothing else. Returns the page's text."""
-    found, pages, pictures = set(), 0, set()
+    in a `blocks` folder (`blocks/<name>.html`, each a regular file within BLOCK_PAGE_MAX_BYTES), at most ASSETS_MAX pictures (an `assets` folder) and clips
+    (`media/clip-<slot>.mp4`, beside the proxy) together (`check_assets`), and nothing else: any other file in `media/` is `project_unexpected_file`.
+    Returns the page's text."""
+    found, pages, pictures, clips = set(), 0, set(), set()
     for base, dirs, files in os.walk(project, followlinks=False):
         for name in dirs + files:
             path = os.path.join(base, name)
@@ -151,9 +166,14 @@ def check_project(project: str) -> str:
                 if (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > INSTANCES_MAX_BYTES:
                     refuse("project_unexpected_file", rel)
                 continue
+            if CLIP_FILE.fullmatch(rel):
+                clips.add(rel)
+                if len(pictures) + len(clips) > ASSETS_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > ASSET_MAX_BYTES:
+                    refuse("project_unexpected_file", rel[:80])
+                continue
             if ASSET_FILE.fullmatch(rel):
                 pictures.add(rel)
-                if len(pictures) > ASSETS_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > ASSET_MAX_BYTES:
+                if len(pictures) + len(clips) > ASSETS_MAX or (mode & 0o170000) != 0o100000 or os.lstat(path).st_size > ASSET_MAX_BYTES:
                     refuse("project_unexpected_file", rel[:80])
                 continue
             if BLOCK_PAGE.fullmatch(rel):
@@ -170,7 +190,7 @@ def check_project(project: str) -> str:
             refuse("project_unexpected_file", rel)
         if os.lstat(path).st_size > cap:
             refuse("project_unexpected_file", rel)
-    check_assets(project, pictures)
+    check_assets(project, pictures, frozenset(clips))
     with open(os.path.join(project, "index.html"), "rb") as fh:
         return fh.read(INDEX_MAX_BYTES).decode("utf-8", "replace")
 

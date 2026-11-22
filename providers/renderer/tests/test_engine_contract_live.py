@@ -613,9 +613,10 @@ def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores_on_eac
     assert len(shas) == 1, "STOP RULE 3, a nondeterminism on %s in the cutaway case: %s" % (engine, sorted(shas))
 
 
-def clip_cutaway_leg(lab, label, cpus, cpuset, shape):
-    """The cutaway case on the ffmpeg engine with a clip on its beat (slot beat2): a synthetic moving clip (a gradient carrying its own frame number, made by the
-    host's ffmpeg), normalised by the common image's own `asset-sheet` verb, `shape` "cover" (1080x1920) or "glass" (1920x1080). Cached."""
+def clip_cutaway_leg(lab, label, cpus, cpuset, shape, engine="ffmpeg"):
+    """The cutaway case on `engine` with a clip on its beat (slot beat2): a synthetic moving clip (a gradient carrying its own frame number, made by the host's
+    ffmpeg), normalised by the common image's own `asset-sheet` verb, `shape` "cover" (1080x1920) or "glass" (1920x1080). Cached. On HyperFrames (V9b-5b) the clip is
+    drawn as top-level video elements under the page, from the same blocks folder as the picture case."""
     import clip_kit as CK
     transcript = K.build_transcript(CUTAWAY_SENTENCES)
 
@@ -628,8 +629,15 @@ def clip_cutaway_leg(lab, label, cpus, cpuset, shape):
             rc, out, err = host("ffmpeg", "asset-sheet", "--asset", "slot-1:1=%s" % raw, "--mode", "full", "--out", sheet)
             assert rc == 0 and out["assets"][0]["kind"] == "clip", (out, err[-2000:])
         clip = next(sheet.glob("asset-*.mp4"))
-        return lab.render("ffmpeg", "clip-%s-%s" % (shape, label), rec, edl, beats, cpus, cpuset, assets={"beat2": clip})
-    return lab.cached(("clip-cutaway", shape, label), make)
+        blocks = None
+        if engine == "hyperframes":
+            blocks = lab.folder / "blocks-hf-cutaway"
+            if not blocks.exists():
+                shutil.copytree(K.BLOCKS, blocks)
+                K.write_hf_compose_blocks(blocks, cutaway=True)
+        tag = "clip-%s-%s" % (shape, label) if engine == "ffmpeg" else "clip-%s-%s-%s" % (engine, shape, label)
+        return lab.render(engine, tag, rec, edl, beats, cpus, cpuset, blocks=blocks, assets={"beat2": clip})
+    return lab.cached(("clip-cutaway", shape, label) if engine == "ffmpeg" else ("clip-cutaway", engine, shape, label), make)
 
 
 @mac_only
@@ -643,6 +651,50 @@ def test_mac_m5_the_clip_cutaway_is_one_sha256_at_four_and_at_eight_cores_in_cov
             assert run.rc == 0, (shape, run.out, run.err[-2000:])
         shas = {r.out["sha256"] for r in runs}
         assert len(shas) == 1, "STOP RULE 3, a nondeterminism on the ffmpeg engine in the %s clip cutaway: %s" % (shape, sorted(shas))
+
+
+def counter_numbers(video: str, first: int, count: int) -> list:
+    """The frame number the clip's counter blocks show in each of `count` frames of `video` from frame `first`, drawn at 1:1 at the top-left corner (the cover
+    layout): one ffmpeg call reads the one-pixel row through the middle of the blocks, and a block is white when its green channel is over 128."""
+    import clip_kit as CK
+    import subprocess
+    raw = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", video, "-vf", "select=between(n\\,%d\\,%d),format=rgb24,crop=%d:1:0:%d" % (first, first + count - 1, CK.BLOCK * CK.BITS, CK.BLOCK // 2),
+                          "-fps_mode", "passthrough", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=600).stdout
+    width = CK.BLOCK * CK.BITS
+    assert len(raw) == count * width * 3, (len(raw), count)
+    numbers = []
+    for i in range(count):
+        row = raw[i * width * 3:(i + 1) * width * 3]
+        numbers.append(sum(1 << k for k in range(CK.BITS) if row[(CK.BLOCK * k + CK.BLOCK // 2) * 3 + 1] > 128))
+    return numbers
+
+
+@mac_only
+@legs("M6", ("hyperframes",))
+def test_mac_m6_the_clip_cutaway_on_hyperframes_is_one_sha256_at_four_and_at_eight_cores_in_cover_and_in_glass_and_cover_is_frame_exact(engine, lab, eight_cpus):
+    """V9b-5b (Design B): a normalised moving clip under a cover cutaway and under a glass cutaway, drawn by HyperFrames as top-level video elements, the same sha256
+    at 4 and 8 cores for each shape; and, for the cover shape, every output frame `start + k` of the entry shows clip frame `k` (the frame-exact check of spike S2,
+    on the real path). A figure that fails is a stop (STOP RULE 8): reported, never tuned."""
+    import _edl
+    from _vocab import load_data, load_vocabulary
+    lab.need(engine)
+    for shape in ("cover", "glass"):
+        runs = [clip_cutaway_leg(lab, "m6-4", 4, "0-3", shape, engine), clip_cutaway_leg(lab, "m6-8", 8, "0-7", shape, engine)]
+        for run in runs:
+            assert run.rc == 0, (shape, run.out, run.err[-2000:])
+        shas = {r.out["sha256"] for r in runs}
+        assert len(shas) == 1, "STOP RULE 8, two sha256 for the %s clip cutaway on hyperframes: %s" % (shape, sorted(shas))
+        if shape != "cover":
+            continue
+        transcript = K.build_transcript(CUTAWAY_SENTENCES)
+        rec = lab.recording("cutaway", transcript)
+        edl_file, beats_file, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
+        data = load_data()
+        timeline = _edl.resolve_timeline(doc, json.loads(Path(beats_file).read_text()), load_vocabulary(str(K.VOCABULARY)), data)
+        entry = next(e for e in timeline["beats"] if e["preset"] == "cutaway")
+        count = entry["end_frame"] - entry["start_frame"]
+        numbers = counter_numbers(runs[-1].out["path"], entry["start_frame"], count)
+        assert numbers == list(range(count)), "STOP RULE 8, a cover frame reads the wrong clip frame: %s" % [(k, n) for k, n in enumerate(numbers) if n != k][:12]
 
 
 REAL = {}

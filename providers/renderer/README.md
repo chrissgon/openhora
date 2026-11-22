@@ -330,11 +330,56 @@ the same pictures and times and finds the same frame bytes for an image cutaway 
   for a clip entry. The loss: those themes cannot use clips yet.
 - **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip` or any other block is `asset_type` naming the slot.
 - **The gate** judges a clip cutaway frame as an image cutaway frame: the page reports the same boxes (none), and the face rules of every card and caption are
-  unchanged. The HyperFrames engine has no clip path (`asset_kinds` `["image"]`): `hyperframes.py render` still refuses a clip as `asset_type`.
+  unchanged. The HyperFrames engine draws a clip since V9b-5b (below).
 
 Tests: `tests/test_asset_sheet.py` (the verb), `tests/test_clip_cutaway.py` (the compose, the page, the refusals and whole renders), `tests/clip_kit.py` (the synthetic
 clips: a moving gradient carrying its own frame number). Not verified here: the image's own ffmpeg (its av1 decoder, its `gblur`, `geq` and `tpad` behaviour), the
 bytes at 4 and 8 cores in the image, and a clip that is not synthetic.
+
+### The HyperFrames engine draws a clip (V9b-5b, Design B)
+
+`hyperframes.py render --asset SLOT=FILE` takes a normalised clip beside pictures, and draws it under an `oh:cutaway` entry. Spike S2 (the record of
+2026-11-21 in the V9b spec) chose **Design B**: the clip is a top-level `<video>` element of the composition, written the way the proxy's videos are
+(`muted playsinline data-has-audio="false" data-start data-duration data-media-start="0" data-track-index`), never a video inside the frame-band iframe (Design A
+was frame-exact only with a half-frame offset on the time, and that offset is not a fallback: a live leg that fails Design B is a stop).
+
+- **The host** (`hyperframes.py`). `read_assets` splits the files with `_assets.split_clips`: a picture stays a PNG (`asset_type` otherwise), a clip is read by
+  `_assets.read_clip` (an MP4: a WebM or a MOV is `asset_type`, since a render draws only what `asset-sheet` wrote), within `asset_max_bytes`, its `--asset-sha256`
+  matched; at most 12 files in all (`too_many_assets`). A clip is staged into the page job with `--asset SLOT=FILE` (a picture never is), and every slot keeps its
+  `--asset-sha256`. The clip is written into `project/media/clip-<slot>.mp4` (new, 0600, from the bytes the host hashed) **after the proxy stage's checks and before the
+  drawing stage**, so the proxy container, which mounts `media/` read-write, never sees it; the name carries the slot because a slot may be called `proxy`.
+- **The page stage** (`_inner.py hf-page --asset SLOT=FILE`, only with `--blocks`; with `--base-only` it is a usage error). `_render.load_clips` probes each clip with
+  the checks of the `full` output (H.264, yuv420p, constant rate, no audio and no other stream, ten seconds, sides within 3840) and reads the tint of its first frame;
+  the facts (`width`, `height`, `seconds`, `fps`, `tint`) go to `_hf_compose.write_page(..., clip_assets=...)`. The answer gains no key.
+- **The compose** (`_hf_compose.py`). With no `clip_assets` the written files do not change by a byte (a test holds the picture cutaway's two hashes).
+  `draw_plan` refuses a clip whose rate differs from the edit list's by more than 0.001 (`asset_type`: this engine does not conform it), calls
+  `_render.settle_clips` (a clip on any block but `oh:cutaway` is `asset_type`, a look that is not the hard cut is `clip_transition`) and `_render.clip_rows` (the
+  look, once, for both engines), refuses an entry longer than its clip (`clip_too_short`: whether HyperFrames holds a last frame is unknown, ffmpeg holds it) and
+  tells the page the asset is a clip (`params_kind`, `clip_size`), so the page draws only the label chip. `write_page` writes one **clip layer** per entry, as the first
+  layers of the page (under the iframe that draws the chip, over the cuts and the grade): a `div.hf-clip` in the frame zone, hidden until a drive tween shows it on the
+  entry's frames (`var CL`), holding, for **cover**, one video scaled to cover 1080x1920, and for **glass**, bottom first, the theme's background, a blurred cover copy
+  (`filter:blur(<glass_blur_px>px)` on the wrapping div, the page's cover-with-room size), the tint at `glass_tint_alpha`, a rounded black box with the page's shadow, and the
+  clip whole inside a rounded `overflow:hidden` box at `_media.glass_box`. The look is on the wrapping divs, never on the video; each video has its own track from
+  `len(kept)` up, `data-media-start="0"` (the clip plays from its first frame at the entry's first frame). `vars.json` gains `clip_slots` (sorted) only when there is a clip;
+  `assets` keeps every slot's sha256.
+- **The image** (`hyperframes-image/hf_render.py`, so the HyperFrames image is rebuilt). `check_project` collects `media/clip-<slot>.mp4` beside the pictures (at most 12
+  together; any other file in `media/` but `proxy.mp4` is still `project_unexpected_file`); `check_assets` requires `clip_slots` to be a sorted list of distinct slots, each a
+  key of `assets`, the names found to be exactly `assets/<slot>.png` and `media/clip-<slot>.mp4` for them, a clip to be an `ftyp` box with a brand of `MP4_BRANDS` (a copy of
+  `_media.MP4_BRANDS`; a test keeps the two equal) and each sha256 to match.
+- **The gates do not change.** The clip layer is not measured (`hf_measure.mjs` reads `.hf-inst` and `iframe.hf-ra` only); the boxes are the page's own (the chip and
+  `window.__box`), allowed only inside the cutaway's crossing span, and the pixel check skips exactly those frames, as for a picture.
+- **Refusals that stay:** `clip_transition`, `asset_type` for a clip on `oh:screenshot` (`oh:pip` is absent on this engine until V9b-6), for a WebM or MOV, for a rotated clip, for a
+  side over 3840, for another frame rate than the edit list's; `clip_too_short`.
+- **The gaps between the engines.** On ffmpeg a clip of another rate is conformed and a clip shorter than its cut holds its last frame; on HyperFrames both are refused. The
+  saving: no untested drawing path ships, and the runtime cannot reach either yet (`asset_kinds` is `["image"]` on both engines, so a clip pick is still `clip_not_drawn`).
+  The loss: the later runtime package must pass the edit list's rate to `asset-sheet` (it does, by design) and trim a clip cutaway to its clip's length, or a probe must first
+  show that HyperFrames holds the last frame.
+
+Tests: `tests/test_hf_clip.py` (the compose: goldens `golden/hf-clip-cover.html` and `hf-clip-glass.html`, the picture cutaway's hashes in `golden/hf-cutaway-picture.sha256`,
+the refusals, `hf-page` with a real clip), `tests/test_hf_engine.py` (the host: the staging and the order against the proxy stage), `tests/test_hf_render_inner.py` (the
+image's checks), and the live leg `M6` of `tests/test_engine_contract_live.py`. Not verified here: that HyperFrames draws a video clipped by an ancestor's `border-radius`
+and `overflow:hidden`, blurred by an ancestor's `filter` and scaled to a size other than its own; a video two levels deep; the name `media/clip-<slot>.mp4`; whether it holds a
+clip's last frame (refused instead); two different clip files in one render, live; every time and memory figure of a render with a clip on this engine. Those are the live legs.
 
 ## The storyboard (`storyboard`)
 
