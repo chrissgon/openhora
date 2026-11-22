@@ -962,6 +962,7 @@ def animations_current(review: dict, edited: dict, live: set) -> tuple:
                    "word_from": inside[0], "word_to": inside[-1]}
             if "asset_param" in item:
                 row["asset_param"], row["pic_kind"] = item["asset_param"], item.get("pic_kind", "layout")
+                row["words"] = [item[k] for k in ("show", "search") if isinstance(item.get(k), str)]      # what the person said the picture shows, else the search words: the slot's description
             out.append(row)
         else:
             lost.append(item["id"])

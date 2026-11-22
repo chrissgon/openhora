@@ -487,6 +487,33 @@ def _base(ctx: steps.Context, state: dict) -> dict:
             **_counts(edl)}
 
 
+SLOT_FALLBACK = "a picture"      # the description when the person gave neither `show` nor search words that fit the renderer's limits (`slot_description_min`, `slot_description_max`, read from the vocabulary file)
+
+
+def _slot_row(store, entry: dict, a: dict) -> dict:
+    """The row of beats.json `slots` for an added layout or picture overlay drawn with its approved picture, made as the renderer's aligner makes its own
+    (providers/renderer/_align.py build_beats): `slot` is the entry's id, `beat` its beat, `param` the picture parameter, `type` the preset's picture kinds read from the
+    vocabulary file joined with `|`, `description` what the person said the picture shows (`show`), else the search words, else SLOT_FALLBACK, inside the vocabulary's limits."""
+    where = _asked(store.reference, VOCABULARY)
+    try:
+        with open(where, "rb") as f:
+            vocab = json.loads(f.read())
+        spec = vocab["presets"][entry["preset"]]["params"][a["asset_param"]]
+        kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+        low, high = vocab["limits"]["slot_description_min"], vocab["limits"]["slot_description_max"]
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        raise steps.StepFailure("step_output_invalid", "vocabulary") from None
+    kinds = [k for k in kinds if k in ("image", "clip")]
+    words = next((w.strip() for w in a.get("words") or [] if isinstance(w, str) and low <= len(w.strip()) <= high), SLOT_FALLBACK)
+    return {"slot": entry["id"], "beat": entry["beat"], "param": a["asset_param"], "type": "|".join(kinds), "description": words}
+
+
+def _add_slot_row(store, beats: dict, entry: dict, a: dict) -> None:
+    rows = beats.setdefault("slots", [])
+    if not any(isinstance(r, dict) and r.get("slot") == entry["id"] for r in rows):
+        rows.append(_slot_row(store, entry, a))
+
+
 def _align(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     edited = captions.check_edited(_json(store, rid, EDITED))
@@ -526,6 +553,7 @@ def _align(ctx: steps.Context, state: dict) -> dict:
                 if a["id"] not in stock:
                     continue
                 entry["params"] = dict(a["params"], **{a["asset_param"]: a["id"]})
+                _add_slot_row(store, beats, entry, a)
                 beats.setdefault("overlays" if a.get("pic_kind") == "overlay" else "layouts", []).append(entry)
                 continue
             added.append(entry)

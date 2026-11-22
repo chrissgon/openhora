@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -426,3 +427,126 @@ def test_the_download_answer_repeats_the_credits_and_the_card_says_who_provided_
     ops_media = st.load("ops_media")
     done = ops_media.video_download(world["path"], video["task"], out=str(Path(world["tmp"]) / "out.mp4"), channel="terminal")
     assert len(done["credits"]) == 1 and sha(json.dumps(done["credits"], ensure_ascii=False).encode("utf-8")) == doc["credits"]["sha256"]
+
+
+# --- an added layout with its approved picture reaches the renderer's own check (the K3 finding: `slot_without_description`) -----------------------------------------------
+
+
+COMPLETE_BEATS = {"schema_version": 1, "threshold": 0.6, "overlays": [], "layouts": [], "slots": [], "report": [], "fallbacks": [], "unmatched": []}
+SHOW = "a mountain lake"
+
+
+class Checks:
+    """MediaEngine's stand-in for `block-params` (what the renderer's block checker answers); every other verb goes to the media kit's fake."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def call(self, cls, verb, args, timeout):
+        if verb != "block-params":
+            return self.real(cls, verb, args, timeout)
+        return {"ok": True, "block": args[args.index("--block") + 1], "engine": "ffmpeg", "params": sorted(json.loads(Path(args[args.index("--params") + 1]).read_text()))}
+
+
+def added_layout_video(world, monkeypatch, block="oh:cutaway", params=None, **words):
+    """A video with an added layout `a1` (its words 3 to 5), its picture found, picked, fetched and approved; the fake renderer's final beats are the complete empty document
+    the real aligner writes. Returns the task; the next step is the review's Continue."""
+    engine = world["engine"]
+    engine._align = lambda a: (Path(flag(a, "--out")).write_text(json.dumps(dict(COMPLETE_BEATS, slots=[]))), {"ok": True, "beats": 0, "overlays": 0, "layouts": 0, "unmatched": []})[1]
+    monkeypatch.setattr(st.load("media_animation"), "engine_of", lambda ctx: Checks(engine.call))
+    found = to_found(world, monkeypatch, searches={"beat7": ("market stall", "image")})
+    edit = dict({"op": "animation", "block": block, "params": params if params is not None else {"fit": "cover"}, "word_from": 3, "word_to": 5, "search": "mountain lake", "want": "image"}, **words)
+    ops_media = st.load("ops_media")
+    ops_media.captions_edit(world["path"], found["task"], review_of(world)["revision"], edits=json.dumps([edit]))
+    ops_media.captions_edit(world["path"], found["task"], review_of(world)["revision"], edits=json.dumps([{"op": "slot", "slot": "a1", "choice": "stock"}]))
+    done = ops.video_media_find(world["path"], found["task"], confirm=True)
+    for row in done["slots"]:
+        pick(world, found["task"], row["slot"], row["candidates"][0]["pick"], review_of(world)["revision"])
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    return found["task"]
+
+
+def beats_of(world):
+    return json.loads(work_file(world, "beats.json").read_text(encoding="utf-8"))
+
+
+def test_align_writes_the_slot_row_of_an_added_layout_drawn_with_its_approved_picture(world, monkeypatch):
+    task = added_layout_video(world, monkeypatch, show=SHOW)
+    out = go_on(world, task)
+    assert out["ok"] is True and out["stopped"] == "deliver", out
+    beats = beats_of(world)
+    [layout] = beats["layouts"]
+    assert layout["id"] == "a1" and layout["params"] == {"asset": "a1", "fit": "cover"}
+    args = world["engine"].of("render")[-1]["args"]
+    assert [a for a in args if a.startswith("a1=")][0].startswith("a1=") and args.count("--asset") == 1 and flag(args, "--asset").split("=")[0] == layout["params"]["asset"] == flag(args, "--asset-sha256").split("=")[0]      # the renderer finds the picture by the slot id the layout names
+    assert beats["slots"] == [{"slot": "a1", "beat": layout["beat"], "param": "asset", "type": "image|clip", "description": SHOW}]      # the aligner's own shape: the vocabulary's picture kinds joined with `|`
+
+
+@pytest.mark.parametrize("words,want", [({"show": SHOW}, SHOW), ({}, "mountain lake"), ({"show": "  "}, "mountain lake")])
+def test_the_slot_description_is_what_the_person_said_the_picture_shows_else_the_search_words(world, monkeypatch, words, want):
+    review_words = {k: v for k, v in words.items() if v.strip()}
+    task = added_layout_video(world, monkeypatch, **review_words)
+    assert go_on(world, task)["ok"] is True
+    assert [r["description"] for r in beats_of(world)["slots"]] == [want]
+
+
+def test_a_description_outside_the_renderers_limits_falls_back_to_a_plain_word(world):
+    vocab = json.loads((st.REPO / "shared" / "references" / "video-presets.json").read_text())
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    for words in ([], ["ab"], ["x" * (vocab["limits"]["slot_description_max"] + 1)], [None, 4]):
+        row = step_media._slot_row(store, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"asset_param": "asset", "words": words})
+        assert row["description"] == step_media.SLOT_FALLBACK and vocab["limits"]["slot_description_min"] <= len(row["description"]) <= vocab["limits"]["slot_description_max"]
+
+
+def test_a_slot_row_that_exists_is_not_written_twice(world):
+    beats = {"slots": [{"slot": "a1", "beat": 1, "param": "asset", "type": "image", "description": "kept"}]}
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    step_media._add_slot_row(store, beats, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"asset_param": "asset", "words": ["new words"]})
+    assert beats["slots"] == [{"slot": "a1", "beat": 1, "param": "asset", "type": "image", "description": "kept"}]
+
+
+def renderer_checker():
+    """The renderer's own modules and files: the edit list its code builds from a transcript, the vocabulary, the data file and the platform file, no process and no container."""
+    folder = str(st.REPO / "providers" / "renderer")
+    tests = folder + "/tests"
+    for one in (folder, tests):
+        if one not in sys.path:
+            sys.path.insert(0, one)
+    import _edl, _output, _vocab  # noqa: E401
+    import renderer_kit as K
+    data, vocab = _vocab.load_data(), _vocab.load_vocabulary(str(K.VOCABULARY))
+    allow = {"fixture-800": {"id": "fixture-800"}}
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "c" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    edl, _ = _edl.build_base(doc, analysis, data, allow, retake_mode="propose")
+    platform = _output.read_platform(str(K.INSTAGRAM))
+    return lambda beats, vocabulary=vocab: _output.check_documents(data, edl, beats, platform, vocabulary, allow), vocab
+
+
+def test_the_beats_written_for_an_added_layout_pass_the_renderers_own_check(world, monkeypatch):
+    check, _ = renderer_checker()
+    task = added_layout_video(world, monkeypatch, show=SHOW)
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    assert check(beats)["mentions"] == [] and [e["id"] for e in beats["layouts"]] == ["a1"]
+    broken = dict(beats, slots=[])      # the check does see the missing row: the K3 refusal
+    with pytest.raises(Exception) as caught:
+        check(broken)
+    assert getattr(caught.value, "code", "") == "slot_without_description"
+
+
+def test_the_beats_written_for_an_added_picture_overlay_pass_the_renderers_own_check(world, tmp_path):
+    """No shipped block is an overlay with a picture, so the vocabulary file holds a planted overlay preset with one: the same code path (`pic_kind` overlay) read from that file, and the
+    renderer's own check of what it wrote."""
+    check, vocab = renderer_checker()
+    planted = json.loads(json.dumps(vocab))
+    planted["presets"]["pic_overlay"] = {"kind": "overlay", "params": {"asset": {"type": ["image"], "required": True}}}
+    path = tmp_path / "planted-vocabulary.json"
+    path.write_text(json.dumps(planted))
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(path))})
+    entry = {"id": "a1", "beat": 1001, "preset": "pic_overlay", "params": {"asset": "a1"}, "word_from": 3, "word_to": 5, "score": 1.0}
+    row = step_media._slot_row(store, entry, {"asset_param": "asset", "pic_kind": "overlay", "words": [SHOW]})
+    assert row == {"slot": "a1", "beat": 1001, "param": "asset", "type": "image", "description": SHOW}
+    assert check(dict(COMPLETE_BEATS, overlays=[entry], slots=[row]), planted)["mentions"] == []
