@@ -19,7 +19,7 @@ What code decides, in this order, before anything runs (the pattern of runtime/o
 a clip slot is not sent while the engine draws no clips); the skill is a folder of this checkout that declares `search:web` and no side effect; the routed pair was measured with the web; the
 day's count is under the bound of `media.websearch`; and, without `--confirm`, nothing more. The run carries no file of the project and no standing instruction: its prompt is rendered here from the
 slot ids, the kinds and the search words, each checked again. Its answer is a file the run wrote; it is read without following a link, at most 64 KiB, copied into a scratch folder and checked by the
-skill's own script and again by `media_stock.read_web_candidates`; either failing refuses the file whole. A URL a model wrote reaches the open-web provider only (by its
+skill's own script (run isolated, runtime/isolated.py) and again by `media_stock.read_web_candidates`; either failing refuses the file whole. A URL a model wrote reaches the open-web provider only (by its
 closed verbs) and no answer, run row, log or decision body ever holds one beyond its host; the page address is text for the terminal and this computer's own page. The operations are class G
 (internal, never served in words), on the terminal and the page, never on the local network's socket (runtime/operations.py `LAN_REFUSED_OPS`), messaging or the MCP mode (limits L78 and L80).
 
@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import captions  # noqa: E402
+import isolated  # noqa: E402
 import lab  # noqa: E402
 import media_animation  # noqa: E402
 import media_stock  # noqa: E402
@@ -58,7 +59,7 @@ CHANNELS = ops_media_stock.CHANNELS
 NEUTRAL = "web media search"      # the text of the request a run makes: the words are never in the store
 CANDIDATES = (".workbench-local", "video", "web-candidates.json")
 CANDIDATES_LIMIT = 64 * 1024
-CHECKER = ("skills", SKILL, "scripts", "check_candidates.py")
+CHECKER = "check_candidates.py"
 CHECK_TIMEOUT = 30
 PREVIEW_TIMEOUT, PREVIEW_PARALLEL = 40, 4
 PREVIEW_BYTES = 4 * media_stock.MIB
@@ -153,15 +154,14 @@ def _read_file(cwd: str):
 
 
 def _check_with_script(copy: str, sent: dict) -> bool:
-    """The skill's own checker on the copy: `ok` must be true in what it printed."""
-    script = os.path.join(core.ROOT, *CHECKER)
-    if not os.path.isfile(script):
-        return False
-    args = [sys.executable, "-I", script, "--file", copy] + [a for slot, kind in sorted(sent.items()) for a in ("--slot", f"{slot}:{kind}")]
+    """The skill's own checker on the copy, run isolated (runtime/isolated.py: `-I -E -s`, a scrubbed environment, no shell): `ok` must be true in what it printed."""
     try:
-        done = subprocess.run(args, capture_output=True, timeout=CHECK_TIMEOUT, shell=False, cwd=os.path.dirname(copy), env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
-        answer = json.loads(done.stdout.decode("utf-8", "replace"))
-    except (OSError, subprocess.SubprocessError, ValueError, RecursionError):
+        script = isolated.skill_script(core.ROOT, SKILL, CHECKER)
+        if not os.path.isfile(script):
+            return False
+        done = isolated.run_script(script, ["--file", copy] + [a for slot, kind in sorted(sent.items()) for a in ("--slot", f"{slot}:{kind}")], cwd=os.path.dirname(copy), timeout=CHECK_TIMEOUT)
+        answer = json.loads(done.stdout)
+    except (OSError, ValueError, RecursionError, subprocess.SubprocessError):
         return False
     return isinstance(answer, dict) and answer.get("ok") is True
 
