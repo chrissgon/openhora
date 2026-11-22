@@ -82,5 +82,8 @@ container), the image's project check (every case of the spec), and `hf-page` wi
 and scaled to a size other than its own (L2, L4); a video two levels deep (glass); the name `media/clip-<slot>.mp4` instead of S2's `media/clip.mp4`; whether HyperFrames holds a clip's last frame
 (refused instead); two different clip files in one render, live; every time and memory figure of a render with a clip on this engine.
 
-**C10 of the clip cutaway on HyperFrames (STOP 7).** Not given yet. The supervisor quotes the maintainer's own words here when he gives them, after the sheet of leg L4 (the cover and the glass clip
-and a square one, on HyperFrames beside the same on ffmpeg, five frames inside each beat).
+**C10 of the clip cutaway on HyperFrames (STOP 7), 2026-11-22.** The maintainer approved the look. Asked "Você aprova o C10 do clipe no cutaway do HyperFrames? Pode responder \"Aprovo\" ou dizer o que quer ajustar.", he answered on 2026-11-22: "Aprovo" (validate: allow english-only -- the maintainer's own words, quoted).
+
+- What he saw: a sheet of synthetic clips with the same cutaway drawn by HyperFrames beside the ffmpeg engine, at frames 72, 92, 112, 132 and 150 of the beat: a vertical clip in cover, a landscape clip in glass and a square clip in glass. Images: `openhora-renderer:d6feec7d70e9` and `openhora-hyperframes:5bbbcd52f5e0`. No real clip or picture was used.
+- The only visible difference was the width of the caption text, which each engine draws its own way and which was already so before this package.
+- This records approval of the look only; it is no consent for the merge into main, which needs his own yes.
