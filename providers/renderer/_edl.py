@@ -781,8 +781,9 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     One beat track, and a picture wins (V9b-3e): a picture beat (a layout with an asset slot in its params) keeps its own
     range against every text beat (an overlay, or a layout with no slot) it overlaps. A text beat that starts before the
     picture ends where the picture starts; one that starts inside it starts where the picture ends; one left with no frame
-    is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`); one that spans a picture
-    keeps the longer side (the earlier on a tie). Then, among what is left, where two beats overlap the earlier one ends
+    is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`), and so is one whose
+    kept side is shorter than its preset's `min_duration` (in frames, at least 1); one that spans a picture keeps the
+    longer side (the earlier on a tie). Then, among what is left, where two beats overlap the earlier one ends
     where the later one starts, and one that is left with no frame is dropped (and reported)."""
     fps, n = edl["fps"], edl["out_frames"]
     by_index = {w["index"]: w for w in edl["words"]}
@@ -815,7 +816,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         s0, e0 = t["start_frame"], t["end_frame"]
         before = (lo - s0) if s0 < lo else 0
         after = (e0 - hi) if e0 > hi else 0
-        if before == 0 and after == 0:
+        least = max(1, int(round(data["presets"][t["preset"]]["min_duration"] * fps)))
+        if max(before, after) < least:                    # nothing left, or less than the preset's minimum: a flash of a few frames is dropped
             under.append(t["id"])
         elif before >= after:
             t["end_frame"], t["clipped"] = lo, True

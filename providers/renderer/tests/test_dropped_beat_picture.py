@@ -129,7 +129,7 @@ def test_the_live_shape_with_a_longer_picture_beside_a3_drops_a3_and_the_dry_run
     data, edl, beats, vocab = live_shape(docs)
     beats = with_slots(beats, beats["layouts"] + [layout("a4", 8, "s4", 22, 31)])          # a picture that starts with a3 and is longer: of two pictures the shorter loses
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
-    assert timeline["dropped"] == ["a3"]
+    assert "a3" in timeline["dropped"] and "a4" not in timeline["dropped"]      # b1, b2 and b4 are dropped under pictures too
     (tmp_path / "edl.json").write_text(json.dumps(edl))
     (tmp_path / "beats.json").write_text(json.dumps(beats))
     monkeypatch.setattr(_render, "check_recording", lambda *a, **k: {})
@@ -140,7 +140,7 @@ def test_the_live_shape_with_a_longer_picture_beside_a3_drops_a3_and_the_dry_run
     result = _render.render(edl_path=str(tmp_path / "edl.json"), beats_path=str(tmp_path / "beats.json"), src="unused.mp4", out=str(tmp_path / "out"),
                             platform_path=str(K.INSTAGRAM), vocabulary_path=str(K.VOCABULARY), asset_files=files, asset_sha256s={}, ffmpeg="ffmpeg", ffprobe="ffprobe",
                             browser={"path": "chrome"}, dry_run=True)
-    assert result["assets_dropped"] == ["s3"] and result["beats_dropped"] == ["a3"]
+    assert result["assets_dropped"] == ["s3"] and "a3" in result["beats_dropped"] and "a4" not in result["beats_dropped"]      # b1, b2 and b4 are dropped under pictures too
 
 
 # ---------------------------------------------------------------- the HyperFrames compose

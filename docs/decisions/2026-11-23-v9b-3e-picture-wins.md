@@ -18,11 +18,11 @@ other beat (every overlay, a layout with no slot) is a text beat. Before the exi
 
 Then the existing pass runs unchanged on the result: picture against picture and text against text, as before (two pictures that start together: the shorter is dropped and its slot is `assets_dropped`).
 
-**Minimum length.** A text beat moved past a picture keeps whatever frames are left, as a clipped beat does today; there is no new minimum.
+**Minimum length (added in review, supersedes the first spec's "no new minimum").** A text beat the picture pass shortens must keep at least its preset's `min_duration`, in frames (`int(round(min_duration * fps))`, at least 1). When the side it keeps is shorter, it is dropped with `under_picture`, like one wholly under a picture. Why: on the live K4 shape overlay b1 was left with 2 frames (68-70) after picture a1 pushed its start, a 67 ms flash that no one can read. The minimum applies only in the picture pass; the neighbour pass (text against text, picture against picture) is unchanged.
 
 **What did not change.** Captions, punches, grades, the pip room (`_layout.py`), the V9b-3d handling of a dropped picture (still possible when two pictures collide) and the runtime. `resolve_timeline` is shared:
 both engines, the preview, the host's dropped-slot check and the asset-sheet path all call it, so each agrees with the render.
 
-**Verified.** Offline, `providers/renderer/tests/test_picture_wins.py` (the live shape: a3 drawn on its own range, b4 starting at its end, nothing dropped, the ffmpeg dry run with no `assets_dropped`;
+**Verified.** Offline, `providers/renderer/tests/test_picture_wins.py` (the live shape: a3 drawn on its own range, b4 starting at its end, b1 and b2 dropped `under_picture` for lack of their minimum, the ffmpeg dry run with no `assets_dropped`; the minimum, exact and one frame short, and no kept text beat on the live shape below its preset minimum;
 a text beat before, inside and spanning a picture; two pictures; two text beats; a layout with no slot; the HyperFrames compose) and `test_dropped_beat_picture.py`, whose fixture now makes the dropped beat
 a picture that loses to a longer picture, since a text overlay no longer causes a picture's drop. **Not verified:** a live render of a real recording with the engines, which the supervisor runs.
