@@ -8,7 +8,7 @@
 
   video_media_websearch(project, task, confirm=False, channel=None)   without `confirm`: the words that would be sent and nothing else. With it: one run of the skill SKILL on the open network
                                                                       (a model with web search, the words of the slots and no file of the project), its candidates file read back and checked twice,
-                                                                      one small preview of each candidate fetched by the open-web provider into the quarantine, and the candidates merged into the
+                                                                      one preview of each candidate (V9b-3c: up to 16 MiB) fetched by the open-web provider into the quarantine, and the candidates merged into the
                                                                       media set (`set.json`, phase `found`) beside the licensed ones. The run folder is removed.
   video_media_approve_asset(project, task, slot, sha256, confirm=None, channel=None)
                                                                       the stronger approval of one fetched file that nobody checked: without `confirm` it shows the
@@ -64,6 +64,8 @@ CHECKER = "check_candidates.py"
 CHECK_TIMEOUT = 30
 PREVIEW_TIMEOUT, PREVIEW_PARALLEL = 40, 4
 PREVIEW_BYTES = 4 * media_stock.MIB
+FILE_PREVIEW_BYTES = media_stock.KIND_BYTES["image"]      # = the open-web provider's CAPS["image_bytes"] (a test compares): an image with no thumbnail is previewed as the file itself
+FILE_PREVIEW_TIMEOUT = 70                                  # above the provider's CAPS["image_seconds"] (a test compares)
 PREVIEW_MAX = media_stock.WEB_MAX_TOTAL      # = the open-web provider's PER_VIDEO["previews"] (a test compares)
 PREVIEW_TYPES = ("image/png", "image/jpeg")
 CLAIM_NOTE = "claimed by the page, not checked"
@@ -226,21 +228,24 @@ def _record(name: str, row: dict, item: str, preview, digest) -> dict:
 
 
 def _preview(ctx: dict, rid: str, sources, name: str, quarantine: str, row: dict):
-    """(candidate, None) or (None, reason) for one candidate of a run: the open-web provider's `preview` verb fetches the thumbnail (else the file itself, an image) into the quarantine; its answer
+    """(candidate, None) or (None, reason) for one candidate of a run: the open-web provider's `preview` verb fetches the thumbnail, or, for an image with no thumbnail, its `fetch` verb fetches the file itself (up to 16 MiB), into the quarantine; its answer
     is checked against the closed shape, the type, the name (`q-<sha12>.<ext>`), the size and the file's own facts. A refused preview drops its candidate. A clip with no thumbnail has no preview
     (V9b spec 7.5): it is kept as a candidate with no preview file and no provider call, its item a hash of its link (`u-<12 hex>`, so the link itself is named nowhere), and its frame is drawn
     on the sheet after it is fetched and before the person approves it (K4)."""
     if row["kind"] == "clip" and not row.get("thumb_url"):
         return _record(name, row, "u-" + hashlib.sha256(row["media_url"].encode("utf-8")).hexdigest()[:12], None, None), None
-    url = row.get("thumb_url") or row["media_url"]
-    flags = ["--kind", "image", "--url", url, "--out", quarantine, "--max-bytes", str(PREVIEW_BYTES), "--allow-unverified"] + _host_flags(ctx["cfg"])
+    if row.get("thumb_url"):
+        verb, url, cap, timeout = "preview", row["thumb_url"], PREVIEW_BYTES, PREVIEW_TIMEOUT
+    else:                                       # an image with no thumbnail: the preview is the file itself, up to the cap of an image file (V9b-3c)
+        verb, url, cap, timeout = "fetch", row["media_url"], FILE_PREVIEW_BYTES, FILE_PREVIEW_TIMEOUT
+    flags = ["--kind", "image", "--url", url, "--out", quarantine, "--max-bytes", str(cap), "--allow-unverified"] + _host_flags(ctx["cfg"])
     try:
-        done = sources.call(name, "preview", flags, PREVIEW_TIMEOUT)
+        done = sources.call(name, verb, flags, timeout)
     except ops_media_stock.Refused:
         return None, "preview"
     file, digest, size = done.get("file"), done.get("sha256"), done.get("bytes")
     if not (done.get("ok") is True and set(done) <= ops_media_stock.KEYS_WEB_FETCH and isinstance(file, str) and media_stock.PROVIDER_FILE.fullmatch(file) and file.startswith("q-")
-            and done.get("type") in PREVIEW_TYPES and type(size) is int and 0 < size <= PREVIEW_BYTES and isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)
+            and done.get("type") in PREVIEW_TYPES and type(size) is int and 0 < size <= cap and isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)
             and file.startswith("q-" + digest[:12] + ".")):
         return None, "preview"
     try:
@@ -248,6 +253,13 @@ def _preview(ctx: dict, rid: str, sources, name: str, quarantine: str, row: dict
     except media_stock.StockError:
         return None, "preview"
     if facts != (digest, size):
+        return None, "preview"
+    try:
+        dims = media_stock.image_size(ctx["cfg"]["data_dir"], rid, file, True)
+    except media_stock.StockError:
+        return None, "preview"
+    if (dims is None or not (1 <= dims[0] <= media_stock.PREVIEW_MAX_SIDE and 1 <= dims[1] <= media_stock.PREVIEW_MAX_SIDE)
+            or dims[0] * dims[1] > media_stock.PREVIEW_MAX_PIXELS):      # the renderer refuses the whole sheet for one such picture, and refuses to use it
         return None, "preview"
     return _record(name, row, "q-" + digest[:12], file, digest), None
 

@@ -184,10 +184,13 @@ Nobody can check who owns such a file, so it has an approval of its own, after a
   `media.websearch` (`max_per_day` 5, `max_cost_usd` 0.60, `timeout_seconds` 300) are the other keys.
 - **`video-media-websearch --task T [--confirm]`** (terminal and page; class G, a job). Code decides, in order, with nothing run: the video waits at the caption review; the web source is on and accepted; the
   slots (at most six; a slot that wants a clip is not sent while the engine draws none, and is said); the skill declares `search:web` and no side effect; the routed pair was measured with the web; the day's
-  count is under the bound. Without `--confirm` it prints the words and says that this computer will then download small previews from the sites found (those sites see this computer's address). With it,
+  count is under the bound. Without `--confirm` it prints the words and says that this computer will then download a preview of each picture found (up to 16 MiB each) from the sites found (those sites see this computer's address). With it,
   one run of the skill on the open network, with no file of the project and no standing instruction: its prompt is rendered from the slot ids, the kinds and the search words alone, in the form the skill was
   measured on. Its candidates file is read without following a link (at most 64 KiB), copied, and checked by the skill's own script and again by the same rules in code; either failing refuses the file whole.
-  The open-web provider fetches one small preview of each candidate into the quarantine, and the candidates join the licensed ones in one set. The run folder is removed in every case.
+  The open-web provider fetches one preview of each candidate into the quarantine, and the candidates join the licensed ones in one set (V9b-3c). A candidate with a thumbnail is previewed from it
+  (verb `preview`, at most 4 MiB, 40 s); an image with no thumbnail is previewed as the file itself (verb `fetch`, at most 16 MiB, 70 s); a clip with no thumbnail has no preview and no call. Every kept preview's
+  width and height are read from its own header bytes (PNG or JPEG), and a candidate whose side is over 8192 px, whose area is over 40,000,000 px, or whose header is not understood is dropped alone
+  (counted in `dropped.preview`), since the renderer would refuse the whole sheet for one such picture and would refuse to use it. Licensed previews are not checked this way. The run folder is removed in every case.
 - **One set, two searches.** `video-media-find` replaces the licensed candidates and keeps the open-web ones of the same words; `video-media-websearch` replaces the open-web ones and keeps the licensed ones
   of the same words; either one voids the approval. A web candidate shows where it was found, what its page claims (a claim, never checked), a note when it is a still of a screen work, and the page address as
   plain text on this computer's own page and the terminal.

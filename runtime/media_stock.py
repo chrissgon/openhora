@@ -65,6 +65,8 @@ MAX_FULL_BYTES = 400 * 1024 * 1024                    # the full files of a vide
 MAX_CALLS = 40                                        # API calls of a video
 MIB = 1024 * 1024
 KIND_BYTES = {"image": 16 * MIB, "clip": 64 * MIB}   # the clip cap = limits.asset_max_bytes of providers/renderer/renderer-presets.json (a test compares)
+PREVIEW_MAX_SIDE = 8192                               # = limits.asset_max_side of providers/renderer/renderer-presets.json (a test compares)
+PREVIEW_MAX_PIXELS = 40_000_000                       # = limits.asset_max_pixels of providers/renderer/renderer-presets.json (a test compares)
 CLIP_SECONDS_MAX = 10.0                               # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
 SET, APPROVED, SHEET, SHEET_PREVIEW = "set.json", "approved.json", "sheet.png", "sheet-preview.png"
 QUARANTINE = media.STOCK_QUARANTINE
@@ -329,6 +331,71 @@ def file_facts(data_dir: str, rid: str, name: str):
             return digest.hexdigest(), info.st_size
         finally:
             os.close(handle)
+
+
+def _png_size(data: bytes):
+    if len(data) >= 24 and data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR":
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    return None
+
+
+def _jpeg_size(data: bytes):
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    i, n = 2, len(data)
+    while i + 4 <= n:
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:                                  # fill byte
+            i += 1
+            continue
+        if marker in (0x01, 0xD8) or 0xD0 <= marker <= 0xD7:      # no length
+            i += 2
+            continue
+        if marker in (0xD9, 0xDA):                          # end of image or start of scan before any frame header
+            return None
+        length = int.from_bytes(data[i + 2:i + 4], "big")
+        if length < 2:
+            return None
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            if length < 8 or i + 9 > n:
+                return None
+            return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+        i += 2 + length
+    return None
+
+
+def image_size(data_dir: str, rid: str, name: str, quarantine: bool = False):
+    """(width, height) of a PNG or JPEG file of the stock folder (or of its quarantine), read from the file's own header bytes, or None when the file is not one the reader
+    understands (not a PNG or a JPEG, truncated, malformed). The file is opened without following a link and must be a regular file; at most KIND_BYTES["image"] bytes are read."""
+    if not PROVIDER_FILE.fullmatch(name or ""):
+        raise StockError("that is not a name of the stock folder", "usage")
+    with _open(data_dir, rid) as fd:
+        sub = None
+        try:
+            if quarantine:
+                try:
+                    sub = os.open(QUARANTINE, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=fd)
+                except OSError:
+                    raise StockError("that file cannot be read", "unreadable") from None
+            try:
+                handle = os.open(name, os.O_RDONLY | NOFOLLOW, dir_fd=sub if sub is not None else fd)
+            except FileNotFoundError:
+                return None
+            except OSError:
+                raise StockError("that file cannot be read", "unreadable") from None
+            try:
+                if not stat.S_ISREG(os.fstat(handle).st_mode):
+                    raise StockError("that file is not a plain file", "unreadable")
+                with os.fdopen(handle, "rb", closefd=False) as f:
+                    data = f.read(KIND_BYTES["image"])
+            finally:
+                os.close(handle)
+        finally:
+            if sub is not None:
+                os.close(sub)
+    return _png_size(data) or _jpeg_size(data)
 
 
 def remove_where(data_dir: str, rid: str, wanted) -> int:

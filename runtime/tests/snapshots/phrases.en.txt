@@ -1148,7 +1148,7 @@ VID_WEB_NEEDS_OWN: This file needs its own approval after the warning.
 VID_WEB_NOTHING: The web search found no picture that could be used.
 VID_WEB_NOT_BUILT: The web search is not set up here; the licensed sources were searched.
 VID_WEB_NO_WEB: The chosen model cannot search the web here; the licensed sources were searched.
-VID_WEB_PREVIEW: These words will be sent to the web search of the model that runs it and to that model's provider, and this computer will then download small previews from the sites found: move, review.
+VID_WEB_PREVIEW: These words will be sent to the web search of the model that runs it and to that model's provider, and this computer will then download a preview of each picture found (up to 16 MiB each) from the sites found: move, review.
 VID_WEB_WARNING: Copyright warning: this file was found on the open web, on <host>. The platform could not check who owns it or whether it may be reused, and the licence the page states, if any, was not checked. If you approve it and publish the video, the video may be taken down and your account may receive a copyright strike. Approve it only if you know you may use it. Source page: <page>
 WAITS_COUNT: A plan waits for you.
 WD_FRI: Fri
