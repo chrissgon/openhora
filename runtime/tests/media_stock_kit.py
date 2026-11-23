@@ -100,7 +100,7 @@ class FakeSources:
     def _fetch(self, source, flags):
         kind, item, out = flag(flags, "--kind"), flag(flags, "--item"), flag(flags, "--out")
         data = png(16, 16, (1, 2, 3 + len(item) % 200))
-        name = "full-%s-%s.png" % (source, item)
+        name = "full-%s-%s%s.png" % (source, item, "-clip" if kind == "clip" else "")      # a clip's full file ends `-clip`: the fake renderer makes an `.mp4` of it
         Path(out, name).write_bytes(data)
         return {"ok": True, "source": source, "item": item, "kind": kind, "file": name, "bytes": len(data), "sha256": sha(data), "licence": self.licences.get(source, "cc0-1.0"),
                 "author": self.authors.get(source, "Bram Hollow"), "title": "A picture", "page": "https://%s.example/p/%s" % (source, item), "seconds": None, "requests": 1}
@@ -118,7 +118,7 @@ class FakeSources:
     def _fetch_url(self, source, flags):
         out = flag(flags, "--out")
         data = png(16, 16, (9, 9, 9))
-        name = "q-%s.png" % sha(data)[:12]
+        name = "q-%s%s.png" % (sha(data)[:12], "-clip" if flag(flags, "--kind") == "clip" else "")      # a clip's full file ends `-clip`: the fake renderer makes an `.mp4` of it
         Path(out, name).write_bytes(data)
         return {"ok": True, "file": name, "bytes": len(data), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
 
@@ -128,7 +128,7 @@ class FakeSheets:
     bytes) into `--out`, and answers the verb's closed shape. `fail` is an exception to raise; `mutate` changes the answer."""
 
     def __init__(self):
-        self.calls, self.fail, self.mutate = [], None, None
+        self.calls, self.fail, self.mutate, self.clip_seconds = [], None, None, 4.0
 
     def call(self, cls, verb, args, timeout):
         assert (cls, verb) == ("renderer:video", "asset-sheet")
@@ -141,12 +141,17 @@ class FakeSheets:
                 key, _, path = args[i + 1].partition("=")
                 row, _, col = key.partition(":")
                 items[(row, int(col))] = path
-        self.calls.append({"mode": mode, "items": dict(items), "timeout": timeout})
+        self.calls.append({"mode": mode, "items": dict(items), "timeout": timeout, "fps": flag(args, "--fps")})
         assets = []
         for (row, col), path in sorted(items.items()):
             source = Path(path).read_bytes()
             record = {"row": row, "col": col, "file": None, "sha256": sha(source), "width": 8, "height": 8, "source_sha256": sha(source)}
-            if mode == "full":
+            if mode == "full" and Path(path).stem.endswith("-clip"):      # a clip: the renderer's normalised H.264 file, its bytes planted here
+                data = b"\x00\x00\x00\x18ftypisom" + source
+                name = "asset-%s.mp4" % sha(data)[:12]
+                Path(out, name).write_bytes(data)
+                record.update(file=name, sha256=sha(data), width=1080, height=1920, kind="clip", seconds=self.clip_seconds)
+            elif mode == "full":
                 data = png(1080, 1920, (sum(source) % 255, 50, 60))
                 name = "asset-%s.png" % sha(data)[:12]
                 Path(out, name).write_bytes(data)

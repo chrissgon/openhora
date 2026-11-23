@@ -136,6 +136,7 @@ def test_the_web_must_be_one_of_the_sources_of_the_project(world, monkeypatch):
 
 
 def test_a_slot_that_wants_a_clip_is_not_sent_while_the_engine_draws_none_and_is_listed_as_skipped(world, monkeypatch):
+    monkeypatch.setattr(ops_media_websearch.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # V9b-5c: the real catalogue now lists clips; an engine without them still skips the slot
     w = with_candidates(web_world(world, monkeypatch, {"beat7": ("market stall", "image"), "beat8": ("fruit crate", "clip")}))
     shown = search(world, w["task"], confirm=False)
     assert [s["slot"] for s in shown["slots"]] == ["beat7"] and [k["slot"] for k in shown["skipped"]] == ["beat8"]
@@ -145,6 +146,7 @@ def test_a_slot_that_wants_a_clip_is_not_sent_while_the_engine_draws_none_and_is
 
 
 def test_a_video_whose_only_slots_want_clips_has_nothing_to_send(world, monkeypatch):
+    monkeypatch.setattr(ops_media_websearch.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # V9b-5c: the real catalogue now lists clips; an engine without them still skips the slot
     w = with_candidates(web_world(world, monkeypatch, {"beat7": ("market stall", "clip")}))
     assert "no_slots" in refused(search, world, w["task"]) and w["run"].calls == []
 

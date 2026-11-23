@@ -232,6 +232,7 @@ def test_a_second_task_cannot_use_the_approval_of_the_first(world, monkeypatch):
 
 
 def test_a_web_candidate_of_kind_clip_planted_in_the_set_is_refused_by_the_fetch_before_anything_is_fetched(world, monkeypatch):
+    monkeypatch.setattr(ops_media_stock.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # V9b-5c: the real catalogue now lists clips; an engine without them still refuses
     layout_engine(world["engine"])
     w = web_world(world, monkeypatch)
     w["run"].document = web_document([web_candidate("beat7", 1)])
@@ -284,3 +285,46 @@ def test_limit_80_a_file_found_on_the_web_is_used_only_after_its_own_approval_bo
     assert "video-media-approve-asset" in operations.LAN_REFUSED_OPS and "mcp" not in operations.by_name("video-media-approve-asset")["channels"]
     media_stock.write_doc(world["data"], world["rid"], "approved.json", dict(approved_doc(world), unverified={"beat7": dict(entry, task=w["task"] + 1)}))
     assert run_task(world, w["task"])["code"] == "media_not_approved", "never carried to another task"
+
+
+# --- a web clip (package V9b-5c) ---------------------------------------------------------------------------------------------------------------------
+
+
+def walk_clip(world, monkeypatch):
+    """The web path for a clip slot: found, picked, fetched (the fake renderer makes an `.mp4` of the file the web provider fetched), the set approved, a cutaway layout for the slot in the proposal."""
+    layout_engine(world["engine"])
+    w = web_world(world, monkeypatch, {"beat7": ("market stall", "clip")})
+    data, rid = world["data"], world["rid"]
+    beats = json.loads(ops_media_stock.media.read_work(data, rid, "proposal.beats.json", 1 << 20))
+    beats["layouts"] = [{"id": "b7", "beat": 7, "preset": "cutaway", "block": "oh:cutaway", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3}]
+    ops_media_stock.media.write_work(data, rid, "proposal.beats.json", json.dumps(beats).encode("utf-8"))
+    edl = json.loads(ops_media_stock.media.read_work(data, rid, "proposal.edl.json", 1 << 20))
+    ops_media_stock.media.write_work(data, rid, "proposal.edl.json", json.dumps(dict(edl, fps=30)).encode("utf-8"))
+    w["run"].document = web_document([web_candidate("beat7", 1, kind="clip"), web_candidate("beat7", 2, kind="clip")])
+    done = ops.video_media_websearch(world["path"], w["task"], confirm=True)
+    pick(world, w["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    answer = ops.video_media_fetch_picks(world["path"], w["task"])
+    shown = ops.video_media_approve(world["path"], w["task"])
+    ops.video_media_approve(world["path"], w["task"], hash=shown["sha256"])
+    return dict(w, done=done, answer=answer, shown=shown, sha=shown["set"]["assets"][0]["sha256"])
+
+
+def test_a_web_clip_is_sent_to_the_search_with_the_real_catalogue_and_the_prompt_says_a_clip(world, monkeypatch):
+    w = web_world(world, monkeypatch, {"beat7": ("market stall", "image"), "beat8": ("fruit crate", "clip")})
+    w["run"].document = web_document([web_candidate("beat7", 1), web_candidate("beat8", 1, kind="clip")])
+    shown = ops.video_media_websearch(world["path"], w["task"], confirm=False)
+    assert [s["slot"] for s in shown["slots"]] == ["beat7", "beat8"] and not shown.get("skipped")
+    ops.video_media_websearch(world["path"], w["task"], confirm=True)
+    prompt = w["run"].calls[0]["prompt"]
+    assert "Slot `beat8`: a clip" in prompt and "Slot `beat7`: a picture" in prompt
+
+
+def test_approve_asset_of_a_web_clip_shows_the_sheet_and_its_own_approval_binds_the_clip(world, monkeypatch):
+    w = walk_clip(world, monkeypatch)
+    assert w["answer"]["assets"][0]["kind"] == "clip" and w["answer"]["assets"][0]["file"] is None
+    shown = approve_asset(world, w)
+    assert shown["approved"] is False and shown["file"] == "sheet.png" and shown["confirm"] == "--confirm-digits " + w["sha"][:12]
+    done = approve_asset(world, w, confirm=w["sha"][:12])
+    assert done["approved"] is True
+    assert approved_doc(world)["unverified"]["beat7"]["sha256"] == w["sha"]
+
