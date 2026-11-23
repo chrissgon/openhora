@@ -503,7 +503,7 @@ export function videoMediaApprove(p, id, hash, { signal } = {}) {
 }
 
 /** POST /projects/{p}/videos/{id}/media/websearch (job): without `confirm` the words that would be sent to the web search of the model that runs it, nothing sent; with it a model searches the open web and this
- *  computer downloads small previews from the sites found. The job's result is the answer. */
+ *  computer downloads a preview of each picture (up to 16 MiB each) from the sites found. The job's result is the answer. */
 export function videoMediaWebsearch(p, id, confirm, { signal } = {}) {
   return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/websearch`, { body: { confirm: Boolean(confirm) }, signal });
 }

@@ -1195,7 +1195,7 @@ OPERATIONS = (
     {"name": "video-media-websearch", "call": "video_media_websearch",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "confirm", "kind": "flag"}),
      "channels": ("terminal", "page"), "model": True, "job": True, "channel_arg": True,
-     "help": "search the open web for pictures for the slots of a new video that waits at the caption review (--task <id>): without --confirm it sends nothing and says which words would go to the model's web search; with --confirm a model with web search runs, and this computer downloads small previews from the sites it found; no licence is checked",
+     "help": "search the open web for pictures for the slots of a new video that waits at the caption review (--task <id>): without --confirm it sends nothing and says which words would go to the model's web search; with --confirm a model with web search runs, and this computer downloads a preview of each picture (up to 16 MiB each) from the sites it found; no licence is checked",
      "natural": {"class": "G", "since": 4, "order": 189, "privacy": "off-host", "cost": "model", "what": "search the web for pictures for a new video", "about": "Search the web for pictures for a new video.", "slots": {}}},
     {"name": "video-media-approve-asset", "call": "video_media_approve_asset",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "slot", "kind": "str", "required": True, "flag": "slot", "label": "slot id"},

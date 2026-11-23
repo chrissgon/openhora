@@ -1148,7 +1148,7 @@ VID_WEB_NEEDS_OWN: Este arquivo precisa da sua própria aprovação depois do av
 VID_WEB_NOTHING: A busca na internet não encontrou nenhuma imagem que possa ser usada.
 VID_WEB_NOT_BUILT: A busca na internet não está configurada aqui; as fontes licenciadas foram pesquisadas.
 VID_WEB_NO_WEB: O modelo escolhido não pode pesquisar na internet aqui; as fontes licenciadas foram pesquisadas.
-VID_WEB_PREVIEW: Estas palavras serão enviadas para a busca na internet do modelo que a executa e para o provedor desse modelo, e este computador vai baixar pequenas prévias dos sites encontrados: move, review.
+VID_WEB_PREVIEW: Estas palavras serão enviadas para a busca na internet do modelo que a executa e para o provedor desse modelo, e este computador vai baixar uma prévia de cada imagem encontrada (até 16 MiB cada) dos sites encontrados: move, review.
 VID_WEB_WARNING: Aviso de direitos autorais: este arquivo foi encontrado na internet, em <host>. A plataforma não conseguiu verificar quem é o dono nem se ele pode ser reutilizado, e a licença que a página diz ter, se houver, não foi verificada. Se você aprovar e publicar o vídeo, ele pode ser removido e sua conta pode receber uma advertência por direitos autorais. Aprove só se souber que pode usá-lo. Página de origem: <page>
 WAITS_COUNT: Aguardando você: plan.
 WD_FRI: sex

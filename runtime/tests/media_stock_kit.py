@@ -55,6 +55,7 @@ class FakeSources:
         self.titles = {}
         self.lock, self.active, self.most_active, self.clip_seconds = threading.Lock(), {}, {}, 8
         self.waited = set()
+        self.bodies, self.say_bytes = {}, {}      # V9b-3c: the bytes an open-web link gives instead of the flat PNG, and the size its answer claims
         self.fail_urls = set()      # the links of the open web whose preview is refused (V9b-3b)
 
     def of(self, verb, source=None):
@@ -110,17 +111,17 @@ class FakeSources:
         url, out = flag(flags, "--url"), flag(flags, "--out")
         if url in self.fail_urls:
             raise ops_media_stock.Refused("failed")
-        data = png(8, 8, tuple(hashlib.sha256(url.encode("utf-8")).digest()[:3]))
+        data = self.bodies.get(url) or png(8, 8, tuple(hashlib.sha256(url.encode("utf-8")).digest()[:3]))
         name = "q-%s.png" % sha(data)[:12]
         Path(out, name).write_bytes(data)
-        return {"ok": True, "file": name, "bytes": len(data), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
+        return {"ok": True, "file": name, "bytes": self.say_bytes.get(url, len(data)), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
 
     def _fetch_url(self, source, flags):
         out = flag(flags, "--out")
-        data = png(16, 16, (9, 9, 9))
+        data = self.bodies.get(flag(flags, "--url")) or png(16, 16, (9, 9, 9))
         name = "q-%s%s.png" % (sha(data)[:12], "-clip" if flag(flags, "--kind") == "clip" else "")      # a clip's full file ends `-clip`: the fake renderer makes an `.mp4` of it
         Path(out, name).write_bytes(data)
-        return {"ok": True, "file": name, "bytes": len(data), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
+        return {"ok": True, "file": name, "bytes": self.say_bytes.get(flag(flags, "--url"), len(data)), "sha256": sha(data), "type": "image/png", "host": "pics.example"}
 
 
 class FakeSheets:

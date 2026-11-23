@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import struct
 from pathlib import Path
 
 import pytest
@@ -92,7 +93,7 @@ def test_without_confirm_it_says_the_words_and_the_download_and_runs_nothing(wor
     w = with_candidates(web_world(world, monkeypatch))
     shown = search(world, w["task"], confirm=False)
     assert shown["confirmed"] is False and shown["skipped"] == [] and [s["slot"] for s in shown["slots"]] == ["beat7"]
-    assert "market stall" in shown["message"] and "web search of the model that runs it" in shown["message"] and "download small previews" in shown["message"]
+    assert "market stall" in shown["message"] and "web search of the model that runs it" in shown["message"] and "a preview of each picture found (up to 16 MiB each)" in shown["message"]
     assert shown["message"] == text_of(world, "VID_WEB_PREVIEW", words="market stall")
     assert w["run"].calls == [] and w["sources"].calls == [] and not (stock_folder(world) / "set.json").exists() and rows(world) == []
 
@@ -356,8 +357,8 @@ def test_the_media_link_stands_in_for_the_preview_when_there_is_no_thumbnail(wor
     one.pop("thumb_url")
     w["run"].document = web_document([one])
     search(world, w["task"])
-    [call] = w["sources"].of("preview")
-    assert call["flags"][call["flags"].index("--url") + 1] == one["media_url"]
+    [call] = w["sources"].of("fetch")      # V9b-3c: the file itself, through the provider's fetch verb
+    assert call["flags"][call["flags"].index("--url") + 1] == one["media_url"] and w["sources"].of("preview") == []
 
 
 def no_thumb(slot, n, kind="clip"):
@@ -664,3 +665,70 @@ def test_limit_79_a_link_a_model_wrote_is_opened_only_by_the_open_web_provider_a
     assert [c["flags"][c["flags"].index("--refuse-host") + 1] for c in w["sources"].of("preview", "web")] == ["blocked.example"] * 2, "the person's lists are passed to it"
     ctx = ops_core.context(world["path"])
     assert LINK_MARK not in json.dumps(done) and LINK_MARK not in "\n".join(ctx["conn"].iterdump())
+
+
+# --- V9b-3c: the preview of an image with no thumbnail, and the size check of every preview ----------------------------------------------------------
+
+
+def jpeg(width, height, progressive=False, app1=0):
+    """A JPEG header (SOI, an APP1 of `app1` bytes, SOF, EOI): enough for a reader of the size, made here."""
+    sof = b"\xff\xc2" if progressive else b"\xff\xc0"
+    body = b"\xff\xd8" + (b"\xff\xe1" + struct.pack(">H", app1 + 2) + b"\x00" * app1 if app1 else b"")
+    return body + sof + struct.pack(">HBHHB", 11, 8, height, width, 1) + b"\x01\x11\x00" + b"\xff\xd9"
+
+
+def test_an_image_with_no_thumbnail_is_previewed_as_the_file_itself_through_fetch_with_the_image_cap(world, monkeypatch):
+    w = web_world(world, monkeypatch)
+    one = no_thumb("beat7", 1, kind="image")
+    w["run"].document = web_document([one])
+    done = search(world, w["task"])
+    assert w["sources"].of("preview") == [] and done["found"] == 1
+    [call] = w["sources"].of("fetch", "web")
+    flags = call["flags"]
+    assert flags[flags.index("--kind") + 1] == "image" and flags[flags.index("--url") + 1] == one["media_url"] and flags[flags.index("--max-bytes") + 1] == "16777216"
+    assert "--allow-unverified" in flags and call["timeout"] == 70 == ops_media_websearch.FILE_PREVIEW_TIMEOUT
+
+
+def test_an_image_with_a_thumbnail_still_goes_through_preview_with_the_small_cap(world, monkeypatch):
+    w = web_world(world, monkeypatch)
+    w["run"].document = web_document([web_candidate("beat7", 1)])
+    search(world, w["task"])
+    [call] = w["sources"].of("preview")
+    assert call["flags"][call["flags"].index("--max-bytes") + 1] == "4194304" and call["timeout"] == 40
+    assert w["sources"].of("fetch") == [] and len(w["sources"].calls) == 1
+
+
+def test_a_file_preview_of_twelve_mib_is_kept_and_a_thumbnail_answer_of_five_mib_is_dropped(world, monkeypatch):
+    w = web_world(world, monkeypatch)
+    big = no_thumb("beat7", 1, kind="image")
+    thumb = web_candidate("beat7", 2)
+    w["sources"].bodies[big["media_url"]] = png(8, 8) + b"\x00" * (12 * 1024 * 1024)
+    w["sources"].say_bytes[thumb["thumb_url"]] = 5 * 1024 * 1024
+    w["run"].document = web_document([big, thumb])
+    done = search(world, w["task"])
+    assert done["found"] == 1 and done["dropped"]["preview"] == 1
+    assert [c["title"] for c in done["slots"][0]["candidates"]] == [big["title"]]
+
+
+def test_a_preview_whose_picture_is_too_large_is_dropped_alone_and_the_sheet_is_made_from_the_rest(world, monkeypatch):
+    slots = {"beat%d" % n: ("fruit %s" % x, "image") for n, x in zip(range(7, 13), "abcdef")}
+    w = web_world(world, monkeypatch, slots)
+    rows = [web_candidate(slot, 1, title="Picture %d" % i) for i, slot in enumerate(slots)]
+    bodies = [png(9000, 100), png(7000, 7000), png(8192, 4000), jpeg(300, 200, app1=60000), jpeg(300, 200)[:10], jpeg(300, 200, progressive=True)]
+    for row, data in zip(rows, bodies):
+        w["sources"].bodies[row["thumb_url"]] = data
+    w["run"].document = web_document(rows)
+    done = search(world, w["task"])
+    assert done["dropped"]["preview"] == 3 and done["found"] == 3
+    assert sorted(c["title"] for r in done["slots"] for c in r["candidates"]) == sorted(rows[i]["title"] for i in (2, 3, 5))
+    assert len(sheet_calls(w)[-1]["items"]) == 3
+    assert len(quarantine(world)) == 3
+
+
+def test_the_size_limits_of_a_preview_are_the_renderers_and_the_file_preview_is_the_providers_image_cap():
+    provider = (REPO / "providers" / "stock" / "web.py").read_text(encoding="utf-8")
+    assert re.search(r'"image_bytes": (\d+) \* MIB', provider).group(1) == "16" and ops_media_websearch.FILE_PREVIEW_BYTES == 16 * 1024 * 1024
+    assert ops_media_websearch.FILE_PREVIEW_BYTES == media_stock.KIND_BYTES["image"]
+    assert int(re.search(r'"image_seconds": (\d+)', provider).group(1)) < ops_media_websearch.FILE_PREVIEW_TIMEOUT
+    limits = json.loads((REPO / "providers" / "renderer" / "renderer-presets.json").read_text(encoding="utf-8"))["limits"]
+    assert media_stock.PREVIEW_MAX_SIDE == limits["asset_max_side"] and media_stock.PREVIEW_MAX_PIXELS == limits["asset_max_pixels"]
