@@ -194,6 +194,80 @@ def test_a_caption_during_a_split_takes_its_band_and_the_moved_face():
     assert c["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100}
 
 
+def test_a_chunk_that_runs_past_a_top_split_takes_its_band_only_on_the_split_frames():
+    # review probe P1: before the fix the whole chunk 80-120 took [285, 602] and lay over the next beat's card on frames 90-119
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "top"}, "start_frame": 30, "end_frame": 90, "face": dict(FACE)},
+                    {"id": "b2", "preset": "keyword", "params": {"text": "Habits"}, "start_frame": 90, "end_frame": 150, "face": dict(FACE)}],
+          "captions": [{"word_from": 3, "word_to": 5, "start_frame": 80, "end_frame": 120, "face": dict(FACE)}], "dropped": []}
+    assert _layout.split_layouts(DATA, tl) == []
+    a, b = tl["captions"]
+    assert (a["start_frame"], a["end_frame"], b["start_frame"], b["end_frame"]) == (80, 90, 90, 120)
+    assert a["band"] == [285, 602] and a["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100}
+    assert "band" not in b and b["face"] == FACE
+    assert _layout.entry_zones(DATA, b)["caption"] == [1198, 1560]
+    card_bottom = _layout.zones(DATA, FACE)["card"][1]
+    assert _layout.entry_zones(DATA, b)["caption"][0] > card_bottom
+    assert a["word_from"] == b["word_from"] == 3 and a["word_to"] == b["word_to"] == 5
+
+
+def test_two_splits_back_to_back_give_each_piece_of_a_shared_chunk_its_own_band():
+    # review probe P2: before the fix the chunk took the bottom split's band and a face union y 200-1720, and the render failed overlay_hits_face
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "top"}, "start_frame": 30, "end_frame": 90, "face": dict(FACE)},
+                    {"id": "b2", "preset": "split", "params": {"asset": "s2", "side": "bottom"}, "start_frame": 90, "end_frame": 150, "face": dict(FACE)}],
+          "captions": [{"word_from": 3, "word_to": 5, "start_frame": 80, "end_frame": 100, "face": dict(FACE)}], "dropped": []}
+    assert _layout.split_layouts(DATA, tl) == []
+    a, b = tl["captions"]
+    assert (a["start_frame"], a["end_frame"], a["band"]) == (80, 90, [285, 602])
+    assert (b["start_frame"], b["end_frame"], b["band"]) == (90, 100, [1198, 1560])
+    assert a["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100} and b["face"] == {"x": 240, "y": 200, "w": 600, "h": 980}
+    for piece in (a, b):
+        lo, hi = piece["band"]
+        f = piece["face"]
+        assert hi <= f["y"] or lo >= f["y"] + f["h"]          # the caption band never meets the face the caption is checked against
+
+
+def test_a_chunk_that_covers_a_short_split_is_cut_in_three():
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "left"}, "start_frame": 30, "end_frame": 60, "face": dict(FACE)}],
+          "captions": [{"word_from": 0, "word_to": 2, "start_frame": 20, "end_frame": 70, "face": dict(FACE)}], "dropped": []}
+    _layout.split_layouts(DATA, tl)
+    assert [(c["start_frame"], c["end_frame"], c.get("band")) for c in tl["captions"]] == [(20, 30, None), (30, 60, [1198, 1378]), (60, 70, None)]
+
+
+def test_a_pip_band_stays_on_the_pieces_outside_the_split():
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "top"}, "start_frame": 30, "end_frame": 90, "face": dict(FACE)}],
+          "captions": [{"word_from": 0, "word_to": 2, "start_frame": 80, "end_frame": 100, "face": dict(FACE), "band": [1300, 1420]}], "dropped": []}
+    _layout.split_layouts(DATA, tl)
+    a, b = tl["captions"]
+    assert a["band"] == [285, 602] and b["band"] == [1300, 1420]
+
+
+def test_without_a_split_the_captions_are_left_as_they_were():
+    first = {"word_from": 0, "word_to": 2, "start_frame": 80, "end_frame": 120, "face": dict(FACE), "band": [1300, 1420]}
+    tl = {"beats": [{"id": "b2", "preset": "keyword", "params": {"text": "Habits"}, "start_frame": 90, "end_frame": 150, "face": dict(FACE)}],
+          "captions": [first], "dropped": []}
+    before = copy.deepcopy(tl["captions"])
+    assert _layout.split_layouts(DATA, tl) == []
+    assert tl["captions"][0] is first and tl["captions"] == before
+
+
+def test_a_dropped_split_cuts_no_chunk():
+    low = {"x": 240, "y": 900, "w": 600, "h": 560}
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "bottom"}, "start_frame": 30, "end_frame": 90, "face": dict(low)}],
+          "captions": [{"word_from": 0, "word_to": 2, "start_frame": 20, "end_frame": 40, "face": dict(low)}], "dropped": []}
+    _layout.split_layouts(DATA, tl)
+    assert tl["beats"] == [] and len(tl["captions"]) == 1 and tl["captions"][0]["start_frame"] == 20 and tl["captions"][0]["end_frame"] == 40
+
+
+def test_a_piece_keeps_the_word_times_of_its_chunk():
+    # caption_data (unchanged) takes the piece's first frame as its origin: a word said before the piece starts has a negative start
+    edl = {"captions": {"position": "bottom"}}
+    by_index = {3: {"index": 3, "text": "every", "start": 2.70, "end": 2.90}, 4: {"index": 4, "text": "euro", "start": 3.10, "end": 3.40}}
+    piece = {"word_from": 3, "word_to": 4, "start_frame": 90, "end_frame": 120, "face": dict(FACE)}
+    out = _payload.caption_data(DATA, edl, piece, by_index, 30)
+    assert out["words"] == [{"text": "every", "start": -0.3, "end": -0.1}, {"text": "euro", "start": 0.1, "end": 0.4}]
+    assert out["duration"] == 1.0
+
+
 def test_split_rows_are_what_the_compose_plan_needs():
     tl = split_timeline(side="top")
     _layout.split_layouts(DATA, tl)
@@ -385,3 +459,22 @@ def test_the_speaker_is_moved_into_its_half_on_the_beat_frames_only(tmp_path):
     assert pixel(out, 60, 540, 100)[0] < 80 and pixel(out, 60, 540, 1300)[0] < 80
     assert pixel(out, 10, 540, 400)[0] < 80 and pixel(out, 10, 540, 900)[0] > 150      # before the beat: the speaker where the recording has it
     assert pixel(out, 60, 540, 215)[0] > 150 and pixel(out, 60, 540, 185)[0] < 80      # not scaled: the box's top edge is at 200
+
+
+@needs_ffmpeg
+def test_the_speaker_is_moved_on_exactly_the_first_and_the_last_frame_of_the_beat(tmp_path):
+    src = tmp_path / "rec.mp4"
+    subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "color=c=0x203040:s=1080x1920:r=30:d=4,drawbox=x=240:y=620:w=600:h=560:color=0xFA1414:t=fill", "-pix_fmt", "yuv420p", str(src)], check=True)
+    plan = plan_with([], [SPLIT_ROW])
+    plan.update(src=str(src), layers=[])
+    argv = _media.compose_argv(K.FFMPEG, plan)
+    out = tmp_path / "out.mp4"
+    argv[-1] = str(out)
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-600:]
+    # SPLIT_ROW covers frames 30..89 of one kept range; row 400 is the moved face only while the split is on
+    assert pixel(out, 29, 540, 400)[0] < 80
+    assert pixel(out, 30, 540, 400)[0] > 150
+    assert pixel(out, 89, 540, 400)[0] > 150
+    assert pixel(out, 90, 540, 400)[0] < 80

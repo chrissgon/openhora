@@ -93,8 +93,10 @@ def split_geometry(data: dict, face: dict, side: str) -> dict:
     the lowest stretch of rows inside [frame.safe.top, zones.caption_bottom] at least zones.caption_min_height tall that keeps `gap`
     from the face as it was, from the moved face and, for top and bottom, from the whole speaker half (so never across the seam);
     None when there is none. bar: for left and right, the band cut to split.bar_height rows, which the page covers with an opaque bar
-    across the frame so that no seam runs under a caption; None otherwise. label: where the page puts the label chip, in the asset
-    half's corner nearest the seam: {x, max_w, top, bottom} (one of top and bottom is None)."""
+    across the frame so that no seam runs under a caption; None otherwise. label: where the page puts the label chip, {x, max_w, top, bottom} (one of top and bottom is None). For top and bottom it is in the
+    asset half's corner nearest the seam, at the left of the safe width. For left and right it is at the top-left of the asset half, inside the
+    safe area: x is the half's left edge plus split.label_inset, at least frame.safe.left, and top is frame.safe.top. For right that corner is
+    beside the seam; for left it is at the frame's outer edge, away from the seam."""
     f, z, sp = data["frame"], data["zones"], data["split"]
     W, H = f["width"], f["height"]
     hw, hh = W // 2, H // 2
@@ -139,12 +141,35 @@ def split_geometry(data: dict, face: dict, side: str) -> dict:
             "crop": crop, "moved_face": moved, "band": band, "bar": bar, "label": label}
 
 
+def caption_pieces(chunk: dict, splits: list) -> list:
+    """One caption chunk cut at every first or last frame of a split that falls strictly inside it, as caption entries in frame order. A piece
+    is the chunk itself (its words, its `face`, its pip `band` if any) on fewer frames. A piece inside a split whose band is set takes that band
+    as `band`, and as `face` the union of its face and the moved face. Pieces outside every split keep the chunk's band and face. Beats never
+    overlap (one beat track), so a piece is inside at most one split."""
+    cuts = sorted({f for e in splits for f in (e["start_frame"], e["end_frame"]) if chunk["start_frame"] < f < chunk["end_frame"]})
+    edges = [chunk["start_frame"]] + cuts + [chunk["end_frame"]]
+    out = []
+    for a, b in zip(edges, edges[1:]):
+        piece = dict(chunk, start_frame=a, end_frame=b, face=dict(chunk["face"]))
+        if "band" in chunk:
+            piece["band"] = list(chunk["band"])
+        for e in splits:
+            if e["split"]["band"] and e["start_frame"] < b and a < e["end_frame"]:
+                piece["band"] = list(e["split"]["band"])
+                moved = e["split"]["moved_face"]
+                if moved["w"] and moved["h"]:
+                    piece["face"] = _union([piece["face"], moved])
+        out.append(piece)
+    return out
+
+
 def split_layouts(data: dict, timeline: dict, drop: bool = True) -> list:
     """Settle every split of the timeline, in place: each gets `entry["split"]` (`split_geometry`, its side from the params, `bottom` by
     default), or, when it leaves no caption band and `drop` is true, is taken out of `timeline["beats"]` (its id to `timeline["dropped"]`, a
-    {id, reason: split_no_room} row to `timeline["dropped_reasons"]`). Each caption chunk that shares frames with a kept split gets that split's
-    band as `chunk["band"]` (a later split wins) and, as its `face`, the union of its face and the moved face. Call it after `pip_cards`, which
-    resets every caption's band. `drop` false (the storyboard, which draws no captions) keeps every split. Returns the rows it added."""
+    {id, reason: split_no_room} row to `timeline["dropped_reasons"]`). When a split is kept, every caption chunk is replaced by its pieces
+    (`caption_pieces`): a chunk is cut at each split edge inside it, so a piece inside a split has that split's band and the moved face, and
+    a piece outside keeps what it had. With no split kept, `timeline["captions"]` is not touched. Call it after `pip_cards`, which resets every
+    caption's band. `drop` false (the storyboard, which draws no captions) keeps every split. Returns the rows it added."""
     kept, added = [], []
     rows = timeline.setdefault("dropped_reasons", [])
     for e in timeline["beats"]:
@@ -159,13 +184,9 @@ def split_layouts(data: dict, timeline: dict, drop: bool = True) -> list:
             e["split"] = geom
         kept.append(e)
     timeline["beats"][:] = kept
-    for c in timeline["captions"]:
-        for e in kept:
-            if e["preset"] == "split" and e["split"]["band"] and e["start_frame"] < c["end_frame"] and c["start_frame"] < e["end_frame"]:
-                c["band"] = list(e["split"]["band"])
-                moved = e["split"]["moved_face"]
-                if moved["w"] and moved["h"]:
-                    c["face"] = _union([c["face"], moved])
+    splits = [e for e in kept if e["preset"] == "split"]
+    if splits:
+        timeline["captions"][:] = [p for c in timeline["captions"] for p in caption_pieces(c, splits)]
     return added
 
 

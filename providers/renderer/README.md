@@ -328,7 +328,7 @@ the same pictures and times and finds the same frame bytes for an image cutaway 
 
 - **Transitions.** A clip cutaway draws the `cut` transition only (the default since V9d). A theme whose cutaway look is `slide` or `zoom` is refused `clip_transition`
   for a clip entry. The loss: those themes cannot use clips yet.
-- **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip` or any other block is `asset_type` naming the slot.
+- **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip`, `oh:split` or any other block is `asset_type` naming the slot.
 - **The gate** judges a clip cutaway frame as an image cutaway frame: the page reports the same boxes (none), and the face rules of every card and caption are
   unchanged. The HyperFrames engine draws a clip since V9b-5b (below).
 
@@ -499,7 +499,7 @@ skip with a reason where those are absent; the host side runs against a fake doc
   `oh:screenshot` on both): the compose, the gates and the page's look in the host's browser are tested, with a stand-in for GSAP's timeline; HyperFrames' own
   render of the iframe, the decode of the pictures before frame 0 in it, the loopback server's answer for a PNG, the determinism at 4 and 8 cores (`F9`, `M4` of
   `tests/test_engine_contract_live.py`) and spike S2 (a clip in a frame-band iframe) wait for the rebuilt images.
-- The split (V9f): only the host's headless browser drew its page, and only a synthetic recording went through its crop; the look on a real recording, a face box wider than half the frame on a `left` or `right` split (the crop is not scaled, so a wide face box is cut at the seam or the frame's edge) and a render in the container are not verified. Its image is a PNG or JPEG, as the cutaway's; a clip in a split slot is refused `asset_type`, as in a pip.
+- The split (V9f): only the host's headless browser drew its page, and only a synthetic recording went through its crop; the look on a real recording, a face box wider than half the frame on a `left` or `right` split (the crop is not scaled, so a wide face box is cut at the seam or the frame's edge) and a render in the container are not verified. A caption chunk that runs past a split's first or last frame is cut there (`_layout.caption_pieces`), so the caption's entry animation plays again on that frame; that, and the caption's stroke and shadow reaching a few pixels above the opaque bar of a `left` or `right` split, are not verified in a browser. Its image is a PNG or JPEG, as the cutaway's; a clip in a split slot is refused `asset_type`, as in a pip.
 - On the HyperFrames engine an asset is a PNG (a clip is drawn by the ffmpeg engine's compose only, V9b-5a); the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
   `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has
   `fit: contain` is drawn whole, centred, inside the safe margins, over a blurred, tinted copy of itself (`glass_blur_px`, `glass_tint_alpha`,

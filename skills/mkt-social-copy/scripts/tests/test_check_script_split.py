@@ -194,9 +194,54 @@ def test_split_beats_count_toward_the_preset_share():
     assert has(out, None, "preset", "preset_overused")
 
 
+CALM_SCRIPT = HEADER + """
+beat: 1
+role: hook
+line: 3 habits cut my spending by 340 euros in one month.
+on-screen: Habits cut spending
+preset: keyword
+
+beat: 2
+role: point
+line: First, name every euro on the first of the month.
+on-screen: Name | Review | Cancel
+preset: list
+
+beat: 3
+role: point
+line: Second, review the plan for ten minutes every Sunday.
+preset: split
+asset: a photo of the weekly budget sheet
+side: right
+
+beat: 4
+role: point
+line: Third, cancel one subscription you forgot you had.
+
+beat: 5
+role: proof
+line: Together those habits saved me 340 euros.
+on-screen: euros saved in one month
+preset: number
+value: 340
+
+beat: 6
+role: payoff
+line: Small habits cut my spending because each removes a decision.
+
+beat: 7
+role: cta
+line: Send this to a friend who wants to save.
+"""
+
+
 def test_split_counts_in_the_calm_density():
-    edited = GOOD.replace("beat: 4\nrole: point\n", "beat: 4\nrole: point\n" + SPLIT_LINES, 1)
-    lines = re.findall(r"^line: (.*)$", edited, re.M)
+    lines = re.findall(r"^line: (.*)$", CALM_SCRIPT, re.M)
     total = sum(len(cs.words(t)) for t in lines)
-    out = run(edited, register="calm", figures=MATERIAL)
-    assert has(out, None, "preset", "calm_preset_density") == (4 > max(1, total // 20))
+    assert total == 64 and max(1, total // 20) == 3          # 3 presets allowed in a calm script of 64 words
+    out = run(CALM_SCRIPT, register="calm", figures=MATERIAL)
+    assert has(out, None, "preset", "calm_preset_density")   # keyword, list, split, number: 4 > 3
+    without = CALM_SCRIPT.replace("preset: split\nasset: a photo of the weekly budget sheet\nside: right\n", "")
+    assert without != CALM_SCRIPT
+    out = run(without, register="calm", figures=MATERIAL)
+    assert not has(out, None, "preset", "calm_preset_density")   # 3 presets: within the limit, so the split is what tips it
