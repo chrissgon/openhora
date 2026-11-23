@@ -182,7 +182,9 @@ timeline: the real timeline is in the image only), `tests/test_hf_render_inner.p
 the theme's colour, with a slow push-in and the label chip; the home of a landscape or small picture. It has the cutaway's parameters, is of the `frame` band
 and may cross the face, and both engines draw it.
 
-**A picture whose beat the timeline dropped (V9b-3d).** The timeline has one beat track: of two beats that start on the same word the shorter is cut to nothing and dropped. A slot handed over with
+**A picture wins over a text overlay (V9b-3e).** The timeline has one beat track. A picture beat (a layout with an asset slot in its params) keeps its own range against every text beat (an overlay, or a layout with no slot) it overlaps: the text beat ends where the picture starts, or starts where the picture ends, or is dropped when no frame is left or fewer than its preset's `min_duration` are (`beats_dropped_reasons` gets `{id, reason: "under_picture"}`); one that spans a picture keeps the longer side, the earlier on a tie. Picture against picture and text against text: the earlier one ends where the later starts, the one left with no frame is dropped. Tests: `tests/test_picture_wins.py`.
+
+**A picture whose beat the timeline dropped (V9b-3d).** Of two picture beats that start on the same word the shorter is cut to nothing and dropped. A slot handed over with
 `--asset` is classified against `beats.json` (`_edl.classify_slots`): used by a kept beat, it is drawn; used by no beat at all, `asset_unused`; used only by dropped beats, it is not read, not
 staged (`_host.dropped_asset_slots`, in both host files: no file of it enters the job folder or the page, its `--asset-sha256` is ignored) and not drawn, and the answer of `render` (a dry run too) and of
 `hf-page` lists it in `assets_dropped`, sorted, present only when non-empty (the result schemas of `_docker.py` list it). A kept beat's slot with no file is still `asset_missing`. Tests:

@@ -145,7 +145,7 @@ def caption_pieces(chunk: dict, splits: list) -> list:
     """One caption chunk cut at every first or last frame of a split that falls strictly inside it, as caption entries in frame order. A piece
     is the chunk itself (its words, its `face`, its pip `band` if any) on fewer frames. A piece inside a split whose band is set takes that band
     as `band`, and as `face` the union of its face and the moved face. Pieces outside every split keep the chunk's band and face. Beats never
-    overlap (one beat track), so a piece is inside at most one split."""
+    overlap (one beat track; a text beat yields to a picture, V9b-3e), so a piece is inside at most one split."""
     cuts = sorted({f for e in splits for f in (e["start_frame"], e["end_frame"]) if chunk["start_frame"] < f < chunk["end_frame"]})
     edges = [chunk["start_frame"]] + cuts + [chunk["end_frame"]]
     out = []

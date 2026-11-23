@@ -562,15 +562,18 @@ def test_the_ffmpeg_engine_stages_the_test_blocks_folder_only_in_test_mode(world
 
 def test_the_ffmpeg_engines_render_neither_reads_nor_stages_the_picture_of_a_beat_the_timeline_dropped(world, tmp_path):
     data, edl, beats, vocab = K.hf_documents(tmp_path)
-    beats["layouts"] = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": "s1"}, "word_from": 22, "word_to": 24, "score": 1.0}]      # starts with b4 and is shorter
-    beats["slots"] = [{"slot": "s1", "beat": 7, "param": "asset", "type": "image|clip", "description": "a flat colour picture"}]
+    beats["layouts"] = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": "s1"}, "word_from": 22, "word_to": 24, "score": 1.0},      # starts with the longer picture a0 and is shorter
+                       {"id": "a0", "beat": 8, "preset": "cutaway", "params": {"asset": "s0"}, "word_from": 22, "word_to": 27, "score": 1.0}]
+    beats["slots"] = [{"slot": s, "beat": b, "param": "asset", "type": "image|clip", "description": "a flat colour picture"} for s, b in (("s1", 7), ("s0", 8))]
     picture = tmp_path / "s1.png"
     picture.write_bytes(b"these bytes are not a picture")
+    kept = tmp_path / "s0.png"
+    kept.write_bytes(b"the kept picture, not read by the host")
     base = ["render", "--edl", K.write_json(tmp_path / "e.json", edl), "--beats", K.write_json(tmp_path / "b.json", beats), "--in", tmp_path / "rec.mp4",
             "--out", tmp_path / "out", "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY, "--dry-run"]
     (tmp_path / "rec.mp4").write_bytes(b"0" * 16)
-    rc, out, err = world.host(*base, "--asset", "s1=%s" % picture, "--asset-sha256", "s1=" + "0" * 64)
+    rc, out, err = world.host(*base, "--asset", "s0=%s" % kept, "--asset", "s1=%s" % picture, "--asset-sha256", "s1=" + "0" * 64)
     assert rc == 0, err
-    assert out["assets_dropped"] == ["s1"] and not any(word.startswith("s1=") for word in out["command"]) and "--asset" not in out["command"]
-    rc, out, err = world.host(*base)                      # no picture handed over: nothing is dropped, nothing is reported
+    assert out["assets_dropped"] == ["s1"] and not any(word.startswith("s1=") for word in out["command"]) and any(word.startswith("s0=") for word in out["command"])
+    rc, out, err = world.host(*base, "--asset", "s0=%s" % kept)                      # only the kept picture handed over: nothing is dropped, nothing is reported
     assert rc == 0 and "assets_dropped" not in out

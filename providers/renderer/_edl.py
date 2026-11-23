@@ -778,11 +778,17 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     A beat starts at its first word and ends `tail` after its last, within the preset's minimum and maximum duration
     and the video's end (a keyword starts at the word that matches its text, when one does). A beat whose words are
     on either side of a cut is one continuous range of OUTPUT frames: the cut part is not on the timeline at all.
-    One beat track: where two beats overlap, the earlier one ends where the later one starts, and one that is left
-    with no frame is dropped (and reported)."""
+    One beat track, and a picture wins (V9b-3e): a picture beat (a layout with an asset slot in its params) keeps its own
+    range against every text beat (an overlay, or a layout with no slot) it overlaps. A text beat that starts before the
+    picture ends where the picture starts; one that starts inside it starts where the picture ends; one left with no frame
+    is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`), and so is one whose
+    kept side is shorter than its preset's `min_duration` (in frames, at least 1); one that spans a picture keeps the
+    longer side (the earlier on a tie). Then, among what is left, where two beats overlap the earlier one ends
+    where the later one starts, and one that is left with no frame is dropped (and reported)."""
     fps, n = edl["fps"], edl["out_frames"]
     by_index = {w["index"]: w for w in edl["words"]}
     entries = []
+    picture_ids = {e["id"] for e in beats["layouts"] if any(n in e["params"] for n in slot_params(vocab, e["preset"]))}
     for e in beats["overlays"] + beats["layouts"]:
         cfg = data["presets"][e["preset"]]
         start = by_index[e["word_from"]]["start"]
@@ -798,11 +804,32 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         ef = min(max(sf + 1, int(round(end * fps))), n)
         entries.append(dict(e, kind=vocab["presets"][e["preset"]]["kind"], start_frame=sf, end_frame=ef))
     entries.sort(key=lambda x: (x["start_frame"], x["end_frame"]))
+    pictures = [e for e in entries if e["id"] in picture_ids]
+    under = []
+    for t in entries:
+        if t["id"] in picture_ids:
+            continue
+        hit = [p for p in pictures if t["start_frame"] < p["end_frame"] and t["end_frame"] > p["start_frame"]]
+        if not hit:
+            continue
+        lo, hi = min(p["start_frame"] for p in hit), max(p["end_frame"] for p in hit)
+        s0, e0 = t["start_frame"], t["end_frame"]
+        before = (lo - s0) if s0 < lo else 0
+        after = (e0 - hi) if e0 > hi else 0
+        least = max(1, int(round(data["presets"][t["preset"]]["min_duration"] * fps)))
+        if max(before, after) < least:                    # nothing left, or less than the preset's minimum: a flash of a few frames is dropped
+            under.append(t["id"])
+        elif before >= after:
+            t["end_frame"], t["clipped"] = lo, True
+        else:
+            t["start_frame"], t["clipped"] = hi, True
+    entries = [e for e in entries if e["id"] not in under]
+    entries.sort(key=lambda x: (x["start_frame"], x["end_frame"]))
     for cur, nxt in zip(entries, entries[1:]):
         if cur["end_frame"] > nxt["start_frame"]:
             cur["end_frame"] = nxt["start_frame"]
             cur["clipped"] = True
-    dropped = [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
+    dropped = under + [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
     entries = [e for e in entries if e["id"] not in dropped]
     punches, punches_dropped = resolve_punches(edl, beats, data)
     grades, grades_dropped = resolve_grades(edl, beats, data)
@@ -827,5 +854,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         if ef <= sf:
             continue
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
-    return {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
-            "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
+    out = {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
+           "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
+    if under:
+        out["dropped_reasons"] = [{"id": i, "reason": "under_picture"} for i in under]
+    return out
