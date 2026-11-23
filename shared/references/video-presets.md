@@ -105,11 +105,25 @@ A script has at most 12 beats and a spoken line of at most 240 characters.
 | `position` | choice | `top` or `bottom` | no, default `top` |
 | `label` | text | up to 40 characters | no |
 
+### split
+
+- **Shows:** the frame splits in two: the speaker stays on screen in one half while a picture or a clip the person uploads fills the other half.
+- **Use when:** the person talks about something they show and their face should stay on screen, large (a photo of the result beside the speaker, a before-and-after, a screenshot to react to). Not when the person has nothing to show: use another preset.
+- **Main:** `label`, optional: a few words shown in the picture's half.
+
+| Parameter | Type | Bounds | Required |
+|-----------|------|--------|----------|
+| `asset` | image or clip | a description in words | yes |
+| `side` | choice | the half the picture takes: `top`, `bottom`, `left` or `right`; the speaker takes the other half | no, default `bottom` |
+| `fit` | choice | `cover` (fills its half, crops the edges) or `contain` (whole picture, bars around it) | no, default `cover` |
+| `label` | text | up to 40 characters | no |
+
 ## Choosing
 
 - One preset per beat; a script of a 30-second video holds about three to six beats, not one per sentence.
 - Do not use the same preset for every beat: a script of only keywords is flat. Prefer the preset the content calls for (a number for a measured figure, a list for parallel things).
-- A layout preset (`cutaway`, `pip`) is only written when the person has the material to show. Ask when it is not known.
+- A layout preset (`cutaway`, `pip`, `split`) is only written when the person has the material to show. Ask when it is not known.
+- Of the three layouts: `cutaway` hides the speaker, `pip` keeps the speaker full frame with the picture in a card, `split` gives the picture half of the frame and the speaker the other half.
 
 ## The script's own vocabulary (version 2 of the data file)
 

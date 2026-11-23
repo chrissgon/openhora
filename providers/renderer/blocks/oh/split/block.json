@@ -1,0 +1,56 @@
+{
+ "schema_version": 1,
+ "name": "oh:split",
+ "kind": "layout",
+ "preset": "split",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "the speaker stays on screen in one half of the frame while a picture the person uploads fills the other half",
+ "params": {
+  "asset": {
+   "type": [
+    "image",
+    "clip"
+   ],
+   "required": true
+  },
+  "side": {
+   "type": "choice",
+   "values": [
+    "top",
+    "bottom",
+    "left",
+    "right"
+   ],
+   "default": "bottom"
+  },
+  "fit": {
+   "type": "choice",
+   "values": [
+    "cover",
+    "contain"
+   ],
+   "default": "cover"
+  },
+  "label": {
+   "type": "text",
+   "max": 40
+  }
+ },
+ "samples": [
+  {
+   "asset": "slot-1",
+   "side": "bottom",
+   "fit": "cover",
+   "label": "Before and after"
+  }
+ ],
+ "natural_duration": 1.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}
