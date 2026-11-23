@@ -10,7 +10,7 @@
                                                                     source that serves a slot's kind is searched (the sources in parallel, each one request at a time), the
                                                                     candidates are merged per slot, a licence outside the tuple is dropped, the renderer's `asset-sheet` makes
                                                                     the preview sheet, and `set.json` is written. A second call starts over and voids the approval.
-  video_media_fetch_picks(project, task, channel=None)              every slot must have a pick (the `slot_asset` edit of the review); each pick's full file is fetched (a
+  video_media_fetch_picks(project, task, channel=None)              every slot that has candidates and is still chosen as stock must have a pick (the `slot_asset` edit of the review; a slot with none, or no longer chosen, is left without a picture); each pick's full file is fetched (a
                                                                     licensed one by its provider, from the item id; an open-web one into the quarantine by the web provider),
                                                                     the renderer normalises each to a PNG, and the previews and the unpicked files are deleted.
   video_media_sheet_file(project, task, file, channel=None)         one PNG the container made (`sheet-preview.png`, `sheet.png`, `asset-<sha12>.png`), for the page; never a
@@ -24,6 +24,9 @@ keeps) or without the person's confirm; a source is reached only through the cla
 minimum environment of the class and no key (a source reads its own through the secret resolver); the answers are checked against closed shapes before anything is kept; no
 media file's bytes are read here (the renderer's container decodes them) and none is served but the PNGs the container made; no URL or key is in an answer, a message or a
 log. The terminal and the page may call these; the local network's socket may not call the first, second and fourth (runtime/operations.py `LAN_REFUSED_OPS`).
+
+V9b-3b: one set holds the licensed candidates and the ones the open web gave (runtime/ops_media_websearch.py): `video_media_find` replaces the licensed candidates and carries the open-web ones of a
+`found` set whose slot has the same words, `_compose` is the tail both searches share, `_web_ready` is the acceptance of the open-web source, and `video_media_approve` lists the files that still need their own approval.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -209,19 +212,34 @@ def _stock_error(e: "media_stock.StockError") -> "core.OpsError":
     return _fail("stock_" + e.code, str(e))
 
 
+def _unaccepted(ctx: dict, names) -> list:
+    """The widening items of the stock sources `names` that the record of `accept-config --widen` does not hold yet (the item of a source is its group `stock=<name>@...`)."""
+    got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)      # noqa: E731
+    prefixes = tuple(f"{policy_widening.STOCK_GROUP}{n}@" for n in names)
+    return [i for i in policy_widening.account_widening(got(policy_widening.ACCOUNTS), ctx["cfg"], ops_config._digest_key(ctx)) if i["group"].startswith(prefixes)]
+
+
 def _need_sources(ctx: dict) -> list:
     """The licensed sources this project uses, accepted: `stock_off` when it uses none, `stock_not_accepted` when the person has not accepted them yet (the widening
-    record of `accept-config --widen` does not hold their items)."""
+    record of `accept-config --widen` does not hold their items). The item of the open web is another source's: a missing one never blocks a licensed find (V9b-3b)."""
     cfg = ctx["cfg"]
     names = media_stock.licensed(cfg["workbench"], media_stock.sources_of(cfg))
     if not names:
         raise _fail("stock_off", "this project uses no licensed stock source: media.stock in docs/workbench/runtime.json lists them")
-    got = lambda name: core._stored(ctx, ctx["store"].cursor_get, name)      # noqa: E731
-    missing = [i for i in policy_widening.account_widening(got(policy_widening.ACCOUNTS), cfg, ops_config._digest_key(ctx))
-               if i["group"].startswith(policy_widening.STOCK_GROUP)]
-    if missing:
+    if _unaccepted(ctx, names):
         raise _fail("stock_not_accepted", phrases.text("VID_STOCK_NOT_ACCEPTED", cfg))
     return names
+
+
+def _web_ready(ctx: dict) -> str:
+    """The name of the open-web source this project uses, when it is on and its item is accepted: `web_off` when `media.stock` lists none, `stock_not_accepted` when the person has not
+    accepted its item (a project accepted before V9b-3b accepts again with `accept-config --widen`)."""
+    name = media_stock.web_source(ctx["cfg"])
+    if name is None:
+        raise _fail("web_off", "this project does not use the open web as a source: media.stock in docs/workbench/runtime.json lists the sources")
+    if _unaccepted(ctx, [name]):
+        raise _fail("stock_not_accepted", phrases.text("VID_STOCK_NOT_ACCEPTED", ctx["cfg"]))
+    return name
 
 
 # --- the closed shapes of a provider's answer ----------------------------------------------------------------------------------------------------
@@ -258,10 +276,75 @@ def _candidate(source: str, kind: str, raw, folder_facts, tier: str):
             "page": page, "width": width, "height": height, "seconds": seconds, "preview": preview, "preview_sha256": digest}, None
 
 
+WEB_SHOWN = ("licence_claim", "site_terms", "resolution", "screen_work", "page_host")
+
+
 def _shown(candidate: dict) -> dict:
-    """A candidate as the answers show it: no file name, no URL but the library's own page."""
-    return {k: candidate[k] for k in ("pick", "source", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds")} | \
-        {"preview": candidate.get("preview") is not None}
+    """A candidate as the answers show it: no file name, no URL but the page's (a library's own page, or the page an open-web file was found on, which is text for this computer's own
+    page and the terminal). A candidate from the open web also shows what its page claims, its terms, its resolution, whether it is a still of a screen work and its host: text
+    from the web, shown as such; never the link of the file."""
+    out = {k: candidate[k] for k in ("pick", "source", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds")} | {"preview": candidate.get("preview") is not None}
+    if candidate.get("licence") == media_stock.UNVERIFIED:
+        out.update({k: candidate.get(k) for k in WEB_SHOWN})
+    return out
+
+
+def _preview_path(folder: str, candidate: dict) -> str:
+    """The file of a candidate's preview: in the stock folder, or in its quarantine for a candidate of the open web (`preview_in`)."""
+    return os.path.join(folder, media_stock.QUARANTINE, candidate["preview"]) if candidate.get("preview_in") == media_stock.QUARANTINE else os.path.join(folder, candidate["preview"])
+
+
+def _carried(ctx: dict, rid: str, old, task_id, slots: list, web: bool) -> dict:
+    """{source: {slot: [candidates]}} of the candidates of the set `old` (phase `found`, this task) that a new search of the other kind keeps: those of the open web when `web`, else
+    the licensed ones; only for a slot whose row has the same words and kind as the new one, only from a source this project still uses, and only while the preview file is
+    there with the sha256 the candidate has (V9b-3b: one set, two searches)."""
+    if not (isinstance(old, dict) and old.get("phase") == "found" and old.get("task") == task_id and isinstance(old.get("slots"), list)):
+        return {}
+    cfg, data_dir = ctx["cfg"], ctx["cfg"]["data_dir"]
+    names = [n for n in media_stock.sources_of(cfg) if (media_stock.tier_of(cfg["workbench"], n) == "unverified") is web]
+    new = {s["slot"]: (s["search"], s["want"]) for s in slots}
+    out = {}
+    for row in old["slots"]:
+        if not isinstance(row, dict) or new.get(row.get("slot")) != (row.get("search"), row.get("want")):
+            continue
+        for c in row.get("candidates") or []:
+            if not (isinstance(c, dict) and c.get("source") in names and isinstance(c.get("preview"), str) and media_stock.PROVIDER_FILE.fullmatch(c["preview"])
+                    and isinstance(c.get("preview_sha256"), str) and (c.get("licence") == media_stock.UNVERIFIED) is web and (c.get("preview_in") == media_stock.QUARANTINE) is web
+                    and all(k in c for k in ("pick", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds"))):
+                continue
+            try:
+                facts = _facts_at(data_dir, rid, c["preview"], web)
+            except media_stock.StockError:
+                continue
+            if facts is not None and facts[0] == c["preview_sha256"]:
+                out.setdefault(c["source"], {}).setdefault(row["slot"], []).append(c)
+    return out
+
+
+def _compose(ctx: dict, rid: str, task_id, slots: list, per_source: dict, dropped: dict) -> dict:
+    """What the tail of a search does, for the licensed one and the open-web one alike (V9b-3b: one set, two searches): the candidates of each source (`per_source`: {source: {slot:
+    [candidates]}}) merged per slot round robin in the order of `media.stock`, at most six; the previews no candidate kept go (a licensed one at once, an open-web one from the
+    quarantine); the renderer draws the sheet of the previews; `set.json` is written in phase `found`. Returns the answer both searches give."""
+    data_dir, cfg = ctx["cfg"]["data_dir"], ctx["cfg"]
+    listed = [n for n in media_stock.sources_of(cfg) if n in per_source]
+    merged = {s["slot"]: media_stock.merge([per_source[n].get(s["slot"], []) for n in listed]) for s in slots}      # the order of `listed` is the order of media.stock: the round robin's
+    total = sum(len(v) for v in merged.values())
+    keep = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") != media_stock.QUARANTINE}
+    keep_q = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") == media_stock.QUARANTINE}
+    try:
+        media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") and n not in keep)      # a preview no candidate kept goes at once
+        media_stock.prune_quarantine(data_dir, rid, keep_q)
+    except media_stock.StockError as e:
+        raise _stock_error(e) from None
+    sheet = _preview_sheet(ctx, rid, slots, merged) if total else None
+    doc = {"version": media_stock.SET_VERSION, "task": task_id, "at": media_stock.now_stamp(), "phase": "found",
+           "slots": [dict(s, candidates=merged[s["slot"]]) for s in slots], "assets": [], "sources": listed, "dropped": dropped}
+    try:
+        media_stock.write_doc(data_dir, rid, media_stock.SET, doc)
+    except media_stock.StockError as e:
+        raise _stock_error(e) from None
+    return {"confirmed": True, "found": total, "sheet": sheet, "dropped": dropped, "message": phrases.text("VID_STOCK_FOUND", cfg, found=total, slots=len(slots)),
+            "slots": [dict(s, candidates=[_shown(c) | {"col": n + 1} for n, c in enumerate(merged[s["slot"]])]) for s in slots]}
 
 
 # --- find ----------------------------------------------------------------------------------------------------------------------------------------
@@ -295,7 +378,12 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
         return {"confirmed": False, "sources": names, "slots": slots, "message": phrases.text("VID_STOCK_PREVIEW", ctx["cfg"], sources=", ".join(names), words=words)}
     data_dir = ctx["cfg"]["data_dir"]
     try:
-        media_stock.clear_candidates(data_dir, rid)
+        old = media_stock.read_doc(data_dir, rid, media_stock.SET)
+    except media_stock.StockError:
+        old = None
+    carried = _carried(ctx, rid, old, task_id, slots, web=True)      # V9b-3b: a new find replaces the licensed candidates only; the open-web ones of the same words stay
+    try:
+        media_stock.clear_licensed(data_dir, rid)
         media_stock.void_approval(data_dir, rid)
         folder = media_stock.ensure_folder(data_dir, rid)
     except media_stock.StockError as e:
@@ -303,7 +391,6 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
     sources = _sources_for(ctx)
     facts = lambda name: media_stock.file_facts(data_dir, rid, name)      # noqa: E731
     dropped = {"shape": 0, "licence": 0, "preview": 0, "source": 0}
-    found = {s["slot"]: {} for s in slots}
 
     def run_source(name: str):
         """One source, its slots one after another (a source's rate limit): {slot: [candidates]}."""
@@ -324,8 +411,9 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(names))) as pool:
         jobs = [(name, pool.submit(run_source, name)) for name in names]
         results = [(name, job.result()) for name, job in jobs]
-    per_slot = {s["slot"]: [] for s in slots}
-    for name, (answers, tier) in results:      # the order of `names` is the order of media.stock: the merge's round robin
+    per_source = dict(carried)
+    for name, (answers, tier) in results:      # the order of `names` is the order of media.stock: the merge's round robin (`_compose` keeps it)
+        per_source[name] = {}
         for s in slots:
             rows = answers.get(s["slot"], [])
             if rows is None:
@@ -338,25 +426,8 @@ def video_media_find(project: str, task_id, confirm=False, channel=None) -> dict
                     dropped[why] += 1
                 else:
                     kept.append(got)
-            per_slot[s["slot"]].append(kept)
-    merged = {slot: media_stock.merge(lists) for slot, lists in per_slot.items()}
-    total = sum(len(v) for v in merged.values())
-    keep_files = {c["preview"] for rows in merged.values() for c in rows}
-    try:
-        media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") and n not in keep_files)      # a preview no candidate kept goes at once
-    except media_stock.StockError as e:
-        raise _stock_error(e) from None
-    sheet = None
-    if total:
-        sheet = _preview_sheet(ctx, rid, slots, merged)
-    doc = {"version": media_stock.SET_VERSION, "task": task_id, "at": media_stock.now_stamp(), "phase": "found",
-           "slots": [dict(s, candidates=merged[s["slot"]]) for s in slots], "assets": [], "sources": names, "dropped": dropped}
-    try:
-        media_stock.write_doc(data_dir, rid, media_stock.SET, doc)
-    except media_stock.StockError as e:
-        raise _stock_error(e) from None
-    return {"confirmed": True, "found": total, "sheet": sheet, "dropped": dropped, "message": phrases.text("VID_STOCK_FOUND", ctx["cfg"], found=total, slots=len(slots)),
-            "slots": [dict(s, candidates=[_shown(c) | {"col": n + 1} for n, c in enumerate(merged[s["slot"]])]) for s in slots]}
+            per_source[name][s["slot"]] = kept
+    return _compose(ctx, rid, task_id, slots, per_source, dropped)
 
 
 def _preview_sheet(ctx: dict, rid: str, slots: list, merged: dict):
@@ -364,7 +435,7 @@ def _preview_sheet(ctx: dict, rid: str, slots: list, merged: dict):
     name exactly the tiles asked for. Returns the sheet's name."""
     data_dir = ctx["cfg"]["data_dir"]
     folder = media_stock.folder_of(data_dir, rid)
-    items = {(s["slot"], n + 1): os.path.join(folder, c["preview"]) for s in slots for n, c in enumerate(merged[s["slot"]])}
+    items = {(s["slot"], n + 1): _preview_path(folder, c) for s in slots for n, c in enumerate(merged[s["slot"]])}
     try:
         scratch, path = media_stock.make_scratch(data_dir, rid)
         done = _sheet(ctx, "preview", items, path)
@@ -390,12 +461,21 @@ def _licence_url(root: str, name: str, licence: str) -> str:
     return given if isinstance(given, str) and URL.fullmatch(given) else ""
 
 
-def _picked(found: dict, review: dict, store_kinds: list, cfg=None) -> list:
-    """[(slot row, chosen candidate)] for every slot of the set: each slot must have a pick that is one of its candidates; a clip needs an engine that draws clips."""
-    out, missing = [], []
+def _picked(found: dict, review: dict, store_kinds: list, cfg=None, current=None) -> tuple:
+    """(picks, without): `picks` is [(slot row, chosen candidate)], `without` the ids of the slots left with no picture, in the set's order. Rule 1: a row with a pick needs a pick
+    that is one of its candidates, and a clip needs an engine that draws clips. Rule 2: a row with no pick that has no candidates, or is no longer a stock slot (`current` is the set
+    of slot ids that are; None means every row is), is left without a picture: it is not fetched and the step renders it as the person's choice. Rule 3: a row with no pick that has
+    candidates and is still a stock slot is a missing pick (`no_pick`). With no pick at all, `no_pick`."""
+    out, missing, without = [], [], []
     for row in found["slots"]:
         pick = review["slot_assets"].get(row["slot"])
-        chosen = next((c for c in row["candidates"] if c["pick"] == pick), None) if pick else None
+        if not pick:
+            if not row["candidates"] or (current is not None and row["slot"] not in current):
+                without.append(row["slot"])
+            else:
+                missing.append(row["slot"])
+            continue
+        chosen = next((c for c in row["candidates"] if c["pick"] == pick), None)
         if chosen is None:
             missing.append(row["slot"])
             continue
@@ -404,7 +484,9 @@ def _picked(found: dict, review: dict, store_kinds: list, cfg=None) -> list:
         out.append((row, chosen))
     if missing:
         raise _fail("no_pick", "every slot needs a pick before the files are fetched; no pick for: " + ", ".join(missing))
-    return out
+    if not out:
+        raise _fail("no_pick", "no slot has a pick: pick a candidate for at least one slot")
+    return out, without
 
 
 def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
@@ -415,7 +497,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     task, rid, state = _task(ctx, task_id)
     _at_review(ctx, task, state)
     store = ops_step_seams.MediaStore(ctx)
-    review, _ = _read_review(store, rid)
+    review, proposal = _read_review(store, rid)
     data_dir, cfg = ctx["cfg"]["data_dir"], ctx["cfg"]
     try:
         found = media_stock.read_doc(data_dir, rid, media_stock.SET)
@@ -424,9 +506,12 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     if found is None or found.get("task") != task_id or not isinstance(found.get("slots"), list):
         raise _fail("no_set", "find the media first (video-media-find)")
     root = ctx["root"]
-    accepted = _need_sources(ctx)      # the acceptance is asked again: a source whose terms changed since the find is a new item the person has not accepted
+    picks, without = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg,
+                             current={s["slot"] for s in media_stock.stock_slots(review, proposal)})      # a clip is refused here, before any source is asked
+    accepted = _need_sources(ctx) if any(c["licence"] != media_stock.UNVERIFIED for _, c in picks) else []      # the acceptance is asked again, for the kinds of source the picks come from: a source whose terms changed since the find is a new item the person has not accepted
+    if any(c["licence"] == media_stock.UNVERIFIED for _, c in picks):
+        _web_ready(ctx)
     names = media_stock.sources_of(cfg)
-    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg)
     if len(picks) > media_stock.MAX_FULL:
         raise _fail("too_many_slots", f"at most {media_stock.MAX_FULL} files are fetched for a video")
     for _, chosen in picks:      # a source the project no longer lists, or that is licensed and not accepted, is not asked
@@ -490,7 +575,9 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         raise _stock_error(e) from None
     return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height")} | {"pick": f"{a['source']}:{a['item']}", "file": f"asset-{a['sha256'][:12]}.png"}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "message": "Check the pictures, then approve the media set."}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without,
+            "message": "Check the pictures, then approve the media set."
+            + (" " + phrases.text("VID_STOCK_NO_PICTURE", cfg, slots=", ".join(without)) if without else "")}
 
 
 def _source_link(root: str, source: str) -> str:
@@ -598,10 +685,21 @@ def _fetched_set(ctx: dict, task_id, rid: str):
     return found
 
 
+def _own_given(approved, document: dict, task_id) -> dict:
+    """{slot: the approval of its own} for the `unverified` assets of the set document that have one in `approved.json`: it must be bound to this task and to the sha256 of that asset."""
+    given = approved.get("unverified") if isinstance(approved, dict) and isinstance(approved.get("unverified"), dict) else {}
+    out = {}
+    for a in document["assets"]:
+        if a["unverified"] and isinstance(given.get(a["slot"]), dict) and given[a["slot"]].get("sha256") == a["sha256"] and given[a["slot"]].get("task") == task_id:
+            out[a["slot"]] = given[a["slot"]]
+    return out
+
+
 def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:      # noqa: A002  (the flag is --hash)
     """The media set, for the person to read and approve. Without `hash`: {"approved": whether the current set is, "set": the set document, "sha256", "credits", "needs_own_approval":
-    the slots of the assets that need one of their own (a licence nobody checked)}. With `hash` equal to the set's current hash: `approved.json` is written, the previews, the full
-    files and the quarantine are deleted, the credits record is written, and {"approved": True, "sha256", "credits"} is answered. A stale hash is refused (`stale_hash`)."""
+    the slots of the assets that need one of their own (a licence nobody checked) and have none yet, "own_approved": the slots that have it}. With `hash` equal to the set's current
+    hash: `approved.json` is written, the previews, the full files and the quarantine are deleted, the credits record is written, and {"approved": True, "sha256", "credits"} is
+    answered; an approval of the same set that is already there keeps the own approvals it holds (V9b-3b). A stale hash is refused (`stale_hash`)."""
     _channel("video-media-approve", channel)
     ctx = core.context(project)
     task, rid, state = _task(ctx, task_id)
@@ -611,19 +709,21 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
     document = media_stock.set_document(found)
     digest = media_stock.set_hash(document)
     try:
-        current = media_stock.approval_matches(found, media_stock.read_doc(data_dir, rid, media_stock.APPROVED))
+        existing = media_stock.read_doc(data_dir, rid, media_stock.APPROVED)
+        current = media_stock.approval_matches(found, existing)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    own = [a["slot"] for a in document["assets"] if a["unverified"]]
+    own = _own_given(existing, document, task_id) if current else {}
+    needs = [a["slot"] for a in document["assets"] if a["unverified"] and a["slot"] not in own]
     if hash is None:
-        return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": own, "provided": _provided(found["assets"], cfg),
-                "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
+        return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": needs, "own_approved": sorted(own),
+                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
     if not (isinstance(hash, str) and media_stock.SHA256.fullmatch(hash)):
         raise core.OpsError("the hash is 64 lowercase hexadecimal characters", 2)
     if hash != digest:
         raise _fail("stale_hash", f"the set is not the one that hash names; read it again (current sha256 {digest})")
     names = sorted(media_stock.sources_of(cfg))
-    record = {"hash": digest, "at": media_stock.now_stamp(), "task": task_id, "sources": names, "unverified": {},
+    record = {"hash": digest, "at": media_stock.now_stamp(), "task": task_id, "sources": names, "unverified": own,      # the same set approved again keeps what was approved file by file; a new set starts with none
               "assets": [{k: a[k] for k in ("slot", "sha256", "source", "item", "licence")} for a in document["assets"]]}
     try:
         media_stock.write_doc(data_dir, rid, media_stock.APPROVED, record)
@@ -632,7 +732,8 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
         media_stock.write_credits(data_dir, task_id, media_stock.credits_record(found, document, rid))
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    return {"approved": True, "sha256": digest, "credits": document["credits"], "needs_own_approval": own, "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
+    return {"approved": True, "sha256": digest, "credits": document["credits"], "needs_own_approval": needs, "own_approved": sorted(own), "provided": _provided(found["assets"], cfg),
+            "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
 
 
 def video_credits(project: str, task_id, channel=None) -> dict:

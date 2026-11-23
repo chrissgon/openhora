@@ -329,16 +329,22 @@ STOCK_MEANS = ("stock media from {name}: the search words of each video are sent
                "files stay on this computer and are deleted with the recording")
 
 
+WEB_MEANS = ("web search: the search words of each video are sent to the web search of the model that runs it and to that model's provider; the pictures and clips found have no "
+             "licence the workbench can check; each needs its own approval after a copyright warning; a published video that uses one can be taken down and can strike your account")
+
+
 def stock_items(cfg: dict, secret: str = "") -> list:
-    """The items of the licensed stock sources a project uses (package V9b-3a, `media.stock`, or the default when the project has a `media` object): one per source, in the
-    group `stock=<name>@<terms_read_on or "none">`, so a source that is added and a source whose terms were read again are new items. They ride the record of the accounts and
-    the references: `accept-config` stops, prints each one's `means` and needs `--widen`, and a search is refused (`stock_not_accepted`) until the record holds them. The open
-    web is not an item of this package (its warning is another package's); a source the data file names `unverified` is left out. Nothing is read unless the project has a
-    `media` object."""
+    """The items of the stock sources a project uses (package V9b-3a and V9b-3b, `media.stock`, or the default when the project has a `media` object): one per source, in the
+    group `stock=<name>@<terms_read_on or "none">`, so a source that is added and a source whose terms were read again are new items. A licensed source's item says what is sent
+    to it and what is kept (STOCK_MEANS); a source of the open-web tier (its data file says `unverified`) has the group `stock=<name>@none` and the text WEB_MEANS, the project form
+    of the copyright warning. The licensed items come first, then the open-web one. They ride the record of the accounts and the references: `accept-config` stops, prints each
+    one's `means` and needs `--widen`, and a search is refused (`stock_not_accepted`) until the record holds them. Nothing is read unless the project has a `media` object."""
     if not isinstance((cfg or {}).get("media"), dict) or not isinstance(cfg.get("workbench"), str):
         return []
     try:
-        names = media_stock.licensed(cfg["workbench"], media_stock.sources_of(cfg))
+        listed = media_stock.sources_of(cfg)
+        names = media_stock.licensed(cfg["workbench"], listed)
+        open_web = [n for n in listed if media_stock.tier_of(cfg["workbench"], n) == "unverified"]
     except (project_config.ConfigError, OSError, ValueError, LookupError):      # a checkout with no provider resolver names no source: no item
         return []
     out = []
@@ -348,6 +354,9 @@ def stock_items(cfg: dict, secret: str = "") -> list:
         group = f"{STOCK_GROUP}{name}@{date or 'none'}"
         means = STOCK_MEANS.format(name=name, licences=", ".join(media_stock.accepted_licences(cfg["workbench"], name)) or "none", date=date or "no date")
         out.append({"place": "stock", "channel": "stock", "group": group, "means": means, "digest": _digest(group, secret)})
+    for name in open_web:
+        group = f"{STOCK_GROUP}{name}@none"
+        out.append({"place": "stock", "channel": "stock", "group": group, "means": WEB_MEANS, "digest": _digest(group, secret)})
     return out
 
 

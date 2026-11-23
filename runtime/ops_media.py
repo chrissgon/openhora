@@ -306,7 +306,8 @@ def _opened_delivered(data_dir: str, rid: str):
 def video_download(project: str, task_id, out=None, channel=None) -> dict:
     """The delivered render of a new video, only the exact one the approval named, hashed again. With `out`: written to a new file outside the project and
     {"task", "media", "path", "name", "sha256", "size"} returned. Without `out` (the page only): {"stream": the open binary file, which the caller closes,
-    "name", "sha256", "size"}. When the video's media set asked for credits, `credits` lists the lines to put in the caption."""
+    "name", "sha256", "size"}. When the video's media set asked for credits, `credits` lists the lines to put in the caption; when it holds a file found on the open web,
+    `source_pages` lists "Source page: <page>" for each (the download is loopback only: the address is text for this computer, never for a card)."""
     ctx = core.context(project)
     _channel(ctx, "video-download", channel)
     _, rid, _ = _video_task(ctx, task_id)
@@ -315,6 +316,8 @@ def video_download(project: str, task_id, out=None, channel=None) -> dict:
     name = VIDEO_NAME.format(sha12=digest[:12])
     found = media_stock.read_credits(ctx["cfg"]["data_dir"], task_id) if isinstance(task_id, int) and not isinstance(task_id, bool) else None
     credits = {"credits": [c for c in (found or {}).get("credits") or [] if isinstance(c, str)]} if (found or {}).get("credits") else {}      # V9b-3a: the credit lines to put in the caption
+    pages = ["Source page: " + w["page"] for w in (found or {}).get("web") or [] if isinstance(w, dict) and isinstance(w.get("page"), str) and w["page"]]
+    credits = dict(credits, source_pages=pages) if pages else credits      # V9b-3b: the page of each file found on the open web (the record keeps it; a card never shows it)
     if out is None:
         return {"stream": source, "name": name, "sha256": digest, "size": size, **credits}
     try:

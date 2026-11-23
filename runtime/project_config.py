@@ -730,9 +730,12 @@ def _outbox(value, workbench: str):
     return {"provider": provider, "from": sender}
 
 
-MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references", "stock")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS), the reference videos and the stock sources
+MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references", "stock", "web_refused_hosts", "web_allowed_hosts", "websearch")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS), the reference videos, the stock sources and the open web's host lists and bounds
 STOCK_CLASS = "stock:media"
 STOCK_MAX = 8
+WEB_HOSTS_MAX = 100      # = the open-web provider's CAPS["host_list"] (a test reads that file as text and compares)
+WEB_HOST_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")      # = providers/stock/_net.py HOST_RE (a test reads that file as text and compares)
+WEBSEARCH_DEFAULTS = {"max_per_day": 5, "max_cost_usd": 0.6, "timeout_seconds": 300}      # media.websearch (V9b-3b): the bounds of each web search of a video's media, the ranges of `research`
 MEDIA_REFERENCES = ("on", "off")      # `references`: absent is off; "on" is a widening (runtime/policy_widening.py), accepted with `accept-config --widen`
 MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
@@ -752,12 +755,19 @@ def _transcriber_models(workbench: str) -> list:
         return []
 
 
+def _web_hosts(name: str, found) -> list:
+    """`media.web_refused_hosts` or `media.web_allowed_hosts`: a list of at most WEB_HOSTS_MAX lower-case host names (the open web's provider checks them again; no IP literal)."""
+    if not isinstance(found, list) or len(found) > WEB_HOSTS_MAX or not all(isinstance(h, str) and len(h) <= 253 and WEB_HOST_RE.fullmatch(h) and not h.rsplit(".", 1)[-1].isdigit() for h in found):
+        raise ConfigError(f"runtime.json media.{name} must be a list of at most {WEB_HOSTS_MAX} lower-case host names (letters, digits, hyphens and dots; no address)")
+    return list(found)
+
+
 def _media(value, workbench: str):
     """The key "media", checked; None when absent. Both settings are optional; the defaults are the step kind's (runtime/step_media.py)."""
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
-        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off) and stock (a list of sources)")
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off), stock (a list of sources), web_refused_hosts and web_allowed_hosts (lists of host names) and websearch (the bounds of a web search)")
     out = {}
     if "language" in value:
         found = value["language"]
@@ -786,6 +796,11 @@ def _media(value, workbench: str):
             raise ConfigError("runtime.json media.stock must be a list of up to %d different sources, each one of %s (an empty list turns it off)"
                               % (STOCK_MAX, ", ".join(shipped) or "none: no source is shipped"))
         out["stock"] = list(found)
+    for name in ("web_refused_hosts", "web_allowed_hosts"):
+        if name in value:
+            out[name] = _web_hosts(name, value[name])
+    if "websearch" in value:
+        out["websearch"] = _bounded_run("media.websearch", value["websearch"], WEBSEARCH_DEFAULTS, RESEARCH_BOUNDS)
     return out
 
 

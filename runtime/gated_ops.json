@@ -69,5 +69,7 @@
  {"op": "video-media-fetch-picks", "kind": "internal", "group": "media", "why": "fetches the full file of each picture the person picked and has the renderer's container normalise it; never served in words"},
  {"op": "video-media-sheet-file", "kind": "internal", "group": "media", "why": "one PNG of a new video's media set that the renderer made, read by the page; not served in words"},
  {"op": "video-media-approve", "kind": "internal", "group": "media", "why": "shows the media set of a new video and approves exactly the set whose hash the person typed; never served in words"},
- {"op": "video-credits", "kind": "internal", "group": "media", "why": "prints the credits record of a new video's approved media set, which answers a takedown request; read in the terminal or on the page, not served in words"}
+ {"op": "video-credits", "kind": "internal", "group": "media", "why": "prints the credits record of a new video's approved media set, which answers a takedown request; read in the terminal or on the page, not served in words"},
+ {"op": "video-media-websearch", "kind": "internal", "group": "media", "why": "runs a model with web search on the search words of a new video's slots after the person's confirm of the exact words, then downloads small previews from the sites found; the words leave this computer and no licence is checked; never served in words"},
+ {"op": "video-media-approve-asset", "kind": "internal", "group": "media", "why": "approves one file found on the open web, bound to this video and its sha256, after a copyright warning and the first 12 digits of the sha256 typed by the person; never served in words"}
 ]}

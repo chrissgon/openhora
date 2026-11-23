@@ -13,7 +13,7 @@ import { hostOf, onLoopback, LAN_MEDIA } from "../cards/deliver.js";
 import {
   selection, grow, shrink, sameSegment, editOf, retakeEdit, anchorEdit, clearAnchor, overlayEdit, removeAnimation, addAnimation,
   fieldsOf, paramsOf, WHY_TEXT, canEdit, RETAKE_REASONS, retakeState, wordsText,
-  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, layoutFieldsOf, addLayout,
+  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, layoutFieldsOf, addLayout, isWebCandidate, webLines, SCREEN_WORK_LINE,
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
@@ -26,6 +26,7 @@ const POLL_MS = 1000;
 const OPTIONAL_HINT = "Optional; the renderer checks it";
 export const MEDIA_LAN = "The pictures of the media set are shown on this computer's own page (127.0.0.1) only.";
 export const MEDIA_CREDIT_LINE = "Credit to put in the caption";
+export const MEDIA_WEB_NOTE = "They can also be searched on the web: no licence is checked, and each file found there needs its own approval after a copyright warning.";
 
 const noun = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -113,6 +114,8 @@ export function createCaptionReview(env) {
   let mediaFound = null;       // the answer of video-media-find with confirm: the candidates per slot
   let mediaFetched = null;     // the answer of video-media-fetch-picks
   let mediaApproval = null;    // the answer of video-media-approve without a hash: the set to read
+  let webPreview = null;       // the answer of video-media-websearch without confirm: the words that would go to the model's web search
+  let ownInfo = {};            // slot -> the answer of video-media-approve-asset without confirm: the warning, the host, the page and the claim of a file found on the web
   let mediaLine = "";          // a plain line about the media set
   let mediaProblem = "";       // the sentence for search words the page can tell are wrong
   let sheetUrls = {};          // the name of a picture the renderer made -> its blob URL
@@ -408,6 +411,51 @@ export function createCaptionReview(env) {
     });
   }
 
+  function searchWeb(confirm) {
+    return mediaStep(() => env.api.videoMediaWebsearch(project(), task, confirm), true, async (result, mine) => {
+      if (confirm) {
+        mediaFound = result;
+        mediaPreview = null;
+        webPreview = null;
+        mediaFetched = null;
+        mediaApproval = null;
+        ownInfo = {};
+        revokeSheets();
+        mediaLine = result.message || "";
+        if (result.sheet) await loadSheet(result.sheet, mine);
+      } else {
+        webPreview = result;
+        mediaLine = result.message || "";
+      }
+    });
+  }
+
+  /** After the set is approved, the warning of each file found on the web that still needs its own approval (the service asks nothing of the person here; it answers the text). */
+  async function loadOwn(answer, mine) {
+    if (!answer || !answer.approved || !may("video-media-approve-asset")) return;
+    const summary = approvalSummary(answer);
+    for (const slot of summary.own) {
+      const asset = summary.assets.find((a) => a && a.slot === slot);
+      if (!asset || typeof asset.sha256 !== "string") continue;
+      const info = await env.api.videoMediaApproveAsset(project(), task, slot, asset.sha256);
+      if (mine !== generation) return;
+      ownInfo[slot] = Object.assign({}, info, { sha256: asset.sha256 });
+      if (info && info.file) await loadSheet(info.file, mine);
+    }
+  }
+
+  function approveOwn(slot) {
+    const info = ownInfo[slot];
+    if (!info) return null;
+    return mediaStep(() => env.api.videoMediaApproveAsset(project(), task, slot, info.sha256, info.sha256.slice(0, 12)), false, async (result) => {
+      if (!result || !result.approved) return;
+      const own = mediaApproval && Array.isArray(mediaApproval.needs_own_approval) ? mediaApproval.needs_own_approval : [];
+      mediaApproval = Object.assign({}, mediaApproval, { needs_own_approval: own.filter((x) => x !== slot), own_approved: [...(mediaApproval.own_approved || []), slot] });
+      delete ownInfo[slot];
+      mediaLine = `The file for slot ${slot} is approved.`;
+    });
+  }
+
   function fetchPicks() {
     return mediaStep(() => env.api.videoMediaFetchPicks(project(), task), true, async (result, mine) => {
       mediaFetched = result;
@@ -420,16 +468,21 @@ export function createCaptionReview(env) {
   }
 
   function readApproval() {
-    return mediaStep(() => env.api.videoMediaApprove(project(), task), false, async (result) => {
+    return mediaStep(() => env.api.videoMediaApprove(project(), task), false, async (result, mine) => {
       mediaApproval = result;
+      ownInfo = {};
+      await loadOwn(result, mine);
     });
   }
 
   function approveMedia() {
     const summary = approvalSummary(mediaApproval);
-    return mediaStep(() => env.api.videoMediaApprove(project(), task, summary.hash), false, async (result) => {
-      mediaApproval = result;
+    const read = mediaApproval;
+    return mediaStep(() => env.api.videoMediaApprove(project(), task, summary.hash), false, async (result, mine) => {
+      mediaApproval = result && result.approved && !result.set && read ? Object.assign({}, result, { set: read.set }) : result;      // the set that was read is the set that was approved (the hash says so)
+      ownInfo = {};
       mediaLine = result.approved ? "The media set is approved." : "";
+      await loadOwn(mediaApproval, mine);
     });
   }
 
@@ -469,7 +522,10 @@ export function createCaptionReview(env) {
     if (list.length) {
       const ul = h("ul", { class: "wb-cr-list", "aria-label": `Candidates for ${s.slot}` });
       for (const c of list) {
-        const li = h("li", { class: "wb-cr-item wb-cr-candidate" }, h("p", { class: "wb-cr-line", text: `Picture ${c.col}: ${candidateText(c)}${c.title ? `, "${c.title}"` : ""}` }));
+        const web = isWebCandidate(c);
+        const lines = web ? webLines(c) : [];
+        const li = h("li", { class: "wb-cr-item wb-cr-candidate" }, h("p", { class: "wb-cr-line", text: `Picture ${c.col}: ${web ? lines[0] : candidateText(c)}${c.title ? `, "${c.title}"` : ""}` }));
+        for (const line of lines.slice(1)) li.append(h("p", { class: "wb-steps-note wb-cr-note wb-cr-web", text: line }));      // what the page claims: text from the web, never a link and never checked
         if (c.page) li.append(h("p", { class: "wb-steps-note wb-cr-note wb-cr-page", text: `Page: ${c.page}` }));      // the page address is text, never a link and never an image from another host
         li.append(h("div", { class: "wb-cr-actions" }, button(s.pick === c.pick ? "Picked" : "Pick this", () => sendEdit(slotAssetEdit(s.slot, c.pick)), { disabled: s.pick === c.pick })));
         ul.append(li);
@@ -488,7 +544,8 @@ export function createCaptionReview(env) {
     const eligible = stockSlots(view);
     if (!eligible.length || !mediaMay("video-media-find")) return null;
     if (!loopback()) return section("Pictures", h("p", { class: "wb-steps-note wb-cr-note", text: MEDIA_LAN }));      // the search, the fetch and the approval are never taken over the local network
-    const parts = [h("p", { class: "wb-steps-note wb-cr-note", text: "Pictures come from libraries that allow their reuse; nothing is sent until you confirm the words." })];
+    const web = may("video-media-websearch");
+    const parts = [h("p", { class: "wb-steps-note wb-cr-note", text: "Pictures come from libraries that allow their reuse; nothing is sent until you confirm the words." + (web ? " " + MEDIA_WEB_NOTE : "") })];
     if (mediaProblem) parts.push(h("p", { class: "wb-form-error wb-cr-problem", role: "alert", text: mediaProblem }));
     const ul = h("ul", { class: "wb-cr-list", "aria-label": "Slots with a picture" });
     for (const s of eligible) ul.append(slotBox(view, s));
@@ -496,8 +553,15 @@ export function createCaptionReview(env) {
     const ready = slots.length > 0 && slots.every((s) => s.search);
     const actions = h("div", { class: "wb-cr-actions" }, button("Find media", () => findMedia(false), { disabled: !ready }));
     if (mediaPreview) actions.append(button("Send the words and search", () => findMedia(true)));
+    if (web) actions.append(button("Search the web", () => searchWeb(false), { disabled: !ready }));
+    if (web && webPreview) actions.append(button("Send the words and search the web", () => searchWeb(true)));
     parts.push(actions);
     if (mediaPreview) parts.push(h("p", { class: "wb-cr-line wb-cr-media-words", text: mediaPreview.message || "" }));
+    if (webPreview) {
+      parts.push(h("p", { class: "wb-cr-line wb-cr-media-words wb-cr-web-words", text: webPreview.message || "" }));
+      for (const k of webPreview.skipped || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `Slot ${k.slot}: ${k.message}` }));
+    }
+    if (mediaFound && Array.isArray(mediaFound.skipped)) for (const k of mediaFound.skipped) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `Slot ${k.slot}: ${k.message}` }));
     const preview = sheetImage("sheet-preview.png", "The candidates, drawn on a sheet");
     if (preview) parts.push(preview);
     const picked = slots.length > 0 && slots.every((s) => s.pick);
@@ -522,7 +586,20 @@ export function createCaptionReview(env) {
         for (const line of summary.credits) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-credit", text: line }));
       }
       if (summary.own.length) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `These files need their own approval: ${summary.own.join(", ")}.` }));
-      if (!summary.approved) parts.push(h("div", { class: "wb-cr-actions" }, button("Approve the media", approveMedia, { disabled: summary.own.length > 0 })));
+      if (!summary.approved) parts.push(h("div", { class: "wb-cr-actions" }, button("Approve the media", approveMedia)));      // a file found on the web is approved after the set, one by one, below
+      if (summary.approved) {
+        for (const slot of summary.own) {
+          const info = ownInfo[slot];
+          if (!info) continue;
+          const box = h("div", { class: "wb-cr-item wb-cr-own" }, h("p", { class: "wb-cr-line", text: `Slot ${slot}` }), h("p", { class: "wb-cr-line wb-cr-warning", role: "note", text: info.warning || "" }));
+          box.append(h("p", { class: "wb-steps-note wb-cr-note", text: `Claimed by the page, not checked: ${info.licence_claim || "none stated"}` }));
+          if (info.screen_work) box.append(h("p", { class: "wb-steps-note wb-cr-note", text: SCREEN_WORK_LINE }));
+          const img = info.file ? sheetImage(info.file, `The file for slot ${slot}`) : null;
+          if (img) box.append(img);
+          box.append(h("div", { class: "wb-cr-actions" }, button("Approve this file", () => approveOwn(slot))));
+          parts.push(box);
+        }
+      }
     }
     if (mediaLine) parts.push(h("p", { class: "wb-steps-note wb-cr-notice", role: "status", text: mediaLine }));
     return section("Pictures", ...parts);
@@ -885,6 +962,8 @@ export function createCaptionReview(env) {
       mediaFound = null;
       mediaFetched = null;
       mediaApproval = null;
+      webPreview = null;
+      ownInfo = {};
       mediaLine = "";
       mediaProblem = "";
       wordsTyped = {};

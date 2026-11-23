@@ -162,7 +162,7 @@ words, picked by the person, fetched, normalised in the renderer's container, ap
 - **The edits.** At the caption review the person gives a slot the choice `stock` and its words (`slot_search`: 1 to 6 English words, `image` or `clip`), or adds a layout (`oh:cutaway`, `oh:screenshot`)
   with its own slot `a<n>`, and later picks one candidate (`slot_asset`). A pick that changes voids the approval.
 - **The operations** (terminal and page; the local network's socket may only read the PNGs the container made): `video-media-find` (without `--confirm` it prints which words go to which sources and sends
-  nothing), `video-media-fetch-picks`, `video-media-approve` (prints the set, its sha256 and the credit lines; with `--hash` it approves exactly that set), `video-credits`, and `video-media-sheet-file` for the page.
+  nothing), `video-media-fetch-picks` (a slot with candidates that is still chosen as stock needs a pick; a slot with none, or no longer chosen, is left without a picture and the answer names it), `video-media-approve` (prints the set, its sha256 and the credit lines; with `--hash` it approves exactly that set), `video-credits`, and `video-media-sheet-file` for the page.
   The folder is `<data_dir>/media/<id>/stock/` (previews, full files, the quarantine, `asset-<sha12>.png`, the sheets, `set.json`, `approved.json`).
 - **The render.** Continue stops (`media_not_approved`) while a pick is not approved; the person approves the set or clears the picks and runs the video again. The engine gets `--asset` and `--asset-sha256`
   only for an approved picture a beat draws, and the check is made again at the render. A picture is approved when the set's approval holds the set's current hash, its file hashes to the set's sha256
@@ -171,8 +171,31 @@ words, picked by the person, fetched, normalised in the renderer's container, ap
 - **Credits.** A CC BY picture puts one credit line in the delivery document, the card and the body ("Credit to put in the caption"); the delivery document gains `assets`, `web` and `credits` only when
   they hold something, so a video with none keeps its document and its hash. The credits record (`<data_dir>/media/credits/<task>.json`) is kept 365 days (`video-credits`).
 - **Retention** (L77). Previews, full files, the quarantine and unlisted pictures after a day and at the approval; approved pictures with the recording and the folder; credits a year.
-- **Not here.** The open-web path (`video-media-websearch`, the stronger approval of a file nobody checked, the copyright warnings) is V9b-3b; clips are drawn from V9b-5a on (a clip pick is refused
-  `clip_not_drawn` until then); the download answer does not repeat the credits.
+- **Not here.** Clips are drawn from V9b-5a on (a clip pick is refused `clip_not_drawn` until then). The open-web path is the next section.
+
+## The pictures found on the web (V9b-3b)
+
+Package V9b-3b (decisions D6 to D8 of the V9b spec and its amendment of 2026-11-22): a picture can also be searched on the open web by the model that runs the skill `mkt-video-media-search`.
+Nobody can check who owns such a file, so it has an approval of its own, after a copyright warning, on top of the approval of the set. **A file found on the web never reaches a render without it.**
+
+- **Switch.** The open-web source is a source of `media.stock` whose data file says `unverified` (by default it is listed first). It is a widening item of its own (`stock=<source>@none`): `accept-config`
+  prints that the words go to the web search of the model that runs it and to that model's provider, that nothing found has a licence the platform can check, and that a published video that uses one can be
+  taken down and can strike the account. A project accepted before this package accepts again. `media.web_refused_hosts` and `media.web_allowed_hosts` (the person's lists, empty by default) and
+  `media.websearch` (`max_per_day` 5, `max_cost_usd` 0.60, `timeout_seconds` 300) are the other keys.
+- **`video-media-websearch --task T [--confirm]`** (terminal and page; class G, a job). Code decides, in order, with nothing run: the video waits at the caption review; the web source is on and accepted; the
+  slots (at most six; a slot that wants a clip is not sent while the engine draws none, and is said); the skill declares `search:web` and no side effect; the routed pair was measured with the web; the day's
+  count is under the bound. Without `--confirm` it prints the words and says that this computer will then download small previews from the sites found (those sites see this computer's address). With it,
+  one run of the skill on the open network, with no file of the project and no standing instruction: its prompt is rendered from the slot ids, the kinds and the search words alone, in the form the skill was
+  measured on. Its candidates file is read without following a link (at most 64 KiB), copied, and checked by the skill's own script and again by the same rules in code; either failing refuses the file whole.
+  The open-web provider fetches one small preview of each candidate into the quarantine, and the candidates join the licensed ones in one set. The run folder is removed in every case.
+- **One set, two searches.** `video-media-find` replaces the licensed candidates and keeps the open-web ones of the same words; `video-media-websearch` replaces the open-web ones and keeps the licensed ones
+  of the same words; either one voids the approval. A web candidate shows where it was found, what its page claims (a claim, never checked), a note when it is a still of a screen work, and the page address as
+  plain text on this computer's own page and the terminal.
+- **`video-media-approve-asset --task T --slot S --sha256 H [--confirm-digits <12 hex>]`** (terminal and page; never the interpreter, messaging, the MCP mode or the local network's socket; no bulk form). After the set is
+  approved, one file at a time: without `--confirm-digits` it prints the copyright warning, the host, the page and the claim; with the first 12 digits of the file's sha256 it writes
+  `approved.json["unverified"][S] = {sha256, task, at, channel}`. The step renders the file only with that record for this task and this sha256 (limit L80). The set approval no longer waits for these:
+  it lists the slots that still need one (`needs_own_approval`) and the ones that have it (`own_approved`), and approving the same set again keeps them.
+- **Credits and pages.** The download answer lists `source_pages` ("Source page: <page>"); a card never shows a page address.
 
 ## Known limits and improvements
 

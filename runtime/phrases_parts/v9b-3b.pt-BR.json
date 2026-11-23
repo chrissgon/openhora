@@ -1,0 +1,14 @@
+{
+  "package": "v9b-3b",
+  "table": {
+    "VID_WEB_WARNING": "Aviso de direitos autorais: este arquivo foi encontrado na internet, em {host}. A plataforma não conseguiu verificar quem é o dono nem se ele pode ser reutilizado, e a licença que a página diz ter, se houver, não foi verificada. Se você aprovar e publicar o vídeo, ele pode ser removido e sua conta pode receber uma advertência por direitos autorais. Aprove só se souber que pode usá-lo. Página de origem: {page}",
+    "VID_WEB_NOT_BUILT": "A busca na internet não está configurada aqui; as fontes licenciadas foram pesquisadas.",
+    "VID_WEB_NO_WEB": "O modelo escolhido não pode pesquisar na internet aqui; as fontes licenciadas foram pesquisadas.",
+    "VID_WEB_NEEDS_OWN": "Este arquivo precisa da sua própria aprovação depois do aviso.",
+    "VID_WEB_PREVIEW": "Estas palavras serão enviadas para a busca na internet do modelo que a executa e para o provedor desse modelo, e este computador vai baixar pequenas prévias dos sites encontrados: {words}.",
+    "VID_WEB_LIMIT": "A busca na internet já rodou {count} vezes hoje, o limite deste projeto.",
+    "VID_WEB_FAILED": "A busca na internet não terminou; nada foi guardado.",
+    "VID_STOCK_NO_PICTURE": "Sem imagem para {slots}: esses espaços ficam vazios no vídeo. Para preencher um, dê novas palavras e busque de novo, ou escolha outra opção na revisão das legendas.",
+    "VID_WEB_NOTHING": "A busca na internet não encontrou nenhuma imagem que possa ser usada."
+  }
+}

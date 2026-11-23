@@ -1,0 +1,27 @@
+{
+  "package": "v9b-3b",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media_websearch"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "video-media-websearch",
+      "video-media-approve-asset"
+    ],
+    "interpreter_coverage.INTERNAL": [
+      "video-media-websearch",
+      "video-media-approve-asset"
+    ],
+    "run_limits.NUMBERS": [
+      78,
+      79,
+      80
+    ],
+    "registry_rows.OFF_HOST": [
+      "video-media-websearch"
+    ],
+    "registry_rows.MODEL_ROWS": [
+      "video-media-websearch"
+    ]
+  }
+}
