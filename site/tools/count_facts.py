@@ -10,6 +10,7 @@ Prints one JSON line:
   guard_assertions         the assertions tagged `guard` or `guard:<effect>` in the cases of skills/<name>/evals/evals.json
                            (evals/eval_status.py: skill_cases and guards_of, the rule the status uses)
   guard_assertions_all     the same, with the platform case files (skills/<name>/evals/platforms/*.json) added
+  agents, adapters, flows, packs  the files agents/*.md, adapters/*/adapter.json, flows/*.json and packs/*.txt
 """
 import glob
 import importlib.util
@@ -51,7 +52,11 @@ def main():
             cases = data.get("evals") if isinstance(data, dict) else data
             platform += sum(len(es.guards_of(case)) for case in cases or [])
     print(json.dumps({"skills": len(skills), "external_content_skills": len(carrying), "guard_assertions": main_count,
-                      "guard_assertions_all": main_count + platform}))
+                      "guard_assertions_all": main_count + platform,
+                      "agents": len(glob.glob(os.path.join(ROOT, "agents", "*.md"))),
+                      "adapters": len(glob.glob(os.path.join(ROOT, "adapters", "*", "adapter.json"))),
+                      "flows": len(glob.glob(os.path.join(ROOT, "flows", "*.json"))),
+                      "packs": len(glob.glob(os.path.join(ROOT, "packs", "*.txt")))}))
 
 
 if __name__ == "__main__":
