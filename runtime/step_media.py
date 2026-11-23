@@ -681,6 +681,7 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     if type(size) is not int or size < 1 or seconds is None or seconds <= 0:
         raise steps.StepFailure("provider_output_invalid", "render")
     left_out_pictures = _assets_dropped(done, pictures)      # a picture whose beat the timeline dropped was not drawn: not in the record, not in the delivery (V9b-3d)
+    handed = dict(pictures)      # every picture handed over, drawn or not: a dropped beat's kind is read from it
     pictures = {slot: found for slot, found in pictures.items() if slot not in left_out_pictures}
     blocks_sha = done.get("blocks_sha256")
     record = {"name": name, "sha256": digest, "size": size, "duration_ms": max(1, int(round(seconds * 1000))), "blocks": _blocks_of(done),
@@ -698,16 +699,45 @@ def _render(ctx: steps.Context, state: dict) -> dict:
                 row["credit"] = credit_of[slot]
             drawn.append(row)
         record["assets"] = drawn
+    effects = _effects_dropped(done)
+    left_out = _left_out(done, _json(store, rid, BEATS), handed, effects)      # V9b-3f: what the render left out, in one list for the delivery and the person
+    if left_out:
+        record["left_out"] = left_out
     _asked(store.write, rid, RENDER_JSON, _dump(record))
     result = {"sha256": digest, "size": size}
     if pictures:
         result["pictures"] = len(pictures)
     if left_out_pictures:      # the person is told as for `effects_dropped` (the step result; nothing else shows either): the render is not refused
         result["pictures_dropped"] = left_out_pictures
-    left_out = _effects_dropped(done)
-    if left_out:      # an effect the renderer did not draw (too short, capped, overlapping): the person is told, the render is not refused
-        result["effects_dropped"] = left_out
+    if effects:      # an effect the renderer did not draw (too short, capped, overlapping): the person is told, the render is not refused
+        result["effects_dropped"] = effects
+    if left_out:
+        result["left_out"] = left_out
     return result
+
+
+def _left_out(done: dict, beats: dict, handed: dict, effects: list) -> list:
+    """What the render left out of the video (V9b-3f), rows {id, kind, reason} sorted by id: a beat of its `beats_dropped_reasons` (an id of the beats.json and a reason of the
+    closed list; anything else, or an id twice, is `provider_output_invalid` on `render`), `kind` `picture` for a layout whose parameters name a picture this call handed over
+    and `text` for any other beat, and an effect of `effects_dropped` with its reason, kind `effect`."""
+    rows = done.get("beats_dropped_reasons")
+    found = []
+    if rows is not None:
+        if not isinstance(rows, list):
+            raise steps.StepFailure("provider_output_invalid", "render")
+        layouts = {e["id"]: e for e in beats.get("layouts") or [] if isinstance(e, dict) and isinstance(e.get("id"), str)}
+        known = set(layouts) | {e["id"] for e in beats.get("overlays") or [] if isinstance(e, dict) and isinstance(e.get("id"), str)}
+        seen = set()
+        for row in rows:
+            if not (isinstance(row, dict) and set(row) == {"id", "reason"} and isinstance(row["id"], str) and row["id"] in known and row["id"] not in seen
+                    and row["reason"] in BEAT_LEFT_OUT_REASONS):
+                raise steps.StepFailure("provider_output_invalid", "render")
+            seen.add(row["id"])
+            params = (layouts[row["id"]].get("params") or {}) if row["id"] in layouts else {}
+            picture = any(isinstance(v, str) and v in handed for v in params.values())
+            found.append({"id": row["id"], "kind": "picture" if picture else "text", "reason": row["reason"]})
+    found += [{"id": r["id"], "kind": "effect", "reason": r["reason"]} for r in effects]
+    return sorted(found, key=lambda r: (r["id"], r["kind"]))[:100]
 
 
 def _assets_dropped(done: dict, handed: dict) -> list:
@@ -723,6 +753,7 @@ def _assets_dropped(done: dict, handed: dict) -> list:
 
 EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")
 EFFECT_REASONS = ("punch_short", "punch_capped", "grade_short", "grade_overlap")
+BEAT_LEFT_OUT_REASONS = ("overlap", "under_picture", "pip_no_room", "split_no_room")      # the renderer's closed list for a beat it left out (V9b-3f)
 
 
 def _effects_dropped(done: dict) -> list:
@@ -815,7 +846,7 @@ def _document(ctx: steps.Context, state: dict) -> dict:
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
                                  verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview,
-                                 assets=assets, web=web,
+                                 assets=assets, web=web, left_out=render.get("left_out") or [],
                                  credits={"count": len(credits), "sha256": hashlib.sha256(json.dumps(credits, ensure_ascii=False).encode("utf-8")).hexdigest()} if credits else None)      # S4: the text stays out
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 

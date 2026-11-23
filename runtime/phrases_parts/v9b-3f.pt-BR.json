@@ -1,0 +1,18 @@
+{
+  "package": "v9b-3f",
+  "table": {
+    "CARD_VIDEO_LEFT_OUT_TEXT_OVERLAP": "Ficou fora do vídeo: {id}, destaque de texto, outra cena começa ao mesmo tempo",
+    "CARD_VIDEO_LEFT_OUT_TEXT_UNDER_PICTURE": "Ficou fora do vídeo: {id}, destaque de texto, uma imagem cobre esse trecho",
+    "CARD_VIDEO_LEFT_OUT_TEXT_PIP_NO_ROOM": "Ficou fora do vídeo: {id}, destaque de texto, sem espaço ao lado do rosto",
+    "CARD_VIDEO_LEFT_OUT_TEXT_SPLIT_NO_ROOM": "Ficou fora do vídeo: {id}, destaque de texto, sem espaço ao lado do rosto",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP": "Ficou fora do vídeo: {id}, imagem, outra cena começa ao mesmo tempo",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_UNDER_PICTURE": "Ficou fora do vídeo: {id}, imagem, uma imagem cobre esse trecho",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM": "Ficou fora do vídeo: {id}, imagem, sem espaço ao lado do rosto",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM": "Ficou fora do vídeo: {id}, imagem, sem espaço ao lado do rosto",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT": "Ficou fora do vídeo: {id}, efeito, o zoom é curto demais",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED": "Ficou fora do vídeo: {id}, efeito, zooms demais, este passou do limite",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT": "Ficou fora do vídeo: {id}, efeito, a mudança de cor é curta demais",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP": "Ficou fora do vídeo: {id}, efeito, outra mudança de cor cobre esse trecho"
+  },
+  "same_as_english": []
+}

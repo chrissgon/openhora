@@ -290,6 +290,18 @@ CARD_VIDEO_COVER: Cover: Ana Lima, sha256 0123456789abcdef
 CARD_VIDEO_CREDITS_COUNT: 3 pictures need a credit; the credit text is on this computer's page (sha256 0123456789abcdef)
 CARD_VIDEO_DIGEST: Delivery document sha256 <digest>
 CARD_VIDEO_FILE: Video: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
+CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP: Left out of the video: 42, effect, another colour change covers it
+CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT: Left out of the video: 42, effect, the colour change is too short
+CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Left out of the video: 42, effect, too many zooms, this one was over the limit
+CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT: Left out of the video: 42, effect, the zoom is too short
+CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP: Left out of the video: 42, picture, another scene starts at the same time
+CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM: Left out of the video: 42, picture, no room beside the face
+CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM: Left out of the video: 42, picture, no room beside the face
+CARD_VIDEO_LEFT_OUT_PICTURE_UNDER_PICTURE: Left out of the video: 42, picture, a picture covers it
+CARD_VIDEO_LEFT_OUT_TEXT_OVERLAP: Left out of the video: 42, text highlight, another scene starts at the same time
+CARD_VIDEO_LEFT_OUT_TEXT_PIP_NO_ROOM: Left out of the video: 42, text highlight, no room beside the face
+CARD_VIDEO_LEFT_OUT_TEXT_SPLIT_NO_ROOM: Left out of the video: 42, text highlight, no room beside the face
+CARD_VIDEO_LEFT_OUT_TEXT_UNDER_PICTURE: Left out of the video: 42, text highlight, a picture covers it
 CARD_VIDEO_NO_BLOCKS: no animation blocks
 CARD_VIDEO_NO_COVER: Cover: no cover
 CARD_VIDEO_NO_PREVIEW: no preview

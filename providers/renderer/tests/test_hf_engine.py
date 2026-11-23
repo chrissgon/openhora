@@ -48,10 +48,11 @@ class FakeRun:
     """Stands where `_container.run` stands. `fail` maps a stage name to what to do instead: "refuse:<code>" (the drawing container writes a
     refusal row and exits 1), "raise" (the run itself fails), or a callable."""
 
-    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000, page_blocks_sha=None, boxes=BOXES_BYTES, boxes_sha=None, gate=GATE):
+    def __init__(self, fail=None, hf_bytes=HF_BYTES, hf_sha=None, memory_peak=5000, page_blocks_sha=None, boxes=BOXES_BYTES, boxes_sha=None, gate=GATE, page_extra=None):
         self.commands, self.verbs, self.fail = [], [], fail or {}
         self.hf_bytes, self.hf_sha, self.memory_peak = hf_bytes, hf_sha, memory_peak
         self.page_blocks_sha = page_blocks_sha
+        self.page_extra = page_extra or {}      # extra keys of the page stage's answer (V9b-3f: the dropped beats)
         self.boxes, self.boxes_sha, self.gate = boxes, boxes_sha, gate     # boxes None: the drawing container writes no boxes.json
         self.seen = {}
 
@@ -79,7 +80,7 @@ class FakeRun:
             self.seen["page"] = inner
             rows["hf-page"] = dict(rows["hf-page"], layers=["cuts", "zoom", "captions", "beats"], blocks={"oh:caption": "c" * 64, "oh:keyword": "d" * 64},
                                    blocks_sha256=self.page_blocks_sha or inner[inner.index("--blocks-sha256") + 1], captions_drawn=4, beats_drawn=2,
-                                   runtimes={"oh:caption": "renderat", "oh:keyword": "renderat"}, fonts_used={"display": "inter-800.woff2", "text": "inter-500.woff2"})
+                                   runtimes={"oh:caption": "renderat", "oh:keyword": "renderat"}, fonts_used={"display": "inter-800.woff2", "text": "inter-500.woff2"}, **self.page_extra)
         if verb == "proxy":
             self.seen["media_at_proxy"] = sorted(f.name for f in Path(mounts["/work/media"][0]).iterdir())     # what the proxy container's folder holds when it starts
             Path(mounts["/work/media"][0], "proxy.mp4").write_bytes(PROXY_BYTES)

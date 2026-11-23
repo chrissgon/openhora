@@ -634,6 +634,9 @@ def verb_render(args) -> dict:
             result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
             if dropped or page.get("assets_dropped"):          # optional: the pictures only a dropped beat used (V9b-3d), the host's list and the page's together
                 result["assets_dropped"] = sorted(set(dropped) | set(page.get("assets_dropped") or []))
+            for key in ("beats_dropped", "beats_dropped_reasons"):      # optional, present when the timeline left a beat out: the ids and the reasons (V9b-3f)
+                if page.get(key):
+                    result[key] = page[key]
             if page.get("effects_dropped") is not None:        # optional: the effects the renderer left out (V9a-3); a page result without it stays valid
                 result["effects_dropped"] = page["effects_dropped"]
             seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")

@@ -34,7 +34,16 @@ import re
 WORD = "deliver"
 VERSION = 1
 KEYS = ("blocks", "cover", "effect", "platform", "post", "preview", "recording", "task", "verify", "version", "video")
-OPTIONAL_KEYS = ("assets", "credits", "web")      # V9b-3a: present only when the video uses pictures from the media set
+OPTIONAL_KEYS = ("assets", "credits", "left_out", "web")      # V9b-3a: present only when the video uses pictures from the media set; `left_out` (V9b-3f) only when the render left something out
+LEFT_OUT_MAX = 100
+LEFT_OUT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
+# V9b-3f: what the render left out of the video, as closed words. A row is {id, kind, reason}; the words below are the English body's, and each pair is a phrase key
+# `CARD_VIDEO_LEFT_OUT_<KIND>_<REASON>` of runtime/phrases_parts/v9b-3f.*.json (a test compares them), so a phone says it in the project's language.
+LEFT_OUT_KIND_WORDS = {"text": "text highlight", "picture": "picture", "effect": "effect"}
+LEFT_OUT_BEAT_REASON_WORDS = {"overlap": "another scene starts at the same time", "under_picture": "a picture covers it",
+                              "pip_no_room": "no room beside the face", "split_no_room": "no room beside the face"}
+LEFT_OUT_EFFECT_REASON_WORDS = {"punch_short": "the zoom is too short", "punch_capped": "too many zooms, this one was over the limit",
+                                "grade_short": "the colour change is too short", "grade_overlap": "another colour change covers it"}
 ASSETS_MAX = 12
 SLOT = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 SOURCE = re.compile(r"[a-z][a-z0-9]{1,30}")
@@ -147,7 +156,40 @@ def check(doc) -> dict:
         if preview["sha256"] == video["sha256"] and preview["size"] != video["size"]:
             raise ValueError("preview.size")
     _check_assets(doc)
+    _check_left_out(doc)
     return doc
+
+
+def left_out_reasons(kind) -> dict:
+    """The closed reasons of a kind of row, {reason: English words}; an empty dict for a kind that is not one."""
+    return LEFT_OUT_EFFECT_REASON_WORDS if kind == "effect" else LEFT_OUT_BEAT_REASON_WORDS if kind in LEFT_OUT_KIND_WORDS else {}
+
+
+def left_out_key(row: dict) -> str:
+    """The phrase key that says one row."""
+    return f"CARD_VIDEO_LEFT_OUT_{row['kind'].upper()}_{row['reason'].upper()}"
+
+
+def _check_left_out(doc: dict) -> None:
+    """`left_out`, present only when it holds something: rows {id, kind, reason} of the closed words, sorted by id then kind, none twice."""
+    if "left_out" not in doc:
+        return
+    rows = doc["left_out"]
+    if not isinstance(rows, list) or not rows or len(rows) > LEFT_OUT_MAX:
+        raise ValueError("left_out")
+    previous = None
+    for row in rows:
+        _keys(row, ("id", "kind", "reason"), "left_out")
+        if not (isinstance(row["id"], str) and LEFT_OUT_ID.fullmatch(row["id"])):
+            raise ValueError("left_out.id")
+        if row["kind"] not in LEFT_OUT_KIND_WORDS:
+            raise ValueError("left_out.kind")
+        if row["reason"] not in left_out_reasons(row["kind"]):
+            raise ValueError("left_out.reason")
+        found = (row["id"], row["kind"])
+        if previous is not None and found <= previous:
+            raise ValueError("left_out")
+        previous = found
 
 
 def _check_assets(doc: dict) -> None:
@@ -186,7 +228,7 @@ def _check_assets(doc: dict) -> None:
             raise ValueError("credits")
 
 
-def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=None) -> dict:
+def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=None, left_out=()) -> dict:
     """The document, already passed through `check`. `video` is `{name, sha256, size, duration_ms}`, `cover` is `{name, sha256, size}` or
     None, `blocks` a sequence of `{id, sha256}` and `preview` None or `{sha256, size, from_sha256}`. `assets`, `web` and `credits` (V9b-3a) are added as keys only
     when they hold something: `assets` `{slot, sha256, source, item, licence}`, `web` `{slot, sha256, page_host, page_sha256}`, `credits` `{count, sha256}`: the number of credit lines and the sha256 of the list (the text is never in the document)."""
@@ -201,6 +243,8 @@ def build(*, task, recording, platform, post, video, cover, verify_platform, blo
             doc[key] = [dict(v) if isinstance(v, dict) else v for v in value]
     if credits:
         doc["credits"] = dict(credits)
+    if left_out:      # V9b-3f: `{id, kind, reason}` rows of what the render left out; a video that left nothing out keeps the document and the hash it had
+        doc["left_out"] = [dict(r) if isinstance(r, dict) else r for r in left_out]
     return check(doc)
 
 
@@ -236,6 +280,8 @@ def summary(doc: dict) -> dict:
              "duration_ms": doc["video"]["duration_ms"], "blocks": len(doc["blocks"]), "preview": doc["preview"] is not None}
     if doc.get("assets"):      # only a video with pictures adds the keys: the summary of every other video is what it always was
         found.update(assets=len(doc["assets"]), web=len(doc.get("web") or []), credits=doc["credits"]["count"] if doc.get("credits") else 0)
+    if doc.get("left_out"):
+        found["left_out"] = len(doc["left_out"])
     return found
 
 
@@ -256,6 +302,7 @@ def card_lines(doc: dict, digest: str) -> list:
         lines.append(["CARD_VIDEO_NO_BLOCKS", {}])
     lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
     lines.extend(_asset_card_lines(doc))
+    lines.extend([left_out_key(r), {"id": r["id"]}] for r in doc.get("left_out") or [])
     lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
     lines.append(["CARD_VIDEO_CLOSING", {}])
     return lines
@@ -292,6 +339,8 @@ def body(doc: dict, digest: str) -> str:
         lines.append(f"{doc['credits']['count']} pictures need a credit; the credit text is on this computer's page (sha256 {doc['credits']['sha256']})")
     for w in doc.get("web") or []:
         lines.append(f"Found on the web, licence not checked: {w['page_host']}")
+    for r in doc.get("left_out") or []:
+        lines.append(f"Left out of the video: {r['id']}, {LEFT_OUT_KIND_WORDS[r['kind']]}, {left_out_reasons(r['kind'])[r['reason']]}")
     lines.append(f"Delivery document sha256 {digest}")
     lines.append(CLOSING)
     return "\n".join(lines)

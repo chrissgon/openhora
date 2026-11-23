@@ -784,7 +784,7 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`), and so is one whose
     kept side is shorter than its preset's `min_duration` (in frames, at least 1); one that spans a picture keeps the
     longer side (the earlier on a tie). Then, among what is left, where two beats overlap the earlier one ends
-    where the later one starts, and one that is left with no frame is dropped (and reported)."""
+    where the later one starts, and one that is left with no frame is dropped and reported (`overlap`)."""
     fps, n = edl["fps"], edl["out_frames"]
     by_index = {w["index"]: w for w in edl["words"]}
     entries = []
@@ -829,7 +829,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         if cur["end_frame"] > nxt["start_frame"]:
             cur["end_frame"] = nxt["start_frame"]
             cur["clipped"] = True
-    dropped = under + [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
+    overlapped = [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
+    dropped = under + overlapped
     entries = [e for e in entries if e["id"] not in dropped]
     punches, punches_dropped = resolve_punches(edl, beats, data)
     grades, grades_dropped = resolve_grades(edl, beats, data)
@@ -856,6 +857,6 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
     out = {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
            "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
-    if under:
-        out["dropped_reasons"] = [{"id": i, "reason": "under_picture"} for i in under]
+    if dropped:      # every id of `dropped` has one reason row (V9b-3f); the layout passes add theirs (`pip_no_room`, `split_no_room`)
+        out["dropped_reasons"] = [{"id": i, "reason": "under_picture"} for i in under] + [{"id": i, "reason": "overlap"} for i in overlapped]
     return out

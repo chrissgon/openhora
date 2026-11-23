@@ -290,6 +290,18 @@ CARD_VIDEO_COVER: Capa: Ana Lima, sha256 0123456789abcdef
 CARD_VIDEO_CREDITS_COUNT: 3 imagens precisam de crédito; o texto do crédito está na página deste computador (sha256 0123456789abcdef)
 CARD_VIDEO_DIGEST: Documento de entrega sha256 <digest>
 CARD_VIDEO_FILE: Vídeo: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
+CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP: Ficou fora do vídeo: 42, efeito, outra mudança de cor cobre esse trecho
+CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT: Ficou fora do vídeo: 42, efeito, a mudança de cor é curta demais
+CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Ficou fora do vídeo: 42, efeito, zooms demais, este passou do limite
+CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT: Ficou fora do vídeo: 42, efeito, o zoom é curto demais
+CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP: Ficou fora do vídeo: 42, imagem, outra cena começa ao mesmo tempo
+CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM: Ficou fora do vídeo: 42, imagem, sem espaço ao lado do rosto
+CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM: Ficou fora do vídeo: 42, imagem, sem espaço ao lado do rosto
+CARD_VIDEO_LEFT_OUT_PICTURE_UNDER_PICTURE: Ficou fora do vídeo: 42, imagem, uma imagem cobre esse trecho
+CARD_VIDEO_LEFT_OUT_TEXT_OVERLAP: Ficou fora do vídeo: 42, destaque de texto, outra cena começa ao mesmo tempo
+CARD_VIDEO_LEFT_OUT_TEXT_PIP_NO_ROOM: Ficou fora do vídeo: 42, destaque de texto, sem espaço ao lado do rosto
+CARD_VIDEO_LEFT_OUT_TEXT_SPLIT_NO_ROOM: Ficou fora do vídeo: 42, destaque de texto, sem espaço ao lado do rosto
+CARD_VIDEO_LEFT_OUT_TEXT_UNDER_PICTURE: Ficou fora do vídeo: 42, destaque de texto, uma imagem cobre esse trecho
 CARD_VIDEO_NO_BLOCKS: sem blocos de animação
 CARD_VIDEO_NO_COVER: Capa: sem capa
 CARD_VIDEO_NO_PREVIEW: sem prévia
