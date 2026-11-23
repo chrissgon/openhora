@@ -22,11 +22,12 @@ import uuid
 import _assets
 import _blocks
 import _docker as D
+import _edl
 import _media
 import _output
 from _browser import NotConfigured
 from _text import Refusal
-from _vocab import SLOT_ID, load_data, load_vocabulary
+from _vocab import SLOT_ID, load_data, load_vocabulary, read_json
 
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
@@ -226,6 +227,21 @@ def pairs(items, field: str) -> dict:
 def slot_key(key: str) -> str:
     """A beat number is read as the slot id `beat<N>` the alignment gives it."""
     return "beat%s" % key if key.isdigit() else key
+
+
+def dropped_asset_slots(args, data: dict, slots) -> list:
+    """The slots of `slots` (the handed-over pictures) that only a beat the timeline dropped uses, sorted (V9b-5, V9b-3d): the host neither reads nor stages their
+    files, and the render's answer lists them as `assets_dropped`. It resolves the timeline from the same documents the render reads; a document it cannot read
+    or resolve gives none (the render then reads and checks them itself and refuses with its own reason, as before)."""
+    if not slots:
+        return []
+    try:
+        limit = data["limits"]["json_max_bytes"]
+        edl, beats, vocab = read_json(args.edl, limit), read_json(args.beats, limit), load_vocabulary(args.vocabulary)
+        timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+        return sorted(_edl.classify_slots(beats, timeline, vocab, slots)[1])
+    except (Refusal, KeyError, ValueError, TypeError, IndexError, AttributeError):
+        return []
 
 
 # ---------------------------------------------------------------- the common verbs

@@ -761,6 +761,17 @@ def range_effects(edl: dict, timeline: dict) -> dict:
     return out
 
 
+def classify_slots(beats: dict, timeline: dict, vocab: dict, slots) -> tuple:
+    """(used, dropped_only) for the asset slots handed to a render (V9b-3d). `used` is every slot a beat the timeline kept uses; `dropped_only` is each of `slots`
+    that no kept beat uses and a beat the timeline dropped does: its picture is not loaded, not drawn and is reported as `assets_dropped`. A slot of `slots`
+    that no beat of `beats` uses at all is in neither (the caller refuses it as `asset_unused`)."""
+    names = lambda e: [n for n in slot_params(vocab, e["preset"]) if n in e["params"]]
+    used = {e["params"][n] for e in timeline["beats"] for n in names(e)}
+    lost = set(timeline["dropped"])
+    gone = {e["params"][n] for e in beats["overlays"] + beats["layouts"] if e["id"] in lost for n in names(e)}
+    return used, (gone - used) & set(slots)
+
+
 def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     """Frame ranges on the output timeline: {captions, beats, dropped, punches, grades, echoes, effects_dropped}.
 

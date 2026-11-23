@@ -173,6 +173,11 @@ words, picked by the person, fetched, normalised in the renderer's container, ap
 - **Retention** (L77). Previews, full files, the quarantine and unlisted pictures after a day and at the approval; approved pictures with the recording and the folder; credits a year.
 - **Not here.** Clips are drawn from V9b-5a on (a clip pick is refused `clip_not_drawn` until then). The open-web path is the next section.
 
+- **A picture whose beat the timeline dropped (V9b-3d).** The timeline has one beat track, and of two beats that start on the same word the shorter is dropped. The runtime still hands over the picture of
+  every layout slot the beats list; each engine now classifies a handed-over slot against `beats.json` (`_edl.classify_slots`): a slot only a dropped beat uses is not read, not staged and not drawn, and
+  the answer lists it as `assets_dropped` (a slot no beat uses at all is still `asset_unused`). The render step leaves it out of `render.json` and the delivery's credits and says `pictures_dropped` in its
+  result. Which beat wins a tie is not decided here (`docs/decisions/2026-11-23-v9b-3d-dropped-beat-picture.md`).
+
 ## The pictures found on the web (V9b-3b)
 
 Package V9b-3b (decisions D6 to D8 of the V9b spec and its amendment of 2026-11-22): a picture can also be searched on the open web by the model that runs the skill `mkt-video-media-search`.

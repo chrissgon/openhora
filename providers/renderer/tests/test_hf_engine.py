@@ -957,3 +957,41 @@ def test_thirteen_files_in_all_are_too_many_assets_whether_they_are_clips_or_pic
 def test_a_clip_given_to_a_base_only_render_is_unused(world, monkeypatch, test_blocks, clip):
     monkeypatch.setattr(box, "run", FakeRun())
     assert refusal_of(H.verb_render, args_for(world, "--asset", "s1=%s" % clip)) == ("asset_unused", "s1")
+
+
+# ---------------------------------------------------------------- a picture only a dropped beat uses is neither read nor staged (V9b-3d)
+
+def tied_documents(world, picture_slot="s1"):
+    """The post's documents written where the world's `args_for` reads them, with a cutaway on `picture_slot` that starts on b4's word and is shorter (the timeline drops it)."""
+    data, edl, beats, vocab = K.hf_documents(world.tmp)
+    beats["layouts"] = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": picture_slot}, "word_from": 22, "word_to": 24, "score": 1.0}]
+    beats["slots"] = [{"slot": picture_slot, "beat": 7, "param": "asset", "type": "image|clip", "description": "a flat colour picture"}]
+    (world.tmp / "edl.json").write_text(json.dumps(edl))
+    (world.tmp / "beats.json").write_text(json.dumps(beats))
+
+
+def test_a_picture_only_a_dropped_beat_uses_is_not_read_staged_or_hashed_and_is_listed(world, monkeypatch, test_blocks):
+    tied_documents(world)
+    not_a_picture = world.tmp / "s1.png"
+    not_a_picture.write_bytes(b"these bytes are not a picture")           # a file that was read would be `asset_type`
+    flags = ("--asset", "s1=%s" % not_a_picture, "--asset-sha256", "s1=" + "0" * 64)
+    result, fake = run(world, monkeypatch, *flags, base_only=False)
+    assert result["assets_dropped"] == ["s1"]
+    assert "--asset-sha256" not in fake.seen["page"] and "--asset" not in fake.seen["page"] and fake.seen["assets"] is None
+    dry, _ = run(world, monkeypatch, "--dry-run", *flags, base_only=False)
+    page = dry["commands"]["page"]
+    assert dry["assets_dropped"] == ["s1"] and "--asset-sha256" not in page and not any(word.startswith("s1=") for word in page)
+
+
+def test_a_render_with_no_picture_or_with_a_picture_a_kept_beat_uses_has_no_assets_dropped(world, monkeypatch, test_blocks, pictures):
+    tied_documents(world)
+    result, _ = run(world, monkeypatch, base_only=False)
+    assert "assets_dropped" not in result
+    data, edl, beats, vocab = K.hf_documents(world.tmp)                      # the same cutaway, on words no overlay shares: it is kept and drawn
+    beats["layouts"] = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": "s1"}, "word_from": 53, "word_to": 59, "score": 1.0}]
+    beats["slots"] = [{"slot": "s1", "beat": 7, "param": "asset", "type": "image|clip", "description": "a flat colour picture"}]
+    (world.tmp / "edl.json").write_text(json.dumps(edl))
+    (world.tmp / "beats.json").write_text(json.dumps(beats))
+    result, fake = run(world, monkeypatch, "--asset", "s1=%s" % pictures[0], base_only=False)
+    assert "assets_dropped" not in result and set(fake.seen["assets"]) == {"s1.png"}
+

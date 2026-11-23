@@ -550,3 +550,68 @@ def test_the_beats_written_for_an_added_picture_overlay_pass_the_renderers_own_c
     row = step_media._slot_row(store, entry, {"asset_param": "asset", "pic_kind": "overlay", "words": [SHOW]})
     assert row == {"slot": "a1", "beat": 1001, "param": "asset", "type": "image", "description": SHOW}
     assert check(dict(COMPLETE_BEATS, overlays=[entry], slots=[row]), planted)["mentions"] == []
+
+
+# --- a picture whose beat the timeline dropped (V9b-3d) ---------------------------------------------------------------------------------------------
+
+def two_pictures_video(world, monkeypatch, answer):
+    """A video whose beats hold two cutaway layouts (a1 on beat7, a3 on beat8), both pictures approved, and a renderer that answers `answer` (a dict of extra keys, or a
+    function of the arguments) on top of the usual render answer. Returns the video."""
+    engine = world["engine"]
+
+    def align(a):
+        out = flag(a, "--out")
+        if out.endswith("proposal.beats.json"):
+            Path(out).write_text(json.dumps({"report": [{"beat": 7, "preset": "cutaway", "matched": True}], "slots": [dict(SLOT_SOURCE, slot="beat7"), dict(SLOT_SOURCE, slot="beat8", beat=8)]}))
+        else:
+            layouts = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3, "score": 1.0},
+                       {"id": "a3", "beat": 8, "preset": "cutaway", "params": {"asset": "beat8"}, "word_from": 4, "word_to": 6, "score": 1.0}]
+            Path(out).write_text(json.dumps({"overlays": [], "layouts": layouts}))
+        return {"ok": True, "beats": 2, "overlays": 0, "layouts": 2, "unmatched": []}
+    engine._align = align
+    plain = engine._render
+    engine._render = lambda a: dict(plain(a), **(answer(a) if callable(answer) else answer))
+    found = to_found(world, monkeypatch, {"beat7": ("market stall", "image"), "beat8": ("fruit crate", "image")})
+    done = ops.video_media_find(world["path"], found["task"], confirm=True)
+    revision = review_of(world)["revision"]
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], revision)
+    pick(world, found["task"], "beat8", done["slots"][1]["candidates"][0]["pick"], revision + 1)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    return found
+
+
+def test_a_picture_the_engine_did_not_draw_is_left_out_of_the_record_and_the_step_result_says_so(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, {"assets_dropped": ["beat8"]})
+    out = go_on(world, video["task"])
+    assert out["ok"] is True and out["stopped"] == "deliver"
+    args = world["engine"].of("render")[-1]["args"]
+    assert args.count("--asset") == 2                          # both were handed over: the runtime does not resolve the timeline
+    result = task_row(world, video["task"])["step_state"]["steps"]["render"]["result"]
+    assert result["pictures"] == 1 and result["pictures_dropped"] == ["beat8"]
+    record = json.loads(work_file(world, "render.json").read_text())
+    assert [row["slot"] for row in record["assets"]] == ["beat7"]
+
+
+def test_a_render_that_drops_every_picture_writes_no_assets_key_and_a_render_that_drops_none_has_no_pictures_dropped(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, {"assets_dropped": ["beat8", "beat7"]})
+    go_on(world, video["task"])
+    result = task_row(world, video["task"])["step_state"]["steps"]["render"]["result"]
+    assert "pictures" not in result and result["pictures_dropped"] == ["beat7", "beat8"]
+    assert "assets" not in json.loads(work_file(world, "render.json").read_text())
+
+
+def test_a_render_that_drops_none_reports_both_pictures_and_no_pictures_dropped(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, {})
+    go_on(world, video["task"])
+    result = task_row(world, video["task"])["step_state"]["steps"]["render"]["result"]
+    assert result["pictures"] == 2 and "pictures_dropped" not in result
+
+
+@pytest.mark.parametrize("bad", [["ghost"], [3], "beat8", {"beat8": 1}, ["beat8", "beat8"], [None]])
+def test_an_assets_dropped_that_is_not_a_list_of_the_slots_handed_over_is_provider_output_invalid_on_render(world, monkeypatch, bad):
+    video = two_pictures_video(world, monkeypatch, {"assets_dropped": bad})
+    out = go_on(world, video["task"])
+    assert out["ok"] is False and out["failed"] == "render" and out["code"] == "provider_output_invalid"
+    assert not work_file(world, "render.json").exists()

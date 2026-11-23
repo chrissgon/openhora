@@ -108,7 +108,7 @@ import _frames  # noqa: E402
 import _media  # noqa: E402
 import _render  # noqa: E402
 from _browser import NotConfigured  # noqa: E402
-from _host import (COMMON_HANDLERS, COVER_MAX_BYTES, CRASH_CODES, MAX_RECORDING_BYTES, MAX_SMALL_FILE, STILL_MAX_BYTES, Job, Usage,  # noqa: E402,F401
+from _host import (COMMON_HANDLERS, COVER_MAX_BYTES, CRASH_CODES, dropped_asset_slots, MAX_RECORDING_BYTES, MAX_SMALL_FILE, STILL_MAX_BYTES, Job, Usage,  # noqa: E402,F401
                    add_common_parsers, add_limits, emit, finish_render, opt, stage_blocks, verb_align, verb_analyse, verb_base,
                    verb_check_documents, verb_cover, verb_still, verb_verify)
 from _host import verb_block_params as host_block_params  # noqa: E402
@@ -210,6 +210,9 @@ def verb_render(args) -> dict:
         byte_cap = min(D.MAX_OUT_BYTES, _media.byte_limit(platform))
     except (Refusal, ValueError, KeyError, TypeError, AttributeError, ZeroDivisionError):
         raise Refusal("edl_unreadable", "edl") from None
+    dropped = dropped_asset_slots(args, data, asset_files)           # a picture only a dropped beat uses: not staged, listed as `assets_dropped` (V9b-3d)
+    asset_files = {slot: path for slot, path in asset_files.items() if slot not in dropped}
+    asset_hashes = {slot: digest for slot, digest in asset_hashes.items() if slot not in dropped}
     with Job(args, limit + 60, "render") as job:
         inner = ["render", "--edl", job.stage("edl.json", args.edl), "--beats", job.stage("beats.json", args.beats),
                  "--in", job.mount_recording(args.input), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
@@ -227,10 +230,13 @@ def verb_render(args) -> dict:
             inner += ["--cover-out", D.MOUNT_OUT + "/cover.png", "--cover-offset-ms", str(args.cover_offset_ms)]
         if args.dry_run:
             name, timeout, argv = job.argv(inner)
-            return {"ok": True, "dry_run": True, "command": argv, "image": job.image, "time_limit_seconds": limit, "out_dir": out_dir}
+            return dict({"ok": True, "dry_run": True, "command": argv, "image": job.image, "time_limit_seconds": limit, "out_dir": out_dir},
+                        **({"assets_dropped": dropped} if dropped else {}))
         result = job.run(inner, "render")
         if result.get("blocks_sha256") != blocks_args[-1]:
             raise Refusal("container_result_invalid", "blocks")
+        if dropped:
+            result["assets_dropped"] = sorted(set(dropped) | set(result.get("assets_dropped") or []))
         result = finish_render(args, job, result, out_dir=out_dir, byte_cap=byte_cap, out_seconds=out_frames / float(fps))
         if args.cover_out:
             job.collect("cover.png", args.cover_out, max_bytes=COVER_MAX_BYTES)

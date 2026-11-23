@@ -434,11 +434,15 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     background = data["theme"]["colors"]["bg"]
     _hf_page.check_target(out_dir, background)
     assets = check_assets(assets)
+    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    _, dropped_only = _edl.classify_slots(beats, timeline, vocab, assets)       # a slot only a dropped beat uses is not drawn: `assets_dropped` (V9b-3d)
+    if dropped_only:
+        assets = {slot: digest for slot, digest in assets.items() if slot not in dropped_only}
+        clip_assets = {slot: row for slot, row in (clip_assets or {}).items() if slot not in dropped_only}
     plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets, clip_assets)
     fonts = map_fonts(edl)
     pairs = theme_pairs(edl, fonts)
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
-    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     parts = _hf_page.build_parts(edl, fps=fps, effects=_edl.range_effects(edl, timeline))
 
     css = [font_face_css(fonts, "fonts/"), ":root{%s}" % ";".join("%s:%s" % pair for pair in pairs),
@@ -552,4 +556,5 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             "layers": ["cuts", "zoom"] + shown, "blocks": {name: block_pin(catalogue, catalogue["blocks"][name], rt) for name, rt in sorted(runtimes.items())},
             "blocks_sha256": catalogue["sha256"], "captions_drawn": sum(1 for p in plan if p["zone"] == "caption"),
             "beats_drawn": sum(1 for p in plan if p["zone"] in ("card", "frame")), "effects_dropped": timeline["effects_dropped"], "runtimes": dict(sorted(runtimes.items())),
-            "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())}}
+            "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())},
+            **({"assets_dropped": sorted(dropped_only)} if dropped_only else {})}
