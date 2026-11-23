@@ -1133,6 +1133,7 @@ VID_STOCK_CREDIT: Credit to put in the caption
 VID_STOCK_FOUND: <found> candidates for <slots> slots; pick one per slot, then fetch the picks.
 VID_STOCK_NOT_ACCEPTED: Stock media is not accepted for this project yet. Accept docs/workbench/runtime.json in the terminal with accept-config --widen.
 VID_STOCK_NOT_APPROVED: Approve the media set, or clear the picks, before you continue.
+VID_STOCK_NO_PICTURE: No picture for <slots>: these slots stay empty in the video. To fill one, give it new words and search again, or choose another option in the caption review.
 VID_STOCK_PREVIEW: These words will be sent to <sources>: move, review.
 VID_STOCK_PROVIDED: Media provided by notes.example (<link>)
 VID_STORYBOARD_ADVISORY: A still per beat over a placeholder. The video may look different.
