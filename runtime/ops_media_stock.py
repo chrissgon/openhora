@@ -33,6 +33,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import concurrent.futures
+import math
 import os
 import re
 import sys
@@ -153,9 +154,12 @@ class SheetEngine(ops_step_seams.MediaEngine):
         return done
 
 
-def _sheet(ctx: dict, mode: str, items: dict, out: str) -> dict:
-    """One `asset-sheet` call of the renderer: `items` is `{(row, col): path}`. The answer is the renderer's, read as untrusted: the shape is checked by the caller."""
+def _sheet(ctx: dict, mode: str, items: dict, out: str, fps=None) -> dict:
+    """One `asset-sheet` call of the renderer: `items` is `{(row, col): path}`. `fps`, when given, is the edit list's frame rate a clip is normalised to (V9b-5c). The answer is
+    the renderer's, read as untrusted: the shape is checked by the caller."""
     flags = ["--mode", mode, "--out", out]
+    if fps is not None:
+        flags += ["--fps", str(fps)]
     for (row, col), path in sorted(items.items()):
         flags += ["--asset", f"{row}:{col}={path}"]
     try:
@@ -289,6 +293,11 @@ def _shown(candidate: dict) -> dict:
     return out
 
 
+def _previewless(c: dict) -> bool:
+    """True for a clip of the open web that came with no thumbnail (K4): a candidate with no preview file, drawn on the sheet only after its fetch."""
+    return (c.get("preview") is None and c.get("preview_in") is None and c.get("preview_sha256") is None and c.get("kind") == "clip" and c.get("licence") == media_stock.UNVERIFIED)
+
+
 def _preview_path(folder: str, candidate: dict) -> str:
     """The file of a candidate's preview: in the stock folder, or in its quarantine for a candidate of the open web (`preview_in`)."""
     return os.path.join(folder, media_stock.QUARANTINE, candidate["preview"]) if candidate.get("preview_in") == media_stock.QUARANTINE else os.path.join(folder, candidate["preview"])
@@ -308,6 +317,10 @@ def _carried(ctx: dict, rid: str, old, task_id, slots: list, web: bool) -> dict:
         if not isinstance(row, dict) or new.get(row.get("slot")) != (row.get("search"), row.get("want")):
             continue
         for c in row.get("candidates") or []:
+            if (web and isinstance(c, dict) and c.get("source") in names and _previewless(c)
+                    and all(k in c for k in ("pick", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds"))):
+                out.setdefault(c["source"], {}).setdefault(row["slot"], []).append(c)      # no preview file to check
+                continue
             if not (isinstance(c, dict) and c.get("source") in names and isinstance(c.get("preview"), str) and media_stock.PROVIDER_FILE.fullmatch(c["preview"])
                     and isinstance(c.get("preview_sha256"), str) and (c.get("licence") == media_stock.UNVERIFIED) is web and (c.get("preview_in") == media_stock.QUARANTINE) is web
                     and all(k in c for k in ("pick", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds"))):
@@ -329,14 +342,14 @@ def _compose(ctx: dict, rid: str, task_id, slots: list, per_source: dict, droppe
     listed = [n for n in media_stock.sources_of(cfg) if n in per_source]
     merged = {s["slot"]: media_stock.merge([per_source[n].get(s["slot"], []) for n in listed]) for s in slots}      # the order of `listed` is the order of media.stock: the round robin's
     total = sum(len(v) for v in merged.values())
-    keep = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") != media_stock.QUARANTINE}
-    keep_q = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") == media_stock.QUARANTINE}
+    keep = {c["preview"] for rows in merged.values() for c in rows if isinstance(c.get("preview"), str) and c.get("preview_in") != media_stock.QUARANTINE}
+    keep_q = {c["preview"] for rows in merged.values() for c in rows if isinstance(c.get("preview"), str) and c.get("preview_in") == media_stock.QUARANTINE}
     try:
         media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") and n not in keep)      # a preview no candidate kept goes at once
         media_stock.prune_quarantine(data_dir, rid, keep_q)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    sheet = _preview_sheet(ctx, rid, slots, merged) if total else None
+    sheet = _preview_sheet(ctx, rid, slots, merged) if any(isinstance(c.get("preview"), str) for rows in merged.values() for c in rows) else None      # a candidate with no preview has no tile
     doc = {"version": media_stock.SET_VERSION, "task": task_id, "at": media_stock.now_stamp(), "phase": "found",
            "slots": [dict(s, candidates=merged[s["slot"]]) for s in slots], "assets": [], "sources": listed, "dropped": dropped}
     try:
@@ -435,7 +448,7 @@ def _preview_sheet(ctx: dict, rid: str, slots: list, merged: dict):
     name exactly the tiles asked for. Returns the sheet's name."""
     data_dir = ctx["cfg"]["data_dir"]
     folder = media_stock.folder_of(data_dir, rid)
-    items = {(s["slot"], n + 1): _preview_path(folder, c) for s in slots for n, c in enumerate(merged[s["slot"]])}
+    items = {(s["slot"], n + 1): _preview_path(folder, c) for s in slots for n, c in enumerate(merged[s["slot"]]) if not _previewless(c)}      # the column of a candidate with no preview stays empty
     try:
         scratch, path = media_stock.make_scratch(data_dir, rid)
         done = _sheet(ctx, "preview", items, path)
@@ -461,9 +474,27 @@ def _licence_url(root: str, name: str, licence: str) -> str:
     return given if isinstance(given, str) and URL.fullmatch(given) else ""
 
 
-def _picked(found: dict, review: dict, store_kinds: list, cfg=None, current=None) -> tuple:
+CLIP_MIN_DURATION = 1.5      # = step_media.CLIP_TIMING["cutaway"]["min_duration"] (a test compares; this module does not import step_media)
+
+
+def _clip_slot_ok(ctx: dict, store, review: dict, proposal, slot: str) -> bool:
+    """True when the block that draws this slot is the one that can draw a clip (V9b-5c): the proposal entry whose params hold the slot, else the review's added layout."""
+    root, implementation = store.root(), store.renderer()
+    for bucket in ("layouts", "overlays"):
+        for entry in (proposal or {}).get(bucket) or []:
+            params = entry.get("params") if isinstance(entry, dict) else None
+            for name, value in (params or {}).items():
+                if value == slot:
+                    return name == media_animation.CLIP_PARAM and media_animation.clip_block_ok(root, implementation, entry.get("block"), entry.get("preset"))
+    for a in review.get("animations") or []:
+        if a.get("id") == slot and "asset_param" in a:
+            return a["asset_param"] == media_animation.CLIP_PARAM and media_animation.clip_block_ok(root, implementation, a.get("block"), a.get("preset"))
+    return False
+
+
+def _picked(found: dict, review: dict, store_kinds: list, cfg=None, clip_ok=None, current=None) -> tuple:
     """(picks, without): `picks` is [(slot row, chosen candidate)], `without` the ids of the slots left with no picture, in the set's order. Rule 1: a row with a pick needs a pick
-    that is one of its candidates, and a clip needs an engine that draws clips. Rule 2: a row with no pick that has no candidates, or is no longer a stock slot (`current` is the set
+    that is one of its candidates, and a clip needs an engine that draws clips and a slot that a cutaway draws (`clip_ok`, V9b-5c). Rule 2: a row with no pick that has no candidates, or is no longer a stock slot (`current` is the set
     of slot ids that are; None means every row is), is left without a picture: it is not fetched and the step renders it as the person's choice. Rule 3: a row with no pick that has
     candidates and is still a stock slot is a missing pick (`no_pick`). With no pick at all, `no_pick`."""
     out, missing, without = [], [], []
@@ -481,6 +512,8 @@ def _picked(found: dict, review: dict, store_kinds: list, cfg=None, current=None
             continue
         if chosen["kind"] == "clip" and "clip" not in store_kinds:
             raise _fail("clip_not_drawn", phrases.text("VID_STOCK_CLIP_NOT_DRAWN", cfg))
+        if chosen["kind"] == "clip" and clip_ok is not None and not clip_ok(row["slot"]):
+            raise _fail("clip_block", phrases.text("VID_STOCK_CLIP_BLOCK", cfg))
         out.append((row, chosen))
     if missing:
         raise _fail("no_pick", "every slot needs a pick before the files are fetched; no pick for: " + ", ".join(missing))
@@ -507,6 +540,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         raise _fail("no_set", "find the media first (video-media-find)")
     root = ctx["root"]
     picks, without = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg,
+                             clip_ok=lambda s: _clip_slot_ok(ctx, store, review, proposal, s),
                              current={s["slot"] for s in media_stock.stock_slots(review, proposal)})      # a clip is refused here, before any source is asked
     accepted = _need_sources(ctx) if any(c["licence"] != media_stock.UNVERIFIED for _, c in picks) else []      # the acceptance is asked again, for the kinds of source the picks come from: a source whose terms changed since the find is a new item the person has not accepted
     if any(c["licence"] == media_stock.UNVERIFIED for _, c in picks):
@@ -535,8 +569,13 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         budget[0] -= fetched[row["slot"]][2]["bytes"]
     scratch, path = media_stock.make_scratch(data_dir, rid)
     items = {(slot, 1): got[0] for slot, got in fetched.items()}
+    fps = None
+    if any(c["kind"] == "clip" for _, c in picks):      # a clip is normalised to the edit list's rate, so both engines draw it as it is (V9b-5c)
+        fps = ops_media_edit._json(store, rid, ops_media_edit.PROPOSAL_EDL, default={}).get("fps")
+        if type(fps) is not int or not 24 <= fps <= 60:
+            raise _fail("engine_refused", "the edit list's frame rate cannot be read")
     try:
-        done = _sheet(ctx, "full", items, path)
+        done = _sheet(ctx, "full", items, path, fps)
     except core.OpsError:      # the picture was refused: nothing stays fetched, the set is back to its candidates, and the person picks again
         try:
             media_stock.remove_where(data_dir, rid, lambda n: n.startswith("full-") or n.startswith(".work") or n == media_stock.QUARANTINE)
@@ -551,11 +590,19 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     for row, chosen in picks:
         slot = row["slot"]
         a = rows[(slot, 1)]
-        name, digest = a.get("file"), a.get("sha256")
+        name, digest, kind, seconds = a.get("file"), a.get("sha256"), chosen["kind"], a.get("seconds", 0)
         if not (isinstance(name, str) and media_stock.ASSET_FILE.fullmatch(name) and isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)
-                and name == f"asset-{digest[:12]}.png" and type(a.get("width")) is int and type(a.get("height")) is int and a["width"] > 0 and a["height"] > 0
-                and a.get("source_sha256") == fetched[slot][1] and a.get("kind", "image") == "image" and a.get("seconds", 0) == 0):      # V9b-5a rows carry `kind` and `seconds`: a clip row never reaches the stock path
+                and name == media_stock.asset_name({"sha256": digest, "kind": kind}) and type(a.get("width")) is int and type(a.get("height")) is int and a["width"] > 0 and a["height"] > 0
+                and a.get("source_sha256") == fetched[slot][1] and a.get("kind", "image") == kind
+                and (seconds == 0 if kind == "image" else isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and 0 < seconds <= media_stock.CLIP_SECONDS_MAX + 0.1)):
             raise _fail("engine_refused", "the renderer's files are not what was asked for")
+        if kind == "clip" and seconds < CLIP_MIN_DURATION + 3.0 / fps:      # too short for a cutaway: the set is back to its candidates, as an asset-sheet refusal leaves it
+            try:
+                media_stock.remove_where(data_dir, rid, lambda n: n.startswith("full-") or n.startswith(".work") or n == media_stock.QUARANTINE)
+                media_stock.write_doc(data_dir, rid, media_stock.SET, dict(found, phase="found", assets=[], credits=[], credit_of={}))
+            except media_stock.StockError:
+                pass
+            raise _fail("clip_too_short", phrases.text("VID_STOCK_CLIP_SHORT", cfg, seconds=f"{math.ceil((CLIP_MIN_DURATION + 3.0 / fps) * 10) / 10:.1f}"))
         moves[name] = name
         got = fetched[slot][2]
         data = media_stock.source_data(root, chosen["source"]) or {}
@@ -564,20 +611,26 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
                        "source_link": _source_link(root, chosen["source"]),
                        "terms_read_on": data.get("terms_read_on") if isinstance(data.get("terms_read_on"), str) else None,
                        "author": chosen["author"] or got.get("author") or "", "title": chosen["title"], "page": chosen["page"], "licence_claim": chosen.get("licence_claim") or "",
-                       "sha256": digest, "width": a["width"], "height": a["height"], "seconds": chosen["seconds"], "unverified": chosen["licence"] == media_stock.UNVERIFIED})
+                       "sha256": digest, "width": a["width"], "height": a["height"],
+                       "seconds": round(min(float(seconds), media_stock.CLIP_SECONDS_MAX), 3) if kind == "clip" else chosen["seconds"], "unverified": chosen["licence"] == media_stock.UNVERIFIED})
     try:
         media_stock.adopt(data_dir, rid, scratch, moves)
         media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") or n == media_stock.SHEET_PREVIEW)      # the previews and the preview sheet go now
         found = dict(found, phase="fetched", assets=assets, credits=media_stock.credits_of(assets), fetched_at=media_stock.now_stamp(),
-                     credit_of={a["slot"]: media_stock.credit_line(a) for a in assets if a["licence"] in media_stock.LICENCES_CREDIT})
+                     credit_of={a["slot"]: media_stock.credit_line(a) for a in assets if a["licence"] in media_stock.LICENCES_CREDIT},
+                     **({"clip_fps": fps} if fps is not None else {}))
         media_stock.write_doc(data_dir, rid, media_stock.SET, found)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height")} | {"pick": f"{a['source']}:{a['item']}", "file": f"asset-{a['sha256'][:12]}.png"}
+    message = "Check the pictures, then approve the media set."
+    if any(a["kind"] == "clip" for a in assets):
+        message += " " + phrases.text("VID_STOCK_CLIP_TRIM", cfg, max=int(media_stock.CLIP_SECONDS_MAX))
+    if without:
+        message += " " + phrases.text("VID_STOCK_NO_PICTURE", cfg, slots=", ".join(without))
+    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height", "seconds")}
+                       | {"pick": f"{a['source']}:{a['item']}", "file": None if a["kind"] == "clip" else media_stock.asset_name(a)}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without,
-            "message": "Check the pictures, then approve the media set."
-            + (" " + phrases.text("VID_STOCK_NO_PICTURE", cfg, slots=", ".join(without)) if without else "")}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message}
 
 
 def _source_link(root: str, source: str) -> str:
@@ -677,7 +730,7 @@ def _fetched_set(ctx: dict, task_id, rid: str):
         if found is None or found.get("task") != task_id or found.get("phase") != "fetched" or not found.get("assets"):
             raise _fail("no_set", "fetch the picks first (video-media-fetch-picks)")
         for a in found["assets"]:
-            got = media_stock.file_facts(data_dir, rid, f"asset-{a['sha256'][:12]}.png")
+            got = media_stock.file_facts(data_dir, rid, media_stock.asset_name(a))
             if got is None or got[0] != a["sha256"]:
                 raise _fail("asset_changed", "a picture of the set is not the file that was made: fetch the picks again")
     except media_stock.StockError as e:
@@ -727,7 +780,7 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
               "assets": [{k: a[k] for k in ("slot", "sha256", "source", "item", "licence")} for a in document["assets"]]}
     try:
         media_stock.write_doc(data_dir, rid, media_stock.APPROVED, record)
-        keep = {f"asset-{a['sha256'][:12]}.png" for a in document["assets"]}
+        keep = {media_stock.asset_name(a) for a in document["assets"]}
         media_stock.clear_candidates(data_dir, rid, keep=keep | {media_stock.SHEET})
         media_stock.write_credits(data_dir, task_id, media_stock.credits_record(found, document, rid))
     except media_stock.StockError as e:

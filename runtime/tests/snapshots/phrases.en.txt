@@ -1128,7 +1128,10 @@ VID_RENDERING: Rendering the video. The approval card comes when it is ready.
 VID_REVIEW_WORDS: These are the captions. To correct them, reply to the caption card with one line per correction: wrong -> right. When they are right, reply continue.\n\nmove, review
 VID_STOCK_ASSET_SMALL: This picture is too small to show well; pick another one.
 VID_STOCK_ASSET_UNUSABLE: This file cannot be used; pick another one.
+VID_STOCK_CLIP_BLOCK: Only a cutaway can show a clip, and another block draws this slot. Pick a picture for this slot.
 VID_STOCK_CLIP_NOT_DRAWN: This engine cannot draw clips yet. Pick a picture for this slot.
+VID_STOCK_CLIP_SHORT: This clip is too short for a cutaway; pick one of at least <seconds> seconds.
+VID_STOCK_CLIP_TRIM: A cutaway with a clip ends when its clip ends (a clip keeps at most its first 10 seconds); a longer clip is cut at the end of its words.
 VID_STOCK_CREDIT: Credit to put in the caption
 VID_STOCK_FOUND: <found> candidates for <slots> slots; pick one per slot, then fetch the picks.
 VID_STOCK_NOT_ACCEPTED: Stock media is not accepted for this project yet. Accept docs/workbench/runtime.json in the terminal with accept-config --widen.

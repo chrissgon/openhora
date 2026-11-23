@@ -197,6 +197,22 @@ def asset_kinds(root: str, implementation=None) -> list:
     return list((found["engines"].get(engine) or {}).get("asset_kinds") or []) if engine is not None else []
 
 
+CLIP_BLOCK, CLIP_PARAM = "oh:cutaway", "asset"   # the one block and parameter that draw a clip on both engines (providers/renderer/_render.py settle_clips; a test reads it)
+
+
+def clip_block_ok(root: str, implementation, block, preset) -> bool:
+    """True when the slot's block is the one that draws a clip: `block` when given, else the engine's block for `preset` from the catalogue.
+    A catalogue that cannot be read, or an engine it does not know, gives False."""
+    if block is None:
+        try:
+            found = read_catalogue(root)
+        except CatalogueError:
+            return False
+        engine = engine_name(root, implementation)
+        block = ((found["engines"].get(engine) or {}).get("presets") or {}).get(preset) if engine is not None else None
+    return block == CLIP_BLOCK
+
+
 def listing(root: str, implementation=None) -> dict:
     """What the operation `video-catalogue` returns: {"engine", "blocks_sha256", "animations_max", "beats_max", "presets", "blocks": [entry +
     "addable" and "why"] sorted by name}. CatalogueError when the catalogue cannot be read."""

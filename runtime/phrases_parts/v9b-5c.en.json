@@ -1,0 +1,8 @@
+{
+  "package": "v9b-5c",
+  "table": {
+    "VID_STOCK_CLIP_BLOCK": "Only a cutaway can show a clip, and another block draws this slot. Pick a picture for this slot.",
+    "VID_STOCK_CLIP_SHORT": "This clip is too short for a cutaway; pick one of at least {seconds} seconds.",
+    "VID_STOCK_CLIP_TRIM": "A cutaway with a clip ends when its clip ends (a clip keeps at most its first {max} seconds); a longer clip is cut at the end of its words."
+  }
+}

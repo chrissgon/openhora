@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -214,9 +215,23 @@ def _host_flags(cfg: dict) -> list:
     return flags
 
 
+def _record(name: str, row: dict, item: str, preview, digest) -> dict:
+    """The candidate a row of the run becomes: what the page claims, as text, and the preview file (in the quarantine) with its sha256, or none of the three for a clip with no thumbnail."""
+    page = row["page_url"]
+    return {"source": name, "item": item, "pick": f"{name}:{item}", "kind": row["kind"], "licence": media_stock.UNVERIFIED, "author": "",
+            "title": ops_media_stock._text(row["title"], ops_media_stock.TEXT), "page": page, "licence_claim": ops_media_stock._text(row["licence_claim"], 200),
+            "site_terms": ops_media_stock._text(row.get("site_terms", ""), 200), "resolution": row.get("resolution") or "", "screen_work": row["screen_work"],
+            "url": row["media_url"], "page_host": urllib.parse.urlsplit(page).hostname or "", "width": None, "height": None, "seconds": None, "preview": preview,
+            "preview_in": media_stock.QUARANTINE if preview is not None else None, "preview_sha256": digest}
+
+
 def _preview(ctx: dict, rid: str, sources, name: str, quarantine: str, row: dict):
     """(candidate, None) or (None, reason) for one candidate of a run: the open-web provider's `preview` verb fetches the thumbnail (else the file itself, an image) into the quarantine; its answer
-    is checked against the closed shape, the type, the name (`q-<sha12>.<ext>`), the size and the file's own facts. A refused preview drops its candidate."""
+    is checked against the closed shape, the type, the name (`q-<sha12>.<ext>`), the size and the file's own facts. A refused preview drops its candidate. A clip with no thumbnail has no preview
+    (V9b spec 7.5): it is kept as a candidate with no preview file and no provider call, its item a hash of its link (`u-<12 hex>`, so the link itself is named nowhere), and its frame is drawn
+    on the sheet after it is fetched and before the person approves it (K4)."""
+    if row["kind"] == "clip" and not row.get("thumb_url"):
+        return _record(name, row, "u-" + hashlib.sha256(row["media_url"].encode("utf-8")).hexdigest()[:12], None, None), None
     url = row.get("thumb_url") or row["media_url"]
     flags = ["--kind", "image", "--url", url, "--out", quarantine, "--max-bytes", str(PREVIEW_BYTES), "--allow-unverified"] + _host_flags(ctx["cfg"])
     try:
@@ -234,13 +249,7 @@ def _preview(ctx: dict, rid: str, sources, name: str, quarantine: str, row: dict
         return None, "preview"
     if facts != (digest, size):
         return None, "preview"
-    page = row["page_url"]
-    item = "q-" + digest[:12]
-    return {"source": name, "item": item, "pick": f"{name}:{item}", "kind": row["kind"], "licence": media_stock.UNVERIFIED, "author": "",
-            "title": ops_media_stock._text(row["title"], ops_media_stock.TEXT), "page": page, "licence_claim": ops_media_stock._text(row["licence_claim"], 200),
-            "site_terms": ops_media_stock._text(row.get("site_terms", ""), 200), "resolution": row.get("resolution") or "", "screen_work": row["screen_work"],
-            "url": row["media_url"], "page_host": urllib.parse.urlsplit(page).hostname or "", "width": None, "height": None, "seconds": None, "preview": file,
-            "preview_in": media_stock.QUARANTINE, "preview_sha256": digest}, None
+    return _record(name, row, "q-" + digest[:12], file, digest), None
 
 
 def _previews(ctx: dict, rid: str, name: str, rows: list) -> tuple:
@@ -428,7 +437,7 @@ def video_media_approve_asset(project: str, task_id, slot, sha256, confirm=None,
         row = next((c for r in found.get("slots") or [] if isinstance(r, dict) for c in r.get("candidates") or [] if isinstance(c, dict) and c.get("pick") == f"{asset['source']}:{asset['item']}"), {})
         page = asset.get("page") or ""
         host = (row.get("page_host") if isinstance(row.get("page_host"), str) else "") or urllib.parse.urlsplit(page).hostname or ""
-        return {"approved": False, "slot": slot, "sha256": sha256, "file": f"asset-{sha256[:12]}.png", "host": host, "page": page, "licence_claim": asset.get("licence_claim") or "",
+        return {"approved": False, "slot": slot, "sha256": sha256, "file": "sheet.png" if asset.get("kind") == "clip" else f"asset-{sha256[:12]}.png", "host": host, "page": page, "licence_claim": asset.get("licence_claim") or "",
                 "licence_claim_note": CLAIM_NOTE, "screen_work": bool(row.get("screen_work")), "warning": phrases.text("VID_WEB_WARNING", cfg, host=host, page=page),
                 "confirm": f"--confirm-digits {sha256[:12]}"}
     if confirm != sha256[:12]:
