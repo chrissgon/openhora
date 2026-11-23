@@ -73,28 +73,28 @@ def a_png(rgb=(30, 120, 200)):
     return png(8, 8, lambda x, y: rgb)
 
 
-# the layout a1 starts on word 22 with the overlay b4 and is shorter: the timeline drops it
-TIED = [layout("a1", 7, "s1", 22, 24)]
+# the picture layouts a1 and a0 start together on word 22 (V9b-3e: a picture wins over a text overlay, so b4 yields to both; of two pictures the shorter, a1, is dropped)
+TIED = [layout("a1", 7, "s1", 22, 24), layout("a0", 8, "s0", 22, 27)]
 
 
-def test_the_timeline_drops_the_shorter_of_two_beats_that_start_on_the_same_word(docs):
+def test_the_timeline_drops_the_shorter_of_two_pictures_that_start_on_the_same_word(docs):
     data, edl, beats, vocab = with_layouts(docs, TIED)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
-    assert timeline["dropped"] == ["a1"] and "b4" in [e["id"] for e in timeline["beats"]]
-    used, dropped_only = _edl.classify_slots(beats, timeline, vocab, {"s1": 1, "ghost": 2})
-    assert used == set() and dropped_only == {"s1"}                 # `ghost` is in neither: the caller refuses it
+    assert timeline["dropped"] == ["a1"] and {"a0", "b4"} <= {e["id"] for e in timeline["beats"]}
+    used, dropped_only = _edl.classify_slots(beats, timeline, vocab, {"s0": 0, "s1": 1, "ghost": 2})
+    assert used == {"s0"} and dropped_only == {"s1"}                 # `ghost` is in neither: the caller refuses it
 
 
 def test_a_slot_a_kept_beat_also_uses_is_drawn_and_not_dropped(docs):
-    rows = TIED + [layout("a2", 8, "s1", 53, 59)]
+    rows = TIED + [layout("a2", 9, "s1", 53, 59)]
     data, edl, beats, vocab = with_layouts(docs, rows)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
-    used, dropped_only = _edl.classify_slots(beats, timeline, vocab, {"s1": 1})
-    assert timeline["dropped"] == ["a1"] and used == {"s1"} and dropped_only == set()
+    used, dropped_only = _edl.classify_slots(beats, timeline, vocab, {"s0": 0, "s1": 1})
+    assert timeline["dropped"] == ["a1"] and used == {"s0", "s1"} and dropped_only == set()
 
 
 def test_ffmpeg_a_picture_of_a_dropped_beat_is_not_read_not_drawn_and_listed(docs, tmp_path, monkeypatch):
-    result = run_render(docs, TIED, tmp_path, monkeypatch, {"s1": NOT_A_PNG})      # the bytes are no picture: a file that was read would be `asset_type`
+    result = run_render(docs, TIED, tmp_path, monkeypatch, {"s1": NOT_A_PNG, "s0": a_png()})      # the bytes are no picture: a file that was read would be `asset_type`
     assert result["ok"] and result["dry_run"] is True and result["assets_dropped"] == ["s1"]
     assert "a1" in result["beats_dropped"] and "a1" not in [b["id"] for b in result["beats_drawn"]]
 
@@ -106,7 +106,7 @@ def test_ffmpeg_a_render_with_no_dropped_picture_has_no_assets_dropped_key(docs,
 
 def test_ffmpeg_a_slot_no_beat_uses_is_still_asset_unused_and_a_kept_slot_with_no_file_is_still_asset_missing(docs, tmp_path, monkeypatch):
     with pytest.raises(Refusal) as unused:
-        run_render(docs, TIED, tmp_path, monkeypatch, {"s1": NOT_A_PNG, "ghost": a_png()})
+        run_render(docs, TIED, tmp_path, monkeypatch, {"s1": NOT_A_PNG, "s0": a_png(), "ghost": a_png()})
     assert (unused.value.code, unused.value.field) == ("asset_unused", "ghost")
     with pytest.raises(Refusal) as missing:
         run_render(docs, [layout("a1", 7, "s1", 53, 59)], tmp_path, monkeypatch, {})
@@ -125,15 +125,16 @@ def live_shape(docs):
     return data, edl, beats, vocab
 
 
-def test_the_live_shape_drops_a3_and_the_dry_run_hands_back_its_slot(docs, tmp_path, monkeypatch):
+def test_the_live_shape_with_a_longer_picture_beside_a3_drops_a3_and_the_dry_run_hands_back_its_slot(docs, tmp_path, monkeypatch):
     data, edl, beats, vocab = live_shape(docs)
+    beats = with_slots(beats, beats["layouts"] + [layout("a4", 8, "s4", 22, 31)])          # a picture that starts with a3 and is longer: of two pictures the shorter loses
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     assert timeline["dropped"] == ["a3"]
     (tmp_path / "edl.json").write_text(json.dumps(edl))
     (tmp_path / "beats.json").write_text(json.dumps(beats))
     monkeypatch.setattr(_render, "check_recording", lambda *a, **k: {})
     files = {}
-    for slot, raw in (("s1", a_png()), ("s2", a_png((200, 30, 30))), ("s3", NOT_A_PNG)):
+    for slot, raw in (("s1", a_png()), ("s2", a_png((200, 30, 30))), ("s3", NOT_A_PNG), ("s4", a_png((30, 200, 30)))):
         (tmp_path / (slot + ".png")).write_bytes(raw)
         files[slot] = str(tmp_path / (slot + ".png"))
     result = _render.render(edl_path=str(tmp_path / "edl.json"), beats_path=str(tmp_path / "beats.json"), src="unused.mp4", out=str(tmp_path / "out"),
@@ -157,10 +158,9 @@ def compose(docs, catalogue, folder, rows, assets):
 
 def test_hf_a_picture_of_a_dropped_beat_is_not_in_the_page_and_is_listed(docs, catalogue, tmp_path):
     out = tmp_path / "page"
-    result = compose(docs, catalogue, out, TIED, {"s1": "a" * 64})
-    assert result["assets_dropped"] == ["s1"] and result["beats_drawn"] == 4
-    assert "assets" not in json.loads((out / "vars.json").read_text())
-    assert 'data-hf-zone="frame"' not in (out / "index.html").read_text() and not (out / "blocks" / "oh-cutaway.html").exists()
+    result = compose(docs, catalogue, out, TIED, {"s1": "a" * 64, "s0": "b" * 64})
+    assert result["assets_dropped"] == ["s1"] and result["beats_drawn"] == 5            # b3 to b6 and a0
+    assert "s1" not in json.dumps(json.loads((out / "vars.json").read_text())) and (out / "blocks" / "oh-cutaway.html").exists()
 
 
 def test_hf_a_page_with_no_dropped_picture_has_no_assets_dropped_key(docs, catalogue, tmp_path):
@@ -169,7 +169,7 @@ def test_hf_a_page_with_no_dropped_picture_has_no_assets_dropped_key(docs, catal
 
 
 def test_hf_the_refusals_are_unchanged(docs, catalogue, tmp_path):
-    for rows, assets, expected in ((TIED, {"s1": "a" * 64, "ghost": "b" * 64}, ("asset_unused", "ghost")),
+    for rows, assets, expected in ((TIED, {"s0": "c" * 64, "s1": "a" * 64, "ghost": "b" * 64}, ("asset_unused", "ghost")),
                                    ([layout("a1", 7, "s1", 53, 59)], {}, ("asset_missing", "s1"))):
         with pytest.raises(Refusal) as caught:
             compose(docs, catalogue, tmp_path / ("p%d" % len(assets)), rows, assets)
