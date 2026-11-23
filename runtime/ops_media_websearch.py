@@ -428,7 +428,7 @@ def video_media_approve_asset(project: str, task_id, slot, sha256, confirm=None,
         row = next((c for r in found.get("slots") or [] if isinstance(r, dict) for c in r.get("candidates") or [] if isinstance(c, dict) and c.get("pick") == f"{asset['source']}:{asset['item']}"), {})
         page = asset.get("page") or ""
         host = (row.get("page_host") if isinstance(row.get("page_host"), str) else "") or urllib.parse.urlsplit(page).hostname or ""
-        return {"approved": False, "slot": slot, "sha256": sha256, "file": f"asset-{sha256[:12]}.png", "host": host, "page": page, "licence_claim": asset.get("licence_claim") or "",
+        return {"approved": False, "slot": slot, "sha256": sha256, "file": "sheet.png" if asset.get("kind") == "clip" else f"asset-{sha256[:12]}.png", "host": host, "page": page, "licence_claim": asset.get("licence_claim") or "",
                 "licence_claim_note": CLAIM_NOTE, "screen_work": bool(row.get("screen_work")), "warning": phrases.text("VID_WEB_WARNING", cfg, host=host, page=page),
                 "confirm": f"--confirm-digits {sha256[:12]}"}
     if confirm != sha256[:12]:

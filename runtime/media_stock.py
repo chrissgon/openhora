@@ -13,7 +13,7 @@ The folder (mode 0700, every file 0600 or 0400, opened without following a link,
   prev-*            the previews a search brought (one per candidate; a source's own picture, at most 1 MiB)
   full-*            the full file of a pick, as the library gave it (never served, never rendered: the renderer normalises it)
   quarantine/       the files of the open web: the previews a web search brought and the files fetched from it (V9b-3b); a file leaves it only at the set approval
-  asset-<sha12>.png the pictures the renderer made from the picks, PNG, the only files a render may use
+  asset-<sha12>.png or .mp4  the pictures and clips the renderer made from the picks, the only files a render may use
   sheet-preview.png and sheet.png    the contact sheets the renderer made of the previews and of the picks
   set.json          what `video-media-find` found and `video-media-fetch-picks` fetched (phase `found`, then `fetched`)
   approved.json     the approval of the set: its hash, the time, the sources in force, the assets, and `unverified` (each open-web asset's own approval)
@@ -64,12 +64,14 @@ MAX_FULL = 6
 MAX_FULL_BYTES = 400 * 1024 * 1024                    # the full files of a video together
 MAX_CALLS = 40                                        # API calls of a video
 MIB = 1024 * 1024
-KIND_BYTES = {"image": 16 * MIB, "clip": 120 * MIB}
+KIND_BYTES = {"image": 16 * MIB, "clip": 64 * MIB}   # the clip cap = limits.asset_max_bytes of providers/renderer/renderer-presets.json (a test compares)
+CLIP_SECONDS_MAX = 10.0                               # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
 SET, APPROVED, SHEET, SHEET_PREVIEW = "set.json", "approved.json", "sheet.png", "sheet-preview.png"
 QUARANTINE = media.STOCK_QUARANTINE
 SET_VERSION = 1
 DOC_LIMIT = 2 * MIB
-ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.png")
+ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.(png|mp4)")
+SERVED_ASSET = re.compile(r"asset-[0-9a-f]{12}\.png")   # a clip is never served: the page shows the sheet
 PROVIDER_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,200}")      # the name a provider gave a file inside the folder
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SOURCE_NAME = re.compile(r"[a-z][a-z0-9]{1,30}")
@@ -275,7 +277,7 @@ def read_doc(data_dir: str, rid: str, name: str):
 def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> bytes:
     """The bytes of a file the page may be given: only `sheet-preview.png`, `sheet.png` and `asset-<sha12>.png` (the files the container made), never a preview, a full
     file or a file of the quarantine, whatever their names. A file that is not a PNG by its header is refused."""
-    if not isinstance(name, str) or not (name in SERVED or ASSET_FILE.fullmatch(name)):
+    if not isinstance(name, str) or not (name in SERVED or SERVED_ASSET.fullmatch(name)):
         raise StockError("that file is not one the page may be given", "usage")
     try:
         data = media.read_work(data_dir, rid, "stock/" + name, limit)
@@ -284,6 +286,11 @@ def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> by
     if len(data) > limit or not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise StockError("that file is not a picture", "unreadable")
     return data
+
+
+def asset_name(asset: dict) -> str:
+    """The file name of an approved asset in the stock folder: `asset-<sha12>.mp4` for a clip, `asset-<sha12>.png` for a picture."""
+    return "asset-%s.%s" % (asset["sha256"][:12], "mp4" if asset.get("kind") == "clip" else "png")
 
 
 def names(data_dir: str, rid: str) -> list:

@@ -33,6 +33,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import concurrent.futures
+import math
 import os
 import re
 import sys
@@ -153,9 +154,12 @@ class SheetEngine(ops_step_seams.MediaEngine):
         return done
 
 
-def _sheet(ctx: dict, mode: str, items: dict, out: str) -> dict:
-    """One `asset-sheet` call of the renderer: `items` is `{(row, col): path}`. The answer is the renderer's, read as untrusted: the shape is checked by the caller."""
+def _sheet(ctx: dict, mode: str, items: dict, out: str, fps=None) -> dict:
+    """One `asset-sheet` call of the renderer: `items` is `{(row, col): path}`. `fps`, when given, is the edit list's frame rate a clip is normalised to (V9b-5c). The answer is
+    the renderer's, read as untrusted: the shape is checked by the caller."""
     flags = ["--mode", mode, "--out", out]
+    if fps is not None:
+        flags += ["--fps", str(fps)]
     for (row, col), path in sorted(items.items()):
         flags += ["--asset", f"{row}:{col}={path}"]
     try:
@@ -461,8 +465,27 @@ def _licence_url(root: str, name: str, licence: str) -> str:
     return given if isinstance(given, str) and URL.fullmatch(given) else ""
 
 
-def _picked(found: dict, review: dict, store_kinds: list, cfg=None) -> list:
-    """[(slot row, chosen candidate)] for every slot of the set: each slot must have a pick that is one of its candidates; a clip needs an engine that draws clips."""
+CLIP_MIN_DURATION = 1.5      # = step_media.CLIP_TIMING["cutaway"]["min_duration"] (a test compares; this module does not import step_media)
+
+
+def _clip_slot_ok(ctx: dict, store, review: dict, proposal, slot: str) -> bool:
+    """True when the block that draws this slot is the one that can draw a clip (V9b-5c): the proposal entry whose params hold the slot, else the review's added layout."""
+    root, implementation = store.root(), store.renderer()
+    for bucket in ("layouts", "overlays"):
+        for entry in (proposal or {}).get(bucket) or []:
+            params = entry.get("params") if isinstance(entry, dict) else None
+            for name, value in (params or {}).items():
+                if value == slot:
+                    return name == media_animation.CLIP_PARAM and media_animation.clip_block_ok(root, implementation, entry.get("block"), entry.get("preset"))
+    for a in review.get("animations") or []:
+        if a.get("id") == slot and "asset_param" in a:
+            return a["asset_param"] == media_animation.CLIP_PARAM and media_animation.clip_block_ok(root, implementation, a.get("block"), a.get("preset"))
+    return False
+
+
+def _picked(found: dict, review: dict, store_kinds: list, cfg=None, clip_ok=None) -> list:
+    """[(slot row, chosen candidate)] for every slot of the set: each slot must have a pick that is one of its candidates; a clip needs an engine that draws clips and a slot
+    that a cutaway draws (`clip_ok`, V9b-5c)."""
     out, missing = [], []
     for row in found["slots"]:
         pick = review["slot_assets"].get(row["slot"])
@@ -472,6 +495,8 @@ def _picked(found: dict, review: dict, store_kinds: list, cfg=None) -> list:
             continue
         if chosen["kind"] == "clip" and "clip" not in store_kinds:
             raise _fail("clip_not_drawn", phrases.text("VID_STOCK_CLIP_NOT_DRAWN", cfg))
+        if chosen["kind"] == "clip" and clip_ok is not None and not clip_ok(row["slot"]):
+            raise _fail("clip_block", phrases.text("VID_STOCK_CLIP_BLOCK", cfg))
         out.append((row, chosen))
     if missing:
         raise _fail("no_pick", "every slot needs a pick before the files are fetched; no pick for: " + ", ".join(missing))
@@ -486,7 +511,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     task, rid, state = _task(ctx, task_id)
     _at_review(ctx, task, state)
     store = ops_step_seams.MediaStore(ctx)
-    review, _ = _read_review(store, rid)
+    review, proposal = _read_review(store, rid)
     data_dir, cfg = ctx["cfg"]["data_dir"], ctx["cfg"]
     try:
         found = media_stock.read_doc(data_dir, rid, media_stock.SET)
@@ -495,7 +520,8 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     if found is None or found.get("task") != task_id or not isinstance(found.get("slots"), list):
         raise _fail("no_set", "find the media first (video-media-find)")
     root = ctx["root"]
-    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg)      # a clip is refused here, before any source is asked
+    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg,
+                    clip_ok=lambda s: _clip_slot_ok(ctx, store, review, proposal, s))      # a clip is refused here, before any source is asked
     accepted = _need_sources(ctx) if any(c["licence"] != media_stock.UNVERIFIED for _, c in picks) else []      # the acceptance is asked again, for the kinds of source the picks come from: a source whose terms changed since the find is a new item the person has not accepted
     if any(c["licence"] == media_stock.UNVERIFIED for _, c in picks):
         _web_ready(ctx)
@@ -523,8 +549,13 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         budget[0] -= fetched[row["slot"]][2]["bytes"]
     scratch, path = media_stock.make_scratch(data_dir, rid)
     items = {(slot, 1): got[0] for slot, got in fetched.items()}
+    fps = None
+    if any(c["kind"] == "clip" for _, c in picks):      # a clip is normalised to the edit list's rate, so both engines draw it as it is (V9b-5c)
+        fps = ops_media_edit._json(store, rid, ops_media_edit.PROPOSAL_EDL, default={}).get("fps")
+        if type(fps) is not int or not 24 <= fps <= 60:
+            raise _fail("engine_refused", "the edit list's frame rate cannot be read")
     try:
-        done = _sheet(ctx, "full", items, path)
+        done = _sheet(ctx, "full", items, path, fps)
     except core.OpsError:      # the picture was refused: nothing stays fetched, the set is back to its candidates, and the person picks again
         try:
             media_stock.remove_where(data_dir, rid, lambda n: n.startswith("full-") or n.startswith(".work") or n == media_stock.QUARANTINE)
@@ -539,11 +570,19 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     for row, chosen in picks:
         slot = row["slot"]
         a = rows[(slot, 1)]
-        name, digest = a.get("file"), a.get("sha256")
+        name, digest, kind, seconds = a.get("file"), a.get("sha256"), chosen["kind"], a.get("seconds", 0)
         if not (isinstance(name, str) and media_stock.ASSET_FILE.fullmatch(name) and isinstance(digest, str) and media_stock.SHA256.fullmatch(digest)
-                and name == f"asset-{digest[:12]}.png" and type(a.get("width")) is int and type(a.get("height")) is int and a["width"] > 0 and a["height"] > 0
-                and a.get("source_sha256") == fetched[slot][1] and a.get("kind", "image") == "image" and a.get("seconds", 0) == 0):      # V9b-5a rows carry `kind` and `seconds`: a clip row never reaches the stock path
+                and name == media_stock.asset_name({"sha256": digest, "kind": kind}) and type(a.get("width")) is int and type(a.get("height")) is int and a["width"] > 0 and a["height"] > 0
+                and a.get("source_sha256") == fetched[slot][1] and a.get("kind", "image") == kind
+                and (seconds == 0 if kind == "image" else isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and 0 < seconds <= media_stock.CLIP_SECONDS_MAX + 0.1)):
             raise _fail("engine_refused", "the renderer's files are not what was asked for")
+        if kind == "clip" and seconds < CLIP_MIN_DURATION + 3.0 / fps:      # too short for a cutaway: the set is back to its candidates, as an asset-sheet refusal leaves it
+            try:
+                media_stock.remove_where(data_dir, rid, lambda n: n.startswith("full-") or n.startswith(".work") or n == media_stock.QUARANTINE)
+                media_stock.write_doc(data_dir, rid, media_stock.SET, dict(found, phase="found", assets=[], credits=[], credit_of={}))
+            except media_stock.StockError:
+                pass
+            raise _fail("clip_too_short", phrases.text("VID_STOCK_CLIP_SHORT", cfg, seconds=f"{math.ceil((CLIP_MIN_DURATION + 3.0 / fps) * 10) / 10:.1f}"))
         moves[name] = name
         got = fetched[slot][2]
         data = media_stock.source_data(root, chosen["source"]) or {}
@@ -552,18 +591,24 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
                        "source_link": _source_link(root, chosen["source"]),
                        "terms_read_on": data.get("terms_read_on") if isinstance(data.get("terms_read_on"), str) else None,
                        "author": chosen["author"] or got.get("author") or "", "title": chosen["title"], "page": chosen["page"], "licence_claim": chosen.get("licence_claim") or "",
-                       "sha256": digest, "width": a["width"], "height": a["height"], "seconds": chosen["seconds"], "unverified": chosen["licence"] == media_stock.UNVERIFIED})
+                       "sha256": digest, "width": a["width"], "height": a["height"],
+                       "seconds": round(min(float(seconds), media_stock.CLIP_SECONDS_MAX), 3) if kind == "clip" else chosen["seconds"], "unverified": chosen["licence"] == media_stock.UNVERIFIED})
     try:
         media_stock.adopt(data_dir, rid, scratch, moves)
         media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") or n == media_stock.SHEET_PREVIEW)      # the previews and the preview sheet go now
         found = dict(found, phase="fetched", assets=assets, credits=media_stock.credits_of(assets), fetched_at=media_stock.now_stamp(),
-                     credit_of={a["slot"]: media_stock.credit_line(a) for a in assets if a["licence"] in media_stock.LICENCES_CREDIT})
+                     credit_of={a["slot"]: media_stock.credit_line(a) for a in assets if a["licence"] in media_stock.LICENCES_CREDIT},
+                     **({"clip_fps": fps} if fps is not None else {}))
         media_stock.write_doc(data_dir, rid, media_stock.SET, found)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height")} | {"pick": f"{a['source']}:{a['item']}", "file": f"asset-{a['sha256'][:12]}.png"}
+    message = "Check the pictures, then approve the media set."
+    if any(a["kind"] == "clip" for a in assets):
+        message += " " + phrases.text("VID_STOCK_CLIP_TRIM", cfg, max=int(media_stock.CLIP_SECONDS_MAX))
+    return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height", "seconds")}
+                       | {"pick": f"{a['source']}:{a['item']}", "file": None if a["kind"] == "clip" else media_stock.asset_name(a)}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "message": "Check the pictures, then approve the media set."}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "message": message}
 
 
 def _source_link(root: str, source: str) -> str:
@@ -663,7 +708,7 @@ def _fetched_set(ctx: dict, task_id, rid: str):
         if found is None or found.get("task") != task_id or found.get("phase") != "fetched" or not found.get("assets"):
             raise _fail("no_set", "fetch the picks first (video-media-fetch-picks)")
         for a in found["assets"]:
-            got = media_stock.file_facts(data_dir, rid, f"asset-{a['sha256'][:12]}.png")
+            got = media_stock.file_facts(data_dir, rid, media_stock.asset_name(a))
             if got is None or got[0] != a["sha256"]:
                 raise _fail("asset_changed", "a picture of the set is not the file that was made: fetch the picks again")
     except media_stock.StockError as e:
@@ -713,7 +758,7 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
               "assets": [{k: a[k] for k in ("slot", "sha256", "source", "item", "licence")} for a in document["assets"]]}
     try:
         media_stock.write_doc(data_dir, rid, media_stock.APPROVED, record)
-        keep = {f"asset-{a['sha256'][:12]}.png" for a in document["assets"]}
+        keep = {media_stock.asset_name(a) for a in document["assets"]}
         media_stock.clear_candidates(data_dir, rid, keep=keep | {media_stock.SHEET})
         media_stock.write_credits(data_dir, task_id, media_stock.credits_record(found, document, rid))
     except media_stock.StockError as e:

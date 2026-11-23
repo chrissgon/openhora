@@ -35,7 +35,7 @@ numbers and hashes: a transcript, a post or a tool's output is never in it, in a
 
 Arguments (checked when the task is planned): {"media": "<16 hex recording id>", "post": "docs/marketing/content/<name>.md"}. The platform is not an
 argument: `take` reads it from the post. The kind is not unattended: the review and the gate are the person's, so it starts when the person starts it,
-and it writes no file of the project (its footprint is empty). An asset slot (a picture placed in the video) is a keyword, none, or `stock` (V9b-3a): a picture
+and it writes no file of the project (its footprint is empty). An asset slot (a picture placed in the video) is a keyword, none, or `stock` (V9b-3a): a picture (or, since V9b-5c, a clip)
 from the media set the person chose and approved (runtime/ops_media_stock.py, the folder `stock/` of the recording, read here by `store.read` and `store.path`
 alone). The engine is given a picture only when it is in the approved set with the set's current hash, its file hashes to the set's sha256 again, and its licence is in the
 accepted tuple or it has its own approval for this task, this sha256 and a source the project still uses (limit L76); anything else stops the step.
@@ -77,7 +77,11 @@ PREVIEW_NAME = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 STILL_PATTERN, RENDER_PATTERN, COVER_PATTERN = r"still-[0-9a-f]{12}\.png", r"render-[0-9a-f]{12}\.mp4", r"cover-[0-9a-f]{12}\.png"
 PREVIEW_PATTERN = r"preview-[0-9a-f]{12}\.mp4"
 STOCK_SET, STOCK_APPROVED = "stock/set.json", "stock/approved.json"
-STOCK_ASSET = "stock/asset-{sha12}.png"
+STOCK_ASSET = "stock/asset-{sha12}.{ext}"      # `.mp4` for a clip, `.png` for a picture
+CLIP_TIMING = {"cutaway": {"tail": 0.2, "min_duration": 1.5, "max_duration": None}}      # = providers/renderer/renderer-presets.json presets.cutaway (a test compares)
+CLIP_SECONDS_MAX = 10.0      # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
+CLIP_SPARE_FRAMES = 2      # frames a cutaway ends before its clip does, so neither engine holds a frame or meets clip_too_short
+CLIP_SHORT_NEXT = "start a new video from this recording and pick a clip at least as long as the first word of its beat"
 STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
               "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
 STOCK_LICENCES = ("pexels-license", "pixabay-content-license", "cc0-1.0", "pdm-1.0", "cc-by-4.0", "cc-by-3.0", "cc-by-2.5", "cc-by-2.0")      # = media_stock.LICENCES_ACCEPTED (a test compares)
@@ -224,7 +228,7 @@ def _sources_now(ctx: steps.Context, approved: dict) -> list:
 
 
 def _stock_assets(ctx: steps.Context, store, rid: str, review: dict, code: str) -> dict:
-    """{slot: {"asset", "path"}} of the approved pictures of the review's picks. With no pick it is {} and nothing is read. Otherwise every pick must be an asset of the
+    """{slot: {"asset", "path"}} of the approved pictures and clips of the review's picks. With no pick it is {} and nothing is read. Otherwise every pick must be an asset of the
     set that was fetched for this task, the set's approval must hold its current hash, each file must hash to the set's sha256 again, and each licence must be in
     STOCK_LICENCES or be `unverified` with its own approval (this task, this sha256, a source the project still uses). Anything else is `StepFailure(code)`: `media_not_approved`
     before the step goes on (Continue), `asset_not_approved` when the engine would be given a picture."""
@@ -249,7 +253,7 @@ def _stock_assets(ctx: steps.Context, store, rid: str, review: dict, code: str) 
                 raise refuse(slot)
         elif asset.get("licence") not in STOCK_LICENCES:
             raise refuse(slot)
-        name = STOCK_ASSET.format(sha12=asset["sha256"][:12])
+        name = STOCK_ASSET.format(sha12=asset["sha256"][:12], ext="mp4" if asset.get("kind") == "clip" else "png")
         try:
             same = _asked(store.sha256, rid, name) == asset["sha256"]
         except steps.StepFailure:
@@ -514,6 +518,43 @@ def _add_slot_row(store, beats: dict, entry: dict, a: dict) -> None:
         rows.append(_slot_row(store, entry, a))
 
 
+def fit_clip_entries(beats: dict, edl: dict, clips: dict) -> list:
+    """Lower `word_to` of each entry of `beats` whose slot holds an approved clip, when its beat would outlast the clip, to the last word whose beat fits the clip with
+    CLIP_SPARE_FRAMES frames to spare (V9b-5c). `clips` is `{slot: seconds}`. Edits `beats` in place and returns the slots shortened, in the order met. The beat's length is the
+    renderer's (providers/renderer/_edl.py resolve_timeline): the last word's end plus `tail`, at least `min_duration`, at most `max_duration`; a later beat or the video's
+    end can only shorten it. A preset outside CLIP_TIMING is `asset_type`; a beat whose first word alone does not fit is `clip_too_short`."""
+    fps = edl["fps"]
+    words = {w["index"]: w for w in edl["words"]}
+    order = sorted(words)
+    shortened = []
+    for bucket in ("layouts", "overlays"):
+        for e in beats.get(bucket) or []:
+            slot = (e.get("params") or {}).get("asset")
+            if slot not in clips:
+                continue
+            t = CLIP_TIMING.get(e["preset"])
+            if t is None:
+                raise steps.StepFailure("asset_type", slot)
+            frames = int(round(min(clips[slot], CLIP_SECONDS_MAX) * fps))
+            room = (frames - CLIP_SPARE_FRAMES) / fps
+            start = words[e["word_from"]]["start"]
+
+            def span(to, start=start, t=t):
+                end = max(words[to]["end"] + t["tail"], start + t["min_duration"])
+                if t["max_duration"]:
+                    end = min(end, start + t["max_duration"])
+                return end - start
+
+            if span(e["word_to"]) <= room + 1e-9:
+                continue
+            fits = [i for i in order if e["word_from"] <= i <= e["word_to"] and span(i) <= room + 1e-9]
+            if not fits:
+                raise steps.StepFailure("clip_too_short", slot, "", CLIP_SHORT_NEXT)
+            e["word_to"] = max(fits)
+            shortened.append(slot)
+    return shortened
+
+
 def _align(ctx: steps.Context, state: dict) -> dict:
     store, _, rid = _handles(ctx)
     edited = captions.check_edited(_json(store, rid, EDITED))
@@ -567,13 +608,22 @@ def _align(ctx: steps.Context, state: dict) -> dict:
             beats.pop("punches", None)
     if effects:
         beats["effects"] = effects
-    if dropped or placed or changed or effects:
+    clips = {s: a["asset"]["seconds"] if isinstance(a["asset"].get("seconds"), (int, float)) and not isinstance(a["asset"]["seconds"], bool) else 0
+             for s, a in stock.items() if a["asset"].get("kind") == "clip"}
+    trimmed = []
+    if clips:      # a cutaway ends with its clip (V9b-5c): the set was made at the edit list's rate, and no beat may outlast its clip
+        if (_optional_json(store, rid, STOCK_SET) or {}).get("clip_fps") != edl["fps"]:
+            raise steps.StepFailure("clip_fps_changed", sorted(clips)[0], "", "fetch the picks again and approve the media set again")
+        trimmed = fit_clip_entries(beats, edl, clips)
+    if dropped or placed or changed or effects or trimmed:
         _asked(store.write, rid, BEATS, _dump(beats))
     found = {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
              "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
              "animations": len(placed), "punches": len(beats.get("punches") or []), "effects": len(effects)}
     if stock:
         found["pictures"] = len(stock)      # the approved pictures; only a video that has some adds the key
+    if clips:
+        found["clips"], found["clips_shortened"] = len(clips), len(trimmed)      # only a video that draws a clip adds the keys
     return found
 
 

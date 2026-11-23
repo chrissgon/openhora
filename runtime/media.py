@@ -69,7 +69,7 @@ PREVIEW = re.compile(r"preview-[0-9a-f]{12}\.mp4")
 RAW = re.compile(r"raw\.(mp4|mov)")
 REMOVED = re.compile(r"\.removed-[0-9a-f]{16}")   # a recording a person removed (media-remove), renamed out of the store before its files go
 STOCK_DIR = "stock"                           # V9b-3a: <id>/stock/ holds the licensed pictures of a video (runtime/media_stock.py is the one writer)
-STOCK_FILE = re.compile(r"stock/(set\.json|approved\.json|sheet\.png|sheet-preview\.png|asset-[0-9a-f]{12}\.png)")   # what a step may read or hand the engine by name
+STOCK_FILE = re.compile(r"stock/(set\.json|approved\.json|sheet\.png|sheet-preview\.png|asset-[0-9a-f]{12}\.(?:png|mp4))")   # what a step may read or hand the engine by name
 KEPT_AFTER_RAW = (RECORD, "render.json", "verify.json")   # plus RENDER and COVER names: what survives the 7-day purge
 JSON_LIMIT = 5 * 1024 * 1024
 
@@ -848,7 +848,7 @@ def _referenced_assets(sub: int) -> set:
     finally:
         os.close(fd)
     found = doc.get("assets") if isinstance(doc, dict) else None
-    return {"asset-%s.png" % a["sha256"][:12] for a in found if isinstance(a, dict) and isinstance(a.get("sha256"), str)} if isinstance(found, list) else set()
+    return {"asset-%s.%s" % (a["sha256"][:12], "mp4" if a.get("kind") == "clip" else "png") for a in found if isinstance(a, dict) and isinstance(a.get("sha256"), str)} if isinstance(found, list) else set()
 
 
 def _sweep_stock(data_dir: str, rfd: int, now: float) -> int:
@@ -875,7 +875,7 @@ def _sweep_stock(data_dir: str, rfd: int, now: float) -> int:
                         info = os.stat(entry, dir_fd=sub, follow_symlinks=False)
                     except OSError:
                         continue
-                    stray = STOCK_STRAY.fullmatch(entry) or (re.fullmatch(r"asset-[0-9a-f]{12}\.png", entry) and entry not in keep)
+                    stray = STOCK_STRAY.fullmatch(entry) or (re.fullmatch(r"asset-[0-9a-f]{12}\.(?:png|mp4)", entry) and entry not in keep)
                     if entry == STOCK_QUARANTINE and stat.S_ISDIR(info.st_mode):
                         try:
                             quarantine = os.open(entry, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=sub)
