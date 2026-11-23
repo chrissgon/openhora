@@ -62,3 +62,12 @@ and draws the sheet only when some candidate has a preview; `_preview_sheet` lea
 `test_a_search_whose_candidates_all_lack_a_preview_draws_no_sheet`, `test_a_find_after_a_web_search_carries_a_previewless_clip_with_the_same_words_and_drops_it_when_they_change`,
 `test_a_previewless_web_clip_can_be_picked_fetched_and_approved`, and the page model's `test_a_web_clip_with_no_preview_says_so_on_its_tile_and_one_with_a_preview_does_not`.
 **Not verified.** How the page lays out a sheet with an empty cell (the renderer draws a missing cell as an empty tile, read in `_asset_sheet.py`); the live re-run of K4.
+
+## L3 and C10 (2026-11-23)
+
+**L3, the live leg.** The same complete run as in "K4, the live leg" of the V9b-3b decision file, made on the code of this pull request at 02904ef. One real web clip: 1080x1920, 8.033 s, `clip_fps` 30, kept with no preview
+by the fix above, fetched, its own approval shown `sheet.png`, and drawn on both engines. The clip cutaway entry ran on output frames 98 to 177 (2.63 s) on both engines; it was not shortened, since the clip outlasts
+the beat. The frame after the entry is the speaker's on both engines.
+
+**C10 (L4).** A sheet of five frames inside the clip cutaway and the first frame after it, on each engine, was made locally, never committed, and deleted after the answer. The maintainer's answer to the supervisor's
+question "Você aprova o C10 do clipe nos dois motores?" (2026-11-23) was: "Aprovo". validate: allow english-only -- the maintainer's own words, quoted
