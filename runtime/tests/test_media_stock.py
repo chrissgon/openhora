@@ -259,6 +259,44 @@ def test_fetch_picks_needs_a_pick_for_every_slot_fetches_only_the_picks_and_dele
     assert found["sheets"].calls[-1]["mode"] == "full"
 
 
+def test_a_slot_the_sources_found_nothing_for_is_left_without_a_picture(world, monkeypatch):
+    found = to_found(world, monkeypatch, FOUND_TWO)
+    real = found["sources"].call
+
+    def call(source, verb, flags, timeout):
+        if verb == "search" and "fruit crate" in flags:
+            return {"ok": True, "source": source, "kind": "image", "candidates": [], "dropped": {}, "requests": 1, "cached": False, "previews": 0}
+        return real(source, verb, flags, timeout)
+
+    monkeypatch.setattr(found["sources"], "call", call)
+    done = find(world, found["task"])
+    assert done["slots"][1]["slot"] == "beat8" and done["slots"][1]["candidates"] == []
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    got = ops.video_media_fetch_picks(world["path"], found["task"])
+    assert got["without_picture"] == ["beat8"] and [a["slot"] for a in got["assets"]] == ["beat7"]
+
+
+def test_a_slot_whose_choice_is_no_longer_stock_is_skipped_by_the_fetch(world, monkeypatch):
+    found = to_found(world, monkeypatch, FOUND_TWO)
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    ops_media_edit.edit(ops_core.context(world["path"]), found["task"], review_of(world)["revision"], [{"op": "slot", "slot": "beat8", "choice": "none"}])
+    got = ops.video_media_fetch_picks(world["path"], found["task"])
+    assert got["without_picture"] == ["beat8"] and [a["slot"] for a in got["assets"]] == ["beat7"] and len(found["sources"].of("fetch")) == 1
+
+
+def test_the_fetch_with_no_pick_at_all_is_refused(world, monkeypatch):
+    found = to_found(world, monkeypatch, FOUND_TWO)
+    find(world, found["task"])
+    ops_media_edit.edit(ops_core.context(world["path"]), found["task"], review_of(world)["revision"],
+                        [{"op": "slot", "slot": "beat7", "choice": "none"}, {"op": "slot", "slot": "beat8", "choice": "none"}])
+    before = sorted(os.listdir(Path(media_stock.folder_of(world["data"], world["rid"]))))
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "no_pick" in str(refused.value) and "at least one slot" in str(refused.value) and found["sources"].of("fetch") == []
+    assert sorted(os.listdir(Path(media_stock.folder_of(world["data"], world["rid"])))) == before
+
+
 def test_a_clip_pick_is_refused_on_an_engine_that_draws_no_clips(world, monkeypatch):
     monkeypatch.setattr(ops_media_stock.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # V9b-5c: the real catalogue now lists clips for both engines
     found = to_found(world, monkeypatch, {"beat7": ("market stall", "clip")}, stock=["fakelib"], extra={"fakelib": LIBRARY})

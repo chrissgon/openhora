@@ -1173,7 +1173,7 @@ OPERATIONS = (
     {"name": "video-media-fetch-picks", "call": "video_media_fetch_picks",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
      "channels": ("terminal", "page"), "model": False, "job": True, "channel_arg": True,
-     "help": "fetch the full file of each picture picked for a new video (--task <id>) and have the renderer normalise it; every slot needs a pick first",
+     "help": "fetch the full file of each picture picked for a new video (--task <id>) and have the renderer normalise it; every slot with candidates needs a pick or another choice first",
      "natural": {"class": "G", "since": 4, "order": 185, "privacy": "off-host", "cost": "none", "what": "fetch the pictures picked for a new video", "about": "Fetch the pictures picked for a new video.", "slots": {}}},
     {"name": "video-media-sheet-file", "call": "video_media_sheet_file",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"}, {"name": "file", "kind": "str", "required": True, "label": "sheet-preview.png, sheet.png or asset-<sha12>.png"},),

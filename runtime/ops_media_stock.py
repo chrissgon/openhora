@@ -10,7 +10,7 @@
                                                                     source that serves a slot's kind is searched (the sources in parallel, each one request at a time), the
                                                                     candidates are merged per slot, a licence outside the tuple is dropped, the renderer's `asset-sheet` makes
                                                                     the preview sheet, and `set.json` is written. A second call starts over and voids the approval.
-  video_media_fetch_picks(project, task, channel=None)              every slot must have a pick (the `slot_asset` edit of the review); each pick's full file is fetched (a
+  video_media_fetch_picks(project, task, channel=None)              every slot that has candidates and is still chosen as stock must have a pick (the `slot_asset` edit of the review; a slot with none, or no longer chosen, is left without a picture); each pick's full file is fetched (a
                                                                     licensed one by its provider, from the item id; an open-web one into the quarantine by the web provider),
                                                                     the renderer normalises each to a PNG, and the previews and the unpicked files are deleted.
   video_media_sheet_file(project, task, file, channel=None)         one PNG the container made (`sheet-preview.png`, `sheet.png`, `asset-<sha12>.png`), for the page; never a
@@ -483,13 +483,21 @@ def _clip_slot_ok(ctx: dict, store, review: dict, proposal, slot: str) -> bool:
     return False
 
 
-def _picked(found: dict, review: dict, store_kinds: list, cfg=None, clip_ok=None) -> list:
-    """[(slot row, chosen candidate)] for every slot of the set: each slot must have a pick that is one of its candidates; a clip needs an engine that draws clips and a slot
-    that a cutaway draws (`clip_ok`, V9b-5c)."""
-    out, missing = [], []
+def _picked(found: dict, review: dict, store_kinds: list, cfg=None, clip_ok=None, current=None) -> tuple:
+    """(picks, without): `picks` is [(slot row, chosen candidate)], `without` the ids of the slots left with no picture, in the set's order. Rule 1: a row with a pick needs a pick
+    that is one of its candidates, and a clip needs an engine that draws clips and a slot that a cutaway draws (`clip_ok`, V9b-5c). Rule 2: a row with no pick that has no candidates, or is no longer a stock slot (`current` is the set
+    of slot ids that are; None means every row is), is left without a picture: it is not fetched and the step renders it as the person's choice. Rule 3: a row with no pick that has
+    candidates and is still a stock slot is a missing pick (`no_pick`). With no pick at all, `no_pick`."""
+    out, missing, without = [], [], []
     for row in found["slots"]:
         pick = review["slot_assets"].get(row["slot"])
-        chosen = next((c for c in row["candidates"] if c["pick"] == pick), None) if pick else None
+        if not pick:
+            if not row["candidates"] or (current is not None and row["slot"] not in current):
+                without.append(row["slot"])
+            else:
+                missing.append(row["slot"])
+            continue
+        chosen = next((c for c in row["candidates"] if c["pick"] == pick), None)
         if chosen is None:
             missing.append(row["slot"])
             continue
@@ -500,7 +508,9 @@ def _picked(found: dict, review: dict, store_kinds: list, cfg=None, clip_ok=None
         out.append((row, chosen))
     if missing:
         raise _fail("no_pick", "every slot needs a pick before the files are fetched; no pick for: " + ", ".join(missing))
-    return out
+    if not out:
+        raise _fail("no_pick", "no slot has a pick: pick a candidate for at least one slot")
+    return out, without
 
 
 def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
@@ -520,8 +530,9 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     if found is None or found.get("task") != task_id or not isinstance(found.get("slots"), list):
         raise _fail("no_set", "find the media first (video-media-find)")
     root = ctx["root"]
-    picks = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg,
-                    clip_ok=lambda s: _clip_slot_ok(ctx, store, review, proposal, s))      # a clip is refused here, before any source is asked
+    picks, without = _picked(found, review, media_animation.asset_kinds(store.root(), store.renderer()), cfg,
+                             clip_ok=lambda s: _clip_slot_ok(ctx, store, review, proposal, s),
+                             current={s["slot"] for s in media_stock.stock_slots(review, proposal)})      # a clip is refused here, before any source is asked
     accepted = _need_sources(ctx) if any(c["licence"] != media_stock.UNVERIFIED for _, c in picks) else []      # the acceptance is asked again, for the kinds of source the picks come from: a source whose terms changed since the find is a new item the person has not accepted
     if any(c["licence"] == media_stock.UNVERIFIED for _, c in picks):
         _web_ready(ctx)
@@ -605,10 +616,12 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     message = "Check the pictures, then approve the media set."
     if any(a["kind"] == "clip" for a in assets):
         message += " " + phrases.text("VID_STOCK_CLIP_TRIM", cfg, max=int(media_stock.CLIP_SECONDS_MAX))
+    if without:
+        message += " " + phrases.text("VID_STOCK_NO_PICTURE", cfg, slots=", ".join(without))
     return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height", "seconds")}
                        | {"pick": f"{a['source']}:{a['item']}", "file": None if a["kind"] == "clip" else media_stock.asset_name(a)}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "message": message}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message}
 
 
 def _source_link(root: str, source: str) -> str:
