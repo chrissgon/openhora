@@ -81,6 +81,7 @@ class FakeRun:
                                    blocks_sha256=self.page_blocks_sha or inner[inner.index("--blocks-sha256") + 1], captions_drawn=4, beats_drawn=2,
                                    runtimes={"oh:caption": "renderat", "oh:keyword": "renderat"}, fonts_used={"display": "inter-800.woff2", "text": "inter-500.woff2"})
         if verb == "proxy":
+            self.seen["media_at_proxy"] = sorted(f.name for f in Path(mounts["/work/media"][0]).iterdir())     # what the proxy container's folder holds when it starts
             Path(mounts["/work/media"][0], "proxy.mp4").write_bytes(PROXY_BYTES)
             rows["proxy"] = {"ok": True, "sha256": SHA(PROXY_BYTES), "bytes": len(PROXY_BYTES), "seconds": 1.5, "width": 1080, "height": 1920, "fps": 30, "has_audio": True}
         elif verb == "encode":
@@ -110,6 +111,7 @@ class FakeRun:
         assert (project / "media" / "proxy.mp4").read_bytes() == PROXY_BYTES      # the proxy is in the project before the drawing starts
         folder = project / "assets"                                               # the pictures of a frame block, as the drawing container finds them
         self.seen["assets"] = {f.name: (f.read_bytes(), stat.S_IMODE(f.stat().st_mode)) for f in sorted(folder.iterdir())} if folder.is_dir() else None
+        self.seen["media"] = {f.name: (f.read_bytes(), stat.S_IMODE(f.stat().st_mode)) for f in sorted((project / "media").iterdir()) if f.name != "proxy.mp4"}
         if self.fail.get("hf") == "raise":
             raise RuntimeError("a stage failed")
         out = Path(mounts["/work/out"][0])
@@ -891,3 +893,67 @@ def test_the_render_parser_takes_the_two_asset_flags_and_prints_them_in_its_help
                                     "--asset", "slot-1=/x/a.png", "--asset-sha256", "slot-1=" + "a" * 64])
     assert parsed.asset == ["slot-1=/x/a.png"] and parsed.asset_sha256 == ["slot-1=" + "a" * 64]
     assert "--asset SLOT=FILE" in H.__doc__ and "--asset-sha256 SLOT=HEX" in H.__doc__
+
+
+# ---------------------------------------------------------------- clips (V9b-5b)
+
+MP4_HEADER = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 40
+WEBM_HEADER = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\xf7\x81\x01\x42\xf2\x81\x04\x42\xf3\x81\x08\x42\x82\x84webm" + b"\x00" * 40
+
+
+@pytest.fixture
+def clip(world):
+    path = world.tmp / "clip.mp4"
+    path.write_bytes(MP4_HEADER)
+    return path
+
+
+def test_a_clip_is_staged_into_the_page_job_with_its_hash_and_a_picture_is_never_passed_with_asset(world, monkeypatch, test_blocks, pictures, clip):
+    one, _ = pictures
+    result, fake = run(world, monkeypatch, "--dry-run", "--asset", "7=%s" % clip, "--asset", "slot-2=%s" % one, base_only=False)
+    page = result["commands"]["page"]
+    inner = page[page.index(COMMON_ID) + 1:]
+    assert [(inner[i], inner[i + 1]) for i, w in enumerate(inner) if w == "--asset"] == [("--asset", "beat7=/job/assets/beat7")]
+    assert [(inner[i], inner[i + 1]) for i, w in enumerate(inner) if w == "--asset-sha256"] == [("--asset-sha256", "beat7=%s" % SHA(MP4_HEADER)),
+                                                                                                  ("--asset-sha256", "slot-2=%s" % SHA(one.read_bytes()))]
+    assert fake.commands == [] and run_folders(world) == []
+
+
+def test_the_clip_is_written_into_media_after_the_proxy_stage_new_and_private_and_the_proxy_container_never_sees_it(world, monkeypatch, test_blocks, pictures, clip):
+    one, _ = pictures
+    result, fake = run(world, monkeypatch, "--asset", "beat7=%s" % clip, "--asset", "slot-2=%s" % one, fake=FakeRun(), base_only=False)
+    assert fake.seen["media_at_proxy"] == []                                                      # nothing in media/ when the proxy container starts
+    assert fake.seen["media"] == {"clip-beat7.mp4": (MP4_HEADER, 0o600)}                           # and the clip is there, before the drawing starts
+    assert fake.seen["assets"] == {"slot-2.png": (one.read_bytes(), 0o600)}                       # a picture is still in assets/, a clip never is
+    assert fake.verbs.index("proxy") < fake.verbs.index("hf") and option(fake.seen["page"], "--asset") == "beat7=/job/assets/beat7"
+    assert run_folders(world) == [] and result["verified"] is True
+
+
+def test_a_clip_slot_called_proxy_does_not_touch_the_proxy_file(world, monkeypatch, test_blocks, clip):
+    result, fake = run(world, monkeypatch, "--asset", "proxy=%s" % clip, fake=FakeRun(), base_only=False)
+    assert list(fake.seen["media"]) == ["clip-proxy.mp4"] and result["verified"] is True
+
+
+def test_a_webm_a_jpeg_a_gif_and_a_text_file_are_asset_type_and_a_wrong_hash_is_asset_hash_before_any_container(world, monkeypatch, test_blocks, clip):
+    monkeypatch.setattr(box, "run", FakeRun())
+    for name, raw in (("a.webm", WEBM_HEADER), ("b.mov", b"\x00\x00\x00\x14ftypqt  " + b"\x00" * 40 + b"x"), ("c.gif", b"GIF89a" + b"\x00" * 20), ("d.txt", b"hello"),
+                      ("e.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 8 + b"\xff\xc0\x00\x0b\x08\x00\x10\x00\x10\x01\x01\x11\x00" + b"\xff\xd9")):
+        path = world.tmp / name
+        path.write_bytes(raw)
+        code = refusal_of(H.verb_render, args_for(world, "--asset", "7=%s" % path, base_only=False))[0]
+        assert code == "asset_type", (name, code)
+    assert refusal_of(H.verb_render, args_for(world, "--asset", "7=%s" % clip, "--asset-sha256", "7=" + "0" * 64, base_only=False)) == ("asset_hash", "beat7")
+    assert world.runs() == []
+
+
+def test_thirteen_files_in_all_are_too_many_assets_whether_they_are_clips_or_pictures(world, monkeypatch, test_blocks, pictures, clip):
+    one, _ = pictures
+    monkeypatch.setattr(box, "run", FakeRun())
+    many = [x for n in range(12) for x in ("--asset", "s%d=%s" % (n, one if n % 2 else clip))] + ["--asset", "s12=%s" % clip]
+    assert refusal_of(H.verb_render, args_for(world, *many, base_only=False)) == ("too_many_assets", "asset")
+    assert world.runs() == []
+
+
+def test_a_clip_given_to_a_base_only_render_is_unused(world, monkeypatch, test_blocks, clip):
+    monkeypatch.setattr(box, "run", FakeRun())
+    assert refusal_of(H.verb_render, args_for(world, "--asset", "s1=%s" % clip)) == ("asset_unused", "s1")
