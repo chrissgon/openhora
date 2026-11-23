@@ -680,6 +680,8 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     size = done.get("bytes")
     if type(size) is not int or size < 1 or seconds is None or seconds <= 0:
         raise steps.StepFailure("provider_output_invalid", "render")
+    left_out_pictures = _assets_dropped(done, pictures)      # a picture whose beat the timeline dropped was not drawn: not in the record, not in the delivery (V9b-3d)
+    pictures = {slot: found for slot, found in pictures.items() if slot not in left_out_pictures}
     blocks_sha = done.get("blocks_sha256")
     record = {"name": name, "sha256": digest, "size": size, "duration_ms": max(1, int(round(seconds * 1000))), "blocks": _blocks_of(done),
               "blocks_sha256": blocks_sha if isinstance(blocks_sha, str) and SHA256.fullmatch(blocks_sha) else None}
@@ -700,10 +702,23 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     result = {"sha256": digest, "size": size}
     if pictures:
         result["pictures"] = len(pictures)
+    if left_out_pictures:      # the person is told as for `effects_dropped` (the step result; nothing else shows either): the render is not refused
+        result["pictures_dropped"] = left_out_pictures
     left_out = _effects_dropped(done)
     if left_out:      # an effect the renderer did not draw (too short, capped, overlapping): the person is told, the render is not refused
         result["effects_dropped"] = left_out
     return result
+
+
+def _assets_dropped(done: dict, handed: dict) -> list:
+    """The render's `assets_dropped`: the slots, of those this call handed over, whose picture the engine did not draw (its beat was left out of the timeline), sorted. A value that is
+    not a list of strings, a slot that was not handed over or one named twice is `provider_output_invalid` on `render`; no field is none."""
+    rows = done.get("assets_dropped")
+    if rows is None:
+        return []
+    if not isinstance(rows, list) or any(not isinstance(slot, str) or slot not in handed for slot in rows) or len(set(rows)) != len(rows):
+        raise steps.StepFailure("provider_output_invalid", "render")
+    return sorted(rows)
 
 
 EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")

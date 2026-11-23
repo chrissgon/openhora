@@ -85,7 +85,7 @@ import _docker as D  # noqa: E402
 import _hf_gate  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
-from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, emit, finish_render, pairs, refuse_reference, slot_key,  # noqa: E402
+from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parsers, add_limits, dropped_asset_slots, emit, finish_render, pairs, refuse_reference, slot_key,  # noqa: E402
                    stage_blocks, CRASH_CODES)
 from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
@@ -454,14 +454,17 @@ def check_may_draw() -> None:
         raise Refusal("engine_unknown", ENGINE)
 
 
-def read_assets(args, data: dict) -> dict:
+def read_assets(args, data: dict, skip=()) -> dict:
     """{slot: {kind, data, sha256, ...}} of the files given with `--asset`, read on the host as `ffmpeg.py` reads them (a regular file within the cap, its type by the
     header bytes, its hash the `--asset-sha256` when one is given). A picture must be a PNG (`asset_type`: the drawing image serves PNG files only), with the facts
     `_assets.load_assets` reads; a clip must be an MP4 (`asset_type`: a render draws the one form `asset-sheet` writes, so a WebM or MOV is refused), through
     `_assets.read_clip` (V9b-5b); its picture facts are the inner verb's to probe. At most ASSETS_MAX files in all. A path in a reference store is refused before it is
-    read. A render of the base page draws no beat, so a file given to it is unused (`asset_unused`). Each row's `kind` is `"png"` or `"clip"`."""
+    read. A render of the base page draws no beat, so a file given to it is unused (`asset_unused`). Each row's `kind` is `"png"` or `"clip"`. The slots of `skip`
+    (those only a beat the timeline dropped uses, V9b-3d) are neither read nor hashed: their file and hash are ignored."""
     files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
     hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
+    files = {slot: path for slot, path in files.items() if slot not in skip}
+    hashes = {slot: digest for slot, digest in hashes.items() if slot not in skip}
     if args.base_only and files:
         raise Refusal("asset_unused", sorted(files)[0][:32])
     if len(files) > ASSETS_MAX:
@@ -517,7 +520,9 @@ def verb_render(args) -> dict:
             raise Refusal("bad_cpuset", "cpuset") from None
     out_dir = os.path.abspath(os.path.dirname(args.out) if args.out.endswith(".mp4") else args.out)
     data = load_data()
-    assets = read_assets(args, data)
+    given = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
+    dropped = [] if args.base_only else dropped_asset_slots(args, data, given)       # a picture only a dropped beat uses: not read, not staged (V9b-3d)
+    assets = read_assets(args, data, dropped)
     out_seconds, fps, byte_cap, limit = read_documents(args, data)
     deadline = time.monotonic() + limit
     check_memory(args)
@@ -613,8 +618,9 @@ def verb_render(args) -> dict:
                 inner += encode_blocks
             if dry:
                 commands["encode"] = job.argv(inner)[2]
-                return {"ok": True, "dry_run": True, "engine": ENGINE, "commands": commands, "image": job.image, "hf_image": image,
-                        "time_limit_seconds": limit, "out_dir": out_dir, "limits": hf_limit_facts(args, cap, out_seconds)}
+                return dict({"ok": True, "dry_run": True, "engine": ENGINE, "commands": commands, "image": job.image, "hf_image": image,
+                             "time_limit_seconds": limit, "out_dir": out_dir, "limits": hf_limit_facts(args, cap, out_seconds)},
+                            **({"assets_dropped": dropped} if dropped else {}))
             result = job.run(inner, "encode")
             gate = composed_gate(result) if not args.base_only else None
             result = finish_render(args, job, result, out_dir=out_dir, byte_cap=byte_cap, out_seconds=out_seconds)
@@ -626,6 +632,8 @@ def verb_render(args) -> dict:
             if any(key not in page for key in COMPOSED_FIELDS + ("layers",)):
                 raise Refusal("container_result_invalid", "hf-page")
             result.update(layers=list(page["layers"]), **{key: page[key] for key in COMPOSED_FIELDS})
+            if dropped or page.get("assets_dropped"):          # optional: the pictures only a dropped beat used (V9b-3d), the host's list and the page's together
+                result["assets_dropped"] = sorted(set(dropped) | set(page.get("assets_dropped") or []))
             if page.get("effects_dropped") is not None:        # optional: the effects the renderer left out (V9a-3); a page result without it stays valid
                 result["effects_dropped"] = page["effects_dropped"]
             seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")

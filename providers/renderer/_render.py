@@ -170,14 +170,12 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     facts = check_recording(ffprobe, src, edl, limits)
 
     # assets: every slot a beat uses has a file, and every file is used
-    used = set()
-    for e in timeline["beats"]:
-        for name in _slot_names(vocab, e):
-            used.add(e["params"][name])
+    # (a slot used only by beats the timeline dropped is not loaded and not drawn: it is `assets_dropped`, V9b-3d)
+    used, dropped_only = _edl.classify_slots(beats, timeline, vocab, asset_files)
     missing = sorted(used - set(asset_files))
     if missing:
         raise Refusal("asset_missing", missing[0])
-    extra = sorted(set(asset_files) - used)
+    extra = sorted(set(asset_files) - used - dropped_only)
     if extra:
         raise Refusal("asset_unused", extra[0])
     picture_files, clip_files = _assets.split_clips({s: asset_files[s] for s in sorted(used)})
@@ -205,7 +203,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
-               "beats_dropped": timeline["dropped"], **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
+               "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"], "ffmpeg_argv": argv, "estimated_bytes": estimate}
     if dry_run:
         return summary
