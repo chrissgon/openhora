@@ -45,7 +45,7 @@ CATALOGUE_MAX = 1 << 20
 BLOCKS_MAX = 500
 CATALOGUE_KEYS = ("name", "namespace", "kind", "preset", "band", "may_cross_face", "license", "source", "use_when", "params", "samples",
                   "natural_duration", "runtimes", "engines", "tier")      # what the listing hands out of an entry; any other key is dropped
-KINDS = ("overlay", "layout", "caption")
+KINDS = ("overlay", "layout", "caption", "effect")                       # effect: `aside`, which only a script asks for (never added at review: not in ANIMATION_KINDS)
 ANIMATION_KINDS = ("overlay", "layout")                                  # M1: overlays; V9b-3a: layouts that take one picture (the cutaway), whose picture comes from the media set
 SLOT_PLACEHOLDER = "a1"                                                  # the slot id the renderer's checker is shown for a layout's picture parameter: the real one (`a<n>`) is made when the animation is stored
 SLOT_TYPES = ("image", "clip")

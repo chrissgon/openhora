@@ -59,7 +59,7 @@ from _vocab import SLOT_ID, load_data, load_vocabulary, read_json  # noqa: E402
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 REQUIRED_ENCODERS = ("libx264", "aac", "png")
 REQUIRED_FILTERS = ("overlay", "alphamerge", "geq", "setparams", "concat", "trim", "atrim", "split", "scale", "crop", "fps",
-                    "silencedetect", "aformat")
+                    "silencedetect", "aformat", "asplit", "aecho", "volume", "amix")      # the last four: an aside's echo
 
 
 class Usage(Exception):
@@ -412,6 +412,8 @@ def verb_encode(args) -> dict:
         raise Refusal("intermediate_no_audio", "intermediate")
     gate = encode_gate(args, edl, data, platform, ffprobe)
     plan = {"fps": fps, "out_frames": out_frames, "max_bytes": _media.byte_limit(platform), "has_audio": has_audio}
+    if gate is not None and has_audio and gate["timeline"].get("echoes"):
+        plan["echoes"] = gate["timeline"]["echoes"]      # an aside's echo: the page's sound is dry, so the encode adds it (the picture's grey is the page's)
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, mode=0o700, exist_ok=True)
     work = tempfile.mkdtemp(prefix=".encode-", dir=out_dir)

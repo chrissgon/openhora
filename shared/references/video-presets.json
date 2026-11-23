@@ -1,7 +1,7 @@
 {
  "version": 2,
  "vocabulary": "video-presets",
- "note": "The closed vocabulary of the animations a short video's script may ask for, and of the script's own structure (version 2 adds the `script` section: roles, header, thresholds, language data). Renderer-neutral: no template, timing or drawing rule is here. The prose is video-presets.md.",
+ "note": "The closed vocabulary of the animations a short video's script may ask for, and of the script's own structure (version 2 adds the `script` section: roles, header, thresholds, language data). Renderer-neutral: no template, timing or drawing rule is here. A preset's kind is overlay (drawn over the speaker), layout (changes what fills the frame) or effect (changes how the speaker's own shot looks and sounds; at most one beat per video, never with a punch). The prose is video-presets.md.",
  "types": {
   "text": {"bounds": ["max", "max_items", "pattern"], "note": "plain text; max_items above 1 means that many texts separated by ' | '"},
   "icon": {"bounds": ["values"], "note": "one name of the list `icons`"},
@@ -130,6 +130,15 @@
     "asset": {"type": ["image", "clip"], "required": true},
     "position": {"type": "choice", "values": ["top", "bottom"], "default": "top"},
     "label": {"type": "text", "max": 40}
+   }
+  },
+  "aside": {
+   "kind": "effect",
+   "summary": "for one beat the speaker's shot turns black and white and the voice gets an echo, then a hard cut returns to normal, like an outtake left in",
+   "main": "label",
+   "params": {
+    "label": {"type": "text", "max": 40},
+    "echo": {"type": "choice", "values": ["light", "strong"], "default": "light"}
    }
   }
  }

@@ -56,7 +56,8 @@ def refused(fn, *args, **kw) -> Refusal:
 
 
 def test_every_oh_block_is_its_old_template_byte_for_byte():
-    assert set(OLD_PINS) == (set(DATA["presets"]) - set(DATA["review_presets"])) | {"caption"}      # the review-only blocks are new, with no old template
+    new = {"aside"}                       # blocks made after the templates moved into blocks/ (the effect preset), with no old template either
+    assert set(OLD_PINS) == (set(DATA["presets"]) - set(DATA["review_presets"]) - new) | {"caption"}      # the review-only blocks are new, with no old template
     for name, digest in OLD_PINS.items():
         assert sha(os.path.join(BLOCKS, "oh", name, "renderat.html")) == digest, name
 

@@ -129,6 +129,19 @@
     "shadow": "0 14px 40px rgba(0,0,0,0.55)"
    }
   },
+  "aside": {
+   "note": "The effect preset: over the beat's span (its words plus `tail`, cut by the next beat) the speaker's picture is black and white (the mono grade, the CSS grayscale(1) matrix) and the voice goes through aecho with the gains, delays (ms) and decays of its `echo` value; both edges are hard cuts (no fade, no crossfade), in picture and sound. The captions and the label chip are layers above the picture and keep their colour. The echo values are starting values, not yet tuned on real recordings.",
+   "anchor": "window",
+   "min_duration": 1.0,
+   "max_duration": 12.0,
+   "tail": 0.1,
+   "settled": 0.4,
+   "looks": {},
+   "echo": {
+    "light": {"in_gain": 0.8, "out_gain": 0.9, "delays": [60], "decays": [0.3]},
+    "strong": {"in_gain": 0.7, "out_gain": 0.85, "delays": [70, 140, 210], "decays": [0.4, 0.28, 0.16]}
+   }
+  },
   "mark": {
    "anchor": "match_text",
    "min_duration": 1.2,

@@ -185,6 +185,50 @@
    "use_when": "the speaker repeats a sentence someone said, in a card that names the author"
   },
   {
+   "band": "card",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "effect",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
+   "name": "oh:aside",
+   "namespace": "oh",
+   "natural_duration": 3.0,
+   "params": {
+    "echo": {
+     "default": "light",
+     "type": "choice",
+     "values": [
+      "light",
+      "strong"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    }
+   },
+   "preset": "aside",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "echo": "strong",
+     "label": "not my finest hour"
+    },
+    {
+     "echo": "light"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "one short candid line said as an aside: the shot goes black and white with an echo, then cuts back"
+  },
+  {
    "band": "caption",
    "engines": [
     "ffmpeg",
@@ -685,10 +729,11 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "899bb133e755f69229bbcbf8cf8179dc38ad230e47e7ba6085fd5f03ae065a03",
+ "blocks_sha256": "f3d9364281ca6d6f20c0a3e622317bfe650345c3ec461b480298ff66d4cbdd98",
  "engines": {
   "ffmpeg": {
    "presets": {
+    "aside": "oh:aside",
     "caption": "oh:caption",
     "cutaway": "oh:cutaway",
     "keyword": "oh:keyword",
@@ -706,6 +751,7 @@
   },
   "hyperframes": {
    "presets": {
+    "aside": "oh:aside",
     "caption": "hf:caption-highlight",
     "cutaway": "oh:cutaway",
     "keyword": "hf:spring-pop",

@@ -45,6 +45,9 @@ What it checks, against the vocabulary file (the one source of the presets and o
   - no field that carries a time (start, end, at, duration ...), and no timestamp or time range in any text;
   - text hardening: every character outside the Unicode categories Cc, Cf, Zl and Zp, and text in NFC form;
   - role and emphasis are closed values; a `number` beat's `value` is a digit token of its `line`; a `list` has 2 to 4 items;
+  - a preset of kind `effect` (`aside`), refused in every mode: never with emphasis `punch` (`effect_with_punch`), never beside a
+    layout on one beat (`effect_with_layout`, besides the second preset line's `duplicate_field`), at most one beat a video
+    (`effect_repeated`, skipped by --beat-only); any role, the hook included; it counts as a visual for rule 5 like any preset;
   - version 2, the eleven rules (the quality half of each is for the reader, see the skill): the header and its values;
     1 beat 1 is the hook, at most 18 words, and its hook_type's predicate; 2 the title mirrors the hook;
     3 a payoff after more than half of the beats that come before the cta holds a content word of the title; 4 a line over 30 words is refused;
@@ -230,7 +233,7 @@ def parse(block: str, header_keys=()):
                 continue
             key, value = m.group(1), m.group(2) or ""
             if key == "beat":
-                current = {"n": len(beats) + 1, "fields": {}, "declared": value.strip()}
+                current = {"n": len(beats) + 1, "fields": {}, "declared": value.strip(), "duplicates": []}
                 beats.append(current)
                 continue
             if current is None:
@@ -245,6 +248,7 @@ def parse(block: str, header_keys=()):
                 continue
             if key in current["fields"]:
                 problems.append({"beat": current["n"], "field": key, "code": "duplicate_field"})
+                current["duplicates"].append((key, value))
                 continue
             current["fields"][key] = value
     return beats, header, problems
@@ -443,6 +447,22 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
                  line=fields.get("line", "").strip(), ok_line="line" not in flagged)
         out_beats.append({"beat": n, "preset": b["preset"], "on_screen": accepted.get(main) if main else None,
                           "role": role, "emphasis": emphasis})
+
+    # ---- an effect preset (`aside`) changes the speaker's own shot. These rules are new with the kind, so they are refusals in every mode
+    # (no script that passed before can hold one): never with a punch, never with a layout on the same beat, and, below, once a video.
+    kinds = {name: spec.get("kind") for name, spec in vocab["presets"].items()}
+    effects = [] if images else [b for b in beats if kinds.get(b.get("preset")) == "effect"]
+    for b in effects:
+        if b["emphasis"] == "punch":
+            problems.append({"beat": b["n"], "field": "emphasis", "code": "effect_with_punch"})
+    for b in beats if not images else []:
+        named = [b["fields"].get("preset", "")] + [v for k, v in b["duplicates"] if k == "preset"]
+        named = [kinds.get(v.strip()) for v in named]
+        if "effect" in named and "layout" in named:      # a second `preset` line is already `duplicate_field`; this says why it can never be
+            problems.append({"beat": b["n"], "field": "preset", "code": "effect_with_layout"})
+    if not beat_only:
+        for b in effects[1:]:
+            problems.append({"beat": b["n"], "field": "preset", "code": "effect_repeated"})
 
     if images or not script or not beats:
         return out_beats, slots, problems, warnings, {"mode": mode, "header": {}}

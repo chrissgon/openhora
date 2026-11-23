@@ -582,6 +582,25 @@ def grade_filters(grades: list) -> list:
     return ([TO_RGB] + mono + [FROM_RGB] if mono else []) + out
 
 
+def echo_filters(echoes, fps, src: str, out: str) -> list:
+    """The filter strings that put the echo of each row of `echoes` (`_edl.resolve_asides`: frames of the OUTPUT timeline and the aecho values) on the
+    audio labelled `src`, ending at `out`. Each row splits the sound in two: the wet copy (through aecho) is silenced outside the span and the dry one
+    inside it, and the two are summed (amix without normalising, so the level of the dry sound outside the span is unchanged). Both edges are hard cuts:
+    the echo starts on the span's first frame and its tail stops dead on the span's end. `t` is the time of the joined (output) sound, from 0."""
+    g, cur = [], src
+    for i, e in enumerate(echoes):
+        a, b = "%.6f" % (e["start_frame"] / float(fps)), "%.6f" % (e["end_frame"] / float(fps))
+        inside, outside = "gte(t,%s)*lt(t,%s)" % (a, b), "lt(t,%s)+gte(t,%s)" % (a, b)
+        nxt = out if i == len(echoes) - 1 else "[ec%d]" % i
+        g.append("%sasplit=2[ed%d][ew%d]" % (cur, i, i))
+        g.append("[ew%d]aecho=in_gain=%.3f:out_gain=%.3f:delays=%s:decays=%s,volume=volume=0:enable='%s'[ex%d]"
+                 % (i, e["in_gain"], e["out_gain"], "|".join("%g" % d for d in e["delays"]), "|".join("%.3f" % d for d in e["decays"]), outside, i))
+        g.append("[ed%d]volume=volume=0:enable='%s'[ey%d]" % (i, inside, i))
+        g.append("[ey%d][ex%d]amix=inputs=2:duration=first:dropout_transition=0:normalize=0%s" % (i, i, nxt))
+        cur = nxt
+    return g
+
+
 def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int = BASE, audio: bool = True, zoom_linear: bool = False, first_index: int = 0) -> list:
     """The filter strings of the cut and zoomed picture, with no layer and no pip: the source cut into the kept ranges, each zoomed about
     the face as the plan says, joined by `concat` into `[cv]` (and, when the plan has audio and `audio` is true, `[aout]`). The render
@@ -625,7 +644,10 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
                      % (a / fps, b / fps, d, (b - a) / fps - d, d, k))
             cat_in.append("[a%d]" % k)
     g.append("%sconcat=n=%d:v=1:a=%d[cv]%s" % ("".join(cat_in), n, 1 if has_audio else 0, "[ca]" if has_audio else ""))
-    if has_audio:
+    if has_audio and plan.get("echoes"):      # an aside's echo, on the joined sound (`echo_filters`); a plan with none is what it always was
+        g += echo_filters(plan["echoes"], fps, "[ca]", "[ce]")
+        g.append("[ce]aformat=sample_rates=48000:channel_layouts=stereo[aout]")
+    elif has_audio:
         g.append("[ca]aformat=sample_rates=48000:channel_layouts=stereo[aout]")
     return g
 
@@ -849,10 +871,15 @@ def encode_argv(ffmpeg: str, intermediate: str, out: str, plan: dict) -> list:
     the same output options as the ffmpeg engine's render. Nothing automatic is left that can follow the machine: the decoder's
     threads and the filter graph's (with swscale's slices), both one, x264's threads (four slice threads: X264_THREADS, X264_PARAMS), its lookahead threads and sliced threads are all named, and
     both streams end exactly (`-frames:v` and `-t` from the frame count), with no `-shortest`, so the end of the streams is not a
-    race between the muxer's inputs. `plan` carries fps, out_frames and max_bytes (and has_audio, true by default)."""
+    race between the muxer's inputs. `plan` carries fps, out_frames and max_bytes (and has_audio, true by default, and echoes, the rows of an
+    aside's echo on the output timeline: the intermediate's sound is already cut, so the rows apply to it as they are, `echo_filters`)."""
     n, one = X264_THREADS, ENCODE_INPUT_THREADS
+    audio = ["-map", "0:a:0?"]
+    if plan.get("echoes") and plan.get("has_audio", True):
+        audio = ["-filter_complex", ";".join(echo_filters(plan["echoes"], plan["fps"], "[0:a:0]", "[ce]")
+                                             + ["[ce]aformat=sample_rates=48000:channel_layouts=stereo[aout]"]), "-map", "[aout]"]
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(one), "-filter_complex_threads", str(one),
-            "-threads", str(one), "-i", intermediate, "-map", "0:v:0", "-map", "0:a:0?",
+            "-threads", str(one), "-i", intermediate, "-map", "0:v:0", *audio,
             *output_options(plan, n, shortest=False, x264_params=X264_PARAMS),
             "-t", "%.6f" % (plan["out_frames"] / float(plan["fps"])), out]
 
