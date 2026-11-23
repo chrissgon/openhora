@@ -95,7 +95,7 @@ jobs:
         with:
           fetch-depth: 0 # the selector reads the merge base with the pull request's base, and tests may read the history
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.11"
@@ -277,7 +277,7 @@ jobs:
         with:
           fetch-depth: 0 # the selector reads the merge base with the pull request's base
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.9"
@@ -333,7 +333,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.11"
@@ -375,7 +375,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.11"
@@ -406,7 +406,7 @@ jobs:
       # OPENHORA_STATE_DIR is the one variable it leaves alone. (Set in a step: the runner context is not allowed in a job's env.)
       - name: One named state folder for the builds and the live tests
         run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.11"
@@ -437,7 +437,7 @@ jobs:
       # One named state folder for the builds and the tests, as in the renderer job (set in a step: the runner context is not allowed in a job's env).
       - name: One named state folder for the builds and the live tests
         run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.12.19"
           python-version: "3.11"

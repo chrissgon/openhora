@@ -256,6 +256,26 @@ export function candidateText(c) {
   return `${c.source}: ${licence}${who}, ${size}`;
 }
 
+export const WEB_TILE = "Found on the web, licence not checked";
+export const SCREEN_WORK_LINE = "A still of a film, series, anime, TV show, game or music video";
+export const NO_PREVIEW_LINE = "No preview: this clip is drawn on the sheet after it is fetched, before you approve it";
+
+/** Whether a candidate came from the open web (its licence is `unverified`: nobody checked it). */
+export function isWebCandidate(c) {
+  return Boolean(c) && c.licence === "unverified";
+}
+
+/** The lines a web candidate's tile shows, as text: where it was found, what its page claims (a claim, never checked), the site's terms and the size when the page gave them, and a note for a still of a
+ *  screen work. The page address is a separate line the view draws as plain text. */
+export function webLines(c) {
+  const lines = [`${WEB_TILE}: ${c.page_host || ""}`.replace(/: $/, ""), `Claimed by the page, not checked: ${c.licence_claim || "none stated"}`];
+  if (c.site_terms) lines.push(`Site terms, as written: ${c.site_terms}`);
+  if (c.resolution) lines.push(`Size claimed: ${c.resolution}`);
+  if (c.screen_work) lines.push(SCREEN_WORK_LINE);
+  if (c.preview === false) lines.push(NO_PREVIEW_LINE);
+  return lines;
+}
+
 /** The credit lines of an approved set, and the slots that need an approval of their own, from the answer of `video-media-approve`. */
 export function approvalSummary(answer) {
   const a = answer || {};

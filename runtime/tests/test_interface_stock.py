@@ -95,6 +95,7 @@ function makeStock(options = {}) {
     },
     videoMediaFile: async (p, t, name) => { calls.push(["file", name]); return new Blob(["png"], { type: "image/png" }); },
     pollJob: async (id) => ({ id, state: o.failed ? "failed" : "done", result: results[id], error: o.failed ? { message: "refused: stock_not_accepted" } : null }),
+    ...(o.extraApi ? o.extraApi(calls, results) : {}),      // V9b-3b: the web search and the approval of one file
   };
   const allowed = o.allowed || null;
   const review = createCaptionReview({ api, project: "proj", entry: () => (allowed ? { permissions: { allowed } } : null), host: () => o.host, refresh: async () => {} });
@@ -209,7 +210,7 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_the_pictures_section_is_drawn_only_where_the_search_is_allowed_and_a_refusal_is_shown_as_it_came(tmp_path):
     got = run_node(tmp_path, MODES)
-    assert got["own"] == {"text": True, "disabled": True}, "a picture that needs its own approval is approved elsewhere, never with the set"
+    assert got["own"] == {"text": True, "disabled": False}, "V9b-3b: the set is approved first and each file found on the web after it, so the set's button is not held back by them"
     assert got["lan"] == {"text": True, "find": False, "files": 0}
     assert got["readOnly"] == {"section": False, "find": False} and got["policy"] is False and got["gate"] is False and got["empty"] is False
     assert got["failed"] == {"text": "refused: stock_not_accepted", "still": True}
@@ -243,6 +244,120 @@ def test_a_layout_is_added_with_its_words_and_no_picture_and_a_bad_search_sends_
     assert got["form"]["text"] is True and "fit" in "".join(got["form"]["labels"]) and "asset" not in "".join(got["form"]["labels"])
     assert got["bad"] == {"problem": "Write 1 to 6 English words, with letters only.", "edits": 0}
     assert got["sent"] == [[{"op": "animation", "block": "oh:cutaway", "params": {}, "word_from": 5, "word_to": 5, "show": "a busy market", "search": "market stall", "want": "clip"}]]
+
+
+WEB_MODEL = r"""
+import * as m from "@JS@/views/lobby-captions-model.js";
+const web = { pick: "web:q-1", source: "web", item: "q-1", kind: "image", licence: "unverified", author: "", title: "A stall", page: "https://pages.example/g/1", width: null, height: null, seconds: null,
+  preview: true, col: 1, licence_claim: "free to use, says the page", site_terms: "Share with a credit.", resolution: "1200x800", screen_work: true, page_host: "pages.example" };
+const out = {};
+out.is = [m.isWebCandidate(web), m.isWebCandidate({ licence: "cc0-1.0" }), m.isWebCandidate(null), m.isWebCandidate({})];
+out.lines = [m.webLines(web), m.webLines({ licence: "unverified", licence_claim: "", screen_work: false }), m.webLines({ licence: "unverified", licence_claim: "x", page_host: "h.example", screen_work: false })];
+out.constants = [m.WEB_TILE, m.SCREEN_WORK_LINE];
+out.noPreview = [m.webLines({ ...web, preview: false }), m.webLines({ ...web, preview: true }), m.NO_PREVIEW_LINE];
+out.licensedText = m.candidateText({ source: "shelf", licence: "cc0-1.0", author: "", width: 10, height: 20, seconds: null });
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_model_says_what_a_web_candidate_claims_and_never_that_it_is_licensed(tmp_path):
+    got = run_node(tmp_path, WEB_MODEL)
+    assert got["is"] == [True, False, False, False]
+    assert got["lines"][0] == ["Found on the web, licence not checked: pages.example", "Claimed by the page, not checked: free to use, says the page", "Site terms, as written: Share with a credit.",
+                               "Size claimed: 1200x800", "A still of a film, series, anime, TV show, game or music video"]
+    assert got["lines"][1] == ["Found on the web, licence not checked", "Claimed by the page, not checked: none stated"]
+    assert got["lines"][2] == ["Found on the web, licence not checked: h.example", "Claimed by the page, not checked: x"]
+    assert got["constants"] == ["Found on the web, licence not checked", "A still of a film, series, anime, TV show, game or music video"] and got["licensedText"] == "shelf: cc0-1.0, 10x20"
+
+
+@needs_node
+def test_a_web_clip_with_no_preview_says_so_on_its_tile_and_one_with_a_preview_does_not(tmp_path):
+    got = run_node(tmp_path, WEB_MODEL)
+    line = "No preview: this clip is drawn on the sheet after it is fetched, before you approve it"
+    assert got["noPreview"][2] == line and got["noPreview"][0][-1] == line and line not in got["noPreview"][1]
+
+
+WEB = DIALOG + r"""
+const SHA = "b".repeat(64);
+const WEBC = (n, extra) => ({ pick: `web:q-${n}`, source: "web", item: `q-${n}`, kind: "image", licence: "unverified", author: "", title: `A stall ${n}`, page: `https://pages.example/g/${n}`,
+  width: null, height: null, seconds: null, preview: true, col: n, licence_claim: "free to use, says the page", site_terms: "", resolution: "1200x800", screen_work: n === 1, page_host: "pages.example", ...extra });
+const SKIPPED = [{ slot: "beat8", want: "clip", message: "This engine cannot draw clips yet. Pick a picture for this slot." }];
+const WARNING = "Copyright warning: this file was found on the open web, on pages.example. Source page: https://pages.example/g/1";
+const extra = (calls, results) => ({
+  videoMediaWebsearch: async (p, t, confirm) => {
+    calls.push(["web", confirm]);
+    results.jw = confirm ? { confirmed: true, found: 2, sheet: "sheet-preview.png", skipped: SKIPPED, message: "2 candidates for 1 slots; pick one per slot, then fetch the picks.",
+      slots: [{ slot: "beat7", show: "a shop front", search: "shop front", want: "image", candidates: [WEBC(1), WEBC(2)] }] }
+      : { confirmed: false, slots: [{ slot: "beat7" }], skipped: SKIPPED, message: "These words will be sent to the web search of the model that runs it, and this computer will then download small previews: shop front." };
+    return { job: "jw" };
+  },
+  videoMediaApprove: async (p, t, hash) => {
+    calls.push(["approve", hash || null]);
+    return { approved: Boolean(hash), sha256: HASH, credits: [], needs_own_approval: ["beat7"], own_approved: [], provided: [], set: { assets: [{ slot: "beat7", source: "web", licence: "unverified", width: 1080, height: 1920, sha256: SHA }] } };
+  },
+  videoMediaApproveAsset: async (p, t, slot, sha256, confirm) => {
+    calls.push(["own", slot, sha256, confirm || null]);
+    return confirm ? { approved: true, slot, sha256 } : { approved: false, slot, sha256, file: `asset-${sha256.slice(0, 12)}.png`, host: "pages.example", page: "https://pages.example/g/1",
+      licence_claim: "free to use, says the page", licence_claim_note: "claimed by the page, not checked", screen_work: true, warning: WARNING, confirm: `--confirm ${sha256.slice(0, 12)}` };
+  },
+});
+const r = makeStock({ extraApi: extra, own: ["beat7"] });
+await r.review.open(900, "review"); await settle();
+const intro = textOf(r.el);
+const inputs = () => tag(byClass(r.el, "wb-cr-media-slot")[0], "input");
+type(inputs()[0], "shop front"); click(btn(r.el, "Use these words")); await settle();
+out.buttons = [labels(r.el).includes("Search the web"), labels(r.el).includes("Send the words and search the web"), btn(r.el, "Search the web").disabled];
+out.intro = [intro.includes("nothing is sent until you confirm"), intro.includes("They can also be searched on the web: no licence is checked")];
+click(btn(r.el, "Search the web")); await settle();
+out.preview = { calls: r.calls.filter((c) => c[0] === "web"), line: textOf(byClass(r.el, "wb-cr-web-words")[0]), confirm: labels(r.el).includes("Send the words and search the web"),
+  skipped: byClass(r.el, "wb-cr-note").map(textOf).filter((t) => t.startsWith("Slot beat8")), candidates: byClass(r.el, "wb-cr-candidate").length };
+click(btn(r.el, "Send the words and search the web")); await settle();
+const cands = byClass(r.el, "wb-cr-candidate");
+out.found = { calls: r.calls.filter((c) => c[0] === "web"), head: cands.map((c) => textOf(byClass(c, "wb-cr-line")[0])), notes: cands.map((c) => byClass(c, "wb-cr-web").map(textOf)),
+  pages: cands.map((c) => byClass(c, "wb-cr-page").map(textOf)), anchors: tag(r.el, "a").length, imgs: tag(r.el, "img").map((i) => i.attrs.src.slice(0, 5)), files: r.calls.filter((c) => c[0] === "file").map((c) => c[1]),
+  skipped: byClass(r.el, "wb-cr-note").map(textOf).filter((t) => t.startsWith("Slot beat8")).length, buttons: labels(r.el).includes("Send the words and search the web") };
+click(btn(cands[0], "Pick this")); await settle();
+click(btn(r.el, "Fetch the picks")); await settle();
+click(btn(r.el, "Read the media set")); await settle();
+out.read = { own: textOf(r.el).includes("These files need their own approval: beat7."), approveDisabled: btn(r.el, "Approve the media").disabled, panels: byClass(r.el, "wb-cr-own").length, calls: r.calls.filter((c) => c[0] === "own") };
+click(btn(r.el, "Approve the media")); await settle();
+const panels = byClass(r.el, "wb-cr-own");
+out.approved = { calls: r.calls.filter((c) => c[0] === "approve"), own: r.calls.filter((c) => c[0] === "own"), panels: panels.length, warning: panels.length ? textOf(byClass(panels[0], "wb-cr-warning")[0]) : null,
+  notes: panels.length ? byClass(panels[0], "wb-cr-note").map(textOf) : null, imgs: panels.length ? tag(panels[0], "img").length : 0, button: panels.length ? labels(panels[0]) : null,
+  files: r.calls.filter((c) => c[0] === "file").map((c) => c[1]).slice(-1), anchors: tag(r.el, "a").length };
+click(btn(panels[0], "Approve this file")); await settle();
+out.own = { calls: r.calls.filter((c) => c[0] === "own"), panels: byClass(r.el, "wb-cr-own").length, notice: textOf(byClass(r.el, "wb-cr-notice").slice(-1)[0]), need: textOf(r.el).includes("These files need their own approval: .") || textOf(r.el).includes("need their own approval: ,") };
+// a page whose policy does not allow the web search draws neither the button nor the sentence
+const quiet = makeStock({ extraApi: extra, allowed: ["captions-read", "captions-edit", "video-catalogue", "video-run", "answer", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-media-sheet-file"] });
+await quiet.review.open(900, "review"); await settle();
+out.quiet = { button: labels(quiet.el).includes("Search the web"), sentence: textOf(quiet.el).includes("They can also be searched on the web"), find: labels(quiet.el).includes("Find media") };
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_web_search_sends_nothing_until_the_words_are_confirmed_and_each_web_file_is_approved_after_the_set_with_its_warning(tmp_path):
+    got = run_node(tmp_path, WEB)
+    assert got["buttons"] == [True, False, False] and got["intro"] == [True, True]
+    assert got["preview"]["calls"] == [["web", False]] and got["preview"]["confirm"] is True and got["preview"]["candidates"] == 0
+    assert got["preview"]["line"].startswith("These words will be sent to the web search of the model that runs it") and "download small previews" in got["preview"]["line"]
+    assert got["preview"]["skipped"] == ["Slot beat8: This engine cannot draw clips yet. Pick a picture for this slot."]
+    assert got["found"]["calls"] == [["web", False], ["web", True]] and got["found"]["skipped"] == 1, "the skipped slot is said with the candidates too"
+    assert got["found"]["head"] == ['Picture 1: Found on the web, licence not checked: pages.example, "A stall 1"', 'Picture 2: Found on the web, licence not checked: pages.example, "A stall 2"']
+    assert got["found"]["notes"][0] == ["Claimed by the page, not checked: free to use, says the page", "Size claimed: 1200x800", "A still of a film, series, anime, TV show, game or music video"]
+    assert got["found"]["notes"][1] == ["Claimed by the page, not checked: free to use, says the page", "Size claimed: 1200x800"]
+    assert got["found"]["pages"] == [["Page: https://pages.example/g/1"], ["Page: https://pages.example/g/2"]], "the page address is text"
+    assert got["found"]["anchors"] == 0 and got["found"]["imgs"] == ["blob:"] and got["found"]["files"] == ["sheet-preview.png"], "no link and no image from another host"
+    assert got["read"] == {"own": True, "approveDisabled": False, "panels": 0, "calls": []}, "the set is approved first; the warning is asked after it"
+    assert got["approved"]["calls"] == [["approve", None], ["approve", "a" * 64]]
+    assert got["approved"]["own"] == [["own", "beat7", "b" * 64, None]] and got["approved"]["panels"] == 1
+    assert got["approved"]["warning"] == "Copyright warning: this file was found on the open web, on pages.example. Source page: https://pages.example/g/1"
+    assert got["approved"]["notes"] == ["Claimed by the page, not checked: free to use, says the page", "A still of a film, series, anime, TV show, game or music video"]
+    assert got["approved"]["imgs"] == 1 and got["approved"]["button"] == ["Approve this file"] and got["approved"]["files"] == ["asset-" + "b" * 12 + ".png"] and got["approved"]["anchors"] == 0
+    assert got["own"]["calls"] == [["own", "beat7", "b" * 64, None], ["own", "beat7", "b" * 64, "b" * 12]], "the confirm is the first 12 digits of the file's own sha256"
+    assert got["own"]["panels"] == 0 and got["own"]["notice"] == "The file for slot beat7 is approved."
+    assert got["quiet"] == {"button": False, "sentence": False, "find": True}
 
 
 CARD = r"""

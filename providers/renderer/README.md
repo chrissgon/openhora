@@ -277,8 +277,7 @@ background. `full` also normalises each picture: re-encoded to PNG with the imag
 stripped, sized by the size rule below (never enlarged, refused `asset_too_small` when its layout would draw it enlarged more than 1.5 times), written as `asset-<sha12>.png` (0400, named by its
 own bytes). A PNG or JPEG that is complete, not animated and within the size bounds is accepted; an animated PNG, a GIF, a WebP and a file of no known kind are `asset_type` (a clip is accepted since V9b-5a: see "Clips"), a truncated or damaged file is `asset_corrupt`. The host rebuilds the answer (`assets` with `row`, `col`, `file`, `sha256`,
 `width`, `height`, `source_sha256`; `sheet`, `sheet_sha256`, `rows`) from a closed schema, hashes each file on the way out and checks its header, and never
-rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image"]` for both, **and it stays so after V9b-5a**: the runtime keeps
-refusing a clip pick with `clip_not_drawn` until a later, small package flips it); the catalogue lists them as `asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
+rewrites a file. `blocks/engines/<engine>.json` says what the engine can draw as a picture (`asset_kinds`, `["image", "clip"]` for both since V9b-5c: the runtime trims a clip cutaway to its clip and passes the edit list's rate, so neither engine meets the gap of "Clips"); the catalogue lists them as `asset_kinds_by_engine`. Tests: `tests/test_asset_sheet.py`.
 
 **The size rule** (the supervisor's, after live leg K3 and the review of #821; it replaces V9b-2's "long side to 1920, at most 1.5 times"): `d` is the enlargement the layout its ratio
 selects with the default look asks of the **source**: ratio (w/h) at or under 0.8 the cover layout, `max(1080/w, 1920/h)`, otherwise the glass layout, `min((1080 - 2*65)/w, 1700/h)`.
@@ -371,9 +370,8 @@ was frame-exact only with a half-frame offset on the time, and that offset is no
 - **Refusals that stay:** `clip_transition`, `asset_type` for a clip on `oh:screenshot` (`oh:pip` is absent on this engine until V9b-6), for a WebM or MOV, for a rotated clip, for a
   side over 3840, for another frame rate than the edit list's; `clip_too_short`.
 - **The gaps between the engines.** On ffmpeg a clip of another rate is conformed and a clip shorter than its cut holds its last frame; on HyperFrames both are refused. The
-  saving: no untested drawing path ships, and the runtime cannot reach either yet (`asset_kinds` is `["image"]` on both engines, so a clip pick is still `clip_not_drawn`).
-  The loss: the later runtime package must pass the edit list's rate to `asset-sheet` (it does, by design) and trim a clip cutaway to its clip's length, or a probe must first
-  show that HyperFrames holds the last frame.
+  saving: no untested drawing path ships, and the runtime reaches both since V9b-5c (`asset_kinds` is `["image", "clip"]` on both engines).
+  The loss, paid by the runtime since V9b-5c: it passes the edit list's rate to `asset-sheet` and trims a clip cutaway to its clip's length, so neither engine meets the gap.
 
 Tests: `tests/test_hf_clip.py` (the compose: goldens `golden/hf-clip-cover.html` and `hf-clip-glass.html`, the picture cutaway's hashes in `golden/hf-cutaway-picture.sha256`,
 the refusals, `hf-page` with a real clip), `tests/test_hf_engine.py` (the host: the staging and the order against the proxy stage), `tests/test_hf_render_inner.py` (the

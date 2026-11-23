@@ -1519,6 +1519,7 @@ from ops_media_phone import video_phone_in, video_phone_posts, video_phone_reply
 from ops_media_cloud import video_phone_fetch  # noqa: E402,F401  (V1d-3: a recording from a Drive link)
 from ops_media_remove import media_remove  # noqa: E402,F401  (media-remove: one recording removed for good)
 from ops_media_stock import video_credits, video_media_approve, video_media_fetch_picks, video_media_find, video_media_sheet_file  # noqa: E402,F401  (V9b-3a: the licensed pictures of a video)
+from ops_media_websearch import video_media_approve_asset, video_media_websearch  # noqa: E402,F401  (V9b-3b: the pictures of a video found on the open web)
 from ops_references import reference_add, reference_list, reference_read, reference_remove, reference_video  # noqa: E402,F401  (V7b: the reference videos, terminal only)
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.

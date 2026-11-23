@@ -43,6 +43,8 @@ export const OPS = Object.freeze({
   videoMediaFind: "video-media-find",
   videoMediaFetchPicks: "video-media-fetch-picks",
   videoMediaApprove: "video-media-approve",
+  videoMediaWebsearch: "video-media-websearch",
+  videoMediaApproveAsset: "video-media-approve-asset",
   verdict: "verdict",
   say: "say",
   giveConsent: "give-consent",

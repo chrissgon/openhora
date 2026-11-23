@@ -12,8 +12,8 @@ The folder (mode 0700, every file 0600 or 0400, opened without following a link,
 
   prev-*            the previews a search brought (one per candidate; a source's own picture, at most 1 MiB)
   full-*            the full file of a pick, as the library gave it (never served, never rendered: the renderer normalises it)
-  quarantine/       the files of the open web (a later package); a file leaves it only at the set approval
-  asset-<sha12>.png the pictures the renderer made from the picks, PNG, the only files a render may use
+  quarantine/       the files of the open web: the previews a web search brought and the files fetched from it (V9b-3b); a file leaves it only at the set approval
+  asset-<sha12>.png or .mp4  the pictures and clips the renderer made from the picks, the only files a render may use
   sheet-preview.png and sheet.png    the contact sheets the renderer made of the previews and of the picks
   set.json          what `video-media-find` found and `video-media-fetch-picks` fetched (phase `found`, then `fetched`)
   approved.json     the approval of the set: its hash, the time, the sources in force, the assets, and `unverified` (each open-web asset's own approval)
@@ -64,12 +64,14 @@ MAX_FULL = 6
 MAX_FULL_BYTES = 400 * 1024 * 1024                    # the full files of a video together
 MAX_CALLS = 40                                        # API calls of a video
 MIB = 1024 * 1024
-KIND_BYTES = {"image": 16 * MIB, "clip": 120 * MIB}
+KIND_BYTES = {"image": 16 * MIB, "clip": 64 * MIB}   # the clip cap = limits.asset_max_bytes of providers/renderer/renderer-presets.json (a test compares)
+CLIP_SECONDS_MAX = 10.0                               # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
 SET, APPROVED, SHEET, SHEET_PREVIEW = "set.json", "approved.json", "sheet.png", "sheet-preview.png"
 QUARANTINE = media.STOCK_QUARANTINE
 SET_VERSION = 1
 DOC_LIMIT = 2 * MIB
-ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.png")
+ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.(png|mp4)")
+SERVED_ASSET = re.compile(r"asset-[0-9a-f]{12}\.png")   # a clip is never served: the page shows the sheet
 PROVIDER_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,200}")      # the name a provider gave a file inside the folder
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SOURCE_NAME = re.compile(r"[a-z][a-z0-9]{1,30}")
@@ -275,7 +277,7 @@ def read_doc(data_dir: str, rid: str, name: str):
 def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> bytes:
     """The bytes of a file the page may be given: only `sheet-preview.png`, `sheet.png` and `asset-<sha12>.png` (the files the container made), never a preview, a full
     file or a file of the quarantine, whatever their names. A file that is not a PNG by its header is refused."""
-    if not isinstance(name, str) or not (name in SERVED or ASSET_FILE.fullmatch(name)):
+    if not isinstance(name, str) or not (name in SERVED or SERVED_ASSET.fullmatch(name)):
         raise StockError("that file is not one the page may be given", "usage")
     try:
         data = media.read_work(data_dir, rid, "stock/" + name, limit)
@@ -284,6 +286,11 @@ def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> by
     if len(data) > limit or not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise StockError("that file is not a picture", "unreadable")
     return data
+
+
+def asset_name(asset: dict) -> str:
+    """The file name of an approved asset in the stock folder: `asset-<sha12>.mp4` for a clip, `asset-<sha12>.png` for a picture."""
+    return "asset-%s.%s" % (asset["sha256"][:12], "mp4" if asset.get("kind") == "clip" else "png")
 
 
 def names(data_dir: str, rid: str) -> list:
@@ -347,6 +354,39 @@ def clear_candidates(data_dir: str, rid: str, keep=()) -> int:
     kept = set(keep)
     return remove_where(data_dir, rid, lambda n: n not in kept and (n.startswith(("prev-", "full-", ".work")) or n in SERVED or n == QUARANTINE
                                                                      or ASSET_FILE.fullmatch(n) is not None))
+
+
+def clear_licensed(data_dir: str, rid: str) -> int:
+    """What a new `video-media-find` removes (V9b-3b): the licensed previews, the full files, the contact sheets, the scratch folders and every `asset-*`. The quarantine stays (the web
+    candidates of the set that are carried over)."""
+    return remove_where(data_dir, rid, lambda n: n.startswith(("prev-", "full-", ".work")) or n in SERVED or ASSET_FILE.fullmatch(n) is not None)
+
+
+def clear_web(data_dir: str, rid: str) -> int:
+    """What a new `video-media-websearch` removes (V9b-3b): the quarantine, the full files, the contact sheets, the scratch folders and every `asset-*`. The licensed previews stay (the
+    licensed candidates of the set that are carried over)."""
+    return remove_where(data_dir, rid, lambda n: n == QUARANTINE or n.startswith(("full-", ".work")) or n in SERVED or ASSET_FILE.fullmatch(n) is not None)
+
+
+def prune_quarantine(data_dir: str, rid: str, keep) -> int:
+    """Remove every file of the quarantine whose name is not in `keep` (a preview no candidate of the merged set kept). Returns how many went; 0 when there is no quarantine."""
+    kept, count = set(keep), 0
+    try:
+        with _open(data_dir, rid) as fd:
+            try:
+                sub = os.open(QUARANTINE, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=fd)
+            except OSError:
+                return 0
+            try:
+                for name in sorted(os.listdir(sub)):
+                    if name not in kept and media._remove_tree(sub, name):
+                        count += 1
+            finally:
+                os.close(sub)
+    except StockError as e:
+        if e.code != "not_found":
+            raise
+    return count
 
 
 def void_approval(data_dir: str, rid: str) -> bool:
@@ -576,6 +616,102 @@ def merge(per_source: list, limit: int = PER_SLOT) -> list:
                     out.append(rows[depth])
         depth += 1
     return out
+
+
+# --- the open web (package V9b-3b) ------------------------------------------------------------------------------------------------------------------
+
+
+WEB_SCHEMA = 1
+WEB_MAX_TOTAL, WEB_MAX_PER_SLOT, WEB_MAX_URL = 18, 3, 2048      # = skills/mkt-video-media-search/scripts/check_candidates.py (MAX_TOTAL, MAX_PER_SLOT, MAX_URL); web.py PER_VIDEO["previews"] is 18
+WEB_BOUNDS = {"title": 120, "licence_claim": 200, "site_terms": 200, "note": 200}
+WEB_REQUIRED = ("slot", "kind", "media_url", "page_url", "title", "licence_claim", "screen_work")
+WEB_OPTIONAL = ("thumb_url", "resolution", "site_terms")
+WEB_OPEN_CODES = ("no_result", "no_search_tool", "scene_only")
+WEB_OPEN_WITH_SLOT = ("no_result", "scene_only")
+WEB_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+WEB_RESOLUTION = re.compile(r"[1-9][0-9]{1,4}x[1-9][0-9]{1,4}")
+
+
+def web_source(cfg: dict):
+    """The name of the source of the open-web tier a project uses (its data file says `unverified`), or None. No name is written here: the tier is read from the data file."""
+    for name in sources_of(cfg):
+        if tier_of(cfg["workbench"], name) == "unverified":
+            return name
+    return None
+
+
+def websearch_limits(cfg: dict) -> dict:
+    """The bounds of a web search of this project: `media.websearch` as the configuration holds it (each key checked by project_config), else the defaults."""
+    found = (cfg.get("media") or {}).get("websearch")
+    return dict(project_config.WEBSEARCH_DEFAULTS, **found) if isinstance(found, dict) else dict(project_config.WEBSEARCH_DEFAULTS)
+
+
+def _url_problem(value) -> bool:
+    """True when a link breaks the first rules of a reach to the web: https, no more than WEB_MAX_URL characters, no space or control character, no user info, port 443 only, a plain
+    host name (no address, no trailing dot). The same rules as the skill's checker; the provider checks them again before any byte is fetched."""
+    if not isinstance(value, str) or not value.startswith("https://") or len(value) > WEB_MAX_URL or any(ord(c) <= 32 or ord(c) == 127 for c in value):
+        return True
+    authority = re.split(r"[/?#]", value[len("https://"):], maxsplit=1)[0]
+    if not authority or "@" in authority or authority.startswith("["):
+        return True
+    host = authority
+    if ":" in authority:
+        host, _, port = authority.partition(":")
+        if port != "443":
+            return True
+    if host.endswith(".") or len(host) > 253:
+        return True
+    labels = host.lower().split(".")
+    return len(labels) < 2 or all(x.isdigit() for x in labels) or not all(WEB_LABEL.fullmatch(x) for x in labels) or labels[-1].isdigit()
+
+
+def read_web_candidates(data, sent: dict) -> dict:
+    """The rules of skills/mkt-video-media-search/scripts/check_candidates.py again, in code, on a candidates document that was parsed from a run's file, plus: every slot and kind is
+    exactly one that was sent (`sent` is `{slot: kind}`), and no field is unknown. Returns `{"candidates": [dict...], "open": [dict...]}` with the fields as the run gave them (nothing
+    cleaned: the caller turns text into a one-line form). `StockError(..., "candidates_invalid")` for the first rule broken, with nothing of the text in the message."""
+    def bad(where: str):
+        raise StockError("the candidates file breaks a rule (%s)" % where, "candidates_invalid")
+
+    if not isinstance(data, dict) or set(data) - {"schema_version", "candidates", "open"}:
+        bad("root")
+    if data.get("schema_version") != WEB_SCHEMA or isinstance(data.get("schema_version"), bool):
+        bad("schema_version")
+    rows, opens = data.get("candidates"), data.get("open")
+    if not isinstance(rows, list) or not isinstance(opens, list) or len(rows) > WEB_MAX_TOTAL:
+        bad("lists")
+    per_slot, seen = {}, set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) - set(WEB_REQUIRED + WEB_OPTIONAL) or any(k not in row for k in WEB_REQUIRED):
+            bad("candidate")
+        slot = row["slot"]
+        if not isinstance(slot, str) or slot not in sent or row["kind"] != sent[slot]:
+            bad("slot")
+        per_slot[slot] = per_slot.get(slot, 0) + 1
+        if per_slot[slot] > WEB_MAX_PER_SLOT:
+            bad("too_many_for_slot")
+        for key in ("media_url", "page_url", "thumb_url"):
+            if key in row and _url_problem(row[key]):
+                bad(key)
+        if row["media_url"] in seen:
+            bad("duplicate")
+        seen.add(row["media_url"])
+        for key in ("title", "licence_claim", "site_terms"):
+            if key in row and (not isinstance(row[key], str) or not row[key].strip() or len(row[key]) > WEB_BOUNDS[key]):
+                bad(key)
+        if not isinstance(row["screen_work"], bool):
+            bad("screen_work")
+        if "resolution" in row and not (isinstance(row["resolution"], str) and WEB_RESOLUTION.fullmatch(row["resolution"])):
+            bad("resolution")
+    for item in opens:
+        if not isinstance(item, dict) or set(item) - {"code", "slot", "note"} or item.get("code") not in WEB_OPEN_CODES:
+            bad("open")
+        if "slot" in item and (not isinstance(item["slot"], str) or item["slot"] not in sent):
+            bad("open_slot")
+        if item["code"] in WEB_OPEN_WITH_SLOT and "slot" not in item:
+            bad("open_slot")
+        if "note" in item and (not isinstance(item["note"], str) or not item["note"].strip() or len(item["note"]) > WEB_BOUNDS["note"]):
+            bad("note")
+    return {"candidates": rows, "open": opens}
 
 
 # --- the slots of a video ---------------------------------------------------------------------------------------------------------------------

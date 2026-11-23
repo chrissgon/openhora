@@ -1,0 +1,9 @@
+{
+  "package": "v9b-5c",
+  "table": {
+    "VID_STOCK_CLIP_BLOCK": "Só um corte para imagem pode mostrar um vídeo, e outro bloco desenha este espaço. Escolha uma imagem para este espaço.",
+    "VID_STOCK_CLIP_SHORT": "Este vídeo é curto demais para um corte; escolha um de pelo menos {seconds} segundos.",
+    "VID_STOCK_CLIP_TRIM": "Um corte com vídeo termina quando o vídeo termina (um vídeo guarda no máximo os primeiros {max} segundos); um vídeo mais longo é cortado no fim das suas palavras."
+  },
+  "same_as_english": []
+}
