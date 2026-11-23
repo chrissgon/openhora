@@ -21,7 +21,7 @@ import _redact
 from _assets import (FONT_ID, FONT_MAGIC, font_allowlist, fonts_dir, image_facts, load_assets, load_fonts, read_regular)  # noqa: F401  (moved: the callers and tests still find them here)
 from _layout import caption_hit, face_hit  # noqa: F401
 from _lint import lint
-from _payload import beat_data, caption_data, pip_geometry  # noqa: F401  (moved: the callers and tests still find them here)
+from _payload import beat_data, caption_data, pip_geometry, split_geometry_of  # noqa: F401  (moved: the callers and tests still find them here)
 from _text import Refusal
 
 ASSET_MIME = {"png": "image/png", "jpg": "image/jpeg"}
@@ -123,7 +123,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
 
     `only` (the storyboard's one use): a set of (track, frame) pairs; just those frames of the jobs are drawn and nothing else is
     written (no blank frame, no filler). `backdrop` (the same): {color, slot_fill}, the opaque colour the page is drawn over, so the
-    PNG is a picture to look at; a pip beat also gets its asset slot as a flat-colour card. With both left out the
+    PNG is a picture to look at; a pip beat also gets its asset slot as a flat-colour card. A split beat gets its halves (`_layout.split_layouts`). With both left out the
     loop is the render's, unchanged.
 
     A page is opened once per block per worker, with the theme's colours and fonts set through CSSOM and every font
@@ -135,6 +135,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     by_index = {x["index"]: x for x in edl["words"]}
     if any(e["preset"] == "pip" and "card" not in e for e in timeline["beats"]):      # the render settled them in `compose_plan`; the storyboard's call has not
         _layout.pip_cards(data, timeline, assets, drop=backdrop is None)
+    if any(e["preset"] == "split" and "split" not in e for e in timeline["beats"]):   # as for the pips: settled in `compose_plan`, after them
+        _layout.split_layouts(data, timeline, drop=backdrop is None)
     tracks, jobs = frame_jobs(timeline, edl["out_frames"])
     if only is not None and not check_all:
         jobs = [j for j in jobs if (j[1], j[0]) in only]
@@ -188,6 +190,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                         pages[key] = page
                     page = pages[key]
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
+                    if track != "caption" and entry["preset"] == "split":
+                        payload["geom"] = split_geometry_of(entry)
                     if track != "caption" and entry.get("params_kind"):
                         payload["params_kind"] = entry["params_kind"]
                         payload["clip_size"] = entry["clip_size"]      # {"asset": "clip"}: the page draws the label only; the compose draws the clip (V9b-5a)

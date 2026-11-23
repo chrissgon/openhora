@@ -140,6 +140,17 @@
     "label": {"type": "text", "max": 40},
     "echo": {"type": "choice", "values": ["light", "strong"], "default": "light"}
    }
+  },
+  "split": {
+   "kind": "layout",
+   "summary": "the frame splits in two: the speaker stays in one half while a picture or a clip the person uploads fills the other half",
+   "main": "label",
+   "params": {
+    "asset": {"type": ["image", "clip"], "required": true},
+    "side": {"type": "choice", "values": ["top", "bottom", "left", "right"], "default": "bottom"},
+    "fit": {"type": "choice", "values": ["cover", "contain"], "default": "cover"},
+    "label": {"type": "text", "max": 40}
+   }
   }
  }
 }

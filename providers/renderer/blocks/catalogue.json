@@ -665,6 +665,66 @@
    "use_when": "a document, a page or a screen is shown whole, framed, while the line is spoken"
   },
   {
+   "band": "frame",
+   "engines": [
+    "ffmpeg",
+    "hyperframes"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:split",
+   "namespace": "oh",
+   "natural_duration": 1.5,
+   "params": {
+    "asset": {
+     "required": true,
+     "type": [
+      "image",
+      "clip"
+     ]
+    },
+    "fit": {
+     "default": "cover",
+     "type": "choice",
+     "values": [
+      "cover",
+      "contain"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    },
+    "side": {
+     "default": "bottom",
+     "type": "choice",
+     "values": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+     ]
+    }
+   },
+   "preset": "split",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "asset": "slot-1",
+     "fit": "cover",
+     "label": "Before and after",
+     "side": "bottom"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "the speaker stays on screen in one half of the frame while a picture the person uploads fills the other half"
+  },
+  {
    "band": "card",
    "engines": [
     "ffmpeg",
@@ -729,7 +789,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "f3d9364281ca6d6f20c0a3e622317bfe650345c3ec461b480298ff66d4cbdd98",
+ "blocks_sha256": "b0a1a3244e048218aee2570151f5f8e97f8177ea87d4e45f0bd35aaf6b8ad975",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -743,6 +803,7 @@
     "number": "oh:number",
     "pip": "oh:pip",
     "quote": "oh:quote",
+    "split": "oh:split",
     "sticker": "oh:sticker"
    },
    "runtimes": [

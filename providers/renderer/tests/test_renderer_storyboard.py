@@ -415,7 +415,8 @@ def test_the_real_templates_keep_every_preset_clear_of_a_face_box_that_leaves_th
 
 LARGEST = [("keyword", {"text": "k" * 24, "icon": "coin"}), ("list", {"items": " | ".join("x" * 30 for _ in range(4)), "icon": "star"}),
            ("number", {"value": "1,234,567", "label": "n" * 40}), ("quote", {"text": "q" * 120, "author": "a" * 40}),
-           ("cutaway", {"asset": "a flat picture", "label": "c" * 40}), ("pip", {"asset": "a flat chart", "label": "p" * 40})]
+           ("cutaway", {"asset": "a flat picture", "label": "c" * 40}), ("pip", {"asset": "a flat chart", "label": "p" * 40}),
+           ("split", {"asset": "a flat picture", "side": "bottom", "label": "s" * 40})]
 
 
 def draw_frames_of(tmp, preset, edl, bl, frames):

@@ -241,7 +241,7 @@ def test_every_caption_instance_ends_at_the_caption_bottom_line_and_is_clipped_t
 def test_the_hyperframes_engine_runs_both_runtimes_and_its_defaults_are_the_ports_and_oh_list(catalogue):
     engine = catalogue["engines"]["hyperframes"]
     assert engine["runtimes"] == ["gsap", "renderat"] and engine["presets"] == DEFAULTS
-    assert engine["presets"]["cutaway"] == "oh:cutaway" and "pip" not in engine["presets"]          # V9b-2: the cutaway is drawn; the pip stays absent until V9b-6
+    assert engine["presets"]["cutaway"] == "oh:cutaway" and "pip" not in engine["presets"] and "split" not in engine["presets"]          # V9b-2: the cutaway is drawn; the pip stays absent until V9b-6
     for preset, name in DEFAULTS.items():
         block = _blocks.resolve(catalogue, "hyperframes", preset, None, "beats.b1")
         assert block["name"] == name and block["preset"] == preset
@@ -256,7 +256,7 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
     assert caught.value.code == "block_not_on_engine" and caught.value.field == "oh:" + preset
     assert catalogue["engines"]["ffmpeg"]["presets"] == {"aside": "oh:aside", "caption": "oh:caption", "cutaway": "oh:cutaway", "keyword": "oh:keyword", "list": "oh:list",
                                                          "mark": "oh:mark", "nametag": "oh:nametag", "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote",
-                                                         "sticker": "oh:sticker"}
+                                                         "split": "oh:split", "sticker": "oh:sticker"}
 
 
 def test_the_registry_licence_text_is_the_file_with_the_pinned_hash_and_travels_beside_the_notice():
