@@ -93,3 +93,24 @@ Loss: a person who forgets a slot with no candidates gets no refusal, but the an
 **Tests** (offline): `test_a_skipped_clip_slot_does_not_block_the_fetch_and_is_left_without_a_picture` (the live failure), `test_a_slot_the_sources_found_nothing_for_is_left_without_a_picture` (the licensed path),
 `test_a_slot_whose_choice_is_no_longer_stock_is_skipped_by_the_fetch`, `test_the_fetch_with_no_pick_at_all_is_refused`; the existing test of a missing pick (rule 3) is unchanged. A check that the step passes
 `--empty-slot beat8=none` and renders `beat7` only was not added: the step kit needs new plumbing to reach it.
+
+## K4, the live leg (2026-11-23)
+
+**Run.** By the supervisor after the maintainer's yes, on a scratch project and state folder, with the project's default model `claude-haiku-5-5` (adapter claude-code, subscription billing; routing web true, autonomy
+proven; bounds max_cost_usd 0.6, timeout 300 s), a generated recording and a built transcript, three slots (two pictures, one clip).
+
+**First attempts.** On 2026-11-23 they found two defects that stopped every run at `video-media-fetch-picks` with `no_pick`: A, a slot with no candidates (the skipped clip slot of 3b) blocked the fetch, and B, a web
+clip with no thumbnail was always dropped at the preview. Both are fixed in this round (A in "K4 fix: the picks" above, B in the decision file of V9b-5c). On this branch's own code (images
+openhora-renderer:cc41c16fd797 and openhora-hyperframes:12ff7f4128cb) the run before fix A reached: clip slot skipped as designed, 4 picture candidates, every preview made (thumbnails given), 50 s, 268,386 tokens;
+then `no_pick`.
+
+**The complete run.** Made on the code of V9b-5c at 02904ef, which contains this branch with fix A (images openhora-renderer:d6feec7d70e9 and openhora-hyperframes:5bbbcd52f5e0):
+- Web search: 47 s, 334,297 tokens, run ok. Candidates: slot 1 one picture (page host isorepublic.com), slot 2 one clip (page host pixabay.com, no thumbnail), slot 3 none (three full-size pictures without a thumbnail
+  were refused at the preview, probably over the 4 MiB preview cap: noted, not fixed in this round).
+- Fetch: 43 s; `without_picture` named slot 3. The set was approved in the terminal; the picture's own approval was given on the page channel and the clip's in the terminal, each warning showing the host.
+- Render verified on HyperFrames (204 s, then 278 s on a re-render) and on ffmpeg (93 s, then 117 s).
+- The deliver card listed the two web hosts and held no page address. A second task could not use the first task's own approvals (`media_not_approved`).
+- Delivered: the local download listed 2 source pages (hosts isorepublic.com, pixabay.com) and the page's credits held 2 web entries with their pages.
+- `media-remove` removed the recording and the stock folder. Every fetched file was deleted after the run.
+
+**Not checked.** Redirects counted per fetch; the page itself in a browser (the page channel was exercised through the operation the page calls).
