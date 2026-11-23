@@ -76,3 +76,20 @@ fetches previews and files from third-party sites, which see its address, was pu
 `asset-sheet`, the real checker script of the skill and the real approval path through the step. Nothing was searched, fetched or run on a model; every name is invented and every host ends in `.example`.
 **Not verified.** K4 (the supervisor's live leg, after the maintainer's yes): that `routing["web"]` is true for the skill on the model chosen and on its adapter; what `result["cwd"]` holds for this skill (assumed as for
 research); that the renderer's container reads a preview from the quarantine folder for the contact sheet; how often a model returns direct file links with a thumbnail; the hosts, redirects, cost and time of a real search.
+
+## K4 fix: the picks
+
+**Cause.** A search writes one set row per slot it was given, with or without candidates (`_compose`), and `_picked` of `video-media-fetch-picks` required a pick for every row of `set.json`, read from the set and not from the
+review as it is now. In the live run on 2026-11-23 the clip slot `a2` was skipped by design (the engine draws no clips) yet stayed in the set with 0 candidates, and setting its choice to `none` did not help: the fetch stopped
+with `no_pick`. The licensed path of V9b-3a on `main` has the same `_picked`: a find whose sources found nothing for a slot, or a clip slot no licensed source serves, blocks the same way (the person could get past it by choosing
+`none` and running `video-media-find` again, with no model call). The fix reaches `main` with this pull request, not as a hotfix (the maintainer ruled: wait).
+
+**Decision A1.** For each row of the set: (1) a row with a pick must have a pick that is one of its candidates, with the clip checks as before; (2) a row with no pick that has no candidates, or is no longer one of
+`media_stock.stock_slots` (another option chosen, the layout removed, the words lost), is left without a picture: it is not fetched, the step renders it as the person's choice, and the answer lists it
+(`without_picture`) with a sentence (`VID_STOCK_NO_PICTURE`); (3) a row with no pick that has candidates and is still a stock slot is `no_pick`, as before. With no pick at all the answer is `no_pick` ("no slot has a
+pick"). `_compose`, `_carried`, `stock_slots`, the skipped list and the step are unchanged, so the page still shows "nothing found" for an empty row. Saving: no model call and no manual round trip to get past an empty slot.
+Loss: a person who forgets a slot with no candidates gets no refusal, but the answer names the slot.
+
+**Tests** (offline): `test_a_skipped_clip_slot_does_not_block_the_fetch_and_is_left_without_a_picture` (the live failure), `test_a_slot_the_sources_found_nothing_for_is_left_without_a_picture` (the licensed path),
+`test_a_slot_whose_choice_is_no_longer_stock_is_skipped_by_the_fetch`, `test_the_fetch_with_no_pick_at_all_is_refused`; the existing test of a missing pick (rule 3) is unchanged. A check that the step passes
+`--empty-slot beat8=none` and renders `beat7` only was not added: the step kit needs new plumbing to reach it.

@@ -162,7 +162,7 @@ words, picked by the person, fetched, normalised in the renderer's container, ap
 - **The edits.** At the caption review the person gives a slot the choice `stock` and its words (`slot_search`: 1 to 6 English words, `image` or `clip`), or adds a layout (`oh:cutaway`, `oh:screenshot`)
   with its own slot `a<n>`, and later picks one candidate (`slot_asset`). A pick that changes voids the approval.
 - **The operations** (terminal and page; the local network's socket may only read the PNGs the container made): `video-media-find` (without `--confirm` it prints which words go to which sources and sends
-  nothing), `video-media-fetch-picks`, `video-media-approve` (prints the set, its sha256 and the credit lines; with `--hash` it approves exactly that set), `video-credits`, and `video-media-sheet-file` for the page.
+  nothing), `video-media-fetch-picks` (a slot with candidates that is still chosen as stock needs a pick; a slot with none, or no longer chosen, is left without a picture and the answer names it), `video-media-approve` (prints the set, its sha256 and the credit lines; with `--hash` it approves exactly that set), `video-credits`, and `video-media-sheet-file` for the page.
   The folder is `<data_dir>/media/<id>/stock/` (previews, full files, the quarantine, `asset-<sha12>.png`, the sheets, `set.json`, `approved.json`).
 - **The render.** Continue stops (`media_not_approved`) while a pick is not approved; the person approves the set or clears the picks and runs the video again. The engine gets `--asset` and `--asset-sha256`
   only for an approved picture a beat draws, and the check is made again at the render. A picture is approved when the set's approval holds the set's current hash, its file hashes to the set's sha256

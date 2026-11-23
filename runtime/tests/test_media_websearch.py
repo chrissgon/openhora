@@ -18,7 +18,7 @@ import pytest
 
 import standin_tree as st
 from media_kit import media, ops, ops_core, work_file, world  # noqa: F401  (the fixture)
-from media_stock_kit import (PAGE_MARK, REPO, SKILL, LINK_MARK, accepted, configure, media_stock, ops_media_edit, ops_media_websearch, png, review_of, to_found, web_candidate, web_document,
+from media_stock_kit import (PAGE_MARK, REPO, SKILL, LINK_MARK, accepted, configure, media_stock, ops_media_edit, ops_media_websearch, pick, png, review_of, to_found, web_candidate, web_document,
                              web_world)
 
 project_config = st.load("project_config")
@@ -142,6 +142,19 @@ def test_a_slot_that_wants_a_clip_is_not_sent_while_the_engine_draws_none_and_is
     assert shown["skipped"][0]["message"] == text_of(world, "VID_STOCK_CLIP_NOT_DRAWN") and "fruit crate" not in shown["message"]
     done = search(world, w["task"])
     assert done["skipped"] == shown["skipped"] and w["run"].calls[0]["prompt"].startswith("Find media for this cutaway.") and "beat8" not in w["run"].calls[0]["prompt"]
+
+
+def test_a_skipped_clip_slot_does_not_block_the_fetch_and_is_left_without_a_picture(world, monkeypatch):
+    monkeypatch.setattr(ops_media_websearch.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # the engine draws no clips, so the test holds after the merge into the clip branch
+    w = with_candidates(web_world(world, monkeypatch, {"beat7": ("market stall", "image"), "beat8": ("fruit crate", "clip")}))
+    done = search(world, w["task"])
+    assert [s["slot"] for s in done["skipped"]] == ["beat8"]
+    by_slot = {r["slot"]: r for r in set_doc(world)["slots"]}
+    assert by_slot["beat8"]["candidates"] == [] and by_slot["beat7"]["candidates"]
+    pick(world, w["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    got = ops.video_media_fetch_picks(world["path"], w["task"])
+    assert got["without_picture"] == ["beat8"] and text_of(world, "VID_STOCK_NO_PICTURE", slots="beat8") in got["message"]
+    assert [a["slot"] for a in got["assets"]] == ["beat7"] and len(w["sources"].of("fetch")) == 1
 
 
 def test_a_video_whose_only_slots_want_clips_has_nothing_to_send(world, monkeypatch):

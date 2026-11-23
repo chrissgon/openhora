@@ -8,6 +8,7 @@
     "VID_WEB_PREVIEW": "These words will be sent to the web search of the model that runs it and to that model's provider, and this computer will then download small previews from the sites found: {words}.",
     "VID_WEB_LIMIT": "The web search already ran {count} times today, the limit of this project.",
     "VID_WEB_FAILED": "The web search did not finish; nothing was kept.",
+    "VID_STOCK_NO_PICTURE": "No picture for {slots}: these slots stay empty in the video. To fill one, give it new words and search again, or choose another option in the caption review.",
     "VID_WEB_NOTHING": "The web search found no picture that could be used."
   }
 }

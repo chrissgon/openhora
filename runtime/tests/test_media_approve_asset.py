@@ -150,7 +150,7 @@ def test_the_warning_is_the_approved_text_in_english_and_in_portuguese(world, mo
     assert phrases.text("VID_WEB_WARNING", {"language": "en"}, host="pages.example", page=PAGE) == WARNING_EN.format(host="pages.example", page=PAGE)
     for key in table("en"):
         assert set(table("en")) == set(table("pt-BR")), key
-        assert phrases.text(key, {"language": "pt-BR"}, host="h", page="p", words="w", count=1) and phrases.text(key, {"language": "en"}, host="h", page="p", words="w", count=1)
+        assert phrases.text(key, {"language": "pt-BR"}, host="h", page="p", words="w", count=1, slots="s") and phrases.text(key, {"language": "en"}, host="h", page="p", words="w", count=1, slots="s")
 
 
 def test_with_the_first_twelve_digits_it_writes_the_record_the_step_reads_and_keeps_the_rest_of_the_approval(world, monkeypatch):

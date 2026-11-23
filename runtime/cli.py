@@ -216,7 +216,8 @@ video-media-find searches the licensed picture libraries the project uses (media
           (the words leave this computer), the candidates are merged per slot, and the previews are drawn on a sheet. Pick one per slot with the review edit
           `{"op": "slot_asset", "slot": "<id>", "pick": "<source>:<item>"}`, then run video-media-fetch-picks.
 video-media-fetch-picks fetches the full file of each pick (--task <id>), has the renderer's container normalise it to a PNG, and deletes the previews and the other
-          files; every slot needs a pick first.
+          files; every slot with candidates needs a pick or another
+          choice first.
 video-media-approve prints the media set of a new video (--task <id>): each picture, its source and licence, its sha256, the credit lines the licences ask for (put them in
           the caption) and the files that need an approval of their own; with --hash <the set's sha256> it approves exactly that set. A pick changed afterwards voids it, and
           the video cannot continue while a pick is not approved.
