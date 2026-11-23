@@ -258,9 +258,9 @@ def test_stage_blocks_copies_only_the_pinned_files_and_hashes_the_copy(tmp_path)
 
 def test_the_catalogue_names_what_each_engine_draws_as_a_picture():
     cat = _blocks.load_catalogue()
-    assert cat["engines"]["ffmpeg"]["asset_kinds"] == ["image"] and cat["engines"]["hyperframes"]["asset_kinds"] == ["image"]
+    assert cat["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"] and cat["engines"]["hyperframes"]["asset_kinds"] == ["image", "clip"]
     doc = json.load(open(os.path.join(BLOCKS, "catalogue.json"), encoding="utf-8"))
-    assert doc["asset_kinds_by_engine"] == {"ffmpeg": ["image"], "hyperframes": ["image"]}
+    assert doc["asset_kinds_by_engine"] == {"ffmpeg": ["image", "clip"], "hyperframes": ["image", "clip"]}
     assert doc["engines"]["hyperframes"]["presets"]["cutaway"] == "oh:cutaway" and "pip" not in doc["engines"]["hyperframes"]["presets"]
     assert doc["engines"]["ffmpeg"]["presets"]["pip"] == "oh:pip"
 

@@ -514,9 +514,9 @@ def test_the_checker_shows_a_layout_a_placeholder_slot_stores_no_picture_and_ref
 
 
 def test_the_asset_kinds_of_an_engine_come_from_the_catalogue_and_an_unknown_engine_draws_none(tmp_path, monkeypatch):
-    assert animation.read_catalogue(str(REPO))["engines"]["ffmpeg"]["asset_kinds"] == ["image"] and animation.read_catalogue(str(REPO))["engines"]["hyperframes"]["asset_kinds"] == ["image"]
+    assert animation.read_catalogue(str(REPO))["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"] and animation.read_catalogue(str(REPO))["engines"]["hyperframes"]["asset_kinds"] == ["image", "clip"]
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
-    assert animation.asset_kinds(str(REPO)) == ["image"]
+    assert animation.asset_kinds(str(REPO)) == ["image", "clip"]
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "nothing")
     assert animation.asset_kinds(str(REPO)) == [] and animation.asset_kinds(str(tmp_path)) == []
     root = plant(tmp_path / "clip", lambda doc: doc["asset_kinds_by_engine"].update(ffmpeg=["image", "clip"]))
