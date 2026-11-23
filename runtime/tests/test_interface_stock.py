@@ -254,6 +254,7 @@ const out = {};
 out.is = [m.isWebCandidate(web), m.isWebCandidate({ licence: "cc0-1.0" }), m.isWebCandidate(null), m.isWebCandidate({})];
 out.lines = [m.webLines(web), m.webLines({ licence: "unverified", licence_claim: "", screen_work: false }), m.webLines({ licence: "unverified", licence_claim: "x", page_host: "h.example", screen_work: false })];
 out.constants = [m.WEB_TILE, m.SCREEN_WORK_LINE];
+out.noPreview = [m.webLines({ ...web, preview: false }), m.webLines({ ...web, preview: true }), m.NO_PREVIEW_LINE];
 out.licensedText = m.candidateText({ source: "shelf", licence: "cc0-1.0", author: "", width: 10, height: 20, seconds: null });
 console.log(JSON.stringify(out));
 """
@@ -268,6 +269,13 @@ def test_the_model_says_what_a_web_candidate_claims_and_never_that_it_is_license
     assert got["lines"][1] == ["Found on the web, licence not checked", "Claimed by the page, not checked: none stated"]
     assert got["lines"][2] == ["Found on the web, licence not checked: h.example", "Claimed by the page, not checked: x"]
     assert got["constants"] == ["Found on the web, licence not checked", "A still of a film, series, anime, TV show, game or music video"] and got["licensedText"] == "shelf: cc0-1.0, 10x20"
+
+
+@needs_node
+def test_a_web_clip_with_no_preview_says_so_on_its_tile_and_one_with_a_preview_does_not(tmp_path):
+    got = run_node(tmp_path, WEB_MODEL)
+    line = "No preview: this clip is drawn on the sheet after it is fetched, before you approve it"
+    assert got["noPreview"][2] == line and got["noPreview"][0][-1] == line and line not in got["noPreview"][1]
 
 
 WEB = DIALOG + r"""

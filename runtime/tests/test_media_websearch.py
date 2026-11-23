@@ -9,6 +9,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_media_websearch.py
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -357,6 +358,59 @@ def test_the_media_link_stands_in_for_the_preview_when_there_is_no_thumbnail(wor
     search(world, w["task"])
     [call] = w["sources"].of("preview")
     assert call["flags"][call["flags"].index("--url") + 1] == one["media_url"]
+
+
+def no_thumb(slot, n, kind="clip"):
+    row = web_candidate(slot, n, kind=kind)
+    row.pop("thumb_url")
+    return row
+
+
+def sheet_calls(w):
+    return [c for c in w["sheets"].calls if c["mode"] == "preview"]
+
+
+def test_a_web_clip_with_no_thumbnail_is_kept_with_no_preview_and_no_provider_call(world, monkeypatch):
+    w = web_world(world, monkeypatch, {"beat7": ("market stall", "image"), "beat8": ("fruit crate", "clip")})
+    clip = no_thumb("beat8", 1)
+    w["run"].document = web_document([web_candidate("beat7", 1), clip])
+    done = search(world, w["task"])
+    assert not [c for c in w["sources"].calls if clip["media_url"] in c["flags"]], "no preview or fetch call names the clip"
+    row = next(r for r in done["slots"] if r["slot"] == "beat8")
+    [shown] = row["candidates"]
+    assert shown["preview"] is False and shown["pick"] == "web:u-" + hashlib.sha256(clip["media_url"].encode("utf-8")).hexdigest()[:12]
+    [record] = next(r for r in set_doc(world)["slots"] if r["slot"] == "beat8")["candidates"]
+    assert record["preview"] is None and record["preview_in"] is None and record["preview_sha256"] is None and record["kind"] == "clip"
+    assert done["dropped"]["preview"] == 0 and done["found"] == 2
+    assert "beat8" not in {slot for slot, _ in sheet_calls(w)[-1]["items"]} and ("beat7", 1) in sheet_calls(w)[-1]["items"]
+    assert LINK_MARK not in json.dumps(done)
+
+
+def test_a_previewless_clip_keeps_the_column_of_the_others(world, monkeypatch):
+    w = web_world(world, monkeypatch, {"beat8": ("fruit crate", "clip")})
+    w["run"].document = web_document([no_thumb("beat8", 1), web_candidate("beat8", 2, kind="clip")])
+    done = search(world, w["task"])
+    assert [c["col"] for c in done["slots"][0]["candidates"]] == [1, 2] and [c["preview"] for c in done["slots"][0]["candidates"]] == [False, True]
+    assert set(sheet_calls(w)[-1]["items"]) == {("beat8", 2)}
+
+
+def test_a_search_whose_candidates_all_lack_a_preview_draws_no_sheet(world, monkeypatch):
+    w = web_world(world, monkeypatch, {"beat8": ("fruit crate", "clip")})
+    w["run"].document = web_document([no_thumb("beat8", 1), no_thumb("beat8", 2)])
+    done = search(world, w["task"])
+    assert done["sheet"] is None and sheet_calls(w) == [] and done["found"] == 2 and done["message"] != text_of(world, "VID_WEB_NOTHING")
+
+
+def test_a_find_after_a_web_search_carries_a_previewless_clip_with_the_same_words_and_drops_it_when_they_change(world, monkeypatch):
+    w = web_world(world, monkeypatch, {"beat7": ("market stall", "clip")})
+    w["run"].document = web_document([no_thumb("beat7", 1)])
+    first = search(world, w["task"])
+    pick_of = first["slots"][0]["candidates"][0]["pick"]
+    again = find(world, w["task"])
+    assert [c["pick"] for c in again["slots"][0]["candidates"] if c["source"] == "web"] == [pick_of]
+    ops_media_edit.edit(ops_core.context(world["path"]), w["task"], review_of(world)["revision"], [{"op": "slot_search", "slot": "beat7", "search": "stall at dawn", "want": "clip"}])
+    after = find(world, w["task"])
+    assert [c for c in after["slots"][0]["candidates"] if c["source"] == "web"] == []
 
 
 def test_a_refused_preview_drops_its_candidate_and_is_counted_and_at_most_eighteen_run_four_at_a_time(world, monkeypatch):

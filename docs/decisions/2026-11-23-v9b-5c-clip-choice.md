@@ -35,3 +35,30 @@ frames, and the align step ends a clip cutaway with its clip. Stacked on #824 (V
 **Not verified offline.** That the runtime's engine call reaches the built images from a pytest (the live leg L1, `runtime/tests/test_media_clip_live.py`, skipped without its three variables), how long `asset-sheet` takes
 on several 10 s clips against its 300 s limit, the decoded frame count of a normalised clip against `round(seconds * fps)` (the two spare frames cover one off), how often a web search returns a direct clip
 link with a thumbnail, every figure of the live legs, and the maintainer's C10 quote (L4), which goes here when given.
+
+## K4 fix: a web clip with no thumbnail
+
+**Cause.** `_preview` of the web search took `thumb_url` or else `media_url` and always called the open-web provider's `preview` verb with `--kind image`. That verb accepts only PNG or JPEG, so the `.mp4` of a clip row with no
+thumbnail was refused (`type_refused`, dropped as `preview`). The skill writes `thumb_url` only when the page shows a small version, so in the live run on 2026-11-23 both clip rows (an `.mp4` on a CDN host) were dropped, the slot
+ended with 0 candidates, and the fetch then stopped (the pick defect, decision A1 of the V9b-3b decision file). The recorded design already said what to do: V9b spec 7.5 ("a clip with no thumbnail has no preview; its tile says so,
+and it can still be picked"), its caps table, and `providers/stock/README.md`.
+
+**Options (principle 13).**
+1. Fetch the whole clip at search time under the clip cap (64 MiB) and let `asset-sheet` draw its frame. Saves: the person sees a frame before picking. Costs: up to 6 x 64 MiB per search from unchecked hosts for clips nobody
+   picked, minutes of wall time, and it changes D9 step 1. Not chosen.
+2. A provider `preview --kind clip` verb with a small cap. A byte-capped prefix of an MP4 is usually not a readable file (the `moov` box is often at the end), so most clips would drop, and it is a provider change. Rejected.
+3. Require `thumb_url` for clip rows in the skill and its checker. A skill change (bump, partial and guard lab runs) that drops real clips whose page shows no small version. Rejected.
+4. **Chosen, decision B1: the recorded rule.** A clip row with no `thumb_url` becomes a candidate with no preview: no provider call at search time, an empty cell at its column on the preview sheet (so "Picture N" is still
+   the tile in column N), a line on the page that says so, and it can be picked. `fetch-picks` fetches it by the existing path, and its frame is on `sheet.png` before the set is approved, so nothing reaches a render that the
+   person did not see and approve. Saves every byte of option 1 and keeps D9. Loses the frame before the pick: one wasted clip fetch, at most 64 MiB, when the person picks one and then rejects it. No skill, provider,
+   renderer, fingerprinted file or image changes.
+
+**How.** `_preview` returns the candidate at once for a clip row with no thumbnail; its item is `u-` and the first 12 hex digits of the sha256 of the link, so the link is named nowhere and one link always gives one pick.
+`_record` builds the candidate for both paths. `_previewless` marks such a candidate (a clip of the open web with `preview`, `preview_in` and `preview_sha256` all null). `_compose` keeps and prunes only files that exist
+and draws the sheet only when some candidate has a preview; `_preview_sheet` leaves a previewless candidate out and keeps the column of the others; `_carried` carries one, with the same words, with no file check.
+`webLines` of the page's model adds `NO_PREVIEW_LINE` when the answer says `preview: false`.
+
+**Tests** (offline): `test_a_web_clip_with_no_thumbnail_is_kept_with_no_preview_and_no_provider_call` (the live failure), `test_a_previewless_clip_keeps_the_column_of_the_others`,
+`test_a_search_whose_candidates_all_lack_a_preview_draws_no_sheet`, `test_a_find_after_a_web_search_carries_a_previewless_clip_with_the_same_words_and_drops_it_when_they_change`,
+`test_a_previewless_web_clip_can_be_picked_fetched_and_approved`, and the page model's `test_a_web_clip_with_no_preview_says_so_on_its_tile_and_one_with_a_preview_does_not`.
+**Not verified.** How the page lays out a sheet with an empty cell (the renderer draws a missing cell as an empty tile, read in `_asset_sheet.py`); the live re-run of K4.

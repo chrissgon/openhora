@@ -293,6 +293,11 @@ def _shown(candidate: dict) -> dict:
     return out
 
 
+def _previewless(c: dict) -> bool:
+    """True for a clip of the open web that came with no thumbnail (K4): a candidate with no preview file, drawn on the sheet only after its fetch."""
+    return (c.get("preview") is None and c.get("preview_in") is None and c.get("preview_sha256") is None and c.get("kind") == "clip" and c.get("licence") == media_stock.UNVERIFIED)
+
+
 def _preview_path(folder: str, candidate: dict) -> str:
     """The file of a candidate's preview: in the stock folder, or in its quarantine for a candidate of the open web (`preview_in`)."""
     return os.path.join(folder, media_stock.QUARANTINE, candidate["preview"]) if candidate.get("preview_in") == media_stock.QUARANTINE else os.path.join(folder, candidate["preview"])
@@ -312,6 +317,10 @@ def _carried(ctx: dict, rid: str, old, task_id, slots: list, web: bool) -> dict:
         if not isinstance(row, dict) or new.get(row.get("slot")) != (row.get("search"), row.get("want")):
             continue
         for c in row.get("candidates") or []:
+            if (web and isinstance(c, dict) and c.get("source") in names and _previewless(c)
+                    and all(k in c for k in ("pick", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds"))):
+                out.setdefault(c["source"], {}).setdefault(row["slot"], []).append(c)      # no preview file to check
+                continue
             if not (isinstance(c, dict) and c.get("source") in names and isinstance(c.get("preview"), str) and media_stock.PROVIDER_FILE.fullmatch(c["preview"])
                     and isinstance(c.get("preview_sha256"), str) and (c.get("licence") == media_stock.UNVERIFIED) is web and (c.get("preview_in") == media_stock.QUARANTINE) is web
                     and all(k in c for k in ("pick", "item", "kind", "licence", "author", "title", "page", "width", "height", "seconds"))):
@@ -333,14 +342,14 @@ def _compose(ctx: dict, rid: str, task_id, slots: list, per_source: dict, droppe
     listed = [n for n in media_stock.sources_of(cfg) if n in per_source]
     merged = {s["slot"]: media_stock.merge([per_source[n].get(s["slot"], []) for n in listed]) for s in slots}      # the order of `listed` is the order of media.stock: the round robin's
     total = sum(len(v) for v in merged.values())
-    keep = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") != media_stock.QUARANTINE}
-    keep_q = {c["preview"] for rows in merged.values() for c in rows if c.get("preview_in") == media_stock.QUARANTINE}
+    keep = {c["preview"] for rows in merged.values() for c in rows if isinstance(c.get("preview"), str) and c.get("preview_in") != media_stock.QUARANTINE}
+    keep_q = {c["preview"] for rows in merged.values() for c in rows if isinstance(c.get("preview"), str) and c.get("preview_in") == media_stock.QUARANTINE}
     try:
         media_stock.remove_where(data_dir, rid, lambda n: n.startswith("prev-") and n not in keep)      # a preview no candidate kept goes at once
         media_stock.prune_quarantine(data_dir, rid, keep_q)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
-    sheet = _preview_sheet(ctx, rid, slots, merged) if total else None
+    sheet = _preview_sheet(ctx, rid, slots, merged) if any(isinstance(c.get("preview"), str) for rows in merged.values() for c in rows) else None      # a candidate with no preview has no tile
     doc = {"version": media_stock.SET_VERSION, "task": task_id, "at": media_stock.now_stamp(), "phase": "found",
            "slots": [dict(s, candidates=merged[s["slot"]]) for s in slots], "assets": [], "sources": listed, "dropped": dropped}
     try:
@@ -439,7 +448,7 @@ def _preview_sheet(ctx: dict, rid: str, slots: list, merged: dict):
     name exactly the tiles asked for. Returns the sheet's name."""
     data_dir = ctx["cfg"]["data_dir"]
     folder = media_stock.folder_of(data_dir, rid)
-    items = {(s["slot"], n + 1): _preview_path(folder, c) for s in slots for n, c in enumerate(merged[s["slot"]])}
+    items = {(s["slot"], n + 1): _preview_path(folder, c) for s in slots for n, c in enumerate(merged[s["slot"]]) if not _previewless(c)}      # the column of a candidate with no preview stays empty
     try:
         scratch, path = media_stock.make_scratch(data_dir, rid)
         done = _sheet(ctx, "preview", items, path)

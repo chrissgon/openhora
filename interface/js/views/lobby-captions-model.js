@@ -258,6 +258,7 @@ export function candidateText(c) {
 
 export const WEB_TILE = "Found on the web, licence not checked";
 export const SCREEN_WORK_LINE = "A still of a film, series, anime, TV show, game or music video";
+export const NO_PREVIEW_LINE = "No preview: this clip is drawn on the sheet after it is fetched, before you approve it";
 
 /** Whether a candidate came from the open web (its licence is `unverified`: nobody checked it). */
 export function isWebCandidate(c) {
@@ -271,6 +272,7 @@ export function webLines(c) {
   if (c.site_terms) lines.push(`Site terms, as written: ${c.site_terms}`);
   if (c.resolution) lines.push(`Size claimed: ${c.resolution}`);
   if (c.screen_work) lines.push(SCREEN_WORK_LINE);
+  if (c.preview === false) lines.push(NO_PREVIEW_LINE);
   return lines;
 }
 

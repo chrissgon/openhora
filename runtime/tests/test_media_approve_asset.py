@@ -319,6 +319,32 @@ def test_a_web_clip_is_sent_to_the_search_with_the_real_catalogue_and_the_prompt
     assert "Slot `beat8`: a clip" in prompt and "Slot `beat7`: a picture" in prompt
 
 
+def test_a_previewless_web_clip_can_be_picked_fetched_and_approved(world, monkeypatch):
+    layout_engine(world["engine"])
+    w = web_world(world, monkeypatch, {"beat7": ("market stall", "clip")})
+    data, rid = world["data"], world["rid"]
+    beats = json.loads(ops_media_stock.media.read_work(data, rid, "proposal.beats.json", 1 << 20))
+    beats["layouts"] = [{"id": "b7", "beat": 7, "preset": "cutaway", "block": "oh:cutaway", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3}]
+    ops_media_stock.media.write_work(data, rid, "proposal.beats.json", json.dumps(beats).encode("utf-8"))
+    edl = json.loads(ops_media_stock.media.read_work(data, rid, "proposal.edl.json", 1 << 20))
+    ops_media_stock.media.write_work(data, rid, "proposal.edl.json", json.dumps(dict(edl, fps=30)).encode("utf-8"))
+    clip = web_candidate("beat7", 1, kind="clip")
+    clip.pop("thumb_url")
+    w["run"].document = web_document([clip])
+    done = ops.video_media_websearch(world["path"], w["task"], confirm=True)
+    assert done["slots"][0]["candidates"][0]["preview"] is False
+    pick(world, w["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    answer = ops.video_media_fetch_picks(world["path"], w["task"])
+    [call] = [c for c in w["sources"].of("fetch") if clip["media_url"] in c["flags"]]
+    assert call["flags"][call["flags"].index("--kind") + 1] == "clip" and call["flags"][call["flags"].index("--out") + 1].endswith(os.path.join("stock", "quarantine"))
+    assert answer["assets"][0]["kind"] == "clip" and answer["assets"][0]["file"] is None
+    shown = ops.video_media_approve(world["path"], w["task"])
+    ops.video_media_approve(world["path"], w["task"], hash=shown["sha256"])
+    sha = shown["set"]["assets"][0]["sha256"]
+    seen = approve_asset(world, dict(w, sha=sha))
+    assert seen["file"] == "sheet.png" and seen["approved"] is False
+
+
 def test_approve_asset_of_a_web_clip_shows_the_sheet_and_its_own_approval_binds_the_clip(world, monkeypatch):
     w = walk_clip(world, monkeypatch)
     assert w["answer"]["assets"][0]["kind"] == "clip" and w["answer"]["assets"][0]["file"] is None
