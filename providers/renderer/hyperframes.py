@@ -39,8 +39,9 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   reap                     remove containers and run folders a killed render left behind.
   render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--asset SLOT=FILE]... [--asset-sha256 SLOT=HEX]...
          [--base-only] [--work-dir DIR] [--cpuset 0-3] [--time-limit S] [--dry-run] [--memory-mb N] [--cpus N] [--scratch-mb N] [--timeout S]
-        Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). `--asset` gives the picture of a block of the frame band (the cutaway): a PNG, as
-        `asset-sheet` writes it, read on the host (type, size, hash) and copied into the project's `assets/`; each slot a beat uses must have one and
+        Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten). `--asset` gives the picture or clip of a block of the frame band (the cutaway): a PNG or a normalised clip (MP4), as
+        `asset-sheet` writes it, read on the host (type, size, hash); a picture is copied into the project's `assets/`, a clip is probed by the page stage and
+        copied into `media/clip-<slot>.mp4` after the proxy stage; each slot a beat uses must have one and
         each one given must be used. --work-dir names an existing folder of this user's (not a link) that
         holds the run folder; the default is the renderer's own work folder. --dry-run prints the four stage commands.
   compat --survey DIR --out FILE [--timeout S] [--dry-run]
@@ -88,7 +89,7 @@ from _host import (COMMON_HANDLERS, MAX_SMALL_FILE, Job, Usage, add_common_parse
                    stage_blocks, CRASH_CODES)
 from _host import verb_block_params as host_block_params  # noqa: E402
 from _text import Refusal  # noqa: E402
-from _vocab import load_data  # noqa: E402
+from _vocab import SLOT_ID, load_data  # noqa: E402
 
 NotConfigured = D.NotConfigured
 
@@ -454,10 +455,11 @@ def check_may_draw() -> None:
 
 
 def read_assets(args, data: dict) -> dict:
-    """{slot: {data, sha256, width, height}} of the pictures given with `--asset`, read on the host as `ffmpeg.py` reads them (a regular file within the cap,
-    its type by the header bytes, its size within the bounds, its hash the `--asset-sha256` when one is given) and refused unless each is a PNG (`asset_type`):
-    the drawing image serves PNG files only. A path in a reference store is refused before it is read. A render of the base page draws no beat, so a picture
-    given to it is unused (`asset_unused`)."""
+    """{slot: {kind, data, sha256, ...}} of the files given with `--asset`, read on the host as `ffmpeg.py` reads them (a regular file within the cap, its type by the
+    header bytes, its hash the `--asset-sha256` when one is given). A picture must be a PNG (`asset_type`: the drawing image serves PNG files only), with the facts
+    `_assets.load_assets` reads; a clip must be an MP4 (`asset_type`: a render draws the one form `asset-sheet` writes, so a WebM or MOV is refused), through
+    `_assets.read_clip` (V9b-5b); its picture facts are the inner verb's to probe. At most ASSETS_MAX files in all. A path in a reference store is refused before it is
+    read. A render of the base page draws no beat, so a file given to it is unused (`asset_unused`). Each row's `kind` is `"png"` or `"clip"`."""
     files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
     hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
     if args.base_only and files:
@@ -466,10 +468,18 @@ def read_assets(args, data: dict) -> dict:
         raise Refusal("too_many_assets", "asset")
     for slot, path in sorted(files.items()):
         refuse_reference(path, "asset")
-    loaded = _assets.load_assets(files, hashes, data["limits"])
+    pictures, clips = _assets.split_clips(files)
+    loaded = _assets.load_assets(pictures, hashes, data["limits"])
     for slot, picture in sorted(loaded.items()):
         if picture["kind"] != "png":
             raise Refusal("asset_type", slot[:32])
+    for slot, (path, _demuxer) in sorted(clips.items()):
+        if not SLOT_ID.fullmatch(slot):
+            raise Refusal("bad_slot", slot[:32])
+        row = _assets.read_clip(slot, path, hashes, data["limits"])
+        if row["data"][8:12] == b"qt  ":                       # a QuickTime MOV is not what `asset-sheet` writes (an MP4): a render draws that one form
+            raise Refusal("asset_type", slot[:32])
+        loaded[slot] = dict(row, path=path)
     return loaded
 
 
@@ -483,6 +493,18 @@ def put_assets(project: str, assets: dict) -> None:
         fd = os.open(os.path.join(folder, slot + ".png"), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "wb") as fh:
             fh.write(picture["data"])
+
+
+def put_clips(media: str, assets: dict) -> None:
+    """The clips into `<media>/clip-<slot>.mp4`, each new (O_EXCL, no link followed) and mode 0600, from the bytes the host read and hashed. Written after the proxy
+    stage's checks and before the drawing stage, so that the proxy container, which mounts this folder read-write, never sees a clip (the name carries the slot,
+    since a slot may be called `proxy`)."""
+    for slot, clip in sorted(assets.items()):
+        if clip["kind"] != "clip":
+            continue
+        fd = os.open(os.path.join(media, "clip-%s.mp4" % slot), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(clip["data"])
 
 
 def verb_render(args) -> dict:
@@ -526,6 +548,8 @@ def verb_render(args) -> dict:
             blocks_args = ["--base-only"] if args.base_only else stage_blocks(job, _blocks.blocks_dir())
             inner += blocks_args
             for slot, picture in sorted(assets.items()):
+                if picture["kind"] == "clip":              # a clip is probed by the page stage (`hf-page --asset`), as the ffmpeg engine's render probes it
+                    inner += ["--asset", "%s=%s" % (slot, job.stage("assets/" + slot, picture["path"], data["limits"]["asset_max_bytes"]))]
                 inner += ["--asset-sha256", "%s=%s" % (slot, picture["sha256"])]
             if dry:
                 commands["page"] = job.argv(inner)[2]
@@ -535,7 +559,7 @@ def verb_render(args) -> dict:
                     raise Refusal("blocks_changed", "blocks")
         seconds["page"] = round(time.monotonic() - started, 2)
         if not dry:
-            put_assets(project, assets)
+            put_assets(project, {slot: a for slot, a in assets.items() if a["kind"] != "clip"})
         os.mkdir(media, 0o700)
 
         # Stage 2, the proxy, in the common image.
@@ -561,6 +585,8 @@ def verb_render(args) -> dict:
                     raise Refusal("container_file_differs", "proxy")
                 proxy_sha256 = proxied["sha256"]
         seconds["proxy"] = round(time.monotonic() - started, 2)
+        if not dry:
+            put_clips(media, assets)                          # after the proxy stage's checks, before the drawing: the proxy container never sees a clip
 
         # Stage 3, the drawing, in the HyperFrames image.
         started = time.monotonic()
@@ -792,7 +818,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", required=True)
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--vocabulary", required=True)
-    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="the picture of a frame-band block (a PNG); each slot a beat uses, once")
+    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="the picture or clip of a frame-band block (a PNG or a normalised clip, MP4); each slot a beat uses, once")
     sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 the picture had at intake; checked when given")
     sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only, no captions and no beats")
     sp.add_argument("--work-dir", help="an existing absolute folder of this user's (not a link) that holds the run folder; default: the renderer's work folder")

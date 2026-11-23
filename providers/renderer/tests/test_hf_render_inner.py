@@ -716,3 +716,87 @@ def test_a_file_in_assets_that_is_not_a_png_is_refused(tmp_path):
 
 def test_a_non_object_vars_json_without_pictures_is_not_this_checks_business(tmp_path):
     assert R.check_project(str(make_project(tmp_path / "project", vars_text="[1, 2]\n"))) == BASE_PAGE
+
+
+# ---------------------------------------------------------------- clips (V9b-5b)
+
+MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 40
+
+
+def project_with_clips(folder: Path, clips: dict, pictures=None, clip_slots="auto", declared=None) -> Path:
+    """A project with `media/clip-<slot>.mp4` for each of `clips` ({slot: bytes}) and `assets/<slot>.png` for each of `pictures`; `vars.json` names `declared`
+    ({slot: sha256}, by default each file's own) and `clip_slots` (by default the sorted clip slots)."""
+    pictures = pictures or {}
+    if declared is None:
+        declared = {slot: digest(raw) for slot, raw in {**clips, **pictures}.items()}
+    doc = {"duration": 3.0, "fps": 30, "zooms": [], "assets": declared}
+    if clip_slots == "auto":
+        clip_slots = sorted(clips)
+    if clip_slots is not None:
+        doc["clip_slots"] = clip_slots
+    project = make_project(folder, vars_text=json.dumps(doc) + "\n")
+    for slot, raw in clips.items():
+        (project / "media" / ("clip-%s.mp4" % slot)).write_bytes(raw)
+    if pictures:
+        (project / "assets").mkdir()
+        for slot, raw in pictures.items():
+            (project / "assets" / (slot + ".png")).write_bytes(raw)
+    return project
+
+
+def test_a_project_with_a_clip_and_its_clip_slots_entry_is_accepted_beside_a_picture(tmp_path):
+    only = project_with_clips(tmp_path / "only", {"beat7": MP4})
+    assert R.check_project(str(only)) == BASE_PAGE
+    both = project_with_clips(tmp_path / "both", {"beat7": MP4, "proxy": MP4 + b"1"}, pictures={"slot-1": PNG})
+    assert R.check_project(str(both)) == BASE_PAGE                                    # a clip slot called `proxy` is `media/clip-proxy.mp4`, not the proxy
+    assert R.CLIP_FILE.fullmatch("media/clip-beat7.mp4") and not R.CLIP_FILE.fullmatch("media/proxy.mp4") and not R.CLIP_FILE.fullmatch("media/clip-Bad.mp4")
+
+
+def test_a_clip_with_no_entry_an_entry_with_no_clip_and_a_bad_clip_slots_are_refused(tmp_path):
+    no_entry = project_with_clips(tmp_path / "a", {"beat7": MP4}, declared={}, clip_slots=[])
+    assert refusal(R.check_project, str(no_entry)) == ("asset_hash", "assets")                  # a clip with no entry in assets
+    assert refusal(R.check_project, str(project_with_clips(tmp_path / "a2", {"beat7": MP4}, declared={}))) == ("asset_hash", "clip_slots")
+    no_slots = project_with_clips(tmp_path / "b", {"beat7": MP4}, clip_slots=None)
+    assert refusal(R.check_project, str(no_slots)) == ("asset_hash", "assets")                  # the clip is in media/, but its slot is not listed as a clip
+    no_clip = project_with_clips(tmp_path / "c", {"beat7": MP4}, declared={"beat7": digest(MP4), "beat8": digest(MP4)}, clip_slots=["beat7", "beat8"])
+    assert refusal(R.check_project, str(no_clip)) == ("asset_hash", "assets")
+    for name, slots in (("unsorted", ["beat8", "beat7"]), ("duplicated", ["beat7", "beat7"]), ("strange", ["beat7", 3]), ("not-a-list", "beat7")):
+        project = project_with_clips(tmp_path / name, {"beat7": MP4, "beat8": MP4 + b"1"}, clip_slots=slots)
+        assert refusal(R.check_project, str(project)) == ("asset_hash", "clip_slots"), name
+    stray = project_with_clips(tmp_path / "stray", {"beat7": MP4}, clip_slots=["beat7", "beat9"])
+    assert refusal(R.check_project, str(stray)) == ("asset_hash", "clip_slots")                  # a slot in clip_slots that is not in assets
+
+
+def test_a_clip_that_is_a_link_over_the_cap_not_an_mp4_or_a_stray_mp4_is_refused(tmp_path, monkeypatch):
+    link = project_with_clips(tmp_path / "link", {"beat7": MP4})
+    (link / "media" / "clip-beat7.mp4").unlink()
+    (link / "media" / "clip-beat7.mp4").symlink_to(tmp_path / "elsewhere.mp4")
+    assert refusal(R.check_project, str(link)) == ("project_unexpected_file", "media/clip-beat7.mp4")
+    over = project_with_clips(tmp_path / "over", {"beat7": MP4})
+    monkeypatch.setattr(R, "ASSET_MAX_BYTES", len(MP4) - 1)
+    assert refusal(R.check_project, str(over)) == ("project_unexpected_file", "media/clip-beat7.mp4")
+    monkeypatch.undo()
+    for name, raw in (("gif", b"GIF89a" + b"\0" * 40), ("avif", b"\x00\x00\x00\x18ftypavif" + b"\0" * 40), ("webm", b"\x1a\x45\xdf\xa3" + b"\0" * 40)):
+        project = project_with_clips(tmp_path / name, {"beat7": raw})
+        assert refusal(R.check_project, str(project)) == ("project_unexpected_file", "media:clip-beat7.mp4"), name
+    stray = project_with_clips(tmp_path / "other", {"beat7": MP4})
+    (stray / "media" / "other.mp4").write_bytes(MP4)
+    assert refusal(R.check_project, str(stray)) == ("project_unexpected_file", "media/other.mp4")
+    wrong = project_with_clips(tmp_path / "wrong", {"beat7": MP4}, declared={"beat7": "0" * 64})
+    assert refusal(R.check_project, str(wrong)) == ("asset_hash", "beat7")
+
+
+def test_pictures_and_clips_together_are_at_most_twelve(tmp_path):
+    ok = project_with_clips(tmp_path / "ok", {"c%d" % n: MP4 + bytes([n]) for n in range(6)}, pictures={"p%d" % n: PNG + bytes([n]) for n in range(6)})
+    assert R.check_project(str(ok)) == BASE_PAGE
+    many = project_with_clips(tmp_path / "many", {"c%d" % n: MP4 + bytes([n]) for n in range(7)}, pictures={"p%d" % n: PNG + bytes([n]) for n in range(6)})
+    assert refusal(R.check_project, str(many))[0] == "project_unexpected_file"
+
+
+def test_the_images_mp4_brands_are_the_common_modules_brands():
+    sys.path.insert(0, str(ROOT / "providers" / "renderer"))
+    try:
+        import _media
+    finally:
+        sys.path.pop(0)
+    assert R.MP4_BRANDS == _media.MP4_BRANDS

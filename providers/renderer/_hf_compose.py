@@ -39,6 +39,7 @@ import _edl
 import _gsap_lint
 import _hf_page
 import _layout
+import _media
 import _payload
 from _hf_page import COLOR, dumps, num
 from _text import Refusal, is_clean
@@ -54,6 +55,8 @@ MAX_INSTANCES_BYTES = 256 * 1024                        # instances.json, the ti
 ZONE_ORDER = ("frame", "card", "caption")               # the layers above the video, bottom first: a whole-frame layout, the cards, the captions
 MAX_ASSETS = 12                                         # the most pictures one project holds (the same figure as hf_render.py)
 SHA256 = re.compile(r"[0-9a-f]{64}")
+CLIP_PREFIX = "media/clip-%s.mp4"                       # where the host puts a clip: the project's media/ folder, beside the proxy (V9b-5b)
+FPS_TOLERANCE = 0.001                                   # a clip's frame rate may differ from the edit list's by this much
 IMAGE_PREFIX = "../assets/"                             # where a block page finds the pictures: the project's assets/ folder, one level up from blocks/
 
 # The three allow-listed fonts (assets/fonts/allowlist.json; a test keeps the two equal): id -> (family, weight, file).
@@ -221,10 +224,12 @@ def check_assets(assets) -> dict:
     return assets
 
 
-def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int, assets=None) -> list:
+def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int, assets=None, clip_assets=None) -> list:
     """The entries the engine draws, in layer order (the frame layouts, the cards, then the captions), each {zone, key, block, runtime, band, start, end,
     payload, field}; every block resolved on this engine, its tier and band checked, its parameters and texts checked. A frame entry also names its `slot`:
-    every slot a frame entry uses is one of `assets` (`asset_missing`) and every one of `assets` is used (`asset_unused`)."""
+    every slot a frame entry uses is one of `assets` (`asset_missing`) and every one of `assets` is used (`asset_unused`). `clip_assets` is {slot: {width, height,
+    seconds, fps, tint}} of the slots of `assets` that are clips (V9b-5b): their entries get a `clip_row` (the look, from `_render.clip_rows`) and tell the page to draw
+    the label chip only."""
     if ENGINE not in catalogue["engines"]:
         fail("engine_unknown", ENGINE)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
@@ -267,6 +272,8 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
     unused = sorted(set(assets) - used)
     if unused:
         fail("asset_unused", unused[0])
+    if clip_assets:
+        settle_clip_entries(data, edl, vocab, timeline, plan, assets, clip_assets, fps)
     plan.sort(key=lambda p: ZONE_ORDER.index(p["zone"]))                         # stable: the timeline order inside a layer
     for p in plan:
         if p["zone"] == "frame":                                                 # a whole-frame layout: the band is the frame
@@ -281,6 +288,78 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
         if p["zone"] == "frame" and p["runtime"] != "renderat":
             fail("preset_not_on_engine", p["field"])
     return plan
+
+
+def settle_clip_entries(data: dict, edl: dict, vocab: dict, timeline: dict, plan: list, assets: dict, clip_assets: dict, fps: int) -> None:
+    """The frame entries that draw a clip (V9b-5b). Every clip slot is a slot of `assets` (`asset_missing`); a clip at another frame rate than the edit list's is
+    `asset_type` (this engine does not conform it); `_render.settle_clips` refuses a clip on any block but the cutaway (`asset_type`) and a look that is not the
+    hard cut (`clip_transition`) and marks the entries; `_render.clip_rows` gives the look of each, in timeline order, set on the plan's marked frame entries as
+    `clip_row`; an entry longer than its clip is `clip_too_short`. The payload of a marked entry tells the page the asset is a clip, so that it draws the chip only."""
+    import _render
+    for slot in sorted(clip_assets):
+        if slot not in assets:
+            fail("asset_missing", slot)
+        if abs(float(clip_assets[slot]["fps"]) - fps) > FPS_TOLERANCE:
+            fail("asset_type", slot)
+    kinds = {slot: ({"kind": "clip", "width": clip_assets[slot]["width"], "height": clip_assets[slot]["height"], "tint": clip_assets[slot].get("tint")}
+                    if slot in clip_assets else {"kind": "png"}) for slot in assets}
+    _render.settle_clips(vocab, data, timeline, kinds)
+    rows = _render.clip_rows(data, timeline, kinds, edl["theme"]["colors"])
+    marked = [p for p in plan if p["zone"] == "frame" and (p["entry"].get("params_kind") or {}).get("asset") == "clip"]
+    if len(marked) != len(rows):
+        fail("container_result_invalid", "clips")
+    for p, row in zip(marked, rows):
+        clip = clip_assets[p["slot"]]
+        if p["entry"]["end_frame"] - p["entry"]["start_frame"] > int(round(float(clip["seconds"]) * fps)):
+            fail("clip_too_short", p["slot"])
+        p["clip_row"] = row
+        p["payload"]["params_kind"] = p["entry"]["params_kind"]
+        p["payload"]["clip_size"] = p["entry"]["clip_size"]
+
+
+def clip_video(ident: str, slot: str, k: int, start: int, end: int, fps: int, left, top, width, height) -> str:
+    """One `<video>` of a clip layer, written the way the proxy's is (S2, Design B): a top-level element with the proxy's attributes, its times the composition's
+    and its media offset 0 (the clip plays from its first frame at the entry's first frame), at track `k`. The look is on the wrapping divs, never on the video."""
+    return ('<video id="%s" src="%s" muted playsinline data-has-audio="false" data-start="%s" data-duration="%s" data-media-start="0" data-track-index="%d" '
+            'style="position:absolute; left:%spx; top:%spx; width:%spx; height:%spx; object-fit:fill"></video>'
+            % (ident, CLIP_PREFIX % slot, num(start / float(fps)), num((end - start) / float(fps)), k, px(left), px(top), px(width), px(height)))
+
+
+def clip_layer(n: int, p: dict, clip: dict, k: int, frame: dict, fps: int, bg: str) -> tuple:
+    """(markup, next track index) of the clip layer of the entry `p` (its `clip_row` and the clip's facts): `cover` is one video that covers the frame, `glass` the
+    five layers of the page's drawGlass (the page's background, the blurred cover copy, the tint, the shadow, the clip whole with its radius), each a div, so that the
+    blur, the radius and the shadow are the wrapping elements'. Hidden until the drive shows it on the entry's frames."""
+    row, w, h = p["clip_row"], clip["width"], clip["height"]
+    fw, fh = frame["width"], frame["height"]
+    start, end = p["start"], p["end"]
+    ident = "hf-clip-%d" % n
+    whole = 'position:absolute; left:0; top:0; width:%spx; height:%spx' % (px(fw), px(fh))
+    if row["mode"] == "cover":
+        s = max(fw / float(w), fh / float(h))
+        vw, vh = _media.js_round(w * s), _media.js_round(h * s)
+        inner = clip_video(ident + "-v0", p["slot"], k, start, end, fps, _media.js_round((fw - vw) / 2.0), _media.js_round((fh - vh) / 2.0), vw, vh)
+        k += 1
+    else:
+        tint = row["tint"]
+        if not isinstance(tint, str) or not COLOR.fullmatch("#" + tint):
+            fail("bad_color", p["slot"])
+        blur, box = row["blur"], row["box"]
+        bs = max((fw + 4 * blur) / float(w), (fh + 4 * blur) / float(h))
+        bw, bh = w * bs, h * bs
+        radius = int(row["radius"])
+        back = clip_video(ident + "-v0", p["slot"], k, start, end, fps, (fw - bw) / 2.0, (fh - bh) / 2.0, bw, bh)
+        front = clip_video(ident + "-v1", p["slot"], k + 1, start, end, fps, 0, 0, box["w"], box["h"])
+        k += 2
+        place = "position:absolute; left:%spx; top:%spx; width:%spx; height:%spx" % (px(box["x"]), px(box["y"]), px(box["w"]), px(box["h"]))
+        inner = "\n".join([
+            '<div style="%s; background:%s"></div>' % (whole, bg),
+            '<div style="%s; filter:blur(%spx)">\n%s\n</div>' % (whole, px(blur), back),
+            '<div style="%s; background:#%s; opacity:%s"></div>' % (whole, tint, px(row["tint_alpha"])),
+            '<div style="%s; border-radius:%dpx; background:#000000; box-shadow:0 12px 48px rgba(0,0,0,0.45)"></div>' % (place, radius),
+            '<div style="%s; overflow:hidden; border-radius:%dpx">\n%s\n</div>' % (place, radius, front)])
+    markup = ('<div id="%s" class="hf-clip" data-hf-zone="frame" style="position:absolute; left:0; top:0; width:%spx; height:%spx; overflow:hidden; '
+              'visibility:hidden">\n%s\n</div>' % (ident, px(fw), px(fh), inner))
+    return markup, k
 
 
 # ---------------------------------------------------------------- the page
@@ -344,16 +423,18 @@ def renderat_page(text: str, name: str, pairs: list, fonts: dict, slots=()) -> s
     return text.replace(anchor, anchor + insert, 1)
 
 
-def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, out_dir: str, fps: int, assets=None) -> dict:
+def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, out_dir: str, fps: int, assets=None, clip_assets=None) -> dict:
     """Write `index.html`, `vars.json` and, for the renderat blocks, `blocks/<ns>-<name>.html` into `out_dir`, an existing empty folder. `assets` is
-    {slot: sha256} of the pictures the frame blocks draw (the files themselves are put into `assets/` by the host, and the drawing image checks them).
+    {slot: sha256} of the pictures and clips the frame blocks draw (a picture is put into `assets/` and a clip into `media/clip-<slot>.mp4` by the host, and the drawing
+    image checks them); `clip_assets` is {slot: {width, height, seconds, fps, tint}} of the slots that are clips, which are drawn as top-level video elements under the
+    frame band's iframe (V9b-5b); with none, nothing in the files differs from a page without the argument.
     Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers, blocks, blocks_sha256, captions_drawn, beats_drawn, runtimes,
     fonts_used}. Everything is checked before anything is written."""
     frame = data["frame"]
     background = data["theme"]["colors"]["bg"]
     _hf_page.check_target(out_dir, background)
     assets = check_assets(assets)
-    plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets)
+    plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets, clip_assets)
     fonts = map_fonts(edl)
     pairs = theme_pairs(edl, fonts)
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
@@ -364,10 +445,18 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
            ".hf-inst,.hf-ra{position:absolute;display:block}", '[data-hf-zone="card"]{z-index:1}', '[data-hf-zone="caption"]{z-index:2}']
     if any(p["zone"] == "frame" for p in plan):                                  # over the cuts (z 0, earlier in the page), under the cards
         css.append('[data-hf-zone="frame"]{z-index:0}')
+    if any(p.get("clip_row") for p in plan):
+        css.append(".hf-clip{position:absolute;display:block}")
     layers, tail, inst, ra, ra_frames, ra_keys, ra_slots = [], [], [], {}, {}, [], {}
     tier_a_rows = {}
+    clip_layers, clip_spans = [], []
+    track = len(edl["kept"])                                                     # the proxy's tracks are 0 to kept - 1: a clip's start after them
     for p in plan:
         name = p["block"]["name"]
+        if p.get("clip_row"):                                                    # a clip: a layer of video elements, never an `Image` of the page
+            markup, track = clip_layer(len(clip_layers), p, clip_assets[p["slot"]], track, frame, fps, edl["theme"]["colors"]["bg"])
+            clip_layers.append(markup)
+            clip_spans.append(["hf-clip-%d" % (len(clip_layers) - 1), p["start"], p["end"]])
         if p.get("tier_a"):
             n = len(inst)
             ident = "hf-inst-%d" % n
@@ -401,7 +490,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
                 ra_keys.append((p["key"], p["zone"], p["block"]))
             ra[p["key"]].append(p["payload"])
             ra_frames[p["key"]].append([p["start"], p["end"]])
-            if p["zone"] == "frame":
+            if p["zone"] == "frame" and not p.get("clip_row"):
                 ra_slots.setdefault(p["key"], set()).add(p["slot"])
     ra_keys.sort(key=lambda row: (0 if row[0] == "caption" else 1, row[0]))                       # the caption first, then each block by name
     files = {}
@@ -419,6 +508,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
                       'border:0; visibility:hidden" scrolling="no"></iframe>' % (zone, key, page_name, frame["width"], frame["height"]))
     if len(files) > MAX_BLOCK_PAGES:
         fail("page_too_large", "blocks")
+    layers = clip_layers + layers                                                # first: under the iframe that draws the chip, over the cuts and the grade
     scripts = ["\n".join(g["script"].replace("function build(", "function build_%d(" % suffix[name], 1) for name, g in sorted(gsap_parts.items(),
                key=lambda kv: suffix[kv[0]]))] if gsap_parts else []
     if ra_keys:
@@ -427,12 +517,19 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             seconds = num(parts["out_seconds"])
             scripts.append('var D_%d = {at: function (v) { if (v === undefined) return this._t || 0; this._t = v; drive(%s, v); }};\n'
                            'main.fromTo(D_%d, {at: 0}, {at: %s, duration: %s, ease: "none", immediateRender: true}, 0);' % (j, dumps(key), j, seconds, seconds))
+    if clip_spans:
+        seconds = num(parts["out_seconds"])
+        scripts.append('var CL = %s;\nvar CD = {at: function (v) { if (v === undefined) return this._t || 0; this._t = v; var f = Math.round(v * V.fps);\n'
+                       '  CL.forEach(function (c) { document.getElementById(c[0]).style.visibility = (f >= c[1] && f < c[2]) ? "visible" : "hidden"; }); }};\n'
+                       'main.fromTo(CD, {at: 0}, {at: %s, duration: %s, ease: "none", immediateRender: true}, 0);' % (dumps(clip_spans), seconds, seconds))
     scripts.insert(0, font_faces_js(fonts))                                       # before the first tween: every used face is requested from the first line of the script
     scripts.extend(tail)
 
     full_vars = dict(parts["vars"], inst=inst, ra=ra)
     if assets:
         full_vars["assets"] = dict(sorted(assets.items()))                        # only a project with a frame block has the key: no other page changes
+    if clip_assets:
+        full_vars["clip_slots"] = sorted(clip_assets)                             # only a project with a clip has the key
     defaults = dict(parts["vars"], inst=[], ra={})
     page = _hf_page.render_page(dict(parts, vars=defaults), width=frame["width"], height=frame["height"], fps=fps, background=background,
                                 css="\n".join(css) + "\n", layers=("\n" + "\n".join(layers)) if layers else "",

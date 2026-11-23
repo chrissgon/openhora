@@ -365,6 +365,7 @@ def test_the_live_file_lists_both_engines_for_the_functional_legs_and_only_hyper
     for name in ("M1", "M2"):
         assert legs[name] == ("ffmpeg", "hyperframes"), name
     assert legs["M3"] == ("hyperframes",)
+    assert legs["M5"] == ("ffmpeg",) and legs["M6"] == ("hyperframes",)
     assert "F4" in legs
     tests = sorted(n for n in dir(live) if n.startswith("test_"))
     assert [n for n in tests if n.startswith("test_mac_")], "the machine legs are named test_mac_*"
