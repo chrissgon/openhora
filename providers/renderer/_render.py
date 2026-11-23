@@ -72,6 +72,7 @@ def font_urls_of(data, edl, font_serve) -> dict:
 
 def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames") -> dict:
     _layout.pip_cards(data, timeline, assets)      # a pip with no room is taken out of the timeline here, before any frame is drawn
+    _layout.split_layouts(data, timeline)      # after the pips (pip_cards resets every caption's band); a split with no caption room is taken out here
     pips = []
     for e in timeline["beats"]:
         if e["preset"] == "pip":
@@ -90,6 +91,7 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
             "anchor": _media.anchor_point(face, edl["zoom"]["anchor_y"]),
             "fade": data["zoom"]["audio_fade_seconds"], "src": src, "fps": edl["fps"], "size": edl["size"], "has_audio": edl["source"]["has_audio"], "src_matrix": edl["source"]["color_matrix"],
             "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips,
+            "splits": _layout.split_rows(timeline),
             "out_frames": edl["out_frames"], "max_bytes": _media.byte_limit(platform), "out_name": "out.mp4"}
     clips = clip_rows(data, timeline, assets, edl["theme"]["colors"])
     if clips:

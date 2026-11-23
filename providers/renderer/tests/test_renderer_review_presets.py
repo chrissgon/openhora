@@ -46,7 +46,7 @@ def test_the_vocabulary_merges_the_three_review_presets_marked():
     for name in NAMES:
         assert name in VOCAB["presets"] and VOCAB["presets"][name]["review_only"] is True and review_only(VOCAB, name)
         assert VOCAB["presets"][name]["kind"] == "overlay" and VOCAB["presets"][name]["main"] in VOCAB["presets"][name]["params"]
-    for name in ("keyword", "list", "number", "quote", "cutaway", "pip"):
+    for name in ("keyword", "list", "number", "quote", "cutaway", "pip", "split"):
         assert not review_only(VOCAB, name) and "review_only" not in VOCAB["presets"][name], name
     assert not review_only(VOCAB, "explode") and not review_only(VOCAB, None)
     shared = json.loads(K.VOCABULARY.read_text(encoding="utf-8"))

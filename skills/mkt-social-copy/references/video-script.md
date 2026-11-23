@@ -33,6 +33,19 @@ value: 340
 
 Writing `on-screen: 340` is wrong: the label is the text, `value` holds the figure.
 
+Example of a `split` beat: the speaker keeps the top half and the picture fills the bottom half; `side` names the half the picture takes.
+
+```
+beat: 4
+role: proof
+line: Here is the receipt next to my notes, and you can see the total drop.
+on-screen: The receipt
+preset: split
+asset: a photo of the grocery receipt beside the notebook
+side: bottom
+fit: cover
+```
+
 ## The block's template
 
 A `reel` or `video` script, header first, as a filled-in example in fictional words: replace every line with your own, keep the shape. The header lines `hook_type`, `title` and `cta_kind` are always written; `send_to` only when `cta_kind` is `send`; `loop`, `pattern` and `emphasis` only when the script is built that way (here `loop: no`, `pattern: problem-solution` and one `emphasis: punch`). The example passes `check_script.py`: a `number` hook carries a digit, the title uses words of the hook line, the `payoff` is beat 4 of 5 and the `cta` is the last beat.
@@ -130,7 +143,7 @@ A warning is read, never ignored: fix it when you can, and list what stayed in t
 - From the vocabulary only. A beat carries one preset with its parameters as the vocabulary declares them, or none (the person just talks, and the beat has only its `line`).
 - The on-screen text goes in `on-screen` and nowhere else. It is the few words worth reading, not a second copy of the spoken line. On the hook beat, the on-screen text, when there is one, repeats 2 to 5 words of the hook line.
 - A `number` beat is only for a number on step 3's list, with the value written as the material gives it and the unit in the label, and with that figure written in the beat's own `line` as digits.
-- A layout preset (`cutaway`, `pip`) only when the user or the material says the person has something to show. Its `asset` is a description in words of what to show, never a file name, a path or a link.
+- A layout preset (`cutaway`, `pip`, `split`) only when the user or the material says the person has something to show. Its `asset` is a description in words of what to show, never a file name, a path or a link.
 - Vary the presets: not every beat is a `keyword`. Leave optional parameters (`icon`, `color`) out unless the voice or the strategy asks for them.
 
 ## The aside: a candid beat

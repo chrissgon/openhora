@@ -18,6 +18,10 @@
   "card_max_height": 640,
   "card_min_height": 240
  },
+ "split": {
+  "bar_height": 180,
+  "label_inset": 24
+ },
  "theme": {
   "colors": {
    "bg": "#0B0F14",
@@ -128,6 +132,15 @@
     "radius_px": 24,
     "shadow": "0 14px 40px rgba(0,0,0,0.55)"
    }
+  },
+  "split": {
+   "anchor": "window",
+   "min_duration": 1.5,
+   "max_duration": null,
+   "tail": 0.2,
+   "settled": 0.5,
+   "page_images": true,
+   "looks": {}
   },
   "aside": {
    "note": "The effect preset: over the beat's span (its words plus `tail`, cut by the next beat) the speaker's picture is black and white (the mono grade, the CSS grayscale(1) matrix) and the voice goes through aecho with the gains, delays (ms) and decays of its `echo` value; both edges are hard cuts (no fade, no crossfade), in picture and sound. The captions and the label chip are layers above the picture and keep their colour. The echo values are starting values, not yet tuned on real recordings.",

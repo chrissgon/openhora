@@ -28,3 +28,10 @@ def beat_data(data: dict, entry: dict, fps: int, edl: dict) -> dict:
     if entry["preset"] == "pip":
         out["geom"] = pip_geometry(data, entry)
     return out
+
+
+def split_geometry_of(entry: dict) -> dict:
+    """The split page's geometry (`data.geom`): the asset half, the caption bar and the label, settled by `_layout.split_layouts` and stored
+    on the entry. The speaker's half is not the page's: ffmpeg lays the crop there."""
+    g = entry["split"]
+    return {"side": g["side"], "asset": dict(g["asset"]), "bar": list(g["bar"]) if g["bar"] else None, "label": dict(g["label"])}

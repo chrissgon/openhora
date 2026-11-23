@@ -737,11 +737,13 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
 
       src, has_audio, fps, size [w, h], src_matrix ("bt709" or "auto"), kept [[from_frame, to_frame], ...] on the
       source frame grid at `fps`, layers (a subset of ["beat", "caption"]), frames_dir (relative to the working folder),
-      pips [{asset, kind, start_frame, end_frame, x, y, w, h, radius}], out_frames, max_bytes, out_name (relative), and, only when a clip
+      pips [{asset, kind, start_frame, end_frame, x, y, w, h, radius}], splits [{start_frame, end_frame, crop {x, y, w, h}, at {x, y}}] (optional),
+      out_frames, max_bytes, out_name (relative), and, only when a clip
       cutaway is drawn, clips [{asset, start_frame, end_frame, mode, ...}] (`clip_filters`).
 
     The picture, from the bottom: the cut recording (the speaker, full frame, as without a pip); for each pip layout the asset (an image,
-    or a clip when `kind` is "clip") scaled to its card box and masked to a rounded rectangle, over the speaker on the beat's frames; the
+    or a clip when `kind` is "clip") scaled to its card box and masked to a rounded rectangle, over the speaker on the beat's frames; for each split
+    layout a crop of that picture, laid into the speaker's half on the beat's frames (under the pips); the
     clip cutaways (a normalised clip filling the frame, or in the glass layout, on the entry's frames); the beat frames; the captions. Everything is composed in RGB (gbrp), the recording read as bt709 limited
     range and written back as bt709, tagged with setparams. No path is inside the filter graph.
     """
@@ -772,6 +774,16 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
                                           ":cb=128:cr=128,format=gray") % (p["w"], p["h"], fps, lo, hi, r, r, r)]
         mask_in.append(nxt)
         nxt += 1
+    splits = plan.get("splits") or []
+    split_mask = []
+    for s in splits:
+        c, lo, hi = s["crop"], s["start_frame"], s["end_frame"] - 1
+        # the speaker's half: a gray mask the size of the crop, full on the beat's frames and nothing outside them, the whole length of the
+        # output (the pip's way: no `enable` expression to sit a frame off)
+        inputs += ["-f", "lavfi", "-i", ("color=c=black:s=%dx%d:r=%s,geq=lum='if(between(N,%d,%d),255,0)':cb=128:cr=128,format=gray")
+                   % (c["w"], c["h"], fps, lo, hi)]
+        split_mask.append(nxt)
+        nxt += 1
     clips = plan.get("clips") or []
     clip_in = []
     for c in clips:      # a clip cutaway (V9b-5a): a normalised MP4, read with its container's demuxer and decoder forced, from a file only
@@ -781,11 +793,21 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
 
     g = base_graph(plan)
 
-    if not idx and not pips and not clips:
+    if not idx and not pips and not clips and not splits:
         g.append("[cv]%s[vout]" % TAGS)
     else:
         g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
+        for i, s in enumerate(splits):
+            # A split: the picture is split in two branches, a crop of one (the speaker, centred on the face by `_layout.split_geometry`) is
+            # masked to the beat's frames and laid over the other at the speaker half's origin; the page draws the picture's half on top.
+            c, total = s["crop"], plan["out_frames"]
+            g.append("[%s]split=2[sb%d][sk%d]" % (cur, i, i))
+            g.append("[sk%d]crop=%d:%d:%d:%d,setpts=N/(%s*TB)[sc%d]" % (i, c["w"], c["h"], c["x"], c["y"], fps, i))
+            g.append("[%d:v]format=gray,trim=end_frame=%d,setpts=N/(%s*TB)[sm%d]" % (split_mask[i], total, fps, i))
+            g.append("[sc%d][sm%d]alphamerge[sp%d]" % (i, i, i))
+            g.append("[sb%d][sp%d]overlay=%d:%d:format=gbrp[os%d]" % (i, i, s["at"]["x"], s["at"]["y"], i))
+            cur = "os%d" % i
         for i, p in enumerate(pips):
             # The card is a stream the whole length of the output, like the beat and caption frames, and the overlay pairs it with the base by
             # timestamp exactly as it pairs them: transparent (the mask is 0) before and after the beat, the card on frames start_frame..end_frame-1.
