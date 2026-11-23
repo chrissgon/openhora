@@ -33,6 +33,8 @@ const HEADERS = (() => {
   for (const m of toml.matchAll(/^\s*([A-Za-z][A-Za-z-]+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*$/gm)) if (/^(Content-Security-Policy|X-Content-Type-Options|Referrer-Policy)$/.test(m[1])) out[m[1]] = m[2];
   return out;
 })();
+// The band and model data the proof page reads, as committed (assets/data/proof.json), for the tests that count what it lists.
+const PROOF = JSON.parse(fs.readFileSync(path.join(SITE, "assets", "data", "proof.json"), "utf8"));
 // The demo, built from the interface of this checkout by the script the deploy runs; set by before().
 let DEMO = null;
 function buildDemo() {
@@ -289,9 +291,12 @@ const TEXT_ENTRIES = `(async (url) => {
   const html = await (await fetch(url)).text();
   const doc = new DOMParser().parseFromString(html, "text/html");
   const out = ["[title] " + doc.title.replace(/\\s+/g, " ").trim()];
+  let skip = 0;
   const walk = (n) => {
     for (const c of n.childNodes) {
-      if (c.nodeType === 3) { const s = c.nodeValue.replace(/\\s+/g, " ").trim(); if (s) out.push(s); }
+      if (c.nodeType === 8) { const m = /^ facts:(begin|end) ([a-z0-9-]+) $/.exec(c.nodeValue); if (m) { if (m[1] === "begin") { out.push("\\u0001"); skip++; } else skip--; } }
+      else if (skip > 0) continue;
+      else if (c.nodeType === 3) { const s = c.nodeValue.replace(/\\s+/g, " ").trim(); if (s) out.push(s); }
       else if (c.nodeType === 1) {
         const tag = c.tagName.toLowerCase();
         if (tag === "script" || tag === "style" || tag === "template") continue;
@@ -365,6 +370,27 @@ const FACTS_EDITS = {
   ],
 };
 
+// Site proof refresh of 2026-11-23: the static text around the generated blocks (site/tools/build_facts.py) that changed with them. "text" edits replace
+// a stretch of text inside the entries that hold it, `count` times.
+const REFRESH_EDITS = {
+  "home": [
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "Real output of the command, excerpt; the skipped lines are marked", "with": "Excerpt of the output at the snapshot of the figures below, as the command prints it; the skipped lines are marked"},
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "88 files, 2,215 run lines at the snapshot of 2026-11-05.", "with": "One file for each test event, committed and never edited; the count grows with every test, so run the command in a checkout to read it."},
+    {"op": "drop", "ref": "Site proof refresh 2026-11-23", "match": "88"},
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "field evidence is 0 uses and 0 verdicts for every skill.", "with": "field evidence, a use reported by a person, is shown apart and never promotes a skill."},
+  ],
+  "proof": [
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "; the bands agree with the snapshot of 2026-11-05.", "with": "; the bands and the figures on this page are that snapshot."},
+    {"op": "run", "ref": "Site proof refresh 2026-11-23", "match": ["Starting values:", "biz-icp-positioning", "'s published gate, 1.00 vs 0.40, 9 runs."], "with": "Starting values: an example of three runs of 1.00 in each case and a baseline of 0.40, not a published result; the published gates are in the table above."},
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": " (counted 2026-11-05)", "with": ""},
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "# 88 files, 2,215 run lines at the snapshot of 2026-11-05", "with": "# one file for each test event; the count grows with every test"},
+    {"op": "drop", "ref": "Site proof refresh 2026-11-23", "match": "88"},
+  ],
+  "how-its-built": [
+    {"op": "text", "ref": "Site proof refresh 2026-11-23", "match": "skills carry this line (counted 2026-11-05).", "with": "skills carry this line."},
+  ],
+};
+
 function applyEdits(page, entries) {
   let out = entries.slice();
   for (const e of [...(TEXT_EDITS[page] || []), ...(FACTS_EDITS[page] || [])]) {
@@ -379,7 +405,41 @@ function applyEdits(page, entries) {
       else if (e.op === "insertAfter") out.splice(at + n, 0, ...e.with);
     }
   }
+  for (const e of REFRESH_EDITS[page] || []) {
+    const before = out.length;
+    if (e.op === "run") {
+      const i = out.findIndex((t, k) => e.match.every((m, j) => (j === e.match.length - 1 ? out[k + j] !== undefined && out[k + j].startsWith(m) : out[k + j] === m)));
+      assert.ok(i >= 0, `${page}: the refresh edit "${e.match[0]}" matches no run of text entries`);
+      out.splice(i, e.match.length, e.with + out[i + e.match.length - 1].slice(e.match[e.match.length - 1].length));
+      continue;
+    }
+    if (e.op === "drop") out = out.filter((t) => t !== e.match);
+    else out = out.map((t) => (t.includes(e.match) ? t.replace(e.match, e.with) : t));
+    assert.ok(e.op === "drop" ? out.length < before : out.some((t) => e.with === "" || t.includes(e.with)), `${page}: the refresh edit "${e.match}" matches no text entry`);
+  }
   return out;
+}
+
+// The text of a page against the hand-off after the edits. A block between `<!-- facts:begin x -->` and `<!-- facts:end x -->` is written by
+// site/tools/build_facts.py from the inventory and the gate file; its text is not compared (the entry "\u0001" stands for it in `got`), and the
+// text around it is, with the white space removed (a block cuts the sentences it sits in): each stretch of static text of the page must be found, in order, in the hand-off, the first at its start and the last at its end.
+function compareText(want, got) {
+  const norm = (a) => a.join("").replace(/\s+/g, "");
+  const W = norm(want), segs = norm(got).split("\u0001");
+  let pos = 0;
+  for (let k = 0; k < segs.length; k++) {
+    const seg = segs[k];
+    if (k === 0) { if (!W.startsWith(seg)) return `the start differs: expected ${JSON.stringify(W.slice(0, 100))}, got ${JSON.stringify(seg.slice(0, 100))}`; pos = seg.length; continue; }
+    if (k === segs.length - 1) { if (!W.endsWith(seg) || W.length - seg.length < pos) return `the end differs: expected ${JSON.stringify(W.slice(-100))}, got ${JSON.stringify(seg.slice(-100))}`; break; }
+    const at = W.indexOf(seg, pos);
+    if (at < 0) {
+      const head = W.indexOf(seg.slice(0, 40), pos);
+      if (head >= 0) { let d = 0; while (d < seg.length && W[head + d] === seg[d]) d++; return `the page has ${JSON.stringify(seg.slice(Math.max(0, d - 40), d + 60))} where the hand-off has ${JSON.stringify(W.slice(head + Math.max(0, d - 40), head + d + 60))}`; }
+    }
+    if (at < 0) return `after ${JSON.stringify(W.slice(Math.max(0, pos - 60), pos + 60))} the page has the text ${JSON.stringify(seg.slice(0, 120))}, which the hand-off does not have next`;
+    pos = at + seg.length;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- the tests
@@ -408,11 +468,8 @@ for (const p of PAGES) {
       await page.goto(base + "/__handoff__/" + p.fixture + ".html");
       const want = applyEdits(p.fixture, await page.eval(`${TEXT_ENTRIES}(${JSON.stringify("/__handoff__/" + p.fixture + ".html")})`));
       const got = await page.eval(`${TEXT_ENTRIES}(${JSON.stringify(p.route)})`);
-      const n = Math.min(want.length, got.length);
-      let i = 0;
-      while (i < n && want[i] === got[i]) i++;
-      assert.ok(i === want.length && i === got.length,
-        `${p.fixture}: text differs from the hand-off at entry ${i} of ${want.length}: expected ${JSON.stringify(want[i])}, got ${JSON.stringify(got[i])}`);
+      const miss = compareText(want, got);
+      assert.ok(miss === null, `${p.fixture}: text differs from the hand-off: ${miss}`);
     });
 
     for (const size of WIDTHS) {
@@ -1204,7 +1261,7 @@ describe("proof: the skill list is a list of buttons with no half listbox (DEV-2
     const r = await page.eval(`(() => { const ul = document.getElementById("sk-list"); return { listbox: document.querySelectorAll('[role="listbox"], [role="option"]').length, ul: ul.tagName, role: ul.getAttribute("role"), label: ul.getAttribute("aria-label"),
       items: [...ul.children].every((li) => li.tagName === "LI" && !li.hasAttribute("role") && li.children.length === 1 && li.firstElementChild.tagName === "BUTTON" && !li.firstElementChild.hasAttribute("role") && li.firstElementChild.type === "button"),
       buttons: ul.querySelectorAll("button").length, current: [...ul.querySelectorAll('[aria-current="true"]')].map((b) => b.dataset.skill), selected: ul.querySelectorAll("[aria-selected]").length }; })()`);
-    assert.deepEqual(r, { listbox: 0, ul: "UL", role: null, label: "Skills", items: true, buttons: 48, current: ["mkt-social-copy"], selected: 0 });
+    assert.deepEqual(r, { listbox: 0, ul: "UL", role: null, label: "Skills", items: true, buttons: PROOF.skills.length, current: ["mkt-social-copy"], selected: 0 });
   });
 
   test("without script the list shows the same skill as the result", async () => {
@@ -1221,12 +1278,12 @@ describe("proof: the skill list is a list of buttons with no half listbox (DEV-2
     await open();
     await page.eval(`document.getElementById("sk-q").focus()`);
     await page.key("ArrowDown", "ArrowDown", 40);
-    assert.equal(await page.eval(`document.activeElement.dataset.skill`), "biz-icp-positioning");
+    assert.equal(await page.eval(`document.activeElement.dataset.skill`), PROOF.skills[0].skill);
     await page.key("ArrowDown", "ArrowDown", 40);
     const second = await page.eval(`document.activeElement.dataset.skill`);
-    assert.equal(second, "biz-market-analysis");
+    assert.equal(second, PROOF.skills[1].skill);
     await page.key("ArrowUp", "ArrowUp", 38);
-    assert.equal(await page.eval(`document.activeElement.dataset.skill`), "biz-icp-positioning");
+    assert.equal(await page.eval(`document.activeElement.dataset.skill`), PROOF.skills[0].skill);
     await page.key("ArrowDown", "ArrowDown", 40);
     await page.key("Enter", "Enter", 13);
     assert.ok(await page.waitFor(`document.querySelector(".mr-name").textContent === ${JSON.stringify(second)}`), "Enter on a skill did not show its result");

@@ -41,7 +41,7 @@ THE RULES (conservative: when the selector is unsure it selects more)
  3. A script run by path (`scripts/x.py`, `providers/**/x.py`, `skills/*/scripts/x.py`, `runtime/x.py`) also selects every test file
     that names its file in a string (it runs it as a subprocess or loads it from a path): the `"x.py"` reference of rule 2.
  4. A changed data file (json, jsonl, txt, md, html, js, css, sh, ... under runtime/, providers/, evals/, scripts/, shared/, contracts/,
-    docs/architecture/, flows/, interface/, adapters/, site/, and the files at the root) selects every test file that names it (its
+    docs/architecture/, flows/, interface/, adapters/, site/, docs/inventory.md, and the files at the root) selects every test file that names it (its
     file name or its path in a string) and every test of a module that names it (the module that reads it); under interface/ and flows/
     also the tests that name that folder. contracts/*.md, docs/architecture/** and AGENTS.md also run the documentation guards, which
     are always run (rule 6).
@@ -151,9 +151,10 @@ WIRING_DIRS = (".githooks/", ".github/", "packs/", "templates/", "agents/", "scr
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".workbench-local", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 # Areas whose non-Python files can be named by a test (rule 4). The files at the root (AGENTS.md, README.md) are not: they
-# are read by the validator and its guards, and naming them would select most of the suite for every edit of a document.
+# are read by the validator and its guards, and naming them would select most of the suite for every edit of a document. The one file of docs/
+# named here, docs/inventory.md, is the source the site's generated figures are checked against (scripts/tests/test_site_facts.py).
 NAME_AREAS = ("runtime/", "providers/", "evals/", "scripts/", "shared/", "contracts/", "docs/architecture/", "flows/", "interface/",
-              "adapters/", "site/")
+              "adapters/", "site/", "docs/inventory.md")
 # For these the tests that name the folder (a glob over it) also count.
 FOLDER_MENTION = {"interface": "interface", "flows": "flows"}
 LOADERS = ("load", "import", "module", "script")

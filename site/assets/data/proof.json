@@ -1,6 +1,6 @@
 {
  "source": "docs/inventory.md, Evaluation status (band table and model table)",
- "generated_at_commit": "62c996c56958",
+ "generated_at_commit": "68aa52d476ec",
  "lab_models": [
   {
    "model": "claude-sonnet-5-5",
@@ -8,6 +8,14 @@
   },
   {
    "model": "openrouter/deepseek/deepseek-v4.1-flash",
+   "adapter": "agents-dir"
+  },
+  {
+   "model": "claude-haiku-5-5",
+   "adapter": "claude-code"
+  },
+  {
+   "model": "openrouter/openai/gpt-6-luna",
    "adapter": "agents-dir"
   }
  ],
@@ -17,320 +25,641 @@
  "skills": [
   {
    "skill": "asst-answer",
-   "version": "0.2.0",
+   "version": "0.4.0",
    "area": "asst",
-   "last_full_test": "2026-11-05, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
      "band": "reliable",
      "cause": null,
-     "gate": "passed, 1.00 vs 0.89",
-     "score": "0.97",
+     "gate": "passed, 1.00 vs 0.91",
+     "score": "0.94",
      "mean": "1.00",
-     "runs": "51"
+     "runs": "27"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.90",
+     "score": "0.92",
+     "mean": "0.99",
+     "runs": "27"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5, 6, 7, 8",
-     "gate": "not computed",
-     "score": "0.91",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.93",
+     "score": "0.94",
+     "mean": "1.00",
+     "runs": "27"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.92",
+     "score": "0.92",
+     "mean": "0.99",
+     "runs": "27"
+    }
+   }
+  },
+  {
+   "skill": "biz-business-model",
+   "version": "0.2.0",
+   "area": "biz",
+   "last_full_test": "2026-11-11, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.42",
+     "score": "0.84",
      "mean": "0.96",
-     "runs": "51"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.36",
+     "score": "0.85",
+     "mean": "0.97",
+     "runs": "15"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.94 vs 0.40",
+     "score": "0.83",
+     "mean": "0.94",
+     "runs": "18"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.94 vs 0.34",
+     "score": "0.83",
+     "mean": "0.94",
+     "runs": "18"
+    }
+   }
+  },
+  {
+   "skill": "biz-gtm",
+   "version": "0.2.0",
+   "area": "biz",
+   "last_full_test": "2026-11-11, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.19",
+     "score": "0.90",
+     "mean": "1.00",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.26",
+     "score": "0.87",
+     "mean": "0.98",
+     "runs": "15"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.18",
+     "score": "0.90",
+     "mean": "0.99",
+     "runs": "21"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.89 vs 0.26",
+     "score": "0.85",
+     "mean": "0.95",
+     "runs": "21"
     }
    }
   },
   {
    "skill": "biz-icp-positioning",
-   "version": "1.1.0",
+   "version": "1.3.0",
    "area": "biz",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 3.2, 4.1, 4.2 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.40",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.29",
+     "score": "0.89",
+     "mean": "0.99",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.44",
+     "score": "0.79",
+     "mean": "0.92",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.60",
-     "mean": "0.96",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.94 vs 0.51",
+     "score": "0.90",
+     "mean": "0.99",
+     "runs": "21"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.90 vs 0.33",
+     "score": "0.81",
+     "mean": "0.92",
+     "runs": "21"
     }
    }
   },
   {
    "skill": "biz-market-analysis",
-   "version": "1.1.0",
+   "version": "1.4.0",
    "area": "biz",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.5, 4.1, 4.2 have no run in the current set",
-     "gate": "passed (baseline expired), 0.96 vs 0.22",
-     "score": "0.61",
-     "mean": "0.97",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.23",
+     "score": "0.82",
+     "mean": "0.94",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.19",
+     "score": "0.75",
+     "mean": "0.90",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.50",
-     "mean": "0.87",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.89 vs 0.25",
+     "score": "0.80",
+     "mean": "0.90",
+     "runs": "27"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.88 vs 0.25",
+     "score": "0.78",
+     "mean": "0.89",
+     "runs": "26"
     }
    }
   },
   {
    "skill": "brand-guidelines",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.1, 2.2, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.31",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.24",
+     "score": "0.85",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.24",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.24",
+     "score": "0.82",
+     "mean": "0.98",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.24",
+     "score": "0.85",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
     }
    }
   },
   {
    "skill": "brand-identity",
-   "version": "1.1.0",
+   "version": "1.5.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-07, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 2.7, 3.7 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.00",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.00",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.00",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.63",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.00",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.00",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "brand-name",
-   "version": "1.1.0",
+   "version": "1.4.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.3, 1.4, 2.1, 2.5, 3.1 have no run in the current set",
-     "gate": "passed (baseline expired), 0.97 vs 0.39",
-     "score": "0.61",
-     "mean": "0.97",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.43",
+     "score": "0.87",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.57",
-     "mean": "0.94",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.30",
+     "score": "0.87",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.97 vs 0.37",
+     "score": "0.83",
+     "mean": "0.97",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "brand-profile",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.10, 2.1, 2.6 have no run in the current set",
-     "gate": "passed (baseline expired), 0.98 vs 0.23",
-     "score": "0.63",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.23",
+     "score": "0.84",
+     "mean": "0.99",
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.18",
+     "score": "0.82",
      "mean": "0.98",
-     "runs": "3"
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.63",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.16",
+     "score": "0.80",
+     "mean": "0.97",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.11",
+     "score": "0.73",
+     "mean": "0.92",
+     "runs": "9"
     }
    }
   },
   {
    "skill": "brand-strategy",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 1.5, 2.8, 2.9, 3.8, 3.9 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.67",
-     "score": "0.60",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.67",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.44",
+     "score": "0.82",
      "mean": "0.96",
-     "runs": "3"
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.59",
-     "mean": "0.95",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.46",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.99 vs 0.47",
+     "score": "0.83",
+     "mean": "0.97",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "brand-voice",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "brand",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 1.5, 2.6 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.38",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.20",
+     "score": "0.85",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.30",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.20",
+     "score": "0.85",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.10",
+     "score": "0.81",
+     "mean": "0.98",
+     "runs": "9"
     }
    }
   },
   {
    "skill": "core-agents-md",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 2.1, 2.2 have no run in the current set",
-     "gate": "passed (baseline expired), 0.93 vs 0.52",
-     "score": "0.57",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.22",
+     "score": "0.78",
      "mean": "0.93",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.27",
+     "score": "0.79",
+     "mean": "0.94",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.57",
-     "mean": "0.93",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.24",
+     "score": "0.82",
+     "mean": "0.96",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.25",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "core-clarify",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 2.1, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.08",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.15",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.15",
+     "score": "0.80",
+     "mean": "0.94",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.15",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.12",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "core-critique",
-   "version": "2.2.0",
+   "version": "2.3.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 3.1, 3.2, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.23",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.35",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.94 vs 0.39",
+     "score": "0.78",
+     "mean": "0.92",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.55",
-     "mean": "0.91",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.40",
+     "score": "0.81",
+     "mean": "0.94",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.19",
+     "score": "0.85",
+     "mean": "0.97",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "core-orchestrator",
-   "version": "4.1.0",
+   "version": "4.4.0",
    "area": "core",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-14, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.51",
+     "score": "0.96",
+     "mean": "0.98",
+     "runs": "87"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.50",
+     "score": "0.90",
+     "mean": "0.96",
+     "runs": "45"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.53",
+     "score": "0.98",
+     "mean": "1.00",
+     "runs": "87"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.53",
+     "score": "0.96",
+     "mean": "0.98",
+     "runs": "87"
+    }
+   }
   },
   {
    "skill": "core-project-init",
-   "version": "1.2.0",
+   "version": "1.1.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 5.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.31",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.31",
+     "score": "0.92",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "18"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.29",
+     "score": "0.87",
+     "mean": "0.98",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.31",
+     "score": "0.92",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "18"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.29",
+     "score": "0.84",
+     "mean": "0.96",
+     "runs": "15"
     }
    }
   },
@@ -338,270 +667,479 @@
    "skill": "core-research",
    "version": "1.2.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 2.1, 5.1, 5.3, 5.4 have no run in the current set",
-     "gate": "passed (baseline expired), 0.97 vs 0.32",
-     "score": "0.60",
-     "mean": "0.97",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.29",
+     "score": "0.85",
+     "mean": "0.96",
+     "runs": "18"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.88 vs 0.38",
+     "score": "0.74",
+     "mean": "0.88",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-     "gate": "not computed",
-     "score": "0.60",
-     "mean": "0.97",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.93 vs 0.42",
+     "score": "0.89",
+     "mean": "0.98",
+     "runs": "18"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.91 vs 0.20",
+     "score": "0.81",
+     "mean": "0.94",
+     "runs": "17"
     }
    }
   },
   {
    "skill": "core-security-audit",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "core",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.2, 2.1, 2.2, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 0.92 vs 0.19",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.06",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.34",
+     "score": "0.79",
+     "mean": "0.94",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 3",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.36",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.20",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "core-skill-creator",
-   "version": "4.0.0",
+   "version": "6.1.0",
    "area": "core",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.89 vs 0.32",
+     "score": "0.74",
+     "mean": "0.89",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.92 vs 0.31",
+     "score": "0.77",
+     "mean": "0.91",
+     "runs": "15"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.90 vs 0.22",
+     "score": "0.77",
+     "mean": "0.91",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.20",
+     "score": "0.82",
+     "mean": "0.95",
+     "runs": "15"
+    }
+   }
   },
   {
    "skill": "design-brief",
-   "version": "1.2.0",
+   "version": "2.0.0",
    "area": "design",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 2.1, 2.3, 2.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.08",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.22",
+     "score": "0.85",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.15",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.62",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.18",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.18",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   },
   {
    "skill": "design-execute",
-   "version": "2.1.0",
+   "version": "2.2.0",
    "area": "design",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.3, 2.3, 2.5, 3.4, 4.1, 4.2, 4.3 have no run in the current set",
-     "gate": "passed (baseline expired), 0.99 vs 0.39",
-     "score": "0.64",
-     "mean": "0.99",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.31",
+     "score": "0.90",
+     "mean": "1.00",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.26",
+     "score": "0.86",
+     "mean": "0.98",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.34",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.23",
+     "score": "0.88",
+     "mean": "0.99",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "design-handoff",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "design",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.9, 2.2 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.17",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.11",
+     "score": "0.79",
+     "mean": "0.96",
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.06",
+     "score": "0.79",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "6"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.06",
+     "score": "0.84",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.00",
+     "score": "0.76",
+     "mean": "0.98",
+     "runs": "6"
     }
    }
   },
   {
    "skill": "design-system",
-   "version": "2.1.0",
+   "version": "2.3.0",
    "area": "design",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.2, 1.6, 2.1, 2.2, 2.4, 3.1, 3.2 have no run in the current set",
-     "gate": "passed (baseline expired), 0.96 vs 0.35",
-     "score": "0.62",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.32",
+     "score": "0.85",
      "mean": "0.98",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.60",
-     "mean": "0.96",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.34",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.16",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "design-ux-flows",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "area": "design",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 2.2, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 0.94 vs 0.33",
-     "score": "0.58",
-     "mean": "0.94",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.82",
+     "mean": "0.98",
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.80",
+     "mean": "0.97",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.46",
-     "mean": "0.83",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.80",
+     "mean": "0.97",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.25",
+     "score": "0.82",
+     "mean": "0.98",
+     "runs": "9"
     }
    }
   },
   {
    "skill": "eng-architecture",
-   "version": "1.3.0",
+   "version": "2.0.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 2.1 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.39",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.36",
+     "score": "0.80",
+     "mean": "0.95",
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.12",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.62",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 0.98 vs 0.21",
+     "score": "0.90",
+     "mean": "1.00",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed (baseline expired), 1.00 vs 0.12",
+     "score": "0.87",
      "mean": "0.98",
-     "runs": "3"
+     "runs": "15"
     }
    }
   },
   {
    "skill": "eng-code-review",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 2.5, 3.6, 4.2, 4.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.54",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.44",
+     "score": "0.88",
+     "mean": "0.99",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.40",
+     "score": "0.83",
+     "mean": "0.95",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.54",
+     "score": "0.87",
+     "mean": "0.98",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.24",
+     "score": "0.84",
+     "mean": "0.96",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "eng-codebase-map",
-   "version": "1.2.0",
+   "version": "1.3.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 2.1, 2.3, 3.2 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.24",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.24",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.18",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.62",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.28",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.21",
+     "score": "0.83",
+     "mean": "0.97",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "eng-docs",
-   "version": "1.1.0",
+   "version": "2.0.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.7, 2.1 have no run in the current set",
-     "gate": "passed (baseline expired), 0.94 vs 0.21",
-     "score": "0.58",
-     "mean": "0.94",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.21",
+     "score": "0.79",
+     "mean": "1.00",
+     "runs": "6"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.14",
+     "score": "0.75",
+     "mean": "0.98",
+     "runs": "6"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.48",
-     "mean": "0.85",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.31",
+     "score": "0.79",
+     "mean": "1.00",
+     "runs": "6"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.11",
+     "score": "0.72",
+     "mean": "0.95",
+     "runs": "6"
     }
    }
   },
@@ -609,54 +1147,119 @@
    "skill": "eng-impact-analysis",
    "version": "2.0.0",
    "area": "eng",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.39",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.39",
+     "score": "0.78",
+     "mean": "0.96",
+     "runs": "9"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.43",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.39",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    }
+   }
   },
   {
    "skill": "eng-implement",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 2.3, 2.4, 3.1, 4.2 have no run in the current set",
-     "gate": "passed (baseline expired), 0.98 vs 0.37",
-     "score": "0.63",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.43",
+     "score": "0.86",
+     "mean": "0.97",
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.91 vs 0.37",
+     "score": "0.77",
+     "mean": "0.91",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.60",
-     "mean": "0.96",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.38",
+     "score": "0.86",
+     "mean": "0.98",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.30",
+     "score": "0.79",
+     "mean": "0.92",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "eng-integration-tests",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.1, 2.2, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.42",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.84",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.79",
+     "mean": "0.96",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.54",
-     "mean": "0.91",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.58",
+     "score": "0.82",
+     "mean": "0.98",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   },
@@ -664,23 +1267,39 @@
    "skill": "eng-refactor",
    "version": "1.1.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.5, 2.3, 2.4, 3.2 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.25",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.25",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.19",
+     "score": "0.84",
+     "mean": "0.97",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.19",
+     "score": "0.80",
+     "mean": "0.97",
+     "runs": "9"
     }
    }
   },
@@ -688,95 +1307,159 @@
    "skill": "eng-root-cause",
    "version": "1.1.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.2, 2.4, 3.1, 3.2, 3.3, 4.1, 4.2, 4.3 have no run in the current set",
-     "gate": "passed (baseline expired), 0.98 vs 0.35",
-     "score": "0.62",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.35",
+     "score": "0.87",
      "mean": "0.98",
-     "runs": "3"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.58",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.31",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.94 vs 0.42",
+     "score": "0.79",
+     "mean": "0.94",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "eng-security-review",
-   "version": "2.1.0",
+   "version": "3.0.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.4, 1.5, 1.7, 2.1, 2.3, 2.4, 2.5, 3.2, 3.3, 3.4, 4.3, 4.4, 4.5 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.57",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.47",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.50",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
-     "mean": "1.00",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.58",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.45",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "eng-tradeoffs",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.6, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.25",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.25",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.25",
+     "score": "0.79",
+     "mean": "0.94",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.21",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.17",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     }
    }
   },
   {
    "skill": "eng-unit-tests",
-   "version": "1.1.0",
+   "version": "1.3.0",
    "area": "eng",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.6, 2.1, 2.2, 2.3, 2.4, 3.1, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.42",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.29",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.46",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.29",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
     }
    }
   },
@@ -784,30 +1467,79 @@
    "skill": "mkt-content-plan",
    "version": "1.1.0",
    "area": "mkt",
-   "last_full_test": "2026-10-04, passed",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.70",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.44",
+     "score": "0.79",
+     "mean": "1.00",
+     "runs": "6"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.56",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.56",
+     "score": "0.79",
+     "mean": "1.00",
+     "runs": "6"
+    }
+   }
   },
   {
    "skill": "mkt-engage",
-   "version": "1.3.0",
+   "version": "1.4.0",
    "area": "mkt",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 2.1, 2.2, 2.3, 4.3, 4.4, 5.4 have no run in the current set",
-     "gate": "passed (baseline expired), 0.98 vs 0.48",
-     "score": "0.64",
-     "mean": "0.99",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.57",
+     "score": "0.89",
+     "mean": "0.96",
+     "runs": "33"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.52",
+     "score": "0.86",
+     "mean": "0.94",
+     "runs": "33"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-     "gate": "not computed",
-     "score": "0.58",
-     "mean": "0.94",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.56",
+     "score": "0.93",
+     "mean": "0.99",
+     "runs": "33"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.54",
+     "score": "0.92",
+     "mean": "0.98",
+     "runs": "33"
     }
    }
   },
@@ -815,23 +1547,39 @@
    "skill": "mkt-messaging",
    "version": "1.1.0",
    "area": "mkt",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.2, 2.1, 3.1, 3.2, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.33",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.44",
+     "score": "0.74",
+     "mean": "0.93",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.56",
-     "mean": "0.93",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.89 vs 0.22",
+     "score": "0.73",
+     "mean": "0.90",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   },
@@ -839,123 +1587,359 @@
    "skill": "mkt-publish",
    "version": "1.0.0",
    "area": "mkt",
-   "last_full_test": "2026-10-04, passed",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.41",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.22",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.35",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.22",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
+    }
+   }
   },
   {
    "skill": "mkt-social-copy",
-   "version": "2.0.0",
+   "version": "3.1.0",
    "area": "mkt",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-07, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.36",
+     "score": "0.92",
+     "mean": "1.00",
+     "runs": "21"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.94 vs 0.31",
+     "score": "0.85",
+     "mean": "0.95",
+     "runs": "21"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.40",
+     "score": "0.87",
+     "mean": "0.97",
+     "runs": "21"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.97 vs 0.32",
+     "score": "0.88",
+     "mean": "0.97",
+     "runs": "21"
+    }
+   }
+  },
+  {
+   "skill": "mkt-video-media-search",
+   "version": "0.1.0",
+   "area": "mkt",
+   "last_full_test": "2026-11-12, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.27",
+     "score": "0.91",
+     "mean": "1.00",
+     "runs": "16"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.27",
+     "score": "0.91",
+     "mean": "1.00",
+     "runs": "16"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.94 vs 0.21",
+     "score": "0.79",
+     "mean": "0.94",
+     "runs": "12"
+    }
+   }
   },
   {
    "skill": "mkt-vote-round",
-   "version": "1.1.0",
+   "version": "2.1.0",
    "area": "mkt",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.3, 1.5, 2.4, 3.5, 3.7 have no run in the current set",
-     "gate": "passed (baseline expired), 0.96 vs 0.48",
-     "score": "0.60",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.95 vs 0.48",
+     "score": "0.81",
      "mean": "0.96",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.42",
+     "score": "0.86",
+     "mean": "0.99",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.50",
+     "score": "0.87",
+     "mean": "0.99",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.63",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
     }
    }
   },
   {
    "skill": "ops-branch-sync",
-   "version": "1.0.0",
+   "version": "1.1.0",
    "area": "ops",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.1, 1.4, 2.1, 2.3, 3.2, 3.4, 3.5, 4.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.35",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.35",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.44",
+     "score": "0.85",
+     "mean": "0.97",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.63",
-     "mean": "0.99",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.36",
+     "score": "0.90",
+     "mean": "1.00",
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.30",
+     "score": "0.79",
+     "mean": "0.92",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "ops-ci-pipeline",
-   "version": "2.1.0",
+   "version": "3.1.0",
    "area": "ops",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.3, 1.8, 2.1, 2.2, 2.3, 3.3, 4.4 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.72",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.70",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.41",
+     "score": "0.85",
+     "mean": "0.97",
+     "runs": "15"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.39",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.28",
+     "score": "0.89",
+     "mean": "0.99",
+     "runs": "15"
     }
    }
   },
   {
    "skill": "ops-pull-request",
-   "version": "2.0.0",
+   "version": "2.2.0",
    "area": "ops",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.50",
+     "score": "0.92",
+     "mean": "1.00",
+     "runs": "18"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.57",
+     "score": "0.91",
+     "mean": "1.00",
+     "runs": "18"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.99 vs 0.48",
+     "score": "0.89",
+     "mean": "0.98",
+     "runs": "18"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.33",
+     "score": "0.89",
+     "mean": "0.99",
+     "runs": "18"
+    }
+   }
   },
   {
    "skill": "ops-repo-baseline",
    "version": "2.1.0",
    "area": "ops",
-   "last_full_test": "none",
-   "models": {}
+   "last_full_test": "2026-11-06, passed",
+   "models": {
+    "claude-sonnet-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.39",
+     "score": "0.82",
+     "mean": "0.93",
+     "runs": "21"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.92 vs 0.39",
+     "score": "0.81",
+     "mean": "0.92",
+     "runs": "21"
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.29",
+     "score": "0.86",
+     "mean": "0.96",
+     "runs": "21"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.93 vs 0.41",
+     "score": "0.82",
+     "mean": "0.93",
+     "runs": "21"
+    }
+   }
   },
   {
    "skill": "product-backlog",
    "version": "1.1.0",
    "area": "product",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 2.1, 2.3, 3.2, 4.1, 4.2, 4.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.17",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.17",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.17",
+     "score": "0.88",
+     "mean": "1.00",
+     "runs": "12"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.23",
+     "score": "0.90",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "15"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.98 vs 0.17",
+     "score": "0.85",
+     "mean": "0.98",
+     "runs": "12"
     }
    }
   },
@@ -963,23 +1947,39 @@
    "skill": "product-feature-spec",
    "version": "1.1.0",
    "area": "product",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.7, 2.1, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.23",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.24",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 0.96 vs 0.18",
+     "score": "0.78",
+     "mean": "0.96",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.62",
-     "mean": "0.98",
-     "runs": "3"
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.11",
+     "score": "0.87",
+     "mean": "1.00",
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.18",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   },
@@ -987,23 +1987,39 @@
    "skill": "product-prd",
    "version": "1.1.0",
    "area": "product",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.3, 1.7, 2.1, 2.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.17",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.22",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.26",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.21",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.11",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   },
@@ -1011,23 +2027,39 @@
    "skill": "product-roadmap",
    "version": "1.1.0",
    "area": "product",
-   "last_full_test": "2026-10-04, passed",
+   "last_full_test": "2026-11-06, passed",
    "models": {
     "claude-sonnet-5-5": {
-     "band": "needs a test",
-     "cause": "guard assertion(s) 1.3, 2.1, 3.1, 3.3 have no run in the current set",
-     "gate": "passed (baseline expired), 1.00 vs 0.50",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.50",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "claude-haiku-5-5": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.44",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-     "band": "needs a test",
-     "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3",
-     "gate": "not computed",
-     "score": "0.65",
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.39",
+     "score": "0.88",
      "mean": "1.00",
-     "runs": "3"
+     "runs": "12"
+    },
+    "openrouter/openai/gpt-6-luna": {
+     "band": "reliable",
+     "cause": null,
+     "gate": "passed, 1.00 vs 0.39",
+     "score": "0.85",
+     "mean": "1.00",
+     "runs": "9"
     }
    }
   }
