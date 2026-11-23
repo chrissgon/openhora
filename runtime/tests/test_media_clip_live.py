@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -43,7 +44,12 @@ def render_with_hash(live, lab, engine, tag, rec, edl, beats, clip, digest):
     """The host's `render` the way `Lab.render` runs it, with `--asset-sha256` as the runtime passes it."""
     import renderer_kit as K
     lab.need(engine)
-    folder = lab.blocks_hf if engine == "hyperframes" else None
+    folder = None
+    if engine == "hyperframes":      # the blocks folder with the cutaway preset, made once per lab as M6 does (the lab's own `blocks_hf` has none)
+        folder = lab.folder / "blocks-hf-cutaway"
+        if not folder.exists():
+            shutil.copytree(K.BLOCKS, folder)
+            K.write_hf_compose_blocks(folder, cutaway=True)
     env = dict(os.environ)
     if folder is not None:
         env.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(folder))
