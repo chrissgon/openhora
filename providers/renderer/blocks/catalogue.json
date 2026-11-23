@@ -1,10 +1,12 @@
 {
  "asset_kinds_by_engine": {
   "ffmpeg": [
-   "image"
+   "image",
+   "clip"
   ],
   "hyperframes": [
-   "image"
+   "image",
+   "clip"
   ]
  },
  "blocks": [
@@ -683,7 +685,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "12e8b0403dce5895e04b0b7b0606ea922baa4127d0a4b02220951c0e5610e19a",
+ "blocks_sha256": "899bb133e755f69229bbcbf8cf8179dc38ad230e47e7ba6085fd5f03ae065a03",
  "engines": {
   "ffmpeg": {
    "presets": {

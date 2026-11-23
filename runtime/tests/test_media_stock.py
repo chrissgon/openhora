@@ -298,6 +298,7 @@ def test_the_fetch_with_no_pick_at_all_is_refused(world, monkeypatch):
 
 
 def test_a_clip_pick_is_refused_on_an_engine_that_draws_no_clips(world, monkeypatch):
+    monkeypatch.setattr(ops_media_stock.media_animation, "asset_kinds", lambda root, implementation=None: ["image"])      # V9b-5c: the real catalogue now lists clips for both engines
     found = to_found(world, monkeypatch, {"beat7": ("market stall", "clip")}, stock=["fakelib"], extra={"fakelib": LIBRARY})
     done = find(world, found["task"])
     assert done["slots"][0]["candidates"][0]["kind"] == "clip"
@@ -790,7 +791,7 @@ def test_the_engine_keeps_a_code_of_the_closed_list_only_from_the_renderers_firs
     assert set(re.findall(r'"(asset_[a-z_]+)"', source)) == set(ops_media_stock.ASSET_CODES)
 
 
-def test_a_clip_row_from_the_renderer_never_reaches_the_stock_path_and_an_image_row_with_kind_and_seconds_does(world, monkeypatch):
+def test_a_clip_row_for_a_picture_pick_never_reaches_the_stock_path_and_an_image_row_with_kind_and_seconds_does(world, monkeypatch):
     found = to_found(world, monkeypatch)
     done = find(world, found["task"])
     pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
@@ -800,9 +801,157 @@ def test_a_clip_row_from_the_renderer_never_reaches_the_stock_path_and_an_image_
     assert "engine_refused" in str(refused.value)
     found["sheets"].mutate = lambda answer: dict(answer, assets=[dict(a, kind="image", seconds=0) for a in answer["assets"]])      # the 5a shape of an image row
     assert ops.video_media_fetch_picks(world["path"], found["task"])["assets"]
-    assert media_animation_kinds(world) == ["image"]
+    assert media_animation_kinds(world) == ["image", "clip"]
 
 
 def media_animation_kinds(world):
     animation = st.load("media_animation")
     return animation.asset_kinds(str(REPO), None) if True else []
+
+
+# --- a clip in the media set (package V9b-5c) --------------------------------------------------------------------------------------------------------
+
+
+def clip_found(world, monkeypatch, entry=None, seconds=4.0, fps=30):
+    """A video with a clip candidate picked for `beat7`, the proposal holding a cutaway layout for that slot (`entry` replaces it) and an edit list of `fps`. Returns to_found's dict."""
+    found = to_found(world, monkeypatch, {"beat7": ("market stall", "clip")}, stock=["fakelib"], extra={"fakelib": LIBRARY})
+    found["sheets"].clip_seconds = seconds
+    data, rid = world["data"], world["rid"]
+    beats = json.loads(media.read_work(data, rid, "proposal.beats.json", 1 << 20))
+    beats["layouts"] = [entry or {"id": "b7", "beat": 7, "preset": "cutaway", "block": "oh:cutaway", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3}]
+    media.write_work(data, rid, "proposal.beats.json", json.dumps(beats).encode("utf-8"))
+    edl = json.loads(media.read_work(data, rid, "proposal.edl.json", 1 << 20))
+    media.write_work(data, rid, "proposal.edl.json", json.dumps(dict(edl, fps=fps)).encode("utf-8"))
+    done = find(world, found["task"])
+    pick(world, found["task"], "beat7", done["slots"][0]["candidates"][0]["pick"], review_of(world)["revision"])
+    return found
+
+
+def test_fetch_picks_with_a_clip_passes_the_edit_lists_rate(world, monkeypatch):
+    found = clip_found(world, monkeypatch, fps=25)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    assert found["sheets"].calls[-1]["mode"] == "full" and found["sheets"].calls[-1]["fps"] == "25"
+
+
+def test_fetch_picks_of_an_image_set_passes_no_rate(world, monkeypatch):
+    plain = to_found(world, monkeypatch)
+    done = find(world, plain["task"])
+    picked_all(world, plain["task"], done["slots"])
+    ops.video_media_fetch_picks(world["path"], plain["task"])
+    assert plain["sheets"].calls[-1]["mode"] == "full" and plain["sheets"].calls[-1]["fps"] is None
+    assert "clip_fps" not in json.loads((stock_folder(world) / "set.json").read_text())
+
+
+def test_a_fetched_clip_is_an_mp4_named_by_its_bytes_with_the_rows_seconds_and_the_rate_in_the_set(world, monkeypatch):
+    found = clip_found(world, monkeypatch)
+    got = ops.video_media_fetch_picks(world["path"], found["task"])
+    [asset] = got["assets"]
+    doc = json.loads((stock_folder(world) / "set.json").read_text())
+    [stored] = doc["assets"]
+    name = "asset-%s.mp4" % stored["sha256"][:12]
+    assert (stock_folder(world) / name).is_file() and stored["kind"] == "clip" and stored["seconds"] == 4.0 and doc["clip_fps"] == 30
+    assert asset["file"] is None and asset["seconds"] == 4.0 and "ends when its clip ends" in got["message"] and got["message"].startswith("Check the pictures")
+    assert "clip_fps" not in media_stock.set_document(doc)      # outside the hashed document
+
+
+def test_the_seconds_of_a_clip_are_the_rows_and_capped_at_ten_and_a_row_over_ten_point_one_is_refused(world, monkeypatch):
+    found = clip_found(world, monkeypatch, seconds=10.05)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    assert json.loads((stock_folder(world) / "set.json").read_text())["assets"][0]["seconds"] == 10.0
+    found["sheets"].clip_seconds = 10.2
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "engine_refused" in str(refused.value)
+
+
+def test_a_picture_row_for_a_clip_pick_is_refused(world, monkeypatch):
+    clip = clip_found(world, monkeypatch)
+    clip["sheets"].mutate = lambda answer: dict(answer, assets=[dict(a, kind="image", seconds=0) for a in answer["assets"]])
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], clip["task"])
+    assert "engine_refused" in str(refused.value)
+
+
+def test_a_clip_too_short_for_a_cutaway_is_refused_and_the_set_is_back_to_its_candidates(world, monkeypatch):
+    found = clip_found(world, monkeypatch, seconds=1.5)
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "clip_too_short" in str(refused.value) and "at least 1.6 seconds" in str(refused.value)
+    assert json.loads((stock_folder(world) / "set.json").read_text())["phase"] == "found" and not [n for n in os.listdir(stock_folder(world)) if n.startswith(("full-", ".work"))]
+    found["sheets"].clip_seconds = 1.6
+    assert ops.video_media_fetch_picks(world["path"], found["task"])["assets"]      # 1.5 s plus three frames at 30 fps is enough
+
+
+def test_the_edit_lists_rate_must_be_readable_for_a_clip(world, monkeypatch):
+    found = clip_found(world, monkeypatch, fps=12)
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "engine_refused" in str(refused.value) and "frame rate" in str(refused.value)
+
+
+@pytest.mark.parametrize("entry", [{"id": "b7", "beat": 7, "preset": "screenshot", "block": "oh:screenshot", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3},
+                                   {"id": "b7", "beat": 7, "preset": "cutaway", "block": "oh:cutaway", "params": {"image": "beat7"}, "word_from": 0, "word_to": 3}])
+def test_a_clip_pick_on_a_slot_another_block_draws_is_refused_before_any_fetch(world, monkeypatch, entry):
+    found = clip_found(world, monkeypatch, entry=entry)
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_fetch_picks(world["path"], found["task"])
+    assert "clip_block" in str(refused.value) and "Only a cutaway" in str(refused.value) and found["sources"].of("fetch") == [] and [c for c in found["sheets"].calls if c["mode"] == "full"] == []
+
+
+def test_the_block_of_a_slot_comes_from_the_proposal_entry_then_the_engines_preset_then_an_added_layout(world, monkeypatch):
+    animation = st.load("media_animation")
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    store = type("S", (), {"root": staticmethod(lambda: str(REPO)), "renderer": staticmethod(lambda: None)})
+    ctx = {}
+    ok = lambda proposal, review=None: ops_media_stock._clip_slot_ok(ctx, store, review or {"animations": []}, proposal, "beat7")      # noqa: E731
+    by_preset = {"layouts": [{"preset": "cutaway", "params": {"asset": "beat7"}}], "overlays": []}
+    assert ok(by_preset) is True      # no `block` in the entry: the catalogue's preset table of the engine says `oh:cutaway`
+    assert ok({"layouts": [{"preset": "screenshot", "params": {"asset": "beat7"}}]}) is False and ok({"layouts": [], "overlays": []}) is False and ok(None) is False
+    assert ok({"layouts": [], "overlays": [{"preset": "cutaway", "block": "oh:cutaway", "params": {"asset": "beat7"}}]}) is True      # an overlay entry is read too
+    added = {"animations": [{"id": "beat7", "block": "oh:cutaway", "preset": "cutaway", "asset_param": "asset", "params": {}}]}
+    assert ok({"layouts": []}, added) is True      # an added layout: the review animation, whose id is the slot
+    assert ok({"layouts": []}, {"animations": [dict(added["animations"][0], block="oh:screenshot")]}) is False
+    assert ok({"layouts": []}, {"animations": [dict(added["animations"][0], asset_param="image")]}) is False
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
+    assert ok(by_preset) is False      # an engine nobody configured draws nothing
+
+
+def test_approve_keeps_the_mp4_and_the_sheet_and_the_page_is_never_given_a_clip(world, monkeypatch):
+    found = clip_found(world, monkeypatch)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    name = "asset-%s.mp4" % shown["set"]["assets"][0]["sha256"][:12]
+    names = sorted(os.listdir(stock_folder(world)))
+    assert name in names and "sheet.png" in names and not [n for n in names if n.startswith(("full-", "prev-", "quarantine"))]
+    with pytest.raises(ops_core.OpsError):
+        ops.video_media_sheet_file(world["path"], found["task"], name, channel="page")
+    assert ops.video_media_sheet_file(world["path"], found["task"], "sheet.png", channel="page")["data"].startswith(b"\x89PNG")
+
+
+def test_a_clip_swapped_under_its_name_stops_the_approval(world, monkeypatch):
+    found = clip_found(world, monkeypatch)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    path = stock_folder(world) / ("asset-%s.mp4" % shown["set"]["assets"][0]["sha256"][:12])
+    path.chmod(0o600)
+    path.write_bytes(b"\x00\x00\x00\x18ftypisom swapped")
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops.video_media_approve(world["path"], found["task"])
+    assert "asset_changed" in str(refused.value)
+
+
+def test_a_stray_mp4_goes_after_a_day_a_referenced_one_stays_and_the_recording_takes_the_rest_with_it(world, monkeypatch):
+    found = clip_found(world, monkeypatch)
+    ops.video_media_fetch_picks(world["path"], found["task"])
+    shown = ops.video_media_approve(world["path"], found["task"])
+    ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
+    folder = stock_folder(world)
+    keep = "asset-%s.mp4" % shown["set"]["assets"][0]["sha256"][:12]
+    stray = "asset-%s.mp4" % ("9" * 12)
+    (folder / stray).write_bytes(b"\x00\x00\x00\x18ftypisom stray")
+    now = os.stat(folder / keep).st_mtime
+    assert media.purge(world["data"], now=now + 3600)["stray"] == 0 and (folder / stray).exists()
+    assert media.purge(world["data"], now=now + 2 * 86400)["stray"] == 1 and not (folder / stray).exists() and (folder / keep).exists()
+    media.update(world["data"], world["rid"], lambda r: r.update(delivered={"at": "2026-01-01T00:00:00Z", "sha256": "a" * 64, "task": found["task"], "pending": None}))
+    assert media.purge(world["data"], now=media._epoch("2026-01-09T00:00:00Z"))["removed"] == [{"recording": world["rid"], "what": "raw"}] and not folder.exists()

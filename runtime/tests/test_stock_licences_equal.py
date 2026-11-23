@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_stock_licences_equal.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 
@@ -51,7 +52,9 @@ def test_the_search_rule_the_slot_id_and_the_word_bounds_are_the_class_and_the_r
     assert re.search(r"^SLOT_ID = re\.compile\(r\"%s\"\)" % re.escape(captions.SLOT_ID.pattern), renderer, re.M)
     assert media_stock.MAX_SLOTS == captions.STOCK_SLOTS_MAX == 6 and media_stock.PER_SLOT == 6 and media_stock.PER_SOURCE == 2 and media_stock.MAX_PREVIEWS == 36
     caps = stock.CAPS
-    assert media_stock.KIND_BYTES == {"image": caps["image_bytes"], "clip": caps["clip_bytes"]}
+    limit = json.loads((REPO / "providers" / "renderer" / "renderer-presets.json").read_text(encoding="utf-8"))["limits"]["asset_max_bytes"]
+    assert media_stock.KIND_BYTES["image"] == caps["image_bytes"]
+    assert media_stock.KIND_BYTES["clip"] == limit and media_stock.KIND_BYTES["clip"] <= caps["clip_bytes"]  # V9b-5c (D6): the runtime caps a clip at the renderer's limit, at or below the provider's own cap; the spec's 3.2 missed this test.
 
 
 def test_the_not_approved_sentence_of_the_step_is_the_english_phrase():
