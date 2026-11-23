@@ -416,7 +416,7 @@ def test_every_preset_declares_what_the_checker_needs():
     vocab = vocabulary()
     kinds = set(vocab["types"])
     for name, preset in vocab["presets"].items():
-        assert preset["kind"] in ("overlay", "layout") and preset["summary"]
+        assert preset["kind"] in ("overlay", "layout", "effect") and preset["summary"]
         assert preset["main"] in preset["params"]
         for param, pspec in preset["params"].items():
             used = pspec["type"] if isinstance(pspec["type"], list) else [pspec["type"]]

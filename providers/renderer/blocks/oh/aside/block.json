@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "name": "oh:aside",
+ "kind": "effect",
+ "preset": "aside",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "one short candid line said as an aside: the shot goes black and white with an echo, then cuts back",
+ "params": {
+  "label": {
+   "type": "text",
+   "max": 40
+  },
+  "echo": {
+   "type": "choice",
+   "values": [
+    "light",
+    "strong"
+   ],
+   "default": "light"
+  }
+ },
+ "samples": [
+  {
+   "label": "not my finest hour",
+   "echo": "strong"
+  },
+  {
+   "echo": "light"
+  }
+ ],
+ "natural_duration": 3.0,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

@@ -105,11 +105,24 @@ A script has at most 12 beats and a spoken line of at most 240 characters.
 | `position` | choice | `top` or `bottom` | no, default `top` |
 | `label` | text | up to 40 characters | no |
 
+### aside
+
+- **Shows:** for one beat the speaker's own shot turns black and white and the voice gets an echo; then a hard cut returns to normal colour and dry sound, as if that bit were an outtake left in by accident. It is the one preset of kind `effect`: it changes how the speaker's shot looks and sounds, draws nothing over it except the optional label, and the speaker stays on screen.
+- **Use when:** the line is a short, candid aside: a confession out of context as the cold open (on the `hook`), or a self-deprecating remark or a candid pause in the middle of the video. Not for a line that carries the point: the point is said in the normal shot.
+- **Main:** `label`, optional: a few words shown during the aside.
+- **Limits:** at most one `aside` in a video; it takes any role, the `hook` included; never with `emphasis: punch` on the same beat (the aside is the unedited look, a punch-in is an edit). Like every preset it is the beat's only preset, so it never shares a beat with a layout. Both of its edges are hard cuts, with no transition: nothing sets them.
+
+| Parameter | Type | Bounds | Required |
+|-----------|------|--------|----------|
+| `label` | text | up to 40 characters | no |
+| `echo` | choice | `light` or `strong` | no, default `light` |
+
 ## Choosing
 
 - One preset per beat; a script of a 30-second video holds about three to six beats, not one per sentence.
 - Do not use the same preset for every beat: a script of only keywords is flat. Prefer the preset the content calls for (a number for a measured figure, a list for parallel things).
 - A layout preset (`cutaway`, `pip`) is only written when the person has the material to show. Ask when it is not known.
+- An effect preset (`aside`) is rare by design: once in a video at most, on a line that is short and candid.
 
 ## The script's own vocabulary (version 2 of the data file)
 

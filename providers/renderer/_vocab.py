@@ -62,7 +62,7 @@ def load_vocabulary(path: str) -> dict:
 
 
 def _check_preset(name: str, preset: dict) -> None:
-    assert preset["main"] in preset["params"] and preset["kind"] in ("overlay", "layout"), name
+    assert preset["main"] in preset["params"] and preset["kind"] in ("overlay", "layout", "effect"), name
     for spec in preset["params"].values():
         assert "type" in spec
 

@@ -10,7 +10,7 @@
    "properties": {
     "schema_version": {"const": 1, "description": "block.json only; an allowlist entry has none"},
     "name": {"type": "string", "pattern": "^(oh|hf):[a-z][a-z0-9-]{0,39}$"},
-    "kind": {"enum": ["overlay", "layout", "caption"]},
+    "kind": {"enum": ["overlay", "layout", "caption", "effect"]},
     "preset": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{0,31}$"},
     "band": {"enum": ["card", "frame", "caption"]},
     "may_cross_face": {"type": "boolean"},

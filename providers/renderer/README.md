@@ -21,7 +21,7 @@ beats come from the post file's script block.
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
 | `_blocks.py` | Common: the catalogue of animation blocks. Loads and checks `blocks/` (every file against `blocks/pins.json`), resolves the block that draws a beat on an engine and refuses one the engine cannot draw (`block_not_on_engine`), checks a block's parameters (the renderer-side checker, VD15), writes the pins and the generated catalogue. |
-| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip` (each page a pure `renderAt(t, data)`, byte for byte the old template; the `pip` page of V9e is a card: the speaker stays full frame, ffmpeg composes the asset into a rounded card below the face, `_layout.pip_cards` settles its box (the whole room from the face to the caption line) and the captions' band (the card's lower part, the caption drawn over it), a pip with no room is dropped with `pip_no_room` in the optional `beats_dropped_reasons`, and the page draws only the shadow and the label); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty: no registry component is admitted) and `hf/<name>/` (`block.json` and `gsap.html` of the five tier-B ports of V3b-4); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
+| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`, `aside` (each page a pure `renderAt(t, data)`, byte for byte the old template; the `pip` page of V9e is a card: the speaker stays full frame, ffmpeg composes the asset into a rounded card below the face, `_layout.pip_cards` settles its box (the whole room from the face to the caption line) and the captions' band (the card's lower part, the caption drawn over it), a pip with no room is dropped with `pip_no_room` in the optional `beats_dropped_reasons`, and the page draws only the shadow and the label); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty: no registry component is admitted) and `hf/<name>/` (`block.json` and `gsap.html` of the five tier-B ports of V3b-4); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
@@ -112,6 +112,27 @@ Three presets are review-only (V9a-1): `mark` (a short phrase with a hand-drawn 
 `vocabulary_clash`), and `_align.read_script` refuses a script row that names one (`preset_review_only`): the person adds them at review, and the script's
 checker never sees them. Each is an `oh:` block (`blocks/oh/mark`, `sticker`, `nametag`: a `block.json` and a `renderat.html`, card band, never across the
 face) named by both engine files. Tests: `tests/test_renderer_review_presets.py`.
+
+## The aside: the one effect preset
+
+`aside` is the vocabulary's one preset of kind `effect`: for one beat the speaker's picture turns black and white and the voice gets an echo, then a hard
+cut returns to normal. `beats.json` holds it with the overlays (`_edl.BUCKET_KINDS`); `check_beats` refuses a second one (`effect_repeated`) and one with a
+punch on its beat (`effect_with_punch`), the script checker's rules held again. `_edl.resolve_asides` turns its beat's span (its words, `tail` of
+`presets.aside`, cut by the next beat) into one `mono` grade row per kept range it touches, the rows the review's mono already uses, and one echo row on the
+output timeline with the `aecho` values of its `echo` (`presets.aside.echo.light` or `strong`; the vocabulary's default, light, when the beat has none). Both
+edges are hard cuts, in picture and in sound: no fade, no crossfade, and nothing sets them.
+
+- **The ffmpeg engine** greys the span in the compose graph (`grade_filters`, under the beat and caption layers, so the captions and the label keep their
+  colour) and echoes the joined sound (`_media.echo_filters`: the sound split in two, the wet copy through `aecho` silenced outside the span, the dry one
+  inside it, summed by `amix` without normalising, so the sound outside the span is unchanged and the echo's tail stops dead at the span's end).
+- **The HyperFrames engine** greys the span on its page (the same mono rows, a CSS `grayscale(1)`), and its encode stage (`_inner.py encode`) adds the
+  echo to the intermediate's sound with the same `echo_filters`, on the timeline that stage already resolves for its gates. The echo needs the gate's flags,
+  which every composed render has; a base-only encode draws no beat, so it has no aside.
+- **`oh:aside`** (card band) draws only the optional label: a plain grey and white chip, on for every frame of the beat and off outside it. With no label it
+  draws nothing and marks no zone.
+- **The image** must hold `asplit`, `aecho`, `volume` and `amix` (`_inner.REQUIRED_FILTERS`), which Debian's ffmpeg has; a change to `_media.py` and
+  `_inner.py` asks for an image rebuild (`build --confirmed`). Not verified here: a render in the rebuilt image and a listening test on a real recording; the
+  echo values are starting values, not tuned. Tests: `tests/test_renderer_aside.py`.
 
 ## The HyperFrames engine's composed page (V3b-1)
 

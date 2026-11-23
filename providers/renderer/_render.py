@@ -97,6 +97,8 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
     effects = _edl.range_effects(edl, timeline)      # the punches and grades, by kept range (V9a-3): the plan of a render with none has no such key
     if effects:
         plan["effects"] = effects
+    if timeline.get("echoes") and plan["has_audio"]:
+        plan["echoes"] = timeline["echoes"]          # an aside's echo, on the joined sound: the plan of a render with none has no such key
     return plan
 
 

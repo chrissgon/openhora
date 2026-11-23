@@ -33,6 +33,7 @@ PROPOSAL_REQUIRED = {"id", "kind", "word_from", "word_to", "keep_from", "seconds
 PROPOSAL_KEYS = PROPOSAL_REQUIRED | {"default", "reason"}      # `default` and `reason` are optional: a list written before them reads as `keep`
 RETAKE_MODES = ("auto", "propose")
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
+BUCKET_KINDS = {"overlays": ("overlay", "effect"), "layouts": ("layout",)}      # an effect beat (`aside`) sits with the overlays: it keeps the speaker on screen
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
 BEATS_KEYS = BEATS_REQUIRED | {"script", "punches", "effects"}      # `script`, `punches` and `effects` are optional: a beats file without them stays valid, schema_version 1
 PUNCH_KEYS = {"beat", "word_from", "word_to", "score"}               # a script punch: the beat's number and the words it was aligned to
@@ -474,7 +475,7 @@ def check_beats(beats, edl, vocab: dict) -> dict:
     index_set = {w["index"] for w in edl["words"]}
     texts, seen_ids, slot_ids_used = [], set(), set()
     total = 0
-    for bucket, kind in (("overlays", "overlay"), ("layouts", "layout")):
+    for bucket in ("overlays", "layouts"):
         entries = beats[bucket]
         if not isinstance(entries, list):
             raise Refusal("not_list", "beats.%s" % bucket)
@@ -490,7 +491,7 @@ def check_beats(beats, edl, vocab: dict) -> dict:
             seen_ids.add(e["id"])
             if not _int(e["beat"]) or e["beat"] < 1:
                 raise Refusal("bad_beat", field)
-            if e["preset"] not in vocab["presets"] or vocab["presets"][e["preset"]]["kind"] != kind:
+            if e["preset"] not in vocab["presets"] or vocab["presets"][e["preset"]]["kind"] not in BUCKET_KINDS[bucket]:
                 raise Refusal("bad_preset", field)
             clean = check_params(vocab, e["preset"], e["params"], field + ".params")
             if clean != e["params"]:
@@ -530,6 +531,13 @@ def check_beats(beats, edl, vocab: dict) -> dict:
         texts.extend(check_script_object(beats["script"], vocab))
     check_punches(beats.get("punches", []), index_set, vocab)
     check_effects(beats.get("effects", []), index_set)
+    # the script checker's rules of an effect preset (`aside`), held again here: at most one in a video, and never with a punch on its beat
+    effect_beats = [e["beat"] for e in beats["overlays"] if vocab["presets"][e["preset"]]["kind"] == "effect"]
+    if len(effect_beats) > 1:
+        raise Refusal("effect_repeated", "beats.overlays")
+    if any(p.get("beat") in effect_beats for p in beats.get("punches", [])) or \
+            any(e.get("emphasis") == "punch" for e in beats["overlays"] if e["beat"] in effect_beats):
+        raise Refusal("effect_with_punch", "beats")
     scan_texts(texts)
     return {"texts": texts, "mentions": mentions_of(texts)}
 
@@ -708,6 +716,31 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
     return kept, dropped
 
 
+def resolve_asides(edl: dict, entries: list, vocab: dict, data: dict) -> tuple:
+    """(grades, echoes) of the effect beats (`aside`) of the timeline, from their spans as the beat track left them (words, tail, cut by the next beat).
+
+    The picture: one mono grade row per kept range the span touches, so the grey starts on the beat's first frame and stops on its last, a hard cut at
+    each edge whatever the cuts between; drawn by the same rows as the review's mono (the ffmpeg graph, the HyperFrames page, the face check's reference).
+    The sound: one echo row on the OUTPUT timeline, {id, start_frame, end_frame, in_gain, out_gain, delays, decays}, from `presets.<name>.echo` of the
+    beat's `echo` value (the vocabulary's default when the beat has none)."""
+    table, grades, echoes = range_table(edl), [], []
+    for e in entries:
+        if e.get("kind") != "effect":
+            continue
+        cfg = data["presets"][e["preset"]]
+        for k, (first, last) in enumerate(table):
+            a, b = max(e["start_frame"], first), min(e["end_frame"], last)
+            if a < b:
+                grades.append({"id": e["id"], "kind": "mono", "start_frame": a, "end_frame": b, "range": k})
+        spec = vocab["presets"][e["preset"]]["params"].get("echo")
+        if spec is not None and "echo" in cfg:
+            value = e["params"].get("echo", spec.get("default"))
+            row = cfg["echo"][value]
+            echoes.append({"id": e["id"], "start_frame": e["start_frame"], "end_frame": e["end_frame"], "in_gain": row["in_gain"], "out_gain": row["out_gain"],
+                           "delays": list(row["delays"]), "decays": list(row["decays"])})
+    return grades, echoes
+
+
 def range_effects(edl: dict, timeline: dict) -> dict:
     """{k: {first, frames, punches: [(a, b, zoom)], grades: [{kind, a, b, alphas, alpha, color}]}} for each kept range number k that a punch or a grade
     touches, in the RANGE's own frame index (a to b, b excluded). The ffmpeg engine's graph, the HyperFrames page and the face check's reference
@@ -729,7 +762,7 @@ def range_effects(edl: dict, timeline: dict) -> dict:
 
 
 def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
-    """Frame ranges on the output timeline: {captions, beats, dropped, punches, grades, effects_dropped}.
+    """Frame ranges on the output timeline: {captions, beats, dropped, punches, grades, echoes, effects_dropped}.
 
     A beat starts at its first word and ends `tail` after its last, within the preset's minimum and maximum duration
     and the video's end (a keyword starts at the word that matches its text, when one does). A beat whose words are
@@ -762,6 +795,9 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     entries = [e for e in entries if e["id"] not in dropped]
     punches, punches_dropped = resolve_punches(edl, beats, data)
     grades, grades_dropped = resolve_grades(edl, beats, data)
+    aside_grades, echoes = resolve_asides(edl, entries, vocab, data)      # an aside's grey is a mono grade over its beat; its echo is a row of its own
+    if aside_grades:
+        grades = sorted(grades + aside_grades, key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
     for e in entries:
         e["face"] = span_face(edl, data, e["start_frame"], e["end_frame"], punches)
     cap = data["caption"]
@@ -780,5 +816,5 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         if ef <= sf:
             continue
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
-    return {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades,
+    return {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
             "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}

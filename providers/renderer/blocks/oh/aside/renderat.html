@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="aside">
+<meta name="pv-params" content="label,echo">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:flex-end; }
+#chip { display:none; padding:0.2em 0.6em 0.24em; border-radius:0.3em; border:0.06em solid var(--c-muted); background:var(--c-bg);
+        font-family:var(--font-mono); font-weight:var(--weight-mono); color:var(--c-text); text-align:center; line-height:1.1;
+        letter-spacing:0.02em; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div id="pos"><div id="chip"></div></div>
+<script>
+'use strict';
+// The aside's picture and sound are not drawn here: the speaker's grey is a mono grade of the base picture and the echo a filter of the sound,
+// both over the beat's exact span. This page draws only the optional label, a plain chip at the bottom of the card band (the band the face box
+// leaves above it, data.zones.card), in grey and white so it belongs to the black-and-white shot. It has no entrance and no exit: it is on for
+// every frame of the beat and off outside it, a hard cut at both edges like the grade. With no label the page draws nothing and marks no zone.
+// Pure function of (t, data): every style it relies on is set here, so a frame never depends on the one before.
+const FIT = 0.5;      // the share of the band the chip may fill: the label is a quiet note, never a headline
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const z = data.zones.card;
+  const pos = document.getElementById('pos');
+  pos.style.top = z[0] + 'px';
+  pos.style.height = (z[1] - z[0]) + 'px';
+  const chip = document.getElementById('chip');
+  if (!P.label) {
+    chip.style.display = 'none';
+    chip.textContent = '';
+    delete chip.dataset.zone;
+    return;
+  }
+  chip.style.display = 'block';
+  chip.dataset.zone = 'card';
+  chip.textContent = P.label;
+  const bandH = z[1] - z[0];
+  let fs = Math.min(64, bandH * 0.3);
+  chip.style.fontSize = fs + 'px';
+  while ((chip.offsetWidth > 930 || chip.offsetHeight > bandH * FIT) && fs > 28) { fs = fs * 0.94; chip.style.fontSize = fs.toFixed(1) + 'px'; }
+  chip.style.opacity = '1';
+};
+</script>
+</body>
+</html>

@@ -133,9 +133,37 @@ A warning is read, never ignored: fix it when you can, and list what stayed in t
 - A layout preset (`cutaway`, `pip`) only when the user or the material says the person has something to show. Its `asset` is a description in words of what to show, never a file name, a path or a link.
 - Vary the presets: not every beat is a `keyword`. Leave optional parameters (`icon`, `color`) out unless the voice or the strategy asks for them.
 
+## The aside: a candid beat
+
+`aside` is the one preset of kind `effect`. For its beat the speaker's own shot turns black and white and the voice gets an echo; a hard cut then brings back normal colour and dry sound, as if that bit were an outtake left in by accident. The speaker stays on screen, the captions keep their normal look, and nothing sets the cut: both edges are always hard cuts. Its parameters: `echo` (`light` or `strong`, default `light`) and, as `on-screen`, an optional `label` of at most 40 characters.
+
+The line of an aside is **short and candid**: a confession, a thought said half to oneself, never the point of the video. Two uses:
+
+- **The cold-open hook**: an out-of-context confession before the video starts properly. On the hook, a label (if any) repeats 2 to 5 words of the line, as any on-screen text of the hook does.
+
+```
+beat: 1
+role: hook
+line: Honestly, I almost quit baking bread after my fifth flat loaf.
+preset: aside
+echo: strong
+```
+
+- **A candid aside mid-video**: a self-deprecating remark or a candid pause, usually a `turn` or a `setup`.
+
+```
+beat: 4
+role: turn
+line: Which, to be fair, took me way too long to figure out.
+on-screen: not my finest hour
+preset: aside
+```
+
+The checker refuses a second `aside` in one video (`effect_repeated`), an `aside` with `emphasis: punch` on the same beat (`effect_with_punch`: the aside is the unedited look, a punch-in is an edit), and an `aside` beside a layout (`effect_with_layout`: the speaker must be on screen, and a beat holds one preset anyway). It takes any role, and it counts as a visual event for rule 5, as any preset does.
+
 ## What the vocabulary does not offer
 
-A colour that is not a palette token, a font, a transition that is not listed, a sound, a position that is not listed: not written. Use the nearest allowed value or none, and say what was not available in the reply's `Left out`.
+A colour that is not a palette token, a font, a transition that is not listed, a sound (the `aside`'s echo is the only sound treatment, and it is the preset's, not a free choice), a position that is not listed: not written. Use the nearest allowed value or none, and say what was not available in the reply's `Left out`.
 
 ## No time of any kind
 
