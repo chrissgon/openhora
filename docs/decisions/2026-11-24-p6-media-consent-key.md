@@ -4,7 +4,7 @@
 
 **The key.** `media.consent` is a list of up to four different words of a closed tuple (`project_config.MEDIA_CONSENT_WORDS`): `transcript`, `intonation`, `published-frames`, `render-ocr`. Absent or `[]` is off. Each listed word is its own widening item (place `media-consent`, group `media-consent=<word>@<terms version>`), carried by the record `config:accounts` and the hash `accept-config --widen` takes. A change of a word's terms raises its version and the item is listed again; until it is accepted again `require` refuses that word. A project without the key has the same items, widening list and hash as before (tested).
 
-**The words and their terms (version 1; draft until the maintainer approves the text, STOP A).** The service is named by its role, not by company, because the model of a run is chosen per run (named, or `auto`).
+**The words and their terms (version 1; approved by the maintainer, STOP A).** His answer to STOP A, on 2026-11-24: "Aprovo (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted). The service is named by its role, not by company, because the model of a run is chosen per run (named, or `auto`).
 - `transcript`: the words of the recordings, with the time of each word and of each pause, go to the model service that runs a video's task and to the company that serves that model; no sound and no picture is sent.
 - `intonation`: how each part is said, measured on this computer as words and numbers, goes with the transcript to the same service; no sound is sent.
 - `published-frames`: still pictures of videos already published go to a model service that reads images, to be labelled from a fixed list of words; never a picture of a recording that is not published.
@@ -23,7 +23,7 @@ Checked and not senders: the transcriber is local whisper.cpp in a container; no
 
 **D10.** The grant `media-phone` is the VD17 consent for the caption words on a messaging app: its shown text (`operations.GROUP_TEXT["media-phone"]`, used because `GRANT_TEXT` has no `messaging:media-phone` key) names what is sent (the captions) and the service (the app's servers), which is the condition v3 put on D10. The maintainer's answer: "Sim, conta" (validate: allow english-only -- the maintainer's own words, quoted). The text does not say what the app keeps; left as it is unless he asks.
 
-**STOP B (open: the maintainer decides before the merge).** Does the grant `approve-effect-deliver` count as the consent for the preview of a delivery on a messaging app? Its shown text says "the recording and the preview pass through the messaging provider's servers". Built as recommended: yes, as it is, which changes no behaviour. The alternative (also require `media-phone`) would stop a phone approver without `media-phone` from receiving the preview of a video started on the page; if he chooses it, only rule 4 of `require`, its test and the docs change.
+**STOP B (answered).** Does the grant `approve-effect-deliver` count as the consent for the preview of a delivery on a messaging app? Its shown text says "the recording and the preview pass through the messaging provider's servers". Built as recommended: yes, as it is, which changes no behaviour. His answer, on 2026-11-24: "Sim, conta (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted). The alternative (also require `media-phone`) would stop a phone approver without `media-phone` from receiving the preview of a video started on the page; if he chooses it, only rule 4 of `require`, its test and the docs change.
 
 **Callers to come.** P7 calls `require` with `published-frames`; P8 with `transcript` and `intonation` (and `transcript` again if its agent writes search words); P9-b's explaining skill with `render-ocr` (R3-24).
 
@@ -31,4 +31,4 @@ Checked and not senders: the transcriber is local whisper.cpp in a container; no
 
 **Verified.** The widening pattern was copied from `references` and `stock`; the new tests (`runtime/tests/test_media_consent.py`, plus cases in `test_media_config.py`) cover the configuration, the items, a raised terms version, the unchanged answers for a project without the key, the end to end acceptance, `require` for each kind of word, the closed list, both senders and the inventory.
 
-**Not verified.** Nothing real was sent. That the inventory is complete beyond a reading of the code and a search (a path built dynamically could hide). The final terms (STOP A) and the preview rule (STOP B) await the maintainer.
+**Not verified.** Nothing real was sent. That the inventory is complete beyond a reading of the code and a search (a path built dynamically could hide). Nothing awaits the maintainer: STOP A and STOP B are answered.
