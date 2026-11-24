@@ -15,6 +15,7 @@ messaging bridge calls it (runtime/messaging_preview.py), as the channel `messag
     when it is at most deliver_document.PREVIEW_MAX_BYTES, else the renderer's copy (deliver_document.preview_name);
   - the preview's file, read from the store, still hashes to the hash the document recorded.
 
+It first calls ops_media_consent.require (package P6, VD17) for `messaging-preview`: the preview carries the captions drawn in, and goes only to a sender the delivery grant covers.
 It writes nothing, sends nothing and answers nobody. It reads at most deliver_document.PREVIEW_MAX_BYTES (15 MiB) into memory. The approval stays a decision of the hash of the exact render: the
 preview is for looking.
 
@@ -34,6 +35,7 @@ import effects  # noqa: E402
 import media  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_media_consent  # noqa: E402
 import ops_step_effects  # noqa: E402
 import ops_step_seams  # noqa: E402
 
@@ -51,6 +53,7 @@ def video_preview(project: str, pending_id, channel=None, sender=None) -> dict:
         raise core.OpsError("the preview of a delivery is for a messaging app only", 1)
     ctx = core.context(project)
     ops_actor.guard(ctx, "approve", channel, sender, kind=KIND)
+    ops_media_consent.require(ctx, ["messaging-preview"], channel=channel, sender=sender)      # P6, VD17: the preview carries the captions drawn in
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     if item.get("status") != "open" or item.get("kind") != "effect":
         raise core.OpsError(NOT_DELIVERY, 1)

@@ -60,6 +60,9 @@ which the runtime then names on every call. Like every key, it is changed only i
 "stock" (package V9b-3a) is a list of 1 to 8 names of the sources of the class stock:media (providers/stock/<name>.py: the libraries a video's pictures are searched
 in), or [] for none; absent means every source that needs no key. Each licensed source is a widening item, so accept-config stops, shows what the person gives away
 (the search words leave this computer) and needs --widen; until then the search answers `stock_not_accepted`.
+"consent" (package P6, decision VD17) is a list of up to 4 different words from transcript, intonation, published-frames and render-ocr (absent or [] is off): what of a
+recording may reach a model or a hosted service. Each word is a widening item with a terms version, so accept-config stops, shows its terms and needs --widen; the sender
+calls runtime/ops_media_consent.py `require`, which refuses until the record holds the item. No word covers audio or a frame of a recording.
 
 It also reads "accounts" (package FND; absent: the platform writes to no account of the person's): where the platform may write in the person's own
 Google and Microsoft accounts, an object {"google": {...}, "microsoft": {...}} whose entries are each {"address": "<plain address>" (required),
@@ -730,12 +733,13 @@ def _outbox(value, workbench: str):
     return {"provider": provider, "from": sender}
 
 
-MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references", "stock", "web_refused_hosts", "web_allowed_hosts", "websearch")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS), the reference videos, the stock sources and the open web's host lists and bounds
+MEDIA_KEYS = ("language", "transcriber_model", "renderer", "references", "stock", "web_refused_hosts", "web_allowed_hosts", "websearch", "consent")      # the settings of a new video (runtime/ops_step_seams.py MEDIA_SETTINGS), the reference videos, the stock sources and the open web's host lists and bounds
 STOCK_CLASS = "stock:media"
 STOCK_MAX = 8
 WEB_HOSTS_MAX = 100      # = the open-web provider's CAPS["host_list"] (a test reads that file as text and compares)
 WEB_HOST_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")      # = providers/stock/_net.py HOST_RE (a test reads that file as text and compares)
 WEBSEARCH_DEFAULTS = {"max_per_day": 5, "max_cost_usd": 0.6, "timeout_seconds": 300}      # media.websearch (V9b-3b): the bounds of each web search of a video's media, the ranges of `research`
+MEDIA_CONSENT_WORDS = ("transcript", "intonation", "published-frames", "render-ocr")      # `consent` (VD17, P6): what of a recording may reach a model or a hosted service; no word for audio or for a frame of a recording (D2)
 MEDIA_REFERENCES = ("on", "off")      # `references`: absent is off; "on" is a widening (runtime/policy_widening.py), accepted with `accept-config --widen`
 MEDIA_RENDERER_CLASS = "renderer:video"
 MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")      # = providers/transcriber/whispercpp.py LANGUAGE (a test reads that file as text and compares)
@@ -767,7 +771,7 @@ def _media(value, workbench: str):
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
-        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off), stock (a list of sources), web_refused_hosts and web_allowed_hosts (lists of host names) and websearch (the bounds of a web search)")
+        raise ConfigError("runtime.json media must be an object with the keys language, transcriber_model and renderer, each optional, and references (on or off), stock (a list of sources), web_refused_hosts and web_allowed_hosts (lists of host names) and websearch (the bounds of a web search) and consent (a list of words)")
     out = {}
     if "language" in value:
         found = value["language"]
@@ -796,6 +800,12 @@ def _media(value, workbench: str):
             raise ConfigError("runtime.json media.stock must be a list of up to %d different sources, each one of %s (an empty list turns it off)"
                               % (STOCK_MAX, ", ".join(shipped) or "none: no source is shipped"))
         out["stock"] = list(found)
+    if "consent" in value:
+        found = value["consent"]
+        if not isinstance(found, list) or len(found) > len(MEDIA_CONSENT_WORDS) or not all(isinstance(w, str) and w in MEDIA_CONSENT_WORDS for w in found) or len(set(found)) != len(found):
+            raise ConfigError("runtime.json media.consent must be a list of different words from %s (an empty list turns it off; each word is accepted with accept-config --widen)"
+                              % ", ".join(MEDIA_CONSENT_WORDS))
+        out["consent"] = list(found)
     for name in ("web_refused_hosts", "web_allowed_hosts"):
         if name in value:
             out[name] = _web_hosts(name, value[name])

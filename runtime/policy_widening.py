@@ -47,6 +47,9 @@ would not fit with the senders in the 4 KiB of one cursor; an absent record is "
   dump_accounts(cfg), parse_accounts(text)   the cursor's text, and the set of digests it holds (None when the text is not one)
   account_widening(old_text, cfg) the items of `cfg` that the record does not hold, without the digest; a `move_removes_inbox` only for an account the record held
 
+The media consent words (package P6, decision VD17: `media.consent`, one item per word, its terms and version in `CONSENT_TERMS`) are items of the same record and the same hash
+(`consent_items`, `consent_missing`, `consent_group`); a word's terms version is in its group, so a change of its terms is listed again. The use-time check is `ops_media_consent.require`.
+
 The fallback companies (S41-10, the group `interpret-fallback`) are a third record of the same kind: the person's consent to the group is tied to the companies in force when they accepted, kept in the cursor
 `config:fallbacks` as the keyed digests of the sorted `route:route_sha256` of `interpreter_enable.fallback_routes()`. The group is listed again, with each company named, for every place that holds it
 whenever the set in force is not a subset of the accepted one, and it is not accepted at all while no fallback is in force.
@@ -304,7 +307,7 @@ def account_items(cfg: dict, secret: str = "") -> list:
         group = f"default-account={default}"
         out.append({"place": "accounts", "channel": "accounts", "group": group, "means": f"a line in words that names no service goes to your {PROVIDER_NAME[default]} account when both could serve it",
                     "digest": _digest(group, secret)})
-    return out + reference_items(cfg, secret) + stock_items(cfg, secret)
+    return out + reference_items(cfg, secret) + stock_items(cfg, secret) + consent_items(cfg, secret)
 
 
 REFERENCES_GROUP = "references=on"
@@ -358,6 +361,50 @@ def stock_items(cfg: dict, secret: str = "") -> list:
         group = f"{STOCK_GROUP}{name}@none"
         out.append({"place": "stock", "channel": "stock", "group": group, "means": WEB_MEANS, "digest": _digest(group, secret)})
     return out
+
+
+CONSENT_GROUP = "media-consent="
+CONSENT_TERMS = {      # word -> (terms version, terms). A change of a word's terms raises its version: the item is then listed again. Keys = project_config.MEDIA_CONSENT_WORDS (a test compares)
+    "transcript": (1, "transcript: the words of your recordings, with the time of each word and of each pause, are sent to the model service that runs a video's task (the model you "
+                      "name for it, or the one auto picks) and to the company that serves that model; what that company keeps follows its own terms, outside this platform; "
+                      "no sound and no picture of a recording is sent"),
+    "intonation": (1, "intonation: how each part of a recording is said, measured on this computer as words and numbers (pitch movement, loudness against your usual level, "
+                      "speaking rate, the words you stress), is sent with the transcript to the same model service and company; no sound is sent"),
+    "published-frames": (1, "frames of published videos: still pictures taken from videos you have already published are sent to a model service that reads images, to be labelled "
+                            "from a fixed list of words, and to the company that serves that model; never a picture of a recording that is not published"),
+    "render-ocr": (1, "text in a rendered video: the text read from the frames of a video rendered here, its captions included (the captions are your words), is sent to the model "
+                      "service that explains what the scan found, and to the company that serves that model; never a picture"),
+}
+
+
+def consent_group(word: str) -> str:
+    """The group of a consent word's item: `media-consent=<word>@<terms version>`."""
+    return f"{CONSENT_GROUP}{word}@{CONSENT_TERMS[word][0]}"
+
+
+def consent_items(cfg: dict, secret: str = "") -> list:
+    """The items of `media.consent` (package P6, decision VD17): one per listed word, in the order of project_config.MEDIA_CONSENT_WORDS whatever the file's order. The place is
+    `media-consent` (not `consent`, a group name of the page's autonomy). They ride the record of the accounts: `accept-config` stops, prints each word's terms and needs `--widen`.
+    [] when the configuration has no `media` object, no `consent` key, or an empty list."""
+    media = (cfg or {}).get("media")
+    listed = media.get("consent") if isinstance(media, dict) else None
+    if not isinstance(listed, list):
+        return []
+    out = []
+    for word in project_config.MEDIA_CONSENT_WORDS:
+        if word in listed:
+            group = consent_group(word)
+            out.append({"place": "media-consent", "channel": "media-consent", "group": group, "means": CONSENT_TERMS[word][1], "digest": _digest(group, secret)})
+    return out
+
+
+def consent_missing(accounts_text, cfg: dict, words, secret: str = "") -> list:
+    """The words of `words` (in their given order) that are not consented: not listed in `media.consent`, or listed while the digest of their group at the current terms version is
+    not in the record `accounts_text`. No record, or an unreadable one, holds nothing."""
+    media = (cfg or {}).get("media")
+    listed = media.get("consent") if isinstance(media, dict) and isinstance(media.get("consent"), list) else []
+    held = parse_accounts(accounts_text) or set()
+    return [w for w in words if w not in listed or w not in CONSENT_TERMS or _digest(consent_group(w), secret) not in held]
 
 
 def dump_accounts(cfg: dict, secret: str = "") -> str:

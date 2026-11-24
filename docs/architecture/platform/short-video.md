@@ -151,6 +151,22 @@ Package V7b (decision 15; the provider `fetcher:video` is V7a's): a person gives
 - **Retention** (L74). Subtitles, details and facts 30 days after the reference was added, by the upkeep part `references`; a stray `video.*` or `.fetch-*` after an hour; a folder with no record after a day.
 - **Not built here.** The fetch and the measure themselves (V7a), the pin routine (V7c), messaging and the page (V7d). The runtime is tested against a fake of the provider's verb contract; nothing was fetched.
 
+## Consent key (VD17, P6)
+
+Package P6 (decision VD17): what of a recording may reach a model or a hosted service is a per-project switch, off by default, accepted by the person and checked by code.
+
+- **Switch.** `media.consent` in `runtime.json` is a list of up to 4 different words from `transcript`, `intonation`, `published-frames` and `render-ocr` (absent or `[]` is off). The list is closed and holds
+  no word for audio or for a frame of a recording: no audio and no recording frame reaches a model (D2), and adding such a word is a code change and a decision, never a configuration.
+- **A widening item for each word.** Each listed word is an item of the record `accept-config --widen` writes (`media-consent=<word>@<terms version>`, the terms in `policy_widening.CONSENT_TERMS`): `accept-config`
+  stops, prints the word's terms and needs `--widen`. A later package that changes a word's terms raises its version and the item is shown again. The service is named by its role (the model service of the run
+  and its company), not by a fixed list of companies.
+- **The check.** `ops_media_consent.require(ctx, purposes, channel=None, sender=None)` is the one function every sender calls before it sends, and it refuses with `media_consent_missing` otherwise. Today it
+  guards two senders, both toward a messaging app: the caption words (`messaging-captions`: only a sender whose profile holds `media-phone`, decision D10, whose shown text says the captions pass through the app's
+  servers) and the preview of a delivery (`messaging-preview`: only a sender whose profile covers the approval of the delivery, the grant `approve-effect-deliver`, whose shown text says the preview passes through
+  the messaging provider's servers). The transcriber is local, so no transcript reaches a model today; P7 (`published-frames`), P8 (`transcript`, `intonation`) and P9-b's explaining skill (`render-ocr`) call
+  `require` when they land. A hosted transcriber would need a word of its own.
+- **Where code cannot enforce it.** A new sender that never calls `require` is caught by the test of `SENDERS` only when it calls it somewhere, and otherwise by review.
+
 ## The licensed pictures of a video (V9b-3a)
 
 Package V9b-3a (decisions D5 to D14 of the V9b spec): a cutaway or a screenshot slot can take a picture from a library whose licence allows reuse in a published video. The picture is found by
