@@ -186,7 +186,7 @@ Approve the output only if all of the following hold:
 - Every number is the proof's, with its approximation marks kept.
 - Every link is one the strategy names.
 - Each network's first visible lines name whom it is for and lead to the decided link, or the failing piece is `change`.
-- Every `Approved:` and `Applied:` line reads `no` unless the person said so in words.
+- Every `Approved:` line has one of the three forms of step 8, and every `Applied:` line reads `no` unless the person said they applied it.
 - `Status: draft` in the artifact and `draft` in the state row.
 - The reply says nothing was changed on any profile.
 - Every number, name, link and claim in the artifact has its origin in an input, the user's words, a script output or a reference, or is listed under "Assumptions".
