@@ -120,3 +120,22 @@ def test_the_store_names_the_renderer_unless_it_is_absent_or_auto(world):
         set_media(world, value)
         accept(world)
         assert ops_step_seams.MediaStore(ops_core.context(world["path"])).renderer() == expected
+
+
+@pytest.mark.parametrize("good", [[], ["transcript"], ["render-ocr", "transcript"], ["transcript", "intonation", "published-frames", "render-ocr"]])
+def test_the_consent_key_takes_any_subset_of_the_four_words(world, good):
+    set_media(world, {"consent": good})
+    assert project_config.load(world["path"])["media"] == {"consent": good}
+
+
+def test_the_consent_key_may_be_absent(world):
+    set_media(world, {"language": "pt"})
+    assert "consent" not in project_config.load(world["path"])["media"]
+
+
+@pytest.mark.parametrize("bad", ["transcript", ["audio"], ["transcript", "transcript"], ["transcript", "intonation", "published-frames", "render-ocr", "transcript"], [3], {"transcript": True}, None])
+def test_the_consent_key_refuses_an_unknown_word_a_duplicate_a_non_list_and_more_than_four(world, bad):
+    set_media(world, {"consent": bad})
+    with pytest.raises(project_config.ConfigError) as caught:
+        project_config.load(world["path"])
+    assert "media.consent must be a list of different words from transcript, intonation, published-frames, render-ocr" in str(caught.value)

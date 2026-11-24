@@ -6,7 +6,7 @@
 """The operations of a video that comes from a messaging app (package V1d-1, decision 14): a recording a listed sender sent, the post it is for, the words of its
 captions, a correction and the run that goes on. The operations layer decides; the messaging bridge (runtime/messaging_video.py) only fetches, calls these and
 says the answer. Every call is the bridge's: any channel but `messaging` is refused first, then the sender's profile must hold the group `media-phone`
-(runtime/ops_actor.py guard).
+(runtime/ops_actor.py guard). The caption words then pass runtime/ops_media_consent.py `require` (package P6, VD17: `media-phone` is the consent for this path, decision D10).
 
   video_phone_posts(project, channel=None, sender=None)                          the posts a video may be for (a helper, not an operation; the guard names `video-phone-in`)
   video_phone_in(project, incoming, platform, ref, channel=None, sender=None)    keep the recording the bridge fetched into an incoming folder it made (`video-phone-in`)
@@ -34,6 +34,7 @@ import media  # noqa: E402
 import media_phone_words as words  # noqa: E402
 import ops_actor  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_media_consent  # noqa: E402
 import ops_media  # noqa: E402
 import ops_media_edit  # noqa: E402
 import ops_step_effects  # noqa: E402
@@ -125,9 +126,11 @@ def video_phone_in(project: str, incoming: str, platform: str, ref: str, channel
     return {"media": record["id"], "size": record["raw"]["size"], "type": record["raw"]["type"]}
 
 
-def _caption_text(ctx: dict, task_id) -> dict:
+def _caption_text(ctx: dict, task_id, sender=None) -> dict:
     """The words of the review as text for the sender's chat: one line for each caption chunk, then the words in no chunk on one last line. Cut at the last line
-    end before WORDS_TEXT_MAX characters, with `cut` true, when longer. {"words": text, "cut": bool, "revision": the revision an edit must name}."""
+    end before WORDS_TEXT_MAX characters, with `cut` true, when longer. {"words": text, "cut": bool, "revision": the revision an edit must name}. It first calls
+    ops_media_consent.require (package P6, VD17): the caption words leave for the messaging app only for a sender whose profile holds `media-phone`."""
+    ops_media_consent.require(ctx, ["messaging-captions"], channel=CHANNEL, sender=sender)
     seen = ops_media_edit.view(ctx, task_id)["view"]
     by_index = {w["index"]: w["text"] for w in seen["words"]}
     lines, used = [], set()
@@ -152,7 +155,7 @@ def video_phone_start(project: str, media_id, post, channel=None, sender=None) -
         raise core.OpsError(NOT_OFFERED, 2)
     out = ops_media.video_new(project, media_id, "/".join(POSTS_DIR) + "/" + post + ".md")
     if out.get("stopped") == "review":
-        out = {**out, **_caption_text(ctx, out["task"])}
+        out = {**out, **_caption_text(ctx, out["task"], sender)}
     return out
 
 
@@ -196,7 +199,7 @@ def video_phone_reply(project: str, pending_id, text, channel=None, sender=None)
     except words.WordsError as e:
         return {"action": e.code, "wrong": e.wrong}
     done = ops_media_edit.edit(ctx, task, seen["view"]["revision"], edits, actor=sender)
-    return {"action": "edited", "task": task, "mode": done["mode"], "answered": done["answered"], "run": done["mode"] == "gate", **_caption_text(ctx, task)}
+    return {"action": "edited", "task": task, "mode": done["mode"], "answered": done["answered"], "run": done["mode"] == "gate", **_caption_text(ctx, task, sender)}
 
 
 def video_phone_run(project: str, task_id, channel=None, sender=None) -> dict:
@@ -205,7 +208,7 @@ def video_phone_run(project: str, task_id, channel=None, sender=None) -> dict:
     ctx = _checked(project, "video-phone-run", channel, sender)
     out = ops_media.video_run(project, task_id)
     if out.get("stopped") == "review":
-        out = {**out, **_caption_text(ctx, task_id)}
+        out = {**out, **_caption_text(ctx, task_id, sender)}
     return out
 
 
