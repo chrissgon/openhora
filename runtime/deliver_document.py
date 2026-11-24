@@ -42,7 +42,7 @@ LEFT_OUT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 LEFT_OUT_KIND_WORDS = {"text": "text highlight", "picture": "picture", "effect": "effect"}
 LEFT_OUT_BEAT_REASON_WORDS = {"overlap": "another scene starts at the same time", "under_picture": "a picture covers it",
                               "pip_no_room": "no room beside the face", "split_no_room": "no room beside the face"}
-LEFT_OUT_EFFECT_REASON_WORDS = {"punch_short": "the zoom is too short", "punch_capped": "too many zooms, this one was over the limit",
+LEFT_OUT_EFFECT_REASON_WORDS = {"punch_short": "the zoom is too short", "punch_capped": "the zoom would not get any closer than the shot already is",
                                 "grade_short": "the colour change is too short", "grade_overlap": "another colour change covers it"}
 ASSETS_MAX = 12
 SLOT = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")

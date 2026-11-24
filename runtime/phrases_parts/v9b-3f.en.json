@@ -10,7 +10,7 @@
     "CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM": "Left out of the video: {id}, picture, no room beside the face",
     "CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM": "Left out of the video: {id}, picture, no room beside the face",
     "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT": "Left out of the video: {id}, effect, the zoom is too short",
-    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED": "Left out of the video: {id}, effect, too many zooms, this one was over the limit",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED": "Left out of the video: {id}, effect, the zoom would not get any closer than the shot already is",
     "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT": "Left out of the video: {id}, effect, the colour change is too short",
     "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP": "Left out of the video: {id}, effect, another colour change covers it"
   }

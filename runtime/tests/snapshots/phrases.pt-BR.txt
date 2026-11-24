@@ -292,7 +292,7 @@ CARD_VIDEO_DIGEST: Documento de entrega sha256 <digest>
 CARD_VIDEO_FILE: Vídeo: Ana Lima, <mb> MB, <seconds> s, sha256 0123456789abcdef
 CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP: Ficou fora do vídeo: 42, efeito, outra mudança de cor cobre esse trecho
 CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT: Ficou fora do vídeo: 42, efeito, a mudança de cor é curta demais
-CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Ficou fora do vídeo: 42, efeito, zooms demais, este passou do limite
+CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Ficou fora do vídeo: 42, efeito, o zoom não aproximaria mais do que a cena já está
 CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT: Ficou fora do vídeo: 42, efeito, o zoom é curto demais
 CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP: Ficou fora do vídeo: 42, imagem, outra cena começa ao mesmo tempo
 CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM: Ficou fora do vídeo: 42, imagem, sem espaço ao lado do rosto
