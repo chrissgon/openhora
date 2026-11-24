@@ -2,7 +2,7 @@
 
 What TikTok is as a medium, for a creator account that posts through the platform's Content Posting API. A skill reads this file at the step that says "read the reference of the platform"; a script reads the same facts from `tiktok.json`, beside this file. What belongs to the tool that publishes (tokens and how long they last, the service's endpoints, upload chunks, its errors and rate limits) is in the provider, not here.
 
-Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "Inference" marks a conclusion drawn from stated facts that no page states. Dates are 2026-10-13.
+Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "Inference" marks a conclusion drawn from stated facts that no page states. Dates are 2026-10-13, except the section "A profile" and its sources, read 2026-11-24.
 
 ## Post shape
 
@@ -49,6 +49,17 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - Hashtags and mentions: limits not checked. Whether a link in a caption is clickable: not checked.
 - A first comment as a way to carry a link: not checked. The data file holds no first-comment limit.
 
+## A profile
+
+- Pieces: name, called the nickname (`name`), username (`username`), bio (`bio`), the bio link (`links`), photo (`photo`) and pinned videos (`pinned`).
+- Bio: at most 80 characters [TT-bio]. How a character is counted for the bio: not stated (the caption's unit, UTF-16, is a fact of the caption, not of the bio).
+- Nickname: up to 30 characters, changed at most once every 7 days [TT-name].
+- Username: 2 to 24 characters; letters, numbers, underscores and periods, never a period at the end; changed at most once every 30 days [TT-username].
+- Bio link: 1 link, only for an account with at least 1,000 followers or a Verified Business Account [TT-link]. Below that, the profile has no link: a skill writes the link piece as `not available` and says why.
+- Pinned videos: the number is not stated on the pages read (third-party pages disagree): `not checked`.
+- Photo: a size is not stated: `not checked`.
+- Export: "Settings and privacy", "Account", "Download your data"; the file stays available up to 4 days [TT-export].
+
 ## Comments and replies
 
 - Not checked. Comments on this platform are out of scope of the data file: it has no reply, comment or identifier keys, and no parser reads this platform's comment links.
@@ -72,3 +83,8 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - [TT-direct-ref] Direct Post reference: https://developers.tiktok.com/doc/content-posting-api-reference-direct-post (read 2026-10-13)
 - [TT-media] Media Transfer Guide: https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide (read 2026-10-13)
 - [TT-embed] Embed Videos: https://developers.tiktok.com/doc/embed-videos (read 2026-10-13)
+- [TT-bio] Changing account bio: https://www.tiktok.com/support/faq_detail?id=7096681482017692162 (read 2026-11-24)
+- [TT-name] Changing your nickname: https://www.tiktok.com/support/faq_detail?id=7581821550014388748 (read 2026-11-24)
+- [TT-username] Changing your username: https://www.tiktok.com/support/faq_detail?id=7581821550156962315 (read 2026-11-24)
+- [TT-link] Adding a website link to your profile: https://www.tiktok.com/support/faq_detail?id=7581821550328896012 (read 2026-11-24)
+- [TT-export] Requesting your data: https://www.tiktok.com/support/faq_detail?id=7543597460594285112 (read 2026-11-24)
