@@ -175,6 +175,37 @@ def test_a_yes_needs_a_date_and_the_persons_words(tmp_path, line):
     assert code == 1 and "approved_without_words" in codes(out)
 
 
+def swap_approved(line):
+    return GOOD.replace("- Approved: no\n- Applied: no\n\n### Links", line + "\n- Applied: no\n\n### Links", 1)
+
+
+@pytest.mark.parametrize("line", [
+    "- Approved: no",
+    '- Approved: yes, 2030-01-02, "that one"',
+    "- Approved: yes, 2030-01-01 (docs/brand/strategy.md, proposal 1)",
+])
+def test_the_three_forms_of_an_approval_pass(tmp_path, line):
+    code, out, _ = lint(tmp_path, swap_approved(line))
+    assert code == 0, out["problems"]
+
+
+@pytest.mark.parametrize("line", [
+    "- Approved: yes, 2030-01-01 (the person agreed earlier)",
+    "- Approved: yes (docs/brand/strategy.md, proposal 1)",
+])
+def test_a_yes_with_neither_words_nor_the_strategy_source_is_still_a_problem(tmp_path, line):
+    code, out, _ = lint(tmp_path, swap_approved(line))
+    assert code == 1 and "approved_without_words" in codes(out)
+
+
+def test_a_piece_to_remove_needs_no_proposed_text(tmp_path):
+    text = GOOD.replace("- Why: one link everywhere [state file, 2030-01-01]\n```proposed\nlinks.example/anacosta\n```\n",
+                        "- Why: remove: the old site is replaced by the link page [state file, 2030-01-01]\n")
+    code, out, _ = lint(tmp_path, text.replace('- Approved: yes, 2030-01-02, "yes, that one"', "- Approved: no"))
+    assert code == 0, out["problems"]
+    assert "change_without_proposal" not in codes(out)
+
+
 def test_a_change_with_no_proposed_text(tmp_path):
     text = GOOD.replace("```proposed\nlinks.example/anacosta\n```\n", "")
     code, out, _ = lint(tmp_path, text)

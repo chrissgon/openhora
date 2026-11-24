@@ -32,8 +32,10 @@ limit is null, has the limit "not checked" and gives no problem. Problems, each 
     "max_exclamations". "end_with_question" and "max_hashtags" are left out on purpose: a bio is not a post.
   sensitive: the shared sensitive_topics.py locks the text on a topic that no --exception names.
   approved_without_words: an Approved or Applied line that starts with the yes word and has no date, or an
-    Approved line with no quoted words, or an Applied line with neither quoted words nor words in brackets.
-  change_without_proposal: a piece whose verdict is the change word and that has no proposed block.
+    Approved line with neither quoted words nor brackets that name the strategy (`yes, <date> (docs/brand/
+    strategy.md, proposal 1)`), or an Applied line with neither quoted words nor words in brackets.
+  change_without_proposal: a piece whose verdict is the change word and that has no proposed block, unless
+    its Why line starts with "remove:" (a piece to remove has no proposed text).
   missing_section: a heading of --required-headings is not a "## " heading of the file.
   no_network: the file has no section with a Platform line.
   status: the Status line of the header holds none of --status-words.
@@ -119,7 +121,7 @@ def parse(text, labels):
         pm = PIECE_HEADING.match(line.strip())
         if pm:
             piece = {"key": pm.group(1), "line": n, "lines": None, "proposed_line": None,
-                     "verdict": None, "approvals": []}
+                     "verdict": None, "why": "", "approvals": []}
             cur["pieces"].append(piece)
             continue
         item = re.match(r"^-\s*([^:]+):\s*(.*)$", line.strip())
@@ -132,6 +134,8 @@ def parse(text, labels):
             continue
         if label == labels["verdict"].lower():
             piece["verdict"] = value.lower()
+        elif label == "why":
+            piece["why"] = value
         elif label in (labels["approved"].lower(), labels["applied"].lower()):
             piece["approvals"].append((label == labels["approved"].lower(), value, n))
     return sections, header
@@ -259,12 +263,14 @@ def lint(a, labels, text, allowed, rules):
                 if re.match(r"^%s\b" % re.escape(a.yes_word), value, re.I):
                     quoted = re.search(r'["“][^"”]+["”]', value)
                     bracketed = re.search(r"\([^)]+\)", value)
-                    ok = DATE.search(value) and (quoted if is_approval else (quoted or bracketed))
+                    from_strategy = is_approval and re.search(r"\([^)]*strategy[^)]*\)", value, re.I)
+                    ok = DATE.search(value) and (
+                        (quoted or from_strategy) if is_approval else (quoted or bracketed))
                     if not ok:
                         add("approved_without_words", n, where,
                             "a yes needs a date and the person's quoted words: %r" % value[:80])
             if piece["lines"] is None:
-                if piece["verdict"] == a.change_word.lower():
+                if piece["verdict"] == a.change_word.lower() and not piece["why"].lower().startswith("remove:"):
                     add("change_without_proposal", piece["line"], where, "the verdict is a change and no proposed block")
                 continue
             body = "\n".join(piece["lines"])
