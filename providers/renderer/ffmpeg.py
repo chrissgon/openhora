@@ -101,6 +101,7 @@ sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives
 
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
+import _hf_host  # noqa: E402
 import _browser  # noqa: E402
 import _container as box  # noqa: E402
 import _docker as D  # noqa: E402
@@ -220,6 +221,9 @@ def verb_render(args) -> dict:
                  "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0])))), "--time-limit", str(limit)]
         blocks_args = stage_blocks(job, _blocks.blocks_dir())
         inner += blocks_args
+        registry = _hf_host.test_registry_dir()          # a live test's own registry folder over the image's, read-only; None outside test mode
+        if registry:
+            job.add_mount(registry, "/opt/renderer/hf-registry", "ro")
         for slot, path in sorted(asset_files.items()):
             if not SLOT_ID.fullmatch(slot):
                 raise Refusal("bad_slot", slot[:32])

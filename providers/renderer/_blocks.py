@@ -35,7 +35,7 @@ def blocks_dir() -> str:
 MAX_FILE = 1 << 20
 SCHEMA_VERSION = 1
 SOURCES = {"oh": "openhora", "hf": "hyperframes-registry"}
-RUNTIMES = ("renderat", "gsap")
+RUNTIMES = ("renderat", "gsap", "hf")
 BANDS = {"overlay": "card", "layout": "frame", "caption": "caption", "effect": "card"}      # an effect (`aside`) changes the speaker's shot; its block draws only an optional label, in the card band
 LICENSES = ("MIT", "Apache-2.0", "OFL-1.1")
 PARAM_TYPES = ("text", "icon", "color", "choice", "image", "clip", "number")
@@ -57,7 +57,19 @@ REGISTRY_PATH = re.compile(r"[a-z0-9][a-z0-9._-]{0,60}(/[a-z0-9][a-z0-9._-]{0,60
 BLOCK_REQUIRED = frozenset(("name", "kind", "preset", "band", "may_cross_face", "license", "source", "use_when", "params", "samples",
                             "natural_duration", "implementations"))
 HF_KEYS = frozenset(("tier", "commit", "notice", "files"))
-BLOCK_KEYS = BLOCK_REQUIRED | HF_KEYS
+# What an entry that runs on the second contract (runtime `hf`: the HyperFrames runtime, the page the host builds) adds to a tier-A entry. `component` is the
+# registry folder of the component (the files' names are relative to it), `bind` maps each of our parameters to a variable (`var:<id>`) or to a CSS custom
+# property of the host root (`css:--prop`), `fixed` gives the variables no parameter reaches, `theme_vars` maps the component's CSS variables to our theme
+# (a colour token, or `font:<role>`; never `--bg`), `font_map` names the host family each edited family becomes, `determinism` is the recorded test.
+HF_RUNTIME_KEYS = frozenset(("component", "edits", "font_map", "served_sha256", "bind", "fixed", "theme_vars", "determinism"))
+DETERMINISM_KEYS = frozenset(("served_sha256", "runtime_sha256", "samples", "frames", "runs", "blocked", "date", "image", "seconds"))
+EDIT = re.compile(r"E1|E2:[A-Za-z][A-Za-z0-9 ]{0,40}")
+BIND = re.compile(r"var:[A-Za-z][A-Za-z0-9_]{0,31}|css:--[a-z][a-z0-9-]{0,40}")
+THEME_ROLE = re.compile(r"[a-z][a-z0-9_]{0,31}|font:(display|text|mono)")
+HOST_FAMILY = ("oh-display", "oh-text", "oh-mono")
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+IMAGE_TAG = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._/@-]{0,99}")
+BLOCK_KEYS = BLOCK_REQUIRED | HF_KEYS | HF_RUNTIME_KEYS
 PARAM_KEYS = frozenset(("type", "required", "default", "max", "max_items", "pattern", "values", "min", "integer"))
 ENGINE_KEYS = frozenset(("schema_version", "note", "runtimes", "presets", "engine", "asset_kinds"))
 ENGINE_REQUIRED = ENGINE_KEYS - {"asset_kinds"}
@@ -234,6 +246,9 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
     impl = obj["implementations"]
     if not isinstance(impl, dict) or not 1 <= len(impl) <= 2 or any(k not in RUNTIMES or not _is_str(v, FILE_NAME) for k, v in impl.items()):
         _fail(where)
+    on_hf = isinstance(impl, dict) and "hf" in impl
+    if on_hf != bool(HF_RUNTIME_KEYS & set(obj)) or (on_hf and (set(impl) != {"hf"} or HF_RUNTIME_KEYS - set(obj) or from_file)):
+        _fail(where)
     if namespace == "hf":
         if not _is_str(obj.get("commit"), HEX40) or not isinstance(obj.get("notice"), str) or not NOTICE.fullmatch(obj["notice"]):
             _fail(where)
@@ -251,7 +266,43 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
                 _fail(where)
     elif any(v not in obj["files"] for v in impl.values()):
         _fail(where)
+    if on_hf:
+        _check_hf_runtime(obj, where)
     return {k: v for k, v in obj.items() if k != "schema_version"}
+
+
+def _check_hf_runtime(obj: dict, where: str) -> None:
+    """The extra rules of an entry of the second contract (see HF_RUNTIME_KEYS): it never crosses the face, takes no picture, binds every parameter
+    and records a determinism test of 4 runs and no blocked request."""
+    if obj["may_cross_face"] is not False or obj["kind"] != "overlay" or obj["natural_duration"] is None:
+        _fail(where)
+    if not _is_str(obj["component"], REGISTRY_PATH) or not _is_str(obj["served_sha256"], HEX64):
+        _fail(where)
+    edits = obj["edits"]
+    if not isinstance(edits, list) or len(edits) > 12 or len(set(map(str, edits))) != len(edits) or not all(_is_str(e, EDIT) for e in edits):
+        _fail(where)
+    families = {e.split(":", 1)[1] for e in edits if e.startswith("E2:")}
+    fmap = obj["font_map"]
+    if not isinstance(fmap, dict) or set(fmap) != families or any(v not in HOST_FAMILY for v in fmap.values()):
+        _fail(where)
+    bind, fixed, theme = obj["bind"], obj["fixed"], obj["theme_vars"]
+    if not isinstance(bind, dict) or set(bind) != set(obj["params"]) or not all(_is_str(v, BIND) for v in bind.values()) \
+            or len(set(bind.values())) != len(bind):
+        _fail(where)
+    bound = {v[4:] for v in bind.values() if v.startswith("var:")}
+    if not isinstance(fixed, dict) or len(fixed) > 20 or not all(_is_str(k, re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")) and
+                                                                (isinstance(v, str) and len(v) <= 120 or _is_num(v) or isinstance(v, bool)) for k, v in fixed.items()) \
+            or bound & set(fixed):
+        _fail(where)
+    if not isinstance(theme, dict) or len(theme) > 20 or not all(_is_str(k, re.compile(r"--[a-z][a-z0-9-]{0,40}")) and k != "--bg" and _is_str(v, THEME_ROLE)
+                                                                  for k, v in theme.items()):
+        _fail(where)
+    det = obj["determinism"]
+    if not isinstance(det, dict) or set(det) != DETERMINISM_KEYS or not _is_str(det["served_sha256"], HEX64) or not _is_str(det["runtime_sha256"], HEX64) \
+            or not _is_int(det["samples"]) or det["samples"] < 1 or not _is_int(det["frames"]) or det["frames"] < 1 \
+            or not _is_int(det["runs"]) or det["runs"] != 4 or not _is_int(det["blocked"]) or det["blocked"] != 0 \
+            or not _is_str(det["date"], DATE) or not _is_str(det["image"], IMAGE_TAG) or not _is_num(det["seconds"]) or det["seconds"] < 0:
+        _fail(where)
 
 
 def check_engine(obj, name: str) -> dict:
@@ -326,6 +377,14 @@ def engines_of(catalogue: dict, block: dict) -> list:
     return sorted(n for n, e in catalogue["engines"].items() if set(e["runtimes"]) & set(block["implementations"]))
 
 
+def runtime_of(catalogue: dict, block: dict, engine: str) -> str:
+    """The runtime that draws `block` on `engine`: the first of the engine's runtimes the block implements."""
+    for runtime in catalogue["engines"][engine]["runtimes"]:
+        if runtime in block["implementations"]:
+            return runtime
+    raise Refusal("block_not_on_engine", block["name"])
+
+
 def implementation(catalogue: dict, block: dict, engine: str) -> str:
     """The page that draws `block` on `engine`: the first of the engine's runtimes the block implements, as "<ns>/<name>/<file>"."""
     for runtime in catalogue["engines"][engine]["runtimes"]:
@@ -392,6 +451,9 @@ def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, wit
         blk = resolve(catalogue, engine, e["preset"], e.get("block"), field)
         check_params(blk, e["params"], vocab, field + ".params")
         e["block"] = blk["name"]
+        if runtime_of(catalogue, blk, engine) == "hf":
+            templates[blk["name"]] = None          # a page of the second contract is built for each beat (`_hf_host.prepare`), never a pinned file
+            continue
         templates[blk["name"]] = implementation(catalogue, blk, engine)
         names.append(templates[blk["name"]])
     return templates, names

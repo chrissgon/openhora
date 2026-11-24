@@ -261,11 +261,13 @@ def verb_render(args) -> dict:
     asset_hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
     if (args.cover_out is None) != (args.cover_offset_ms is None):
         raise Usage("--cover-out and --cover-offset-ms go together")
+    if (args.vendor or args.hf_registry) and os.environ.get("RENDERER_TEST") != "1":
+        raise Usage("--vendor and --hf-registry are for the tests: the image's folders are the only ones a render reads")
     return _render.render(edl_path=args.edl, beats_path=args.beats, src=args.input, out=args.out, platform_path=args.platform_file,
                           vocabulary_path=args.vocabulary, asset_files=asset_files, asset_sha256s=asset_hashes, ffmpeg=ffmpeg,
                           ffprobe=ffprobe, browser=browser, jobs=args.jobs, dry_run=args.dry_run, time_limit=args.time_limit,
                           cover_out=args.cover_out, cover_offset_ms=args.cover_offset_ms, scratch=args.scratch,
-                          blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
+                          blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256, vendor=args.vendor, hf_registry=args.hf_registry)
 
 
 def verb_storyboard(args) -> dict:
@@ -671,6 +673,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--scratch", help="where the frames and work files go (memory-backed in the container)")
     sp.add_argument("--blocks", default=_blocks.BLOCKS_DIR, help="the staged blocks folder (default: the one next to this file)")
     sp.add_argument("--blocks-sha256", help="the sha256 of the staged pins.json, computed by the host on its copy")
+    sp.add_argument("--vendor", help="the folder of the runtime and GSAP of an admitted block (the image's; another folder only when RENDERER_TEST=1)")
+    sp.add_argument("--hf-registry", help="the folder of the registry files of an admitted block (the image's; another folder only when RENDERER_TEST=1)")
     sp = sub.add_parser("storyboard")
     common(sp, browser=True)
     sp.add_argument("--post")

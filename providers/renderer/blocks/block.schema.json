@@ -20,11 +20,20 @@
     "params": {"type": "object", "maxProperties": 12, "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"}, "additionalProperties": {"$ref": "#/$defs/param"}},
     "samples": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "object"}},
     "natural_duration": {"type": ["number", "null"], "minimum": 0.2, "maximum": 60},
-    "implementations": {"type": "object", "minProperties": 1, "maxProperties": 2, "propertyNames": {"enum": ["renderat", "gsap"]}, "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}\\.html$"}},
+    "implementations": {"type": "object", "minProperties": 1, "maxProperties": 2, "propertyNames": {"enum": ["renderat", "gsap", "hf"]}, "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}\\.html$"}},
     "tier": {"enum": ["A", "B"]},
     "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "notice": {"type": "string", "minLength": 1, "maxLength": 200},
-    "files": {"type": "object", "minProperties": 1, "maxProperties": 50, "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    "files": {"type": "object", "minProperties": 1, "maxProperties": 50, "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+    "component": {"type": "string", "description": "the registry folder of the component of a block that runs on the second page contract (runtime hf); the names of files are relative to it"},
+    "edits": {"type": "array", "maxItems": 12, "uniqueItems": true, "items": {"type": "string", "pattern": "^(E1|E2:[A-Za-z][A-Za-z0-9 ]{0,40})$"}},
+    "font_map": {"type": "object", "description": "the host family each family an E2 edit renames becomes", "additionalProperties": {"enum": ["oh-display", "oh-text", "oh-mono"]}},
+    "served_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "bind": {"type": "object", "description": "each of our parameters to a component variable (var:ID) or a CSS custom property of the host root (css:--prop)", "additionalProperties": {"type": "string", "pattern": "^(var:[A-Za-z][A-Za-z0-9_]{0,31}|css:--[a-z][a-z0-9-]{0,40})$"}},
+    "fixed": {"type": "object", "description": "the variables no parameter reaches", "maxProperties": 20},
+    "theme_vars": {"type": "object", "description": "the component's CSS variables to our theme: a colour token or font:ROLE, never --bg", "additionalProperties": {"type": "string"}},
+    "determinism": {"type": "object", "additionalProperties": false, "required": ["served_sha256", "runtime_sha256", "samples", "frames", "runs", "blocked", "date", "image", "seconds"],
+                    "properties": {"served_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "runtime_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "samples": {"type": "integer", "minimum": 1}, "frames": {"type": "integer", "minimum": 1}, "runs": {"const": 4}, "blocked": {"const": 0}, "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, "image": {"type": "string"}, "seconds": {"type": "number", "minimum": 0}}}
    }
   },
   "param": {

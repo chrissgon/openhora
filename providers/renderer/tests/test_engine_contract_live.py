@@ -39,7 +39,9 @@ import pytest
 
 import renderer_kit as K
 import contract_kit as C
+import hf_second_kit as S
 import _docker as D
+import _edl
 import _host
 import _media
 import hyperframes as H
@@ -224,7 +226,7 @@ class Lab:
             return d / "edl.json", d / "beats.json", json.loads((d / "edl.json").read_text())
         return self.cached(("docs", name), make)
 
-    def render(self, engine, tag, recording, edl, beats, cpus=4, cpuset="0-3", blocks=None, memory=False, timeout=3600, passed_ok=True, assets=None):
+    def render(self, engine, tag, recording, edl, beats, cpus=4, cpuset="0-3", blocks=None, memory=False, timeout=3600, passed_ok=True, assets=None, extra_env=None):
         """One render through the engine's host, the way a person runs it. `blocks` is a test blocks folder (RENDERER_TEST=1); the HyperFrames
         engine otherwise draws from the oh: pages on the renderat runtime (the test folder of this lab). `memory` samples both containers and
         counts OOM kills. Leaves nothing: the run is checked clean before it returns."""
@@ -233,6 +235,7 @@ class Lab:
         env = dict(os.environ)
         if folder is not None:
             env.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(folder))
+        env.update(extra_env or {})
         out_dir = self.folder / ("out-" + tag)
         args = ["render", "--edl", edl, "--beats", beats, "--in", recording, "--out", out_dir, "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY,
                 "--cpus", cpus, "--cpuset", cpuset]
@@ -460,6 +463,60 @@ def planted_leg(lab, engine, which, code):
     run = lab.render(engine, "planted-%s-%s" % (which, engine), rec, edl, beats, blocks=folder)
     assert run.rc == 1 and run.code == code, (run.rc, run.out, run.err[-2000:])
     assert_clean(run.out_dir)
+
+
+def image_runtime_sha256(lab, folder: Path) -> str:
+    """The runtime hash the image computes for itself (`_hf_host.load_runtime` over its own vendor files, shims and browser, at 30 fps): what a recorded
+    determinism test names, read in the image so that it is the image's, never a guess."""
+    code = ("import os, sys; sys.path.insert(0, '/opt/renderer'); import _cdp, _hf_host; "
+            "print(_hf_host.load_runtime('/opt/renderer/vendor', '/opt/renderer/hf-runtime/shims', 30, _cdp.browser_version(os.environ['RENDERER_BROWSER']))['runtime_sha256'])")
+    out = in_image(lab.common, ["-I", "-c", code], folder, entrypoint="python3").strip()
+    assert re.fullmatch(r"[0-9a-f]{64}", out), out
+    return out
+
+
+@legs("F10", ("ffmpeg",))
+def test_f10_the_second_page_contract_draws_the_clean_control_twice_identically_and_refuses_every_planted_variant_with_its_code(engine, lab):
+    """The real runtime and GSAP of the image, a fictional HF-shaped component (hf_second_kit) as the only entry of a test allowlist, mounted from a test
+    registry folder over the image's. The clean control twice is one sha256; each planted variant is refused with its code and leaves nothing."""
+    transcript = K.build_transcript(K.SHORT_SENTENCES[:2])
+    rec = lab.recording("pfa2", transcript)
+    edl, beats, doc = lab.documents("pfa2", rec, transcript, S.POST, ("--face-box", K.PIP_FACE_BOX))
+    from _vocab import load_data, load_vocabulary
+    data, vocab = load_data(), load_vocabulary(str(K.VOCABULARY))
+    timeline = _edl.resolve_timeline(doc, json.loads(Path(beats).read_text()), vocab, data)
+    start = [e for e in timeline["beats"] if e["preset"] == "keyword"][0]["start_frame"]
+    probe = fresh(lab.folder / "pfa2-probe")
+    runtime_sha = image_runtime_sha256(lab, probe)
+
+    def make(variant, tag=None, **over):
+        tmp = fresh(lab.folder / ("pfa2-" + (tag or variant)))
+        registry = tmp / "registry"
+        html = S.component(variant)
+        files = S.write_component(registry, html)
+        entry = S.entry(files, S.served_of({S.FILE: html}), runtime_sha, **over)
+        blocks = S.blocks_folder(tmp, entry)
+        return blocks, {"RENDERER_HF_REGISTRY_DIR": str(registry)}
+
+    def run(variant, tag=None, **over):
+        blocks, env = make(variant, tag, **over)
+        return lab.render(engine, "pfa2-" + (tag or variant), rec, edl, beats, blocks=blocks, extra_env=env)
+
+    one, two = run("clean", "clean1"), run("clean", "clean2")
+    assert one.rc == 0 and two.rc == 0, (one.err, two.err)
+    assert one.out["sha256"] == two.out["sha256"] and one.out["hf_proofs"][S.NAME]["runtime_sha256"] == runtime_sha
+    expected = {"face_dot": ("overlay_hits_face", start + 5), "below_line": ("caption_below_line", start + 4), "nothing": ("block_not_drawn", start),
+                "opaque": ("overlay_hits_face", start + 3)}
+    for variant, (code, frame) in expected.items():
+        r = run(variant)
+        assert (r.rc, r.code) == (1, code), (variant, r.err[-400:])
+        assert "frame %d" % frame in r.err, (variant, r.err[-200:])
+    for variant, code in (("opaque_no_clip", "frame_not_rgba"), ("computed_fetch", "blocked_request"), ("system_font", "font_not_allowed"),
+                          ("fontface", "block_lint"), ("lint_storage", "block_lint")):
+        r = run(variant)
+        assert (r.rc, r.code) == (1, code), (variant, r.err[-400:])
+    r = run("clean", "unproven", determinism=dict(S.entry({}, "a" * 64, "b" * 64)["determinism"]))
+    assert (r.rc, r.code) == (1, "block_not_proven"), r.err[-300:]
 
 
 @legs("F5")

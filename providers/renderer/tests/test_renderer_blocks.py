@@ -329,3 +329,84 @@ def test_a_beat_naming_the_screenshot_block_is_drawn_by_its_page_on_the_ffmpeg_e
     plain = {"id": "b2", "preset": "cutaway", "params": {"asset": "slot-1"}}
     templates, names = _blocks.templates_for(cat, "ffmpeg", {"beats": [plain]}, VOCAB, with_caption=False)
     assert templates["oh:cutaway"] == "oh/cutaway/renderat.html" and plain["block"] == "oh:cutaway"
+
+
+# ---------------------------------------------------------------- the second page contract's allowlist entries (PF-a2)
+
+def hf_folder(tmp_path, name="hf", **over):
+    import hf_second_kit as H
+    files = {H.FILE: "a" * 64}
+    return H.blocks_folder(tmp_path, H.entry(files, "b" * 64, "c" * 64, **over), name)
+
+
+def test_the_committed_allowlist_is_still_empty_and_the_ffmpeg_engine_runs_the_renderat_and_the_hf_runtimes():
+    allow = json.load(open(os.path.join(BLOCKS, "hf", "allowlist.json"), encoding="utf-8"))
+    assert allow["blocks"] == [] and allow["registry_commit"] is None
+    assert json.load(open(os.path.join(BLOCKS, "engines", "ffmpeg.json"), encoding="utf-8"))["runtimes"] == ["renderat", "hf"]
+    assert _blocks.RUNTIMES == ("renderat", "gsap", "hf")
+    cat = _blocks.load_catalogue(BLOCKS)
+    assert not [b for b in cat["blocks"].values() if "hf" in b["implementations"]]
+
+
+def test_a_valid_entry_of_the_second_contract_loads_runs_on_the_ffmpeg_engine_only_and_is_drawn_by_no_pinned_page(tmp_path):
+    import hf_second_kit as H
+    cat = _blocks.load_catalogue(hf_folder(tmp_path))
+    block = cat["blocks"][H.NAME]
+    assert _blocks.engines_of(cat, block) == ["ffmpeg"] and _blocks.runtime_of(cat, block, "ffmpeg") == "hf"
+    assert block["bind"] == {"text": "var:text", "color": "css:--brand"} and block["determinism"]["runs"] == 4
+    entry = [b for b in _blocks.catalogue_doc(cat)["blocks"] if b["name"] == H.NAME][0]
+    assert entry["runtimes"] == ["hf"] and not {"bind", "files", "edits", "determinism", "served_sha256", "component"} & set(entry)
+    timeline = {"beats": [{"id": "b1", "preset": "keyword", "params": {"text": "Name every dollar"}}]}
+    templates, names = _blocks.templates_for(cat, "ffmpeg", timeline, VOCAB, with_caption=True)
+    assert templates[H.NAME] is None and names == [templates["caption"]]
+    assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": [{"id": "b1", "preset": "keyword", "params": {"icon": "coin", "text": "x"}}]}, VOCAB, with_caption=False).code == "undeclared_param"
+
+
+@pytest.mark.parametrize("key", ["component", "edits", "font_map", "served_sha256", "bind", "fixed", "theme_vars", "determinism"])
+def test_an_entry_of_the_second_contract_without_one_of_its_keys_is_refused_and_so_is_one_that_has_them_without_the_runtime(tmp_path, key):
+    import hf_second_kit as H
+    e = H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64)
+    del e[key]
+    assert refused(_blocks.check_block, e, "hf:allowlist[0]", "hf", registry_commit=H.COMMIT).code == "block_schema"
+    e = H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64)
+    e["implementations"] = {"gsap": H.FILE}
+    assert refused(_blocks.check_block, e, "hf:allowlist[0]", "hf", registry_commit=H.COMMIT).code == "block_schema"
+
+
+@pytest.mark.parametrize("change", [
+    lambda e: e["determinism"].update(runs=3),
+    lambda e: e["determinism"].update(blocked=1),
+    lambda e: e["determinism"].update(date="24-11-2026"),
+    lambda e: e["determinism"].update(extra=1),
+    lambda e: e["determinism"].pop("seconds"),
+    lambda e: e.update(may_cross_face=True),
+    lambda e: e["params"].update(picture={"type": "image"}),
+    lambda e: e["params"].update(picture={"type": ["image", "clip"]}),
+    lambda e: e["params"].pop("color"),                                       # `bind` names a parameter the entry does not declare
+    lambda e: e["bind"].update(color="var:text"),                             # two parameters on one target
+    lambda e: e["bind"].update(color="css:brand"),
+    lambda e: e["theme_vars"].update({"--bg": "bg"}),
+    lambda e: e["theme_vars"].update({"--x": "Text"}),
+    lambda e: e["edits"].append("E3"),
+    lambda e: e["edits"].append("E1"),
+    lambda e: e["edits"].append("E2:Arial"),                                  # a family with no entry in `font_map`
+    lambda e: e["font_map"].update(Inter="oh-serif"),
+    lambda e: e["fixed"].update(text="x"),                                    # a variable a parameter already reaches
+    lambda e: e.update(natural_duration=None),
+    lambda e: e.update(kind="caption", preset="caption", band="caption"),
+    lambda e: e.update(implementations={"hf": "other.html"}),
+    lambda e: e.update(served_sha256="x"),
+])
+def test_an_entry_of_the_second_contract_that_breaks_a_rule_is_block_schema(change):
+    import hf_second_kit as H
+    e = H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64)
+    change(e)
+    assert refused(_blocks.check_block, e, "hf:allowlist[0]", "hf", registry_commit=H.COMMIT).code == "block_schema"
+    assert _blocks.check_block(H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64), "hf:allowlist[0]", "hf", registry_commit=H.COMMIT)["name"] == H.NAME
+
+
+def test_the_hyperframes_engine_cannot_draw_an_entry_that_runs_on_the_second_contract_only(tmp_path):
+    import hf_second_kit as H
+    folder = hf_folder(tmp_path)
+    edit_json(folder, "engines/hyperframes.json", lambda d: d["presets"].update(keyword=H.NAME))
+    assert refused(_blocks.load_catalogue, folder).code == "block_schema"

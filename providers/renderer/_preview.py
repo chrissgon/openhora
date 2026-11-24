@@ -169,6 +169,8 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
     serve, tpl_hashes = _frames.load_templates(sorted(set(names)), catalogue["dir"])
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, data["limits"]["font_max_bytes"], fonts_directory)
     serve.update(font_serve)
+    admitted = _render.admit_blocks(catalogue, timeline, data, edl, font_serve, None, None, browser)      # a block of the second contract is drawn too, with no pixel gate: advisory
+    serve.update(admitted["serve"])
     serve.update({"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items()})
     rest = {e["beat"]: rest_frame(e, data, edl["fps"]) for e in entries}
     only = {("beat", f) for f in rest.values()}
@@ -176,9 +178,11 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
     _, facts = _frames.draw_frames(
         data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(data, edl, font_serve), assets=assets,
         browser=browser, jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=time_limit, templates=templates,
-        png_blank=_render.blank_png, only=only, check_all=True, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
+        png_blank=_render.blank_png, only=only, check_all=True, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]},
+        admitted=admitted if admitted["pages"] else None)
     frames = {n: os.path.join(frames_dir, "beat_%06d.png" % f) for n, f in rest.items()}
-    return {"entries": entries, "frames": frames, "rest": rest, "facts": facts, "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"]}
+    return {"entries": entries, "frames": frames, "rest": rest, "facts": facts, "fonts": fonts_used, "blocks": {**tpl_hashes, **{n: p["served_sha256"] for n, p in admitted["proofs"].items()}}, "blocks_sha256": catalogue["sha256"],
+            "advisory": admitted["blocks"]}
 
 
 # ---------------------------------------------------------------- the contact sheet
@@ -265,6 +269,7 @@ def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None,
             "sheet": sheet, "skipped": [r["beat"] for r in rows if not r["preset"]], "words": len(transcript["words"]),
             "frame_jobs": drawn["facts"]["frames_rendered"] + drawn["facts"]["frames_reused"], "frames_checked": drawn["facts"]["frame_jobs"], "jobs": jobs, "face_box": edl["face_box"], "fonts": drawn["fonts"],
             "blocks": drawn["blocks"], "blocks_sha256": drawn["blocks_sha256"], "font_fallbacks": notes, "mentions": mentions,
+            **({"advisory": drawn["advisory"]} if drawn["advisory"] else {}),
             "browser": drawn["facts"].get("browser"), "browser_sandbox": drawn["facts"].get("browser_sandbox")}
 
 

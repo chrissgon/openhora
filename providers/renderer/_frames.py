@@ -117,14 +117,34 @@ window.__backdrop = (geom, fill, bubble) => {
 """
 
 
+def admitted_call(fn, *args):
+    """Run one call on an admitted page and map what it raises to the closed codes of the second contract: a font the host did not declare is
+    `font_not_allowed` (the page's own check says so), a request or policy violation is `blocked_request` (raised as is), everything else the
+    page does wrong (an exception, a timeout, a runtime that never became ready) is `block_failed`."""
+    try:
+        return fn(*args)
+    except _cdp.RenderBlocked:
+        raise
+    except (_cdp.BlockFailed, _cdp.CDPError) as exc:
+        if "font_not_allowed" in str(exc):
+            raise Refusal("font_not_allowed", "frames") from None
+        err = Refusal("block_failed", "frames")
+        err.detail = str(exc)[:300]
+        raise err from None
+
+
 def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser, jobs_n, frames_dir, workdir, time_limit,
-                templates, png_blank, only=None, backdrop=None, check_all=False):
+                templates, png_blank, only=None, backdrop=None, check_all=False, admitted=None):
     """Draw every frame of both tracks with `jobs_n` pages at the same time, into `frames_dir`.
 
     `only` (the storyboard's one use): a set of (track, frame) pairs; just those frames of the jobs are drawn and nothing else is
     written (no blank frame, no filler). `backdrop` (the same): {color, slot_fill}, the opaque colour the page is drawn over, so the
     PNG is a picture to look at; a pip beat also gets its asset slot as a flat-colour card. A split beat gets its halves (`_layout.split_layouts`). With both left out the
     loop is the render's, unchanged.
+
+    `admitted` (the second contract, `_hf_host.prepare`'s result, or None): the beats whose block runs on it are drawn from their own page, one per
+    beat per worker, sought with the runtime's seek, every frame written (no link of a frame to the one before it) and no box reported: the render
+    checks the pixels of those frames afterwards (`_alpha_gate`). The first contract's path is untouched.
 
     A page is opened once per block per worker, with the theme's colours and fonts set through CSSOM and every font
     and image awaited before frame 0. A frame whose DOM did not change since the previous frame of the same entry is
@@ -180,6 +200,20 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     entry = tracks[track][k]
                     preset = "caption" if track == "caption" else entry["preset"]
                     key = "caption" if track == "caption" else entry.get("block", preset)
+                    if admitted and track != "caption" and key in admitted["pages"]:
+                        pkey = (key, k)
+                        if pkey not in pages:
+                            page = chrome.new_page(w, h, contract="admitted")
+                            admitted_call(page.open_admitted, admitted["pages"][key][k], admitted["ready"], admitted["fonts"])
+                            pages[pkey] = page
+                        if only is not None and (track, f) not in only:
+                            continue                                       # a storyboard draws its rest frame only
+                        png = admitted_call(pages[pkey].seek_admitted, (f - entry["start_frame"]) / fps)
+                        with open(os.path.join(frames_dir, "beat_%06d.png" % f), "wb") as fh:
+                            fh.write(png)
+                        with lock:
+                            stats["rendered"] += 1
+                        continue
                     template = templates[key]
                     if key not in pages:
                         page = chrome.new_page(w, h)
@@ -235,6 +269,11 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                 if isinstance(e, Refusal):
                     raise e
             blocked = any(isinstance(e, _cdp.RenderBlocked) for e in errors)
+            for e in errors:
+                if isinstance(e, _cdp.BlockFailed):
+                    err = Refusal("block_failed", "frames")
+                    err.detail = str(e)[:300]
+                    raise err
             err = Refusal("blocked_request" if blocked else "frame_failed", "frames")
             err.detail = str(errors[0])[:300]
             raise err
