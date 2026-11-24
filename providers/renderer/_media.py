@@ -792,19 +792,24 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         nxt += 1
 
     g = base_graph(plan)
+    # The concat's output keeps the microsecond time base, and a retime that divides by it (`setpts=N/(fps*TB)`) truncates: a layer retimed
+    # on its own then lands a frame off at an edge whose number is not divisible by three at 30 fps. The picture is retimed once, here,
+    # on the frame grid (`settb`, then the frame number), before it splits into the plain path and the crop path, and every layer is
+    # retimed the same way, so every edge is on its frame (R3-11). `base_graph` is not touched: the HyperFrames engine's check reads it.
+    g.append("[cv]settb=1/%s,setpts=N[cvt]" % fps)
 
     if not idx and not pips and not clips and not splits:
-        g.append("[cv]%s[vout]" % TAGS)
+        g.append("[cvt]%s[vout]" % TAGS)
     else:
-        g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
+        g.append("[cvt]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
         for i, s in enumerate(splits):
             # A split: the picture is split in two branches, a crop of one (the speaker, centred on the face by `_layout.split_geometry`) is
             # masked to the beat's frames and laid over the other at the speaker half's origin; the page draws the picture's half on top.
             c, total = s["crop"], plan["out_frames"]
             g.append("[%s]split=2[sb%d][sk%d]" % (cur, i, i))
-            g.append("[sk%d]crop=%d:%d:%d:%d,setpts=N/(%s*TB)[sc%d]" % (i, c["w"], c["h"], c["x"], c["y"], fps, i))
-            g.append("[%d:v]format=gray,trim=end_frame=%d,setpts=N/(%s*TB)[sm%d]" % (split_mask[i], total, fps, i))
+            g.append("[sk%d]crop=%d:%d:%d:%d,settb=1/%s,setpts=N[sc%d]" % (i, c["w"], c["h"], c["x"], c["y"], fps, i))
+            g.append("[%d:v]format=gray,trim=end_frame=%d,settb=1/%s,setpts=N[sm%d]" % (split_mask[i], total, fps, i))
             g.append("[sc%d][sm%d]alphamerge[sp%d]" % (i, i, i))
             g.append("[sb%d][sp%d]overlay=%d:%d:format=gbrp[os%d]" % (i, i, s["at"]["x"], s["at"]["y"], i))
             cur = "os%d" % i

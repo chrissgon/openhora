@@ -30,4 +30,13 @@
 !_text.py
 !_timeline.py
 !_vocab.py
+!hf-runtime/npm-pins.json
+!hf-runtime/registry.sha256
+!hf-runtime/fetch_hf.py
+!hf-runtime/shims/SHA256SUMS
+!hf-runtime/shims/early_stub.js
+!hf-runtime/shims/capture_mode_shim.js
+!hf-runtime/shims/virtual_time_shim.js
+!hf-runtime/shims/render_mode.js
+!hf-runtime/shims/bridge.js
 !assets

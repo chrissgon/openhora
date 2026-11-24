@@ -478,3 +478,52 @@ def test_the_speaker_is_moved_on_exactly_the_first_and_the_last_frame_of_the_bea
     assert pixel(out, 30, 540, 400)[0] > 150
     assert pixel(out, 89, 540, 400)[0] > 150
     assert pixel(out, 90, 540, 400)[0] < 80
+
+
+@needs_ffmpeg
+def test_the_speaker_mask_and_crop_meet_on_edges_not_divisible_by_three(tmp_path):
+    """R3-11. The concat's output keeps the microsecond time base, and `setpts=N/(fps*TB)` truncates there: the crop of the speaker landed one frame
+    late at an edge whose number is not divisible by three at 30 fps. The source here changes on every frame (its red value is the frame number
+    mod 16, times 16), the split runs over two kept ranges and its edges are 31 and 92 (1 and 2 mod 3), and a beat marker starts on 37 (1 mod 3)."""
+    fps, first, last, marker_from, marker_to = 30, 31, 92, 37, 100
+    kept = [[0, 50], [60, 150]]
+    src = tmp_path / "rec.mp4"
+    subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "color=c=black:s=1080x1920:r=30:d=6,format=gbrp,geq=r='mod(N,16)*16':g=0:b='if(gte(Y,700),200,0)',format=yuv420p", "-pix_fmt", "yuv420p", str(src)], check=True)
+    out_frames = sum(b - a for a, b in kept)
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    clear = png_rgba(1080, 1920, lambda x, y: (0, 0, 0, 0))
+    mark = png_rgba(1080, 1920, lambda x, y: (0, 255, 0, 255) if y >= 1700 else (0, 0, 0, 0))
+    for n in range(out_frames):
+        (frames / ("beat_%06d.png" % (n + 1))).write_bytes(mark if marker_from <= n < marker_to else clear)
+    plan = plan_with([], [{"start_frame": first, "end_frame": last, "crop": {"x": 0, "y": 420, "w": 1080, "h": 960}, "at": {"x": 0, "y": 0}}])
+    plan.update(src=str(src), layers=["beat"], kept=kept, out_frames=out_frames, zoom={"mode": "none", "factor": 1.0, "push_in": 0.0, "anchor_y": 0.25})
+    argv = _media.compose_argv(K.FFMPEG, plan)
+    out = tmp_path / "out.mp4"
+    argv[-1] = str(out)
+    done = subprocess.run(argv, cwd=tmp_path, capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, done.stderr[-600:]
+
+    def column(x, y):
+        raw = subprocess.run([K.FFMPEG, "-loglevel", "error", "-i", str(out), "-vf", "format=rgb24,crop=1:1:%d:%d" % (x, y), "-f", "rawvideo", "-"],
+                             capture_output=True, check=True).stdout
+        return [tuple(raw[i:i + 3]) for i in range(0, len(raw), 3)]
+    half, base, flag = column(540, 400), column(540, 1500), column(540, 1800)
+    assert len(half) == len(base) == len(flag) == out_frames
+    for f in (first - 2, first - 1, first, first + 1, last - 2, last - 1, last, last + 1, marker_from - 1, marker_from, marker_to - 1, marker_to):
+        crop_on, marker_on = half[f][2] > 100, flag[f][1] > 150
+        assert crop_on == (first <= f < last), ("crop", f)
+        assert marker_on == (marker_from <= f < marker_to), ("marker", f)
+        if crop_on:      # the crop shows the same source frame as the picture beside it, so the mask and the crop are not a frame apart
+            assert abs(half[f][0] - base[f][0]) <= 8, ("crop frame", f, half[f], base[f])
+    assert all(abs(half[f][0] - base[f][0]) <= 8 for f in range(first, last)), "crop and picture show different source frames"
+
+
+def png_rgba(width, height, pixel) -> bytes:
+    rows = [b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height)]
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 6)) + chunk(b"IEND", b""))

@@ -1,0 +1,1 @@
+globalThis.__HF_RENDER_CAPTURE_MODE = true;

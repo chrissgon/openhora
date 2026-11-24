@@ -25,6 +25,7 @@ beats come from the post file's script block.
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
+| `hf-runtime/` | The common image's HyperFrames runtime and GSAP (decision D19, PF-a1): `npm-pins.json` (two npm tarballs pinned by sha512 and sha256 of each member), `registry.sha256` (the registry commit and the LICENSE), `fetch_hf.py` (the build-time fetch, to `/opt/renderer/vendor` and `/opt/renderer/hf-registry`, read-only, never committed) and `shims/` (five small scripts, pinned by `SHA256SUMS`). `_inner.py selfcheck` checks every file again (`vendor_hash`). Nothing draws with them yet (PF-a2). See its `README.md` and `NOTICE.md`. |
 | `assets/fonts/` | The fonts a render may use (decision VD6): Inter 500 and 800 and JetBrains Mono 500 as woff2, their SIL OFL 1.1 texts and `allowlist.json` (sha256, licence, source). The provenance is the weaker one the file says: Fontsource's Latin subsets, package version not recorded. A font not listed is never used; the render says which font each role used (`fonts`). |
 
 ## The container (decision VD4)
@@ -94,7 +95,9 @@ python3 providers/renderer/ffmpeg.py --check                      # docker local
 `build` refuses while the sha256 of the daemon's architecture (`linux-arm64` on Apple silicon, `linux64` elsewhere) is not pinned, and
 the image's own build (`_fetch_browser.py`) refuses an archive whose size, md5 or sha256 differs from the pin: a later build whose archive
 changed under the same version fails. The base image is pinned by digest, the packages by a dated Debian snapshot, the browser by version
-and the three values. Nothing in the repository builds, pulls or downloads by itself.
+and the three values; the HyperFrames runtime and GSAP by the npm lockfile's sha512 and our sha256 (`hf-runtime/npm-pins.json`). Nothing in the repository builds, pulls or downloads by itself.
+
+The ffmpeg engine's compose retimes the concat's output once (`settb=1/<fps>,setpts=N`) before it splits into the plain path and the speaker's crop, so a split's crop, its mask and a beat layer meet on the same frame at every edge (R3-11, PF-a1); a render made before that change differs in bytes.
 
 ## The blocks (V3b0)
 

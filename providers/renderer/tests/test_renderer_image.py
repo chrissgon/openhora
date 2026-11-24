@@ -76,3 +76,23 @@ def test_no_host_only_file_is_in_the_manifest_and_the_tag_does_not_change_when_f
     (copy / "_inner.py").write_text((copy / "_inner.py").read_text(encoding="utf-8") + "\n# an edit of a file the container runs\n", encoding="utf-8")
     assert I.definition_hash(str(copy)) != before
     assert I.image_tag(str(copy)).startswith("openhora-renderer:")
+
+
+def test_the_dockerfile_fetches_the_hf_runtime_before_copying_the_renderer_and_names_no_other_download():
+    text = (FOLDER / "Dockerfile").read_text(encoding="utf-8")
+    run_lines = [line for line in text.splitlines() if line.lstrip().startswith("RUN ") or line.lstrip().startswith("&& ")]
+    fetching = [line for line in run_lines if "fetch_hf.py" in line]
+    assert len(fetching) == 1 and "--out /opt/renderer/vendor" in fetching[0] and "--registry-out /opt/renderer/hf-registry" in fetching[0]
+    assert text.index("fetch_hf.py --out") < text.index("COPY . /opt/renderer/")
+    assert "COPY hf-runtime/npm-pins.json hf-runtime/registry.sha256 hf-runtime/fetch_hf.py /opt/renderer/hf-runtime/" in text
+    # the network is used by the browser's fetch and this one: no curl, no wget, no pip, no npm
+    for tool in ("curl ", "wget ", "pip install", "npm "):
+        assert tool not in "\n".join(run_lines), tool
+    assert text.rindex("selfcheck") > text.index("COPY . /opt/renderer/")
+
+
+def test_the_manifest_carries_the_runtime_pins_the_fetch_and_the_shims_and_no_documentation():
+    files = set(manifest()["files"])
+    wanted = {"hf-runtime/npm-pins.json", "hf-runtime/registry.sha256", "hf-runtime/fetch_hf.py", "hf-runtime/shims/SHA256SUMS"}
+    wanted |= {"hf-runtime/shims/%s.js" % n for n in ("early_stub", "capture_mode_shim", "virtual_time_shim", "render_mode", "bridge")}
+    assert wanted <= files and not any(f.endswith((".md", "NOTICE.md")) for f in files if f.startswith("hf-runtime/"))
