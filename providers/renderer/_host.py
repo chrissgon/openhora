@@ -532,7 +532,7 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
     sp.add_argument("--zoom-factor", type=float)
-    sp.add_argument("--push-in", type=float, help="slow extra zoom over each range of 5 s or more, as a fraction up to 0.03 (default 0.02, 0 for none)")
+    sp.add_argument("--push-in", type=float, help="slow extra zoom over each range of 5 s or more, as a fraction, 0 for none (default 0.02)")
     sp.add_argument("--zoom-anchor-y", type=float, help="the zoom's fixed point: this fraction of the face box's height down from its top (default 0.25)")
     sp.add_argument("--confirm", action="append", metavar="RETAKE-ID", help="cut this proposed retake (repeatable)")
     sp.add_argument("--keep", action="append", metavar="RETAKE-ID", help="keep this proposed retake that the rule would cut (repeatable)")

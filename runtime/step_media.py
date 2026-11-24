@@ -737,7 +737,7 @@ def _left_out(done: dict, beats: dict, handed: dict, effects: list) -> list:
             picture = any(isinstance(v, str) and v in handed for v in params.values())
             found.append({"id": row["id"], "kind": "picture" if picture else "text", "reason": row["reason"]})
     found += [{"id": r["id"], "kind": "effect", "reason": r["reason"]} for r in effects]
-    return sorted(found, key=lambda r: (r["id"], r["kind"]))[:100]
+    return sorted(found, key=lambda r: (r["id"], r["kind"]))[:deliver_document.LEFT_OUT_MAX]
 
 
 def _assets_dropped(done: dict, handed: dict) -> list:
@@ -763,7 +763,7 @@ def _effects_dropped(done: dict) -> list:
     for row in rows if isinstance(rows, list) else []:
         if isinstance(row, dict) and isinstance(row.get("id"), str) and EFFECT_ID_OUT.fullmatch(row["id"]) and row.get("reason") in EFFECT_REASONS:
             found.append({"id": row["id"], "reason": row["reason"]})
-    return found[:12]
+    return found
 
 
 def _cover(ctx: steps.Context, state: dict) -> dict:

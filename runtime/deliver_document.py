@@ -35,7 +35,7 @@ WORD = "deliver"
 VERSION = 1
 KEYS = ("blocks", "cover", "effect", "platform", "post", "preview", "recording", "task", "verify", "version", "video")
 OPTIONAL_KEYS = ("assets", "credits", "left_out", "web")      # V9b-3a: present only when the video uses pictures from the media set; `left_out` (V9b-3f) only when the render left something out
-LEFT_OUT_MAX = 100
+LEFT_OUT_MAX = 123      # = captions.EFFECTS_MAX + 2 × captions.BEATS_MAX (a test compares)
 LEFT_OUT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 # V9b-3f: what the render left out of the video, as closed words. A row is {id, kind, reason}; the words below are the English body's, and each pair is a phrase key
 # `CARD_VIDEO_LEFT_OUT_<KIND>_<REASON>` of runtime/phrases_parts/v9b-3f.*.json (a test compares them), so a phone says it in the project's language.

@@ -287,9 +287,7 @@ The script's `emphasis: punch` (beats.json `punches`, written by `align` for a b
 table: `_media.base_graph` (the ffmpeg engine: a step in the `zoompan`/`perspective` expression, an exact per-plane blend (`lutyuv`, `_media.blend_filter`) for flash, dip and tint, `colorchannelmixer`
 with the CSS `grayscale(1)` matrix for mono), `_hf_page.build_parts` (the HyperFrames page: one drive tween per punched range, one `#fx` layer under every
 overlay, `filter: grayscale(1)` on the range's wrapper) and `_hf_gate.reference_graph` (the face check's reference holds the same punches and grades, so
-the pixel check still catches anything else drawn on the face; the crop of a punched range is the union of its faces). The bounds are in code
-(`_edl.EFFECTS_MAX`, `FLASH_FRAMES_MAX`, `DIP_FRAMES_MAX`, `FLASHES_MAX`, `GRADE_SECONDS_MAX`) and `renderer-presets.json` (`punch`, `effects`) cannot widen
-them. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph and of the page).
+the pixel check still catches anything else drawn on the face; the crop of a punched range is the union of its faces). The taste caps are gone (video P0): the count, the length and the strength of effects are the person's. Only validity bounds stay in code: at most `_edl.EFFECTS_MAX` (99, a closed document, ids `e1` to `e99`) review effects, an alpha clamped to 0-1, a zoom up to `_edl.ZOOM_MAX` (10, the range of ffmpeg's `zoompan`), two flash, dip or tint grades never over the same words (they share one colour layer), and the face check. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph and of the page).
 
 ## The still frame (`still`)
 
@@ -473,7 +471,7 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
   lives through (factor and push-in included), and `base` refuses a face box that leaves less than 80 px above or 120 px below at the
   largest zoom.
 - **Zoom.** Every second kept range is drawn at 1.10 (`--zoom none` turns it off) about the anchor, from a picture cut at twice the output
-  size so a zoom never upscales; a range of 5 s or more also pushes in by 2 percent (`--push-in`, at most 3 percent).
+  size so a zoom never upscales; a range of 5 s or more also pushes in by 2 percent (`--push-in`, any fraction that leaves the face box room).
 - **Captions** come in chunks of one to three words on one line, as big as fits, with the current word highlighted and popped over a dark stroke. **Sound** fades 15 ms at each end
   of every range (a dip, not an overlap: sound and picture stay in step).
 - **Output.** 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled down and its frame rate halved; a landscape

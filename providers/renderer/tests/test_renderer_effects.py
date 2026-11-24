@@ -121,16 +121,19 @@ def test_no_effect_keeps_the_page_and_the_timeline_empty_of_effects(tmp_path):
 
 # ---------------------------------------------------------------- punches
 
-def test_a_punch_is_constant_and_capped():
+def test_a_punch_is_constant_and_capped_only_at_the_zoom_ceiling():
     edl = synthetic_edl()
     rows = resolve(edl, beats_of([punch(1, 12, 13)]))["punches"]       # words 12-13: 6.1 s to 7.4 s, in the second range (z 1.1 to 1.122)
     [row] = rows
     assert row["id"] == "p1" and row["range"] == 1
     base = 1.1 + 0.022 * (row["start_frame"] - 150) / 149.0
-    assert row["zoom"] == pytest.approx(base * 1.12, abs=1e-5) and row["zoom"] <= 1.25
+    assert row["zoom"] == pytest.approx(base * 1.12, abs=1e-5)
     wide = copy.deepcopy(DATA)
     wide["punch"]["factor"] = 1.6
-    assert resolve(edl, beats_of([punch(1, 12, 13)]), wide)["punches"][0]["zoom"] == 1.25            # capped at zoom.factor_max
+    assert resolve(edl, beats_of([punch(1, 12, 13)]), wide)["punches"][0]["zoom"] == pytest.approx(base * 1.6, abs=1e-5)      # no taste cap: base x factor
+    top = synthetic_edl(zoom={"mode": "alternate", "factor": _edl.ZOOM_MAX, "push_in": 0.0, "anchor_y": 0.25})
+    timeline = resolve(top, beats_of([punch(1, 12, 13)]))                                              # a base at ZOOM_MAX cannot zoom in further
+    assert timeline["punches"] == [] and timeline["effects_dropped"] == [{"id": "p1", "reason": "punch_capped"}]
     [(a, b, zp)] = _edl.range_effects(edl, resolve(edl, beats_of([punch(1, 12, 13)])))[1]["punches"]
     text = _media.zoom_filter(1.1, 1.122, 150, ANCHOR, 1080, 1920, 30, 2, [(a, b, zp)])
     assert "if(between(on,%d,%d),%.5f,1.10000+0.000148*on)" % (a, b - 1, zp) in text and text.startswith("zoompan=z='if(between")
@@ -141,18 +144,23 @@ def test_a_punch_is_constant_and_capped():
     assert plain.startswith("zoompan=z='if(between(on,5,39),1.12000,1.00000)'")
 
 
-def test_a_punch_that_cannot_zoom_in_past_the_ranges_own_level_is_dropped():
+def test_a_punch_on_a_pushed_zoomed_range_is_drawn_at_base_times_the_factor():
     edl = synthetic_edl(zoom={"mode": "alternate", "factor": 1.25, "push_in": 0.03, "anchor_y": 0.25})
     timeline = resolve(edl, beats_of([punch(1, 12, 13)]))
-    assert timeline["punches"] == [] and timeline["effects_dropped"] == [{"id": "p1", "reason": "punch_capped"}]
+    [row] = timeline["punches"]
+    z0, z1 = _media.zoom_levels(edl["zoom"], 1, 150, FPS)
+    base = z0 + (z1 - z0) * (row["start_frame"] - 150) / 149.0
+    assert row["zoom"] == pytest.approx(base * 1.12, abs=1e-5) and row["zoom"] > 1.25 and timeline["effects_dropped"] == []
 
 
 def test_a_punch_is_stretched_cut_and_never_crosses_a_range():
     edl = synthetic_edl()
     [short] = resolve(edl, beats_of([punch(1, 18, 18)]))["punches"]       # 9.1 s to 9.4 s (frames 273-282): stretched to 0.8 s
     assert (short["start_frame"], short["end_frame"]) == (273, 297)
-    [long] = resolve(edl, beats_of([punch(1, 2, 12)]))["punches"]         # 1.1 s to 6.4 s: cut at 3 s
-    assert long["end_frame"] - long["start_frame"] == 90 and long["end_frame"] <= 150
+    [long] = resolve(edl, beats_of([punch(1, 2, 12)]))["punches"]         # 1.1 s to 6.4 s: spans its words, cut at the range's end (frame 150)
+    assert (long["start_frame"], long["end_frame"]) == (33, 150) and long["end_frame"] - long["start_frame"] > 90
+    [four] = resolve(edl, beats_of([punch(1, 12, 20)]))["punches"]        # 6.1 s to 10.4 s of words (4 s and more): not cut at 3 s
+    assert (four["start_frame"], four["end_frame"]) == (183, 300) and four["end_frame"] - four["start_frame"] > 90
     [crossing] = resolve(edl, beats_of([punch(1, 8, 11)]))["punches"]     # 4.1 s to 5.9 s: the range ends at frame 150
     assert (crossing["start_frame"], crossing["end_frame"]) == (123, 150) and crossing["range"] == 0
     [late] = resolve(edl, beats_of([punch(1, 19, 19)]))["punches"]        # 9.6 s: stretched to frame 312, cut at the range's end, 300
@@ -215,22 +223,28 @@ def test_a_punch_row_with_a_preset_and_one_that_matches_nothing(tmp_path):
     assert _inner.punch_rows(rows[2:], [], [], words, 0.6) == ([], [])
 
 
-def test_the_checks_of_the_two_new_keys():
+def test_the_checks_of_the_two_new_keys():      # T2
     edl = synthetic_edl()
     ok = beats_of([punch(1, 2, 3)], [effect("e1", "flash", 2, 2), effect("e2", "mono", 5, 6)])
     assert _edl.check_beats(ok, edl, VOCAB)["texts"] == []
     for bad, code in ((beats_of([punch(1, 2, 3), punch(1, 5, 6)]), "bad_beat"), (beats_of([punch(1, 30, 31)]), "bad_word_range"),
                       (beats_of([dict(punch(1, 2, 3), start=1.5)]), "unknown_key"), (beats_of([dict(punch(1, 2, 3), score=2)]), "bad_score"),
-                      (beats_of(effects=[effect("e1", "spin", 2, 3)]), "bad_effect"), (beats_of(effects=[effect("e9", "flash", 2, 3)]), "bad_id"),
+                      (beats_of(effects=[effect("e1", "spin", 2, 3)]), "bad_effect"), (beats_of(effects=[effect("e0", "flash", 2, 3)]), "bad_id"),
+                      (beats_of(effects=[effect("e01", "flash", 2, 3)]), "bad_id"), (beats_of(effects=[effect("e100", "flash", 2, 3)]), "bad_id"),
                       (beats_of(effects=[effect("e1", "flash", 3, 2)]), "bad_word_range"), (beats_of(effects=[dict(effect("e1", "mono", 2, 3), seconds=2)]), "unknown_key"),
-                      (beats_of(effects=[effect("e1", "mono", 2, 5), effect("e2", "tint", 5, 7)]), "effect_overlap"),
-                      (beats_of(effects=[effect("e1", "flash", 1, 1), effect("e2", "dip", 4, 4), effect("e3", "flash", 8, 8)]), "too_many_flashes"),
-                      (beats_of(effects=[effect("e%d" % k, "punch", 3 * k, 3 * k) for k in range(1, 7)] + [effect("e1", "punch", 25, 25)]), "too_many_effects")):
+                      (beats_of(effects=[effect("e1", "flash", 2, 5), effect("e2", "tint", 5, 7)]), "effect_overlap"),
+                      (beats_of(effects=[effect("e1", "dip", 2, 5), effect("e2", "flash", 5, 7)]), "effect_overlap"),
+                      ):
         assert refused(_edl.check_beats, bad, edl, VOCAB).code == code, code
     assert refused(_edl.check_beats, dict(beats_of(), punches={}), edl, VOCAB).code == "not_list"
     many = beats_of([punch(k, k, k) for k in range(1, 14)])
     assert refused(_edl.check_beats, many, edl, VOCAB).code == "too_many_punches"
-    assert _edl.check_beats(beats_of(effects=[effect("e%d" % k, "punch", 3 * k, 3 * k) for k in range(1, 7)]), edl, VOCAB)      # six review effects are fine
+    assert _edl.check_beats(beats_of(effects=[effect("e%d" % k, "punch", k % 28, k % 28) for k in range(1, 100)]), edl, VOCAB)      # 99 review effects pass
+    over = beats_of(effects=[effect("e%d" % k, "punch", 0, 0) for k in range(1, 100)] + [effect("e100", "punch", 0, 0)])
+    assert refused(_edl.check_beats, over, edl, VOCAB).code == "too_many_effects"                                                 # the 100th is over the ceiling
+    for kinds in (("mono", "tint"), ("mono", "mono"), ("mono", "flash"), ("dip", "mono")):                                       # mono is a filter: it may share words
+        assert _edl.check_beats(beats_of(effects=[effect("e1", kinds[0], 2, 5), effect("e2", kinds[1], 4, 7)]), edl, VOCAB)
+    assert _edl.check_beats(beats_of(effects=[effect("e1", "flash", 1, 1), effect("e2", "dip", 4, 4), effect("e3", "flash", 8, 8)]), edl, VOCAB)      # no flash count
 
 
 # ---------------------------------------------------------------- grades
@@ -282,25 +296,29 @@ def test_a_grade_in_the_graph_is_in_its_ranges_own_frame_index_and_after_the_zoo
         assert line.endswith("format=yuv420p[v%d]" % k)
 
 
-def test_grades_are_bounded():
+def test_grades_have_no_length_or_count_cap():
     edl = synthetic_edl()
     wide = copy.deepcopy(DATA)
-    wide["effects"].update(flash_alphas=[0.9] * 9, dip_alphas=[0.5] * 12, grade_max_seconds=30.0, grade_min_seconds=0.0)
+    wide["effects"].update(flash_alphas=[0.9] * 9, dip_alphas=[0.5] * 12, tint_alpha=0.5, grade_min_seconds=0.5)
     timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "dip", 14, 14)]), wide)
     lengths = {g["kind"]: g["end_frame"] - g["start_frame"] for g in timeline["grades"]}
-    assert lengths == {"flash": _edl.FLASH_FRAMES_MAX, "dip": _edl.DIP_FRAMES_MAX} and (_edl.FLASH_FRAMES_MAX, _edl.DIP_FRAMES_MAX) == (4, 6)
-    long = resolve(edl, beats_of(effects=[effect("e1", "mono", 0, 9)]), wide)["grades"][0]           # 0.1 s to 4.9 s, 4.8 s of words
-    assert long["end_frame"] - long["start_frame"] <= int(_edl.GRADE_SECONDS_MAX * FPS)
-    short = resolve(edl, beats_of(effects=[effect("e1", "tint", 2, 2)]))["grades"][0]               # a word of 0.3 s: stretched to 0.5 s
+    assert lengths == {"flash": 9, "dip": 12}                                                 # one frame per alpha: no 4 and 6 frame cap
+    cut = resolve(edl, beats_of(effects=[effect("e1", "dip", 9, 9)]), wide)["grades"][0]      # frame 138: the range ends at 150, 12 frames fit
+    assert cut["end_frame"] == 150
+    long = resolve(edl, beats_of(effects=[effect("e1", "mono", 0, 9)]))["grades"][0]           # 0.1 s to 4.9 s, 4.8 s of words
+    assert long["end_frame"] - long["start_frame"] > int(4.0 * FPS) and long["end_frame"] <= 150
+    short = resolve(edl, beats_of(effects=[effect("e1", "tint", 2, 2)]))["grades"][0]         # a word of 0.3 s: stretched to 0.5 s
     assert short["end_frame"] - short["start_frame"] == int(round(DATA["effects"]["grade_min_seconds"] * FPS))
-    edge = resolve(edl, beats_of(effects=[effect("e1", "flash", 8, 8)]))["grades"][0]                 # 4.1 s: frame 123, four frames, inside the first range
+    edge = resolve(edl, beats_of(effects=[effect("e1", "flash", 8, 8)]))["grades"][0]         # 4.1 s: frame 123, four frames, inside the first range
     assert edge["end_frame"] - edge["start_frame"] == 4
-    cut = resolve(edl, beats_of(effects=[effect("e1", "dip", 9, 9)]))["grades"][0]                    # frame 138: the range ends at 150, six frames fit
-    assert cut["end_frame"] == 144
     closing = resolve(edl, beats_of(effects=[effect("e1", "dip", 10, 10)]))["grades"][0]
     assert closing["start_frame"] == 153
-    assert refused(_edl.check_beats, beats_of(effects=[effect("e1", "flash", 1, 1), effect("e2", "dip", 3, 3), effect("e3", "flash", 5, 5)]), edl, VOCAB).code == "too_many_flashes"
-    assert refused(_edl.check_beats, beats_of(effects=[effect("e%d" % k, "punch", k, k) for k in range(1, 8)]), edl, VOCAB).code == "too_many_effects"
+    strong = copy.deepcopy(DATA)
+    strong["effects"].update(flash_alphas=[1.2, -0.1, 0.5], tint_alpha=0.5)
+    graded = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "tint", 14, 15)]), strong)["grades"]
+    by = {g["kind"]: g for g in graded}
+    assert by["flash"]["alphas"] == [1.0, 0.0, 0.5] and by["tint"]["alpha"] == 0.5          # clamped to 0-1, nothing else
+    assert _edl.check_beats(beats_of(effects=[effect("e1", "flash", 1, 1), effect("e2", "dip", 3, 3), effect("e3", "flash", 5, 5)]), edl, VOCAB)
 
 
 def test_a_grade_that_would_share_the_colour_layer_with_the_one_before_is_dropped_and_mono_is_not():
@@ -601,13 +619,13 @@ def test_a_punch_the_renderer_leaves_out_is_reported_and_reaches_the_page_result
     assert clean["effects_dropped"] == [{"id": "e1", "reason": "punch_short"}]
 
 
-def test_the_configuration_cannot_raise_the_alphas_past_the_specs_values():
+def test_the_alphas_are_clamped_to_zero_and_one_and_not_to_the_specs_old_values():
     edl = synthetic_edl()
     wide = copy.deepcopy(DATA)
     wide["effects"].update(flash_alphas=[1.0, 7, -2, 0.5], dip_alphas=[1.0] * 6, tint_alpha=0.9)
     timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "dip", 9, 9), effect("e3", "tint", 14, 15)]), wide)
     by = {g["kind"]: g for g in timeline["grades"]}
-    assert by["flash"]["alphas"] == [0.85, 0.85, 0.0, 0.5] and set(by["dip"]["alphas"]) == {0.85} and by["tint"]["alpha"] == 0.18
+    assert by["flash"]["alphas"] == [1.0, 1.0, 0.0, 0.5] and set(by["dip"]["alphas"]) == {1.0} and by["tint"]["alpha"] == 0.9
 
 
 def reference_alphas(graph: list, firsts: dict) -> dict:
@@ -684,3 +702,125 @@ def test_the_blend_of_a_colour_is_the_affine_blend_of_its_bt709_limited_planes()
     assert [round(v) for v in _media.yuv_limited_bt709("#FFFFFF")] == [235, 128, 128] and [round(v) for v in _media.yuv_limited_bt709("#000000")] == [16, 128, 128]
     text = _media.blend_filter("#FFFFFF", 0.35, "eq(n,4)")
     assert text == "lutyuv=y='val*(1-0.350)+235.00*0.350':u='val*(1-0.350)+128.00*0.350':v='val*(1-0.350)+128.00*0.350':enable='eq(n,4)'"
+
+
+# ---------------------------------------------------------------- video P0: the taste caps are gone, the validity bounds stay
+
+def test_the_zoom_check_has_only_validity_bounds():      # T4
+    zoom = {"mode": "alternate", "factor": 1.5, "push_in": 0.1, "anchor_y": 0.25}
+    _edl.check_zoom(DATA, zoom)
+    for patch in ({"factor": 0.99}, {"factor": 10.01}, {"push_in": -0.01}, {"factor": 5.0, "push_in": 1.01}, {"factor": float("nan")},
+                  {"push_in": float("nan")}, {"factor": float("inf")}, {"factor": True}, {"push_in": False}):
+        assert refused(_edl.check_zoom, DATA, dict(zoom, **patch)).code == "bad_zoom", patch
+    _edl.check_zoom(DATA, dict(zoom, factor=10.0, push_in=0.0))
+    _edl.check_zoom(DATA, dict(zoom, factor=5.0, push_in=1.0))
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    try:
+        edl, _ = _edl.build_base(doc, analysis, DATA, {}, zoom_factor=1.5, push_in=0.1)
+        outcome = "list" if edl["zoom"]["factor"] == 1.5 else "wrong"
+    except Refusal as caught:
+        outcome = caught.code
+    assert outcome == "face_box_leaves_no_room"          # pinned: no taste cap, the face check refuses the box with no room
+
+
+def test_schema_and_code_agree_and_the_taste_caps_are_gone():      # T5
+    schema = json.load(open(K.RENDERER / "edl.schema.json"))
+    effects = schema["$defs"]["beats"]["properties"]["effects"] if "$defs" in schema else None
+    if effects is None:
+        effects = schema["properties"]["beats"]["properties"]["effects"]
+    assert effects["maxItems"] == _edl.EFFECTS_MAX == 99
+    assert effects["items"]["properties"]["id"]["pattern"] == "^" + _edl.EFFECT_ID.pattern + "$"
+    for name in ("FLASHES_MAX", "GRADE_SECONDS_MAX", "FLASH_FRAMES_MAX", "DIP_FRAMES_MAX", "FLASH_ALPHA_MAX", "TINT_ALPHA_MAX"):
+        assert not hasattr(_edl, name), name
+    assert _edl.ZOOM_MAX == 10.0
+    assert "factor_max" not in DATA["zoom"] and "push_in_max" not in DATA["zoom"]
+    assert "max_seconds" not in DATA["punch"] and "grade_max_seconds" not in DATA["effects"]
+    text = (K.RENDERER / "renderer-presets.json").read_text()
+    for key in ("factor_max", "push_in_max", "grade_max_seconds"):
+        assert key not in text
+    assert _edl.EFFECT_ID.fullmatch("e99") and not _edl.EFFECT_ID.fullmatch("e100") and not _edl.EFFECT_ID.fullmatch("e01") and not _edl.EFFECT_ID.fullmatch("e0")
+
+
+# T5b: the same rows and bytes inside the old bounds. The literals were produced once at the base commit 6ca49fc0 (before video P0).
+T5B_EFFECTS = [effect("e1", "flash", 3, 3), effect("e2", "dip", 9, 9), effect("e3", "mono", 12, 17), effect("e4", "tint", 22, 23)]
+T5B_PUNCHES = [
+    {
+        "end_frame": 87,
+        "face": {
+            "h": 631,
+            "w": 676,
+            "x": 202,
+            "y": 602
+        },
+        "id": "p1",
+        "range": 0,
+        "start_frame": 33,
+        "zoom": 1.12496
+    }
+]
+T5B_GRADES = [
+    {
+        "alphas": [
+            0.85,
+            0.6,
+            0.35,
+            0.1
+        ],
+        "end_frame": 52,
+        "id": "e1",
+        "kind": "flash",
+        "range": 0,
+        "start_frame": 48
+    },
+    {
+        "alphas": [
+            0.3,
+            0.6,
+            0.85,
+            0.85,
+            0.6,
+            0.3
+        ],
+        "end_frame": 144,
+        "id": "e2",
+        "kind": "dip",
+        "range": 0,
+        "start_frame": 138
+    },
+    {
+        "end_frame": 267,
+        "id": "e3",
+        "kind": "mono",
+        "range": 1,
+        "start_frame": 183
+    },
+    {
+        "alpha": 0.18,
+        "color": "#FFC93C",
+        "end_frame": 357,
+        "id": "e4",
+        "kind": "tint",
+        "range": 2,
+        "start_frame": 333
+    }
+]
+T5B_GRAPH = [
+    "[0:v:0]fps=30:start_time=0,scale=2160:3840:force_original_aspect_ratio=increase:in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv:flags=lanczos+accurate_rnd+bitexact,crop=2160:3840,setsar=1,format=yuv420p[sv]",
+    "[sv]split=3[s0][s1][s2]",
+    "[s0]trim=start_frame=0:end_frame=150,setpts=PTS-STARTPTS,zoompan=z='if(between(on,33,86),1.12496,1.00000+0.000134*on)':x='1080.00*(1-1/zoom)':y='1520.00*(1-1/zoom)':d=1:s=1080x1920:fps=30,setsar=1,lutyuv=y='val*(1-0.850)+235.00*0.850':u='val*(1-0.850)+128.00*0.850':v='val*(1-0.850)+128.00*0.850':enable='eq(n,48)',lutyuv=y='val*(1-0.600)+235.00*0.600':u='val*(1-0.600)+128.00*0.600':v='val*(1-0.600)+128.00*0.600':enable='eq(n,49)',lutyuv=y='val*(1-0.350)+235.00*0.350':u='val*(1-0.350)+128.00*0.350':v='val*(1-0.350)+128.00*0.350':enable='eq(n,50)',lutyuv=y='val*(1-0.100)+235.00*0.100':u='val*(1-0.100)+128.00*0.100':v='val*(1-0.100)+128.00*0.100':enable='eq(n,51)',lutyuv=y='val*(1-0.300)+16.00*0.300':u='val*(1-0.300)+128.00*0.300':v='val*(1-0.300)+128.00*0.300':enable='eq(n,138)',lutyuv=y='val*(1-0.600)+16.00*0.600':u='val*(1-0.600)+128.00*0.600':v='val*(1-0.600)+128.00*0.600':enable='eq(n,139)',lutyuv=y='val*(1-0.850)+16.00*0.850':u='val*(1-0.850)+128.00*0.850':v='val*(1-0.850)+128.00*0.850':enable='eq(n,140)',lutyuv=y='val*(1-0.850)+16.00*0.850':u='val*(1-0.850)+128.00*0.850':v='val*(1-0.850)+128.00*0.850':enable='eq(n,141)',lutyuv=y='val*(1-0.600)+16.00*0.600':u='val*(1-0.600)+128.00*0.600':v='val*(1-0.600)+128.00*0.600':enable='eq(n,142)',lutyuv=y='val*(1-0.300)+16.00*0.300':u='val*(1-0.300)+128.00*0.300':v='val*(1-0.300)+128.00*0.300':enable='eq(n,143)',format=yuv420p[v0]",
+    "[0:a:0]aresample=async=1:first_pts=0,atrim=start=0.000000:end=5.000000,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0150,afade=t=out:st=4.985000:d=0.0150[a0]",
+    "[s1]trim=start_frame=200:end_frame=350,setpts=PTS-STARTPTS,zoompan=z='1.10000+0.000148*on':x='1080.00*(1-1/zoom)':y='1520.00*(1-1/zoom)':d=1:s=1080x1920:fps=30,setsar=1,scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=lanczos+accurate_rnd+bitexact,format=gbrp,colorchannelmixer=rr=.2126:rg=.7152:rb=.0722:gr=.2126:gg=.7152:gb=.0722:br=.2126:bg=.7152:bb=.0722:enable='between(n,33,116)',scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=lanczos+accurate_rnd+bitexact,format=yuv420p,format=yuv420p[v1]",
+    "[0:a:0]aresample=async=1:first_pts=0,atrim=start=6.666667:end=11.666667,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0150,afade=t=out:st=4.985000:d=0.0150[a1]",
+    "[s2]trim=start_frame=400:end_frame=520,setpts=PTS-STARTPTS,scale=1080:1920:flags=lanczos+accurate_rnd+bitexact,setsar=1,lutyuv=y='val*(1-0.180)+189.74*0.180':u='val*(1-0.180)+60.64*0.180':v='val*(1-0.180)+157.40*0.180':enable='between(n,33,56)',format=yuv420p[v2]",
+    "[0:a:0]aresample=async=1:first_pts=0,atrim=start=13.333333:end=17.333333,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.0150,afade=t=out:st=3.985000:d=0.0150[a2]",
+    "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[cv][ca]",
+    "[ca]aformat=sample_rates=48000:channel_layouts=stereo[aout]"
+]
+
+
+def test_an_edit_inside_the_old_bounds_keeps_its_rows_and_bytes():
+    edl = synthetic_edl()
+    timeline = resolve(edl, beats_of([punch(1, 2, 5)], T5B_EFFECTS))
+    assert timeline["punches"] == T5B_PUNCHES and timeline["grades"] == T5B_GRADES and timeline["effects_dropped"] == []
+    assert _media.base_graph(dict(PLAN, effects=_edl.range_effects(edl, timeline))) == T5B_GRAPH

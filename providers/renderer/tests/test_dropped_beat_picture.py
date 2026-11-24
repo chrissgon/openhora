@@ -195,3 +195,15 @@ def test_the_answer_schema_keeps_assets_dropped_as_a_list_of_slots_and_refuses_a
         with pytest.raises(Refusal) as caught:
             D.sanitise(dict(row, assets_dropped=bad), schema, verb)
         assert caught.value.code == "container_result_invalid"
+
+
+@pytest.mark.parametrize("verb, row", (("render", RENDER), ("hf-page", PAGE)))
+def test_the_effects_dropped_list_holds_the_effects_ceiling_and_the_beats_ceiling(verb, row):      # T6
+    beats_max = json.load(open(K.VOCABULARY))["limits"]["beats_max"]
+    assert 111 == _edl.EFFECTS_MAX + beats_max
+    schema = D.RESULT_SCHEMAS[verb]
+    rows = [{"id": "e%d" % k, "reason": "grade_short"} for k in range(1, 112)]
+    assert len(D.sanitise(dict(row, effects_dropped=rows), schema, verb)["effects_dropped"]) == 111
+    with pytest.raises(Refusal) as caught:
+        D.sanitise(dict(row, effects_dropped=rows + [{"id": "e112", "reason": "grade_short"}]), schema, verb)
+    assert caught.value.code == "container_result_invalid"

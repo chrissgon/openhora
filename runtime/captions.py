@@ -99,9 +99,9 @@ ANIMATIONS_MAX = 12            # the animations one review may add
 BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")      # = providers/renderer/_edl.py EFFECT_KINDS (a test compares)
 GRADE_KINDS = ("flash", "dip", "mono", "tint")
-EFFECTS_MAX = 6                # the review effects one review may add (= _edl.py EFFECTS_MAX; the script's own punches are counted apart)
-FLASHES_MAX = 2                # flashes and dips together (= _edl.py FLASHES_MAX)
-EFFECT_ID = re.compile(r"e[1-6]")
+OVERLAY_GRADES = ("flash", "dip", "tint")      # = providers/renderer/_edl.py OVERLAY_GRADES (a test compares): the grades drawn on one colour layer
+EFFECTS_MAX = 99               # validity: the review effects one review may add (= _edl.py EFFECTS_MAX; the script's own punches are counted apart)
+EFFECT_ID = re.compile(r"e[1-9][0-9]?")      # = _edl.py EFFECT_ID
 PUNCH_ID = re.compile(r"p([1-9][0-9]?)")      # the id of the script's punch of beat N
 ANIMATION_ID = re.compile(r"a([1-9]|1[0-2])")
 ANIMATION_BEAT_BASE = 1000     # an added animation's `beat` in beats.json is 1000 + its number: never a script beat's number
@@ -566,11 +566,11 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
 
 
 def _check_grades_apart(words: list, review: dict) -> None:
-    """A merge can bring the words of two grades into one word, and the renderer refuses two grades over the same word (`effect_overlap`): the edit that
+    """A merge can bring the words of two colour-layer grades (flash, dip, tint) into one word, and the renderer refuses them (`effect_overlap`): the edit that
     would do it is refused here, with nothing changed, so the review never holds what the render would refuse."""
     spans = []
     for item in review["effects"]:
-        if item["kind"] in GRADE_KINDS:
+        if item["kind"] in OVERLAY_GRADES:
             now = span_current(words, item["from"], item["to"])
             if now is not None:
                 spans.append(now)
@@ -609,10 +609,8 @@ def _decide_effect(edit: dict, where: str, words: list, review: dict, punches) -
     o_from, o_to = origin_span(words, first, last)
     if edit["kind"] in GRADE_KINDS:
         grades = [e for e in stored if e["kind"] in GRADE_KINDS]
-        if any(o_from <= g["to"] and g["from"] <= o_to for g in grades):
+        if edit["kind"] in OVERLAY_GRADES and any(g["kind"] in OVERLAY_GRADES and o_from <= g["to"] and g["from"] <= o_to for g in grades):
             raise CaptionError("effect_overlap", where)
-        if edit["kind"] in ("flash", "dip") and sum(1 for g in grades if g["kind"] in ("flash", "dip")) >= FLASHES_MAX:
-            raise CaptionError("too_many_flashes", where)
     used = {e["id"] for e in stored}
     number = next(k for k in range(1, EFFECTS_MAX + 1) if f"e{k}" not in used)
     stored.append({"id": f"e{number}", "kind": edit["kind"], "from": o_from, "to": o_to})

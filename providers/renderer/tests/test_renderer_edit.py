@@ -222,8 +222,10 @@ def test_a_drawn_box_that_touches_the_face_box_is_found():
 def test_the_zoom_settings_are_bounded():
     for zoom in ({"mode": "alternate", "factor": 1.1, "push_in": 0.0, "anchor_y": 0.25}, {"mode": "none", "factor": 1.0, "push_in": 0.03, "anchor_y": 0.0}):
         _edl.check_zoom(DATA, zoom)
-    for zoom, code in (({"mode": "wobble", "factor": 1.1, "push_in": 0, "anchor_y": 0.25}, "bad_choice"), ({"mode": "alternate", "factor": 1.5, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"),
-                       ({"mode": "alternate", "factor": 0.9, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 0.05, "anchor_y": 0.25}, "bad_zoom"),
+    for zoom in ({"mode": "alternate", "factor": 1.5, "push_in": 0.05, "anchor_y": 0.25}, {"mode": "alternate", "factor": 10.0, "push_in": 0, "anchor_y": 0.25}):
+        _edl.check_zoom(DATA, zoom)                                          # video P0: no taste cap on the factor or the push-in, only the zoom ceiling
+    for zoom, code in (({"mode": "wobble", "factor": 1.1, "push_in": 0, "anchor_y": 0.25}, "bad_choice"), ({"mode": "alternate", "factor": 10.5, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"),
+                       ({"mode": "alternate", "factor": 0.9, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 10.0, "anchor_y": 0.25}, "bad_zoom"),
                        ({"mode": "alternate", "factor": True, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 0}, "missing_key"),
                        ({"mode": "alternate", "factor": 1.1, "push_in": 0, "anchor_y": 1.5}, "bad_zoom")):
         assert refused(_edl.check_zoom, DATA, zoom).code == code, zoom

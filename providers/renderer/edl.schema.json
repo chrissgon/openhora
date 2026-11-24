@@ -438,14 +438,14 @@
         },
         "effects": {
           "type": "array",
-          "description": "The review effects the person added over word ranges: a punch, or a grade that changes the colour of the picture (flash, dip, mono, tint). Optional; at most 6, no two grades over the same words, at most two flashes and dips together. Times are the renderer's: whole frames, in `resolve_timeline`.",
-          "maxItems": 6,
+          "description": "The review effects the person added over word ranges: a punch, or a grade that changes the colour of the picture (flash, dip, mono, tint). Optional; at most 99 (a closed document), no two flash, dip or tint grades over the same words. Times are the renderer's: whole frames, in `resolve_timeline`.",
+          "maxItems": 99,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["id", "kind", "word_from", "word_to"],
             "properties": {
-              "id": {"type": "string", "pattern": "^e[1-6]$"},
+              "id": {"type": "string", "pattern": "^e[1-9][0-9]?$"},
               "kind": {"enum": ["punch", "flash", "dip", "mono", "tint"]},
               "word_from": {"type": "integer"},
               "word_to": {"type": "integer"}
