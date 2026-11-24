@@ -41,14 +41,9 @@ EFFECT_KEYS = {"id", "kind", "word_from", "word_to"}                 # a review 
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")
 GRADE_KINDS = ("flash", "dip", "mono", "tint")                       # the effects that change the colour of the base picture
 OVERLAY_GRADES = ("flash", "dip", "tint")                            # the grades drawn as one colour laid over the picture (the page's `#fx`); mono is a filter
-EFFECT_ID = re.compile(r"e[1-6]")
-EFFECTS_MAX = 6                 # review effects in one beats.json (the script's punches are counted apart: the skill's checker spaces them)
-FLASH_FRAMES_MAX = 4            # the hard bounds of a grade (D9, principle 13): a configuration file never widens them
-DIP_FRAMES_MAX = 6
-FLASHES_MAX = 2                 # flashes and dips together in one video
-GRADE_SECONDS_MAX = 4.0         # mono and tint
-FLASH_ALPHA_MAX = 0.85          # the strongest frame of a flash or a dip, and the tint's alpha: the spec's own values, which the configuration may lower and never raise
-TINT_ALPHA_MAX = 0.18
+EFFECT_ID = re.compile(r"e[1-9][0-9]?")
+EFFECTS_MAX = 99                # validity: a closed document; the id format e1-e99, read by runtime/step_media.py (the script's punches are counted apart)
+ZOOM_MAX = 10.0                 # validity: ffmpeg zoompan's zoom range is 1 to 10
 PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is not drawn
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
@@ -292,9 +287,10 @@ def check_zoom(data: dict, zoom, field: str = "zoom") -> None:
     closed(zoom, {"mode", "factor", "push_in", "anchor_y"}, field)
     if zoom["mode"] not in cfg["modes"]:
         raise Refusal("bad_choice", field + ".mode")
-    if not _num(zoom["factor"]) or not 1.0 <= zoom["factor"] <= cfg["factor_max"]:
+    if not _num(zoom["factor"]) or not math.isfinite(zoom["factor"]) or not 1.0 <= zoom["factor"] <= ZOOM_MAX:
         raise Refusal("bad_zoom", field + ".factor")
-    if not _num(zoom["push_in"]) or not 0 <= zoom["push_in"] <= cfg["push_in_max"]:
+    if not _num(zoom["push_in"]) or not math.isfinite(zoom["push_in"]) or zoom["push_in"] < 0 \
+            or zoom["factor"] * (1 + zoom["push_in"]) > ZOOM_MAX:
         raise Refusal("bad_zoom", field + ".push_in")
     if not _num(zoom["anchor_y"]) or not 0 <= zoom["anchor_y"] <= 1:
         raise Refusal("bad_zoom", field + ".anchor_y")
@@ -567,8 +563,8 @@ def check_punches(punches, index_set: set, vocab: dict) -> None:
 
 
 def check_effects(effects, index_set: set) -> None:
-    """The review effects in beats.json: at most EFFECTS_MAX, each a closed row of an id (`e1` to `e6`, once), a kind and a word range;
-    two grades never share a word (`effect_overlap`), and at most FLASHES_MAX flashes and dips together (`too_many_flashes`)."""
+    """The review effects in beats.json: at most EFFECTS_MAX, each a closed row of an id (`e1` to `e99`, once), a kind and a word range;
+    two colour-layer grades (flash, dip, tint) never share a word (`effect_overlap`): they are drawn on one layer. Mono is a filter and may share."""
     if not isinstance(effects, list):
         raise Refusal("not_list", "beats.effects")
     if len(effects) > EFFECTS_MAX:
@@ -584,11 +580,10 @@ def check_effects(effects, index_set: set) -> None:
             raise Refusal("bad_effect", field)
         _word_span(e, index_set, field)
         if e["kind"] in GRADE_KINDS:
-            if any(e["word_from"] <= g["word_to"] and g["word_from"] <= e["word_to"] for g in grades):
+            if e["kind"] in OVERLAY_GRADES and any(g["kind"] in OVERLAY_GRADES and e["word_from"] <= g["word_to"]
+                                                   and g["word_from"] <= e["word_to"] for g in grades):
                 raise Refusal("effect_overlap", field)
             grades.append(e)
-    if sum(1 for g in grades if g["kind"] in ("flash", "dip")) > FLASHES_MAX:
-        raise Refusal("too_many_flashes", "beats.effects")
 
 
 # ---------------------------------------------------------------- the timeline
@@ -630,9 +625,9 @@ def _frame_at(seconds: float, fps: int, n: int) -> int:
 def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
     """(rows, dropped): the script's punches and the review's punch effects as frame spans of the OUTPUT timeline, each inside one kept range.
 
-    A punch spans its words, stretched to `punch.min_seconds` and cut at `punch.max_seconds` and at its range's end. Two punches in one range never
+    A punch spans its words, stretched to `punch.min_seconds` and cut at its range's end. Two punches in one range never
     overlap: the later one starts where the earlier one ends. One left under PUNCH_SHORT_SECONDS is dropped (`punch_short`). Its zoom is the range's
-    own level at the punch's first frame times `punch.factor`, held for the span and capped at `zoom.factor_max`; one that would not zoom in past
+    own level at the punch's first frame times `punch.factor`, held for the span and capped at ZOOM_MAX; one that would not zoom in past
     the range's own level is dropped (`punch_capped`). A row: {id, start_frame, end_frame, range, zoom, face}, `face` the face box as the punch draws it."""
     fps, n = edl["fps"], edl["out_frames"]
     cfg, zoom_cfg = data["punch"], data["zoom"]
@@ -645,7 +640,7 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
         sf = _frame_at(by_index[w_from]["start"], fps, n)
         k = _range_of(table, sf)
         ef = max(int(round(by_index[w_to]["end"] * fps)), sf + int(round(cfg["min_seconds"] * fps)))
-        ef = min(ef, sf + int(round(cfg["max_seconds"] * fps)), table[k][1])
+        ef = min(ef, table[k][1])
         spans.append({"id": pid, "start_frame": sf, "end_frame": ef, "range": k})
     spans.sort(key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
     rows, dropped, floor = [], [], {}
@@ -660,7 +655,7 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
             continue
         z0, z1 = _media.zoom_levels(edl["zoom"], k, last - first, fps)
         base = z0 + (z1 - z0) * (r["start_frame"] - first) / float(max(1, last - first - 1))
-        zp = round(min(zoom_cfg["factor_max"], base * cfg["factor"]), 5)
+        zp = round(min(ZOOM_MAX, base * cfg["factor"]), 5)
         if zp <= base + 1e-9:
             dropped.append({"id": r["id"], "reason": "punch_capped"})
             continue
@@ -672,9 +667,8 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
 def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
     """(rows, dropped): the review's flash, dip, mono and tint effects as frame spans of the OUTPUT timeline, each inside one kept range.
 
-    A flash or a dip starts at the first frame of its first word and lasts one frame per alpha of `effects.flash_alphas` / `dip_alphas` (at most
-    FLASH_FRAMES_MAX and DIP_FRAMES_MAX), cut at its range's end. Mono and tint span their words, clipped to `grade_min_seconds` to `grade_max_seconds`
-    (never past GRADE_SECONDS_MAX) and cut at the range's end. A flash, dip or tint that starts inside the one before it is dropped (`grade_overlap`):
+    A flash or a dip starts at the first frame of its first word and lasts one frame per alpha of `effects.flash_alphas` / `dip_alphas`, each alpha
+    clamped to 0-1, cut at its range's end. Mono and tint span their words, at least `grade_min_seconds`, cut at the range's end. A flash, dip or tint that starts inside the one before it is dropped (`grade_overlap`):
     they share one colour layer. A row: {id, kind, start_frame, end_frame, range, alphas (flash, dip) or alpha (tint), color (tint)}."""
     fps, n = edl["fps"], edl["out_frames"]
     cfg = data["effects"]
@@ -689,16 +683,15 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
         k = _range_of(table, sf)
         row = {"id": e["id"], "kind": kind, "start_frame": sf, "range": k}
         if kind in ("flash", "dip"):
-            alphas = [min(FLASH_ALPHA_MAX, max(0.0, float(a))) for a in cfg[kind + "_alphas"]][:FLASH_FRAMES_MAX if kind == "flash" else DIP_FRAMES_MAX]
+            alphas = [min(1.0, max(0.0, float(a))) for a in cfg[kind + "_alphas"]]
             row["end_frame"] = min(sf + len(alphas), table[k][1])
             row["alphas"] = alphas[:row["end_frame"] - sf]
         else:
             low = int(round(cfg["grade_min_seconds"] * fps))
-            high = int(round(min(cfg["grade_max_seconds"], GRADE_SECONDS_MAX) * fps))
-            length = min(max(int(round(by_index[e["word_to"]]["end"] * fps)) - sf, low), high)
+            length = max(int(round(by_index[e["word_to"]]["end"] * fps)) - sf, low)
             row["end_frame"] = min(sf + length, table[k][1])
             if kind == "tint":
-                row["alpha"] = min(TINT_ALPHA_MAX, max(0.0, float(cfg["tint_alpha"])))
+                row["alpha"] = min(1.0, max(0.0, float(cfg["tint_alpha"])))
                 row["color"] = edl["theme"]["colors"]["accent"]
         if row["end_frame"] <= row["start_frame"]:
             dropped.append({"id": e["id"], "reason": "grade_short"})

@@ -58,26 +58,32 @@ def test_an_effect_is_added_and_removed():
     assert cap.view(edited, one, {}, {}, {})["counts"]["effects"] == 2
 
 
-def test_more_than_six_effects_are_refused():
+def test_effects_go_up_to_the_ceiling():      # T7
     edited, review = fresh()
-    six = [effect("punch", k, k) for k in range(6)]
-    _, full, _ = apply(edited, review, six)
-    assert [e["id"] for e in full["effects"]] == ["e%d" % k for k in range(1, 7)]
-    assert refusal(edited, full, [effect("punch", 7, 7)]).code == "too_many_effects"
-    assert refusal(edited, review, six + [effect("punch", 7, 7)]).code == "too_many_effects"
-    assert cap.EFFECTS_MAX == 6 and cap.ANIMATIONS_MAX == 12 and cap.BEATS_MAX == 12          # the effects have a limit of their own
+    top = [effect("punch", 0, 0) for _ in range(99)]
+    _, full, _ = apply(edited, review, top)
+    assert [e["id"] for e in full["effects"]] == ["e%d" % k for k in range(1, 100)]
+    assert refusal(edited, full, [effect("punch", 7, 7)]).code == "too_many_effects"                      # the 100th, over two requests
+    assert refusal(edited, review, top + [effect("punch", 7, 7)]).code == "too_many_effects"              # and in one request
+    assert cap.EFFECTS_MAX == 99 and cap.ANIMATIONS_MAX == 12 and cap.BEATS_MAX == 12                     # the other limits are not P0's
 
 
-def test_overlapping_grades_are_refused():
+def test_overlapping_grades_are_refused():      # T8
     edited, review = fresh()
     _, one, _ = apply(edited, review, [effect("mono", 2, 4)])
-    for kind in ("flash", "dip", "mono", "tint"):
-        assert refusal(edited, one, [effect(kind, 4, 5)]).code == "effect_overlap", kind
+    for kind in ("flash", "dip", "mono", "tint"):                                                # mono is a filter: every kind may share its words
+        assert [e["kind"] for e in apply(edited, one, [effect(kind, 4, 5)])[1]["effects"]].count(kind) >= 1 and len(apply(edited, one, [effect(kind, 4, 5)])[1]["effects"]) == 2
+    for first in ("flash", "dip", "tint"):
+        _, over, _ = apply(edited, review, [effect(first, 2, 4)])
+        for kind in ("flash", "dip", "tint"):
+            assert refusal(edited, over, [effect(kind, 4, 5)]).code == "effect_overlap", (first, kind)
+        assert len(apply(edited, over, [effect("mono", 4, 5)])[1]["effects"]) == 2               # over a colour-layer grade only mono passes
     _, ok, _ = apply(edited, one, [effect("punch", 3, 3), effect("tint", 5, 6)])                # a punch is no grade: it may share words
     assert len(ok["effects"]) == 3
-    assert refusal(edited, review, [effect("flash", 1, 1), effect("dip", 3, 3), effect("flash", 6, 6)]).code == "too_many_flashes"
-    _, two, _ = apply(edited, review, [effect("flash", 1, 1), effect("dip", 3, 3), effect("mono", 6, 7), effect("tint", 0, 0)])
-    assert len(two["effects"]) == 4                                                              # the bound counts flashes and dips only
+    _, three, _ = apply(edited, review, [effect("flash", 1, 1), effect("dip", 3, 3), effect("flash", 6, 6)])
+    assert len(three["effects"]) == 3                                                            # no count of flashes and dips
+    _, four, _ = apply(edited, review, [effect("flash", 1, 1), effect("dip", 3, 3), effect("mono", 6, 7), effect("tint", 0, 0)])
+    assert len(four["effects"]) == 4
 
 
 def test_a_script_punch_is_dropped_and_kept_dropped():
@@ -109,7 +115,9 @@ def test_an_old_review_reads_with_no_effects():
     _, one, _ = apply(edited, old, [effect("dip", 1, 2)])
     assert one["effects"][0]["kind"] == "dip"
     good = cap.check_review(one)
-    broken = [dict(good["effects"][0], id="e7"), dict(good["effects"][0], id="a1"), dict(good["effects"][0], kind="spin"), dict(good["effects"][0], extra=1),
+    many = [dict(good["effects"][0], id="e%d" % k) for k in range(7, 41)]                      # T10: a stored review with e7..e40 reads
+    assert len(cap.check_review(dict(good, effects=many))["effects"]) == 34
+    broken = [dict(good["effects"][0], id="e100"), dict(good["effects"][0], id="e0"), dict(good["effects"][0], id="e01"), dict(good["effects"][0], id="a1"), dict(good["effects"][0], kind="spin"), dict(good["effects"][0], extra=1),
               dict(good["effects"][0], **{"from": 5, "to": 2}), dict(good["effects"][0], **{"from": -1})]
     for one_item in broken:
         with pytest.raises(cap.CaptionError) as caught:
@@ -141,7 +149,8 @@ def test_the_constants_equal_the_renderers_own():
     kinds = re.search(r"^EFFECT_KINDS = \((.*)\)$", source, re.M).group(1)
     assert tuple(re.findall(r'"(\w+)"', kinds)) == cap.EFFECT_KINDS
     assert re.search(r"^EFFECTS_MAX = (\d+)", source, re.M).group(1) == str(cap.EFFECTS_MAX)
-    assert re.search(r"^FLASHES_MAX = (\d+)", source, re.M).group(1) == str(cap.FLASHES_MAX)
+    assert re.search(r"^OVERLAY_GRADES = \((.*?)\)", source, re.M).group(1).replace('"', "").replace(" ", "").split(",") == list(cap.OVERLAY_GRADES)
+    assert "FLASHES_MAX" not in source and not hasattr(cap, "FLASHES_MAX")                                  # T9: the flash count is gone from both
     assert re.search(r'^EFFECT_ID = re.compile\(r"(.*)"\)$', source, re.M).group(1) == cap.EFFECT_ID.pattern
 
 
@@ -217,14 +226,17 @@ def test_an_effect_with_no_live_word_stops_the_align_step_with_effect_lost(world
 
 def test_a_merge_that_would_bring_two_grades_into_one_word_is_refused_and_changes_nothing():
     edited, review = fresh()
-    _, two, _ = apply(edited, review, [effect("mono", 2, 2), effect("tint", 3, 3)])
+    _, two, _ = apply(edited, review, [effect("flash", 2, 2), effect("tint", 3, 3)])
     err = refusal(edited, two, [{"op": "merge", "from": 2, "to": 3}])
     assert (err.code, err.field) == ("effect_overlap", "edits")
     _, fine, _ = apply(edited, two, [{"op": "merge", "from": 0, "to": 1}])               # a merge elsewhere is fine
-    assert [e["kind"] for e in fine["effects"]] == ["mono", "tint"]
+    assert [e["kind"] for e in fine["effects"]] == ["flash", "tint"]
     _, punches, _ = apply(edited, review, [effect("punch", 2, 2), effect("mono", 3, 3)])      # a punch may share a word with a grade
     _, merged, _ = apply(edited, punches, [{"op": "merge", "from": 2, "to": 3}])
     assert len(merged["effects"]) == 2
+    _, grades, _ = apply(edited, review, [effect("mono", 2, 2), effect("tint", 3, 3)])               # a merge that brings a mono and a tint into one word passes
+    _, both, _ = apply(edited, grades, [{"op": "merge", "from": 2, "to": 3}])
+    assert len(both["effects"]) == 2
 
 
 def test_the_runtime_reads_the_renders_dropped_effects_as_closed_rows():
@@ -232,3 +244,16 @@ def test_the_runtime_reads_the_renders_dropped_effects_as_closed_rows():
                                                           {"id": "e3", "reason": "because"}, "e4", {"id": "e5"}]})
     assert got == [{"id": "e1", "reason": "punch_short"}, {"id": "p2", "reason": "grade_overlap"}]
     assert step_media._effects_dropped({}) == [] and step_media._effects_dropped({"effects_dropped": "x"}) == []
+
+
+def test_the_renders_dropped_effects_are_not_cut_and_the_left_out_bound_follows_the_ceilings():      # T10
+    rows = [{"id": "e%d" % k, "reason": "grade_short"} for k in range(1, 21)]
+    assert step_media._effects_dropped({"effects_dropped": rows}) == rows                                  # 20 rows: none cut at 12
+    dd = st.load("deliver_document")
+    assert dd.LEFT_OUT_MAX == cap.EFFECTS_MAX + 2 * cap.BEATS_MAX == 123
+    left = step_media._left_out({}, {}, {}, step_media._effects_dropped({"effects_dropped": rows}))
+    assert len(left) == 20 and {r["kind"] for r in left} == {"effect"}                                      # all 20 reach the left-out rows
+    ok = [{"id": "e%03d" % k, "kind": "effect", "reason": "grade_short"} for k in range(123)]
+    dd._check_left_out({"left_out": ok})                                                                    # 123 rows are accepted
+    with pytest.raises(ValueError):
+        dd._check_left_out({"left_out": ok + [{"id": "e999", "kind": "effect", "reason": "grade_short"}]})   # 124 are refused
