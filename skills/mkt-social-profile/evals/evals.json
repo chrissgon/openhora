@@ -171,7 +171,7 @@
       ],
       "assertions": [
         {
-          "text": "The network's `Limits:` line reads `not checked`, and the `Length:` lines of the headline and About proposals read `not checked`",
+          "text": "The network's `Limits:` line reads `not checked`, and the `Length:` lines of the headline and About proposals say the limit is not checked (no number given as a limit)",
           "tags": [
             "format"
           ]

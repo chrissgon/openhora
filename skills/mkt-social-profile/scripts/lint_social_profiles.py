@@ -42,7 +42,7 @@ and labels are matched case-insensitively; pass translated texts for an artifact
 
 Output: JSON on stdout: {"ok", "networks": {"<platform>": {"limits", "pieces": {"<key>": {"length", "limit",
 "unit"}}}}, "voice", "sensitive", "problems": [{"code", "line", "where", "message"}], "length_lines":
-{"<platform>.<key>": "<n> of <limit> (<unit>)"}}. Diagnostics go to stderr. Exit 0 when ok, 1 when a problem
+{"<platform>.<key>": "<n> of <limit> (<unit>)" | "<n> (<unit>); limit not checked"}}. Diagnostics go to stderr. Exit 0 when ok, 1 when a problem
 is reported, 2 on a bad argument or an unreadable file. No network; standard library only.
 """
 import argparse
@@ -285,7 +285,9 @@ def lint(a, labels, text, allowed, rules):
                 while key in networks[name]["pieces"]:
                     key, i = "%s#%d" % (piece["key"], i), i + 1
                 networks[name]["pieces"][key] = {"length": n_chars, "limit": limit, "unit": unit}
-                length_lines["%s.%s" % (name, key)] = "%d of %s (%s)" % (n_chars, limit, unit)
+                length_lines["%s.%s" % (name, key)] = (
+                    "%d of %d (%s)" % (n_chars, limit, unit) if isinstance(limit, int)
+                    else "%d (%s); limit not checked" % (n_chars, unit))
             if isinstance(high, int) and n_chars > high:
                 add("over_limit", line, where, "%d %s, limit %d" % (n_chars, unit, high))
             if isinstance(low, int) and n_chars < low:

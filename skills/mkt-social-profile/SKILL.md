@@ -123,7 +123,7 @@ Progress:
 ```proposed
 <the new text exactly as the person will paste it, line breaks included; omit the block when the verdict is ok or not seen>
 ```
-- Length: <copied from lint_social_profiles.py> | not checked
+- Length: <n> of <limit> (<unit>) | <n> (<unit>); limit not checked
 - Approved: no | yes, <date>, "<the person's words>"
 - Applied: no | yes, <date> (<the person's words or screenshot>)
 

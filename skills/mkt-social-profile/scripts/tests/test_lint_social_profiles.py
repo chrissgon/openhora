@@ -90,7 +90,7 @@ def test_a_platform_without_a_profile_key_is_not_checked_and_passes(tmp_path):
     assert code == 0, out["problems"]
     assert out["networks"]["plainnet"]["limits"] == "not checked"
     assert out["networks"]["plainnet"]["pieces"]["bio"]["limit"] == "not checked"
-    assert out["length_lines"]["plainnet.bio"] == "500 of not checked (code points)"
+    assert out["length_lines"]["plainnet.bio"] == "500 (code points); limit not checked"
 
 
 def test_a_piece_whose_limit_is_null_is_not_checked(tmp_path):
@@ -98,6 +98,8 @@ def test_a_piece_whose_limit_is_null_is_not_checked(tmp_path):
     code, out, _ = lint(tmp_path, text.replace("links.example/anacosta", "A very long name " * 20), links=False)
     assert code == 0, out["problems"]
     assert out["networks"]["photonet"]["pieces"]["name"]["limit"] == "not checked"
+    assert out["length_lines"]["photonet.name"].endswith(" (code points); limit not checked")
+    assert " of " not in out["length_lines"]["photonet.name"]
 
 
 def test_an_under_limit_username_and_an_unknown_piece(tmp_path):
