@@ -105,7 +105,7 @@ def test_a_text_beat_over_two_pictures_keeps_the_longer_end_part(docs):
 def test_two_picture_beats_that_start_together_keep_the_old_rule_and_the_shorter_slot_is_dropped(docs, tmp_path, monkeypatch):
     rows = [layout("a1", 7, "s1", 22, 24), layout("a2", 8, "s2", 22, 27)]
     timeline, beats = resolve(docs, rows)
-    assert timeline["dropped"] == ["a1"] and "a2" in by_id(timeline) and "dropped_reasons" not in timeline
+    assert timeline["dropped"] == ["a1"] and "a2" in by_id(timeline) and timeline["dropped_reasons"] == [{"id": "a1", "reason": "overlap"}]
     used, dropped_only = _edl.classify_slots(beats, timeline, docs[3], {"s1": 1, "s2": 2})
     assert dropped_only == {"s1"} and used == {"s2"}
 
@@ -117,7 +117,7 @@ def test_two_text_beats_keep_the_old_rule(docs):
     doubled = copy.deepcopy(beats)
     doubled["overlays"] = [dict(doubled["overlays"][1], id="b4a", word_to=24)] + doubled["overlays"]      # b4a starts with b4 and is the shorter
     timeline = _edl.resolve_timeline(edl, doubled, vocab, data)
-    assert timeline["dropped"] == ["b4a"] and "dropped_reasons" not in timeline
+    assert timeline["dropped"] == ["b4a"] and timeline["dropped_reasons"] == [{"id": "b4a", "reason": "overlap"}]
 
 
 def test_a_layout_with_no_slot_in_its_params_is_a_text_beat(docs):
@@ -126,7 +126,7 @@ def test_a_layout_with_no_slot_in_its_params_is_a_text_beat(docs):
     only = copy.deepcopy(beats)
     only["layouts"] = [plain]
     timeline = _edl.resolve_timeline(edl, only, vocab, data)
-    assert timeline["dropped"] == ["a9"] and "dropped_reasons" not in timeline          # the shorter of two text beats loses, as before
+    assert timeline["dropped"] == ["a9"] and timeline["dropped_reasons"] == [{"id": "a9", "reason": "overlap"}]          # the shorter of two text beats loses, as before
     assert by_id(timeline)["b4"]["start_frame"] == _edl.resolve_timeline(edl, beats, vocab, data)["beats"][1]["start_frame"]
 
 

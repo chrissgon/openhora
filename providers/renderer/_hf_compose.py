@@ -429,7 +429,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     image checks them); `clip_assets` is {slot: {width, height, seconds, fps, tint}} of the slots that are clips, which are drawn as top-level video elements under the
     frame band's iframe (V9b-5b); with none, nothing in the files differs from a page without the argument.
     Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers, blocks, blocks_sha256, captions_drawn, beats_drawn, runtimes,
-    fonts_used}. Everything is checked before anything is written."""
+    fonts_used}, and, when the timeline dropped a beat, `beats_dropped` and `beats_dropped_reasons` (V9b-3f). Everything is checked before anything is written."""
     frame = data["frame"]
     background = data["theme"]["colors"]["bg"]
     _hf_page.check_target(out_dir, background)
@@ -557,4 +557,5 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             "blocks_sha256": catalogue["sha256"], "captions_drawn": sum(1 for p in plan if p["zone"] == "caption"),
             "beats_drawn": sum(1 for p in plan if p["zone"] in ("card", "frame")), "effects_dropped": timeline["effects_dropped"], "runtimes": dict(sorted(runtimes.items())),
             "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())},
-            **({"assets_dropped": sorted(dropped_only)} if dropped_only else {})}
+            **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}),
+            **({"beats_dropped": list(timeline["dropped"]), "beats_dropped_reasons": [dict(r) for r in timeline["dropped_reasons"]]} if timeline["dropped"] else {})}      # the beats the timeline left out, each with its reason (V9b-3f)

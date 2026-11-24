@@ -1,0 +1,17 @@
+{
+  "package": "v9b-3f",
+  "table": {
+    "CARD_VIDEO_LEFT_OUT_TEXT_OVERLAP": "Left out of the video: {id}, text highlight, another scene starts at the same time",
+    "CARD_VIDEO_LEFT_OUT_TEXT_UNDER_PICTURE": "Left out of the video: {id}, text highlight, a picture covers it",
+    "CARD_VIDEO_LEFT_OUT_TEXT_PIP_NO_ROOM": "Left out of the video: {id}, text highlight, no room beside the face",
+    "CARD_VIDEO_LEFT_OUT_TEXT_SPLIT_NO_ROOM": "Left out of the video: {id}, text highlight, no room beside the face",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP": "Left out of the video: {id}, picture, another scene starts at the same time",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_UNDER_PICTURE": "Left out of the video: {id}, picture, a picture covers it",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM": "Left out of the video: {id}, picture, no room beside the face",
+    "CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM": "Left out of the video: {id}, picture, no room beside the face",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT": "Left out of the video: {id}, effect, the zoom is too short",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED": "Left out of the video: {id}, effect, the zoom would not get any closer than the shot already is",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT": "Left out of the video: {id}, effect, the colour change is too short",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP": "Left out of the video: {id}, effect, another colour change covers it"
+  }
+}

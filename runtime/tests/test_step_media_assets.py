@@ -554,7 +554,7 @@ def test_the_beats_written_for_an_added_picture_overlay_pass_the_renderers_own_c
 
 # --- a picture whose beat the timeline dropped (V9b-3d) ---------------------------------------------------------------------------------------------
 
-def two_pictures_video(world, monkeypatch, answer):
+def two_pictures_video(world, monkeypatch, answer, overlays=()):
     """A video whose beats hold two cutaway layouts (a1 on beat7, a3 on beat8), both pictures approved, and a renderer that answers `answer` (a dict of extra keys, or a
     function of the arguments) on top of the usual render answer. Returns the video."""
     engine = world["engine"]
@@ -566,7 +566,7 @@ def two_pictures_video(world, monkeypatch, answer):
         else:
             layouts = [{"id": "a1", "beat": 7, "preset": "cutaway", "params": {"asset": "beat7"}, "word_from": 0, "word_to": 3, "score": 1.0},
                        {"id": "a3", "beat": 8, "preset": "cutaway", "params": {"asset": "beat8"}, "word_from": 4, "word_to": 6, "score": 1.0}]
-            Path(out).write_text(json.dumps({"overlays": [], "layouts": layouts}))
+            Path(out).write_text(json.dumps({"overlays": list(overlays), "layouts": layouts}))
         return {"ok": True, "beats": 2, "overlays": 0, "layouts": 2, "unmatched": []}
     engine._align = align
     plain = engine._render
@@ -615,3 +615,52 @@ def test_an_assets_dropped_that_is_not_a_list_of_the_slots_handed_over_is_provid
     out = go_on(world, video["task"])
     assert out["ok"] is False and out["failed"] == "render" and out["code"] == "provider_output_invalid"
     assert not work_file(world, "render.json").exists()
+
+
+# --- what the render left out, told to the person (V9b-3f) --------------------------------------------------------------------------------------
+
+B1 = {"id": "b1", "beat": 1, "preset": "keyword", "params": {"text": "Name every dollar"}, "word_from": 0, "word_to": 3, "score": 1.0}
+LEFT = {"assets_dropped": ["beat8"], "beats_dropped": ["b1", "a3"], "effects_dropped": [{"id": "p1", "reason": "punch_short"}],
+        "beats_dropped_reasons": [{"id": "b1", "reason": "under_picture"}, {"id": "a3", "reason": "overlap"}]}
+
+
+def render_json(world):
+    return json.loads(work_file(world, "render.json").read_text())
+
+
+def test_the_beats_and_effects_the_render_left_out_are_one_sorted_list_in_the_record_and_the_step_result(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, LEFT, overlays=[B1])
+    out = go_on(world, video["task"])
+    assert out["ok"] is True and out["stopped"] == "deliver"
+    rows = [{"id": "a3", "kind": "picture", "reason": "overlap"}, {"id": "b1", "kind": "text", "reason": "under_picture"}, {"id": "p1", "kind": "effect", "reason": "punch_short"}]
+    assert render_json(world)["left_out"] == rows
+    result = task_row(world, video["task"])["step_state"]["steps"]["render"]["result"]
+    assert result["left_out"] == rows and result["pictures_dropped"] == ["beat8"] and result["effects_dropped"] == [{"id": "p1", "reason": "punch_short"}]
+
+
+def test_a_render_that_left_nothing_out_has_no_left_out_key(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, {}, overlays=[B1])
+    go_on(world, video["task"])
+    assert "left_out" not in render_json(world)
+    assert "left_out" not in task_row(world, video["task"])["step_state"]["steps"]["render"]["result"]
+
+
+@pytest.mark.parametrize("bad", [[{"id": "ghost", "reason": "overlap"}], [{"id": "b1", "reason": "nope"}], [{"id": "b1", "reason": "overlap", "x": 1}], "overlap",
+                                 [{"id": "b1", "reason": "overlap"}, {"id": "b1", "reason": "overlap"}], [["b1", "overlap"]], [{"id": 1, "reason": "overlap"}]])
+def test_a_beats_dropped_reasons_that_is_not_closed_rows_of_the_beats_is_provider_output_invalid_on_render(world, monkeypatch, bad):
+    video = two_pictures_video(world, monkeypatch, {"beats_dropped_reasons": bad}, overlays=[B1])
+    out = go_on(world, video["task"])
+    assert out["ok"] is False and out["failed"] == "render" and out["code"] == "provider_output_invalid"
+    assert not work_file(world, "render.json").exists()
+
+
+def test_the_left_out_rows_ride_the_delivery_document_its_card_and_its_body(world, monkeypatch):
+    video = two_pictures_video(world, monkeypatch, LEFT, overlays=[B1])
+    go_on(world, video["task"])
+    [gate] = open_items(world, video["task"])
+    assert "Left out of the video: a3, picture, another scene starts at the same time" in gate["body"]
+    assert "Left out of the video: b1, text highlight, a picture covers it" in gate["body"]
+    assert "Left out of the video: p1, effect, the zoom is too short" in gate["body"]
+    keys = [k for k, _ in gate["payload"]["card"]]
+    assert [k for k in keys if "LEFT_OUT" in k] == ["CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP", "CARD_VIDEO_LEFT_OUT_TEXT_UNDER_PICTURE", "CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT"]
+    assert gate["payload"]["effect"]["left_out"] == 3
