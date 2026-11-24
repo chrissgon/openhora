@@ -198,7 +198,8 @@ def test_two_clip_cutaways_and_a_picture_cutaway_in_one_project(docs, catalogue,
     kept = len(docs[1]["kept"])
     tracks = [int(n) for n in re.findall(r'data-track-index="(\d+)"', index) if int(n) >= kept]
     assert tracks == [kept, kept + 1, kept + 2] and len(set(tracks)) == 3
-    assert re.search(r'var CL = \[\["hf-clip-0",686,715\],\["hf-clip-1",715,768\]\];', index)
+    # V9g: b7 starts on the cut at 683 (its word is 3 frames later) and b9 on the cut at 766, which ends b8 there (the cut snap of `_edl.snap_to_cuts`)
+    assert re.search(r'var CL = \[\["hf-clip-0",683,715\],\["hf-clip-1",715,766\]\];', index)
     assert result["beats_drawn"] >= 3
 
 

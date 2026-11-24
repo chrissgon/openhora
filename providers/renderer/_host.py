@@ -270,7 +270,7 @@ def verb_base(args) -> dict:
         inner += opt("--long-cut", args.long_cut) + opt("--wordless-max", args.wordless_max)
         inner += opt("--zoom", args.zoom) + opt("--zoom-factor", args.zoom_factor)
         inner += ["--retakes", args.retakes]
-        for flag, values in (("--confirm", args.confirm), ("--keep", args.keep), ("--color", args.color), ("--font", args.font)):
+        for flag, values in (("--confirm", args.confirm), ("--keep", args.keep), ("--color", args.color), ("--font", args.font), ("--look", args.look)):
             for v in values or []:
                 inner += [flag, v]
         result = job.run(inner, "base")
@@ -539,6 +539,7 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--retakes", choices=("auto", "propose"), default="auto", help="auto: cut the proposals the rule says to cut; propose: cut only --confirm")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
+    sp.add_argument("--look", action="append", metavar="PRESET=VARIANT", help="the look a preset is drawn with in this video (keyword=headline or headline-serif)")
     sp = sub.add_parser("align")
     add_limits(sp)
     sp.add_argument("--post", required=True)

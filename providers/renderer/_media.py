@@ -447,6 +447,7 @@ def _even(x: float) -> int:
 
 
 PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
+ZOOM_SPACING_SECONDS = 3.0     # the least time between two changes of the zoom level (V9g): `alternate` keeps the level at a cut closer than this to the last change
 SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
 THREADS = 4                                # the decoders and filter graphs of the compose, the proxy and the contact sheet (with swscale's slices); no encoder reads it
 ENCODE_INPUT_THREADS = 1                   # the encode's decoder and filter graph: one thread, so no worker can race another at the end of the stream (CI: 7 of 8 encodes matched, the tail frame of one differed)
@@ -462,10 +463,29 @@ def anchor_point(face: dict, anchor_y: float) -> tuple:
     return face["x"] + face["w"] / 2.0, face["y"] + anchor_y * face["h"]
 
 
-def zoom_levels(zoom: dict, k: int, frames: int, fps: int) -> tuple:
-    """(zoom at the first frame, zoom at the last frame) of kept range number k: `alternate` draws every second range at `factor`;
-    a range of PUSH_MIN_SECONDS or more also pushes in by `push_in` over its length."""
-    z0 = zoom["factor"] if zoom["mode"] == "alternate" and k % 2 == 1 else 1.0
+def zoomed_ranges(zoom: dict, kept: list, fps: int) -> list:
+    """For each kept range, whether `alternate` draws it at `factor` (V9g). The level flips at a cut, starting unzoomed, but only when the cut is at least
+    ZOOM_SPACING_SECONDS after the last change of level (the video's start counts as one) and the range itself lasts at least that long; otherwise the
+    range keeps the level before it, and the alternation goes on from there. So no level is held for less than the spacing, except the last one when the
+    video ends sooner. Any other mode zooms no range."""
+    if zoom["mode"] != "alternate":
+        return [False] * len(kept)
+    spacing = int(round(ZOOM_SPACING_SECONDS * fps))
+    out, pos, last_change, on = [], 0, 0, False
+    for k, (a, b) in enumerate(kept):
+        if k and pos - last_change >= spacing and b - a >= spacing:
+            on, last_change = not on, pos
+        out.append(on)
+        pos += b - a
+    return out
+
+
+def zoom_levels(zoom: dict, k: int, frames: int, fps: int, kept=None) -> tuple:
+    """(zoom at the first frame, zoom at the last frame) of kept range number k: `alternate` draws the ranges `zoomed_ranges` picks from the whole list
+    `kept` at `factor` (every second range when `kept` is not given, the rule before V9g; every renderer caller passes it); a range of PUSH_MIN_SECONDS
+    or more also pushes in by `push_in` over its length."""
+    on = zoomed_ranges(zoom, kept, fps)[k] if kept is not None else zoom["mode"] == "alternate" and k % 2 == 1
+    z0 = zoom["factor"] if on else 1.0
     z1 = z0 * (1.0 + zoom["push_in"]) if zoom["push_in"] > 0 and frames / float(fps) >= PUSH_MIN_SECONDS else z0
     return z0, z1
 
@@ -625,7 +645,7 @@ def base_graph(plan: dict, *, source: str = "[0:v:0]", prepare=None, base: int =
     zoom, fade = plan["zoom"], plan["fade"]
     effects = plan.get("effects") or {}
     for k, (a, b) in enumerate(kept):
-        z0, z1 = zoom_levels(zoom, first_index + k, b - a, fps)       # first_index: the number of the first kept range when a plan holds a part of the list
+        z0, z1 = zoom_levels(zoom, first_index + k, b - a, fps, plan.get("kept_all", None if first_index else kept))       # kept_all: the whole list, for the levels (V9g); first_index: the number of the first kept range when a plan holds a part of the list
         fx = effects.get(first_index + k) or {}                      # the punches and grades of this range (`_edl.range_effects`), in its own frame index
         punches = fx.get("punches") or ()
         zf = (zoom_filter_linear(z0, z1, b - a, plan["anchor"], w, h, punches) if zoom_linear

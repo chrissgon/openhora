@@ -228,6 +228,11 @@
             }
           }
         },
+        "looks": {
+          "type": "object",
+          "description": "Optional (V9g): the look a preset is drawn with in this video, {preset: variant}, each variant one of `presets.<preset>.variants` in renderer-presets.json (today keyword: headline or headline-serif). Written by `base --look`; absent, every preset has its default look. The ffmpeg engine draws it; the HyperFrames engine refuses it (look_not_on_engine).",
+          "additionalProperties": {"type": "string"}
+        },
         "proposals": {
           "type": "array",
           "description": "Retakes found by rule, as proposals. A confirmed one has been cut in this list: its words are not in `words`. `default` is what the rule says (cut or keep) and `reason` why; a list written before them reads as keep.",

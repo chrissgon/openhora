@@ -309,9 +309,16 @@ def test_the_first_and_the_last_frame_of_the_beat_carry_the_card_at_full_strengt
     for f in (e["start_frame"], e["end_frame"] - 1):
         p = pixel(out["path"], f, cx, cy)
         assert p[0] > 235 and p[1] < 25 and p[2] > 235, (f, p)
-    assert not is_card_pixel(pixel(out["path"], e["start_frame"] - 1, cx, cy))
-    if e["end_frame"] + 1 < world["edl"]["out_frames"]:
-        assert not is_card_pixel(pixel(out["path"], e["end_frame"] + 1, cx, cy))
+    # the frames just outside the beat are the render without the pip there: no card a frame early or late. Since V9g the pip's start may
+    # snap back to a cut where the beat before ends (here a cutaway of the same picture), so the frame before is compared with the render
+    # without the pip rather than tested for the card's colour
+    plain = world["out"]["nopip"]["path"]
+    for f in (e["start_frame"] - 1, e["end_frame"] + 1):
+        if 0 <= f < world["edl"]["out_frames"]:
+            a, b = pixel(out["path"], f, cx, cy), pixel(plain, f, cx, cy)
+            assert all(abs(x - y) <= 6 for x, y in zip(a, b)), (f, a, b)
+            if not any(o["start_frame"] <= f < o["end_frame"] for o in world["timeline"]["beats"] if o is not e):
+                assert not is_card_pixel(a), (f, a)
 
 
 @needs_all

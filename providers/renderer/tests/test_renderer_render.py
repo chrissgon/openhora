@@ -267,7 +267,10 @@ def test_a_transcript_with_the_shapes_of_a_real_one_renders(tmp_path):
 
 @needs_all
 def test_the_face_box_zoom_and_confirmed_retakes_change_the_picture_and_the_length(tmp_path):
-    doc = K.build_transcript(K.SHORT_SENTENCES)
+    # the fixture's sentences joined in pairs, so that some kept ranges outlast the zoom spacing (V9g, `_media.ZOOM_SPACING_SECONDS`): with the short
+    # fixture's ranges (1.4 s to 3.6 s, the first 2.2 s) the level would never change
+    s = K.SHORT_SENTENCES
+    doc = K.build_transcript([(s[0][0], s[0][1] + " " + s[1][1]), (s[2][0], s[2][1] + " " + s[3][1])])
     src = tmp_path / "s.mp4"
     K.make_source(src, doc)
     tr = K.write_json(tmp_path / "t.json", doc)
@@ -285,9 +288,11 @@ def test_the_face_box_zoom_and_confirmed_retakes_change_the_picture_and_the_leng
         sizes[name] = out
     assert sizes["zoom"]["sha256"] != sizes["flat"]["sha256"] and sizes["zoom"]["output"]["duration"] == pytest.approx(sizes["flat"]["output"]["duration"], abs=0.05)
     frame = {}
-    for name in sizes:                                                    # the second kept range is the zoomed one: its first frame differs
+    zoomed = json.load(open(tmp_path / "zoom.json"))
+    k = _media.zoomed_ranges(zoomed["zoom"], zoomed["kept"], 30).index(True)      # the first zoomed range (V9g: the spacing decides which): its first frames differ
+    for name in sizes:
         edl = json.load(open(tmp_path / (name + ".json")))
-        second_start = (edl["kept"][0][1] - edl["kept"][0][0] + 3) / 30.0
+        second_start = (sum(b - a for a, b in edl["kept"][:k]) + 3) / 30.0
         png = tmp_path / (name + ".png")
         subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-ss", "%.3f" % second_start, "-i", sizes[name]["path"], "-frames:v", "1", "-vf", "crop=1080:400:0:0", str(png)], check=True)
         frame[name] = png.read_bytes()

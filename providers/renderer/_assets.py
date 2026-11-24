@@ -84,6 +84,52 @@ def load_fonts(theme_fonts: dict, allowlist: dict, max_bytes: int, directory=Non
     return serve, used
 
 
+def look_font_allowlist(directory=None) -> dict:
+    """{id: row} of the allow-list file's `look_fonts` (V9g): the fonts a look may name (`presets.<preset>.variants.<name>.font`), never a theme
+    role. A row has the keys of a `fonts` row; the list may be empty or absent."""
+    directory = directory or fonts_dir()
+    doc = read_json(os.path.join(directory, "allowlist.json"))
+    rows = {}
+    try:
+        for row in doc.get("look_fonts") or []:
+            if not FONT_ID.fullmatch(row["id"]) or os.path.basename(row["file"]) != row["file"] or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) \
+                    or not row.get("licence") or not row.get("source") or row["id"] == "default":
+                raise Refusal("bad_font_allowlist", "allowlist.json")
+            rows[row["id"]] = row
+    except (KeyError, TypeError, AttributeError):
+        raise Refusal("bad_font_allowlist", "allowlist.json") from None
+    return rows
+
+
+def load_look_fonts(data: dict, edl: dict, max_bytes: int, directory=None) -> tuple:
+    """Serve the fonts the looks of the edit list name (V9g). For each preset in `edl.looks` whose look (`_payload.look_of`) has a `font`, the role
+    is `look-<preset>` (the page's `--font-look-<preset>` and `--weight-look-<preset>`). Returns (serve, used, roles): serve as `load_fonts`'s, used
+    {role: font id, or `system default` when the id is not in `look_fonts` (the page then uses the look's `font_fallback`)}, and roles {role:
+    {weight, fallback}}. A listed font whose bytes differ from its sha256 is `font_hash`."""
+    import _payload
+    directory = directory or fonts_dir()
+    serve, used, roles = {}, {}, {}
+    rows = None
+    for preset in sorted(edl.get("looks") or {}):
+        look = _payload.look_of(data, edl, preset)
+        if not look.get("font"):
+            continue
+        role = "look-" + preset
+        roles[role] = {"weight": int(look["font_weight"]), "fallback": look["font_fallback"]}
+        rows = look_font_allowlist(directory) if rows is None else rows
+        row = rows.get(look["font"])
+        if row is None:
+            used[role] = "system default"
+            continue
+        raw = read_regular(os.path.join(directory, row["file"]), max_bytes, "font_unreadable", role)
+        if hashlib.sha256(raw).hexdigest() != row["sha256"] or raw[:4] not in FONT_MAGIC:
+            raise Refusal("font_hash", role)
+        ext, mime = FONT_MAGIC[raw[:4]]
+        serve["/fonts/%s.%s" % (role, ext)] = (raw, mime)
+        used[role] = row["id"]
+    return serve, used, roles
+
+
 # ---------------------------------------------------------------- assets
 
 def image_facts(data: bytes):

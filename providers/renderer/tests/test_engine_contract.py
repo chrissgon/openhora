@@ -396,7 +396,8 @@ def test_the_comparison_is_exact_and_says_how_many_frames_are_wrong_and_by_how_m
     assert short["bad"] == 2 and short["frames"] == 5 and short["first_bad"] == 5
 
 
-def test_a_zoomed_range_is_skipped_only_when_asked_and_a_push_in_counts_as_zoom():
+def test_a_zoomed_range_is_skipped_only_when_asked_and_a_push_in_counts_as_zoom(monkeypatch):
+    monkeypatch.setattr(_edl._media, "ZOOM_SPACING_SECONDS", 0.0)   # ranges of a few frames: by the rule before V9g's spacing (test_zoom_spacing.py)
     edl = edl_of([[0, 4], [10, 13], [20, 24]])                      # alternate: the second range is drawn at 1.1
     assert C.unzoomed_ranges(edl) == [0, 2]
     scrambled = C.expected_sources(edl["kept"])

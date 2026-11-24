@@ -154,8 +154,9 @@ def test_the_constants_the_runtime_copies_equal_their_sources():
     folder = str(REPO / "providers" / "renderer")
     if folder not in sys.path:
         sys.path.insert(0, folder)
-    import _media
+    import _edl, _media
     assert media_stock.CLIP_SECONDS_MAX == step_media.CLIP_SECONDS_MAX == _media.CLIP_MAX_SECONDS
+    assert (step_media.SNAP_END_SECONDS, step_media.SNAP_START_SECONDS) == (_edl.SNAP_END_SECONDS, _edl.SNAP_START_SECONDS)
     assert ops_media_stock.CLIP_MIN_DURATION == step_media.CLIP_TIMING["cutaway"]["min_duration"]
     source = (REPO / "providers" / "renderer" / "_render.py").read_text(encoding="utf-8")
     assert 'e["block"] != "oh:cutaway" or name != "asset"' in source

@@ -226,7 +226,7 @@ def reference_graph(edl: dict, data: dict, source: str, only: int = None, effect
     plan, first = reference_plan(edl, data, effects), 0
     if only is not None:                                   # one kept range, as a stream that starts at its own first frame (the proxy is seeked there)
         a0, b0 = plan["kept"][only]
-        plan, first = dict(plan, kept=[[0, b0 - a0]]), only
+        plan, first = dict(plan, kept=[[0, b0 - a0]], kept_all=plan["kept"]), only      # kept_all: the zoom levels are the whole list's
     return _media.base_graph(plan, source=source, prepare="fps=%s:start_time=0,format=yuv420p" % edl["fps"], base=1, audio=False, zoom_linear=True,
                              first_index=first)
 
@@ -338,7 +338,7 @@ def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, 
     what the timeline draws at the worst frame, so a clean render that fails explains itself."""
     ordered = sorted(values)
     median = ordered[len(ordered) // 2]
-    z0, z1 = _media.zoom_levels(edl["zoom"], k, edl["kept"][k][1] - edl["kept"][k][0], edl["fps"])
+    z0, z1 = _media.zoom_levels(edl["zoom"], k, edl["kept"][k][1] - edl["kept"][k][0], edl["fps"], edl["kept"])
     spans, start = [], None
     for i, v in enumerate(values + [PSNR_CAP]):
         if v < PIXEL_MIN_PSNR_DB and start is None:

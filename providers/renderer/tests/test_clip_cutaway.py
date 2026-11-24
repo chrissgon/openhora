@@ -25,6 +25,14 @@ import _render
 from _text import Refusal
 from _vocab import load_data
 
+
+@pytest.fixture(autouse=True)
+def no_zoom_spacing(monkeypatch):
+    """The plans and edit lists here have ranges of a few frames to 3.5 s and test the zoom's mechanics by the rule before V9g's spacing
+    (`_media.ZOOM_SPACING_SECONDS`, at 0 every second range is zoomed); `test_zoom_spacing.py` tests the spacing itself."""
+    monkeypatch.setattr(_media, "ZOOM_SPACING_SECONDS", 0.0)
+
+
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
 needs_browser = pytest.mark.skipif(not K.BROWSER, reason=K.SKIP_BROWSER)
 needs_all = pytest.mark.skipif(not (K.HAVE_FFMPEG and K.BROWSER), reason="ffmpeg, ffprobe and a headless Chromium are needed")

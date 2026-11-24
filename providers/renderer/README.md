@@ -21,7 +21,7 @@ beats come from the post file's script block.
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
 | `_blocks.py` | Common: the catalogue of animation blocks. Loads and checks `blocks/` (every file against `blocks/pins.json`), resolves the block that draws a beat on an engine and refuses one the engine cannot draw (`block_not_on_engine`), checks a block's parameters (the renderer-side checker, VD15), writes the pins and the generated catalogue. |
-| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`, `split`, `aside` (each page a pure `renderAt(t, data)`, byte for byte the old template; the `pip` page of V9e is a card: the speaker stays full frame, ffmpeg composes the asset into a rounded card below the face, `_layout.pip_cards` settles its box (the whole room from the face to the caption line) and the captions' band (the card's lower part, the caption drawn over it), a pip with no room is dropped with `pip_no_room` in the optional `beats_dropped_reasons`, and the page draws only the shadow and the label; the `split` page of V9f draws the person's picture in the half its `side` names and leaves the other half transparent: ffmpeg lays the speaker there, a crop of the picture centred on the face (`_layout.split_geometry`, `split_layouts`), the captions take a band in the picture's half that keeps clear of the seam and of the face as it was and as it is moved (for `left` and `right` an opaque bar across that band, so no seam runs under a caption), and a split with no such band is dropped with `split_no_room`); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty: no registry component is admitted) and `hf/<name>/` (`block.json` and `gsap.html` of the five tier-B ports of V3b-4); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
+| `blocks/` | The blocks (V3b0): `oh/<name>/block.json` and `renderat.html` for `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`, `split`, `aside` (each page a pure `renderAt(t, data)`, byte for byte the old template; the `pip` page of V9e is a card: the speaker stays full frame, ffmpeg composes the asset into a rounded card below the face, `_layout.pip_cards` settles its box (the whole room from the face to the caption line) and the captions' band (the card's lower part, the caption drawn over it), a pip with no room is dropped with `pip_no_room` in the optional `beats_dropped_reasons`, and the page draws only the shadow and the label; the `split` page of V9f draws the person's picture in the half its `side` names and leaves the other half transparent: ffmpeg lays the speaker there, a crop of the picture centred on the face (`_layout.split_geometry`, `split_layouts`), for `left` and `right` the captions take a band that keeps clear of the face as it was and as it is moved, under an opaque bar so no seam runs under a caption, and a split with no such band is dropped with `split_no_room`; for `top` and `bottom` (V9g) the picture fades over the first 100 rows of the speaker's half and the caption is a chip on the seam: see "Snapped edges, the soft seam and the headline keyword (V9g)"); `engines/ffmpeg.json` (the runtimes the engine runs and its block per preset); `hf/allowlist.json` (empty: no registry component is admitted) and `hf/<name>/` (`block.json` and `gsap.html` of the five tier-B ports of V3b-4); `pins.json` (sha256 of every file above); `catalogue.json` (generated, VD13); `block.schema.json` (the schema, for readers). Not in the image: each render or storyboard job stages a copy read-only. |
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
@@ -133,6 +133,44 @@ edges are hard cuts, in picture and in sound: no fade, no crossfade, and nothing
 - **The image** must hold `asplit`, `aecho`, `volume` and `amix` (`_inner.REQUIRED_FILTERS`), which Debian's ffmpeg has; a change to `_media.py` and
   `_inner.py` asks for an image rebuild (`build --confirmed`). Not verified here: a render in the rebuilt image and a listening test on a real recording; the
   echo values are starting values, not tuned. Tests: `tests/test_renderer_aside.py`.
+
+## Snapped edges, the soft seam and the headline keyword (V9g)
+
+Four changes asked after a real reel was set beside a reference creator's (`docs/decisions/2026-11-23-v9g-cut-snap-split-seam-headline.md`).
+
+- **Beat edges snap to the cuts.** The cuts of the output timeline are the first output frames of the kept ranges after the first
+  (`_edl.cut_frames`). After the one-track rule, `_edl.snap_to_cuts` moves a beat's start that falls at most `SNAP_START_SECONDS` (0.25 s)
+  after a cut back onto it (the beat before then ends on the cut, unless that would leave it with no frame), and holds an end that falls at
+  most `SNAP_END_SECONDS` (0.5 s) before a cut to the cut, never past the next beat's start nor the video's end. The aside's grey and echo
+  follow the snapped span, and the review's `mono` and `tint` snap to the edges of their kept range the same way (never past 4 s); a flash
+  or a dip stays on its word. An aside that ended 8 frames before a cut now ends on it: no flash of colour before the cut.
+- **The zoom level changes at most every `ZOOM_SPACING_SECONDS` (3 s).** `_media.zoomed_ranges` picks the ranges `alternate` zooms from the
+  whole list: the level flips at a cut only when the cut is at least 3 s after the last change (the video's start counts) and the range
+  lasts at least 3 s; otherwise the range keeps the level before it and the alternation goes on from there. Every caller of
+  `_media.zoom_levels` (the compose, the face boxes of `_edl.range_faces` and `span_face`, the punches, the HyperFrames page and gate) passes
+  the whole list, so the picture and the face check agree. A punch that ends at most 0.5 s before a cut is held to the cut, and a punch that
+  would start less than 3 s after a change of level (a cut that changes it, or an earlier punch's end) is dropped (`punch_spacing`, beside
+  `punch_short` and `punch_capped`): delayed it would miss its word. The slow push-in is unchanged.
+- **The soft seam of a `top` or `bottom` split.** The page draws the picture over its half, opaque, and on over the first `split.feather_px`
+  (100) rows of the speaker's half with a linear mask, opaque at the seam and clear at the feather's end. That composes because ffmpeg lays
+  the speaker's crop into the speaker's half only and the page is the layer above it (`_media.compose_argv`): the fade shows the crop. The
+  caption is a chip on the seam: a band of `split.seam_band_height` (150) rows centred on the seam (moved into the picture's half if it
+  would come within `gap` of the moved face), the caption piece marked `seam` and checked against the moved face only (the picture covers
+  the face where it was), drawn by the caption page as one line of words in the theme's background colour on the accent fill; the chip is
+  the measured box. The label chip goes to the corner away from the seam (top-left of the picture for `top`, bottom-left for `bottom`, on
+  the caption line). A face in the upper half of the frame no longer drops a `top` split.
+- **The keyword's headline looks.** A video picks a look in its edit list's optional `looks` (`base --look keyword=headline` or
+  `--look keyword=headline-serif`, `storyboard --look` too; `_edl.check_looks`, `bad_look`); with none the keyword is the pill in the card
+  band, as before. `presets.keyword.variants` holds both. A headline is the keyword's words in large uppercase type, 2 to 4 stacked lines
+  up to 90 percent of the frame's width, the last line 1.2 times larger, in the accent colour (or the beat's `color`), no box, a soft dark
+  shadow, at the top of the caption band under the face, fitted to that band's height (the stack is the measured `caption` box, with a margin
+  for accents and descenders inside it). It starts on its matched word with no lead, neither pops nor fades, and the caption is taken off its
+  frames (`_layout.caption_gaps`). `headline` uses the theme's display font; `headline-serif` uses the look font `playfair-display-900` from
+  the allow-list's `look_fonts` (never a theme role; served as `--font-look-keyword`, its sha256 checked), and its fallback stack while that
+  font has no row: the render's `fonts` then says `look-keyword: system default`. The HyperFrames engine refuses an edit list with `looks`
+  (`look_not_on_engine`).
+
+Tests: `tests/test_cut_snap.py`, `tests/test_split_layout.py`, `tests/test_keyword_headline.py`.
 
 ## The HyperFrames engine's composed page (V3b-1)
 
@@ -465,8 +503,9 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
   face's box grows about that point; the bands of a card or caption are computed from the union of the face's box over every range it
   lives through (factor and push-in included), and `base` refuses a face box that leaves less than 80 px above or 120 px below at the
   largest zoom.
-- **Zoom.** Every second kept range is drawn at 1.10 (`--zoom none` turns it off) about the anchor, from a picture cut at twice the output
+- **Zoom.** Every second kept range is drawn at 1.10, the level changing at most every 3 s (V9g; `--zoom none` turns it off) about the anchor, from a picture cut at twice the output
   size so a zoom never upscales; a range of 5 s or more also pushes in by 2 percent (`--push-in`, at most 3 percent).
+- **Beats snap to cuts** (V9g): a beat that ends within 0.5 s before a cut ends on it, one that starts within 0.25 s after a cut starts on it.
 - **Captions** come in chunks of one to three words on one line, as big as fits, with the current word highlighted and popped over a dark stroke. **Sound** fades 15 ms at each end
   of every range (a dip, not an overlap: sound and picture stay in step).
 - **Output.** 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled down and its frame rate halved; a landscape
@@ -524,6 +563,9 @@ skip with a reason where those are absent; the host side runs against a fake doc
   `oh:screenshot` on both): the compose, the gates and the page's look in the host's browser are tested, with a stand-in for GSAP's timeline; HyperFrames' own
   render of the iframe, the decode of the pictures before frame 0 in it, the loopback server's answer for a PNG, the determinism at 4 and 8 cores (`F9`, `M4` of
   `tests/test_engine_contract_live.py`) and spike S2 (a clip in a frame-band iframe) wait for the rebuilt images.
+- V9g: no render in the container (the image was not rebuilt); the Playfair Display file is not committed (its download waits for the
+  maintainer), so `headline-serif` was drawn with its fallback stack and the look-font wiring proved with a stand-in file; the caption's
+  entry animation playing again where a headline or a split cuts a chunk is not checked in a browser.
 - The split (V9f): only the host's headless browser drew its page, and only a synthetic recording went through its crop; the look on a real recording, a face box wider than half the frame on a `left` or `right` split (the crop is not scaled, so a wide face box is cut at the seam or the frame's edge) and a render in the container are not verified. A caption chunk that runs past a split's first or last frame is cut there (`_layout.caption_pieces`), so the caption's entry animation plays again on that frame; that, and the caption's stroke and shadow reaching a few pixels above the opaque bar of a `left` or `right` split, are not verified in a browser. Its image is a PNG or JPEG, as the cutaway's; a clip in a split slot is refused `asset_type`, as in a pip.
 - On the HyperFrames engine an asset is a PNG (a clip is drawn by the ffmpeg engine's compose only, V9b-5a); the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
   `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has

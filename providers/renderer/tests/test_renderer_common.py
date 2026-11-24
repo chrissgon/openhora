@@ -266,9 +266,15 @@ def test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_n
 
 # Computed on the untouched code (7e23eac) for the kit's fictional post: the sha256 of the three functions' source and of the data they gave
 # every caption chunk and beat of its timeline. The move is byte for byte, so both are unchanged and the ffmpeg engine's frames cannot differ.
-PAYLOAD_SOURCE_SHA256 = "184af004b9b7d336241bd55cda6425b4355004a83146ae4316141420c9dcbe76"
+# V9g: the source changed on purpose: `caption_data` marks a piece on a top or bottom split's seam (`seam`, only when it is one) and `beat_data`
+# takes its look from `look_of` (the presets' looks with the edit list's variant laid over them; the same object when the list names none).
+PAYLOAD_SOURCE_SHA256 = "e4313d0f22b5e3cad77ae96057495cdd9892db0a031b96695e8fbdc9c536199f"
 # V9d: the rows changed on purpose: the cutaway's look is a hard cut with the glass values.
-PAYLOAD_ROWS_SHA256 = "3081bd11af201fed0db9bbf85b4712716cb4823d88ad43f304ddfb936ce33436"
+# V9g: the rows changed on purpose: the beat edges snap to the cuts (`_edl.snap_to_cuts`); every beat of the kit's post now starts on a cut,
+# and a beat before one ends on it. With the snap left out the rows are the V9d ones (3081bd11...) byte for byte.
+# V9g, the zoom spacing (`_media.ZOOM_SPACING_SECONDS`): the faces of the captions and beats follow the levels it keeps; with the spacing at 0 the rows
+# are the snap's golden above (b73c6e98...) byte for byte.
+PAYLOAD_ROWS_SHA256 = "9d10f1dec9a4b227c369a5266bb56bde40b14eaed30a28096eb92bcac5963f27"
 
 
 def test_the_payload_functions_moved_byte_for_byte_and_the_frames_module_still_exports_them():

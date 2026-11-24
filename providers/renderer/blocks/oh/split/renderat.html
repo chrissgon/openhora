@@ -23,19 +23,30 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 <script>
 'use strict';
 // The frame split in two: ffmpeg lays the speaker into one half (a crop of the picture centred on the face) and this page draws the other:
-// the picture in its half (object-fit cover or contain, the theme's background behind it) and the label chip in that half's corner nearest
-// the seam. The speaker's half stays transparent. For a left or right split the captions cross the middle of the frame, so the page draws an
-// opaque bar of the theme's background across the caption band and no seam runs under a caption.
-// data.geom = {side, asset: {x, y, w, h}, bar: [top, bottom] or null, label: {x, max_w, top, bottom}}. A hard cut: everything is there on
-// the beat's first frame and its last.
+// the picture in its half (object-fit cover or contain, the theme's background behind it) and the label chip in the corner geom.label names.
+// The speaker's half stays transparent. For a top or bottom split the seam is soft: the picture runs geom.feather rows past the seam, over the
+// speaker, and fades out over them (a linear mask, opaque at the seam and clear at the feather's end), while its own half stays opaque, so the
+// speaker's crop shows only where the picture fades. The caption is drawn on the seam by the caption page. For a left or right split the
+// captions cross the middle of the frame, so the page draws an opaque bar of the theme's background across the caption band and no seam runs
+// under a caption.
+// data.geom = {side, asset: {x, y, w, h}, bar: [top, bottom] or null, label: {x, max_w, top, bottom}, feather}. A hard cut: everything is
+// there on the beat's first frame and its last.
 window.renderAt = function (t, data) {
   const P = data.params;
   const g = data.geom;
   const half = document.getElementById('half');
+  const feather = (g.side === 'top' || g.side === 'bottom') ? (g.feather || 0) : 0;
   half.style.left = g.asset.x + 'px';
-  half.style.top = g.asset.y + 'px';
+  half.style.top = (g.side === 'bottom' ? g.asset.y - feather : g.asset.y) + 'px';
   half.style.width = g.asset.w + 'px';
-  half.style.height = g.asset.h + 'px';
+  half.style.height = (g.asset.h + feather) + 'px';
+  let mask = 'none';
+  if (feather > 0) {
+    const toward = g.side === 'top' ? 'to bottom' : 'to top';
+    mask = 'linear-gradient(' + toward + ', #000 0px, #000 ' + g.asset.h + 'px, transparent ' + (g.asset.h + feather) + 'px)';
+  }
+  half.style.webkitMaskImage = mask;
+  half.style.maskImage = mask;
   const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
   img.style.objectFit = P.fit || 'cover';
   if (img.parentNode !== half) half.replaceChildren(img);

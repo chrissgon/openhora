@@ -14,6 +14,14 @@ import renderer_kit as K
 import _media
 from _text import Refusal
 
+
+@pytest.fixture(autouse=True)
+def no_zoom_spacing(monkeypatch):
+    """The plans and edit lists here have ranges of a few frames to 3.5 s and test the zoom's mechanics by the rule before V9g's spacing
+    (`_media.ZOOM_SPACING_SECONDS`, at 0 every second range is zoomed); `test_zoom_spacing.py` tests the spacing itself."""
+    monkeypatch.setattr(_media, "ZOOM_SPACING_SECONDS", 0.0)
+
+
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
 FACE = {"cx": 540, "cy": 900, "w": 600, "h": 560}
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)

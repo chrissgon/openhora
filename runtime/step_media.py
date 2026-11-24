@@ -81,6 +81,7 @@ STOCK_ASSET = "stock/asset-{sha12}.{ext}"      # `.mp4` for a clip, `.png` for a
 CLIP_TIMING = {"cutaway": {"tail": 0.2, "min_duration": 1.5, "max_duration": None}}      # = providers/renderer/renderer-presets.json presets.cutaway (a test compares)
 CLIP_SECONDS_MAX = 10.0      # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
 CLIP_SPARE_FRAMES = 2      # frames a cutaway ends before its clip does, so neither engine holds a frame or meets clip_too_short
+SNAP_END_SECONDS, SNAP_START_SECONDS = 0.5, 0.25      # = providers/renderer/_edl.py, the cut snap's windows (V9g; a test compares)
 CLIP_SHORT_NEXT = "start a new video from this recording and pick a clip at least as long as the first word of its beat"
 STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
               "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
@@ -521,11 +522,26 @@ def _add_slot_row(store, beats: dict, entry: dict, a: dict) -> None:
 def fit_clip_entries(beats: dict, edl: dict, clips: dict) -> list:
     """Lower `word_to` of each entry of `beats` whose slot holds an approved clip, when its beat would outlast the clip, to the last word whose beat fits the clip with
     CLIP_SPARE_FRAMES frames to spare (V9b-5c). `clips` is `{slot: seconds}`. Edits `beats` in place and returns the slots shortened, in the order met. The beat's length is the
-    renderer's (providers/renderer/_edl.py resolve_timeline): the last word's end plus `tail`, at least `min_duration`, at most `max_duration`; a later beat or the video's
-    end can only shorten it. A preset outside CLIP_TIMING is `asset_type`; a beat whose first word alone does not fit is `clip_too_short`."""
+    renderer's (providers/renderer/_edl.py resolve_timeline): the last word's end plus `tail`, at least `min_duration`, at most `max_duration`, plus what the cut snap
+    can add (V9g, `_edl.snap_to_cuts`: back to a cut at most SNAP_START_SECONDS before its first frame, on to a cut at most SNAP_END_SECONDS after its last); a later beat
+    or the video's end can only shorten it. A preset outside CLIP_TIMING is `asset_type`; a beat whose first word alone does not fit is `clip_too_short`."""
     fps = edl["fps"]
     words = {w["index"]: w for w in edl["words"]}
     order = sorted(words)
+    cuts, pos = [], 0
+    for a, b in edl.get("kept") or []:            # the output frames where a kept range starts, after the first: the cuts (= _edl.cut_frames)
+        if pos:
+            cuts.append(pos)
+        pos += b - a
+    start_w, end_w = int(round(SNAP_START_SECONDS * fps)), int(round(SNAP_END_SECONDS * fps))
+
+    def snap_growth(start: float, length: float) -> int:
+        """The frames the cut snap can add to a beat from `start` lasting `length` seconds (the most it adds; a neighbour can only take some back)."""
+        sf, ef = int(round(start * fps)), int(round((start + length) * fps))
+        back = [sf - c for c in cuts if 0 < sf - c <= start_w]
+        on = [c - ef for c in cuts if 0 < c - ef <= end_w]
+        return (min(back) if back else 0) + (min(on) if on else 0)
+
     shortened = []
     for bucket in ("layouts", "overlays"):
         for e in beats.get(bucket) or []:
@@ -545,9 +561,12 @@ def fit_clip_entries(beats: dict, edl: dict, clips: dict) -> list:
                     end = min(end, start + t["max_duration"])
                 return end - start
 
-            if span(e["word_to"]) <= room + 1e-9:
+            def fits_clip(to, start=start, span=span, room=room):
+                return span(to) + snap_growth(start, span(to)) / fps <= room + 1e-9
+
+            if fits_clip(e["word_to"]):
                 continue
-            fits = [i for i in order if e["word_from"] <= i <= e["word_to"] and span(i) <= room + 1e-9]
+            fits = [i for i in order if e["word_from"] <= i <= e["word_to"] and fits_clip(i)]
             if not fits:
                 raise steps.StepFailure("clip_too_short", slot, "", CLIP_SHORT_NEXT)
             e["word_to"] = max(fits)
@@ -722,7 +741,7 @@ def _assets_dropped(done: dict, handed: dict) -> list:
 
 
 EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")
-EFFECT_REASONS = ("punch_short", "punch_capped", "grade_short", "grade_overlap")
+EFFECT_REASONS = ("punch_short", "punch_capped", "punch_spacing", "grade_short", "grade_overlap")
 
 
 def _effects_dropped(done: dict) -> list:

@@ -31,11 +31,13 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   base --transcript T --analysis A --out EDL [--fps 30] [--pad-head 0.10] [--pad-tail 0.14] [--long-cut 2] [--wordless-max 0.3] [--caption-position bottom|center]
        [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0.02] [--zoom-anchor-y 0.25] [--retakes auto|propose]
        [--confirm RETAKE-ID]... [--keep RETAKE-ID]...
-       [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
+       [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]... [--look PRESET=VARIANT]...
         The code-generated base edit list. Silence is the cut signal (the words only protect speech) and no range is kept shorter
         than 0.4 s; captions come in chunks of one to three words; every second range is drawn zoomed on the face box. Retakes found
         by rule are written into the list as proposals, each with a default (cut or keep) and a reason; with --retakes auto (the default) the
         ones whose default is cut are cut, except those named with --keep, and --confirm cuts one more; with --retakes propose only --confirm cuts.
+        --look keyword=headline or keyword=headline-serif draws every keyword of the video as a large stacked headline (the theme's display font,
+        or the serif look font) instead of the pill; the list records it as `looks`.
   align --post FILE --transcript T --checker SCRIPT --vocabulary V --out BEATS [--threshold 0.6] [--empty-slot SLOT=keyword|none]...
         [--anchor BEAT=WORD_FROM-WORD_TO]... [--edl EDL]
         Runs the post-writing skill's own script checker (an isolated subprocess, inside the container) and refuses a post it does
@@ -47,6 +49,7 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten) and prints its sha256, bytes and seconds. `--out` may name a path
         ending in .mp4: its folder is used, the file name is always content-addressed. --dry-run prints the exact docker command.
   storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR [--face-box X,Y,W,H] [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
+             [--look PRESET=VARIANT]...
         What a script's beats will look like, before any recording: DIR/beat-<n>.png (the beat's overlay at rest, over a flat neutral
         picture; a layout's asset is a flat colour) for each beat that has a preset, and DIR/sheet.png, a grid of them with no text. No
         recording and no transcript go in: the beats' lines become synthetic words at 2.5 words a second and the render's own checks
@@ -298,7 +301,7 @@ def verb_storyboard(args) -> dict:
         else:
             inner += ["--beat", job.stage("beat.json", args.beat)]
         inner += opt("--face-box", args.face_box)
-        for flag, values in (("--color", args.color), ("--font", args.font)):
+        for flag, values in (("--color", args.color), ("--font", args.font), ("--look", args.look)):
             for v in values or []:
                 inner += [flag, v]
         result = job.run(inner, "storyboard")
@@ -371,6 +374,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920); the default face box otherwise")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
+    sp.add_argument("--look", action="append", metavar="PRESET=VARIANT", help="the look a preset is drawn with in this video (keyword=headline or headline-serif)")
     return p
 
 

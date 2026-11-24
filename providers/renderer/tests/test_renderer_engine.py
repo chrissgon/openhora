@@ -105,10 +105,11 @@ def test_the_blocks_presets_and_declared_parameters_are_equal():
         params = re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1)
         looks = re.search(r'<meta name="pv-looks" content="([^"]*)">', html).group(1)
         assert set(filter(None, params.split(","))) == set(VOCAB["presets"][name]["params"]), name
-        assert set(filter(None, looks.split(","))) == set(cfg["looks"]), name
+        declared = set(cfg["looks"]).union(*(set(v) for v in (cfg.get("variants") or {}).values()), {"variant"} if cfg.get("variants") else set())
+        assert set(filter(None, looks.split(","))) == declared, name      # a preset's looks, and the keys of its variants (V9g)
         assert re.search(r'<meta name="pv-preset" content="([^"]*)">', html).group(1) == name
         assert set(re.findall(r"\bP\.([a-z0-9_]+)", html)) <= set(VOCAB["presets"][name]["params"]), name
-        assert set(re.findall(r"\bL\.([a-z0-9_]+)", html)) <= set(cfg["looks"]), name
+        assert set(re.findall(r"\bL\.([a-z0-9_]+)", html)) <= declared, name
         assert "innerHTML" not in html
 
 

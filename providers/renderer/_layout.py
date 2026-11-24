@@ -1,5 +1,5 @@
-"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the test of a drawn box against the
-face and the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. Both engines import this
+"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the caption's frames a headline takes,
+the test of a drawn box against the face and the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. Both engines import this
 file (the ffmpeg engine's drawing loop and, in V3b, the HyperFrames gate). Standard library only.
 """
 from __future__ import annotations
@@ -89,14 +89,24 @@ def split_geometry(data: dict, face: dict, side: str) -> dict:
 
     asset, speaker: the two halves {x, y, w, h}; top and bottom split the frame at y = height // 2, left and right at x = width // 2.
     crop: the part of the picture ffmpeg lays into the speaker half, the size of that half, not scaled, centred on the face and kept
-    inside the frame. moved_face: the face box as the crop puts it, clipped to the speaker half. band: the caption band [top, bottom],
-    the lowest stretch of rows inside [frame.safe.top, zones.caption_bottom] at least zones.caption_min_height tall that keeps `gap`
-    from the face as it was, from the moved face and, for top and bottom, from the whole speaker half (so never across the seam);
-    None when there is none. bar: for left and right, the band cut to split.bar_height rows, which the page covers with an opaque bar
-    across the frame so that no seam runs under a caption; None otherwise. label: where the page puts the label chip, {x, max_w, top, bottom} (one of top and bottom is None). For top and bottom it is in the
-    asset half's corner nearest the seam, at the left of the safe width. For left and right it is at the top-left of the asset half, inside the
-    safe area: x is the half's left edge plus split.label_inset, at least frame.safe.left, and top is frame.safe.top. For right that corner is
-    beside the seam; for left it is at the frame's outer edge, away from the seam."""
+    inside the frame. moved_face: the face box as the crop puts it, clipped to the speaker half.
+
+    For top and bottom (V9g) the seam is soft and the caption sits on it. feather: split.feather_px, the rows past the seam, into the speaker
+    half, over which the page carries the picture on and fades it out (opaque at the seam, clear at the feather's end); the picture's own half is
+    opaque, so the speaker's crop is never seen through it. seam: true. band: the caption band [top, bottom], split.seam_band_height rows centred
+    on the seam (the page draws the caption there as a compact chip); when that band comes within `gap` of the moved face it is moved away from
+    the face, into the picture's half, until it keeps `gap`; None when it would then leave [frame.safe.top, zones.caption_bottom]. Only the moved
+    face is on screen while the split is (the picture covers the face where it was), so only the moved face is kept clear. label: at the top-left
+    of the picture's half for top (top at the half's top plus split.label_inset, at least frame.safe.top) and at its bottom-left for bottom (its
+    bottom at the half's bottom less the inset, never below zones.caption_bottom): the corner away from the seam and its caption chip.
+
+    For left and right (V9f, unchanged): feather 0, seam false. band: the lowest stretch of rows inside [frame.safe.top, zones.caption_bottom] at
+    least zones.caption_min_height tall that keeps `gap` from the face as it was and from the moved face, cut to split.bar_height rows; None when
+    there is none. bar: that band, which the page covers with an opaque bar across the frame so that no seam runs under a caption (None for top
+    and bottom). label: at the top-left of the asset half, inside the safe area: x is the half's left edge plus split.label_inset, at least
+    frame.safe.left, and top is frame.safe.top; for right that corner is beside the seam, for left it is at the frame's outer edge.
+
+    label is {x, max_w, top, bottom}, one of top and bottom None (bottom counted from the frame's bottom edge, as CSS `bottom`)."""
     f, z, sp = data["frame"], data["zones"], data["split"]
     W, H = f["width"], f["height"]
     hw, hh = W // 2, H // 2
@@ -110,11 +120,27 @@ def split_geometry(data: dict, face: dict, side: str) -> dict:
     x1, y1 = min(sx + sw, face["x"] + face["w"] + dx), min(sy + sh, face["y"] + face["h"] + dy)
     moved = {"x": x0, "y": y0, "w": max(0, x1 - x0), "h": max(0, y1 - y0)}
     gap = z["gap"]
+    inset = sp["label_inset"]
+    lx0, lx1 = max(ax + inset, f["safe"]["left"]), min(ax + aw - inset, W - f["safe"]["right"])
+    label = {"x": lx0, "max_w": lx1 - lx0, "top": None, "bottom": None}
+    if side in ("top", "bottom"):
+        bh = sp["seam_band_height"]
+        top = hh - bh // 2
+        if moved["w"] and moved["h"]:
+            if side == "top" and top + bh > moved["y"] - gap:          # the speaker is below the seam: the chip moves up, into the picture
+                top = moved["y"] - gap - bh
+            elif side == "bottom" and top < moved["y"] + moved["h"] + gap:      # the speaker is above: the chip moves down
+                top = moved["y"] + moved["h"] + gap
+        band = [top, top + bh] if f["safe"]["top"] <= top and top + bh <= z["caption_bottom"] else None
+        if side == "top":
+            label["top"] = max(ay + inset, f["safe"]["top"])
+        else:
+            label["bottom"] = H - min(ay + ah - inset, z["caption_bottom"])
+        return {"side": side, "asset": {"x": ax, "y": ay, "w": aw, "h": ah}, "speaker": {"x": sx, "y": sy, "w": sw, "h": sh},
+                "crop": crop, "moved_face": moved, "band": band, "bar": None, "label": label, "feather": sp["feather_px"], "seam": True}
     blocked = [(face["y"] - gap, face["y"] + face["h"] + gap)]
     if moved["w"] and moved["h"]:
         blocked.append((moved["y"] - gap, moved["y"] + moved["h"] + gap))
-    if side in ("top", "bottom"):
-        blocked.append((sy - gap, sy + sh + gap))
     free, top = [], f["safe"]["top"]
     for lo, hi in sorted(blocked):
         if lo > top:
@@ -125,27 +151,20 @@ def split_geometry(data: dict, face: dict, side: str) -> dict:
     room = [iv for iv in free if iv[1] - iv[0] >= z["caption_min_height"]]
     band = list(max(room, key=lambda iv: iv[1])) if room else None
     bar = None
-    if band and side in ("left", "right"):
+    if band:
         band = [band[0], min(band[1], band[0] + sp["bar_height"])]
         bar = list(band)
-    inset = sp["label_inset"]
-    lx0, lx1 = max(ax + inset, f["safe"]["left"]), min(ax + aw - inset, W - f["safe"]["right"])
-    label = {"x": lx0, "max_w": lx1 - lx0, "top": None, "bottom": None}
-    if side == "bottom":
-        label["top"] = ay + inset
-    elif side == "top":
-        label["bottom"] = H - (ay + ah - inset)
-    else:
-        label["top"] = f["safe"]["top"]
+    label["top"] = f["safe"]["top"]
     return {"side": side, "asset": {"x": ax, "y": ay, "w": aw, "h": ah}, "speaker": {"x": sx, "y": sy, "w": sw, "h": sh},
-            "crop": crop, "moved_face": moved, "band": band, "bar": bar, "label": label}
+            "crop": crop, "moved_face": moved, "band": band, "bar": bar, "label": label, "feather": 0, "seam": False}
 
 
 def caption_pieces(chunk: dict, splits: list) -> list:
     """One caption chunk cut at every first or last frame of a split that falls strictly inside it, as caption entries in frame order. A piece
     is the chunk itself (its words, its `face`, its pip `band` if any) on fewer frames. A piece inside a split whose band is set takes that band
-    as `band`, and as `face` the union of its face and the moved face. Pieces outside every split keep the chunk's band and face. Beats never
-    overlap (one beat track), so a piece is inside at most one split."""
+    as `band`. Inside a top or bottom split (the split's `seam`) it is also marked `seam` (the page draws it as a chip on the seam) and its `face`
+    is the moved face, the only face on screen there; inside a left or right split its `face` is the union of its face and the moved face. Pieces
+    outside every split keep the chunk's band and face. Beats never overlap (one beat track), so a piece is inside at most one split."""
     cuts = sorted({f for e in splits for f in (e["start_frame"], e["end_frame"]) if chunk["start_frame"] < f < chunk["end_frame"]})
     edges = [chunk["start_frame"]] + cuts + [chunk["end_frame"]]
     out = []
@@ -157,9 +176,28 @@ def caption_pieces(chunk: dict, splits: list) -> list:
             if e["split"]["band"] and e["start_frame"] < b and a < e["end_frame"]:
                 piece["band"] = list(e["split"]["band"])
                 moved = e["split"]["moved_face"]
-                if moved["w"] and moved["h"]:
+                if e["split"].get("seam"):
+                    piece["seam"] = True
+                    if moved["w"] and moved["h"]:
+                        piece["face"] = dict(moved)
+                elif moved["w"] and moved["h"]:
                     piece["face"] = _union([piece["face"], moved])
         out.append(piece)
+    return out
+
+
+def caption_gaps(captions: list, spans: list) -> list:
+    """The caption chunks with the frames of `spans` ([(start_frame, end_frame)]) taken out (V9g: a headline keyword replaces the caption on its
+    frames). A chunk is cut at every span edge strictly inside it and each piece that lies inside a span is dropped; the rest are the chunk itself
+    (its words, face and band) on fewer frames, in frame order. A chunk no span touches is returned as it was."""
+    out = []
+    for c in captions:
+        cuts = sorted({f for a, b in spans for f in (a, b) if c["start_frame"] < f < c["end_frame"]})
+        edges = [c["start_frame"]] + cuts + [c["end_frame"]]
+        for a, b in zip(edges, edges[1:]):
+            if any(sa <= a and b <= sb for sa, sb in spans):
+                continue
+            out.append(c if (a, b) == (c["start_frame"], c["end_frame"]) else dict(c, start_frame=a, end_frame=b))
     return out
 
 

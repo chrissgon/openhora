@@ -127,7 +127,7 @@ def build_parts(edl: dict, *, fps: int, effects=None) -> dict:
     out_seconds = edl["out_frames"] / float(fps)
     clips, zooms, punched, grades, pos = [], [], [], [], 0
     for k, (a, b) in enumerate(edl["kept"]):
-        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, fps)
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, fps, edl["kept"])
         start, dur = pos / float(fps), (b - a) / float(fps)
         fade = min(data["zoom"]["audio_fade_seconds"], dur / 2)
         lanes = {"version": 1, "lanes": [{"target": "volume", "points": [

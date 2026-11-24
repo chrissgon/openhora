@@ -1,5 +1,5 @@
 """The split layout (V9f): the halves, the speaker's crop, the caption band and the bar, the dropped split, the compose command, the block and its page.
-Every picture and recording is generated here; nothing real is used."""
+V9g: a top or bottom split has a feathered seam and its caption is a chip on the seam. Every picture and recording is generated here; nothing real is used."""
 from __future__ import annotations
 
 import copy
@@ -110,7 +110,7 @@ SIDES = ("top", "bottom", "left", "right")
 
 
 def test_the_values_are_in_the_presets_file():
-    assert DATA["split"] == {"bar_height": 180, "label_inset": 24}
+    assert {k: v for k, v in DATA["split"].items() if k != "note"} == {"bar_height": 180, "label_inset": 24, "feather_px": 100, "seam_band_height": 150}
     assert DATA["presets"]["split"] == {"anchor": "window", "min_duration": 1.5, "max_duration": None, "tail": 0.2, "settled": 0.5, "page_images": True, "looks": {}}
 
 
@@ -140,30 +140,32 @@ def test_the_speaker_crop_is_centred_on_the_face_and_kept_inside_the_frame():
     assert _layout.split_geometry(DATA, {"x": 900, "y": 620, "w": 160, "h": 300}, "right")["crop"]["x"] == 540
 
 
-BANDS = {"bottom": ([1198, 1560], None), "top": ([285, 602], None), "left": ([1198, 1378], [1198, 1378]), "right": ([1198, 1378], [1198, 1378])}
+BANDS = {"bottom": ([885, 1035], None), "top": ([885, 1035], None), "left": ([1198, 1378], [1198, 1378]), "right": ([1198, 1378], [1198, 1378])}
+MOVED = {"top": {"x": 240, "y": 1160, "w": 600, "h": 560}, "bottom": {"x": 240, "y": 200, "w": 600, "h": 560}}
 
 
 @pytest.mark.parametrize("side", SIDES)
-def test_the_caption_band_keeps_clear_of_the_seam_and_both_faces(side):
+def test_the_caption_band_straddles_the_seam_or_keeps_clear_of_both_faces(side):
     g = _layout.split_geometry(DATA, FACE, side)
     band, bar = BANDS[side]
     assert g["band"] == band and g["bar"] == bar
     lo, hi = g["band"]
     assert hi - lo >= Z["caption_min_height"] and hi <= Z["caption_bottom"] and lo >= DATA["frame"]["safe"]["top"]
     gap = Z["gap"]
-    assert hi <= FACE["y"] - gap or lo >= FACE["y"] + FACE["h"] + gap
     m = g["moved_face"]
     assert hi <= m["y"] - gap or lo >= m["y"] + m["h"] + gap
     if side in ("top", "bottom"):
-        a = g["asset"]
-        assert lo >= a["y"] and hi <= a["y"] + a["h"] and (hi <= 960 - gap or lo >= 960 + gap)
-        assert g["bar"] is None
+        # V9g: a chip on the seam; the face where it was is under the picture, so only the moved face is kept clear
+        assert lo < 960 < hi and hi - lo == DATA["split"]["seam_band_height"] and (lo + hi) // 2 == 960
+        assert g["bar"] is None and g["seam"] is True and g["feather"] == DATA["split"]["feather_px"]
     else:
-        assert g["bar"] == g["band"] and g["band"][1] - g["band"][0] <= 180
+        assert hi <= FACE["y"] - gap or lo >= FACE["y"] + FACE["h"] + gap
+        assert g["bar"] == g["band"] and g["band"][1] - g["band"][0] <= 180 and g["seam"] is False and g["feather"] == 0
 
 
-def test_the_label_sits_in_the_picture_half_near_the_seam():
-    for side, want in {"bottom": {"x": 65, "max_w": 950, "top": 984, "bottom": None}, "top": {"x": 65, "max_w": 950, "top": None, "bottom": 984},
+def test_the_label_sits_in_the_picture_half_away_from_the_seam():
+    # V9g: top and bottom put it in the corner away from the seam (and its caption chip): the safe top for top, the caption line for bottom
+    for side, want in {"bottom": {"x": 65, "max_w": 950, "top": None, "bottom": 360}, "top": {"x": 65, "max_w": 950, "top": 285, "bottom": None},
                        "left": {"x": 65, "max_w": 451, "top": 285, "bottom": None}, "right": {"x": 564, "max_w": 451, "top": 285, "bottom": None}}.items():
         assert _layout.split_geometry(DATA, FACE, side)["label"] == want, side
 
@@ -175,12 +177,12 @@ def split_timeline(face=FACE, side="bottom", chunk_face=None):
 
 
 def test_a_split_with_no_room_for_captions_is_dropped_with_its_reason():
-    low = {"x": 240, "y": 900, "w": 600, "h": 560}
-    tl = split_timeline(low)
+    low = {"x": 240, "y": 300, "w": 600, "h": 1200}          # left: the face and the moved face block every row from 282 to 1518
+    tl = split_timeline(low, side="left")
     row = {"id": "b1", "reason": "split_no_room"}
     assert _layout.split_layouts(DATA, tl) == [row]
     assert tl["beats"] == [] and tl["dropped"] == ["b1"] and tl["dropped_reasons"] == [row] and not any("band" in c for c in tl["captions"])
-    kept = split_timeline(low)
+    kept = split_timeline(low, side="left")
     assert _layout.split_layouts(DATA, kept, drop=False) == []
     assert len(kept["beats"]) == 1 and kept["beats"][0]["split"]["band"] is None and kept["dropped"] == []
 
@@ -188,10 +190,14 @@ def test_a_split_with_no_room_for_captions_is_dropped_with_its_reason():
 def test_a_caption_during_a_split_takes_its_band_and_the_moved_face():
     tl = split_timeline(side="top")
     assert _layout.split_layouts(DATA, tl) == []
-    assert "band" not in tl["captions"][0] and tl["captions"][0]["face"] == FACE
+    assert "band" not in tl["captions"][0] and tl["captions"][0]["face"] == FACE and "seam" not in tl["captions"][0]
     c = tl["captions"][1]
-    assert c["band"] == [285, 602] and _layout.entry_zones(DATA, c)["caption"] == [285, 602]
-    assert c["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100}
+    assert c["band"] == [885, 1035] and _layout.entry_zones(DATA, c)["caption"] == [885, 1035]
+    assert c["face"] == MOVED["top"] and c["seam"] is True
+    side = split_timeline(side="left")
+    _layout.split_layouts(DATA, side)
+    moved = side["beats"][0]["split"]["moved_face"]
+    assert side["captions"][1]["face"] == _layout._union([FACE, moved]) and "seam" not in side["captions"][1]     # left: the union, as in V9f
 
 
 def test_a_chunk_that_runs_past_a_top_split_takes_its_band_only_on_the_split_frames():
@@ -202,8 +208,8 @@ def test_a_chunk_that_runs_past_a_top_split_takes_its_band_only_on_the_split_fra
     assert _layout.split_layouts(DATA, tl) == []
     a, b = tl["captions"]
     assert (a["start_frame"], a["end_frame"], b["start_frame"], b["end_frame"]) == (80, 90, 90, 120)
-    assert a["band"] == [285, 602] and a["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100}
-    assert "band" not in b and b["face"] == FACE
+    assert a["band"] == [885, 1035] and a["face"] == MOVED["top"] and a["seam"] is True
+    assert "band" not in b and b["face"] == FACE and "seam" not in b
     assert _layout.entry_zones(DATA, b)["caption"] == [1198, 1560]
     card_bottom = _layout.zones(DATA, FACE)["card"][1]
     assert _layout.entry_zones(DATA, b)["caption"][0] > card_bottom
@@ -217,9 +223,9 @@ def test_two_splits_back_to_back_give_each_piece_of_a_shared_chunk_its_own_band(
           "captions": [{"word_from": 3, "word_to": 5, "start_frame": 80, "end_frame": 100, "face": dict(FACE)}], "dropped": []}
     assert _layout.split_layouts(DATA, tl) == []
     a, b = tl["captions"]
-    assert (a["start_frame"], a["end_frame"], a["band"]) == (80, 90, [285, 602])
-    assert (b["start_frame"], b["end_frame"], b["band"]) == (90, 100, [1198, 1560])
-    assert a["face"] == {"x": 240, "y": 620, "w": 600, "h": 1100} and b["face"] == {"x": 240, "y": 200, "w": 600, "h": 980}
+    assert (a["start_frame"], a["end_frame"], a["band"]) == (80, 90, [885, 1035])
+    assert (b["start_frame"], b["end_frame"], b["band"]) == (90, 100, [885, 1035])
+    assert a["face"] == MOVED["top"] and b["face"] == MOVED["bottom"]
     for piece in (a, b):
         lo, hi = piece["band"]
         f = piece["face"]
@@ -238,7 +244,7 @@ def test_a_pip_band_stays_on_the_pieces_outside_the_split():
           "captions": [{"word_from": 0, "word_to": 2, "start_frame": 80, "end_frame": 100, "face": dict(FACE), "band": [1300, 1420]}], "dropped": []}
     _layout.split_layouts(DATA, tl)
     a, b = tl["captions"]
-    assert a["band"] == [285, 602] and b["band"] == [1300, 1420]
+    assert a["band"] == [885, 1035] and b["band"] == [1300, 1420]
 
 
 def test_without_a_split_the_captions_are_left_as_they_were():
@@ -251,11 +257,45 @@ def test_without_a_split_the_captions_are_left_as_they_were():
 
 
 def test_a_dropped_split_cuts_no_chunk():
-    low = {"x": 240, "y": 900, "w": 600, "h": 560}
-    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "bottom"}, "start_frame": 30, "end_frame": 90, "face": dict(low)}],
+    low = {"x": 240, "y": 300, "w": 600, "h": 1200}
+    tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "left"}, "start_frame": 30, "end_frame": 90, "face": dict(low)}],
           "captions": [{"word_from": 0, "word_to": 2, "start_frame": 20, "end_frame": 40, "face": dict(low)}], "dropped": []}
     _layout.split_layouts(DATA, tl)
     assert tl["beats"] == [] and len(tl["captions"]) == 1 and tl["captions"][0]["start_frame"] == 20 and tl["captions"][0]["end_frame"] == 40
+
+
+HIGH_FACE = {"x": 220, "y": 320, "w": 380, "h": 540}      # a face in the upper half of the frame (the shape that dropped every `top` split in V9f)
+
+
+def test_a_top_split_over_a_face_in_the_upper_half_is_kept_with_a_seam_band():
+    g = _layout.split_geometry(DATA, HIGH_FACE, "top")
+    assert g["band"] == [885, 1035] and g["moved_face"] == {"x": 220, "y": 1170, "w": 380, "h": 540}
+    tl = split_timeline(HIGH_FACE, side="top")
+    assert _layout.split_layouts(DATA, tl) == [] and tl["dropped"] == [] and len(tl["beats"]) == 1
+    piece = tl["captions"][1]
+    assert piece["band"] == [885, 1035] and piece["seam"] is True and piece["face"] == g["moved_face"]
+    lo, hi = piece["band"]
+    assert hi + Z["gap"] <= piece["face"]["y"]
+    assert _layout.split_geometry(DATA, HIGH_FACE, "bottom")["band"] == [885, 1035]
+
+
+def test_a_seam_band_that_would_meet_the_moved_face_moves_into_the_picture_half():
+    big = {"x": 140, "y": 200, "w": 800, "h": 1300}           # the crop puts the face on the seam: the chip goes up into the picture
+    g = _layout.split_geometry(DATA, big, "top")
+    assert g["moved_face"]["y"] == 960 and g["band"] == [960 - Z["gap"] - 150, 960 - Z["gap"]]
+    g = _layout.split_geometry(DATA, big, "bottom")
+    assert g["moved_face"]["y"] + g["moved_face"]["h"] == 960 and g["band"] == [960 + Z["gap"], 960 + Z["gap"] + 150]
+
+
+def test_the_page_geometry_carries_the_feather_and_the_caption_payload_the_seam():
+    for side, feather in (("top", 100), ("bottom", 100), ("left", 0), ("right", 0)):
+        assert _payload.split_geometry_of({"split": _layout.split_geometry(DATA, FACE, side)})["feather"] == feather, side
+    edl = {"captions": {"position": "bottom"}}
+    by_index = {3: {"index": 3, "text": "every", "start": 2.70, "end": 2.90}}
+    piece = {"word_from": 3, "word_to": 3, "start_frame": 90, "end_frame": 120, "face": dict(FACE), "band": [885, 1035], "seam": True}
+    out = _payload.caption_data(DATA, edl, piece, by_index, 30)
+    assert out["seam"] is True and out["zones"]["caption"] == [885, 1035]
+    assert "seam" not in _payload.caption_data(DATA, edl, dict(piece, seam=False), by_index, 30)
 
 
 def test_a_piece_keeps_the_word_times_of_its_chunk():
@@ -352,7 +392,7 @@ def test_the_page_is_clean_and_reads_only_its_parameters():
     assert lint(html) == []
     assert '<meta name="pv-preset" content="split">' in html and '<meta name="pv-params" content="asset,side,fit,label">' in html
     assert '<meta name="pv-looks" content="">' in html
-    assert "data-zone" not in html
+    assert "data-zone" not in html and "maskImage" in html
 
 
 # ---------------------------------------------------------------- the page, in the host's browser
@@ -422,13 +462,58 @@ def test_the_label_sits_in_the_picture_half_and_never_on_the_caption_band(tmp_pa
     c, a = state["chip"], HALVES[side][0]
     assert c["left"] >= a["x"] and c["right"] <= a["x"] + a["w"] and c["top"] >= a["y"] and c["bottom"] <= a["y"] + a["h"]
     if side == "top":
-        assert c["bottom"] == 936
+        assert c["top"] == 285
     elif side == "bottom":
-        assert c["top"] == 984
+        assert c["bottom"] == 1560
     else:
         assert c["top"] == 285 and c["right"] <= (516 if side == "left" else 1015)
     lo, hi = BANDS[side][0]
     assert c["bottom"] <= lo or c["top"] >= hi
+
+
+@needs_browser
+@pytest.mark.parametrize("side", ("top", "bottom"))
+def test_the_picture_fades_into_the_speaker_half_over_the_feather(tmp_path, side):
+    (state, shot), = draw(tmp_path, png(600, 1000, lambda x, y: RED), side)
+    shot = decode(shot)
+    inside, step = (958, 1) if side == "top" else (961, -1)          # the picture's own rows at the seam: opaque
+    assert alpha(shot, 540, inside) == 255
+    a = [alpha(shot, 540, 960 + step * k) for k in (5, 50, 95)] if side == "top" else [alpha(shot, 540, 959 - k) for k in (5, 50, 95)]
+    assert 255 > a[0] > a[1] > a[2] and 100 < a[1] < 160                 # linear: about half way at the feather's middle
+    clear = 1070 if side == "top" else 849
+    assert alpha(shot, 540, clear) == 0                                   # past the feather the speaker is untouched
+    assert state["box"] == HALVES[side][0]
+
+
+def draw_caption(tmp_path, chunk_payload):
+    template = K.template_of("caption")
+    serve, _ = _frames.load_templates([template])
+    with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "chrome"), time_limit=120) as chrome:
+        chrome.start()
+        page = chrome.new_page(1080, 1920)
+        page.open("/t/" + template, {"colors": COLORS, "fonts": {}, "images": {}})
+        result = page.frame(0.3, chunk_payload)
+        return result, page.screenshot()
+
+
+@needs_browser
+def test_a_caption_piece_inside_a_top_split_is_a_chip_on_the_seam_clear_of_the_moved_face(tmp_path):
+    tl = split_timeline(HIGH_FACE, side="top")
+    tl["captions"][1].update(word_from=0, word_to=2)
+    _layout.split_layouts(DATA, tl)
+    piece = tl["captions"][1]
+    by_index = {0: {"index": 0, "text": "Name", "start": 1.3, "end": 1.5}, 1: {"index": 1, "text": "every", "start": 1.5, "end": 1.7},
+                2: {"index": 2, "text": "euro", "start": 1.7, "end": 1.9}}
+    payload = _payload.caption_data(DATA, {"captions": {"position": "bottom"}}, piece, by_index, 30)
+    result, shot = draw_caption(tmp_path, payload)
+    boxes = [b for b in result["boxes"] if b["zone"] == "caption"]
+    assert len(boxes) == 1                                                # the chip is the one measured box
+    chip = boxes[0]
+    assert chip["y"] < 960 < chip["y"] + chip["h"] and chip["y"] >= 885 and chip["y"] + chip["h"] <= 1035
+    assert abs((chip["x"] + chip["w"] / 2) - 540) <= 1
+    assert _layout.face_hit(result["boxes"], piece["face"]) is None and not _layout.caption_hit(chip, _layout.entry_zones(DATA, piece))
+    shot = decode(shot)
+    assert at(shot, int(chip["x"]) + 6, 960) == (255, 201, 60)           # the accent fill (#FFC93C)
 
 
 @needs_browser

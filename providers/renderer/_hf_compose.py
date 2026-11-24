@@ -429,9 +429,12 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     image checks them); `clip_assets` is {slot: {width, height, seconds, fps, tint}} of the slots that are clips, which are drawn as top-level video elements under the
     frame band's iframe (V9b-5b); with none, nothing in the files differs from a page without the argument.
     Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers, blocks, blocks_sha256, captions_drawn, beats_drawn, runtimes,
-    fonts_used}. Everything is checked before anything is written."""
+    fonts_used}. Everything is checked before anything is written. An edit list that names a look (`looks`) is refused `look_not_on_engine`.
+    """
     frame = data["frame"]
     background = data["theme"]["colors"]["bg"]
+    for preset in sorted(edl.get("looks") or {}):         # a video's look (V9g, the keyword's headlines) is drawn by the ffmpeg engine only
+        fail("look_not_on_engine", "edl.looks.%s" % preset)
     _hf_page.check_target(out_dir, background)
     assets = check_assets(assets)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)

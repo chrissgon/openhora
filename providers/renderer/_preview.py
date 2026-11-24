@@ -24,6 +24,7 @@ import tempfile
 import zlib
 
 import _align
+import _assets
 import _blocks
 import _edl
 import _frames
@@ -93,7 +94,7 @@ def synthetic_words(rows: list, cfg: dict) -> tuple:
     return transcript, analysis, ranges
 
 
-def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None, font_flags=None, face=None, cfg=None) -> tuple:
+def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None, font_flags=None, face=None, cfg=None, looks=None) -> tuple:
     """(edl, beats, notes, transcript, mentions) for the beats of `rows` that have a preset, every row's line being on the timeline.
     Runs the render's checks before it returns; raises the first Refusal. The list has no zoom and no push-in (the face box is the
     one given), and no cut: the word gaps are never longer than `gap` and the tail pad covers the trail."""
@@ -104,7 +105,7 @@ def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None
     if transcript["duration"] > data["limits"]["input_seconds_max"]:
         raise Refusal("script_too_long", "post")                           # a clear refusal, not the analysis check's
     edl, notes = _edl.build_base(transcript, analysis, data, allow, None, 3600.0, None, cfg["trail"], "bottom", colors, font_flags, face,
-                                 "none", None, 0.0, retake_mode="propose")   # the storyboard's synthetic words are never cut
+                                 "none", None, 0.0, retake_mode="propose", looks=looks)   # the storyboard's synthetic words are never cut
     with_preset = [r for r in rows if r["preset"]]
     results = [{"score": 1.0, "word_from": ranges[r["beat"]][0], "word_to": ranges[r["beat"]][1], "matched": True, "reordered": False}
                for r in with_preset]
@@ -168,13 +169,16 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
     templates, names = _blocks.templates_for(catalogue, _render.ENGINE, timeline, vocab, with_caption=False)
     serve, tpl_hashes = _frames.load_templates(sorted(set(names)), catalogue["dir"])
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, data["limits"]["font_max_bytes"], fonts_directory)
+    look_serve, looks_used, look_roles = _assets.load_look_fonts(data, edl, data["limits"]["font_max_bytes"], fonts_directory)     # a look's own font (V9g)
+    font_serve.update(look_serve)
+    fonts_used.update(looks_used)
     serve.update(font_serve)
     serve.update({"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items()})
     rest = {e["beat"]: rest_frame(e, data, edl["fps"]) for e in entries}
     only = {("beat", f) for f in rest.values()}
     frames_dir = os.path.join(work, "frames")
     _, facts = _frames.draw_frames(
-        data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(data, edl, font_serve), assets=assets,
+        data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(data, edl, font_serve, look_roles), assets=assets,
         browser=browser, jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=time_limit, templates=templates,
         png_blank=_render.blank_png, only=only, check_all=True, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
     frames = {n: os.path.join(frames_dir, "beat_%06d.png" % f) for n, f in rest.items()}
@@ -236,12 +240,12 @@ def contact_sheet(ffmpeg: str, files: list, cfg: dict, out: str, scratch: str, t
 
 # ---------------------------------------------------------------- the verb's body
 
-def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None, font_flags=None, face=None, tools,
+def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None, font_flags=None, face=None, looks=None, tools,
                jobs: int, out_dir: str, scratch=None, time_limit=None, blocks_dir=None, blocks_sha256=None, fonts_directory=None) -> dict:
     """Refuse first, then draw. `tools` is a function that returns (ffmpeg path, browser path). `rows`: the beats (rows of `_align.read_beats` or `beat_row`). Writes `beat-<n>.png` for each beat that
     has a preset and `sheet.png` into `out_dir`, never over a file that is there. The result holds closed words and numbers."""
     cfg = data["storyboard"]
-    edl, beats, notes, transcript, mentions = build_lists(rows, data, vocab, allow, colors=colors, font_flags=font_flags, face=face, cfg=cfg)
+    edl, beats, notes, transcript, mentions = build_lists(rows, data, vocab, allow, colors=colors, font_flags=font_flags, face=face, cfg=cfg, looks=looks)
     ffmpeg, browser = tools()                                             # looked for only now: a refusal above needs neither
     os.makedirs(out_dir, mode=0o700, exist_ok=True)
     base = os.path.abspath(scratch) if scratch else tempfile.gettempdir()      # never the output folder

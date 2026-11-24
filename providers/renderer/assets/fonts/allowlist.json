@@ -32,5 +32,7 @@
    "licence_file": "JetBrainsMono-OFL.txt",
    "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
   }
- ]
+ ],
+ "look_fonts_note": "The fonts a look may name (V9g: `presets.keyword.variants.headline-serif.font`), never a theme role: a theme's --font flag reads only `fonts`, and the HyperFrames engine, which refuses every look, carries none of them. A row has the keys of a `fonts` row. A look whose font has no row here is drawn with the look's `font_fallback` stack, and the render says so (`fonts`: `system default` for the role `look-<preset>`).",
+ "look_fonts": []
 }

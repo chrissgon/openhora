@@ -58,11 +58,13 @@ def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_d
     return data, edl, beats, platform, vocab, allow
 
 
-def font_urls_of(data, edl, font_serve) -> dict:
-    """The theme's fonts as the page's setup wants them: {role: {weight, fallback[, url]}}."""
+def font_urls_of(data, edl, font_serve, look_roles=None) -> dict:
+    """The theme's fonts as the page's setup wants them: {role: {weight, fallback[, url]}}, and the look fonts' roles (`look_roles`, from
+    `_assets.load_look_fonts`) the same way (V9g)."""
     urls = {}
-    for role, f in edl["theme"]["fonts"].items():
-        entry = {"weight": f["weight"], "fallback": data["theme"]["system_fallback"][role]}
+    rows = [(role, {"weight": f["weight"], "fallback": data["theme"]["system_fallback"][role]}) for role, f in edl["theme"]["fonts"].items()]
+    rows += [(role, dict(spec)) for role, spec in sorted((look_roles or {}).items())]
+    for role, entry in rows:
         for path in font_serve:
             if path.startswith("/fonts/%s." % role):
                 entry["url"] = "https://render.invalid" + path
@@ -191,6 +193,9 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
+    look_serve, looks_used, look_roles = _assets.load_look_fonts(data, edl, limits["font_max_bytes"], fonts_directory)     # a look's own font (V9g)
+    font_serve.update(look_serve)
+    fonts_used.update(looks_used)
     asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items() if a["kind"] != "clip"}
     serve = {}
     serve.update(tpl_serve)
@@ -226,7 +231,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
             fd = os.open(os.path.join(work, "assets", "%s.%s" % (slot, _media.CLIP_EXT if a["kind"] == "clip" else a["kind"])), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as fh:
                 fh.write(a["data"])
-        font_urls = font_urls_of(data, edl, font_serve)
+        font_urls = font_urls_of(data, edl, font_serve, look_roles)
         frames_dir = os.path.join(work, "frames")
         layers, ffacts = _frames.draw_frames(
             data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=font_urls, assets=assets, browser=browser["path"],

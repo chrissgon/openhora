@@ -43,6 +43,13 @@ def synthetic_edl(kept=KEPT, zoom=None) -> dict:
             "zoom": zoom or {"mode": "alternate", "factor": 1.1, "push_in": 0.02, "anchor_y": 0.25}}
 
 
+@pytest.fixture(autouse=True)
+def no_zoom_spacing(monkeypatch):
+    """These tests time the effects by the rules before V9g's zoom spacing (`_media.ZOOM_SPACING_SECONDS`); at 0 `alternate` zooms every second range
+    and no punch is dropped for starting soon after a change of level. `test_zoom_spacing.py` tests the spacing itself."""
+    monkeypatch.setattr(_media, "ZOOM_SPACING_SECONDS", 0.0)
+
+
 def beats_of(punches=(), effects=()) -> dict:
     doc = {"schema_version": 1, "threshold": 0.6, "overlays": [], "layouts": [], "slots": [], "report": [], "unmatched": [], "fallbacks": []}
     if punches:
@@ -150,7 +157,7 @@ def test_a_punch_that_cannot_zoom_in_past_the_ranges_own_level_is_dropped():
 def test_a_punch_is_stretched_cut_and_never_crosses_a_range():
     edl = synthetic_edl()
     [short] = resolve(edl, beats_of([punch(1, 18, 18)]))["punches"]       # 9.1 s to 9.4 s (frames 273-282): stretched to 0.8 s
-    assert (short["start_frame"], short["end_frame"]) == (273, 297)
+    assert (short["start_frame"], short["end_frame"]) == (273, 300)      # 297 is 3 frames before the cut at 300: held to it (V9g)
     [long] = resolve(edl, beats_of([punch(1, 2, 12)]))["punches"]         # 1.1 s to 6.4 s: cut at 3 s
     assert long["end_frame"] - long["start_frame"] == 90 and long["end_frame"] <= 150
     [crossing] = resolve(edl, beats_of([punch(1, 8, 11)]))["punches"]     # 4.1 s to 5.9 s: the range ends at frame 150
@@ -162,7 +169,7 @@ def test_a_punch_is_stretched_cut_and_never_crosses_a_range():
     timeline = resolve(edl, beats_of([punch(1, 10, 10)]))                 # 5.1 s: frame 153 to 177 in the second range
     assert [(p["start_frame"], p["range"]) for p in timeline["punches"]] == [(153, 1)]
     timeline = resolve(edl, beats_of([punch(1, 19, 19), punch(2, 18, 18)]))
-    assert [(p["id"], p["start_frame"], p["end_frame"]) for p in timeline["punches"]] == [("p2", 273, 297)]      # p1 starts where p2 ends and is left 3 frames
+    assert [(p["id"], p["start_frame"], p["end_frame"]) for p in timeline["punches"]] == [("p2", 273, 300)]      # p1 starts where p2 ends (on the cut) and is left no frame
     assert timeline["effects_dropped"] == [{"id": "p1", "reason": "punch_short"}]
 
 

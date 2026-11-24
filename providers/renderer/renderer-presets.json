@@ -20,7 +20,10 @@
  },
  "split": {
   "bar_height": 180,
-  "label_inset": 24
+  "label_inset": 24,
+  "feather_px": 100,
+  "seam_band_height": 150,
+  "note": "top and bottom splits (V9g): the picture runs feather_px rows past the seam into the speaker's half and fades out over them (a linear mask: opaque at the seam, clear at its end), and the caption is a chip on a band of seam_band_height rows centred on the seam. bar_height is the caption bar of left and right splits (V9f)."
  },
  "theme": {
   "colors": {
@@ -81,7 +84,37 @@
    "max_duration": 1.8,
    "tail": 0.3,
    "settled": 0.4,
-   "looks": {}
+   "looks": {},
+   "variants_note": "The looks a video may pick for its keywords (V9g), by name in the edit list's `looks` (`base --look keyword=<name>`); with none the keyword is the pill in the card band. Both headlines draw the keyword's text in large uppercase type in the accent colour (or the beat's `color`), no box, a soft dark shadow, 2 to max_lines stacked lines up to width_share of the frame's width, in the caption band under the face; they enter on the matched word with no lead and no animation, end on a hard cut, and replace the caption on their frames. `headline` uses the theme's display font; `headline-serif` uses the look font `font` (assets/fonts/allowlist.json, `look_fonts`), and the fallback stack when that font is not installed.",
+   "variants": {
+    "headline": {
+     "style": "headline",
+     "replaces_caption": true,
+     "lead_seconds": 0,
+     "max_lines": 4,
+     "width_share": 0.9,
+     "line_height": 1.0,
+     "last_line_scale": 1.2,
+     "max_font_px": 300,
+     "letter_spacing_em": -0.02,
+     "shadow": "0 0.04em 0.16em rgba(0,0,0,0.6), 0 0.02em 0.04em rgba(0,0,0,0.35)"
+    },
+    "headline-serif": {
+     "style": "headline",
+     "replaces_caption": true,
+     "lead_seconds": 0,
+     "max_lines": 4,
+     "width_share": 0.9,
+     "line_height": 1.0,
+     "last_line_scale": 1.2,
+     "max_font_px": 320,
+     "letter_spacing_em": -0.01,
+     "shadow": "0 0.04em 0.16em rgba(0,0,0,0.6), 0 0.02em 0.04em rgba(0,0,0,0.35)",
+     "font": "playfair-display-900",
+     "font_weight": 900,
+     "font_fallback": "\"Playfair Display\", \"DejaVu Serif\", Georgia, serif"
+    }
+   }
   },
   "list": {
    "anchor": "window",

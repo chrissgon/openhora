@@ -62,9 +62,11 @@ class Texts(html.parser.HTMLParser):
 GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "hf-page-base.sha256")
 
 
-def test_the_base_page_is_the_bytes_it_was_before_the_composer_existed(tmp_path):
+def test_the_base_page_is_the_bytes_it_was_before_the_composer_existed(tmp_path, monkeypatch):
     """The two sha256 values were computed on the untouched V3a-2 code (7e23eac) for this edit list; the page may be split into functions, never
-    change a byte (stop rule 2 of the V3b spec)."""
+    change a byte (stop rule 2 of the V3b spec). The zoom spacing of V9g is a rule of the timeline, not of the page: at 0 it gives the levels of
+    before (every second range), which this golden holds."""
+    monkeypatch.setattr(_edl._media, "ZOOM_SPACING_SECONDS", 0.0)
     _, edl = make_edl()
     write(edl, tmp_path / "p")
     want = dict(line.split("  ")[::-1] for line in open(GOLDEN, encoding="utf-8").read().split("\n") if line)
@@ -122,7 +124,7 @@ def test_there_is_one_zoom_wrapper_per_kept_range_and_the_zooms_follow_the_zoom_
     page = (tmp_path / "p" / "index.html").read_text()
     assert page.count('class="zw"') == len(edl["kept"]) == result["clips"]
     assert page.count("<video ") == len(edl["kept"]) and page.count('src="media/proxy.mp4"') == len(edl["kept"])
-    levels = [_edl._media.zoom_levels(edl["zoom"], k, b - a, edl["fps"]) for k, (a, b) in enumerate(edl["kept"])]
+    levels = [_edl._media.zoom_levels(edl["zoom"], k, b - a, edl["fps"], edl["kept"]) for k, (a, b) in enumerate(edl["kept"])]
     assert result["zooms"] == sum(1 for z0, z1 in levels if abs(z0 - 1) > 1e-9 or abs(z1 - 1) > 1e-9) > 0
     assert 'data-composition-id="main"' in page and 'window.__timelines["main"] = main' in page
     assert 'data-width="1080"' in page and 'data-height="1920"' in page and "paused: true" in page

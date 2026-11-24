@@ -248,7 +248,8 @@ def test_the_zoom_is_about_a_fixed_point_on_a_picture_twice_the_output_size():
     assert push.startswith("zoompan=z='1.00000+0.000202*on'") and "d=1:s=1080x1920:fps=30" in push
 
 
-def test_every_second_range_is_zoomed_on_the_face_and_stays_inside_the_frame():
+def test_every_second_range_is_zoomed_on_the_face_and_stays_inside_the_frame(monkeypatch):
+    monkeypatch.setattr(_media, "ZOOM_SPACING_SECONDS", 0.0)      # the plan's ranges are 2 s: with V9g's spacing none would get its own level (test_zoom_spacing.py)
     plan_ = plan()
     graph = _media.compose_argv("ffmpeg", plan_)
     graph = graph[graph.index("-filter_complex") + 1]

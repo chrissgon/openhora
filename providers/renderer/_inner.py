@@ -148,7 +148,7 @@ def verb_base(args) -> dict:
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
     edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.pad_head, args.pad_tail, args.caption_position,
                                  colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
-                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes)
+                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes, pairs(args.look, "--look"))
     write_json(args.out, edl)
     return {"ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
@@ -295,6 +295,7 @@ def verb_storyboard(args) -> dict:
         font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
     return _preview.storyboard(rows=rows, data=data, vocab=vocab, allow=allow, colors=pairs(args.color, "--color"), font_flags=font_flags, face=face,
+                               looks=pairs(args.look, "--look"),
                                tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch,
                                blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
 
@@ -588,6 +589,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--retakes", choices=("auto", "propose"), default="auto", help="auto: cut the proposals the rule says to cut; propose: cut only --confirm")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
+    sp.add_argument("--look", action="append", metavar="PRESET=VARIANT", help="the look a preset is drawn with in this video (keyword=headline or headline-serif)")
     sp = sub.add_parser("align")
     sp.add_argument("--post", required=True)
     sp.add_argument("--transcript", required=True)
@@ -635,6 +637,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920); the default face box otherwise")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
+    sp.add_argument("--look", action="append", metavar="PRESET=VARIANT", help="the look a preset is drawn with in this video (keyword=headline or headline-serif)")
     sp = sub.add_parser("verify")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)

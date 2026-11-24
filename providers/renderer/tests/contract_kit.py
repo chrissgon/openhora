@@ -104,7 +104,7 @@ def unzoomed_ranges(edl: dict) -> list:
     """The numbers of the kept ranges the picture is drawn at exactly 1.0 from first frame to last (no zoom, no push-in): the only ranges whose
     frame band is unchanged in the output."""
     fps = edl["fps"]
-    return [k for k, (a, b) in enumerate(edl["kept"]) if _media.zoom_levels(edl["zoom"], k, b - a, fps) == (1.0, 1.0)]
+    return [k for k, (a, b) in enumerate(edl["kept"]) if _media.zoom_levels(edl["zoom"], k, b - a, fps, edl["kept"]) == (1.0, 1.0)]
 
 
 def compare_frames(edl: dict, got: list, only_unzoomed: bool = False) -> dict:

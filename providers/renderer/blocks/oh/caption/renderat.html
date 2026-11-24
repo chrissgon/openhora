@@ -14,13 +14,16 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 #line { display:flex; flex-wrap:nowrap; justify-content:center; align-items:center; gap:0 0.4em; white-space:nowrap;
         font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.1; letter-spacing:-0.01em;
         text-align:center; color:var(--c-text); transform-origin:50% 50%; }
+#chip { display:none; box-sizing:border-box; white-space:nowrap; text-align:center; border-radius:0.28em; padding:0.2em 0.55em 0.24em;
+        background:var(--c-accent); color:var(--c-bg); font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.1;
+        letter-spacing:-0.01em; box-shadow:0 0.08em 0.3em rgba(0,0,0,.35); }
 .w { display:inline-block;
      -webkit-text-stroke:0.14em rgba(0,0,0,.92); paint-order:stroke fill; stroke-linejoin:round;
      text-shadow:0 0.05em 0.22em rgba(0,0,0,.65), 0 0.08em 0 rgba(0,0,0,.55); }
 </style>
 </head>
 <body>
-<div id="stage"><div id="line"></div></div>
+<div id="stage"><div id="line"></div><div id="chip"></div></div>
 <script>
 'use strict';
 // One to three words at a time, on one line, as big as fits, in the band the face box leaves below it (data.zones.caption = [top, bottom]):
@@ -29,9 +32,33 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 // times of data.words are relative to it. The driver measures every word (data-zone) and fails the render when one touches the face box.
 function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
+// A piece inside a top or bottom split (data.seam) is drawn as a compact chip centred on the band, which straddles the seam: the words on one
+// line in the theme's background colour on an accent fill, as big as fits the band's height and the frame's width, on screen as a hard cut
+// (no pop, no highlight). The chip itself is the measured element (data-zone), so the face check covers its whole box.
+function seamChip(data) {
+  const stage = document.getElementById('stage');
+  const chip = document.getElementById('chip');
+  const z = data.zones.caption;
+  document.getElementById('line').style.display = 'none';
+  stage.style.top = String(z[0]) + 'px';
+  stage.style.height = (z[1] - z[0]) + 'px';
+  stage.style.alignItems = 'center';
+  stage.style.paddingTop = '0px';
+  chip.style.display = 'block';
+  chip.dataset.zone = 'caption';
+  chip.textContent = data.words.map(function (w) { return w.text; }).join(' ');
+  let fs = Math.min(72, (z[1] - z[0]) * 0.46);
+  chip.style.fontSize = fs + 'px';
+  while ((chip.offsetWidth > 960 || chip.offsetHeight > (z[1] - z[0]) * 0.9) && fs > 24) { fs = fs * 0.94; chip.style.fontSize = fs.toFixed(1) + 'px'; }
+}
 window.renderAt = function (t, data) {
   const stage = document.getElementById('stage');
   const line = document.getElementById('line');
+  if (data.seam) { seamChip(data); return; }
+  const chip = document.getElementById('chip');
+  chip.style.display = 'none';
+  delete chip.dataset.zone;
+  line.style.display = '';
   const z = data.zones.caption;
   stage.style.top = z[0] + 'px';
   stage.style.height = (z[1] - z[0]) + 'px';

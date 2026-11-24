@@ -22,11 +22,13 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 BLOCKS = str(K.BLOCKS)
 
-OLD_PINS = {"caption": "12073fd5e467fc9439ee7f45dbb6e5c6e1466d13a5f697d5986e40f47da592aa", "cutaway": "b04f56dc10e0fd1c5f3ee7a093cdc37d0f46baada842cb57694c7893602ecc67",
-            "keyword": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4", "list": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
+# V9g: caption (the seam chip), keyword (the headline looks) and split (the feathered seam, the label away from it) changed on purpose; their old
+# pages were 12073fd5..., 71efd9c9... and 79ca2047...; the pill and the caption line draw what they drew (test_keyword_headline.py, test_split_layout.py).
+OLD_PINS = {"caption": "637aef257b2d09b6be359ac6b591a8c2fab7dd2a6288b24d66d047a54afc2649", "cutaway": "b04f56dc10e0fd1c5f3ee7a093cdc37d0f46baada842cb57694c7893602ecc67",
+            "keyword": "16c9689edb9a8a01205296acd6bdfafff8b69c0d78b43471e51927703bcfcd9a", "list": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
             "number": "7c8f593524d000e21bf23d1a90236b7dd396f849cced19e45d19740147a32e0f", "pip": "efa437aae6e25cc2376bdf795b9abf68a777cb7b9bda2598d3ae11ad17234226",
             "quote": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa",
-            "split": "79ca2047045fcac8d7873ccc4a51675f04ec2686a65c1f3e03791afaaaebfe20"}      # V9f: new, no old template; its own page
+            "split": "6eabec5d256f312157db5d9349c1c9e4f62e780123dae66b1344f7f53b814779"}      # V9f: new, no old template; its own page
 
 
 def sha(path) -> str:

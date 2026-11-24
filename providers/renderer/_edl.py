@@ -14,9 +14,11 @@ import re
 
 import _blocks
 import _media
+import _payload
 import _redact
 from _align import norm_tokens, token_sim
 from _retakes import KINDS as RETAKE_KINDS, REASONS as RETAKE_REASONS, detect_retakes
+import _layout
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
 from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, find_phantoms, out_frames_of)
@@ -28,7 +30,7 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 MENTION = re.compile(r"(?<![\w@])@[\w.]{1,30}")
 EDL_KEYS = {"schema_version", "fps", "size", "source", "kept", "out_frames", "words", "captions", "theme", "normalisation", "face_box", "zoom",
-            "proposals"}
+            "proposals", "looks"}      # `looks` is optional (V9g): {preset: variant}, the look a preset is drawn with in this video
 PROPOSAL_REQUIRED = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
 PROPOSAL_KEYS = PROPOSAL_REQUIRED | {"default", "reason"}      # `default` and `reason` are optional: a list written before them reads as `keep`
 RETAKE_MODES = ("auto", "propose")
@@ -50,6 +52,13 @@ GRADE_SECONDS_MAX = 4.0         # mono and tint
 FLASH_ALPHA_MAX = 0.85          # the strongest frame of a flash or a dip, and the tint's alpha: the spec's own values, which the configuration may lower and never raise
 TINT_ALPHA_MAX = 0.18
 PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is not drawn
+MATCH_LEAD_SECONDS = 0.05       # a match_text beat starts this long before its matched word (its entry animation), unless its look says otherwise
+# Beat edges snap to the cuts of the output timeline (V9g). A beat that ends this close before a cut is held to the cut, and one that starts this close
+# after a cut starts on it: an edge a few frames off a cut reads as a flicker (an `aside` that stops 8 frames before a cut flashes the picture back to
+# colour for those 8 frames, then the cut comes). The end window is the longer one: holding a beat past its words is invisible, starting one before
+# its word is not, so a start moves back by at most a quarter of a second.
+SNAP_END_SECONDS = 0.5
+SNAP_START_SECONDS = 0.25
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
@@ -116,7 +125,7 @@ def range_faces(edl: dict, data: dict) -> list:
     anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
     rows, pos = [], 0
     for k, (a, b) in enumerate(edl["kept"]):
-        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, edl["fps"])
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, edl["fps"], edl["kept"])
         rows.append((pos, pos + b - a, _media.zoomed_box(edl["face_box"], z0, z1, anchor, w, h)))
         pos += b - a
     return rows
@@ -143,7 +152,7 @@ def parse_face_box(text: str) -> dict:
 
 def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto") -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto", looks=None) -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
@@ -151,13 +160,14 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     a `default` (`cut` or `keep`) and a `reason`. `retake_mode` `auto` cuts every proposal whose default is `cut` except those named in
     `keep`, and those named in `confirm`; `propose` cuts only `confirm`. An id in both `keep` and `confirm` is refused. A cut of `long_cut` seconds or more
     also takes the wordless sound of more than `wordless_max` seconds at its edges. `face_box` is {x, y, w, h} in
-    frame pixels (the person gives it once per recording; a default is used otherwise). `zoom_mode` is `alternate` (every
-    second kept range is drawn at `zoom_factor`, about a fixed point: the face's centre, `anchor_y` of the box's height down
+    frame pixels (the person gives it once per recording; a default is used otherwise). `zoom_mode` is `alternate` (the
+    level flips between 1 and `zoom_factor` at the cuts, never sooner than `_media.ZOOM_SPACING_SECONDS` after the last change, about a fixed point: the face's centre, `anchor_y` of the box's height down
     from its top) or `none`; `push_in` is a slow extra zoom over each kept range of 5 s or more (0 for none).
 
     `fonts` maps an allow-listed font id to its row. `colors` is {token: #RRGGBB}; `font_flags` is {role: (id, weight)};
     a font id that is not allow-listed falls back to `default`, and the fallback is returned in the second value
-    (the notes the caller prints: they are the approval card's "font used")."""
+    (the notes the caller prints: they are the approval card's "font used"). `looks` is {preset: variant} (`check_looks`), written as the list's
+    `looks` only when it is not empty, so a list made without it is what it always was."""
     frame, limits, cuts, zoom_cfg = data["frame"], data["limits"], data["cuts"], data["zoom"]
     fps = fps or frame["fps"]
     if not _int(fps) or not frame["fps_min"] <= fps <= frame["fps_max"]:
@@ -284,7 +294,19 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
            "kept": kept, "out_frames": out_frames_of(kept), "words": out_words,
            "captions": {"position": caption_position, "chunks": caption_chunks(out_words, cap["max_words"], cap["max_chars"], cap["pause"])},
            "theme": theme, "normalisation": report, "face_box": face, "zoom": zoom, "proposals": proposals}
+    if looks:
+        check_looks(data, looks, "look")
+        edl["looks"] = dict(looks)
     return edl, notes
+
+
+def check_looks(data: dict, looks, field: str = "looks") -> None:
+    """`looks` (V9g): {preset: variant name}, each preset one whose `presets.<preset>.variants` names that variant (`bad_look`)."""
+    if not isinstance(looks, dict) or len(looks) > len(data["presets"]):
+        raise Refusal("bad_look", field)
+    for preset, name in looks.items():
+        if not isinstance(name, str) or name not in (data["presets"].get(preset, {}).get("variants") or {}):
+            raise Refusal("bad_look", "%s.%s" % (field, preset if isinstance(preset, str) and ID.fullmatch(preset) else "?"))
 
 
 def check_zoom(data: dict, zoom, field: str = "zoom") -> None:
@@ -322,7 +344,7 @@ def mentions_of(texts: list) -> list:
 def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
     """Validate the base list. Returns {texts: [(field, text)], mentions: []} for the caller's scans; raises Refusal."""
     limits, frame = data["limits"], data["frame"]
-    closed(edl, EDL_KEYS, "edl")
+    closed(edl, EDL_KEYS, "edl", EDL_KEYS - {"looks"})
     if edl["schema_version"] == 1:
         raise Refusal("edl_schema_outdated", "edl")      # a version 1 list has no zoom.anchor_y: make it again with `base`
     if edl["schema_version"] != EDL_SCHEMA_VERSION:
@@ -401,6 +423,8 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
             raise Refusal("font_not_allowed", "edl.theme.fonts.%s" % role)
         if f["weight"] not in range(100, 1000, 100):
             raise Refusal("bad_font_weight", "edl.theme.fonts.%s" % role)
+    if "looks" in edl:
+        check_looks(data, edl["looks"], "edl.looks")
     norm = edl["normalisation"]
     closed(norm, NORMALISATION_KEYS, "edl.normalisation", NORMALISATION_KEYS - {"phantom_words"})      # phantom_words is optional: an older list has none
     for k, run in enumerate(norm.get("phantom_words", [])):
@@ -615,6 +639,40 @@ def range_table(edl: dict) -> list:
     return table
 
 
+def cut_frames(edl: dict) -> list:
+    """The cuts of the OUTPUT timeline: the first output frame of every kept range but the first (the frame where one kept range of source frames
+    gives way to the next; `kept` is in source frames, the output position is the running length of the ranges before it)."""
+    return [first for first, _ in range_table(edl)[1:]]
+
+
+def snap_to_cuts(entries: list, cuts: list, fps: int, n: int) -> None:
+    """Move the edges of the beat track's entries onto the cuts, in place (V9g). `entries` are in timeline order and do not overlap.
+
+    A start that falls at most SNAP_START_SECONDS after a cut moves back to that cut; an entry before it that runs past the cut then ends on the
+    cut (the one-track rule: the earlier one ends where the later one starts), and the start does not move when that would leave the earlier
+    entry with no frame. Then an end that falls at most SNAP_END_SECONDS before a cut moves forward to that cut, never past the next entry's
+    start (the one-track rule) nor past `n`, the video's end. A moved edge is marked `snapped_start` / `snapped_end`. An entry may then run a
+    little past its preset's maximum duration (at most SNAP_END_SECONDS more, and SNAP_START_SECONDS earlier)."""
+    end_w, start_w = int(round(SNAP_END_SECONDS * fps)), int(round(SNAP_START_SECONDS * fps))
+    for i, e in enumerate(entries):
+        prev = entries[i - 1] if i else None
+        before = [c for c in cuts if c < e["start_frame"] and e["start_frame"] - c <= start_w and (prev is None or c > prev["start_frame"])]
+        if before:
+            e["start_frame"] = before[-1]
+            e["snapped_start"] = True
+            if prev is not None and prev["end_frame"] > e["start_frame"]:
+                prev["end_frame"] = e["start_frame"]
+                prev["clipped"] = True
+    for i, e in enumerate(entries):
+        ceiling = entries[i + 1]["start_frame"] if i + 1 < len(entries) else n
+        after = [c for c in cuts if e["end_frame"] < c <= e["end_frame"] + end_w]
+        if after:
+            end = min(after[0], ceiling, n)
+            if end > e["end_frame"]:
+                e["end_frame"] = end
+                e["snapped_end"] = True
+
+
 def _range_of(table: list, frame: int) -> int:
     for k, (first, last) in enumerate(table):
         if first <= frame < last:
@@ -633,11 +691,18 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
     A punch spans its words, stretched to `punch.min_seconds` and cut at `punch.max_seconds` and at its range's end. Two punches in one range never
     overlap: the later one starts where the earlier one ends. One left under PUNCH_SHORT_SECONDS is dropped (`punch_short`). Its zoom is the range's
     own level at the punch's first frame times `punch.factor`, held for the span and capped at `zoom.factor_max`; one that would not zoom in past
-    the range's own level is dropped (`punch_capped`). A row: {id, start_frame, end_frame, range, zoom, face}, `face` the face box as the punch draws it."""
+    the range's own level is dropped (`punch_capped`). Since V9g a punch whose end falls at most SNAP_END_SECONDS before its range's end, when a cut
+    follows, is held to the cut, so the zoom changes once there rather than twice a few frames apart; and a punch that would start less
+    than `_media.ZOOM_SPACING_SECONDS` after the last change of the zoom level (a cut where `alternate` changes the level, or an earlier punch's end) is
+    dropped (`punch_spacing`): delayed, it would miss the word it stresses. A row: {id, start_frame, end_frame, range, zoom, face}, `face` the face box
+    as the punch draws it."""
     fps, n = edl["fps"], edl["out_frames"]
     cfg, zoom_cfg = data["punch"], data["zoom"]
     by_index = {w["index"]: w for w in edl["words"]}
     table = range_table(edl)
+    on = _media.zoomed_ranges(edl["zoom"], edl["kept"], fps)
+    changes = [table[k][0] for k in range(1, len(table)) if on[k] != on[k - 1]]      # the cuts where the base level changes
+    spacing, end_w = int(round(_media.ZOOM_SPACING_SECONDS * fps)), int(round(SNAP_END_SECONDS * fps))
     items = [("p%d" % p["beat"], p["word_from"], p["word_to"]) for p in beats.get("punches") or []]
     items += [(e["id"], e["word_from"], e["word_to"]) for e in beats.get("effects") or [] if e["kind"] == "punch"]
     spans = []
@@ -646,7 +711,10 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
         k = _range_of(table, sf)
         ef = max(int(round(by_index[w_to]["end"] * fps)), sf + int(round(cfg["min_seconds"] * fps)))
         ef = min(ef, sf + int(round(cfg["max_seconds"] * fps)), table[k][1])
-        spans.append({"id": pid, "start_frame": sf, "end_frame": ef, "range": k})
+        row = {"id": pid, "start_frame": sf, "end_frame": ef, "range": k}
+        if k + 1 < len(table) and 0 < table[k][1] - ef <= end_w:
+            row["end_frame"] = table[k][1]                                  # held to the cut it ends just before (V9g)
+        spans.append(row)
     spans.sort(key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
     rows, dropped, floor = [], [], {}
     anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
@@ -658,7 +726,11 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
         if (r["end_frame"] - r["start_frame"]) / float(fps) < PUNCH_SHORT_SECONDS - 1e-9:
             dropped.append({"id": r["id"], "reason": "punch_short"})
             continue
-        z0, z1 = _media.zoom_levels(edl["zoom"], k, last - first, fps)
+        before = [c for c in changes + [p["end_frame"] for p in rows] if c <= r["start_frame"]]
+        if before and r["start_frame"] - max(before) < spacing:
+            dropped.append({"id": r["id"], "reason": "punch_spacing"})
+            continue
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, last - first, fps, edl["kept"])
         base = z0 + (z1 - z0) * (r["start_frame"] - first) / float(max(1, last - first - 1))
         zp = round(min(zoom_cfg["factor_max"], base * cfg["factor"]), 5)
         if zp <= base + 1e-9:
@@ -674,7 +746,9 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
 
     A flash or a dip starts at the first frame of its first word and lasts one frame per alpha of `effects.flash_alphas` / `dip_alphas` (at most
     FLASH_FRAMES_MAX and DIP_FRAMES_MAX), cut at its range's end. Mono and tint span their words, clipped to `grade_min_seconds` to `grade_max_seconds`
-    (never past GRADE_SECONDS_MAX) and cut at the range's end. A flash, dip or tint that starts inside the one before it is dropped (`grade_overlap`):
+    (never past GRADE_SECONDS_MAX) and cut at the range's end; their edges then snap to the range's cuts as a beat's do (`snap_to_cuts`: a start at most
+    SNAP_START_SECONDS after the range's first frame moves back to it, an end at most SNAP_END_SECONDS before the range's last moves forward to it,
+    neither when the range edge is the video's own start or end nor when the span would pass GRADE_SECONDS_MAX). A flash, dip or tint that starts inside the one before it is dropped (`grade_overlap`):
     they share one colour layer. A row: {id, kind, start_frame, end_frame, range, alphas (flash, dip) or alpha (tint), color (tint)}."""
     fps, n = edl["fps"], edl["out_frames"]
     cfg = data["effects"]
@@ -697,6 +771,11 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
             high = int(round(min(cfg["grade_max_seconds"], GRADE_SECONDS_MAX) * fps))
             length = min(max(int(round(by_index[e["word_to"]]["end"] * fps)) - sf, low), high)
             row["end_frame"] = min(sf + length, table[k][1])
+            first, last = table[k]
+            if k > 0 and 0 < sf - first <= int(round(SNAP_START_SECONDS * fps)) and row["end_frame"] - first <= high:
+                row["start_frame"] = sf = first                                      # snapped back onto the cut it follows (V9g)
+            if k + 1 < len(table) and 0 < last - row["end_frame"] <= int(round(SNAP_END_SECONDS * fps)) and last - sf <= high:
+                row["end_frame"] = last                                              # held to the cut it ends just before (V9g)
             if kind == "tint":
                 row["alpha"] = min(TINT_ALPHA_MAX, max(0.0, float(cfg["tint_alpha"])))
                 row["color"] = edl["theme"]["colors"]["accent"]
@@ -779,7 +858,10 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     and the video's end (a keyword starts at the word that matches its text, when one does). A beat whose words are
     on either side of a cut is one continuous range of OUTPUT frames: the cut part is not on the timeline at all.
     One beat track: where two beats overlap, the earlier one ends where the later one starts, and one that is left
-    with no frame is dropped (and reported)."""
+    with no frame is dropped (and reported). Then the edges snap to the cuts (`snap_to_cuts`, V9g): an end just before a cut is held to it and a
+    start just after a cut moves back to it, so an aside's grey and echo, which are computed from the snapped span, stop and start on the cut too.
+    A keyword whose look is a headline (`edl.looks`, `look_of`) starts on its matched word with no lead, and the caption chunks are cut where such a
+    keyword is on screen: the keyword replaces the caption on its frames (`_layout.caption_gaps`)."""
     fps, n = edl["fps"], edl["out_frames"]
     by_index = {w["index"]: w for w in edl["words"]}
     entries = []
@@ -790,7 +872,7 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         if cfg["anchor"] == "match_text" and "text" in e["params"]:
             i = match_text_word(edl["words"], e["word_from"], e["word_to"], e["params"]["text"])
             if i is not None:
-                start = max(start, by_index[i]["start"] - 0.05)
+                start = max(start, by_index[i]["start"] - _payload.look_of(data, edl, e["preset"]).get("lead_seconds", MATCH_LEAD_SECONDS))
         end = max(end, start + cfg["min_duration"])
         if cfg["max_duration"]:
             end = min(end, start + cfg["max_duration"])
@@ -804,6 +886,7 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
             cur["clipped"] = True
     dropped = [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
     entries = [e for e in entries if e["id"] not in dropped]
+    snap_to_cuts(entries, cut_frames(edl), fps, n)
     punches, punches_dropped = resolve_punches(edl, beats, data)
     grades, grades_dropped = resolve_grades(edl, beats, data)
     aside_grades, echoes = resolve_asides(edl, entries, vocab, data)      # an aside's grey is a mono grade over its beat; its echo is a row of its own
@@ -827,5 +910,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         if ef <= sf:
             continue
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
+    hiding = [(e["start_frame"], e["end_frame"]) for e in entries if _payload.look_of(data, edl, e["preset"]).get("replaces_caption")]
+    if hiding:
+        captions = _layout.caption_gaps(captions, hiding)
     return {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
             "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
