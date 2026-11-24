@@ -29,7 +29,20 @@ ORIGIN = "https://render.invalid"
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
        "img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'")
 
-# Freezes the clocks and the random source and makes timers throw (determinism contract).
+# The policy of an admitted page (the second contract, `/h/` paths): scripts from our own origin (the HyperFrames runtime, GSAP) and inline, images
+# and fonts from our origin, `data:` images; still no connection of any kind. Every other page keeps `CSP`.
+CSP_ADMITTED = ("default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; "
+                "img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'")
+ADMITTED_PREFIX = "/h/"
+
+# The two lines that record a policy violation of the page (`window.__csp`): the part of the freeze that the admitted contract keeps.
+_CSP_WATCH_BODY = r"""  window.__csp = [];
+  window.addEventListener('securitypolicyviolation', (e) => { window.__csp.push(e.blockedURI + ' ' + e.violatedDirective); }, true);
+"""
+CSP_WATCH_JS = "\n(() => {\n" + _CSP_WATCH_BODY + "})();\n"
+
+# Freezes the clocks and the random source and makes timers throw (determinism contract). Byte-identical to what it always was
+# (test_cdp_admitted.py holds its sha256); it is built from the watch body so that the admitted contract shares the same two lines.
 FREEZE_JS = r"""
 (() => {
   const boom = (n) => () => { throw new Error(n + ' is forbidden in a template'); };
@@ -44,10 +57,7 @@ FREEZE_JS = r"""
   window.XMLHttpRequest = function () { throw new Error('XMLHttpRequest is forbidden'); };
   window.WebSocket = function () { throw new Error('WebSocket is forbidden'); };
   window.Worker = function () { throw new Error('Worker is forbidden'); };
-  window.__csp = [];
-  window.addEventListener('securitypolicyviolation', (e) => { window.__csp.push(e.blockedURI + ' ' + e.violatedDirective); }, true);
-})();
-"""
+""" + _CSP_WATCH_BODY + "})();\n"
 
 # Sets the colour tokens (CSSOM setProperty, values validated in Python), registers the fonts,
 # awaits document.fonts.ready, checks every declared family and decodes every image before frame 0.
@@ -117,6 +127,10 @@ class RenderBlocked(RuntimeError):
     """A page asked for something that is not served from memory."""
 
 
+class BlockFailed(RuntimeError):
+    """An admitted page threw, never became ready, or did not answer a seek (`block_failed`)."""
+
+
 def browser_version(path):
     try:
         out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=20).stdout.strip()
@@ -150,6 +164,7 @@ class Chrome:
         self.serve = serve          # url path -> (bytes, mime)
         self.workdir = workdir
         self.blocked = []
+        self.exceptions = {}      # session id -> the descriptions of the uncaught exceptions its page threw (Runtime.exceptionThrown)
         self.page_errors = []     # what the browser itself refused (a file: URL, a blocked local resource) and logged as an error
         self.proc = None
         self._next_id = 0
@@ -298,6 +313,10 @@ class Chrome:
                     self._on_request(msg["params"], msg.get("sessionId"))
                 except CDPError:
                     pass
+            elif msg.get("method") == "Runtime.exceptionThrown":
+                d = msg.get("params", {}).get("exceptionDetails", {})
+                text = (d.get("exception") or {}).get("description") or d.get("text", "exception")
+                self.exceptions.setdefault(msg.get("sessionId"), []).append(str(text).splitlines()[0][:200])
             elif msg.get("method") == "Log.entryAdded":
                 entry = msg.get("params", {}).get("entry", {})
                 if entry.get("level") == "error":
@@ -314,7 +333,7 @@ class Chrome:
         body, mime = hit
         headers = [{"name": "Content-Type", "value": mime}, {"name": "Cache-Control", "value": "no-store"}]
         if mime.startswith("text/html"):
-            headers.append({"name": "Content-Security-Policy", "value": CSP})
+            headers.append({"name": "Content-Security-Policy", "value": CSP_ADMITTED if path.startswith(ADMITTED_PREFIX) else CSP})
         self.send("Fetch.fulfillRequest", {"requestId": p["requestId"], "responseCode": 200,
                   "responseHeaders": headers, "body": base64.b64encode(body).decode("ascii")}, sid)
 
@@ -351,15 +370,19 @@ class Chrome:
         return reply.get("result", {})
 
     # ---- pages
-    def new_page(self, width, height):
+    def new_page(self, width, height, contract="renderat"):
+        """A page of the first contract (`renderat`: the freeze, `__setup`, `__frame`) or of the second (`admitted`: only the policy watch)."""
+        if contract not in ("renderat", "admitted"):
+            raise ValueError("unknown page contract")
         tid = self.send("Target.createTarget", {"url": "about:blank"})["targetId"]
         sid = self.send("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
-        return Page(self, tid, sid, width, height)
+        return Page(self, tid, sid, width, height, contract)
 
 
 class Page:
-    def __init__(self, chrome, target_id, session, width, height):
+    def __init__(self, chrome, target_id, session, width, height, contract="renderat"):
         self.c = chrome
+        self.contract = contract
         self.target_id = target_id
         self.sid = session
         s = self.sid
@@ -371,7 +394,7 @@ class Page:
         send("Emulation.setDeviceMetricsOverride",
              {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False}, s)
         send("Emulation.setDefaultBackgroundColorOverride", {"color": {"r": 0, "g": 0, "b": 0, "a": 0}}, s)
-        send("Page.addScriptToEvaluateOnNewDocument", {"source": FREEZE_JS}, s)
+        send("Page.addScriptToEvaluateOnNewDocument", {"source": FREEZE_JS if contract == "renderat" else CSP_WATCH_JS}, s)
 
     def set_backdrop(self, color):
         """Draw the page over an opaque colour ("#RRGGBB") instead of a transparent one (the storyboard's stills)."""
@@ -421,3 +444,104 @@ class Page:
             params["optimizeForSpeed"] = True
         r = self.c.send("Page.captureScreenshot", params, self.sid)
         return base64.b64decode(r["data"])
+
+
+    # ---- the second contract (admitted pages)
+    def _admitted_state(self, before_blocked):
+        """Raise on anything the page did that the contract forbids: a policy violation, a request that was not served, an uncaught
+        exception. The browser's own refusals (`page_errors`) are the backstop for a kind the page cannot see."""
+        csp = self.evaluate("window.__csp")
+        if csp:
+            raise RenderBlocked("blocked by the page policy: %s" % csp[:3])
+        if self.c.page_errors:
+            raise RenderBlocked("the browser refused a request: %s" % self.c.page_errors[:2])
+        if len(self.c.blocked) > before_blocked:
+            raise RenderBlocked("blocked requests: %s" % self.c.blocked[before_blocked:before_blocked + 3])
+        if self.c.exceptions.get(self.sid):
+            time.sleep(0.1)                         # a refused request is reported as a policy violation a moment before the rejection it causes: look again
+            csp = self.evaluate("window.__csp")
+            if csp:
+                raise RenderBlocked("blocked by the page policy: %s" % csp[:3])
+            raise BlockFailed("the page threw: %s" % self.c.exceptions[self.sid][0])
+
+    def open_admitted(self, path, ready_js, fonts, timeout_s=30):
+        """Navigate to a served `/h/` path, wait until the runtime says it is ready (`ready_js`), force-load the declared faces, run the
+        font check (`fonts`: {"faces": [[family, weight, style]...], "system": [first families of the theme's system fallback]}), and cut the 1-pixel corner
+        (R3-10: a frame with no transparent pixel is written as RGB by the browser and the sequence's format would change in the middle)."""
+        self.before = len(self.c.blocked)
+        self.c.send("Page.navigate", {"url": ORIGIN + path}, self.sid)
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self.evaluate("document.readyState") == "complete":
+                break
+            time.sleep(0.02)
+        else:
+            raise BlockFailed("page did not load")
+        while time.time() < deadline:
+            self._admitted_state(self.before)
+            if self.evaluate(ready_js):
+                break
+            time.sleep(0.05)
+        else:
+            raise BlockFailed("the runtime was not ready in %d s" % timeout_s)
+        self.evaluate(FONT_CHECK_JS)
+        self.evaluate("window.__ohFonts(%s, true)" % json.dumps(fonts), await_promise=True)
+        self.fonts = fonts
+        self.evaluate("document.documentElement.style.clipPath = %s" % json.dumps(CLIP_PATH))
+        time.sleep(0.15)   # let late subresource requests reach the Fetch handler
+        self._admitted_state(self.before)
+
+    def seek_admitted(self, t):
+        """Seek the runtime to `t` seconds, wait for two painted frames, check the faces and the page's state, and return the PNG."""
+        self.evaluate(SEEK_JS % float(t), await_promise=True, timeout=60)
+        self._admitted_state(self.before)
+        self.evaluate("window.__ohFonts(%s, false)" % json.dumps(self.fonts), await_promise=True)
+        return self.screenshot()
+
+
+CLIP_PATH = "polygon(1px 0, 100% 0, 100% 100%, 0 100%, 0 1px, 1px 1px)"
+
+# The seek of an admitted page: the runtime's own seek, then two real animation frames (the virtual-time shim replaces the page's clocks,
+# so the browser's own are used), so that what is drawn is what the seek left.
+SEEK_JS = r"""
+(async () => {
+  window.__hf.seek(%r);
+  const raf = (window.__HF_VIRTUAL_TIME__ && window.__HF_VIRTUAL_TIME__.originalRequestAnimationFrame) || window.requestAnimationFrame.bind(window);
+  await new Promise((r) => raf(() => raf(r)));
+  return true;
+})()
+"""
+
+# The font check of an admitted page (R3-7). `spec.faces` are the faces the host declared as [family, weight, style]; the loaded faces of
+# `document.fonts` must be exactly those. With `walk` set (once, at open) the first family of every element that holds text must be one of the
+# declared families or a generic name, so that a family the browser would resolve to a system font is found too. A glyph that falls back to the
+# system's DejaVu inside a declared family is not refused: that fallback is accepted and is not a declared face.
+FONT_CHECK_JS = r"""
+window.__ohFonts = async (spec, walk) => {
+  const norm = (s) => String(s).replace(/^["']|["']$/g, '');
+  const want = spec.faces.map((f) => f[0] + ' ' + f[1] + ' ' + f[2]).sort();
+  if (walk) {
+    await Promise.all(spec.faces.map((f) => document.fonts.load(f[2] + ' ' + f[1] + ' 16px ' + f[0], 'a')));
+  }
+  await document.fonts.ready;
+  const got = [];
+  for (const f of document.fonts) {
+    if (f.status !== 'loaded') throw new Error('font_not_allowed: a face that is not loaded: ' + norm(f.family));
+    got.push(norm(f.family) + ' ' + f.weight + ' ' + f.style);
+  }
+  got.sort();
+  if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error('font_not_allowed: faces ' + got.join(',') + ' differ from ' + want.join(','));
+  if (walk) {
+    const ok = new Set(spec.faces.map((f) => f[0]).concat(spec.system || []));
+    const generic = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-monospace', 'ui-sans-serif', 'ui-serif', 'ui-rounded']);
+    const host = document.getElementById('oh-host');
+    for (const el of host.querySelectorAll('*')) {
+      const own = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim() !== '');
+      if (!own) continue;
+      const first = norm(getComputedStyle(el).fontFamily.split(',')[0].trim());
+      if (!ok.has(first) && !generic.has(first)) throw new Error('font_not_allowed: family ' + first);
+    }
+  }
+  return true;
+};
+"""

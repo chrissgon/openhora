@@ -23,10 +23,13 @@ import tempfile
 import time
 import zlib
 
+import _alpha_gate
 import _assets
 import _blocks
+import _cdp
 import _edl
 import _frames
+import _hf_host
 import _layout
 import _media
 from _output import (check_documents, check_recording, make_cover, make_still, png_size, read_platform, time_limit_for,  # noqa: F401  (moved: the render and its callers still find them here)
@@ -104,6 +107,47 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
     return plan
 
 
+def admit_blocks(catalogue, timeline, data, edl, font_serve, vendor, hf_registry, browser_path) -> dict:
+    """`_hf_host.prepare` with the image's folders (or the test folders `_inner.py` was given): what the second contract needs from this render's beats,
+    refused before any frame is drawn. `browser_path` None (a dry run) leaves the browser's version, and so the runtime's hash, out."""
+    version = _cdp.browser_version(browser_path) if browser_path else None
+    return _hf_host.prepare(catalogue=catalogue, engine=ENGINE, timeline=timeline, data=data, edl=edl, font_serve=font_serve,
+                            vendor=vendor or os.path.join(_here(), "vendor"), registry=hf_registry or os.path.join(_here(), "hf-registry"),
+                            shims=os.path.join(_hf_host.runtime_dir(_here()), "shims"), browser_version=version)
+
+
+def _here() -> str:
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def admitted_ranges(data, timeline, admitted, out_frames) -> list:
+    """The runs of output frames each admitted beat owns, each with the face box and the line of its own entry: [{start, end, face, line_y}].
+    The line is the top of the caption band, so a card that reaches the captions is refused (`caption_below_line`)."""
+    _, jobs = _frames.frame_jobs(timeline, out_frames)
+    wanted = {k for pages in admitted["pages"].values() for k in pages}
+    owned = {}
+    for f, track, k in jobs:
+        if track == "beat" and k in wanted:
+            owned.setdefault(k, []).append(f)
+    rows = []
+    for k in sorted(owned):
+        entry = timeline["beats"][k]
+        line_y = _layout.entry_zones(data, entry)["caption"][0]
+        run = owned[k]
+        start = prev = run[0]
+        for f in run[1:] + [None]:
+            if f is None or f != prev + 1:
+                rows.append({"start": start, "end": prev + 1, "face": entry["face"], "line_y": line_y})
+                start = f
+            prev = f
+    return rows
+
+
+def check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg) -> None:
+    w, h = edl["size"]
+    _alpha_gate.check_layer(frames_dir, admitted_ranges(data, timeline, admitted, edl["out_frames"]), edl["face_box"], None, w, h, ffmpeg)
+
+
 def load_clips(files: dict, sha256s: dict, limits: dict, ffmpeg: str, ffprobe: str) -> dict:
     """{slot: {kind: "clip", data, sha256, container, width, height, seconds, fps, tint}} of the clips of a render (`files` is `_assets.split_clips`'s). Each is
     read as the form `asset-sheet` writes (`_assets.read_clip`: an MP4, its sha256 matched when one is given) and probed against the same checks as that
@@ -163,7 +207,7 @@ def clip_rows(data: dict, timeline: dict, assets: dict, colors=None) -> list:
 
 def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, asset_files, asset_sha256s, ffmpeg, ffprobe, browser,
            jobs=3, dry_run=False, time_limit=None, cover_out=None, cover_offset_ms=None, blocks_dir=None, blocks_sha256=None, fonts_directory=None,
-           scratch=None, log=lambda m: None) -> dict:
+           scratch=None, vendor=None, hf_registry=None, log=lambda m: None) -> dict:
     started = time.time()
     data, edl, beats, platform, vocab, allow = load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_directory)
     docs = check_documents(data, edl, beats, platform, vocab, allow)
@@ -191,11 +235,14 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
+    # the beats whose block runs on the second contract: their files read, edited, linted and proven before any frame is drawn
+    admitted = admit_blocks(catalogue, timeline, data, edl, font_serve, vendor, hf_registry, None if dry_run else browser["path"])
     asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items() if a["kind"] != "clip"}
     serve = {}
     serve.update(tpl_serve)
     serve.update(font_serve)
     serve.update(asset_serve)
+    serve.update(admitted["serve"])
 
     out_seconds = edl["out_frames"] / edl["fps"]
     limit = time_limit_for(data, out_seconds, time_limit)
@@ -208,7 +255,8 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
                "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
-               "fonts": fonts_used, "blocks": tpl_hashes, "blocks_sha256": catalogue["sha256"], "ffmpeg_argv": argv, "estimated_bytes": estimate}
+               "fonts": fonts_used, "blocks": {**tpl_hashes, **{n: p["served_sha256"] for n, p in admitted["proofs"].items()}}, "blocks_sha256": catalogue["sha256"],
+               "ffmpeg_argv": argv, "estimated_bytes": estimate, **({"hf_proofs": admitted["proofs"]} if admitted["proofs"] else {})}
     if dry_run:
         return summary
     os.makedirs(outdir, mode=0o700, exist_ok=True)
@@ -231,8 +279,12 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
         layers, ffacts = _frames.draw_frames(
             data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=font_urls, assets=assets, browser=browser["path"],
             jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=max(5, int(deadline - time.time())),
-            templates=templates, png_blank=blank_png)
+            templates=templates, png_blank=blank_png, admitted=admitted if admitted["pages"] else None)
         timings["frames"] = round(time.time() - t0, 2)
+        if admitted["pages"]:                      # the exact gates on every frame an admitted page drew, before anything is composed
+            t0 = time.time()
+            check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg)
+            timings["gates"] = round(time.time() - t0, 2)
         t0 = time.time()
         _media.run(argv, deadline - time.time(), cwd=work)
         timings["compose"] = round(time.time() - t0, 2)

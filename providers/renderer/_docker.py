@@ -539,7 +539,8 @@ RESULT_SCHEMAS = {
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
     "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, frames_checked=I, jobs=I,
                       sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), blocks=mp(S), blocks_sha256=S,
-                      font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
+                      font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S),
+                      advisory=opt(lst(S, 50))),
     "proxy": dct(ok=B, sha256=S, bytes=I, seconds=N, width=I, height=I, fps=I, has_audio=B),
     "preview": dct(ok=B, sha256=S, from_sha256=S, bytes=I, width=I, height=I, duration=N, has_audio=B, video_kbps=I, audio_kbps=I, seconds=N),
     "encode": dct(ok=B, sha256=S, out_seconds=N, out_frames=I, intermediate_sha256=S, gate_frames=opt(I), gate_boxes=opt(I), lowest_caption_bottom=opt(N),
@@ -550,5 +551,6 @@ RESULT_SCHEMAS = {
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 111)), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
-                  browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S))),
+                  browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S)),
+                  hf_proofs=opt(mp(dct(served_sha256=S, runtime_sha256=S)))),
 }

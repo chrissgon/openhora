@@ -12,3 +12,5 @@ path, a `..` or a member over 8 MiB, and leaves no output folder when it refuses
 
 To raise a version: edit `npm-pins.json` (url, integrity, sha256 of each member) and the lockfile of `hyperframes-image/` together, rebuild the common image
 (`ffmpeg.py build --confirmed`). The runtime's hash changes, so every admitted block's determinism record expires and the render refuses it until it is tested again.
+
+Who reads them: `_hf_host.py` (the second page contract, PF-a2) loads the three vendor files and the five shims at render, each against its pin, serves the runtime, GSAP and the shims inline or from `/h/vendor/`, and takes the runtime's hash from them. `registry.sha256` rows are what an admitted entry's files come from (PF-a3 adds them).

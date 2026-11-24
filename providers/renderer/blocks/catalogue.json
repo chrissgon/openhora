@@ -789,7 +789,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "b0a1a3244e048218aee2570151f5f8e97f8177ea87d4e45f0bd35aaf6b8ad975",
+ "blocks_sha256": "e31ab998ba6a5476f6132d31d0d82c92cf24cbd60a50ff294feddbe026439d3e",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -807,7 +807,8 @@
     "sticker": "oh:sticker"
    },
    "runtimes": [
-    "renderat"
+    "renderat",
+    "hf"
    ]
   },
   "hyperframes": {
