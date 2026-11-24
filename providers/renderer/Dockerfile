@@ -13,7 +13,8 @@
 # The image records its versions in labels (the definition's hash, the base digest, the snapshot, Chrome's version) and in
 # /opt/renderer/versions.json (what `_inner.py selfcheck` printed at build time: ffmpeg, python, the browser); the host's `--check` runs `_inner.py selfcheck` and prints them.
 #
-# What the image holds: ffmpeg (with ffprobe), python3, a minimal free font (DejaVu), the pinned headless shell, and the renderer's
+# What the image holds: ffmpeg (with ffprobe), python3, a minimal free font (DejaVu), the pinned headless shell, the HyperFrames runtime and GSAP
+# (/opt/renderer/vendor, read-only, checked by `selfcheck`), and the renderer's
 # own modules and data (the blocks a render draws are not
 # in the image: each job stages them read-only). No compiler, no shell history, a non-root user. At run time the host starts it with no network, a
 # read-only root file system, every capability dropped and no environment (see _docker.py, "The container").
@@ -69,6 +70,12 @@ ENV RENDERER_IN_CONTAINER=1 \
     LANG=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONHASHSEED=0
+
+# The HyperFrames runtime and GSAP (D19), fetched from the npm registry, pinned by the lockfile's sha512 and a sha256 of each member
+# (hf-runtime/npm-pins.json), and the registry's LICENSE (hf-runtime/registry.sha256). Never committed. This step is the one network use besides
+# the browser's, and it comes before `COPY .` so that a change to the renderer's code does not fetch again.
+COPY hf-runtime/npm-pins.json hf-runtime/registry.sha256 hf-runtime/fetch_hf.py /opt/renderer/hf-runtime/
+RUN python3 -I /opt/renderer/hf-runtime/fetch_hf.py --out /opt/renderer/vendor --registry-out /opt/renderer/hf-registry
 
 COPY . /opt/renderer/
 RUN chmod -R go-w /opt/renderer \

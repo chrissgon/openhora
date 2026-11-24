@@ -3,7 +3,9 @@
   "files": [
     "Dockerfile", ".dockerignore", "image-manifest.json", "renderer-presets.json", "browser-pin.json", "edl.schema.json", "_fetch_browser.py",
     "_inner.py", "_align.py", "_asset_sheet.py", "_assets.py", "_blocks.py", "_cdp.py", "_edl.py", "_frames.py", "_gsap_lint.py", "_hf_compose.py", "_hf_gate.py", "_hf_page.py", "_layout.py", "_lint.py", "_media.py", "_output.py", "_payload.py", "_preview.py", "_redact.py",
-    "_render.py", "_retakes.py", "_text.py", "_timeline.py", "_vocab.py"
+    "_render.py", "_retakes.py", "_text.py", "_timeline.py", "_vocab.py",
+    "hf-runtime/npm-pins.json", "hf-runtime/registry.sha256", "hf-runtime/fetch_hf.py", "hf-runtime/shims/SHA256SUMS",
+    "hf-runtime/shims/early_stub.js", "hf-runtime/shims/capture_mode_shim.js", "hf-runtime/shims/virtual_time_shim.js", "hf-runtime/shims/render_mode.js", "hf-runtime/shims/bridge.js"
   ],
   "folders": ["assets/fonts"]
 }

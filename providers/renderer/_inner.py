@@ -32,6 +32,7 @@ boundary (_cdp.container_mode): the result says which (`browser_sandbox`).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -534,7 +535,54 @@ def verb_selfcheck(args) -> dict:
            "container": _cdp.container_mode()}
     if missing:
         raise NotConfigured("not_ready", ",".join(missing))
+    explicit = getattr(args, "vendor", None) or getattr(args, "hf_registry", None)
+    if _cdp.container_mode() or explicit:      # the image holds the runtime; a host that was not asked to look does not have it
+        out["hf_runtime"] = check_hf_runtime(HERE, getattr(args, "vendor", None) or os.path.join(HERE, "vendor"),
+                                             getattr(args, "hf_registry", None) or os.path.join(HERE, "hf-registry"))
     return out
+
+
+def _sha256_file(path: str) -> str:
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def check_hf_runtime(here: str, vendor: str, registry: str) -> dict:
+    """The HyperFrames runtime and GSAP the image fetched at build (`hf-runtime/fetch_hf.py`), read again and compared with the pins: the three
+    vendor files against `hf-runtime/npm-pins.json`, every file of the registry folder against `hf-runtime/registry.sha256`, and the five shims
+    against `hf-runtime/shims/SHA256SUMS`. A missing, extra or different file is `vendor_hash`; nothing is repaired. Returns the counts."""
+    base = os.path.join(here, "hf-runtime")
+    pins = read_json(os.path.join(base, "npm-pins.json"))
+    wanted = {}      # {base name: sha256} of the vendor folder
+    for pkg in pins["packages"]:
+        for member, digest in pkg["files"].items():
+            wanted[os.path.basename(member)] = digest
+    rows = {}
+    with open(os.path.join(base, "registry.sha256"), encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                digest, name = line.split(None, 1)
+                rows[name.strip()] = digest
+    shims = {}
+    with open(os.path.join(base, "shims", "SHA256SUMS"), encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                digest, name = line.split(None, 1)
+                shims[name.strip()] = digest
+
+    def compare(folder: str, expected: dict, label: str) -> None:
+        found = {}
+        for root, _, names in os.walk(folder):
+            for name in names:
+                found[os.path.relpath(os.path.join(root, name), folder)] = os.path.join(root, name)
+        for name in sorted(set(found) | set(expected)):
+            if name not in found or name not in expected or _sha256_file(found[name]) != expected[name]:
+                raise Refusal("vendor_hash", "%s/%s" % (label, name)[:80])
+    compare(vendor, wanted, "vendor")
+    compare(registry, rows, "hf-registry")
+    compare(os.path.join(base, "shims"), dict(shims, **{"SHA256SUMS": _sha256_file(os.path.join(base, "shims", "SHA256SUMS"))}), "shims")
+    return {"vendor": len(wanted), "registry": len(rows), "shims": len(shims)}
 
 
 def _browser_version(path: str) -> str:
@@ -561,6 +609,8 @@ def parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("selfcheck")
     common(sp, browser=True)
+    sp.add_argument("--vendor", help="the folder of the HyperFrames runtime and GSAP to check (default: /opt/renderer/vendor in the image; the tests)")
+    sp.add_argument("--hf-registry", help="the folder of the registry files to check (default: /opt/renderer/hf-registry in the image; the tests)")
     sp = sub.add_parser("analyse")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
