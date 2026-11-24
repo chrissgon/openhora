@@ -1,0 +1,4 @@
+{
+ "platform": "plainnet",
+ "post": {"max_characters": 3000}
+}

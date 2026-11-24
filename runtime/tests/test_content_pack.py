@@ -20,7 +20,8 @@ plan = st.load("plan")
 manifest = st.load("manifest")
 roles = st.load("roles")
 ROOT = str(st.REPO)
-CONTENT = ["mkt-content-plan", "mkt-messaging", "mkt-social-copy", "mkt-video-media-explain", "mkt-video-media-search"]
+CONTENT = ["mkt-content-plan", "mkt-messaging", "mkt-social-copy", "mkt-social-profile", "mkt-video-media-explain",
+           "mkt-video-media-search"]
 MARKETING = ["mkt-engage", "mkt-vote-round"]
 # The area agents a project can enable together: one for each pack of the runtime's packs, the marketing and the
 # content agents among them.

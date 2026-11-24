@@ -1,0 +1,10 @@
+{
+  "skill": "mkt-social-profile",
+  "documents": [
+    {"path": "docs/marketing/social-profiles.md", "checks": [], "platform": "editable", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": ["Nothing was written"],
+  "gate": null
+}
