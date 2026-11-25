@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -664,7 +665,110 @@ def test_the_hyperframes_job_builds_both_images_checks_the_hf_one_and_never_runs
     assert "--arch" not in block and "test_hf_tier_a_live" not in block
     order = [block.index(x) for x in ("ffmpeg.py build --confirmed", "hyperframes.py build --confirmed", "hyperframes.py --check", "WB_HYPERFRAMES_DOCKER_TESTS=1")]
     assert order == sorted(order)
-    assert "test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py" in block
+    assert "test_hf_docker_live.py" in block  # which items each leg collects is proved by the coverage oracle below (CI-1b)
+
+
+# ---- the live legs: together they collect exactly what the one job collected (CI-1b; SPEC-ci-speedup 6.5) --------------------------------------------------------------
+
+RENDERER_TESTS = "providers/renderer/tests/"
+UNSPLIT = {  # written here, never read from the workflow: what each live job ran before it was split into legs (the files, in the order of the old step)
+    "renderer": [RENDERER_TESTS + "test_renderer_docker_live.py", RENDERER_TESTS + "test_engine_contract_live.py", "providers/transcriber/tests/test_transcriber_docker_live.py"],
+    "hyperframes": [RENDERER_TESTS + "test_engine_contract_live.py", RENDERER_TESTS + "test_hf_docker_live.py"],
+}
+ENGINE_OF = {"renderer": "ffmpeg", "hyperframes": "hyperframes"}  # the parameter each job runs (its WB_*_DOCKER_TESTS variable selects it)
+_COLLECTED = {}
+
+
+def collect(targets, expression=""):
+    """The node ids pytest collects for these test files and this -k expression, offline (the live modules import without docker; their tests skip at run time)."""
+    key = (tuple(targets), expression)
+    if key not in _COLLECTED:
+        command = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *targets] + (["-k", expression] if expression else [])
+        done = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=600)
+        ids = [line.strip() for line in done.stdout.splitlines() if "::" in line]
+        assert done.returncode in (0, 5) and ids or expression, (command, done.stdout[-500:], done.stderr[-500:])
+        _COLLECTED[key] = ids
+    return _COLLECTED[key]
+
+
+def matrix_entries(text, name):
+    """The entries of a job's matrix as dicts of strings, read with regular expressions (the tests use no YAML library), and the N of its `of N` name."""
+    block = job_block(text, name)
+    title = re.search(r"^    name: %s \$\{\{ matrix\.group \}\} of (\d+)\s*$" % name, block, re.M)
+    entries = []
+    for chunk in re.split(r"^          - group:", block, flags=re.M)[1:]:
+        entry = {"group": chunk.splitlines()[0].strip()}
+        for key in ("transcriber", "targets", "legs"):
+            found = re.search(r"^            %s: (.*)$" % key, chunk, re.M)
+            if found:
+                entry[key] = found.group(1).strip().strip('"')
+        entries.append(entry)
+    return entries, (int(title.group(1)) if title else None)
+
+
+def legs_problems(text):
+    """What is wrong with the legs of the renderer and hyperframes jobs, as a list: a group count that disagrees with the name, an image built by the wrong leg, an
+    item collected by no leg or by two, a leg that runs nothing. The collections run at the same time (principle 7)."""
+    from concurrent.futures import ThreadPoolExecutor
+    found, plans = [], {}
+    for name in ("renderer", "hyperframes"):
+        entries, count = matrix_entries(text, name)
+        if not entries or count != len(entries) or [e["group"] for e in entries] != [str(i) for i in range(1, len(entries) + 1)]:
+            found.append("%s: the name says %s legs, the matrix holds %d" % (name, count, len(entries)))
+        for entry in entries:
+            has_transcriber = "test_transcriber_docker_live.py" in entry.get("targets", "")
+            if name == "renderer" and entry.get("transcriber") != ("true" if has_transcriber else "false"):
+                found.append("renderer group %s: transcriber is %s but its targets %s the transcriber's file" % (entry["group"], entry.get("transcriber"), "hold" if has_transcriber else "lack"))
+        plans[name] = entries
+    wanted = {(tuple(UNSPLIT[name]), "") for name in UNSPLIT}
+    for name, entries in plans.items():
+        wanted |= {(tuple(e.get("targets", "").split()), e.get("legs", "")) for e in entries}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda key: collect(*key), sorted(wanted)))
+    for name, entries in plans.items():
+        whole = collect(UNSPLIT[name])
+        seen = {}
+        for entry in entries:
+            items = collect(entry.get("targets", "").split(), entry.get("legs", ""))
+            engine_items = [i for i in items if "[%s]" % ENGINE_OF[name] in i or "test_engine_contract_live.py" not in i]
+            if not engine_items:
+                found.append("%s group %s runs nothing" % (name, entry["group"]))
+            for item in items:
+                seen.setdefault(item, []).append(entry["group"])
+        found += ["%s: %s is in groups %s" % (name, item, ", ".join(groups)) for item, groups in seen.items() if len(groups) > 1]
+        found += ["%s: no leg collects %s" % (name, item) for item in whole if item not in seen]
+        found += ["%s: a leg collects %s, which the unsplit job did not" % (name, item) for item in seen if item not in whole]
+    return found
+
+
+def test_the_live_legs_together_collect_exactly_what_one_job_collected():
+    """E4 of the CI speed-up: a split changes which tests run in no way. The union of the legs equals the collection of the unsplit job, no item is in two legs, every
+    leg runs something, and the transcriber image is built exactly by the leg that holds its file. A change to the live module selects this test, so a new test or a new leg
+    is checked on the pull request that adds it."""
+    text = LIVE.read_text(encoding="utf-8")
+    assert legs_problems(text) == []
+    for name in UNSPLIT:
+        assert len(collect(UNSPLIT[name])) >= 10, name  # the collection found the contract's items; an empty one would pass for the wrong reason
+    entries, _ = matrix_entries(text, "renderer")
+    assert len(entries) + len(matrix_entries(text, "hyperframes")[0]) <= 8  # the concurrency budget of the CI speed-up (k_r + k_h)
+
+
+def test_vacuity_a_leg_that_drops_a_test_runs_one_twice_or_builds_the_wrong_image_is_caught():
+    text = LIVE.read_text(encoding="utf-8")
+    assert legs_problems(text) == []
+    plants = (
+        ('legs: "test_f1_ or test_f3_"', 'legs: "test_f1_"'),                      # a -k word dropped: the complement excludes F3, so no leg collects it
+        ('legs: "test_f9_"', 'legs: "test_f9_ or test_f8_"'),                      # F8 in two groups
+        ('legs: "test_f8_"', 'legs: "test_f8_ or test_f9_"'),                      # F9 in two groups
+        ("providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py", "providers/renderer/tests/test_engine_contract_live.py"),  # a file dropped
+        ("            transcriber: true\n", "            transcriber: false\n"),   # the transcriber's leg does not build its image
+        ("hyperframes ${{ matrix.group }} of 5", "hyperframes ${{ matrix.group }} of 4"),  # the name disagrees with the matrix
+        ('legs: "not (test_f4_ or test_f11_ or test_f9_ or test_f5_ or test_f7_)"', 'legs: "not (test_f4_ or test_f11_ or test_f9_ or test_f5_)"'),  # the complement no longer complements: F7 is in two groups
+    )
+    for old, new in plants:
+        planted = text.replace(old, new, 1)
+        assert planted != text, old
+        assert legs_problems(planted), old
 
 
 def job_block(text, name):
@@ -1185,7 +1289,7 @@ def live_problems(text):
             found.append("job %s has no timeout" % name)
         if name in REQUIRED_CHECKS or re.search(r"^    name:\s*(%s)\s*$" % "|".join(REQUIRED_CHECKS), block, re.M):
             found.append("a job named like a required check: " + name)
-    for chunk in re.split(r"^\s*- (?:name|uses):", text, flags=re.M):
+    for chunk in re.split(r"^\s*- (?:name|uses):|^  [\w-]+:\s*$", text, flags=re.M):  # a step, or a job header (a job's own `name:` may hold ${{ matrix.group }})
         run = re.search(r"^\s*run:", chunk, re.M)
         if run and "${{" in chunk[run.end():]:
             found.append("an expression in a run line: " + chunk[run.end():].strip().splitlines()[0])
