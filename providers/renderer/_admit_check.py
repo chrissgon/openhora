@@ -76,9 +76,9 @@ def compare_runs(forward, reverse, blocked: int = 0, exceptions: int = 0, csp: i
         raise Refusal("determinism_failed", "frames")
     for k in range(count):
         if any(r[k] != runs[0][k] for r in runs[1:]):
-            import sys
-            sys.stderr.write("DBG frame %d diff %s\n" % (k, [[j for j in range(len(runs)) if runs[j][q] != runs[0][q]] for q in range(count)]))
-            raise Refusal("determinism_failed", "frame %d" % k)
+            bad = [q for q in range(count) if any(r[q] != runs[0][q] for r in runs[1:])]
+            tag = "".join(str(j) for j in range(1, len(runs)) if runs[j][k] != runs[0][k])
+            raise Refusal("determinism_failed", "frame %d r%s n%d f%d" % (k, tag, len(bad), bad[0] if bad else 0) + "," + ",".join(map(str, bad[:12])))
     return count
 
 
